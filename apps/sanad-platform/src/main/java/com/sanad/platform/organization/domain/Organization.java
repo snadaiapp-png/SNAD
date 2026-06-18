@@ -7,6 +7,7 @@ import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
+import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -26,12 +27,35 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * JPA entity representing an Organization within a {@link Tenant}.
+ * JPA entity representing an Organization aggregate within the SANAD platform.
  *
- * <p>An Organization is the first operational aggregate built on top of
- * the Tenant aggregate. It is the container for future ERP, CRM, HRM,
- * Accounting, and Commerce modules. Each Organization belongs to
- * exactly one Tenant and has a unique name within that Tenant.</p>
+ * <p>An Organization is the first operational aggregate built on top of the
+ * Tenant aggregate. It is the container for future ERP, CRM, HRM, Accounting,
+ * and Commerce modules. Each Organization belongs to exactly one Tenant and
+ * has a unique name within that Tenant.</p>
+ *
+ * <h2>Aggregate Consistency (DDD)</h2>
+ *
+ * <p>Per DDD rules, an Organization aggregate MUST reference its parent
+ * Tenant through a direct entity relationship ({@code @ManyToOne Tenant}),
+ * never through a bare {@code UUID tenantId} field. This enforces the
+ * invariant that an Organization cannot exist without a Tenant entity,
+ * and prevents application code from bypassing the Tenant aggregate.</p>
+ *
+ * <p>Concretely:</p>
+ * <ul>
+ *   <li>There is NO {@code private UUID tenantId} field on this entity.</li>
+ *   <li>There is NO {@code setTenantId(UUID)} method.</li>
+ *   <li>The only way to construct an Organization in application code is via
+ *       {@link #Organization(Tenant, String, String, OrganizationStatus)},
+ *       which requires a {@link Tenant} entity reference.</li>
+ *   <li>The {@code tenant_id} database column is mapped exclusively through
+ *       the {@link #tenant} {@code @ManyToOne} relationship.</li>
+ *   <li>Repository query methods that accept a {@code UUID tenantId}
+ *       parameter use explicit JPQL ({@code o.tenant.id = :tenantId}) to
+ *       traverse the relationship rather than relying on a denormalized
+ *       field on this entity.</li>
+ * </ul>
  *
  * <p>Stage 0 implementation: no business methods beyond equals/hashCode/
  * toString. Behavior (activate, archive, transfer) will be added in later
@@ -55,30 +79,23 @@ public class Organization {
     private UUID id;
 
     /**
-     * The Tenant this Organization belongs to. Many-to-one relationship;
-     * lazy-loaded to avoid N+1 issues when only the tenant ID is needed.
-     * The FK column is {@code tenant_id}, NOT NULL.
+     * The Tenant this Organization belongs to. This is the CANONICAL
+     * reference to the parent aggregate; there is no separate
+     * {@code tenantId} field on this entity.
      *
-     * <p>Spring Data JPA query methods (e.g. {@code findByTenant(...)})
-     * traverse this relationship, so callers pass a Tenant reference.
-     * For ID-only lookups, see {@link #tenantId}.</p>
+     * <p>The {@code tenant_id} database column is mapped exclusively
+     * through this {@code @ManyToOne} relationship. All access to the
+     * tenant identity in application code must go through
+     * {@code organization.getTenant().getId()} (or equivalent) to
+     * preserve DDD aggregate consistency.</p>
      */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "tenant_id", nullable = false,
-            foreignKey = @jakarta.persistence.ForeignKey(name = "fk_organizations_tenant"))
+    @JoinColumn(
+            name = "tenant_id",
+            nullable = false,
+            foreignKey = @ForeignKey(name = "fk_organizations_tenant")
+    )
     private Tenant tenant;
-
-    /**
-     * Read-only mirror of {@link #tenant}'s ID, mapped to the same
-     * {@code tenant_id} column via {@code insertable=false, updatable=false}.
-     * This allows Spring Data JPA repository methods to use
-     * {@code findByTenantId(UUID)} directly without traversing the
-     * {@code tenant} proxy, which keeps repository queries simple and
-     * avoids lazy-loading side effects.
-     */
-    @Column(name = "tenant_id", nullable = false, insertable = false, updatable = false,
-            columnDefinition = "uuid")
-    private UUID tenantId;
 
     /** Human-readable organization name (e.g. "Acme Riyadh Branch"). Unique per tenant. */
     @NotBlank
@@ -111,10 +128,33 @@ public class Organization {
     // Constructors
     // ------------------------------------------------------------
 
-    /** No-arg constructor required by JPA. */
+    /**
+     * Protected no-arg constructor required by JPA.
+     *
+     * <p>Application code MUST NOT call this directly. Use
+     * {@link #Organization(Tenant, String, String, OrganizationStatus)}
+     * to construct a new Organization.</p>
+     */
     protected Organization() {
     }
 
+    /**
+     * Create a new Organization belonging to the given Tenant.
+     *
+     * <p>This is the ONLY way to construct an Organization in application
+     * code. A {@link Tenant} entity reference is required — the tenant
+     * identity cannot be supplied as a bare {@link UUID}, which enforces
+     * the DDD aggregate-consistency invariant.</p>
+     *
+     * <p>Callers are expected to first load the Tenant aggregate via
+     * {@code tenantRepository.findById(tenantId)} and then pass the
+     * resolved entity to this constructor.</p>
+     *
+     * @param tenant      the parent Tenant aggregate (must not be null)
+     * @param name        human-readable name (max 200 chars, must not be blank)
+     * @param description longer description (max 1000 chars, may be null)
+     * @param status      initial lifecycle status (must not be null)
+     */
     public Organization(Tenant tenant, String name, String description, OrganizationStatus status) {
         this.tenant = tenant;
         this.name = name;
@@ -124,32 +164,31 @@ public class Organization {
 
     // ------------------------------------------------------------
     // Getters / Setters
+    //
+    // NOTE: No getTenantId() / setTenantId() exists on this entity.
+    // All access to the tenant identity must go through the Tenant
+    // aggregate reference returned by getTenant().
     // ------------------------------------------------------------
 
     public UUID getId() {
         return id;
     }
 
-    public void setId(UUID id) {
-        this.id = id;
-    }
-
+    /**
+     * @return the parent Tenant aggregate (never null for a persisted entity)
+     */
     public Tenant getTenant() {
         return tenant;
     }
 
+    /**
+     * Replace the parent Tenant reference. Exposed for JPA entity-state
+     * transitions and rare administrative transfer use cases. Application
+     * code should normally not call this directly; tenant reassignment
+     * belongs in a dedicated domain service (added in a future stage).
+     */
     public void setTenant(Tenant tenant) {
         this.tenant = tenant;
-    }
-
-    /**
-     * Convenience accessor for the tenant ID. Returns the JPA-managed
-     * {@link #tenantId} mirror field which is populated on entity load
-     * via the {@code tenant_id} column mapping. Does NOT trigger lazy
-     * loading of the {@link #tenant} relationship.
-     */
-    public UUID getTenantId() {
-        return tenantId;
     }
 
     public String getName() {
@@ -180,16 +219,8 @@ public class Organization {
         return createdAt;
     }
 
-    public void setCreatedAt(Instant createdAt) {
-        this.createdAt = createdAt;
-    }
-
     public Instant getUpdatedAt() {
         return updatedAt;
-    }
-
-    public void setUpdatedAt(Instant updatedAt) {
-        this.updatedAt = updatedAt;
     }
 
     // ------------------------------------------------------------
@@ -204,25 +235,26 @@ public class Organization {
         if (!(o instanceof Organization that)) {
             return false;
         }
-        // Compare by ID if both persisted, otherwise by (tenantId, name)
+        // Compare by ID if both persisted, otherwise by (tenant.id, name)
         if (id != null && that.id != null) {
             return Objects.equals(id, that.id);
         }
-        return Objects.equals(getTenantId(), that.getTenantId())
+        return Objects.equals(this.tenantIdentity(), that.tenantIdentity())
                 && Objects.equals(name, that.name);
     }
 
     @Override
     public int hashCode() {
-        // Hash by tenant ID + name (stable pre- and post-persist)
-        return Objects.hash(getTenantId(), name);
+        // Hash by tenant.id + name (stable pre- and post-persist).
+        // Uses tenantIdentity() to keep the logic centralized.
+        return Objects.hash(this.tenantIdentity(), name);
     }
 
     @Override
     public String toString() {
         return "Organization{" +
                 "id=" + id +
-                ", tenantId=" + getTenantId() +
+                ", tenantId=" + tenantIdentity() +
                 ", name='" + name + '\'' +
                 ", description='" + (description != null && description.length() > 50
                         ? description.substring(0, 50) + "..." : description) + '\'' +
@@ -230,5 +262,16 @@ public class Organization {
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +
                 '}';
+    }
+
+    /**
+     * Internal helper that derives the tenant's UUID from the
+     * {@link #tenant} relationship. This is a private convenience for
+     * equals/hashCode/toString only; it is NOT exposed as a public
+     * getter to prevent application code from depending on a bare
+     * tenant identity outside the Tenant aggregate.
+     */
+    private UUID tenantIdentity() {
+        return tenant != null ? tenant.getId() : null;
     }
 }
