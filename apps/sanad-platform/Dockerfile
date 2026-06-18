@@ -1,13 +1,13 @@
 # ============================================================
-# SANAD Platform — Dockerfile
+# SANAD Platform - Dockerfile (Spring Boot layered jar)
 # ------------------------------------------------------------
 # Multi-stage build:
-#   Stage 1 (builder): Maven + JDK 17 to compile and package
-#   Stage 2 (runtime): JRE 17 on a slim base for minimal image size
+#   Stage 1 (builder): Maven + JDK 17 to compile and extract layers
+#   Stage 2 (runtime): Eclipse Temurin JRE 17 on Alpine
 #
-# Stage 0 repository skeleton: the build will succeed even with
-# no application entry point yet (produces an empty-ish JAR).
-# Future stages will set the entry point to the Spring Boot main class.
+# Uses Spring Boot's layered jar feature for optimal Docker layer
+# caching: dependencies layer changes rarely, application layer
+# changes on every build.
 # ============================================================
 
 # ---------- Stage 1: Build ----------
@@ -24,14 +24,17 @@ RUN mvn -B -q dependency:go-offline || true
 # Copy source tree
 COPY src ./src
 
-# Build the artifact (skip tests for skeleton stage)
+# Build the artifact (skip tests for image build; tests run in CI)
 RUN mvn -B -q clean package -DskipTests
+
+# Extract Spring Boot layers for layered Docker image
+RUN java -Djarmode=layertools -jar target/*.jar extract --destination target/extracted
 
 # ---------- Stage 2: Runtime ----------
 FROM eclipse-temurin:17-jre-alpine AS runtime
 
 LABEL org.opencontainers.image.title="SANAD Platform" \
-      org.opencontainers.image.description="SANAD Global AI ERP SaaS — Platform Service" \
+      org.opencontainers.image.description="SANAD Global AI ERP SaaS - Platform Service" \
       org.opencontainers.image.source="https://github.com/snadaiapp-png/SNAD"
 
 # Create a non-root user for runtime safety
@@ -39,16 +42,18 @@ RUN addgroup -S sanad && adduser -S sanad -G sanad
 
 WORKDIR /app
 
-# Copy the built JAR from the builder stage
-COPY --from=builder /workspace/target/*.jar /app/app.jar
+# Copy layered application (dependencies first, application last)
+COPY --from=builder /workspace/target/extracted/dependencies/ ./
+COPY --from=builder /workspace/target/extracted/spring-boot-loader/ ./
+COPY --from=builder /workspace/target/extracted/snapshot-dependencies/ ./
+COPY --from=builder /workspace/target/extracted/application/ ./
 
 # Default JVM flags (overridable at runtime via JAVA_OPTS)
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -Dfile.encoding=UTF-8"
+ENV SPRING_PROFILES_ACTIVE=dev
 
 USER sanad
 
-# Placeholder port — actual port will be defined when API layer is added
 EXPOSE 8080
 
-# Entry point will be updated once the Spring Boot main class exists
-ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS org.springframework.boot.loader.launch.JarLauncher"]

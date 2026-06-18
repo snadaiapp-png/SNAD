@@ -59,3 +59,20 @@ logs/
 
 # ---------- Docker ----------
 *.pid
+
+# ---------- Spring Boot specific ----------
+*.original
+HELP.md
+build/
+
+# ---------- H2 database files (local profile) ----------
+*.h2.db
+*.mv.db
+*.lock.db
+*.trace.db
+
+# ---------- Flyway local artifacts ----------
+*.flyway.properties
+
+# ---------- Maven Wrapper (if generated later) ----------
+.mvn/wrapper/maven-wrapper.jar

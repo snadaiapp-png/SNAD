@@ -1,0 +1,42 @@
+# ============================================================
+# SANAD Platform — `dev` profile
+# ------------------------------------------------------------
+# Activated with: --spring.profiles.active=dev
+#                or SPRING_PROFILES_ACTIVE=dev
+#
+# Targets the shared development PostgreSQL instance. Expects the
+# database to exist and be reachable. Verbose logging is enabled
+# to help diagnose issues during integration.
+# ============================================================
+
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://sanad-dev-db.internal:5432/sanad_dev}
+    username: ${SPRING_DATASOURCE_USERNAME:sanad_app}
+    password: ${SPRING_DATASOURCE_PASSWORD:change-me-in-secret-manager}
+
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  flyway:
+    enabled: true
+    clean-disabled: false
+    validate-on-migrate: true
+    locations: classpath:db/migration
+
+logging:
+  level:
+    root: INFO
+    com.sanad.platform: DEBUG
+    org.springframework.web: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    org.flywaydb: DEBUG
+
+management:
+  endpoint:
+    health:
+      show-details: always
