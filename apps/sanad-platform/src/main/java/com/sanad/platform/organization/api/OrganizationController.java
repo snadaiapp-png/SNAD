@@ -1,0 +1,134 @@
+package com.sanad.platform.organization.api;
+
+import com.sanad.platform.organization.dto.CreateOrganizationRequest;
+import com.sanad.platform.organization.dto.OrganizationResponse;
+import com.sanad.platform.organization.service.OrganizationService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+
+import java.net.URI;
+
+/**
+ * REST controller for the Organization aggregate.
+ *
+ * <p>This is the transport-layer adapter that exposes the
+ * {@link OrganizationService} use cases over HTTP. It is intentionally
+ * thin: it accepts a validated {@link CreateOrganizationRequest},
+ * delegates to the service, and returns an {@link OrganizationResponse}
+ * with the appropriate HTTP status code.</p>
+ *
+ * <p>Stage 0 (this controller): only the create use case is exposed.
+ * Future stages will add GET (single + list), PATCH (rename, status
+ * transitions), and DELETE (archive) endpoints.</p>
+ *
+ * <h2>OpenAPI Contract</h2>
+ * <p>All endpoints are auto-documented by springdoc-openapi at
+ * {@code /v3/api-docs} and surfaced in Swagger UI at
+ * {@code /swagger-ui.html}. The annotations on this class drive the
+ * generated OpenAPI 3.0.1 document.</p>
+ */
+@RestController
+@RequestMapping("/api/v1/organizations")
+@Tag(
+        name = "Organizations",
+        description = "Create and manage Organization aggregates belonging to Tenants. " +
+                "An Organization is the operational container for future ERP, CRM, HRM, " +
+                "Accounting, and Commerce modules."
+)
+public class OrganizationController {
+
+    private final OrganizationService organizationService;
+
+    public OrganizationController(OrganizationService organizationService) {
+        this.organizationService = organizationService;
+    }
+
+    /**
+     * Create a new Organization under an existing Tenant.
+     *
+     * <p>The request body is validated via Bean Validation annotations
+     * on {@link CreateOrganizationRequest} before reaching the service
+     * layer. If validation fails, a {@code 400 Bad Request} is returned
+     * with a structured error body describing the failing fields.</p>
+     *
+     * @param request the validated create request
+     * @return {@code 201 Created} with the persisted Organization in the body
+     *         and a {@code Location} header pointing to the new resource
+     */
+    @Operation(
+            summary = "Create a new Organization",
+            description = "Registers a new Organization under an existing Tenant. " +
+                    "The Organization is created with status ACTIVE. " +
+                    "The (tenantId, name) pair must be unique; otherwise a 409 is returned."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "201",
+                    description = "Organization created successfully",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = OrganizationResponse.class)
+                    ),
+                    headers = @Header(
+                            name = "Location",
+                            description = "URI of the newly created Organization resource",
+                            schema = @Schema(type = "string", format = "uri")
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "Bad Request - request body failed validation " +
+                            "(missing tenantId, blank name, name or description too long)",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = com.sanad.platform.organization.api.ApiErrorResponse.class)
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "Tenant Not Found - the referenced tenantId does not exist",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = com.sanad.platform.organization.api.ApiErrorResponse.class)
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "409",
+                    description = "Organization Already Exists - an Organization with the same " +
+                            "name already exists under the same Tenant",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = com.sanad.platform.organization.api.ApiErrorResponse.class)
+                    )
+            )
+    })
+    @PostMapping
+    public ResponseEntity<OrganizationResponse> createOrganization(
+            @Valid @RequestBody CreateOrganizationRequest request) {
+
+        OrganizationResponse created = organizationService.createOrganization(request);
+
+        // Build the Location header for the 201 response
+        URI location = ServletUriComponentsBuilder
+                .fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(created.getId())
+                .toUri();
+
+        return ResponseEntity
+                .created(location)
+                .body(created);
+    }
+}
