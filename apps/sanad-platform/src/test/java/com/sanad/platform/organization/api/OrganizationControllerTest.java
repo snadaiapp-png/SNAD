@@ -17,10 +17,13 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -193,6 +196,114 @@ class OrganizationControllerTest {
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.error").value("Bad Request"))
                 .andExpect(jsonPath("$.message").exists())
+                .andExpect(jsonPath("$.path").value("/api/v1/organizations"));
+    }
+
+    // ============================================================
+    // EXEC-PROMPT-008 — Read endpoint tests
+    // ============================================================
+
+    /**
+     * CASE 5 — GET by id valid request returns 200 OK.
+     */
+    @Test
+    @DisplayName("CASE 5: GET by id valid -> 200 OK with OrganizationResponse")
+    void getOrganization_validRequest_returns200() throws Exception {
+        OrganizationResponse serviceResponse = new OrganizationResponse(
+                organizationId, tenantId, "Acme Riyadh Branch", "Main Riyadh operations",
+                OrganizationStatus.ACTIVE, now, now);
+
+        when(organizationService.getOrganization(eq(tenantId), eq(organizationId)))
+                .thenReturn(serviceResponse);
+
+        mockMvc.perform(get("/api/v1/organizations/{id}", organizationId)
+                        .param("tenantId", tenantId.toString())
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(organizationId.toString()))
+                .andExpect(jsonPath("$.tenantId").value(tenantId.toString()))
+                .andExpect(jsonPath("$.name").value("Acme Riyadh Branch"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+    }
+
+    /**
+     * CASE 6 — GET by id not found returns 404.
+     */
+    @Test
+    @DisplayName("CASE 6: GET by id not found -> 404 Not Found")
+    void getOrganization_notFound_returns404() throws Exception {
+        when(organizationService.getOrganization(eq(tenantId), eq(organizationId)))
+                .thenThrow(new EntityNotFoundException(
+                        "Organization not found with id: " + organizationId + " for tenant: " + tenantId));
+
+        mockMvc.perform(get("/api/v1/organizations/{id}", organizationId)
+                        .param("tenantId", tenantId.toString())
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("Organization not found with id")))
+                .andExpect(jsonPath("$.path").value("/api/v1/organizations/" + organizationId));
+    }
+
+    /**
+     * CASE 7 — GET by id missing tenantId returns 400.
+     */
+    @Test
+    @DisplayName("CASE 7: GET by id missing tenantId -> 400 Bad Request")
+    void getOrganization_missingTenantId_returns400() throws Exception {
+        // Note: no .param("tenantId", ...) on this request
+        mockMvc.perform(get("/api/v1/organizations/{id}", organizationId)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("Missing required query parameter: tenantId")))
+                .andExpect(jsonPath("$.path").value("/api/v1/organizations/" + organizationId));
+    }
+
+    /**
+     * CASE 8 — GET list by tenantId returns 200 OK.
+     */
+    @Test
+    @DisplayName("CASE 8: GET list by tenantId -> 200 OK with array of OrganizationResponse")
+    void listOrganizations_validTenantId_returns200() throws Exception {
+        OrganizationResponse r1 = new OrganizationResponse(
+                organizationId, tenantId, "Acme Riyadh Branch", "Main Riyadh",
+                OrganizationStatus.ACTIVE, now, now);
+        UUID secondId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        OrganizationResponse r2 = new OrganizationResponse(
+                secondId, tenantId, "Acme Jeddah Branch", "Jeddah ops",
+                OrganizationStatus.ACTIVE, now, now);
+
+        when(organizationService.listOrganizations(eq(tenantId)))
+                .thenReturn(List.of(r1, r2));
+
+        mockMvc.perform(get("/api/v1/organizations")
+                        .param("tenantId", tenantId.toString())
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].name").value("Acme Riyadh Branch"))
+                .andExpect(jsonPath("$[1].name").value("Acme Jeddah Branch"));
+    }
+
+    /**
+     * CASE 9 — GET list missing tenantId returns 400.
+     */
+    @Test
+    @DisplayName("CASE 9: GET list missing tenantId -> 400 Bad Request")
+    void listOrganizations_missingTenantId_returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/organizations")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("Missing required query parameter: tenantId")))
                 .andExpect(jsonPath("$.path").value("/api/v1/organizations"));
     }
 }

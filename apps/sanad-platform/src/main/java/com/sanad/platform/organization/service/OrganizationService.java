@@ -12,8 +12,11 @@ import com.sanad.platform.tenant.repository.TenantRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
+import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Application service for the Organization aggregate.
@@ -123,5 +126,59 @@ public class OrganizationService {
 
         // --- Business Rule 8: Return the transport-layer DTO ---
         return organizationMapper.toResponse(saved);
+    }
+
+    /**
+     * Use Case: Fetch a single Organization within a specific Tenant.
+     *
+     * <p>The lookup is tenant-scoped: passing a valid {@code organizationId}
+     * that belongs to a different tenant will return empty (and therefore
+     * throw {@link EntityNotFoundException}). This enforces data isolation
+     * at the application layer on top of the repository's tenant-scoped
+     * query methods.</p>
+     *
+     * <p>Read-only: runs in a {@link Propagation#SUPPORTS SUPPORTS}
+     * transaction so it can participate in an existing transaction or run
+     * without one, but never opens a write transaction.</p>
+     *
+     * @param tenantId       the tenant scope (must not be null)
+     * @param organizationId the organization to fetch (must not be null)
+     * @return the matching Organization as an {@link OrganizationResponse}
+     * @throws EntityNotFoundException if no Organization with the given id
+     *                                 exists under the given tenant
+     */
+    @Transactional(readOnly = true, propagation = Propagation.SUPPORTS)
+    public OrganizationResponse getOrganization(UUID tenantId, UUID organizationId) {
+        Objects.requireNonNull(tenantId, "tenantId must not be null");
+        Objects.requireNonNull(organizationId, "organizationId must not be null");
+
+        return organizationRepository
+                .findByTenantIdAndId(tenantId, organizationId)
+                .map(organizationMapper::toResponse)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Organization not found with id: " + organizationId
+                                + " for tenant: " + tenantId));
+    }
+
+    /**
+     * Use Case: List all Organizations belonging to a specific Tenant.
+     *
+     * <p>Returns an empty list (not null) if the tenant has no organizations.
+     * The lookup is tenant-scoped via
+     * {@link OrganizationRepository#findByTenantId(UUID)}.</p>
+     *
+     * <p>Read-only: runs in a {@link Propagation#SUPPORTS SUPPORTS}
+     * transaction.</p>
+     *
+     * @param tenantId the tenant scope (must not be null)
+     * @return a list of {@link OrganizationResponse} (never null, possibly empty)
+     */
+    @Transactional(readOnly = true, propagation = Propagation.SUPPORTS)
+    public List<OrganizationResponse> listOrganizations(UUID tenantId) {
+        Objects.requireNonNull(tenantId, "tenantId must not be null");
+
+        return organizationRepository.findByTenantId(tenantId).stream()
+                .map(organizationMapper::toResponse)
+                .toList();
     }
 }

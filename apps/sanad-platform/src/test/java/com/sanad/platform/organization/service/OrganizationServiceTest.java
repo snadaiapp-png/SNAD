@@ -20,6 +20,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -222,5 +223,122 @@ class OrganizationServiceTest {
             throw new IllegalStateException("Could not set field " + fieldName +
                     " on " + target.getClass().getSimpleName(), e);
         }
+    }
+
+    // ============================================================
+    // EXEC-PROMPT-008 — Read use case tests
+    // ============================================================
+
+    /**
+     * STEP 6 / TEST 1 — getOrganization success.
+     *
+     * <p>Given a valid (tenantId, organizationId) pair,
+     * when {@code getOrganization} is called,
+     * then the matching Organization is returned as a response DTO.</p>
+     */
+    @Test
+    @DisplayName("getOrganization: success - returns OrganizationResponse")
+    void getOrganization_success_returnsResponse() {
+        // --- Arrange ---
+        UUID orgId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        when(organizationRepository.findByTenantIdAndId(tenantId, orgId))
+                .thenReturn(Optional.of(savedOrganization));
+        // savedOrganization has the tenantId we set in setUp()
+        // Adjust its id to match orgId so the response id matches expectations
+        reflectSet(savedOrganization, "id", orgId);
+        when(organizationMapper.toResponse(savedOrganization)).thenReturn(
+                new OrganizationResponse(orgId, tenantId, "Acme Riyadh Branch",
+                        "Main Riyadh operations", OrganizationStatus.ACTIVE, Instant.now(), Instant.now()));
+
+        // --- Act ---
+        OrganizationResponse result = organizationService.getOrganization(tenantId, orgId);
+
+        // --- Assert ---
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(orgId);
+        assertThat(result.getTenantId()).isEqualTo(tenantId);
+        assertThat(result.getName()).isEqualTo("Acme Riyadh Branch");
+        verify(organizationRepository, times(1)).findByTenantIdAndId(tenantId, orgId);
+        verify(organizationMapper, times(1)).toResponse(savedOrganization);
+    }
+
+    /**
+     * STEP 6 / TEST 2 — getOrganization not found.
+     *
+     * <p>Given the (tenantId, organizationId) pair does not match any Organization
+     * (either the id is wrong OR the id belongs to a different tenant),
+     * when {@code getOrganization} is called,
+     * then {@link EntityNotFoundException} is thrown.</p>
+     */
+    @Test
+    @DisplayName("getOrganization: not found - throws EntityNotFoundException")
+    void getOrganization_notFound_throwsEntityNotFoundException() {
+        // --- Arrange ---
+        UUID missingOrgId = UUID.fromString("44444444-4444-4444-4444-444444444444");
+        when(organizationRepository.findByTenantIdAndId(tenantId, missingOrgId))
+                .thenReturn(Optional.empty());
+
+        // --- Act + Assert ---
+        assertThatThrownBy(() -> organizationService.getOrganization(tenantId, missingOrgId))
+                .isInstanceOf(EntityNotFoundException.class)
+                .hasMessageContaining("Organization not found with id")
+                .hasMessageContaining(missingOrgId.toString())
+                .hasMessageContaining(tenantId.toString());
+
+        verify(organizationMapper, never()).toResponse(any(Organization.class));
+    }
+
+    /**
+     * STEP 6 / TEST 3 — listOrganizations success.
+     *
+     * <p>Given a tenant with 2 organizations,
+     * when {@code listOrganizations} is called,
+     * then a list of 2 {@link OrganizationResponse} objects is returned.</p>
+     */
+    @Test
+    @DisplayName("listOrganizations: success - returns list of OrganizationResponse")
+    void listOrganizations_success_returnsListOfResponses() {
+        // --- Arrange ---
+        Organization second = new Organization(tenant, "Acme Jeddah Branch",
+                "Jeddah operations", OrganizationStatus.ACTIVE);
+        reflectSet(second, "id", UUID.fromString("55555555-5555-5555-5555-555555555555"));
+        Instant ts = Instant.now();
+        reflectSet(second, "createdAt", ts);
+        reflectSet(second, "updatedAt", ts);
+
+        when(organizationRepository.findByTenantId(tenantId))
+                .thenReturn(List.of(savedOrganization, second));
+        when(organizationMapper.toResponse(savedOrganization)).thenReturn(expectedResponse);
+        OrganizationResponse secondResponse = new OrganizationResponse(
+                second.getId(), tenantId, "Acme Jeddah Branch", "Jeddah operations",
+                OrganizationStatus.ACTIVE, ts, ts);
+        when(organizationMapper.toResponse(second)).thenReturn(secondResponse);
+
+        // --- Act ---
+        List<OrganizationResponse> result = organizationService.listOrganizations(tenantId);
+
+        // --- Assert ---
+        assertThat(result).isNotNull().hasSize(2);
+        assertThat(result).extracting(OrganizationResponse::getName)
+                .containsExactlyInAnyOrder("Acme Riyadh Branch", "Acme Jeddah Branch");
+        verify(organizationRepository, times(1)).findByTenantId(tenantId);
+        verify(organizationMapper, times(1)).toResponse(savedOrganization);
+        verify(organizationMapper, times(1)).toResponse(second);
+    }
+
+    /**
+     * STEP 6 / TEST 4 (bonus) — listOrganizations returns empty list when tenant has no organizations.
+     */
+    @Test
+    @DisplayName("listOrganizations: empty list when tenant has no organizations")
+    void listOrganizations_emptyTenant_returnsEmptyList() {
+        when(organizationRepository.findByTenantId(tenantId))
+                .thenReturn(List.of());
+
+        List<OrganizationResponse> result = organizationService.listOrganizations(tenantId);
+
+        assertThat(result).isNotNull().isEmpty();
+        verify(organizationRepository, times(1)).findByTenantId(tenantId);
+        verify(organizationMapper, never()).toResponse(any(Organization.class));
     }
 }

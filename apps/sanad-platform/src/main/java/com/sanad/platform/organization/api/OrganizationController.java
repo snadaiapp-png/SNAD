@@ -7,18 +7,24 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
+import java.util.List;
+import java.util.UUID;
 
 /**
  * REST controller for the Organization aggregate.
@@ -130,5 +136,103 @@ public class OrganizationController {
         return ResponseEntity
                 .created(location)
                 .body(created);
+    }
+
+    /**
+     * Fetch a single Organization by ID, scoped to a Tenant.
+     *
+     * <p>The {@code tenantId} query parameter is REQUIRED. If omitted, the
+     * request fails with {@code 400 Bad Request}. If the (tenantId, id) pair
+     * does not match any Organization, the request fails with
+     * {@code 404 Not Found}.</p>
+     *
+     * @param id       the organization id (path variable)
+     * @param tenantId the tenant scope (required query parameter)
+     * @return the matching Organization
+     */
+    @Operation(
+            summary = "Get an Organization by ID",
+            description = "Fetch a single Organization scoped to a specific Tenant. " +
+                    "The tenantId query parameter is required. " +
+                    "If the (tenantId, id) pair does not match any Organization, " +
+                    "a 404 is returned."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Organization found",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = OrganizationResponse.class)
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "Bad Request - missing required tenantId query parameter",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiErrorResponse.class)
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "Organization Not Found - no Organization with the given id " +
+                            "exists under the given tenant",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiErrorResponse.class)
+                    )
+            )
+    })
+    @GetMapping("/{id}")
+    public ResponseEntity<OrganizationResponse> getOrganization(
+            @Parameter(description = "Organization UUID", required = true)
+            @PathVariable UUID id,
+            @Parameter(description = "Tenant UUID (scope)", required = true)
+            @RequestParam UUID tenantId) {
+
+        return ResponseEntity.ok(organizationService.getOrganization(tenantId, id));
+    }
+
+    /**
+     * List all Organizations belonging to a specific Tenant.
+     *
+     * <p>The {@code tenantId} query parameter is REQUIRED. If omitted, the
+     * request fails with {@code 400 Bad Request}. If the tenant has no
+     * organizations, an empty array is returned with {@code 200 OK}.</p>
+     *
+     * @param tenantId the tenant scope (required query parameter)
+     * @return a list of Organizations (possibly empty)
+     */
+    @Operation(
+            summary = "List Organizations for a Tenant",
+            description = "Returns all Organizations belonging to the specified Tenant. " +
+                    "The tenantId query parameter is required. " +
+                    "If the tenant has no organizations, an empty array is returned."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Organization list (possibly empty)",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = OrganizationResponse[].class)
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "Bad Request - missing required tenantId query parameter",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiErrorResponse.class)
+                    )
+            )
+    })
+    @GetMapping
+    public ResponseEntity<List<OrganizationResponse>> listOrganizations(
+            @Parameter(description = "Tenant UUID (scope)", required = true)
+            @RequestParam UUID tenantId) {
+
+        return ResponseEntity.ok(organizationService.listOrganizations(tenantId));
     }
 }
