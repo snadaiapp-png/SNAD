@@ -22,7 +22,7 @@ public class UpdateUserRequest {
     }
 
     public UpdateUserRequest(String email, String displayName) {
-        this.email = email;
+        setEmail(email);
         this.displayName = displayName;
     }
 
@@ -30,8 +30,12 @@ public class UpdateUserRequest {
         return email;
     }
 
+    /**
+     * Trims transport-level surrounding whitespace before Bean Validation.
+     * Case normalization remains an application-service responsibility.
+     */
     public void setEmail(String email) {
-        this.email = email;
+        this.email = email == null ? null : email.trim();
     }
 
     public String getDisplayName() {
