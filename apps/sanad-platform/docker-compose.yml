@@ -1,0 +1,27 @@
+# ============================================================
+# SANAD Platform — docker-compose
+# ------------------------------------------------------------
+# Stage 0 skeleton: defines the sanad-platform service only.
+# Companion services (PostgreSQL, Redis, Qdrant) will be added
+# in later stages as business logic and persistence are introduced.
+# ============================================================
+
+services:
+  sanad-platform:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sanad-platform:0.1.0-SNAPSHOT
+    container_name: sanad-platform
+    restart: unless-stopped
+    environment:
+      - JAVA_OPTS=-XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -Dfile.encoding=UTF-8
+      - SPRING_PROFILES_ACTIVE=dev
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

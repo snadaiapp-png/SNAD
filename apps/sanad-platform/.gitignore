@@ -1,0 +1,61 @@
+# ============================================================
+# SANAD Platform — .gitignore (Java / Maven)
+# ------------------------------------------------------------
+
+# ---------- Maven ----------
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# ---------- Java ----------
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+replay_pid*
+
+# ---------- IDE: IntelliJ IDEA ----------
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# ---------- IDE: Eclipse / STS ----------
+.classpath
+.project
+.settings/
+.factorypath
+.springBeans
+.apt_generated/
+
+# ---------- IDE: VS Code ----------
+.vscode/
+.history/
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- Logs ----------
+logs/
+*.log
+*.log.*
+
+# ---------- Environment / secrets ----------
+.env
+.env.*
+!.env.example
+
+# ---------- Docker ----------
+*.pid
