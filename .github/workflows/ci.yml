@@ -1,0 +1,100 @@
+name: CI
+
+# ============================================================
+# SANAD Platform - Continuous Integration Pipeline
+# ------------------------------------------------------------
+# Runs on every push and every pull request to the
+# feat/EXEC-PROMPT-001-sanad-platform-skeleton branch.
+#
+# Pipeline stages:
+#   1. CHECKOUT (implicit via actions/checkout)
+#   2. SETUP JAVA (Temurin 21)
+#   3. CACHE MAVEN (~/.m2/repository)
+#   4. BUILD (compile main sources)
+#   5. TEST (run unit + integration tests)
+#   6. PACKAGE (build Spring Boot fat jar)
+#
+# The workflow fails fast on any test failure or build error.
+# All three commands (build, test, package) must succeed for
+# the workflow to be considered green.
+# ============================================================
+
+on:
+  push:
+    branches:
+      - feat/EXEC-PROMPT-001-sanad-platform-skeleton
+  pull_request:
+    branches:
+      - feat/EXEC-PROMPT-001-sanad-platform-skeleton
+
+# Cancel any in-progress run for the same ref when a new push arrives.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test-package:
+    name: Build, Test & Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # ---------- 1. CHECKOUT ----------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ---------- 2. SETUP JAVA ----------
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # ---------- 3. CACHE MAVEN ----------
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('apps/sanad-platform/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      # ---------- 4. BUILD ----------
+      # Compile main sources; fail fast on compilation errors.
+      - name: Build (compile main sources)
+        working-directory: apps/sanad-platform
+        run: mvn -B -ntp clean compile
+
+      # ---------- 5. TEST ----------
+      # Run all tests (unit + slice + integration).
+      # Surefire fails the build if any test fails.
+      - name: Test (mvn clean test)
+        working-directory: apps/sanad-platform
+        run: mvn -B -ntp clean test
+
+      # ---------- 6. PACKAGE ----------
+      # Repackage into a Spring Boot fat jar.
+      # This step also re-runs tests by default; we keep them to
+      # produce a verified artifact.
+      - name: Package (mvn clean package)
+        working-directory: apps/sanad-platform
+        run: mvn -B -ntp clean package
+
+      # ---------- Upload test results (always, even on failure) ----------
+      - name: Upload surefire test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 7
+
+      # ---------- Upload built jar (only on success) ----------
+      - name: Upload built jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanad-platform-jar
+          path: apps/sanad-platform/target/sanad-platform-0.1.0-SNAPSHOT.jar
+          if-no-files-found: error
+          retention-days: 7
