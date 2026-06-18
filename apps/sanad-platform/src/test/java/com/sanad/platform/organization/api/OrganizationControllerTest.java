@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.organization.domain.OrganizationStatus;
 import com.sanad.platform.organization.dto.CreateOrganizationRequest;
 import com.sanad.platform.organization.dto.OrganizationResponse;
+import com.sanad.platform.organization.dto.UpdateOrganizationRequest;
 import com.sanad.platform.organization.exception.OrganizationAlreadyExistsException;
 import com.sanad.platform.organization.service.OrganizationService;
 import jakarta.persistence.EntityNotFoundException;
@@ -24,7 +25,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /**
@@ -305,5 +308,176 @@ class OrganizationControllerTest {
                 .andExpect(jsonPath("$.message").value(
                         org.hamcrest.Matchers.containsString("Missing required query parameter: tenantId")))
                 .andExpect(jsonPath("$.path").value("/api/v1/organizations"));
+    }
+
+    // ============================================================
+    // EXEC-PROMPT-009 — Update + Status Management tests
+    // ============================================================
+
+    /**
+     * CASE 10 — PUT valid update returns 200.
+     */
+    @Test
+    @DisplayName("CASE 10: PUT valid update -> 200 OK")
+    void updateOrganization_validUpdate_returns200() throws Exception {
+        UpdateOrganizationRequest update = new UpdateOrganizationRequest("Acme Riyadh v2", "Updated desc");
+        OrganizationResponse response = new OrganizationResponse(
+                organizationId, tenantId, "Acme Riyadh v2", "Updated desc",
+                OrganizationStatus.ACTIVE, now, now);
+
+        when(organizationService.updateOrganization(eq(tenantId), eq(organizationId),
+                any(UpdateOrganizationRequest.class))).thenReturn(response);
+
+        mockMvc.perform(put("/api/v1/organizations/{id}", organizationId)
+                        .param("tenantId", tenantId.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(update))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(organizationId.toString()))
+                .andExpect(jsonPath("$.name").value("Acme Riyadh v2"))
+                .andExpect(jsonPath("$.description").value("Updated desc"));
+    }
+
+    /**
+     * CASE 11 — PUT duplicate name returns 409.
+     */
+    @Test
+    @DisplayName("CASE 11: PUT duplicate name -> 409 Conflict")
+    void updateOrganization_duplicateName_returns409() throws Exception {
+        UpdateOrganizationRequest update = new UpdateOrganizationRequest("Existing Name", "x");
+
+        when(organizationService.updateOrganization(eq(tenantId), eq(organizationId),
+                any(UpdateOrganizationRequest.class)))
+                .thenThrow(new OrganizationAlreadyExistsException(tenantId, "Existing Name"));
+
+        mockMvc.perform(put("/api/v1/organizations/{id}", organizationId)
+                        .param("tenantId", tenantId.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(update))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").value("Conflict"))
+                .andExpect(jsonPath("$.message").value("Organization already exists for this tenant"));
+    }
+
+    /**
+     * CASE 12 — PUT organization not found returns 404.
+     */
+    @Test
+    @DisplayName("CASE 12: PUT organization not found -> 404")
+    void updateOrganization_notFound_returns404() throws Exception {
+        UpdateOrganizationRequest update = new UpdateOrganizationRequest("New Name", "x");
+
+        when(organizationService.updateOrganization(eq(tenantId), eq(organizationId),
+                any(UpdateOrganizationRequest.class)))
+                .thenThrow(new EntityNotFoundException(
+                        "Organization not found with id: " + organizationId + " for tenant: " + tenantId));
+
+        mockMvc.perform(put("/api/v1/organizations/{id}", organizationId)
+                        .param("tenantId", tenantId.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(update))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("Organization not found with id")));
+    }
+
+    /**
+     * CASE 13 — PUT invalid body returns 400.
+     */
+    @Test
+    @DisplayName("CASE 13: PUT invalid body (blank name) -> 400")
+    void updateOrganization_invalidBody_returns400() throws Exception {
+        // name is blank -> @NotBlank violation
+        String invalidJson = "{\"name\":\"\",\"description\":\"x\"}";
+
+        mockMvc.perform(put("/api/v1/organizations/{id}", organizationId)
+                        .param("tenantId", tenantId.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(invalidJson)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").exists());
+    }
+
+    /**
+     * CASE 14 — PATCH activate valid returns 200.
+     */
+    @Test
+    @DisplayName("CASE 14: PATCH activate valid -> 200 OK")
+    void activateOrganization_valid_returns200() throws Exception {
+        OrganizationResponse response = new OrganizationResponse(
+                organizationId, tenantId, "Acme Riyadh Branch", "Main Riyadh operations",
+                OrganizationStatus.ACTIVE, now, now);
+        when(organizationService.activateOrganization(eq(tenantId), eq(organizationId)))
+                .thenReturn(response);
+
+        mockMvc.perform(patch("/api/v1/organizations/{id}/activate", organizationId)
+                        .param("tenantId", tenantId.toString())
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+    }
+
+    /**
+     * CASE 15 — PATCH deactivate valid returns 200.
+     */
+    @Test
+    @DisplayName("CASE 15: PATCH deactivate valid -> 200 OK")
+    void deactivateOrganization_valid_returns200() throws Exception {
+        OrganizationResponse response = new OrganizationResponse(
+                organizationId, tenantId, "Acme Riyadh Branch", "Main Riyadh operations",
+                OrganizationStatus.INACTIVE, now, now);
+        when(organizationService.deactivateOrganization(eq(tenantId), eq(organizationId)))
+                .thenReturn(response);
+
+        mockMvc.perform(patch("/api/v1/organizations/{id}/deactivate", organizationId)
+                        .param("tenantId", tenantId.toString())
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("INACTIVE"));
+    }
+
+    /**
+     * CASE 16 — PATCH activate missing tenantId returns 400.
+     */
+    @Test
+    @DisplayName("CASE 16: PATCH activate missing tenantId -> 400")
+    void activateOrganization_missingTenantId_returns400() throws Exception {
+        mockMvc.perform(patch("/api/v1/organizations/{id}/activate", organizationId)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("Missing required query parameter: tenantId")))
+                .andExpect(jsonPath("$.path").value("/api/v1/organizations/" + organizationId + "/activate"));
+    }
+
+    /**
+     * CASE 17 — PATCH deactivate organization not found returns 404.
+     */
+    @Test
+    @DisplayName("CASE 17: PATCH deactivate not found -> 404")
+    void deactivateOrganization_notFound_returns404() throws Exception {
+        when(organizationService.deactivateOrganization(eq(tenantId), eq(organizationId)))
+                .thenThrow(new EntityNotFoundException(
+                        "Organization not found with id: " + organizationId + " for tenant: " + tenantId));
+
+        mockMvc.perform(patch("/api/v1/organizations/{id}/deactivate", organizationId)
+                        .param("tenantId", tenantId.toString())
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("Organization not found with id")));
     }
 }

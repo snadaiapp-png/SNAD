@@ -4,6 +4,7 @@ import com.sanad.platform.organization.domain.Organization;
 import com.sanad.platform.organization.domain.OrganizationStatus;
 import com.sanad.platform.organization.dto.CreateOrganizationRequest;
 import com.sanad.platform.organization.dto.OrganizationResponse;
+import com.sanad.platform.organization.dto.UpdateOrganizationRequest;
 import com.sanad.platform.organization.exception.OrganizationAlreadyExistsException;
 import com.sanad.platform.organization.mapper.OrganizationMapper;
 import com.sanad.platform.organization.repository.OrganizationRepository;
@@ -180,5 +181,88 @@ public class OrganizationService {
         return organizationRepository.findByTenantId(tenantId).stream()
                 .map(organizationMapper::toResponse)
                 .toList();
+    }
+
+    /**
+     * Use Case: Update an Organization's mutable fields (name + description).
+     *
+     * <p>The tenant relationship and status are NOT changed by this operation.
+     * If the new name conflicts with another Organization under the same
+     * tenant, {@link OrganizationAlreadyExistsException} is thrown. The
+     * organization's own current name is NOT considered a duplicate
+     * (so re-saving the same name is allowed).</p>
+     *
+     * @param tenantId       the tenant scope
+     * @param organizationId the organization to update
+     * @param request        the new name + description
+     * @return the updated Organization as a response DTO
+     * @throws EntityNotFoundException              if the (tenantId, organizationId) pair does not exist
+     * @throws OrganizationAlreadyExistsException   if another organization under the same tenant
+     *                                              already uses the new name
+     */
+    @Transactional
+    public OrganizationResponse updateOrganization(UUID tenantId, UUID organizationId,
+                                                    UpdateOrganizationRequest request) {
+        Objects.requireNonNull(tenantId, "tenantId must not be null");
+        Objects.requireNonNull(organizationId, "organizationId must not be null");
+        Objects.requireNonNull(request, "UpdateOrganizationRequest must not be null");
+
+        Organization organization = organizationRepository
+                .findByTenantIdAndId(tenantId, organizationId)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Organization not found with id: " + organizationId
+                                + " for tenant: " + tenantId));
+
+        // Duplicate-name check: skip if the new name equals the current name
+        // (so re-submitting the same name is a no-op for uniqueness purposes).
+        String newName = request.getName();
+        if (!newName.equals(organization.getName())
+                && organizationRepository.existsByTenantIdAndName(tenantId, newName)) {
+            throw new OrganizationAlreadyExistsException(tenantId, newName);
+        }
+
+        organization.setName(newName);
+        organization.setDescription(request.getDescription());
+
+        Organization saved = organizationRepository.save(organization);
+        return organizationMapper.toResponse(saved);
+    }
+
+    /**
+     * Use Case: Activate an Organization (set status = ACTIVE).
+     */
+    @Transactional
+    public OrganizationResponse activateOrganization(UUID tenantId, UUID organizationId) {
+        return setStatus(tenantId, organizationId, OrganizationStatus.ACTIVE);
+    }
+
+    /**
+     * Use Case: Deactivate an Organization (set status = INACTIVE).
+     */
+    @Transactional
+    public OrganizationResponse deactivateOrganization(UUID tenantId, UUID organizationId) {
+        return setStatus(tenantId, organizationId, OrganizationStatus.INACTIVE);
+    }
+
+    /**
+     * Internal helper: load an Organization within a tenant, set its status,
+     * persist, and return the response. Used by both activate and deactivate
+     * use cases to avoid duplication.
+     */
+    private OrganizationResponse setStatus(UUID tenantId, UUID organizationId,
+                                            OrganizationStatus newStatus) {
+        Objects.requireNonNull(tenantId, "tenantId must not be null");
+        Objects.requireNonNull(organizationId, "organizationId must not be null");
+        Objects.requireNonNull(newStatus, "newStatus must not be null");
+
+        Organization organization = organizationRepository
+                .findByTenantIdAndId(tenantId, organizationId)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Organization not found with id: " + organizationId
+                                + " for tenant: " + tenantId));
+
+        organization.setStatus(newStatus);
+        Organization saved = organizationRepository.save(organization);
+        return organizationMapper.toResponse(saved);
     }
 }

@@ -4,6 +4,7 @@ import com.sanad.platform.organization.domain.Organization;
 import com.sanad.platform.organization.domain.OrganizationStatus;
 import com.sanad.platform.organization.dto.CreateOrganizationRequest;
 import com.sanad.platform.organization.dto.OrganizationResponse;
+import com.sanad.platform.organization.dto.UpdateOrganizationRequest;
 import com.sanad.platform.organization.exception.OrganizationAlreadyExistsException;
 import com.sanad.platform.organization.mapper.OrganizationMapper;
 import com.sanad.platform.organization.repository.OrganizationRepository;
@@ -27,6 +28,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 /**
@@ -340,5 +342,166 @@ class OrganizationServiceTest {
         assertThat(result).isNotNull().isEmpty();
         verify(organizationRepository, times(1)).findByTenantId(tenantId);
         verify(organizationMapper, never()).toResponse(any(Organization.class));
+    }
+
+    // ============================================================
+    // EXEC-PROMPT-009 — Update + Status Management tests
+    // ============================================================
+
+    /**
+     * TEST 1 — updateOrganization success.
+     *
+     * <p>When updating name + description on an existing Organization,
+     * the service loads it via {@code findByTenantIdAndId}, sets the new
+     * field values (without changing status), saves, and returns the response.</p>
+     */
+    @Test
+    @DisplayName("updateOrganization: success - returns updated response")
+    void updateOrganization_success_returnsUpdatedResponse() {
+        // --- Arrange ---
+        UUID orgId = savedOrganization.getId();
+        UpdateOrganizationRequest update = new UpdateOrganizationRequest(
+                "Acme Riyadh v2", "Updated description");
+
+        when(organizationRepository.findByTenantIdAndId(tenantId, orgId))
+                .thenReturn(Optional.of(savedOrganization));
+        // New name differs from current name -> existsByTenantIdAndName is called
+        when(organizationRepository.existsByTenantIdAndName(tenantId, "Acme Riyadh v2"))
+                .thenReturn(false);
+        when(organizationRepository.save(savedOrganization)).thenReturn(savedOrganization);
+        when(organizationMapper.toResponse(savedOrganization)).thenReturn(
+                new OrganizationResponse(orgId, tenantId, "Acme Riyadh v2", "Updated description",
+                        OrganizationStatus.ACTIVE, Instant.now(), Instant.now()));
+
+        // --- Act ---
+        OrganizationResponse result = organizationService.updateOrganization(tenantId, orgId, update);
+
+        // --- Assert ---
+        assertThat(result).isNotNull();
+        assertThat(result.getName()).isEqualTo("Acme Riyadh v2");
+        assertThat(result.getDescription()).isEqualTo("Updated description");
+        assertThat(result.getStatus()).isEqualTo(OrganizationStatus.ACTIVE);
+        // status not changed
+        assertThat(savedOrganization.getName()).isEqualTo("Acme Riyadh v2");
+        assertThat(savedOrganization.getDescription()).isEqualTo("Updated description");
+        assertThat(savedOrganization.getStatus()).isEqualTo(OrganizationStatus.ACTIVE);
+
+        verify(organizationRepository, times(1)).findByTenantIdAndId(tenantId, orgId);
+        verify(organizationRepository, times(1)).existsByTenantIdAndName(tenantId, "Acme Riyadh v2");
+        verify(organizationRepository, times(1)).save(savedOrganization);
+    }
+
+    /**
+     * TEST 2 — updateOrganization with duplicate name (within same tenant) throws.
+     */
+    @Test
+    @DisplayName("updateOrganization: duplicate name in same tenant -> OrganizationAlreadyExistsException")
+    void updateOrganization_duplicateName_throwsException() {
+        UUID orgId = savedOrganization.getId();
+        UpdateOrganizationRequest update = new UpdateOrganizationRequest(
+                "Existing Other Org", "x");
+
+        when(organizationRepository.findByTenantIdAndId(tenantId, orgId))
+                .thenReturn(Optional.of(savedOrganization));
+        when(organizationRepository.existsByTenantIdAndName(tenantId, "Existing Other Org"))
+                .thenReturn(true);
+
+        assertThatThrownBy(() -> organizationService.updateOrganization(tenantId, orgId, update))
+                .isInstanceOf(OrganizationAlreadyExistsException.class)
+                .hasMessage("Organization already exists for this tenant");
+
+        // save should NEVER have been called
+        verify(organizationRepository, never()).save(any(Organization.class));
+    }
+
+    /**
+     * TEST 3 — updateOrganization not found (wrong id or wrong tenant) throws.
+     */
+    @Test
+    @DisplayName("updateOrganization: not found -> EntityNotFoundException")
+    void updateOrganization_notFound_throwsException() {
+        UUID missingId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        UpdateOrganizationRequest update = new UpdateOrganizationRequest("New Name", "x");
+
+        when(organizationRepository.findByTenantIdAndId(tenantId, missingId))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> organizationService.updateOrganization(tenantId, missingId, update))
+                .isInstanceOf(EntityNotFoundException.class)
+                .hasMessageContaining("Organization not found with id")
+                .hasMessageContaining(missingId.toString());
+
+        verify(organizationRepository, never()).existsByTenantIdAndName(any(UUID.class), anyString());
+        verify(organizationRepository, never()).save(any(Organization.class));
+    }
+
+    /**
+     * TEST 4 — activateOrganization success.
+     */
+    @Test
+    @DisplayName("activateOrganization: success - sets status to ACTIVE")
+    void activateOrganization_success_setsActive() {
+        UUID orgId = savedOrganization.getId();
+        // Start from INACTIVE to prove the transition
+        savedOrganization.setStatus(OrganizationStatus.INACTIVE);
+
+        when(organizationRepository.findByTenantIdAndId(tenantId, orgId))
+                .thenReturn(Optional.of(savedOrganization));
+        when(organizationRepository.save(savedOrganization)).thenReturn(savedOrganization);
+        when(organizationMapper.toResponse(savedOrganization)).thenReturn(
+                new OrganizationResponse(orgId, tenantId, "Acme Riyadh Branch",
+                        "Main Riyadh operations", OrganizationStatus.ACTIVE, Instant.now(), Instant.now()));
+
+        OrganizationResponse result = organizationService.activateOrganization(tenantId, orgId);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getStatus()).isEqualTo(OrganizationStatus.ACTIVE);
+        // Verify the entity was actually mutated
+        assertThat(savedOrganization.getStatus()).isEqualTo(OrganizationStatus.ACTIVE);
+        verify(organizationRepository, times(1)).save(savedOrganization);
+    }
+
+    /**
+     * TEST 5 — deactivateOrganization success.
+     */
+    @Test
+    @DisplayName("deactivateOrganization: success - sets status to INACTIVE")
+    void deactivateOrganization_success_setsInactive() {
+        UUID orgId = savedOrganization.getId();
+        // Start from ACTIVE
+        savedOrganization.setStatus(OrganizationStatus.ACTIVE);
+
+        when(organizationRepository.findByTenantIdAndId(tenantId, orgId))
+                .thenReturn(Optional.of(savedOrganization));
+        when(organizationRepository.save(savedOrganization)).thenReturn(savedOrganization);
+        when(organizationMapper.toResponse(savedOrganization)).thenReturn(
+                new OrganizationResponse(orgId, tenantId, "Acme Riyadh Branch",
+                        "Main Riyadh operations", OrganizationStatus.INACTIVE, Instant.now(), Instant.now()));
+
+        OrganizationResponse result = organizationService.deactivateOrganization(tenantId, orgId);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getStatus()).isEqualTo(OrganizationStatus.INACTIVE);
+        assertThat(savedOrganization.getStatus()).isEqualTo(OrganizationStatus.INACTIVE);
+        verify(organizationRepository, times(1)).save(savedOrganization);
+    }
+
+    /**
+     * TEST 6 — activateOrganization not found throws.
+     */
+    @Test
+    @DisplayName("activateOrganization: not found -> EntityNotFoundException")
+    void activateOrganization_notFound_throwsException() {
+        UUID missingId = UUID.fromString("77777777-7777-7777-7777-777777777777");
+
+        when(organizationRepository.findByTenantIdAndId(tenantId, missingId))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> organizationService.activateOrganization(tenantId, missingId))
+                .isInstanceOf(EntityNotFoundException.class)
+                .hasMessageContaining("Organization not found with id")
+                .hasMessageContaining(missingId.toString());
+
+        verify(organizationRepository, never()).save(any(Organization.class));
     }
 }
