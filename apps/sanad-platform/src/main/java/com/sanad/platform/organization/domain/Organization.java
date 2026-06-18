@@ -6,6 +6,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -25,22 +26,16 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * JPA entity representing an Organization within a {@link Tenant} in the
- * SANAD multi-tenant platform.
+ * JPA entity representing an Organization within a {@link Tenant}.
  *
- * <p>An Organization is the first operational aggregate linked to a Tenant.
- * Multiple Organizations may exist under a single Tenant, each representing
- * a distinct business unit (e.g. a branch, a subsidiary, a brand). All
- * operational modules (ERP, CRM, HRM, Accounting, Commerce) will reference
- * an Organization as their immediate parent.</p>
+ * <p>An Organization is the first operational aggregate built on top of
+ * the Tenant aggregate. It is the container for future ERP, CRM, HRM,
+ * Accounting, and Commerce modules. Each Organization belongs to
+ * exactly one Tenant and has a unique name within that Tenant.</p>
  *
- * <p>The pair (tenantId, name) is enforced as unique at the database level
- * so that two Organizations under the same Tenant cannot share a name,
- * while Organizations under different Tenants may.</p>
- *
- * <p>Stage 0 (this class) intentionally contains no business methods beyond
- * equals/hashCode/toString. Behaviour will be added in subsequent stages
- * alongside the application service layer.</p>
+ * <p>Stage 0 implementation: no business methods beyond equals/hashCode/
+ * toString. Behavior (activate, archive, transfer) will be added in later
+ * stages alongside the application service layer.</p>
  */
 @Entity
 @Table(
@@ -60,32 +55,43 @@ public class Organization {
     private UUID id;
 
     /**
-     * The Tenant this Organization belongs to. Modeled as a @ManyToOne
-     * relation so that JPA can lazy-load the parent Tenant when needed.
-     * The FK column is {@code tenant_id}, NOT NULL because every
-     * Organization must belong to exactly one Tenant.
+     * The Tenant this Organization belongs to. Many-to-one relationship;
+     * lazy-loaded to avoid N+1 issues when only the tenant ID is needed.
+     * The FK column is {@code tenant_id}, NOT NULL.
+     *
+     * <p>Spring Data JPA query methods (e.g. {@code findByTenant(...)})
+     * traverse this relationship, so callers pass a Tenant reference.
+     * For ID-only lookups, see {@link #tenantId}.</p>
      */
-    @ManyToOne(fetch = jakarta.persistence.FetchType.LAZY)
-    @JoinColumn(
-            name = "tenant_id",
-            nullable = false,
-            updatable = false,
-            foreignKey = @jakarta.persistence.ForeignKey(name = "fk_organizations_tenant")
-    )
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "tenant_id", nullable = false,
+            foreignKey = @jakarta.persistence.ForeignKey(name = "fk_organizations_tenant"))
     private Tenant tenant;
 
-    /** Human-readable Organization name (e.g. "Acme Riyadh Branch"). */
+    /**
+     * Read-only mirror of {@link #tenant}'s ID, mapped to the same
+     * {@code tenant_id} column via {@code insertable=false, updatable=false}.
+     * This allows Spring Data JPA repository methods to use
+     * {@code findByTenantId(UUID)} directly without traversing the
+     * {@code tenant} proxy, which keeps repository queries simple and
+     * avoids lazy-loading side effects.
+     */
+    @Column(name = "tenant_id", nullable = false, insertable = false, updatable = false,
+            columnDefinition = "uuid")
+    private UUID tenantId;
+
+    /** Human-readable organization name (e.g. "Acme Riyadh Branch"). Unique per tenant. */
     @NotBlank
     @Size(max = 200)
     @Column(name = "name", nullable = false, length = 200)
     private String name;
 
-    /** Optional longer description of the Organization. */
+    /** Optional longer description of the organization. */
     @Size(max = 1000)
     @Column(name = "description", length = 1000)
     private String description;
 
-    /** Current lifecycle status of the Organization. */
+    /** Current lifecycle status. */
     @NotNull
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
@@ -137,12 +143,13 @@ public class Organization {
     }
 
     /**
-     * Convenience accessor exposing the Tenant's UUID directly, without
-     * forcing callers to navigate the @ManyToOne relation (which would
-     * trigger a lazy load). Used by repository query methods.
+     * Convenience accessor for the tenant ID. Returns the JPA-managed
+     * {@link #tenantId} mirror field which is populated on entity load
+     * via the {@code tenant_id} column mapping. Does NOT trigger lazy
+     * loading of the {@link #tenant} relationship.
      */
     public UUID getTenantId() {
-        return tenant != null ? tenant.getId() : null;
+        return tenantId;
     }
 
     public String getName() {
@@ -197,7 +204,7 @@ public class Organization {
         if (!(o instanceof Organization that)) {
             return false;
         }
-        // If both have IDs, compare by ID; otherwise compare by (tenantId, name).
+        // Compare by ID if both persisted, otherwise by (tenantId, name)
         if (id != null && that.id != null) {
             return Objects.equals(id, that.id);
         }
@@ -207,8 +214,7 @@ public class Organization {
 
     @Override
     public int hashCode() {
-        // Hash by (tenantId, name) — natural composite key — so hash is
-        // stable pre- and post-persist.
+        // Hash by tenant ID + name (stable pre- and post-persist)
         return Objects.hash(getTenantId(), name);
     }
 
@@ -218,6 +224,8 @@ public class Organization {
                 "id=" + id +
                 ", tenantId=" + getTenantId() +
                 ", name='" + name + '\'' +
+                ", description='" + (description != null && description.length() > 50
+                        ? description.substring(0, 50) + "..." : description) + '\'' +
                 ", status=" + status +
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +
