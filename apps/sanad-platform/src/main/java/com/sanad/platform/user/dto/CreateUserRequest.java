@@ -26,7 +26,7 @@ public class CreateUserRequest {
     }
 
     public CreateUserRequest(String email, String displayName, UserStatus status) {
-        this.email = email;
+        setEmail(email);
         this.displayName = displayName;
         this.status = status;
     }
@@ -35,8 +35,12 @@ public class CreateUserRequest {
         return email;
     }
 
+    /**
+     * Trims transport-level surrounding whitespace before Bean Validation.
+     * Case normalization remains an application-service responsibility.
+     */
     public void setEmail(String email) {
-        this.email = email;
+        this.email = email == null ? null : email.trim();
     }
 
     public String getDisplayName() {
