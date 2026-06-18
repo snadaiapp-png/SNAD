@@ -504,4 +504,85 @@ class OrganizationServiceTest {
 
         verify(organizationRepository, never()).save(any(Organization.class));
     }
+
+    // ============================================================
+    // EXEC-PROMPT-010 — archiveOrganization tests
+    // ============================================================
+
+    /**
+     * TEST 7 — archiveOrganization success.
+     *
+     * <p>Archiving an ACTIVE (or INACTIVE) organization sets status to ARCHIVED
+     * and persists via save().</p>
+     */
+    @Test
+    @DisplayName("archiveOrganization: success - sets status to ARCHIVED")
+    void archiveOrganization_success_setsArchived() {
+        UUID orgId = savedOrganization.getId();
+        // Start from ACTIVE
+        savedOrganization.setStatus(OrganizationStatus.ACTIVE);
+
+        when(organizationRepository.findByTenantIdAndId(tenantId, orgId))
+                .thenReturn(Optional.of(savedOrganization));
+        when(organizationRepository.save(savedOrganization)).thenReturn(savedOrganization);
+        when(organizationMapper.toResponse(savedOrganization)).thenReturn(
+                new OrganizationResponse(orgId, tenantId, "Acme Riyadh Branch",
+                        "Main Riyadh operations", OrganizationStatus.ARCHIVED, Instant.now(), Instant.now()));
+
+        OrganizationResponse result = organizationService.archiveOrganization(tenantId, orgId);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getStatus()).isEqualTo(OrganizationStatus.ARCHIVED);
+        // Verify the entity was mutated
+        assertThat(savedOrganization.getStatus()).isEqualTo(OrganizationStatus.ARCHIVED);
+        verify(organizationRepository, times(1)).save(savedOrganization);
+    }
+
+    /**
+     * TEST 8 — archiveOrganization already archived (idempotency).
+     *
+     * <p>If the organization is already ARCHIVED, the service returns the
+     * current response WITHOUT calling save() and WITHOUT throwing.</p>
+     */
+    @Test
+    @DisplayName("archiveOrganization: already archived -> returns response without re-saving")
+    void archiveOrganization_alreadyArchived_returnsResponseWithoutSave() {
+        UUID orgId = savedOrganization.getId();
+        // Start from ARCHIVED
+        savedOrganization.setStatus(OrganizationStatus.ARCHIVED);
+
+        when(organizationRepository.findByTenantIdAndId(tenantId, orgId))
+                .thenReturn(Optional.of(savedOrganization));
+        // Note: NO stub for save() — it should never be called
+        when(organizationMapper.toResponse(savedOrganization)).thenReturn(
+                new OrganizationResponse(orgId, tenantId, "Acme Riyadh Branch",
+                        "Main Riyadh operations", OrganizationStatus.ARCHIVED, Instant.now(), Instant.now()));
+
+        OrganizationResponse result = organizationService.archiveOrganization(tenantId, orgId);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getStatus()).isEqualTo(OrganizationStatus.ARCHIVED);
+        // Verify save() was NEVER called (idempotency guard worked)
+        verify(organizationRepository, never()).save(any(Organization.class));
+        verify(organizationMapper, times(1)).toResponse(savedOrganization);
+    }
+
+    /**
+     * TEST 9 — archiveOrganization not found throws.
+     */
+    @Test
+    @DisplayName("archiveOrganization: not found -> EntityNotFoundException")
+    void archiveOrganization_notFound_throwsException() {
+        UUID missingId = UUID.fromString("88888888-8888-8888-8888-888888888888");
+
+        when(organizationRepository.findByTenantIdAndId(tenantId, missingId))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> organizationService.archiveOrganization(tenantId, missingId))
+                .isInstanceOf(EntityNotFoundException.class)
+                .hasMessageContaining("Organization not found with id")
+                .hasMessageContaining(missingId.toString());
+
+        verify(organizationRepository, never()).save(any(Organization.class));
+    }
 }

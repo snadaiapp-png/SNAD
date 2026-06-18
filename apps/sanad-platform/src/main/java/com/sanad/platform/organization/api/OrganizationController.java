@@ -385,4 +385,55 @@ public class OrganizationController {
 
         return ResponseEntity.ok(organizationService.deactivateOrganization(tenantId, id));
     }
+
+    /**
+     * PATCH /api/v1/organizations/{id}/archive?tenantId=... — soft delete via status = ARCHIVED.
+     *
+     * <p>This is the SANAD platform's soft-delete policy. The Organization row is
+     * NOT physically removed from the database; it is marked ARCHIVED so that
+     * audit, compliance, and historical reporting can still reference it. The
+     * operation is idempotent: archiving an already-ARCHIVED organization is a
+     * no-op that returns the current state.</p>
+     */
+    @Operation(
+            summary = "Archive an Organization (soft delete)",
+            description = "Marks the Organization as ARCHIVED without removing it from the database. " +
+                    "Idempotent: archiving an already-archived organization is a no-op that returns " +
+                    "the current state. Use this instead of a DELETE endpoint to preserve audit history."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Organization archived successfully (or was already archived)",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = OrganizationResponse.class)
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "Bad Request - missing required tenantId query parameter",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiErrorResponse.class)
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "Organization Not Found",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiErrorResponse.class)
+                    )
+            )
+    })
+    @PatchMapping("/{id}/archive")
+    public ResponseEntity<OrganizationResponse> archiveOrganization(
+            @Parameter(description = "Organization UUID", required = true)
+            @PathVariable UUID id,
+            @Parameter(description = "Tenant UUID (scope)", required = true)
+            @RequestParam UUID tenantId) {
+
+        return ResponseEntity.ok(organizationService.archiveOrganization(tenantId, id));
+    }
 }

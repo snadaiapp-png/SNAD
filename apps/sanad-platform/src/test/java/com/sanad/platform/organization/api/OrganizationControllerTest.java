@@ -480,4 +480,63 @@ class OrganizationControllerTest {
                 .andExpect(jsonPath("$.message").value(
                         org.hamcrest.Matchers.containsString("Organization not found with id")));
     }
+
+    // ============================================================
+    // EXEC-PROMPT-010 — Archive (soft delete) tests
+    // ============================================================
+
+    /**
+     * CASE 18 — PATCH archive valid returns 200.
+     */
+    @Test
+    @DisplayName("CASE 18: PATCH archive valid -> 200 OK")
+    void archiveOrganization_valid_returns200() throws Exception {
+        OrganizationResponse response = new OrganizationResponse(
+                organizationId, tenantId, "Acme Riyadh Branch", "Main Riyadh operations",
+                OrganizationStatus.ARCHIVED, now, now);
+        when(organizationService.archiveOrganization(eq(tenantId), eq(organizationId)))
+                .thenReturn(response);
+
+        mockMvc.perform(patch("/api/v1/organizations/{id}/archive", organizationId)
+                        .param("tenantId", tenantId.toString())
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ARCHIVED"));
+    }
+
+    /**
+     * CASE 19 — PATCH archive organization not found returns 404.
+     */
+    @Test
+    @DisplayName("CASE 19: PATCH archive not found -> 404")
+    void archiveOrganization_notFound_returns404() throws Exception {
+        when(organizationService.archiveOrganization(eq(tenantId), eq(organizationId)))
+                .thenThrow(new EntityNotFoundException(
+                        "Organization not found with id: " + organizationId + " for tenant: " + tenantId));
+
+        mockMvc.perform(patch("/api/v1/organizations/{id}/archive", organizationId)
+                        .param("tenantId", tenantId.toString())
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("Organization not found with id")));
+    }
+
+    /**
+     * CASE 20 — PATCH archive missing tenantId returns 400.
+     */
+    @Test
+    @DisplayName("CASE 20: PATCH archive missing tenantId -> 400")
+    void archiveOrganization_missingTenantId_returns400() throws Exception {
+        mockMvc.perform(patch("/api/v1/organizations/{id}/archive", organizationId)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("Missing required query parameter: tenantId")))
+                .andExpect(jsonPath("$.path").value("/api/v1/organizations/" + organizationId + "/archive"));
+    }
 }

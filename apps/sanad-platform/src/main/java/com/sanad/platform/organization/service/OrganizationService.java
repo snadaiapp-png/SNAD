@@ -245,6 +245,50 @@ public class OrganizationService {
     }
 
     /**
+     * Use Case: Archive an Organization (soft delete via status = ARCHIVED).
+     *
+     * <p>This is the SANAD platform's soft-delete policy: instead of physically
+     * removing a row from the database (which would break referential integrity
+     * with future modules like ERP, CRM, HRM, Accounting, and Commerce), the
+     * Organization is marked as {@link OrganizationStatus#ARCHIVED ARCHIVED}.</p>
+     *
+     * <p>The row remains in the database for audit, compliance, and historical
+     * reporting. Future query use cases may filter out ARCHIVED organizations
+     * by default.</p>
+     *
+     * <h3>Idempotency</h3>
+     * <p>If the Organization is already ARCHIVED, this method is a no-op: it
+     * returns the current {@link OrganizationResponse} without raising an error
+     * and without issuing a redundant {@code save()}. This makes the endpoint
+     * safe to retry.</p>
+     *
+     * @param tenantId       the tenant scope
+     * @param organizationId the organization to archive
+     * @return the archived Organization as a response DTO
+     * @throws EntityNotFoundException if no Organization with the given id exists under the given tenant
+     */
+    @Transactional
+    public OrganizationResponse archiveOrganization(UUID tenantId, UUID organizationId) {
+        Objects.requireNonNull(tenantId, "tenantId must not be null");
+        Objects.requireNonNull(organizationId, "organizationId must not be null");
+
+        Organization organization = organizationRepository
+                .findByTenantIdAndId(tenantId, organizationId)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Organization not found with id: " + organizationId
+                                + " for tenant: " + tenantId));
+
+        // Idempotency guard: if already ARCHIVED, return current state without re-saving
+        if (organization.getStatus() == OrganizationStatus.ARCHIVED) {
+            return organizationMapper.toResponse(organization);
+        }
+
+        organization.setStatus(OrganizationStatus.ARCHIVED);
+        Organization saved = organizationRepository.save(organization);
+        return organizationMapper.toResponse(saved);
+    }
+
+    /**
      * Internal helper: load an Organization within a tenant, set its status,
      * persist, and return the response. Used by both activate and deactivate
      * use cases to avoid duplication.
