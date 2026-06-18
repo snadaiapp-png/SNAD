@@ -3,19 +3,21 @@ export const ORGANIZATIONS_PATH = "/api/v1/organizations";
 export const USERS_PATH = "/api/v1/users";
 
 function requireValue(value, name) {
-  if (!value || !String(value).trim()) {
-    throw new Error(`${name} is required`);
-  }
+  if (!value || !String(value).trim()) throw new Error(`${name} is required`);
   return String(value).trim();
 }
 
+function proxy(path, params = {}) {
+  const query = new URLSearchParams({ target: path, ...params });
+  return `${API_PROXY_PREFIX}?${query.toString()}`;
+}
+
 export function withTenant(path, tenantId) {
-  const tenant = requireValue(tenantId, "tenantId");
-  return `${API_PROXY_PREFIX}${path}?${new URLSearchParams({ tenantId: tenant })}`;
+  return proxy(path, { tenantId: requireValue(tenantId, "tenantId") });
 }
 
 export function organizationCollection() {
-  return `${API_PROXY_PREFIX}${ORGANIZATIONS_PATH}`;
+  return proxy(ORGANIZATIONS_PATH);
 }
 
 export function organizationList(tenantId) {
@@ -51,8 +53,7 @@ export function userLifecycle(userId, action, tenantId) {
 }
 
 export function extractApiMessage(payload, fallback = "Request failed") {
-  if (payload && typeof payload === "object" && typeof payload.message === "string" && payload.message.trim()) {
-    return payload.message.trim();
-  }
-  return fallback;
+  return payload && typeof payload === "object" && typeof payload.message === "string" && payload.message.trim()
+    ? payload.message.trim()
+    : fallback;
 }
