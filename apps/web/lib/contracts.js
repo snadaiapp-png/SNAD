@@ -1,3 +1,5 @@
+import "./styles";
+
 export const API_PROXY_PREFIX = "/api/platform";
 export const ORGANIZATIONS_PATH = "/api/v1/organizations";
 export const USERS_PATH = "/api/v1/users";
