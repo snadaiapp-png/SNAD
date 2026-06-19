@@ -10,34 +10,18 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/**
- * Spring Data JPA repository for {@link OrganizationMembership}.
- *
- * <p>Every method is tenant-scoped. There is no {@code findAll()} that
- * crosses tenant boundaries.</p>
- */
 @Repository
-public interface OrganizationMembershipRepository
-        extends JpaRepository<OrganizationMembership, UUID> {
+public interface OrganizationMembershipRepository extends JpaRepository<OrganizationMembership, UUID> {
 
-    /**
-     * List all memberships for a tenant (across all organizations).
-     */
     @Query("SELECT m FROM OrganizationMembership m WHERE m.tenantId = :tenantId")
     List<OrganizationMembership> findByTenantId(@Param("tenantId") UUID tenantId);
 
-    /**
-     * List all memberships for a specific organization within a tenant.
-     */
     @Query("SELECT m FROM OrganizationMembership m "
             + "WHERE m.tenantId = :tenantId AND m.organizationId = :organizationId")
     List<OrganizationMembership> findByTenantIdAndOrganizationId(
             @Param("tenantId") UUID tenantId,
             @Param("organizationId") UUID organizationId);
 
-    /**
-     * Fetch a single membership by id, scoped to (tenantId, organizationId).
-     */
     @Query("SELECT m FROM OrganizationMembership m "
             + "WHERE m.tenantId = :tenantId "
             + "AND m.organizationId = :organizationId "
@@ -47,11 +31,33 @@ public interface OrganizationMembershipRepository
             @Param("organizationId") UUID organizationId,
             @Param("id") UUID id);
 
-    /**
-     * Check if a membership with the given email already exists for the
-     * (tenantId, organizationId) pair. Backs the unique constraint
-     * {@code uk_org_memberships_tenant_org_email}.
-     */
+    @Query("SELECT m FROM OrganizationMembership m "
+            + "WHERE m.tenantId = :tenantId AND m.userId = :userId")
+    List<OrganizationMembership> findByTenantIdAndUserId(
+            @Param("tenantId") UUID tenantId,
+            @Param("userId") UUID userId);
+
+    @Query("SELECT m FROM OrganizationMembership m "
+            + "WHERE m.tenantId = :tenantId "
+            + "AND m.organizationId = :organizationId "
+            + "AND m.userId = :userId")
+    Optional<OrganizationMembership> findByTenantIdAndOrganizationIdAndUserId(
+            @Param("tenantId") UUID tenantId,
+            @Param("organizationId") UUID organizationId,
+            @Param("userId") UUID userId);
+
+    @Query("SELECT CASE WHEN COUNT(m) > 0 THEN TRUE ELSE FALSE END "
+            + "FROM OrganizationMembership m "
+            + "WHERE m.tenantId = :tenantId "
+            + "AND m.organizationId = :organizationId "
+            + "AND m.userId = :userId "
+            + "AND m.id <> :membershipId")
+    boolean existsOtherByTenantIdAndOrganizationIdAndUserId(
+            @Param("tenantId") UUID tenantId,
+            @Param("organizationId") UUID organizationId,
+            @Param("userId") UUID userId,
+            @Param("membershipId") UUID membershipId);
+
     @Query("SELECT CASE WHEN COUNT(m) > 0 THEN TRUE ELSE FALSE END "
             + "FROM OrganizationMembership m "
             + "WHERE m.tenantId = :tenantId "
