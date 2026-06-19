@@ -10,9 +10,9 @@
 
 **Branch:** `fix/EXEC-PROMPT-026-main-ci-stabilization`
 
-**Commit:** _(filled after push)_
+**Commit:** 
 
-**PR:** _(filled after PR creation)_
+**PR:** https://github.com/snadaiapp-png/SNAD/pull/19
 
 **Backend path detected:** `apps/sanad-platform/` (Maven, pom.xml)
 

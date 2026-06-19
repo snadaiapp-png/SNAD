@@ -133,8 +133,8 @@ This will restore the previous workflow triggers (feature-branch-only) and remov
 
 ## Commit SHA
 
-_(To be filled after push)_
+
 
 ## Pull Request URL
 
-_(To be filled after PR creation)_
+https://github.com/snadaiapp-png/SNAD/pull/19
