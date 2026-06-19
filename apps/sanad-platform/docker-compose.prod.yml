@@ -1,0 +1,71 @@
+# ============================================================
+# SANAD Platform — Local Production Simulation
+# ------------------------------------------------------------
+# Runs the backend with a real PostgreSQL database to simulate
+# the production environment locally.
+#
+# Usage:
+#   cd apps/sanad-platform
+#   cp ../../.env.example ../../.env
+#   # edit .env with your values
+#   docker compose -f docker-compose.prod.yml --env-file ../../.env up -d --build
+#
+# Tear down:
+#   docker compose -f docker-compose.prod.yml down -v
+# ============================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sanad-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sanad}
+      POSTGRES_USER: ${DATABASE_USERNAME:-sanad}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-change-me}
+    ports:
+      - "5432:5432"
+    volumes:
+      - sanad-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME:-sanad} -d ${POSTGRES_DB:-sanad}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sanad-backend:exec-027
+    container_name: sanad-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SERVER_PORT: ${SERVER_PORT:-8080}
+      DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-sanad}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-sanad}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-change-me}
+      DATABASE_DRIVER: org.postgresql.Driver
+      JPA_DDL_AUTO: validate
+      FLYWAY_ENABLED: "true"
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://snad-app.vercel.app}
+      LOG_LEVEL_ROOT: ${LOG_LEVEL_ROOT:-INFO}
+      LOG_LEVEL_SANAD: ${LOG_LEVEL_SANAD:-INFO}
+      MANAGEMENT_ENDPOINTS: health
+      JAVA_OPTS: "-XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -Dfile.encoding=UTF-8"
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+volumes:
+  sanad-pgdata:
