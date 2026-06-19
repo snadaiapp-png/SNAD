@@ -1,5 +1,12 @@
 name: Production Smoke
 
+# ============================================================
+# SANAD Platform - Production Smoke Test
+# ------------------------------------------------------------
+# Verifies the Vercel production deployment is reachable and
+# serves the expected SANAD interface after a push to main.
+# ============================================================
+
 on:
   push:
     branches:
@@ -8,6 +15,9 @@ on:
       - 'apps/web/**'
       - '.github/workflows/production-smoke.yml'
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   verify-production:

@@ -1,14 +1,25 @@
 name: Web CI
 
+# ============================================================
+# SANAD Platform - Frontend Continuous Integration Pipeline
+# ------------------------------------------------------------
+# Runs on push to main, pull requests targeting main, and
+# manual workflow_dispatch.
+#
+# Frontend project: apps/web (Next.js 16, npm)
+# ============================================================
+
 on:
   push:
     branches:
       - main
-      - feat/EXEC-PROMPT-001-sanad-platform-skeleton
   pull_request:
     branches:
       - main
-      - feat/EXEC-PROMPT-001-sanad-platform-skeleton
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: web-ci-${{ github.ref }}
@@ -25,16 +36,23 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
+
       - name: Install dependencies
         run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
       - name: Build Next.js application
         run: npm run build
+
       - name: Upload Next.js build output
         uses: actions/upload-artifact@v4
         with:
