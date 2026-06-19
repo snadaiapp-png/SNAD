@@ -1,0 +1,35 @@
+name: Production Smoke
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/web/**'
+      - '.github/workflows/production-smoke.yml'
+  workflow_dispatch:
+
+jobs:
+  verify-production:
+    name: Verify Vercel Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Wait for Vercel deployment
+        run: sleep 45
+
+      - name: Verify production page
+        run: |
+          for attempt in {1..24}; do
+            code=$(curl -L -sS -o production.html -w '%{http_code}' https://snad-app.vercel.app || true)
+            if [ "$code" = "200" ] && grep -q 'SANAD BUSINESS OPERATING SYSTEM' production.html; then
+              echo "SANAD production interface is available."
+              exit 0
+            fi
+            echo "Attempt ${attempt}: HTTP ${code}; waiting for deployment..."
+            sleep 10
+          done
+          echo "Production interface did not become ready."
+          cat production.html || true
+          exit 1
