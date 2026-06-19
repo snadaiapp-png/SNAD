@@ -133,7 +133,9 @@ This will restore the previous workflow triggers (feature-branch-only) and remov
 
 ## Commit SHA
 
-
+```
+6e5a89ec00931a82f72b522488da45918eb1a518
+```
 
 ## Pull Request URL
 
