@@ -1,6 +1,6 @@
 # EXEC-PROMPT-021 — Tenant Role Catalog
 
-Status: IMPLEMENTED / PENDING FINAL CI
+Status: APPROVED / COMPLETED / CLOSED
 
 - Tenant-scoped roles with normalized unique codes.
 - Role lifecycle: ACTIVE, INACTIVE, ARCHIVED.
