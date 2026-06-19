@@ -179,8 +179,8 @@ docker run -d --name sanad-backend -p 8080:8080 sanad-backend:<previous-tag>
 
 ## Commit SHA
 
-_(filled after push)_
+
 
 ## Pull Request URL
 
-_(filled after PR creation)_
+https://github.com/snadaiapp-png/SNAD/pull/21

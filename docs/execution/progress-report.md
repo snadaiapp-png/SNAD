@@ -53,9 +53,9 @@ Built the SANAD platform backend from skeleton through full REST API:
 
 **Branch:** `feat/EXEC-PROMPT-027-backend-hosting-readiness`
 
-**Commit:** _(filled after push)_
+**Commit:** 
 
-**PR:** _(filled after PR creation)_
+**PR:** https://github.com/snadaiapp-png/SNAD/pull/21
 
 **Files created/modified:**
 - `apps/sanad-platform/src/main/resources/application-prod.yml` — NEW production profile
