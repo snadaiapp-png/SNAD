@@ -127,4 +127,34 @@ describe('api-integration checkBackendIntegration', () => {
     expect(result.reachable).toBe(false);
     expect(result.error).toBe('Network error');
   });
+
+  it('returns reachable=false on timeout', async () => {
+    process.env.NEXT_PUBLIC_API_BASE_URL = 'https://api.example.com';
+    const mod = await import('./api-integration');
+    // Simulate AbortError (timeout)
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(
+      new DOMException('The operation was aborted', 'AbortError')
+    ));
+    const result = await mod.checkBackendIntegration();
+    expect(result.configured).toBe(true);
+    expect(result.reachable).toBe(false);
+    expect(result.error).toContain('aborted');
+  });
+
+  it('checkBackendIntegration result contains only safe fields', async () => {
+    process.env.NEXT_PUBLIC_API_BASE_URL = 'https://api.example.com';
+    const mod = await import('./api-integration');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200 }));
+    const result = await mod.checkBackendIntegration();
+    const keys = Object.keys(result);
+    expect(keys).toContain('configured');
+    expect(keys).toContain('reachable');
+    expect(keys).toContain('statusCode');
+    expect(keys).toContain('error');
+    // Must NOT contain sensitive fields
+    expect(keys).not.toContain('url');
+    expect(keys).not.toContain('headers');
+    expect(keys).not.toContain('body');
+    expect(keys).not.toContain('credentials');
+  });
 });

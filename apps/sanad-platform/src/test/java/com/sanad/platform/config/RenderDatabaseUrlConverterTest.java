@@ -82,20 +82,28 @@ class RenderDatabaseUrlConverterTest {
     }
 
     @Test
-    @DisplayName("Query parameters in URL are ignored for JDBC URL")
+    @DisplayName("Query parameters in URL are preserved in JDBC URL")
     void queryParameters() {
         var result = RenderDatabaseUrlConverter.parse(
                 "postgresql://user:pass@host:5432/db?sslmode=require&foo=bar");
-        assertThat(result.jdbcUrl).isEqualTo("jdbc:postgresql://host:5432/db");
+        assertThat(result.jdbcUrl).isEqualTo("jdbc:postgresql://host:5432/db?sslmode=require&foo=bar");
     }
 
     @Test
-    @DisplayName("sslmode query parameter is not included in JDBC URL")
+    @DisplayName("sslmode query parameter is preserved in JDBC URL")
     void sslmodeQueryParam() {
         var result = RenderDatabaseUrlConverter.parse(
                 "postgresql://user:pass@host:5432/db?sslmode=require");
-        assertThat(result.jdbcUrl).isEqualTo("jdbc:postgresql://host:5432/db");
-        assertThat(result.jdbcUrl).doesNotContain("sslmode");
+        assertThat(result.jdbcUrl).isEqualTo("jdbc:postgresql://host:5432/db?sslmode=require");
+    }
+
+    @Test
+    @DisplayName("Multiple query parameters are preserved in JDBC URL")
+    void multipleQueryParams() {
+        var result = RenderDatabaseUrlConverter.parse(
+                "postgresql://user:pass@host:5432/db?sslmode=require&application_name=sanad");
+        assertThat(result.jdbcUrl).contains("sslmode=require");
+        assertThat(result.jdbcUrl).contains("application_name=sanad");
     }
 
     @Test
@@ -201,6 +209,35 @@ class RenderDatabaseUrlConverterTest {
 
         // Properties should not be set
         assertThat(env.getProperty("spring.datasource.url")).isNull();
+    }
+
+    @Test
+    @DisplayName("postProcessEnvironment: 'production' profile does NOT match 'prod'")
+    void postProcess_productionProfile_doesNotConvert() {
+        var converter = new RenderDatabaseUrlConverter();
+        var env = new MockEnvironment();
+        env.setProperty("SPRING_PROFILES_ACTIVE", "production");
+        env.setProperty("RENDER_DATABASE_URL",
+                "postgresql://testuser:testpass@dbhost:5432/testdb");
+
+        converter.postProcessEnvironment(env, new SpringApplication());
+
+        assertThat(env.getProperty("spring.datasource.url")).isNull();
+    }
+
+    @Test
+    @DisplayName("postProcessEnvironment: 'prod,local' profile DOES match 'prod'")
+    void postProcess_mixedProfiles_converts() {
+        var converter = new RenderDatabaseUrlConverter();
+        var env = new MockEnvironment();
+        env.setProperty("SPRING_PROFILES_ACTIVE", "prod,local");
+        env.setProperty("RENDER_DATABASE_URL",
+                "postgresql://testuser:testpass@dbhost:5432/testdb");
+
+        converter.postProcessEnvironment(env, new SpringApplication());
+
+        assertThat(env.getProperty("spring.datasource.url"))
+                .isEqualTo("jdbc:postgresql://dbhost:5432/testdb");
     }
 
     @Test

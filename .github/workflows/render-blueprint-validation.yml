@@ -3,12 +3,16 @@ name: Render Blueprint Validation
 # ============================================================
 # SANAD Platform - Render Blueprint Validation
 # ------------------------------------------------------------
-# Validates render.yaml using the Render CLI blueprint validate
-# command. If the Render CLI is unavailable, falls back to a
-# local structural validator that enforces all critical rules.
+# Validates render.yaml using a mandatory structural validator.
 #
-# Fails if: render.yaml is invalid, uses legacy fields, or
-# violates structural constraints.
+# This job does NOT use a permissive fallback schema.
+# If the official Render schema is available, it is used as
+# an additional layer. The structural validator is always
+# run and is the source of truth for pass/fail.
+#
+# The validation step includes a manual gate comment that
+# clearly states when official validation could not be
+# performed, so a human reviewer can make an informed decision.
 # ============================================================
 
 on:
@@ -49,30 +53,77 @@ jobs:
           python-version: '3.12'
 
       - name: Install Python dependencies
-        run: pip install pyyaml
+        run: pip install pyyaml jsonschema
+
+      - name: Attempt official Render schema download
+        id: schema
+        run: |
+          # Try to download the official Render Blueprint JSON schema.
+          # This is an ADDITIONAL layer — the structural validator below
+          # is always run regardless.
+          SCHEMA_URL="https://raw.githubusercontent.com/render-oss/render-blueprint-schema/main/schema.json"
+          HTTP_CODE=$(curl -sS -o /tmp/render-schema.json -w '%{http_code}' \
+            --max-time 15 "$SCHEMA_URL" || true)
+          if [ "$HTTP_CODE" = "200" ]; then
+            SIZE=$(wc -c < /tmp/render-schema.json)
+            if [ "$SIZE" -gt 100 ]; then
+              echo "official_schema_available=true" >> $GITHUB_OUTPUT
+              echo "Official Render schema downloaded ($SIZE bytes)"
+            else
+              echo "official_schema_available=false" >> $GITHUB_OUTPUT
+              echo "::warning::Official schema response too small ($SIZE bytes); proceeding with structural validation only"
+            fi
+          else
+            echo "official_schema_available=false" >> $GITHUB_OUTPUT
+            echo "::warning::Official Render schema unavailable (HTTP $HTTP_CODE); proceeding with structural validation only"
+          fi
 
       - name: Structural validation (mandatory)
         run: |
           python3 << 'PYEOF'
           import yaml
+          import json
           import sys
+          from jsonschema import validate, ValidationError
 
           with open('render.yaml') as f:
               bp = yaml.safe_load(f)
 
           errors = []
 
+          # --- Schema validation (if available) ---
+          import os
+          schema_path = '/tmp/render-schema.json'
+          if os.path.exists(schema_path) and os.path.getsize(schema_path) > 100:
+              try:
+                  with open(schema_path) as sf:
+                      schema = json.load(sf)
+                  validate(instance=bp, schema=schema)
+                  print("✅ Official schema validation passed")
+              except ValidationError as e:
+                  # Schema validation is advisory; structural validation is mandatory.
+                  # Report but don't fail on schema mismatches that may be due to
+                  # schema version differences.
+                  print(f"::warning::Schema advisory: {e.message}")
+
+          # --- Structural validation (mandatory) ---
+
           # Database must NOT be under services
           if 'services' in bp:
               for svc in bp['services']:
                   if svc.get('type') in ('psdb', 'database'):
-                      errors.append(f"Database '{svc.get('name')}' must be under 'databases:', not 'services:'")
+                      errors.append(
+                          f"Database '{svc.get('name')}' must be under 'databases:', not 'services:'"
+                      )
 
           # No legacy database plan
           if 'databases' in bp:
               for db in bp['databases']:
                   if db.get('plan') == 'starter':
-                      errors.append(f"Database '{db.get('name')}' uses legacy plan 'starter'. Use 'basic-256mb' or higher.")
+                      errors.append(
+                          f"Database '{db.get('name')}' uses legacy plan 'starter'. "
+                          f"Use 'basic-256mb' or higher."
+                      )
 
           # Required fields in web services
           if 'services' in bp:
@@ -84,6 +135,8 @@ jobs:
                               errors.append(f"Service '{name}' missing required field: {req}")
                       if 'dockerfilePath' not in svc:
                           errors.append(f"Service '{name}' missing dockerfilePath")
+                      if 'healthCheckPath' not in svc:
+                          errors.append(f"Service '{name}' missing healthCheckPath")
 
           # Required fields in databases
           if 'databases' in bp:
@@ -98,7 +151,9 @@ jobs:
               web_regions = {s.get('region') for s in bp['services'] if s.get('type') == 'web'}
               db_regions = {d.get('region') for d in bp['databases']}
               if web_regions != db_regions:
-                  errors.append(f"Region mismatch: services={web_regions}, databases={db_regions}")
+                  errors.append(
+                      f"Region mismatch: services={web_regions}, databases={db_regions}"
+                  )
 
           # Validate fromDatabase properties
           if 'services' in bp:
@@ -106,16 +161,21 @@ jobs:
                   for ev in svc.get('envVars', []):
                       fd = ev.get('fromDatabase')
                       if fd:
-                          valid_props = ('user', 'password', 'connectionString', 'host', 'port', 'database')
-                          if fd.get('property') not in valid_props:
-                              errors.append(f"Invalid fromDatabase property '{fd.get('property')}' in env var '{ev.get('key')}'")
+                          valid = ('user', 'password', 'connectionString', 'host', 'port', 'database')
+                          if fd.get('property') not in valid:
+                              errors.append(
+                                  f"Invalid fromDatabase property '{fd.get('property')}' "
+                                  f"in env var '{ev.get('key')}'"
+                              )
 
           # autoDeployTrigger must be valid
           if 'services' in bp:
               for svc in bp['services']:
                   trigger = svc.get('autoDeployTrigger')
                   if trigger is not None and trigger not in ('off', 'checksPass', 'commit'):
-                      errors.append(f"Service '{svc.get('name')}' has invalid autoDeployTrigger: {trigger}")
+                      errors.append(
+                          f"Service '{svc.get('name')}' has invalid autoDeployTrigger: {trigger}"
+                      )
 
           if errors:
               print("❌ Blueprint validation FAILED:")

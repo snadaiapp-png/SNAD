@@ -98,7 +98,15 @@ public class RenderDatabaseUrlConverter implements EnvironmentPostProcessor {
             }
         }
         String profilesEnv = environment.getProperty("SPRING_PROFILES_ACTIVE", "");
-        return profilesEnv.contains("prod");
+        if (profilesEnv.isBlank()) {
+            return false;
+        }
+        for (String p : profilesEnv.split(",")) {
+            if ("prod".equals(p.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -175,7 +183,12 @@ public class RenderDatabaseUrlConverter implements EnvironmentPostProcessor {
         String username = decodePreservingPlus(rawUser);
         String password = decodePreservingPlus(rawPass);
 
+        // Build JDBC URL, preserving query parameters (e.g., sslmode=require)
         String jdbcUrl = "jdbc:postgresql://" + host + ":" + port + "/" + database;
+        String query = uri.getRawQuery();
+        if (query != null && !query.isBlank()) {
+            jdbcUrl = jdbcUrl + "?" + query;
+        }
 
         return new ParsedUrl(jdbcUrl, username, password, host, port, database);
     }
