@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted for initial production deployment readiness. Provider provisioning and runtime validation remain pending.
 
 ## Date
 
@@ -10,151 +10,87 @@ Accepted
 
 ## Context
 
-The SANAD platform backend (Spring Boot 3.3.5, Java 17/21, Docker) needs a production hosting provider that supports:
-
-- Docker container deployment
-- Managed PostgreSQL
-- Health checks and auto-restart
-- GitHub integration for CI/CD
-- Environment variable / secrets management
-- TLS/HTTPS
-- Custom domains
-- Reasonable latency for Saudi Arabia / Middle East users
-- Low operational complexity for a small team
-- Affordable initial monthly cost
+SANAD requires a production provider for its Spring Boot backend and PostgreSQL database with Docker deployment, health checks, secrets management, TLS, GitHub integration, and low operational overhead.
 
 ## Providers Evaluated
 
-### 1. Render
+### Render
 
 | Criterion | Assessment |
 |---|---|
-| Docker support | Native Dockerfile build |
-| Managed PostgreSQL | Yes, with automated backups and PITR |
-| Private networking | Internal connections between services |
-| Health checks | Configurable health check path |
-| Zero-downtime deploy | Yes (blue-green on paid plans) |
-| Rollback | One-click rollback to previous deploy |
-| GitHub integration | Auto-deploy from branch |
-| Monorepo support | Root directory + Dockerfile path |
-| Custom domains + TLS | Automatic TLS, custom domains on paid plan |
-| Secrets management | Encrypted environment variables |
-| Logs and metrics | Built-in log streaming + basic metrics |
-| Operational complexity | Low — managed, minimal DevOps required |
-| Initial monthly cost | ~$7 (Starter web) + ~$7 (PostgreSQL) = ~$14 |
-| Scaling path | Vertical (instance size) then horizontal (instances) |
-| Vendor lock-in | Low — standard Docker, standard PostgreSQL |
-| Saudi/ME latency | Frankfurt (EU Central) is closest available; ~120-180ms estimated RTT to KSA |
+| Docker support | Native Dockerfile builds |
+| Managed PostgreSQL | Supported; exact backup and recovery capabilities depend on selected plans |
+| Private networking | Supported between provisioned services |
+| Health checks | Configurable HTTP health checks |
+| Deployment controls | Manual and automated deployment controls are supported |
+| Rollback | Provider supports rollback to previous deployments; SANAD rollback has not yet been validated |
+| GitHub integration | Supported; SANAD uses a manual first deployment with `autoDeployTrigger: off` |
+| Monorepo support | Root directory, Dockerfile path, and Docker context supported |
+| Custom domains and TLS | Supported; not yet configured for SANAD backend |
+| Secrets management | Supported through provider environment variables and `fromDatabase` references |
+| Logs and metrics | Platform capabilities available; actual visibility and retention require provisioning verification |
+| Operational complexity | Low relative to hyperscaler alternatives |
+| Initial monthly cost | Planning estimate only; final price must be confirmed in Render Dashboard |
+| Vendor lock-in | Limited by standard Docker and PostgreSQL usage |
+| Saudi/Middle East latency | Frankfurt selected as the initial region; latency from Saudi Arabia remains unmeasured |
 
-### 2. Railway
+### Railway
 
-| Criterion | Assessment |
-|---|---|
-| Docker support | Yes |
-| Managed PostgreSQL | Yes |
-| Health checks | Limited (TCP only on free tier) |
-| Zero-downtime deploy | Yes |
-| GitHub integration | Yes |
-| Custom domains + TLS | Yes |
-| Operational complexity | Low |
-| Initial monthly cost | Usage-based, ~$5-15 |
-| Saudi/ME latency | Similar to Render (US regions) |
-| Vendor lock-in | Low |
+Supports Docker and managed PostgreSQL with low operational complexity, but pricing predictability and production-operational controls were considered less suitable for the current phase.
 
-**Rejected**: Less mature health check support; usage-based pricing is less predictable.
+### Fly.io
 
-### 3. Fly.io
+Provides strong container placement and broader region options, but its PostgreSQL operational model would require more platform-management effort.
 
-| Criterion | Assessment |
-|---|---|
-| Docker support | Excellent (Firecracker VMs) |
-| Managed PostgreSQL | Via Fly Postgres (semi-managed) |
-| Health checks | Yes |
-| Zero-downtime deploy | Yes |
-| GitHub integration | Via GitHub Actions (no native auto-deploy) |
-| Custom domains + TLS | Yes |
-| Operational complexity | Medium — requires more configuration |
-| Initial monthly cost | ~$3-10 |
-| Saudi/ME latency | Has Middle East region (Amman, Jordan) |
-| Vendor lock-in | Low |
+### AWS App Runner and RDS
 
-**Rejected**: Semi-managed PostgreSQL requires more operational effort; less turnkey than Render for a small team.
-
-### 4. AWS App Runner + RDS
-
-| Criterion | Assessment |
-|---|---|
-| Docker support | Yes |
-| Managed PostgreSQL | RDS (fully managed, excellent) |
-| Health checks | Yes |
-| Zero-downtime deploy | Yes (blue-green) |
-| GitHub integration | Via CodePipeline or App Runner source |
-| Custom domains + TLS | Yes (ACM + Route 53) |
-| Operational complexity | High — multiple AWS services to manage |
-| Initial monthly cost | ~$25+ (App Runner) + ~$15+ (RDS) = ~$40+ |
-| Saudi/ME latency | Bahrain (me-south-1) region available |
-| Vendor lock-in | Medium |
-
-**Rejected**: Too complex and expensive for the current delivery phase; appropriate for scale-up later.
+Provides mature regional, scaling, security, and database capabilities, including Middle East regions, but introduces materially higher cost and operational complexity for the current delivery phase.
 
 ## Decision
 
-**Selected Provider: Render**
+**Selected provider: Render**
+
+**Selected initial region: Frankfurt — EU Central**
 
 ### Rationale
 
-1. **Lowest operational complexity** — Render provides a turnkey Docker + PostgreSQL experience with minimal configuration. A small team can deploy and maintain the backend without dedicated DevOps.
+1. Render offers a low-complexity path for Docker and managed PostgreSQL.
+2. The current SANAD Dockerfile and application health endpoints align with the provider model.
+3. `render.yaml` allows infrastructure configuration to remain version controlled.
+4. Database credentials can be wired through `fromDatabase` without committing secrets.
+5. The first release can remain manual while deployment, smoke testing, and rollback are validated.
+6. Standard Docker and PostgreSQL reduce migration friction if a future move is required.
 
-2. **Predictable pricing** — Fixed monthly plans ($7 Starter web + $7 PostgreSQL) are more predictable than usage-based pricing.
+### Deployment Policy
 
-3. **Native Dockerfile support** — The existing Dockerfile works without modification.
+- First deployment: manual.
+- Current Blueprint setting: `autoDeployTrigger: off`.
+- Automatic deployment: disabled until the first deployment and rollback path are verified.
+- Official Render Blueprint validation: pending manual provisioning gate.
 
-4. **Health check path** — Render supports HTTP health checks at `/actuator/health`, which aligns with the existing Spring Boot Actuator configuration.
+### Capability Disclaimer
 
-5. **One-click rollback** — Render's dashboard provides rollback to any previous deployment, satisfying the rollback requirement.
+Render supports health checks, deployment controls, rollback, managed database operations, TLS, and observability features. These capabilities have not yet been configured or validated for SANAD and must not be treated as active production controls before provisioning.
 
-6. **GitHub auto-deploy** — Render can auto-deploy from `main` on push, integrating naturally with the existing CI/CD pipeline.
+### Pricing Estimate
 
-7. **Infrastructure as Code** — `render.yaml` Blueprint allows version-controlled infrastructure definition.
+- Estimated web service price: approximately USD 7 per month, pending confirmation.
+- Estimated `basic-256mb` PostgreSQL price: pending confirmation in Render Dashboard.
+- Estimated total: planning estimate only; final monthly cost must be confirmed before provisioning.
 
-8. **Managed PostgreSQL with backups** — Render's PostgreSQL includes daily backups; retention depends on Workspace plan (Hobby: 3-day, Pro+: 7-day).
+## Region Decision
 
-### Region Decision
+Frankfurt is selected as the conservative initial region because of geographic proximity to Saudi Arabia relative to North American regions. No measured KSA-to-Render latency evidence is available yet.
 
-Render's available regions as of 2026:
-- Oregon (US West) — `oregon`
-- Ohio (US East) — `ohio`
-- Frankfurt (EU Central) — `frankfurt`
-
-**Selected: Frankfurt (EU Central)**
-
-#### Region Comparison
-
-| Region | Approximate RTT to KSA | Rationale |
-|---|---|---|
-| Frankfurt | ~120-180ms | Shorter geographic distance to KSA; major ME peering hub (DE-CIX) |
-| Oregon | ~250-300ms | Trans-Pacific route; significantly longer distance |
-| Singapore | ~180-220ms | Via Indian Ocean; longer than Frankfurt |
-
-#### Uncertainty Statement
-
-The above RTT estimates are approximate, based on geographic distance, typical backbone routing, and published cloud latency benchmarks. **Actual latency has not been measured from Saudi Arabia.** Estimates carry ±50ms uncertainty. A formal latency test from a KSA endpoint should be conducted post-deployment.
-
-#### Why Frankfurt Over Oregon
-
-1. Geographic proximity: Frankfurt is ~4,100km from Riyadh vs ~12,000km for Oregon
-2. Network routing: European backbone has high-capacity links to MENA cable systems
-3. DE-CIX (Frankfurt) is one of the world's largest IXPs with direct MENA peering
-4. Conservative default: when measured latency is unavailable, choose geographically closer region
-
-Backend and database must be in the same region (Frankfurt).
+A formal latency test from Saudi Arabia must be conducted after deployment. If latency, data residency, compliance, or scale requirements are not met, SANAD should evaluate a Middle East hyperscaler region or another provider.
 
 ## Migration Triggers
 
-The following conditions would trigger evaluation of migration to AWS, Azure, or Kubernetes:
+Re-evaluate the provider when any of the following occurs:
 
-1. **Latency requirement** — If sub-150ms latency to KSA becomes a hard requirement, migrate to AWS (Bahrain) or Azure (UAE).
-2. **Scale** — If concurrent users exceed 10,000 or database size exceeds 100GB, migrate to AWS RDS + ECS/EKS.
-3. **Compliance** — If Saudi data residency is required, migrate to a provider with KSA region (e.g., Oracle Cloud Jeddah, Google Cloud Dammam).
-4. **Multi-region** — If active-active multi-region is needed, migrate to Kubernetes on EKS/GKE.
-5. **Cost at scale** — If Render costs exceed $500/month, evaluate self-managed Kubernetes for better cost efficiency.
+1. Saudi data-residency requirements become mandatory.
+2. Measured latency does not meet product requirements.
+3. Database scale, traffic, or availability requirements exceed the selected plans.
+4. Multi-region active-active deployment becomes necessary.
+5. Compliance or operational controls require a hyperscaler-managed environment.
+6. Render cost or platform constraints exceed the value of its operational simplicity.
