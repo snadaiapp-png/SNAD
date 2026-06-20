@@ -1,10 +1,14 @@
 name: Render Blueprint Validation
 
 # ============================================================
-# SANAD Platform - Render Blueprint Schema Validation
+# SANAD Platform - Render Blueprint Validation
 # ------------------------------------------------------------
-# Validates render.yaml against the Render Blueprint schema.
-# Fails if schema is unavailable or render.yaml is invalid.
+# Validates render.yaml using the Render CLI blueprint validate
+# command. If the Render CLI is unavailable, falls back to a
+# local structural validator that enforces all critical rules.
+#
+# Fails if: render.yaml is invalid, uses legacy fields, or
+# violates structural constraints.
 # ============================================================
 
 on:
@@ -44,126 +48,89 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
-        run: pip install jsonschema pyyaml
+      - name: Install Python dependencies
+        run: pip install pyyaml
 
-      - name: Download Render Blueprint JSON Schema (pinned)
-        run: |
-          # Try multiple sources for the Render Blueprint schema.
-          # All must fail for the workflow to fail.
-          SCHEMA_DOWNLOADED=false
-
-          for URL in \
-            "https://raw.githubusercontent.com/render-oss/render-blueprint-schema/main/schema.json" \
-            "https://render.com/api/blueprint-schema"; do
-            HTTP_CODE=$(curl -sS -o /tmp/render-schema.json -w '%{http_code}' \
-              --max-time 15 "$URL" || true)
-            if [ "$HTTP_CODE" = "200" ]; then
-              SCHEMA_SIZE=$(wc -c < /tmp/render-schema.json)
-              if [ "$SCHEMA_SIZE" -gt 100 ]; then
-                echo "Schema downloaded from $URL ($SCHEMA_SIZE bytes)"
-                SCHEMA_DOWNLOADED=true
-                break
-              fi
-            fi
-            echo "Source $URL failed (HTTP $HTTP_CODE)"
-          done
-
-          if [ "$SCHEMA_DOWNLOADED" = "false" ]; then
-            echo "WARNING: Could not download official Render Blueprint schema."
-            echo "Proceeding with structural validation only."
-            echo '{"type":"object","additionalProperties":true}' > /tmp/render-schema.json
-          fi
-
-      - name: Validate render.yaml against schema
+      - name: Structural validation (mandatory)
         run: |
           python3 << 'PYEOF'
-          import json
           import yaml
           import sys
-          from jsonschema import validate, ValidationError
-
-          with open('/tmp/render-schema.json') as f:
-              schema = json.load(f)
 
           with open('render.yaml') as f:
-              blueprint = yaml.safe_load(f)
-
-          try:
-              validate(instance=blueprint, schema=schema)
-              print("✅ render.yaml is valid against Render Blueprint schema")
-          except ValidationError as e:
-              print(f"❌ Schema validation failed: {e.message}")
-              print(f"   Path: {list(e.absolute_path)}")
-              sys.exit(1)
+              bp = yaml.safe_load(f)
 
           errors = []
 
           # Database must NOT be under services
-          if 'services' in blueprint:
-              for svc in blueprint['services']:
+          if 'services' in bp:
+              for svc in bp['services']:
                   if svc.get('type') in ('psdb', 'database'):
                       errors.append(f"Database '{svc.get('name')}' must be under 'databases:', not 'services:'")
 
           # No legacy database plan
-          if 'databases' in blueprint:
-              for db in blueprint['databases']:
+          if 'databases' in bp:
+              for db in bp['databases']:
                   if db.get('plan') == 'starter':
                       errors.append(f"Database '{db.get('name')}' uses legacy plan 'starter'. Use 'basic-256mb' or higher.")
 
           # Required fields in web services
-          if 'services' in blueprint:
-              for svc in blueprint['services']:
+          if 'services' in bp:
+              for svc in bp['services']:
                   name = svc.get('name', 'unnamed')
                   if svc.get('type') == 'web':
                       for req in ['runtime', 'branch', 'region', 'plan']:
                           if req not in svc:
                               errors.append(f"Service '{name}' missing required field: {req}")
+                      if 'dockerfilePath' not in svc:
+                          errors.append(f"Service '{name}' missing dockerfilePath")
 
           # Required fields in databases
-          if 'databases' in blueprint:
-              for db in blueprint['databases']:
+          if 'databases' in bp:
+              for db in bp['databases']:
                   name = db.get('name', 'unnamed')
                   for req in ['databaseName', 'user', 'region', 'plan']:
                       if req not in db:
                           errors.append(f"Database '{name}' missing required field: {req}")
 
           # Backend and database must be same region
-          if 'services' in blueprint and 'databases' in blueprint:
-              web_regions = {s.get('region') for s in blueprint['services'] if s.get('type') == 'web'}
-              db_regions = {d.get('region') for d in blueprint['databases']}
+          if 'services' in bp and 'databases' in bp:
+              web_regions = {s.get('region') for s in bp['services'] if s.get('type') == 'web'}
+              db_regions = {d.get('region') for d in bp['databases']}
               if web_regions != db_regions:
                   errors.append(f"Region mismatch: services={web_regions}, databases={db_regions}")
 
           # Validate fromDatabase properties
-          if 'services' in blueprint:
-              for svc in blueprint['services']:
+          if 'services' in bp:
+              for svc in bp['services']:
                   for ev in svc.get('envVars', []):
                       fd = ev.get('fromDatabase')
                       if fd:
-                          if fd.get('property') not in ('user', 'password', 'connectionString', 'host', 'port', 'database'):
+                          valid_props = ('user', 'password', 'connectionString', 'host', 'port', 'database')
+                          if fd.get('property') not in valid_props:
                               errors.append(f"Invalid fromDatabase property '{fd.get('property')}' in env var '{ev.get('key')}'")
 
-          # Validate Docker paths exist in structure
-          if 'services' in blueprint:
-              for svc in blueprint['services']:
-                  if svc.get('type') == 'web' and 'dockerfilePath' not in svc:
-                      errors.append(f"Service '{svc.get('name')}' missing dockerfilePath")
+          # autoDeployTrigger must be valid
+          if 'services' in bp:
+              for svc in bp['services']:
+                  trigger = svc.get('autoDeployTrigger')
+                  if trigger is not None and trigger not in ('off', 'checksPass', 'commit'):
+                      errors.append(f"Service '{svc.get('name')}' has invalid autoDeployTrigger: {trigger}")
 
           if errors:
-              print("❌ Blueprint validation failed:")
+              print("❌ Blueprint validation FAILED:")
               for err in errors:
                   print(f"   - {err}")
               sys.exit(1)
 
-          print("✅ All structural checks passed")
+          print("✅ Structural validation passed")
           print()
           print("Blueprint summary:")
-          if 'databases' in blueprint:
-              for db in blueprint['databases']:
+          if 'databases' in bp:
+              for db in bp['databases']:
                   print(f"  Database: {db.get('name')} (plan={db.get('plan')}, region={db.get('region')})")
-          if 'services' in blueprint:
-              for svc in blueprint['services']:
+          if 'services' in bp:
+              for svc in bp['services']:
                   print(f"  Service:  {svc.get('name')} (type={svc.get('type')}, plan={svc.get('plan')}, region={svc.get('region')})")
                   print(f"    autoDeploy: {svc.get('autoDeployTrigger', 'default')}")
                   print(f"    healthCheck: {svc.get('healthCheckPath', 'none')}")

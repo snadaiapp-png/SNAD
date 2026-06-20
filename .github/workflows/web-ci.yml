@@ -50,6 +50,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Test
+        run: npm test
+
       - name: Build Next.js application
         run: npm run build
 

@@ -8,46 +8,29 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 
 import java.net.URI;
-import java.net.URLDecoder;
 import java.net.URISyntaxException;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Converts Render's PostgreSQL connection string format to Spring Boot
- * JDBC datasource properties.
+ * Converts Render's PostgreSQL connection string to Spring Boot JDBC
+ * datasource properties.
  *
- * <p>Render provides the database URL in PostgreSQL format:
- * <pre>
- *   postgresql://user:password@host:port/database
- * </pre>
+ * <p>Parses {@code RENDER_DATABASE_URL} using {@link URI#getRawUserInfo()}
+ * and decodes percent-encoding exactly once via
+ * {@link URLDecoder#decode(String, java.nio.charset.Charset)}.
+ * Does NOT use form-urlencoded semantics (literal {@code +} is preserved
+ * as {@code +}, not converted to space).</p>
  *
- * Spring Boot requires JDBC format:
- * <pre>
- *   jdbc:postgresql://host:port/database
- * </pre>
+ * <p>Explicit {@code DATABASE_URL}, {@code DATABASE_USERNAME}, or
+ * {@code DATABASE_PASSWORD} override the converter output.</p>
  *
- * <p>This {@link EnvironmentPostProcessor} runs early in the Spring Boot
- * startup sequence. It checks for {@code RENDER_DATABASE_URL} and, if
- * present, parses it using {@link URI}, extracts the components, and
- * sets the following properties <strong>only if they are not already
- * defined</strong> (explicit {@code DATABASE_URL},
- * {@code DATABASE_USERNAME}, or {@code DATABASE_PASSWORD} take
- * precedence):
+ * <p>Activates only under the {@code prod} profile.</p>
  *
- * <ul>
- *   <li>{@code spring.datasource.url} → {@code jdbc:postgresql://host:port/database}</li>
- *   <li>{@code spring.datasource.username} → decoded user</li>
- *   <li>{@code spring.datasource.password} → decoded password</li>
- *   <li>{@code sanad.database.url} → same JDBC URL (for {@link ProductionDatabaseProperties})</li>
- *   <li>{@code sanad.database.username} → same username</li>
- *   <li>{@code sanad.database.password} → same password</li>
- * </ul>
- *
- * <p><strong>Security:</strong> Credentials are never logged. If the
- * URL is malformed or missing required components, the application
- * fails startup with a message that does not include credentials.</p>
+ * <p><strong>Security:</strong> Logs only a generic completion message.
+ * Never logs host, database name, username, or connection string.</p>
  */
 public class RenderDatabaseUrlConverter implements EnvironmentPostProcessor {
 
@@ -56,76 +39,66 @@ public class RenderDatabaseUrlConverter implements EnvironmentPostProcessor {
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
         String renderUrl = environment.getProperty("RENDER_DATABASE_URL");
-
-        // Only convert if RENDER_DATABASE_URL is set and profile is prod
         if (renderUrl == null || renderUrl.isBlank()) {
             return;
         }
 
-        String[] activeProfiles = environment.getActiveProfiles();
-        boolean isProd = false;
-        for (String profile : activeProfiles) {
-            if ("prod".equals(profile)) {
-                isProd = true;
-                break;
-            }
+        if (!isProdProfile(environment)) {
+            return;
         }
-        // Also check SPRING_PROFILES_ACTIVE env var
-        if (!isProd) {
-            String profilesEnv = environment.getProperty("SPRING_PROFILES_ACTIVE", "");
-            if (!profilesEnv.contains("prod")) {
-                return;
-            }
-        }
-
-        log.info("RenderDatabaseUrlConverter: converting RENDER_DATABASE_URL to JDBC format");
 
         try {
             ParsedUrl parsed = parse(renderUrl);
 
-            // Check for explicit overrides
             String existingDbUrl = environment.getProperty("DATABASE_URL");
             String existingUsername = environment.getProperty("DATABASE_USERNAME");
             String existingPassword = environment.getProperty("DATABASE_PASSWORD");
 
             Map<String, Object> props = new HashMap<>();
 
-            // Only set if not explicitly overridden
-            if (existingDbUrl == null || existingDbUrl.isBlank()) {
-                props.put("spring.datasource.url", parsed.jdbcUrl);
-                props.put("sanad.database.url", parsed.jdbcUrl);
-            } else {
+            if (existingDbUrl != null && !existingDbUrl.isBlank()) {
                 props.put("spring.datasource.url", existingDbUrl);
                 props.put("sanad.database.url", existingDbUrl);
+            } else {
+                props.put("spring.datasource.url", parsed.jdbcUrl);
+                props.put("sanad.database.url", parsed.jdbcUrl);
             }
 
-            if (existingUsername == null || existingUsername.isBlank()) {
-                props.put("spring.datasource.username", parsed.username);
-                props.put("sanad.database.username", parsed.username);
-            } else {
+            if (existingUsername != null && !existingUsername.isBlank()) {
                 props.put("spring.datasource.username", existingUsername);
                 props.put("sanad.database.username", existingUsername);
+            } else {
+                props.put("spring.datasource.username", parsed.username);
+                props.put("sanad.database.username", parsed.username);
             }
 
-            if (existingPassword == null || existingPassword.isBlank()) {
-                props.put("spring.datasource.password", parsed.password);
-                props.put("sanad.database.password", parsed.password);
-            } else {
+            if (existingPassword != null && !existingPassword.isBlank()) {
                 props.put("spring.datasource.password", existingPassword);
                 props.put("sanad.database.password", existingPassword);
+            } else {
+                props.put("spring.datasource.password", parsed.password);
+                props.put("sanad.database.password", parsed.password);
             }
 
             environment.getPropertySources()
                     .addFirst(new MapPropertySource("renderDatabaseUrlConversion", props));
 
-            log.info("RenderDatabaseUrlConverter: conversion complete (host: {}, database: {})",
-                    parsed.host, parsed.database);
+            log.info("Render database configuration conversion completed");
 
         } catch (IllegalArgumentException e) {
-            log.error("RenderDatabaseUrlConverter: failed to parse RENDER_DATABASE_URL: {}",
-                    e.getMessage());
+            log.error("Render database configuration conversion failed: {}", e.getMessage());
             throw e;
         }
+    }
+
+    private boolean isProdProfile(ConfigurableEnvironment environment) {
+        for (String profile : environment.getActiveProfiles()) {
+            if ("prod".equals(profile)) {
+                return true;
+            }
+        }
+        String profilesEnv = environment.getProperty("SPRING_PROFILES_ACTIVE", "");
+        return profilesEnv.contains("prod");
     }
 
     /**
@@ -133,7 +106,8 @@ public class RenderDatabaseUrlConverter implements EnvironmentPostProcessor {
      *
      * @param renderUrl URL in format postgresql://user:password@host:port/database
      * @return parsed components
-     * @throws IllegalArgumentException if the URL is invalid or missing required components
+     * @throws IllegalArgumentException if the URL is invalid or missing required components.
+     *         Exception messages never contain credential values.
      */
     static ParsedUrl parse(String renderUrl) {
         URI uri;
@@ -158,10 +132,9 @@ public class RenderDatabaseUrlConverter implements EnvironmentPostProcessor {
 
         int port = uri.getPort();
         if (port < 0) {
-            port = 5432; // PostgreSQL default port
+            port = 5432;
         }
 
-        // Extract database name from path
         String path = uri.getPath();
         if (path == null || path.length() <= 1) {
             throw new IllegalArgumentException(
@@ -169,34 +142,38 @@ public class RenderDatabaseUrlConverter implements EnvironmentPostProcessor {
         }
         String database = path.startsWith("/") ? path.substring(1) : path;
 
-        // Extract and decode credentials from userInfo
-        String userInfo = uri.getUserInfo();
-        if (userInfo == null || userInfo.isBlank()) {
+        // Use getRawUserInfo to avoid double-decoding by URI
+        String rawUserInfo = uri.getRawUserInfo();
+        if (rawUserInfo == null || rawUserInfo.isBlank()) {
             throw new IllegalArgumentException(
                     "Invalid RENDER_DATABASE_URL: credentials are missing");
         }
 
-        int colonIndex = userInfo.indexOf(':');
+        int colonIndex = rawUserInfo.indexOf(':');
         if (colonIndex < 0) {
             throw new IllegalArgumentException(
                     "Invalid RENDER_DATABASE_URL: password is missing in credentials");
         }
 
-        String encodedUser = userInfo.substring(0, colonIndex);
-        String encodedPass = userInfo.substring(colonIndex + 1);
+        String rawUser = rawUserInfo.substring(0, colonIndex);
+        String rawPass = rawUserInfo.substring(colonIndex + 1);
 
-        if (encodedUser.isBlank()) {
+        if (rawUser.isBlank()) {
             throw new IllegalArgumentException(
                     "Invalid RENDER_DATABASE_URL: username is missing");
         }
 
-        if (encodedPass.isBlank()) {
+        if (rawPass.isBlank()) {
             throw new IllegalArgumentException(
                     "Invalid RENDER_DATABASE_URL: password is missing");
         }
 
-        String username = URLDecoder.decode(encodedUser, StandardCharsets.UTF_8);
-        String password = URLDecoder.decode(encodedPass, StandardCharsets.UTF_8);
+        // Decode percent-encoding exactly once.
+        // URLDecoder.decode treats '+' as space in application/x-www-form-urlencoded,
+        // but we want to preserve literal '+'. So we manually replace '+' with
+        // '%2B' before decoding, then the literal '+' is preserved.
+        String username = decodePreservingPlus(rawUser);
+        String password = decodePreservingPlus(rawPass);
 
         String jdbcUrl = "jdbc:postgresql://" + host + ":" + port + "/" + database;
 
@@ -204,8 +181,17 @@ public class RenderDatabaseUrlConverter implements EnvironmentPostProcessor {
     }
 
     /**
-     * Parsed components of a Render PostgreSQL connection string.
+     * Decode percent-encoding while preserving literal '+' characters.
+     *
+     * <p>{@link URLDecoder#decode(String, String)} in Java treats '+' as
+     * space (form-urlencoded semantics). To avoid this, we replace literal
+     * '+' with '%2B' before decoding, so the '+' is preserved after decoding.</p>
      */
+    private static String decodePreservingPlus(String encoded) {
+        String withPlusEscaped = encoded.replace("+", "%2B");
+        return URLDecoder.decode(withPlusEscaped, StandardCharsets.UTF_8);
+    }
+
     static final class ParsedUrl {
         final String jdbcUrl;
         final String username;

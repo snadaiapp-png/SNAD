@@ -88,41 +88,43 @@ jobs:
           FRONTEND_ORIGIN=$(echo "${FRONTEND_URL}" | sed -E 's|/+$||')
           echo "Testing CORS from origin: ${FRONTEND_ORIGIN}"
 
-          RESPONSE=$(curl -sS -D - -o /dev/null --max-time 10 \
+          # Capture only the response headers we need
+          CORS_RESPONSE=$(curl -sS -D /tmp/cors-headers.txt -o /dev/null --max-time 10 \
             -X OPTIONS \
             -H "Origin: ${FRONTEND_ORIGIN}" \
             -H "Access-Control-Request-Method: GET" \
             "${BACKEND_URL}/api/v1/organizations" || true)
 
-          HTTP_CODE=$(echo "$RESPONSE" | head -1 | grep -oP '\d{3}')
-          echo "CORS preflight HTTP status: ${HTTP_CODE}"
+          HTTP_CODE=$(head -1 /tmp/cors-headers.txt | grep -oP '\d{3}' || echo "000")
+
+          ACAO=$(grep -i "access-control-allow-origin" /tmp/cors-headers.txt | tr -d '\r' | awk -F': ' '{print $2}')
+          ACAC=$(grep -i "access-control-allow-credentials" /tmp/cors-headers.txt | tr -d '\r' | awk -F': ' '{print $2}')
 
           if [ "$HTTP_CODE" != "200" ]; then
-            echo "ERROR: CORS preflight must return HTTP 200, got ${HTTP_CODE}"
-            echo "Response headers:"
-            echo "$RESPONSE"
+            echo "CORS FAILED:"
+            echo "  HTTP status: ${HTTP_CODE} (expected 200)"
+            echo "  Access-Control-Allow-Origin: ${ACAO:-<missing>}"
+            echo "  Access-Control-Allow-Credentials: ${ACAC:-<missing>}"
             exit 1
           fi
 
-          ACAO=$(echo "$RESPONSE" | grep -i "access-control-allow-origin" | tr -d '\r' | awk -F': ' '{print $2}')
-          ACAC=$(echo "$RESPONSE" | grep -i "access-control-allow-credentials" | tr -d '\r' | awk -F': ' '{print $2}')
-
-          echo "Access-Control-Allow-Origin: ${ACAO}"
-          echo "Access-Control-Allow-Credentials: ${ACAC}"
-
           if [ "$ACAO" != "$FRONTEND_ORIGIN" ]; then
-            echo "ERROR: Access-Control-Allow-Origin mismatch"
-            echo "  Expected: ${FRONTEND_ORIGIN}"
-            echo "  Got:      ${ACAO}"
+            echo "CORS FAILED:"
+            echo "  HTTP status: ${HTTP_CODE}"
+            echo "  Access-Control-Allow-Origin: ${ACAO:-<missing>} (expected ${FRONTEND_ORIGIN})"
+            echo "  Access-Control-Allow-Credentials: ${ACAC:-<missing>}"
             exit 1
           fi
 
           if [ "$ACAC" != "true" ]; then
-            echo "ERROR: Access-Control-Allow-Credentials must be 'true', got '${ACAC}'"
+            echo "CORS FAILED:"
+            echo "  HTTP status: ${HTTP_CODE}"
+            echo "  Access-Control-Allow-Origin: ${ACAO}"
+            echo "  Access-Control-Allow-Credentials: ${ACAC:-<missing>} (expected true)"
             exit 1
           fi
 
-          echo "✅ CORS verification passed"
+          echo "CORS PASSED: HTTP 200, Allow-Origin=${ACAO}, Allow-Credentials=${ACAC}"
 
       - name: Verify frontend production page
         run: |
