@@ -1,0 +1,36 @@
+name: Service Decomposition Validation
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate service decomposition
+        run: python3 scripts/generate_service_decomposition.py
+      - name: Verify generated package
+        run: |
+          test -s generated/executor-24/sanad-service-catalog.csv
+          test -s generated/executor-24/sanad-service-catalog.json
+          test -s generated/executor-24/sanad-api-catalog.csv
+          test -s generated/executor-24/sanad-event-catalog.csv
+          test -s generated/executor-24/sanad-domain-ownership.csv
+          test -s generated/executor-24/sanad-service-dependency-matrix.csv
+          test -s generated/executor-24/sanad-service-decomposition-summary.json
+      - name: Upload service decomposition package
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanad-executor-24-service-decomposition
+          path: generated/executor-24/
+          retention-days: 30
