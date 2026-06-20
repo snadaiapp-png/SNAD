@@ -1,0 +1,54 @@
+# ============================================================
+# SANAD Platform — .dockerignore
+# ------------------------------------------------------------
+# Excludes files from the Docker build context to speed up
+# builds and avoid copying unnecessary or sensitive files.
+# ============================================================
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.iml
+*.iws
+*.ipr
+.classpath
+.project
+.settings/
+
+# Build artifacts
+target/
+build/
+*.original
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+docs/
+
+# CI
+.github/
+
+# H2 database files
+*.h2.db
+*.mv.db
