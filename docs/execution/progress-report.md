@@ -78,7 +78,8 @@ Built the SANAD platform backend from skeleton through full REST API:
 | Flyway verification | Passed — schema version 9 |
 | Backend health | Passed |
 | Frontend-to-backend smoke | Passed — HTTP 200 |
-| Rollback validation | Pending |
+| Rollback validation | Passed |
+| Database password rotation | Complete |
 
 **Validation evidence:**
 - Backend deployment is live on Render.
@@ -88,9 +89,11 @@ Built the SANAD platform backend from skeleton through full REST API:
 - Tomcat started on port 8080.
 - Backend health returned `UP` with liveness and readiness groups.
 - Vercel production connectivity returned configured=true, reachable=true, statusCode=200.
+- Render rollback completed successfully and restored a live deployment.
+- Post-rollback backend health returned `UP`.
+- Post-rollback Vercel connectivity returned configured=true, reachable=true, statusCode=200.
+- The exposed Supabase database password was rotated, updated in Render, and revalidated successfully.
 
 **Operational note:** Render Free may enter sleep mode during inactivity and can produce cold-start delays. This is accepted for pilot verification only.
 
-**Security action required:** Rotate the Supabase database password used during manual configuration, update `DATABASE_PASSWORD` in Render, and restart the service.
-
-**Production gate:** The free-tier architecture is not approved for commercial production. Before launch, backend and database must move to approved paid plans and complete backup, restore, monitoring, smoke, rollback, latency, residency, and compliance validation.
+**Production gate:** The free-tier architecture is not approved for commercial production. Before launch, backend and database must move to approved paid plans and complete backup, restore, monitoring, latency, residency, compliance, and production-scale validation.
