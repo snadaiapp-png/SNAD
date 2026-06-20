@@ -56,44 +56,42 @@ Built the SANAD platform backend from skeleton through full REST API:
 
 ### Step 1 — Backend Production Release Readiness (EXEC-PROMPT-028)
 
-**Status:** IN PROGRESS — MANUAL PROVISIONING PENDING
+**Status:** IN PROGRESS — PILOT PROVISIONING PENDING
 
-**Summary:** Selected Render as the backend hosting provider. Added a Render Blueprint for a Docker web service and managed PostgreSQL in Frankfurt, production deployment and smoke workflows, Render database URL conversion, frontend API configuration, frontend-to-backend status route, strict CORS verification, and production documentation.
+**Summary:** Render remains the backend hosting provider. The owner approved a temporary free-tier pilot architecture using Render Free for the Spring Boot backend and Supabase Free PostgreSQL in Central EU (Frankfurt). The pilot uses the Supabase Session Pooler on port 5432, manual secret entry in Render, Flyway V1–V9, manual first deployment, and `autoDeployTrigger: off`.
 
 | Item | Status |
 |---|---|
-| Provider | Render |
-| Region | Frankfurt — EU Central |
-| Web service plan | `starter` |
-| Database plan | `basic-256mb` |
-| Blueprint structural validation | Passed |
-| Official Render Blueprint validation | Pending manual provisioning gate |
+| Frontend | Vercel `snad-app` |
+| Backend provider | Render |
+| Backend region | Frankfurt — EU Central |
+| Backend plan | `free` — pilot only |
+| Database provider | Supabase PostgreSQL |
+| Database region | Central EU (Frankfurt) |
+| Database plan | `free` — pilot only |
+| Database connection | Session Pooler, port 5432, TLS required |
+| Blueprint structural validation | Pending PR CI |
+| Render Blueprint validation | Pending manual provisioning gate |
 | Provisioning | Pending |
-| Production deployment | Pending |
+| Pilot deployment | Pending |
 | Flyway production verification | Pending |
 | Production smoke | Pending |
 | Rollback validation | Pending |
 
-**Branch:** `feat/EXEC-PROMPT-028-backend-production-release`
+**Original release PR:** https://github.com/snadaiapp-png/SNAD/pull/23
 
-**PR:** https://github.com/snadaiapp-png/SNAD/pull/23
+**Pilot branch:** `chore/supabase-free-pilot`
 
-**Current documentation correction commit:** `d779841e0745ea8aa5c69259e53cafe1a6d0e204`
-
-**Current test totals:**
+**Current test totals from EXEC-PROMPT-028:**
 - Backend: 303 tests, 0 failures, 0 errors, 10 skipped locally.
 - Frontend: 19 tests, 0 failures.
-  - 15 API configuration and integration tests.
-  - 4 backend-status route contract tests.
 
-**Key deliverables:**
-- `render.yaml`
-- `.github/workflows/backend-deploy.yml`
-- `.github/workflows/backend-production-smoke.yml`
-- `.github/workflows/render-blueprint-validation.yml`
-- `RenderDatabaseUrlConverter`
-- `NEXT_PUBLIC_API_BASE_URL` integration
-- `/api/system/backend-status`
-- Provider ADR, deployment guide, monitoring baseline, and execution report
+**Pilot configuration changes:**
+- Remove Render-managed PostgreSQL from `render.yaml`.
+- Keep only `sanad-backend` on Render Free.
+- Add `DATABASE_URL`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD` as `sync: false` secrets.
+- Reduce Hikari pool to maximum 5 and minimum idle 1.
+- Preserve Flyway, production profile, CORS, health checks, and manual deploy.
+- Record the Supabase pilot amendment in ADR-028 and deployment documentation.
 
-EXEC-PROMPT-028 remains open until Render accepts the Blueprint, resources are provisioned, production deployment succeeds, Flyway V1–V9 completes, production smoke passes, and rollback is validated.
+**Production gate:** The free-tier architecture is not approved for commercial production. Before launch, backend and database must move to approved paid plans and complete backup, restore, monitoring, smoke, rollback, latency, residency, and compliance validation.
