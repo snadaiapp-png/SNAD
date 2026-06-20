@@ -6,21 +6,25 @@
 
 ## Production Backend URL: PENDING VERIFICATION
 
-## Architecture
+## Pilot Architecture
 
-```
+```text
 Vercel Frontend (snad-app.vercel.app)
     ↓ HTTPS
-Render Backend — pending provisioning
-    ↓ private/internal connection
-Render PostgreSQL — pending provisioning
+Render Free Backend (sanad-backend)
+    ↓ TLS / Session Pooler
+Supabase Free PostgreSQL (Frankfurt)
 ```
+
+This configuration is approved for pilot and integration verification only. It is not production approval.
 
 ## Prerequisites
 
-1. A Render account with billing configured
-2. The `render.yaml` blueprint in the repository root
-3. GitHub repository connected to Render
+1. Render account
+2. Supabase project in Central EU (Frankfurt)
+3. Supabase Session Pooler connection on port `5432`
+4. `render.yaml` in the repository root
+5. GitHub repository connected to Render
 
 ## Manual Provisioning Gate
 
@@ -28,129 +32,100 @@ Before Blueprint Apply:
 
 1. Open Render Dashboard.
 2. Create a new Blueprint.
-3. Select `snadaiapp-png/SNAD`.
+3. Select `snadaiapp-png/SNAD` and branch `main`.
 4. Confirm Render parses `render.yaml` without schema or field errors.
-5. Do not apply resources if Render reports any Blueprint validation error.
-6. Capture the validation result without exposing secrets.
+5. Confirm only `sanad-backend` is proposed; no Render PostgreSQL resource should appear.
+6. Do not apply resources if Render reports a Blueprint validation error.
 
-## Initial Provisioning (Manual)
+## Supabase Connection Values
 
-### Step 1: Create Render account
+Use the Supabase Session Pooler values from the Frankfurt project:
 
-1. Go to https://render.com/register
-2. Sign up with GitHub
-3. Add a payment method
-
-### Step 2: Apply the Blueprint
-
-1. Go to https://dashboard.render.com/blueprints
-2. Select the `snadaiapp-png/SNAD` repository
-3. Render will detect `render.yaml` and propose the services
-4. Review the configuration
-5. Confirm Render parses the Blueprint without errors
-6. Click "Apply"
-
-### Step 3: Database Credential Wiring
-
-Database credentials are wired automatically via `fromDatabase` references in `render.yaml`:
-
-```
-DATABASE_USERNAME:
-  fromDatabase.property=user
-
-DATABASE_PASSWORD:
-  fromDatabase.property=password
-
-RENDER_DATABASE_URL:
-  fromDatabase.property=connectionString
+```text
+DATABASE_URL=jdbc:postgresql://<session-pooler-host>:5432/postgres?sslmode=require
+DATABASE_USERNAME=<supabase-session-pooler-user>
+DATABASE_PASSWORD=<database-password>
 ```
 
-No manual database credential copying is required.
+Rules:
 
-`RenderDatabaseUrlConverter` converts `RENDER_DATABASE_URL` (postgresql:// format) to JDBC properties (`spring.datasource.url`, `spring.datasource.username`, `spring.datasource.password`) at application startup. Explicit `DATABASE_URL`, `DATABASE_USERNAME`, or `DATABASE_PASSWORD` override the converter output.
+- Do not commit any credential.
+- Do not include username or password inside `DATABASE_URL`.
+- Use Session Pooler port `5432`.
+- Store all three values as Render secret environment variables.
 
-### Step 4: Deploy
+## Apply the Blueprint
 
-1. In the Render dashboard, click "Manual Deploy" → "Deploy latest commit"
-2. Wait for the build to complete (3–5 minutes)
-3. Verify health: `curl https://<backend-url>/actuator/health`
+1. Go to Render Dashboard → Blueprints.
+2. Select `snadaiapp-png/SNAD`.
+3. Confirm branch `main` and file `render.yaml`.
+4. Enter `DATABASE_URL`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD` when prompted.
+5. Click **Apply Blueprint**.
 
-### Step 5: First Deployment Verification
+## First Deployment
 
-After the first deployment:
+1. Open `sanad-backend`.
+2. Click **Manual Deploy** → **Deploy latest commit**.
+3. Wait for the Docker build and Spring Boot startup.
+4. Review logs without exposing credentials.
 
-1. Verify Flyway V1–V9 migrations completed successfully (check Render logs)
-2. Verify Hibernate validate mode passed
-3. Verify health endpoint returns 200 UP
-4. Verify liveness endpoint returns 200 UP
-5. Verify readiness endpoint returns 200 UP
-6. Verify `/actuator/env` returns 404
-7. Verify `/swagger-ui.html` returns 404
+## First Deployment Verification
+
+1. Verify Flyway V1–V9 migrations completed successfully.
+2. Verify Hibernate validation passed.
+3. Verify `/actuator/health` returns HTTP 200 and `UP`.
+4. Verify `/actuator/health/liveness` returns HTTP 200.
+5. Verify `/actuator/health/readiness` returns HTTP 200.
+6. Verify `/actuator/env` returns 404.
+7. Verify `/swagger-ui.html` returns 404.
+8. Verify frontend CORS origin is `https://snad-app.vercel.app`.
 
 ## Region
 
-Frankfurt — EU Central
+- Render backend: Frankfurt
+- Supabase database: Central EU (Frankfurt)
 
-## Database Plan
+## Plans
 
-basic-256mb
+- Render backend: Free
+- Supabase database: Free
 
 ## Auto-Deploy
 
 `autoDeployTrigger: off`
 
-The first deployment is manual.
-Automatic deployment is not enabled.
-
-After one successful production deployment and rollback validation, a future change may use `autoDeployTrigger: checksPass`.
+The first deployment remains manual. Automatic deployment is not enabled.
 
 ## Environment Variables
 
-Non-secret variables are defined in `render.yaml`. Secret variables are wired via `fromDatabase` references.
+Non-secret variables are defined in `render.yaml`. The following secret variables use `sync: false` and must be entered in Render Dashboard:
 
-See `.env.example` at the repository root for the full variable inventory.
+```text
+DATABASE_URL
+DATABASE_USERNAME
+DATABASE_PASSWORD
+```
 
-## Health Checks
+The pilot uses reduced connection pooling:
 
-Render monitors the backend via the configured health check path (`/actuator/health`). Health check behavior must be verified after provisioning.
+```text
+DATABASE_POOL_MAX=5
+DATABASE_POOL_MIN=1
+```
+
+## Free-Tier Constraints
+
+- Render Free may sleep during inactivity and has cold-start latency.
+- Supabase Free has limited compute, storage, and connection capacity.
+- This environment is for pilot verification only.
+- Upgrade both backend and database before commercial production launch.
 
 ## Rollback
 
-1. Go to the service in the Render dashboard
-2. Click the "Deployments" tab
-3. Find the last known-good deployment
-4. Click "Roll back to this deployment"
-5. Wait 3–5 minutes for the rollback to complete
-6. Verify: `curl https://<backend-url>/actuator/health`
+1. Open the service in Render Dashboard.
+2. Select **Deployments**.
+3. Identify the last known-good deployment.
+4. Roll back only after explicit operational approval.
+5. Re-run health and integration verification.
 
 Rollback validation: NOT YET EXECUTED
-
-## Custom Domain
-
-To add a custom domain (e.g., `api.sanad.example`):
-
-1. Go to the service → Settings → Custom Domains
-2. Add the domain
-3. Configure DNS CNAME record pointing to the Render service URL
-4. Wait for TLS certificate provisioning (automatic)
-5. Update `CORS_ALLOWED_ORIGINS` if the frontend domain changes
-
-No custom domain is currently configured.
-
-## Cost Estimate
-
-| Service | Plan | Estimated Monthly Cost |
-|---|---|---|
-| sanad-backend (Web Service) | Starter | ~$7 |
-| sanad-database (PostgreSQL) | basic-256mb | ~$7 |
-| **Total** | | **~$14** |
-
-Pricing must be confirmed in Render Dashboard before provisioning.
-
-## PITR and Backups
-
-PITR availability and recovery window depend on the Render Workspace plan:
-- Hobby workspace: 3-day recovery window
-- Pro or higher workspace: 7-day recovery window
-
-Final availability must be confirmed during provisioning.
