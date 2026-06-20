@@ -117,7 +117,7 @@ The SANAD platform backend (Spring Boot 3.3.5, Java 17/21, Docker) needs a produ
 
 7. **Infrastructure as Code** — `render.yaml` Blueprint allows version-controlled infrastructure definition.
 
-8. **Managed PostgreSQL with backups** — Render's PostgreSQL includes daily backups and 7-day retention on the Starter plan.
+8. **Managed PostgreSQL with backups** — Render's PostgreSQL includes daily backups; retention depends on Workspace plan (Hobby: 3-day, Pro+: 7-day).
 
 ### Region Decision
 

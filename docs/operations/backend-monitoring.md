@@ -48,10 +48,10 @@ Render captures all stdout/stderr output and makes it available in the dashboard
 
 ## Alerting
 
-### Currently Configured
+### Planned During Provisioning
 
-- **Render deployment notifications**: Email notifications on deployment success/failure (configured in Render dashboard)
-- **Render service health**: Auto-restart on health check failure
+- **Render deployment notifications: pending provisioning)
+- **Render service health: pending provisioning verification
 
 ### Not Yet Configured (Future)
 
@@ -92,3 +92,11 @@ Render PostgreSQL dashboard provides:
 3. **Mitigate**: Restart service, rollback deployment, or scale up
 4. **Resolve**: Fix root cause, deploy fix, verify health
 5. **Post-mortem**: Document incident, update thresholds if needed
+
+## Provisioning Disclaimer
+
+Render platform capabilities are documented as the intended baseline.
+Actual availability and configuration must be verified after resource provisioning.
+
+All monitoring items listed above are PLANNED, not configured.
+None of these capabilities are active until Render resources are provisioned and verified.

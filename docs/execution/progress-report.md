@@ -81,24 +81,56 @@ Built the SANAD platform backend from skeleton through full REST API:
 
 ### Step 1 — Backend Production Release (EXEC-PROMPT-028)
 
-**Status:** IN PROGRESS
+**Status:** IN PROGRESS — MANUAL PROVISIONING PENDING
 
-**Summary:** Selected Render as the backend hosting provider (ADR-028). Created `render.yaml` Blueprint with backend web service + managed PostgreSQL in Oregon region. Created frontend API integration via `NEXT_PUBLIC_API_BASE_URL`. Created backend production smoke workflow and deployment workflow. Created comprehensive documentation (execution doc, render deployment guide, monitoring baseline, ADR). **Manual authorization required** for Render account provisioning, database creation, secret configuration, and Vercel environment variable setup.
+**Summary:** Selected Render as the backend hosting provider (ADR-028). Created `render.yaml` Blueprint with backend web service (Starter plan) + managed PostgreSQL (basic-256mb) in Frankfurt region. Created frontend API integration via `NEXT_PUBLIC_API_BASE_URL`. Created backend production smoke workflow and deployment workflow. Created comprehensive documentation. RenderDatabaseUrlConverter converts RENDER_DATABASE_URL to JDBC format. CORS implemented via CorsConfig. Blueprint structural validation passes in CI.
+
+**Provider:** Render
+**Region:** Frankfurt — EU Central
+**Web service plan:** starter
+**Database plan:** basic-256mb
+**Blueprint structural validation:** passed
+**Official Render validation:** pending manual gate
+**Provisioning:** pending
+**Production deployment:** pending
+**Production smoke:** pending
+**Rollback validation:** pending
 
 **Branch:** `feat/EXEC-PROMPT-028-backend-production-release`
 
-**Commit:** 
+**Commit:** _(filled after push)_
 
 **PR:** https://github.com/snadaiapp-png/SNAD/pull/23
+
+**Test totals:**
+- Backend tests: 303 (0 failures, 0 errors, 10 skipped locally)
+- Frontend tests: 15 (0 failures)
 
 **Files created/modified:**
 - `render.yaml` — NEW Render Blueprint
 - `apps/web/lib/api-config.ts` — NEW frontend API configuration
+- `apps/web/lib/api-integration.ts` — NEW backend integration check
+- `apps/web/lib/api-config.test.ts` — NEW 15 frontend tests
+- `apps/web/app/api/system/backend-status/route.ts` — NEW integration route
+- `apps/web/app/api/system/backend-status/route.test.ts` — NEW route contract tests
 - `apps/web/.env.local.example` — NEW local env template
+- `apps/web/vitest.config.ts` — NEW test runner config
 - `.github/workflows/backend-production-smoke.yml` — NEW
 - `.github/workflows/backend-deploy.yml` — NEW
+- `.github/workflows/render-blueprint-validation.yml` — NEW
+- `apps/sanad-platform/src/main/java/.../config/RenderDatabaseUrlConverter.java` — NEW
+- `apps/sanad-platform/src/main/java/.../config/ProductionDatabaseProperties.java` — NEW
+- `apps/sanad-platform/src/main/java/.../config/CorsConfig.java` — NEW
+- `apps/sanad-platform/src/test/java/.../config/RenderDatabaseUrlConverterTest.java` — NEW 25 tests
+- `apps/sanad-platform/src/test/java/.../config/ProductionStartupFailureTest.java` — NEW
+- `apps/sanad-platform/src/test/java/.../config/ProductionDatabasePropertiesTest.java` — NEW
+- `apps/sanad-platform/src/test/java/.../config/CorsConfigTest.java` — NEW
+- `apps/sanad-platform/src/test/java/.../api/HealthEndpointTest.java` — NEW
+- `apps/sanad-platform/src/test/java/.../api/ProductionProfileTest.java` — NEW
 - `docs/architecture/adr/ADR-028-backend-hosting-provider.md` — NEW
 - `docs/execution/EXEC-PROMPT-028-backend-production-release.md` — NEW
 - `docs/deployment/render-backend-deployment.md` — NEW
 - `docs/operations/backend-monitoring.md` — NEW
 - `docs/execution/progress-report.md` — updated
+- `README.md` — updated
+- `.env.example` — updated

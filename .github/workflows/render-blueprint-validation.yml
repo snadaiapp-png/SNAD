@@ -1,18 +1,17 @@
 name: Render Blueprint Validation
 
 # ============================================================
-# SANAD Platform - Render Blueprint Validation
+# SANAD Platform - Render Blueprint Structural Validation
 # ------------------------------------------------------------
 # Validates render.yaml using a mandatory structural validator.
 #
-# This job does NOT use a permissive fallback schema.
-# If the official Render schema is available, it is used as
-# an additional layer. The structural validator is always
-# run and is the source of truth for pass/fail.
+# Status:
+#   Structural Blueprint Validation: runs in CI (mandatory)
+#   Official Render Blueprint Validation: PENDING MANUAL PROVISIONING GATE
 #
-# The validation step includes a manual gate comment that
-# clearly states when official validation could not be
-# performed, so a human reviewer can make an informed decision.
+# This workflow does NOT replace Render Dashboard validation.
+# Before applying the Blueprint, a human must confirm that
+# Render Dashboard parses render.yaml without errors.
 # ============================================================
 
 on:
