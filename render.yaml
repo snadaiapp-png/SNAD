@@ -1,0 +1,71 @@
+# Render Blueprint for SANAD Platform
+# ============================================================
+# This file defines the Render infrastructure as code.
+# Secrets (DATABASE_PASSWORD, etc.) must be configured via
+# the Render dashboard or CLI — never in this file.
+#
+# Apply with:
+#   render blueprint apply
+#
+# Region: oregon (closest available to Saudi Arabia)
+# ============================================================
+
+services:
+  # ---------- Backend Web Service ----------
+  - type: web
+    name: sanad-backend
+    runtime: docker
+    rootDir: apps/sanad-platform
+    dockerfilePath: ./Dockerfile
+    region: oregon
+    plan: starter
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      - key: SERVER_PORT
+        value: "8080"
+      - key: DATABASE_DRIVER
+        value: org.postgresql.Driver
+      - key: JPA_DDL_AUTO
+        value: validate
+      - key: FLYWAY_ENABLED
+        value: "true"
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://snad-app.vercel.app
+      - key: LOG_LEVEL_ROOT
+        value: INFO
+      - key: LOG_LEVEL_SANAD
+        value: INFO
+      - key: MANAGEMENT_ENDPOINTS
+        value: health
+      - key: SHUTDOWN_TIMEOUT
+        value: 30s
+      - key: DATABASE_POOL_MAX
+        value: "20"
+      - key: DATABASE_POOL_MIN
+        value: "5"
+      - key: DATABASE_POOL_TIMEOUT
+        value: "30000"
+      # The following secrets must be set in Render dashboard:
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_USERNAME
+        sync: false
+      - key: DATABASE_PASSWORD
+        sync: false
+
+  # ---------- Managed PostgreSQL ----------
+  - type: psdb
+    name: sanad-database
+    region: oregon
+    plan: starter
+    ipAllowList: []
+    # Render provides internal DATABASE_URL as:
+    #   postgresql://user:pass@host:port/db
+    # The backend needs a JDBC URL:
+    #   jdbc:postgresql://host:port/db
+    # Set DATABASE_URL in the backend env vars to the JDBC-converted form.
+    # Render also sets an internal connection string automatically.

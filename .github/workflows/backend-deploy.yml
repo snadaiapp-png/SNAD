@@ -1,0 +1,100 @@
+name: Backend Deploy
+
+# ============================================================
+# SANAD Platform - Backend Deployment to Render
+# ------------------------------------------------------------
+# Triggers a Render deploy hook to deploy the backend.
+# Requires RENDER_DEPLOY_HOOK_URL secret in GitHub.
+#
+# Manual trigger only until the first production release
+# is verified. After that, auto-deploy can be enabled.
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_deploy:
+        description: 'Type "deploy" to confirm production deployment'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Backend to Render
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event.inputs.confirm_deploy == 'deploy'
+
+    steps:
+      - name: Trigger Render deploy hook
+        env:
+          RENDER_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_HOOK" ]; then
+            echo "RENDER_DEPLOY_HOOK_URL secret is not configured."
+            exit 1
+          fi
+          echo "Triggering Render deploy..."
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            --max-time 30 -X POST "$RENDER_HOOK" || true)
+          if [ "$code" != "200" ] && [ "$code" != "201" ] && [ "$code" != "202" ]; then
+            echo "Render deploy hook failed: HTTP ${code}"
+            exit 1
+          fi
+          echo "Deploy hook accepted (HTTP ${code})"
+
+      - name: Wait for deployment
+        run: |
+          echo "Waiting 60s for Render to start deployment..."
+          sleep 60
+
+      - name: Verify health endpoint
+        env:
+          BACKEND_URL: https://sanad-backend.onrender.com
+        run: |
+          for attempt in $(seq 1 18); do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' \
+              --max-time 10 "${BACKEND_URL}/actuator/health" || true)
+            if [ "$code" = "200" ]; then
+              echo "Backend health UP (attempt ${attempt})"
+              exit 0
+            fi
+            echo "Attempt ${attempt}: HTTP ${code}; waiting..."
+            sleep 15
+          done
+          echo "Backend did not become healthy after deployment."
+          exit 1
+
+      - name: Verify liveness
+        env:
+          BACKEND_URL: https://sanad-backend.onrender.com
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "${BACKEND_URL}/actuator/health/liveness")
+          [ "$code" = "200" ] || { echo "Liveness failed: ${code}"; exit 1; }
+
+      - name: Verify readiness
+        env:
+          BACKEND_URL: https://sanad-backend.onrender.com
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "${BACKEND_URL}/actuator/health/readiness")
+          [ "$code" = "200" ] || { echo "Readiness failed: ${code}"; exit 1; }
+
+      - name: Deployment summary
+        run: |
+          echo "=== Deployment Summary ==="
+          echo "Backend URL: https://sanad-backend.onrender.com"
+          echo "Health: UP"
+          echo "Liveness: UP"
+          echo "Readiness: UP"
+          echo "Commit: ${{ github.sha }}"
+          echo "Triggered by: ${{ github.actor }}"

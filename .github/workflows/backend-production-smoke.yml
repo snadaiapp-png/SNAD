@@ -1,0 +1,94 @@
+name: Backend Production Smoke
+
+# ============================================================
+# SANAD Platform - Backend Production Smoke Test
+# ------------------------------------------------------------
+# Verifies the production backend deployment is live and
+# healthy. Can be triggered manually with a custom URL or
+# runs automatically on push to main.
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend_url:
+        description: 'Backend production URL (e.g. https://sanad-backend.onrender.com)'
+        required: false
+        default: ''
+        type: string
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/sanad-platform/**'
+      - '.github/workflows/backend-production-smoke.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-backend:
+    name: Verify Backend Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      BACKEND_URL: ${{ inputs.backend_url || 'https://sanad-backend.onrender.com' }}
+
+    steps:
+      - name: Wait for deployment
+        run: sleep 30
+
+      - name: Verify health endpoint
+        run: |
+          for attempt in $(seq 1 12); do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' \
+              --max-time 10 "${BACKEND_URL}/actuator/health" || true)
+            if [ "$code" = "200" ]; then
+              echo "Health endpoint UP (attempt ${attempt})"
+              exit 0
+            fi
+            echo "Attempt ${attempt}: health HTTP ${code}; waiting..."
+            sleep 10
+          done
+          echo "Health endpoint did not become ready."
+          exit 1
+
+      - name: Verify liveness endpoint
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "${BACKEND_URL}/actuator/health/liveness")
+          [ "$code" = "200" ] || { echo "Liveness failed: HTTP ${code}"; exit 1; }
+          echo "Liveness OK"
+
+      - name: Verify readiness endpoint
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "${BACKEND_URL}/actuator/health/readiness")
+          [ "$code" = "200" ] || { echo "Readiness failed: HTTP ${code}"; exit 1; }
+          echo "Readiness OK"
+
+      - name: Verify env endpoint is NOT exposed
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "${BACKEND_URL}/actuator/env")
+          [ "$code" = "404" ] || { echo "Env should be 404 but got ${code}"; exit 1; }
+          echo "Env correctly NOT exposed"
+
+      - name: Verify Swagger UI is disabled
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "${BACKEND_URL}/swagger-ui.html")
+          [ "$code" = "404" ] || { echo "Swagger UI should be 404 but got ${code}"; exit 1; }
+          echo "Swagger UI correctly disabled"
+
+      - name: Verify frontend production page
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "https://snad-app.vercel.app")
+          [ "$code" = "200" ] || { echo "Frontend failed: HTTP ${code}"; exit 1; }
+          echo "Frontend OK"

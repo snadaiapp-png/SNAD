@@ -74,3 +74,31 @@ Built the SANAD platform backend from skeleton through full REST API:
 - `docs/execution/progress-report.md` — updated
 
 **Test totals:** 278 tests (0 failures, 0 errors, 10 skipped locally — ProductionProfileTest runs in CI with Testcontainers)
+
+---
+
+## Stage 4 — Backend Production Release
+
+### Step 1 — Backend Production Release (EXEC-PROMPT-028)
+
+**Status:** IN PROGRESS
+
+**Summary:** Selected Render as the backend hosting provider (ADR-028). Created `render.yaml` Blueprint with backend web service + managed PostgreSQL in Oregon region. Created frontend API integration via `NEXT_PUBLIC_API_BASE_URL`. Created backend production smoke workflow and deployment workflow. Created comprehensive documentation (execution doc, render deployment guide, monitoring baseline, ADR). **Manual authorization required** for Render account provisioning, database creation, secret configuration, and Vercel environment variable setup.
+
+**Branch:** `feat/EXEC-PROMPT-028-backend-production-release`
+
+**Commit:** _(filled after push)_
+
+**PR:** _(filled after PR creation)_
+
+**Files created/modified:**
+- `render.yaml` — NEW Render Blueprint
+- `apps/web/lib/api-config.ts` — NEW frontend API configuration
+- `apps/web/.env.local.example` — NEW local env template
+- `.github/workflows/backend-production-smoke.yml` — NEW
+- `.github/workflows/backend-deploy.yml` — NEW
+- `docs/architecture/adr/ADR-028-backend-hosting-provider.md` — NEW
+- `docs/execution/EXEC-PROMPT-028-backend-production-release.md` — NEW
+- `docs/deployment/render-backend-deployment.md` — NEW
+- `docs/operations/backend-monitoring.md` — NEW
+- `docs/execution/progress-report.md` — updated
