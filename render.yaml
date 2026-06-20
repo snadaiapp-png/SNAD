@@ -18,8 +18,8 @@ services:
     region: frankfurt
     plan: free
     rootDir: apps/sanad-platform
-    dockerfilePath: apps/sanad-platform/Dockerfile
-    dockerContext: apps/sanad-platform
+    dockerfilePath: Dockerfile
+    dockerContext: .
     healthCheckPath: /actuator/health
     autoDeployTrigger: "off"
     envVars:
