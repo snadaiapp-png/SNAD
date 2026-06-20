@@ -1,20 +1,26 @@
 # ============================================================
 # SANAD Platform — `prod` production profile
 # ------------------------------------------------------------
-# Activated with: --spring.profiles.active=prod
-#                or SPRING_PROFILES_ACTIVE=prod
-#
 # All externalized settings are resolved from environment
 # variables. No credentials are hardcoded.
 #
-# Startup will fail fast if mandatory variables are missing.
+# Mandatory validation is handled by ProductionDatabaseProperties
+# (@ConfigurationProperties + @Validated + @NotBlank).
+# Startup fails with a clear message if DATABASE_URL,
+# DATABASE_USERNAME, or DATABASE_PASSWORD are missing.
 # ============================================================
+
+sanad:
+  database:
+    url: ${DATABASE_URL:}
+    username: ${DATABASE_USERNAME:}
+    password: ${DATABASE_PASSWORD:}
 
 spring:
   datasource:
-    url: ${DATABASE_URL:?DATABASE_URL must be set in production}
-    username: ${DATABASE_USERNAME:?DATABASE_USERNAME must be set in production}
-    password: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set in production}
+    url: ${DATABASE_URL:}
+    username: ${DATABASE_USERNAME:}
+    password: ${DATABASE_PASSWORD:}
     driver-class-name: ${DATABASE_DRIVER:org.postgresql.Driver}
     hikari:
       pool-name: SanadProdHikariCP
@@ -43,11 +49,15 @@ spring:
     validate-on-migrate: true
     clean-disabled: true
 
+  lifecycle:
+    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:30s}
+
 server:
   port: ${SERVER_PORT:8080}
   shutdown: graceful
-  lifecycle:
-    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:30s}
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:https://snad-app.vercel.app}
 
 management:
   server:

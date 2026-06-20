@@ -1,13 +1,11 @@
 # ============================================================
 # SANAD Platform — Local Production Simulation
 # ------------------------------------------------------------
-# Runs the backend with a real PostgreSQL database to simulate
-# the production environment locally.
+# Runs the backend with a real PostgreSQL database.
 #
 # Usage:
-#   cd apps/sanad-platform
 #   cp ../../.env.example ../../.env
-#   # edit .env with your values
+#   # edit .env with your values (DATABASE_PASSWORD is required)
 #   docker compose -f docker-compose.prod.yml --env-file ../../.env up -d --build
 #
 # Tear down:
@@ -21,14 +19,14 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-sanad}
-      POSTGRES_USER: ${DATABASE_USERNAME:-sanad}
-      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-change-me}
+      POSTGRES_USER: ${DATABASE_USERNAME:?DATABASE_USERNAME must be set}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set}
     ports:
       - "5432:5432"
     volumes:
       - sanad-pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME:-sanad} -d ${POSTGRES_DB:-sanad}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME} -d ${POSTGRES_DB:-sanad}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -48,8 +46,8 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       SERVER_PORT: ${SERVER_PORT:-8080}
       DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-sanad}
-      DATABASE_USERNAME: ${DATABASE_USERNAME:-sanad}
-      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-change-me}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:?DATABASE_USERNAME must be set}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set}
       DATABASE_DRIVER: org.postgresql.Driver
       JPA_DDL_AUTO: validate
       FLYWAY_ENABLED: "true"

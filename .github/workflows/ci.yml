@@ -8,17 +8,12 @@ name: CI
 #
 # Backend project: apps/sanad-platform (Maven, Java 21)
 #
-# Pipeline stages:
-#   1. Checkout
-#   2. Setup JDK 21 (Temurin)
-#   3. Cache Maven repository
-#   4. Compile main sources
-#   5. Run all tests (unit + integration)
-#   6. Package Spring Boot fat jar
-#   7. Upload test reports + built jar
-#   8. Build Docker image
-#   9. Start container + verify health endpoint
-#  10. Stop container
+# Jobs:
+#   1. build-test-package: Maven compile + test + package
+#   2. docker-build-and-health: Docker build + prod profile
+#      container health validation against PostgreSQL
+#   3. docker-compose-validation: Full docker-compose.prod.yml
+#      with PostgreSQL + backend health checks
 # ============================================================
 
 on:
@@ -41,7 +36,7 @@ jobs:
   build-test-package:
     name: Build, Test & Package
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout repository
@@ -91,10 +86,25 @@ jobs:
           retention-days: 7
 
   docker-build-and-health:
-    name: Docker Build & Container Health
+    name: Docker Build & Prod Health
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     needs: build-test-package
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: sanad_ci
+          POSTGRES_USER: sanad_ci
+          POSTGRES_PASSWORD: ci_only_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout repository
@@ -104,12 +114,20 @@ jobs:
         working-directory: apps/sanad-platform
         run: docker build -t sanad-backend:ci .
 
-      - name: Start container
-        working-directory: apps/sanad-platform
+      - name: Start backend with prod profile
         run: |
           docker run -d --name sanad-ci \
+            --network host \
             -p 8080:8080 \
-            -e SPRING_PROFILES_ACTIVE=local \
+            -e SPRING_PROFILES_ACTIVE=prod \
+            -e DATABASE_URL=jdbc:postgresql://localhost:5432/sanad_ci \
+            -e DATABASE_USERNAME=sanad_ci \
+            -e DATABASE_PASSWORD=ci_only_password \
+            -e DATABASE_DRIVER=org.postgresql.Driver \
+            -e JPA_DDL_AUTO=validate \
+            -e FLYWAY_ENABLED=true \
+            -e CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app \
+            -e MANAGEMENT_ENDPOINTS=health \
             sanad-backend:ci
 
       - name: Wait for health endpoint
@@ -117,7 +135,7 @@ jobs:
           for attempt in $(seq 1 30); do
             code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || true)
             if [ "$code" = "200" ]; then
-              echo "Health endpoint is UP (attempt ${attempt})"
+              echo "Health endpoint UP (attempt ${attempt})"
               exit 0
             fi
             echo "Attempt ${attempt}: HTTP ${code}; waiting..."
@@ -130,21 +148,85 @@ jobs:
       - name: Verify liveness endpoint
         run: |
           code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/liveness)
-          if [ "$code" != "200" ]; then
-            echo "Liveness endpoint returned HTTP ${code}"
-            exit 1
-          fi
-          echo "Liveness endpoint OK"
+          [ "$code" = "200" ] || { echo "Liveness failed: HTTP ${code}"; exit 1; }
+          echo "Liveness OK"
 
       - name: Verify readiness endpoint
         run: |
           code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/readiness)
-          if [ "$code" != "200" ]; then
-            echo "Readiness endpoint returned HTTP ${code}"
-            exit 1
-          fi
-          echo "Readiness endpoint OK"
+          [ "$code" = "200" ] || { echo "Readiness failed: HTTP ${code}"; exit 1; }
+          echo "Readiness OK"
+
+      - name: Verify env endpoint is NOT exposed
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/env)
+          [ "$code" = "404" ] || { echo "Env endpoint should be 404 but got ${code}"; exit 1; }
+          echo "Env endpoint correctly NOT exposed"
+
+      - name: Verify Swagger UI is disabled
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/swagger-ui.html)
+          [ "$code" = "404" ] || { echo "Swagger UI should be 404 but got ${code}"; exit 1; }
+          echo "Swagger UI correctly disabled"
 
       - name: Stop container
         if: always()
         run: docker rm -f sanad-ci || true
+
+  docker-compose-validation:
+    name: Docker Compose Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build-test-package
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate compose config
+        working-directory: apps/sanad-platform
+        run: |
+          echo "DATABASE_USERNAME=compose_ci" > /tmp/ci.env
+          echo "DATABASE_PASSWORD=compose_ci_pwd" >> /tmp/ci.env
+          echo "POSTGRES_DB=sanad_compose" >> /tmp/ci.env
+          echo "CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app" >> /tmp/ci.env
+          docker compose -f docker-compose.prod.yml --env-file /tmp/ci.env config
+
+      - name: Start composition
+        working-directory: apps/sanad-platform
+        run: |
+          docker compose -f docker-compose.prod.yml --env-file /tmp/ci.env up -d --build
+
+      - name: Wait for backend health
+        run: |
+          for attempt in $(seq 1 30); do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || true)
+            if [ "$code" = "200" ]; then
+              echo "Compose backend health UP (attempt ${attempt})"
+              exit 0
+            fi
+            echo "Attempt ${attempt}: HTTP ${code}; waiting..."
+            sleep 5
+          done
+          echo "Compose backend did not become healthy."
+          docker compose -f apps/sanad-platform/docker-compose.prod.yml logs || true
+          exit 1
+
+      - name: Verify liveness
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/liveness)
+          [ "$code" = "200" ] || { echo "Liveness failed: ${code}"; exit 1; }
+          echo "Compose liveness OK"
+
+      - name: Verify readiness
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/readiness)
+          [ "$code" = "200" ] || { echo "Readiness failed: ${code}"; exit 1; }
+          echo "Compose readiness OK"
+
+      - name: Cleanup
+        if: always()
+        working-directory: apps/sanad-platform
+        run: |
+          docker compose -f docker-compose.prod.yml --env-file /tmp/ci.env down -v
+          rm -f /tmp/ci.env
