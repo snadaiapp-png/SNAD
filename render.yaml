@@ -22,7 +22,6 @@ services:
     dockerContext: apps/sanad-platform
     healthCheckPath: /actuator/health
     autoDeployTrigger: "off"
-    maxShutdownDelaySeconds: 30
     envVars:
       - key: SPRING_PROFILES_ACTIVE
         value: prod
