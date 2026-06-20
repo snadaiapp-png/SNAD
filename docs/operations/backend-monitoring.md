@@ -1,102 +1,88 @@
 # Backend Monitoring Baseline
 
-## Overview
+## Status
 
-This document defines the initial monitoring and alerting baseline for the SANAD backend deployed on Render.
+**PLANNED — NOT YET CONFIGURED**
 
-## Monitoring Channels
+This document defines the intended monitoring and alerting baseline for the SANAD backend after Render resources are provisioned. Actual availability, retention, restart behavior, notifications, and database monitoring must be verified in the Render Dashboard.
 
-### 1. Render Dashboard
+## Planned Monitoring Channels
 
-| Metric | Source | Frequency |
-|---|---|---|
-| Service status (Live/Stopped/Deploying) | Render dashboard | Real-time |
-| Deployment history | Render dashboard | Per deployment |
-| CPU usage | Render dashboard | Real-time |
-| Memory usage | Render dashboard | Real-time |
-| Response time | Render dashboard | Real-time |
-| Log stream | Render dashboard | Real-time |
+### Render Dashboard
 
-### 2. Application Logs
+The intended operational view includes:
 
-Logs are written to stdout/stderr in the format:
-```
-2026-06-20 12:00:00.000 INFO  [main] com.sanad.platform.SanadPlatformApplication - Started
-```
+- Service status and deployment history
+- CPU and memory utilization
+- Response-time indicators
+- Application log stream
+- PostgreSQL availability, size, and connection activity
 
-Render captures all stdout/stderr output and makes it available in the dashboard log stream.
+All items remain pending provisioning and verification.
 
-### 3. Actuator Health Endpoints
+### Application Logs
 
-| Endpoint | Check | Expected |
-|---|---|---|
-| `/actuator/health` | Overall health | 200, `{"status":"UP"}` |
-| `/actuator/health/liveness` | Liveness probe | 200, `{"status":"UP"}` |
-| `/actuator/health/readiness` | Readiness probe | 200, `{"status":"UP"}` |
+The Spring Boot application writes structured logs to stdout/stderr. Render log collection and retention must be confirmed after the service is created.
+
+### Actuator Health Endpoints
+
+| Endpoint | Expected production result |
+|---|---|
+| `/actuator/health` | HTTP 200 and `UP` |
+| `/actuator/health/liveness` | HTTP 200 and `UP` |
+| `/actuator/health/readiness` | HTTP 200 and `UP` |
 
 ## Operational Thresholds
 
-| Threshold | Trigger | Action |
-|---|---|---|
-| Health endpoint failure | 3 consecutive non-200 responses | Render auto-restart |
-| Repeated restart | Service restarts > 3 times in 10 minutes | Manual investigation; check logs |
-| High memory | Memory > 90% of plan limit | Upgrade plan or investigate leak |
-| High CPU | CPU > 90% for 5 minutes | Upgrade plan or investigate hot path |
-| Database connection exhaustion | HikariCP pool exhausted | Increase `DATABASE_POOL_MAX` or investigate connection leak |
-| HTTP 5xx increase | > 5% of requests return 5xx for 5 minutes | Check application logs; verify database connectivity |
-| Deployment failure | Deploy build fails or health check times out | Rollback to previous deployment |
+The following are initial operational targets, not configured alerts:
 
-## Alerting
-
-### Planned During Provisioning
-
-- **Render deployment notifications: pending provisioning)
-- **Render service health: pending provisioning verification
-
-### Not Yet Configured (Future)
-
-- External alerting (Slack, email, PagerDuty)
-- Uptime monitoring (e.g., UptimeRobot, BetterUptime)
-- APM (Application Performance Monitoring)
-- Database-specific monitoring (connection count, slow queries)
-- Custom metric dashboards
-
-## Log Retention
-
-| Plan | Log Retention |
+| Condition | Initial target action |
 |---|---|
-| Render Starter | 7 days |
-| Render Standard | 30 days |
+| Health endpoint failure | Investigate deployment and service logs |
+| Repeated restarts | Stop rollout and inspect runtime/database failures |
+| Memory above 90% | Investigate memory pressure or increase service capacity |
+| CPU above 90% for five minutes | Investigate load or increase service capacity |
+| Database pool exhaustion | Inspect connection leaks and pool sizing |
+| HTTP 5xx above 5% for five minutes | Inspect logs, database connectivity, and recent deployment |
+| Deployment failure | Retain previous known-good deployment and investigate |
 
-## Database Monitoring
+## Planned During Provisioning
 
-Render PostgreSQL dashboard provides:
-- Connection count
-- Database size
-- Query activity
-- Backup status
+- **Render deployment notifications:** Pending provisioning.
+- **Render service-health notifications:** Pending provisioning and verification.
+- **Auto-restart behavior:** Pending verification after service creation.
+- **CPU and memory metrics:** Pending verification after service creation.
+- **Database monitoring:** Pending verification after database provisioning.
+- **Log retention:** Pending confirmation against the selected Render plan.
 
-## Backup and Recovery
+## Future Integrations
 
-| Aspect | Starter Plan | Standard Plan |
-|---|---|---|
-| Backup frequency | Daily (all plans) | Daily (all plans) |
-| Retention | Plan-dependent (see Render docs) | Plan-dependent (see Render docs) |
-| PITR (Point-in-Time Recovery) | Not available on basic plans | Available on Workspace+ plans |
-| Manual restore | Via dashboard | Via dashboard |
+- External uptime monitoring
+- Slack, email, or PagerDuty alerts
+- Application Performance Monitoring
+- Database slow-query monitoring
+- Centralized operational dashboards
 
-## Incident Response
+## Retention, Backups, and Recovery
 
-1. **Detect**: Health check failure, user report, or monitoring alert
-2. **Assess**: Check Render dashboard for service status and logs
-3. **Mitigate**: Restart service, rollback deployment, or scale up
-4. **Resolve**: Fix root cause, deploy fix, verify health
-5. **Post-mortem**: Document incident, update thresholds if needed
+| Capability | Current status |
+|---|---|
+| Log-retention duration | Pending confirmation in Render Dashboard |
+| Backup frequency | Pending confirmation during provisioning |
+| PITR availability | Pending confirmation during provisioning |
+| Recovery window | Dependent on active Render Workspace and database capabilities; not verified |
+| Restore procedure | To be validated after database provisioning |
+
+No production backup, PITR, log-retention, or restore configuration is currently verified.
+
+## Incident Response Baseline
+
+1. Detect the failure through health checks, platform status, or user reports.
+2. Assess service status, deployment history, and application logs.
+3. Mitigate by stopping rollout, restoring the last known-good deployment, or correcting configuration.
+4. Verify health, liveness, readiness, CORS, and frontend integration.
+5. Document root cause and preventive action.
 
 ## Provisioning Disclaimer
 
-Render platform capabilities are documented as the intended baseline.
-Actual availability and configuration must be verified after resource provisioning.
-
-All monitoring items listed above are PLANNED, not configured.
-None of these capabilities are active until Render resources are provisioned and verified.
+All monitoring items in this document are planned, not configured. None should be treated as active until Render resources are provisioned and the relevant behavior is verified.
