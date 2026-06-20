@@ -87,9 +87,9 @@ Built the SANAD platform backend from skeleton through full REST API:
 
 **Branch:** `feat/EXEC-PROMPT-028-backend-production-release`
 
-**Commit:** _(filled after push)_
+**Commit:** 
 
-**PR:** _(filled after PR creation)_
+**PR:** https://github.com/snadaiapp-png/SNAD/pull/23
 
 **Files created/modified:**
 - `render.yaml` — NEW Render Blueprint

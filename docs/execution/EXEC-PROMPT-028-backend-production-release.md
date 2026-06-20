@@ -159,8 +159,8 @@ See [backend-monitoring.md](../operations/backend-monitoring.md) for full detail
 
 ## Commit SHA
 
-_(filled after push)_
+
 
 ## Pull Request URL
 
-_(filled after PR creation)_
+https://github.com/snadaiapp-png/SNAD/pull/23
