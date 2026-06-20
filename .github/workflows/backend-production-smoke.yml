@@ -1,0 +1,163 @@
+name: Backend Production Smoke
+
+# ============================================================
+# SANAD Platform - Backend Production Smoke Test
+# ------------------------------------------------------------
+# Manual trigger only until backend is provisioned.
+# Requires repository variable: BACKEND_PRODUCTION_URL
+# Optional repository variable: FRONTEND_PRODUCTION_URL
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend_url:
+        description: 'Backend production URL (overrides BACKEND_PRODUCTION_URL var)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-smoke
+  cancel-in-progress: true
+
+jobs:
+  verify-backend:
+    name: Verify Backend Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      BACKEND_URL: ${{ inputs.backend_url || vars.BACKEND_PRODUCTION_URL }}
+      FRONTEND_URL: ${{ vars.FRONTEND_PRODUCTION_URL || 'https://snad-app.vercel.app' }}
+
+    steps:
+      - name: Validate backend URL is set
+        run: |
+          if [ -z "$BACKEND_URL" ]; then
+            echo "ERROR: BACKEND_PRODUCTION_URL repository variable is not set"
+            exit 1
+          fi
+          echo "Backend URL: ${BACKEND_URL}"
+
+      - name: Verify health endpoint
+        run: |
+          for attempt in $(seq 1 12); do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' \
+              --max-time 10 "${BACKEND_URL}/actuator/health" || true)
+            if [ "$code" = "200" ]; then
+              echo "Health endpoint UP (attempt ${attempt})"
+              exit 0
+            fi
+            echo "Attempt ${attempt}: health HTTP ${code}; waiting..."
+            sleep 10
+          done
+          echo "Health endpoint did not become ready."
+          exit 1
+
+      - name: Verify liveness endpoint
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "${BACKEND_URL}/actuator/health/liveness")
+          [ "$code" = "200" ] || { echo "Liveness failed: HTTP ${code}"; exit 1; }
+
+      - name: Verify readiness endpoint
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "${BACKEND_URL}/actuator/health/readiness")
+          [ "$code" = "200" ] || { echo "Readiness failed: HTTP ${code}"; exit 1; }
+
+      - name: Verify env endpoint is NOT exposed
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "${BACKEND_URL}/actuator/env")
+          [ "$code" = "404" ] || { echo "Env should be 404 but got ${code}"; exit 1; }
+
+      - name: Verify Swagger UI is disabled
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "${BACKEND_URL}/swagger-ui.html")
+          [ "$code" = "404" ] || { echo "Swagger should be 404 but got ${code}"; exit 1; }
+
+      - name: Verify CORS allows frontend origin (strict)
+        run: |
+          # Extract origin (scheme + host, no path, no trailing slash)
+          FRONTEND_ORIGIN=$(echo "${FRONTEND_URL}" | sed -E 's|/+$||')
+          echo "Testing CORS from origin: ${FRONTEND_ORIGIN}"
+
+          # Capture only the response headers we need
+          CORS_RESPONSE=$(curl -sS -D /tmp/cors-headers.txt -o /dev/null --max-time 10 \
+            -X OPTIONS \
+            -H "Origin: ${FRONTEND_ORIGIN}" \
+            -H "Access-Control-Request-Method: GET" \
+            "${BACKEND_URL}/api/v1/organizations" || true)
+
+          HTTP_CODE=$(head -1 /tmp/cors-headers.txt | grep -oP '\d{3}' || echo "000")
+
+          ACAO=$(grep -i "access-control-allow-origin" /tmp/cors-headers.txt | tr -d '\r' | awk -F': ' '{print $2}')
+          ACAC=$(grep -i "access-control-allow-credentials" /tmp/cors-headers.txt | tr -d '\r' | awk -F': ' '{print $2}')
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "CORS FAILED:"
+            echo "  HTTP status: ${HTTP_CODE} (expected 200)"
+            echo "  Access-Control-Allow-Origin: ${ACAO:-<missing>}"
+            echo "  Access-Control-Allow-Credentials: ${ACAC:-<missing>}"
+            exit 1
+          fi
+
+          if [ "$ACAO" != "$FRONTEND_ORIGIN" ]; then
+            echo "CORS FAILED:"
+            echo "  HTTP status: ${HTTP_CODE}"
+            echo "  Access-Control-Allow-Origin: ${ACAO:-<missing>} (expected ${FRONTEND_ORIGIN})"
+            echo "  Access-Control-Allow-Credentials: ${ACAC:-<missing>}"
+            exit 1
+          fi
+
+          if [ "$ACAC" != "true" ]; then
+            echo "CORS FAILED:"
+            echo "  HTTP status: ${HTTP_CODE}"
+            echo "  Access-Control-Allow-Origin: ${ACAO}"
+            echo "  Access-Control-Allow-Credentials: ${ACAC:-<missing>} (expected true)"
+            exit 1
+          fi
+
+          echo "CORS PASSED: HTTP 200, Allow-Origin=${ACAO}, Allow-Credentials=${ACAC}"
+
+      - name: Verify frontend production page
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "${FRONTEND_URL}")
+          [ "$code" = "200" ] || { echo "Frontend failed: HTTP ${code}"; exit 1; }
+          echo "Frontend OK"
+
+      - name: Verify frontend integration route
+        run: |
+          # Call the frontend's backend-status API route
+          RESPONSE=$(curl -sS --max-time 15 \
+            "${FRONTEND_URL}/api/system/backend-status" || true)
+
+          echo "Frontend integration response: ${RESPONSE}"
+
+          CONFIGURED=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('configured',''))" 2>/dev/null || echo "")
+          REACHABLE=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('reachable',''))" 2>/dev/null || echo "")
+          STATUS_CODE=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('statusCode',''))" 2>/dev/null || echo "")
+
+          if [ "$CONFIGURED" != "True" ]; then
+            echo "ERROR: Frontend reports API not configured (configured=${CONFIGURED})"
+            exit 1
+          fi
+
+          if [ "$REACHABLE" != "True" ]; then
+            echo "ERROR: Frontend reports backend not reachable (reachable=${REACHABLE})"
+            exit 1
+          fi
+
+          if [ "$STATUS_CODE" != "200" ]; then
+            echo "ERROR: Backend status code is ${STATUS_CODE}, expected 200"
+            exit 1
+          fi
+
+          echo "✅ Frontend integration verified"

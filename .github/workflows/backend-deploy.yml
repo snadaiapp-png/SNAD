@@ -1,0 +1,119 @@
+name: Backend Deploy
+
+# ============================================================
+# SANAD Platform - Backend Deployment to Render
+# ------------------------------------------------------------
+# Triggers a Render deploy hook to deploy the backend.
+# Requires:
+#   Secret: RENDER_DEPLOY_HOOK_URL
+#   Variable: BACKEND_PRODUCTION_URL
+#
+# Manual trigger only until first production release is verified.
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_deploy:
+        description: 'Type "deploy" to confirm production deployment'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Backend to Render
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event.inputs.confirm_deploy == 'deploy'
+    env:
+      BACKEND_URL: ${{ vars.BACKEND_PRODUCTION_URL }}
+
+    steps:
+      - name: Validate configuration
+        run: |
+          if [ -z "$BACKEND_URL" ]; then
+            echo "ERROR: BACKEND_PRODUCTION_URL repository variable is not set"
+            exit 1
+          fi
+          echo "Backend URL configured"
+
+      - name: Trigger Render deploy hook
+        env:
+          RENDER_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_HOOK" ]; then
+            echo "ERROR: RENDER_DEPLOY_HOOK_URL secret is not configured"
+            exit 1
+          fi
+          echo "Triggering Render deploy..."
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            --max-time 30 -X POST "$RENDER_HOOK" || true)
+          if [ "$code" != "200" ] && [ "$code" != "201" ] && [ "$code" != "202" ]; then
+            echo "Render deploy hook failed: HTTP ${code}"
+            exit 1
+          fi
+          echo "Deploy hook accepted (HTTP ${code})"
+
+      - name: Wait for deployment
+        run: |
+          echo "Waiting 60s for Render to start deployment..."
+          sleep 60
+
+      - name: Verify health endpoint
+        run: |
+          for attempt in $(seq 1 18); do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' \
+              --max-time 10 "${BACKEND_URL}/actuator/health" || true)
+            if [ "$code" = "200" ]; then
+              echo "Backend health UP (attempt ${attempt})"
+              exit 0
+            fi
+            echo "Attempt ${attempt}: HTTP ${code}; waiting..."
+            sleep 15
+          done
+          echo "Backend did not become healthy after deployment."
+          exit 1
+
+      - name: Verify liveness
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "${BACKEND_URL}/actuator/health/liveness")
+          [ "$code" = "200" ] || { echo "Liveness failed: ${code}"; exit 1; }
+
+      - name: Verify readiness
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "${BACKEND_URL}/actuator/health/readiness")
+          [ "$code" = "200" ] || { echo "Readiness failed: ${code}"; exit 1; }
+
+      - name: Verify env endpoint is NOT exposed
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "${BACKEND_URL}/actuator/env")
+          [ "$code" = "404" ] || { echo "Env should be 404 but got ${code}"; exit 1; }
+
+      - name: Verify Swagger UI is disabled
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "${BACKEND_URL}/swagger-ui.html")
+          [ "$code" = "404" ] || { echo "Swagger should be 404 but got ${code}"; exit 1; }
+
+      - name: Deployment summary
+        run: |
+          echo "=== Deployment Summary ==="
+          echo "Backend URL: ${BACKEND_URL}"
+          echo "Health: UP"
+          echo "Liveness: UP"
+          echo "Readiness: UP"
+          echo "Env: 404 (not exposed)"
+          echo "Swagger: 404 (disabled)"
+          echo "Commit: ${{ github.sha }}"
+          echo "Triggered by: ${{ github.actor }}"

@@ -18,6 +18,10 @@ sanad:
 
 spring:
   datasource:
+    # DATABASE_URL, DATABASE_USERNAME, DATABASE_PASSWORD can be set explicitly.
+    # If RENDER_DATABASE_URL is set instead, RenderDatabaseUrlConverter
+    # (EnvironmentPostProcessor) will parse it and set these properties
+    # at startup, unless explicitly overridden here.
     url: ${DATABASE_URL:}
     username: ${DATABASE_USERNAME:}
     password: ${DATABASE_PASSWORD:}
