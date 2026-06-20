@@ -1,0 +1,204 @@
+name: Backup Restore Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'apps/sanad-platform/**'
+      - '.github/workflows/backup-restore-validation.yml'
+      - 'docs/production-readiness/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-restore-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  logical-backup-restore:
+    name: PostgreSQL Logical Backup and Restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: sanad_source
+          POSTGRES_USER: sanad_recovery
+          POSTGRES_PASSWORD: recovery_ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build backend image
+        working-directory: apps/sanad-platform
+        run: docker build -t sanad-backend:recovery-ci .
+
+      - name: Start source application and apply migrations
+        run: |
+          docker run -d --name sanad-source-app \
+            --network host \
+            -e SERVER_PORT=8080 \
+            -e SPRING_PROFILES_ACTIVE=prod \
+            -e DATABASE_URL=jdbc:postgresql://localhost:5432/sanad_source \
+            -e DATABASE_USERNAME=sanad_recovery \
+            -e DATABASE_PASSWORD=recovery_ci_only \
+            -e DATABASE_DRIVER=org.postgresql.Driver \
+            -e JPA_DDL_AUTO=validate \
+            -e FLYWAY_ENABLED=true \
+            -e CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app \
+            -e MANAGEMENT_ENDPOINTS=health \
+            sanad-backend:recovery-ci
+
+      - name: Wait for source application health
+        run: |
+          for attempt in $(seq 1 36); do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || true)
+            if [ "$code" = "200" ]; then
+              echo "Source application healthy on attempt ${attempt}"
+              exit 0
+            fi
+            sleep 5
+          done
+          docker logs sanad-source-app || true
+          exit 1
+
+      - name: Capture source schema evidence
+        run: |
+          docker run --rm --network host \
+            -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
+            psql -h localhost -U sanad_recovery -d sanad_source -v ON_ERROR_STOP=1 \
+            -c "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank;" \
+            -c "SELECT COUNT(*) AS application_table_count FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'flyway_schema_history';"
+
+      - name: Create compressed logical backup
+        run: |
+          start_epoch=$(date +%s)
+          docker run --rm --network host \
+            -e PGPASSWORD=recovery_ci_only \
+            -v "$PWD:/work" postgres:16-alpine \
+            pg_dump -h localhost -U sanad_recovery -d sanad_source \
+            --format=custom --no-owner --no-privileges \
+            --file=/work/sanad_source.dump
+          end_epoch=$(date +%s)
+          echo "BACKUP_DURATION_SECONDS=$((end_epoch-start_epoch))" >> "$GITHUB_ENV"
+          test -s sanad_source.dump
+
+      - name: Create isolated restore database
+        run: |
+          docker run --rm --network host \
+            -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
+            psql -h localhost -U sanad_recovery -d postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE DATABASE sanad_restore OWNER sanad_recovery;"
+
+      - name: Restore backup and measure recovery time
+        run: |
+          start_epoch=$(date +%s)
+          docker run --rm --network host \
+            -e PGPASSWORD=recovery_ci_only \
+            -v "$PWD:/work" postgres:16-alpine \
+            pg_restore -h localhost -U sanad_recovery -d sanad_restore \
+            --no-owner --no-privileges --exit-on-error \
+            /work/sanad_source.dump
+          end_epoch=$(date +%s)
+          echo "RESTORE_DURATION_SECONDS=$((end_epoch-start_epoch))" >> "$GITHUB_ENV"
+
+      - name: Validate restored schema and migration state
+        run: |
+          source_tables=$(docker run --rm --network host \
+            -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
+            psql -h localhost -U sanad_recovery -d sanad_source -At \
+            -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'flyway_schema_history';")
+          restored_tables=$(docker run --rm --network host \
+            -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
+            psql -h localhost -U sanad_recovery -d sanad_restore -At \
+            -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'flyway_schema_history';")
+          source_version=$(docker run --rm --network host \
+            -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
+            psql -h localhost -U sanad_recovery -d sanad_source -At \
+            -c "SELECT version FROM flyway_schema_history WHERE success=true ORDER BY installed_rank DESC LIMIT 1;")
+          restored_version=$(docker run --rm --network host \
+            -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
+            psql -h localhost -U sanad_recovery -d sanad_restore -At \
+            -c "SELECT version FROM flyway_schema_history WHERE success=true ORDER BY installed_rank DESC LIMIT 1;")
+
+          echo "Source tables: ${source_tables}"
+          echo "Restored tables: ${restored_tables}"
+          echo "Source Flyway version: ${source_version}"
+          echo "Restored Flyway version: ${restored_version}"
+
+          test "$source_tables" = "$restored_tables"
+          test "$source_version" = "$restored_version"
+          test "$restored_version" = "9"
+
+      - name: Start application against restored database
+        run: |
+          docker run -d --name sanad-restored-app \
+            --network host \
+            -e SERVER_PORT=8081 \
+            -e SPRING_PROFILES_ACTIVE=prod \
+            -e DATABASE_URL=jdbc:postgresql://localhost:5432/sanad_restore \
+            -e DATABASE_USERNAME=sanad_recovery \
+            -e DATABASE_PASSWORD=recovery_ci_only \
+            -e DATABASE_DRIVER=org.postgresql.Driver \
+            -e JPA_DDL_AUTO=validate \
+            -e FLYWAY_ENABLED=true \
+            -e CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app \
+            -e MANAGEMENT_ENDPOINTS=health \
+            sanad-backend:recovery-ci
+
+      - name: Verify restored application health
+        run: |
+          for attempt in $(seq 1 36); do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8081/actuator/health || true)
+            if [ "$code" = "200" ]; then
+              echo "Restored application healthy on attempt ${attempt}"
+              exit 0
+            fi
+            sleep 5
+          done
+          docker logs sanad-restored-app || true
+          exit 1
+
+      - name: Write recovery evidence summary
+        if: success()
+        run: |
+          {
+            echo "## Backup and Restore Validation"
+            echo ""
+            echo "- Result: PASSED"
+            echo "- Source schema version: 9"
+            echo "- Restored schema version: 9"
+            echo "- Backup duration: ${BACKUP_DURATION_SECONDS}s"
+            echo "- Restore duration: ${RESTORE_DURATION_SECONDS}s"
+            echo "- Restored application health: HTTP 200"
+            echo "- Test scope: isolated PostgreSQL logical backup and restore in CI"
+            echo "- Production provider restore test: still required before closing issue #30"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload backup artifact for audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-validation-dump
+          path: sanad_source.dump
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Cleanup containers
+        if: always()
+        run: |
+          docker rm -f sanad-source-app sanad-restored-app || true
+          rm -f sanad_source.dump
