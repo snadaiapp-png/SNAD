@@ -1,0 +1,88 @@
+name: Pilot Synthetic Monitoring
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pilot-synthetic-monitoring
+  cancel-in-progress: true
+
+jobs:
+  synthetic-check:
+    name: Backend and Frontend Integration Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check backend health
+        id: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://sanad-backend-mcrj.onrender.com/actuator/health'
+          start=$(date +%s)
+          response=''
+          code='000'
+
+          for attempt in $(seq 1 6); do
+            result=$(curl --silent --show-error --location \
+              --connect-timeout 15 --max-time 120 \
+              --write-out '\n%{http_code}' "$url" || true)
+            response=$(printf '%s' "$result" | sed '$d')
+            code=$(printf '%s' "$result" | tail -n 1)
+
+            if [ "$code" = '200' ] && printf '%s' "$response" | grep -q '"status":"UP"'; then
+              elapsed=$(($(date +%s)-start))
+              echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
+              echo "Backend health passed in ${elapsed}s"
+              exit 0
+            fi
+
+            echo "Attempt ${attempt} failed with HTTP ${code}; retrying..."
+            sleep 20
+          done
+
+          echo "Backend health failed. Last HTTP status: ${code}"
+          printf '%s\n' "$response"
+          exit 1
+
+      - name: Check frontend integration
+        id: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://snad-app.vercel.app/api/system/backend-status'
+          start=$(date +%s)
+          result=$(curl --silent --show-error --location \
+            --connect-timeout 15 --max-time 60 \
+            --write-out '\n%{http_code}' "$url")
+          response=$(printf '%s' "$result" | sed '$d')
+          code=$(printf '%s' "$result" | tail -n 1)
+          elapsed=$(($(date +%s)-start))
+
+          test "$code" = '200'
+          printf '%s' "$response" | grep -q '"configured":true'
+          printf '%s' "$response" | grep -q '"reachable":true'
+          printf '%s' "$response" | grep -q '"statusCode":200'
+
+          echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
+          echo "Frontend integration passed in ${elapsed}s"
+
+      - name: Publish monitoring summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## SANAD Pilot Synthetic Monitoring'
+            echo ''
+            echo "- Checked at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "- Backend health duration: ${{ steps.backend.outputs.elapsed_seconds || 'failed' }} seconds"
+            echo "- Frontend integration duration: ${{ steps.frontend.outputs.elapsed_seconds || 'failed' }} seconds"
+            echo "- Scope: pilot availability and integration baseline"
+            echo "- Production monitoring gate: remains open"
+          } >> "$GITHUB_STEP_SUMMARY"
