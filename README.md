@@ -16,13 +16,15 @@ Enterprise AI-Powered ERP, CRM and Workflow Platform.
 - Java 17 (target) / 21 (runtime)
 - Maven
 - PostgreSQL 16 (Flyway migrations V1-V9)
-- Hosted on Render (production)
+- Backend hosting target: Render
+- Provisioning status: pending
+- Production URL: pending verification
 
 ### Infrastructure
 - Docker (multi-stage build, non-root user)
-- GitHub Actions CI/CD (3 backend jobs + frontend CI + production smoke)
+- GitHub Actions CI/CD (backend + frontend + Docker + Render Blueprint validation)
 - Vercel (frontend)
-- Render (backend + managed PostgreSQL)
+- Render (backend + managed PostgreSQL) — pending provisioning
 
 ## Project Structure
 
@@ -42,11 +44,10 @@ render.yaml         # Render Blueprint
 
 ## Production URLs
 
-| Service | URL |
-|---|---|
-| Frontend | https://snad-app.vercel.app |
-| Backend | https://sanad-backend.onrender.com |
-| Backend Health | https://sanad-backend.onrender.com/actuator/health |
+| Service | URL | Status |
+|---|---|---|
+| Frontend | https://snad-app.vercel.app | Live |
+| Backend | Pending provisioning | Pending |
 
 ## Documentation
 
@@ -56,4 +57,4 @@ render.yaml         # Render Blueprint
 - [ADR-028: Hosting Provider Selection](docs/architecture/adr/ADR-028-backend-hosting-provider.md)
 - [Progress Report](docs/execution/progress-report.md)
 
-Status: Stage 4 - Backend Production Release
+Status: Stage 4 - Backend Production Release (IN PROGRESS)

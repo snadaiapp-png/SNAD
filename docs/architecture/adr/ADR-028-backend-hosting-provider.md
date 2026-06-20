@@ -44,7 +44,7 @@ The SANAD platform backend (Spring Boot 3.3.5, Java 17/21, Docker) needs a produ
 | Initial monthly cost | ~$7 (Starter web) + ~$7 (PostgreSQL) = ~$14 |
 | Scaling path | Vertical (instance size) then horizontal (instances) |
 | Vendor lock-in | Low — standard Docker, standard PostgreSQL |
-| Saudi/ME latency | Oregon (US West) is closest available; ~250ms RTT to KSA |
+| Saudi/ME latency | Frankfurt (EU Central) is closest available; ~120-180ms estimated RTT to KSA |
 
 ### 2. Railway
 
@@ -126,9 +126,28 @@ Render's available regions as of 2026:
 - Ohio (US East) — `ohio`
 - Frankfurt (EU Central) — `frankfurt`
 
-**Selected: Oregon (US West)**
+**Selected: Frankfurt (EU Central)**
 
-Rationale: Oregon has the lowest latency to Saudi Arabia among Render's available regions (~250ms RTT vs ~300ms for Frankfurt). While not ideal for ME users, it is the best available option on Render. When traffic grows, migration to AWS (Bahrain region) or Fly.io (Amman, Jordan) should be considered for sub-100ms latency.
+#### Region Comparison
+
+| Region | Approximate RTT to KSA | Rationale |
+|---|---|---|
+| Frankfurt | ~120-180ms | Shorter geographic distance to KSA; major ME peering hub (DE-CIX) |
+| Oregon | ~250-300ms | Trans-Pacific route; significantly longer distance |
+| Singapore | ~180-220ms | Via Indian Ocean; longer than Frankfurt |
+
+#### Uncertainty Statement
+
+The above RTT estimates are approximate, based on geographic distance, typical backbone routing, and published cloud latency benchmarks. **Actual latency has not been measured from Saudi Arabia.** Estimates carry ±50ms uncertainty. A formal latency test from a KSA endpoint should be conducted post-deployment.
+
+#### Why Frankfurt Over Oregon
+
+1. Geographic proximity: Frankfurt is ~4,100km from Riyadh vs ~12,000km for Oregon
+2. Network routing: European backbone has high-capacity links to MENA cable systems
+3. DE-CIX (Frankfurt) is one of the world's largest IXPs with direct MENA peering
+4. Conservative default: when measured latency is unavailable, choose geographically closer region
+
+Backend and database must be in the same region (Frankfurt).
 
 ## Migration Triggers
 

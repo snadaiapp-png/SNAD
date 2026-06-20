@@ -107,7 +107,7 @@ To add a custom domain (e.g., `api.sanad.example`):
 
 ## Region
 
-The backend and database are deployed in the **Oregon** region (US West). This is the closest available Render region to Saudi Arabia.
+The backend and database are deployed in the **Frankfurt** region (US West). This is the closest available Render region to Saudi Arabia.
 
 ## Cost
 

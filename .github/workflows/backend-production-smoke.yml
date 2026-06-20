@@ -4,30 +4,26 @@ name: Backend Production Smoke
 # SANAD Platform - Backend Production Smoke Test
 # ------------------------------------------------------------
 # Verifies the production backend deployment is live and
-# healthy. Can be triggered manually with a custom URL or
-# runs automatically on push to main.
+# healthy. Manual trigger only until backend is provisioned.
+#
+# Requires repository variable: BACKEND_PRODUCTION_URL
+# Optional repository variable: FRONTEND_PRODUCTION_URL
 # ============================================================
 
 on:
   workflow_dispatch:
     inputs:
       backend_url:
-        description: 'Backend production URL (e.g. https://sanad-backend.onrender.com)'
+        description: 'Backend production URL (overrides BACKEND_PRODUCTION_URL var)'
         required: false
         default: ''
         type: string
-  push:
-    branches:
-      - main
-    paths:
-      - 'apps/sanad-platform/**'
-      - '.github/workflows/backend-production-smoke.yml'
 
 permissions:
   contents: read
 
 concurrency:
-  group: backend-smoke-${{ github.ref }}
+  group: backend-smoke
   cancel-in-progress: true
 
 jobs:
@@ -37,11 +33,23 @@ jobs:
     timeout-minutes: 10
 
     env:
-      BACKEND_URL: ${{ inputs.backend_url || 'https://sanad-backend.onrender.com' }}
+      BACKEND_URL: ${{ inputs.backend_url || vars.BACKEND_PRODUCTION_URL }}
+      FRONTEND_URL: ${{ vars.FRONTEND_PRODUCTION_URL || 'https://snad-app.vercel.app' }}
 
     steps:
-      - name: Wait for deployment
-        run: sleep 30
+      - name: Validate backend URL is set
+        run: |
+          if [ -z "$BACKEND_URL" ]; then
+            echo "ERROR: BACKEND_PRODUCTION_URL repository variable is not set"
+            echo "and no backend_url input was provided."
+            echo ""
+            echo "Set the repository variable in:"
+            echo "  GitHub → Settings → Secrets and variables → Actions → Variables"
+            echo "  Name:  BACKEND_PRODUCTION_URL"
+            echo "  Value: https://sanad-backend.onrender.com"
+            exit 1
+          fi
+          echo "Backend URL: ${BACKEND_URL}"
 
       - name: Verify health endpoint
         run: |
@@ -89,6 +97,23 @@ jobs:
       - name: Verify frontend production page
         run: |
           code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
-            "https://snad-app.vercel.app")
+            "${FRONTEND_URL}")
           [ "$code" = "200" ] || { echo "Frontend failed: HTTP ${code}"; exit 1; }
-          echo "Frontend OK"
+          echo "Frontend OK (${FRONTEND_URL})"
+
+      - name: Verify CORS allows frontend origin
+        run: |
+          # Send a CORS preflight from the frontend origin
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            -X OPTIONS \
+            -H "Origin: ${FRONTEND_URL}" \
+            -H "Access-Control-Request-Method: GET" \
+            "${BACKEND_URL}/api/v1/organizations" || true)
+          echo "CORS preflight from ${FRONTEND_URL} returned HTTP ${code}"
+          # Spring returns 200 or 403 depending on CORS evaluation
+          # 200 = allowed, 403 = blocked
+          if [ "$code" = "403" ]; then
+            echo "ERROR: CORS blocked the frontend origin"
+            exit 1
+          fi
+          echo "CORS allows frontend origin"

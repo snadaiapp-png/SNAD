@@ -26,7 +26,7 @@ See [ADR-028](../architecture/adr/ADR-028-backend-hosting-provider.md) for full 
 
 ## Region Decision
 
-**Selected: Oregon (US West)** — closest available Render region to Saudi Arabia (~250ms RTT). Migration to AWS Bahrain or Fly.io Amman should be considered when sub-150ms latency is required.
+**Selected: Frankfurt (US West)** — closest available Render region to Saudi Arabia (~120-180ms estimated RTT). Migration to AWS Bahrain or Fly.io Amman should be considered when sub-150ms latency is required.
 
 ## Render Service Configuration
 
@@ -39,7 +39,7 @@ See [ADR-028](../architecture/adr/ADR-028-backend-hosting-provider.md) for full 
 | Dockerfile path | ./Dockerfile |
 | Branch | main |
 | Health check path | /actuator/health |
-| Region | oregon |
+| Region | frankfurt |
 | Plan | starter |
 | Auto-deploy | true (from render.yaml) |
 
@@ -49,7 +49,7 @@ See [ADR-028](../architecture/adr/ADR-028-backend-hosting-provider.md) for full 
 |---|---|
 | Service name | sanad-database |
 | Type | Managed PostgreSQL (psdb) |
-| Region | oregon |
+| Region | frankfurt |
 | Plan | starter |
 | Database name | sanad |
 | TLS | Enabled (Render default) |
@@ -141,7 +141,7 @@ See [backend-monitoring.md](../operations/backend-monitoring.md) for full detail
 
 ## Known Risks
 
-1. **Latency**: Oregon region adds ~250ms RTT to KSA. Not ideal for real-time features.
+1. **Latency**: Frankfurt region adds ~120-180ms estimated RTT to KSA. Not ideal for real-time features.
 2. **Starter plan limits**: 512MB RAM, shared CPU. May need upgrading at scale.
 3. **No custom domain yet**: Backend uses `*.onrender.com` until owner acquires a domain.
 4. **Render PostgreSQL Starter**: 90-day data retention. Upgrade to Standard for 1-year retention.

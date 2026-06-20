@@ -18,7 +18,10 @@ sanad:
 
 spring:
   datasource:
-    url: ${DATABASE_URL:}
+    # Accepts either a JDBC URL (DATABASE_URL) or a Render postgresql:// URL
+    # (RENDER_DATABASE_URL). The conversion is handled by a Spring property
+    # that checks RENDER_DATABASE_URL first and converts it to jdbc:postgresql://
+    url: ${DATABASE_URL:#{'${RENDER_DATABASE_URL:}'.replaceFirst('^postgresql://', 'jdbc:postgresql://')}}
     username: ${DATABASE_USERNAME:}
     password: ${DATABASE_PASSWORD:}
     driver-class-name: ${DATABASE_DRIVER:org.postgresql.Driver}

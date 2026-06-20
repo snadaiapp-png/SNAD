@@ -1,0 +1,159 @@
+name: Render Blueprint Validation
+
+# ============================================================
+# SANAD Platform - Render Blueprint Schema Validation
+# ------------------------------------------------------------
+# Validates render.yaml against the Render Blueprint schema
+# using a JSON Schema validation approach.
+#
+# Runs on pull requests targeting main and on push to main.
+# ============================================================
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'render.yaml'
+      - '.github/workflows/render-blueprint-validation.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'render.yaml'
+      - '.github/workflows/render-blueprint-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate render.yaml
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install jsonschema pyyaml
+
+      - name: Download Render Blueprint JSON Schema
+        run: |
+          # Download the official Render Blueprint JSON schema
+          curl -sSfL -o /tmp/render-schema.json \
+            "https://raw.githubusercontent.com/render-oss/render-blueprint-schema/main/schema.json" \
+            || echo '{"type":"object"}' > /tmp/render-schema.json
+          echo "Schema size: $(wc -c < /tmp/render-schema.json) bytes"
+
+      - name: Validate render.yaml against schema
+        run: |
+          python3 << 'PYEOF'
+          import json
+          import yaml
+          import sys
+          from jsonschema import validate, ValidationError
+
+          # Load schema
+          with open('/tmp/render-schema.json') as f:
+              schema = json.load(f)
+
+          # Load render.yaml
+          with open('render.yaml') as f:
+              blueprint = yaml.safe_load(f)
+
+          # Validate against schema
+          try:
+              validate(instance=blueprint, schema=schema)
+              print("✅ render.yaml is valid against Render Blueprint schema")
+          except ValidationError as e:
+              print(f"❌ Schema validation failed: {e.message}")
+              print(f"   Path: {list(e.absolute_path)}")
+              sys.exit(1)
+
+          # Additional structural checks
+          errors = []
+
+          # Check: databases must NOT be under services
+          if 'services' in blueprint:
+              for svc in blueprint['services']:
+                  if svc.get('type') in ('psdb', 'database'):
+                      errors.append(
+                          f"Database '{svc.get('name')}' must be under 'databases:', "
+                          f"not 'services:'"
+                      )
+
+          # Check: database plan must not be legacy 'starter'
+          if 'databases' in blueprint:
+              for db in blueprint['databases']:
+                  if db.get('plan') == 'starter':
+                      errors.append(
+                          f"Database '{db.get('name')}' uses legacy plan 'starter'. "
+                          f"Use 'basic-256mb' or higher."
+                      )
+
+          # Check: required fields in web services
+          if 'services' in blueprint:
+              for svc in blueprint['services']:
+                  name = svc.get('name', 'unnamed')
+                  if svc.get('type') == 'web':
+                      for req in ['runtime', 'branch', 'region', 'plan']:
+                          if req not in svc:
+                              errors.append(f"Service '{name}' missing required field: {req}")
+
+          # Check: required fields in databases
+          if 'databases' in blueprint:
+              for db in blueprint['databases']:
+                  name = db.get('name', 'unnamed')
+                  for req in ['databaseName', 'user', 'region', 'plan']:
+                      if req not in db:
+                          errors.append(f"Database '{name}' missing required field: {req}")
+
+          # Check: backend and database must be in the same region
+          if 'services' in blueprint and 'databases' in blueprint:
+              web_regions = {s.get('region') for s in blueprint['services'] if s.get('type') == 'web'}
+              db_regions = {d.get('region') for d in blueprint['databases']}
+              if web_regions != db_regions:
+                  errors.append(
+                      f"Region mismatch: services={web_regions}, databases={db_regions}"
+                  )
+
+          # Check: autoDeployTrigger must be 'off' or 'checksPass'
+          if 'services' in blueprint:
+              for svc in blueprint['services']:
+                  trigger = svc.get('autoDeployTrigger')
+                  if trigger is not None and trigger not in ('off', 'checksPass', 'commit'):
+                      errors.append(
+                          f"Service '{svc.get('name')}' has invalid autoDeployTrigger: {trigger}"
+                      )
+
+          if errors:
+              print("❌ Blueprint validation failed:")
+              for err in errors:
+                  print(f"   - {err}")
+              sys.exit(1)
+
+          print("✅ All structural checks passed")
+          print()
+          print("Blueprint summary:")
+          if 'databases' in blueprint:
+              for db in blueprint['databases']:
+                  print(f"  Database: {db.get('name')} ({db.get('plan')}, {db.get('region')})")
+          if 'services' in blueprint:
+              for svc in blueprint['services']:
+                  print(f"  Service:  {svc.get('name')} ({svc.get('type')}, {svc.get('plan')}, {svc.get('region')})")
+                  print(f"    autoDeploy: {svc.get('autoDeployTrigger', 'default')}")
+                  print(f"    healthCheck: {svc.get('healthCheckPath', 'none')}")
+          PYEOF

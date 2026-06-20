@@ -80,9 +80,9 @@ Render PostgreSQL dashboard provides:
 
 | Aspect | Starter Plan | Standard Plan |
 |---|---|---|
-| Backup frequency | Daily | Daily |
-| Retention | 7 days | 1 year |
-| PITR (Point-in-Time Recovery) | Not available | Available |
+| Backup frequency | Daily (all plans) | Daily (all plans) |
+| Retention | Plan-dependent (see Render docs) | Plan-dependent (see Render docs) |
+| PITR (Point-in-Time Recovery) | Not available on basic plans | Available on Workspace+ plans |
 | Manual restore | Via dashboard | Via dashboard |
 
 ## Incident Response
