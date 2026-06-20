@@ -39,7 +39,7 @@ Prepare the SANAD Spring Boot backend for secure and repeatable production hosti
 Created `application-prod.yml` with:
 
 - All externalized settings resolved from environment variables
-- Mandatory variables use `?` syntax: startup fails if missing
+- Mandatory database variables validated by `ProductionDatabaseProperties` using `@ConfigurationProperties(prefix = "sanad.database")`, `@Validated`, and `@NotBlank` annotations on `url`, `username`, and `password` fields. Startup fails with a clear message if any are missing.
 - `spring.jpa.hibernate.ddl-auto=validate` (never auto-create/update)
 - `spring.flyway.clean-disabled=true` (never clean production DB)
 - `spring.flyway.baseline-on-migrate=false` (no silent baselining)
@@ -47,7 +47,8 @@ Created `application-prod.yml` with:
 - `info` endpoints disabled (env, java, os)
 - springdoc Swagger UI disabled
 - Structured console logging with timestamp + level + logger
-- Graceful shutdown with 30s timeout
+- Graceful shutdown with `server.shutdown=graceful` and `spring.lifecycle.timeout-per-shutdown-phase=${SHUTDOWN_TIMEOUT:30s}`
+- CORS implemented via `CorsConfig` (`@Configuration` + `WebMvcConfigurer`), reads `cors.allowed-origins` from `CORS_ALLOWED_ORIGINS` env var, applies to `/api/**` routes only, explicit methods/headers/credentials, default production origin `https://snad-app.vercel.app`
 
 ## Required Environment Variables
 
@@ -124,12 +125,23 @@ In production, `show-details: never` — internal component details are not expo
 
 ## CI Validation
 
-The CI pipeline (`ci.yml`) now has two jobs:
+The CI pipeline (`ci.yml`) has three jobs:
 
-1. **build-test-package**: Maven compile + test + package + artifact upload
-2. **docker-build-and-health**: Docker image build + container start + health/liveness/readiness endpoint verification + container cleanup
+1. **Build, Test & Package**: Maven compile + test + package + artifact upload. Runs all 274+ tests including `ProductionDatabasePropertiesTest`, `ProductionStartupFailureTest`, `CorsConfigTest`, `HealthEndpointTest`, and `ProductionProfileTest` (Testcontainers PostgreSQL, runs in CI where Docker is available).
 
-Both jobs run on push to main and pull requests targeting main.
+2. **Docker Build & Prod Health**: Builds the Docker image, starts a PostgreSQL service container, starts the backend with `SPRING_PROFILES_ACTIVE=prod`, and validates:
+   - Health endpoint returns 200 UP
+   - Liveness endpoint returns 200 UP
+   - Readiness endpoint returns 200 UP
+   - `env` endpoint is NOT exposed (404)
+   - Swagger UI is disabled (404)
+   - Flyway migrations complete successfully
+   - Hibernate `validate` mode passes
+   - Does NOT use the `local` profile — uses `prod` against real PostgreSQL
+
+3. **Docker Compose Validation**: Runs `docker-compose.prod.yml config` to validate syntax, then starts the full composition (PostgreSQL + backend with prod profile), waits for backend health, verifies liveness + readiness, and always cleans up with `docker compose down -v`.
+
+CI uses temporary CI-only credentials that are not exposed in logs.
 
 ## Security Decisions
 
@@ -179,8 +191,12 @@ docker run -d --name sanad-backend -p 8080:8080 sanad-backend:<previous-tag>
 
 ## Commit SHA
 
-
+```
+0b060ecd240b59c2aa964421a996dbcdbc3bc09a
+```
 
 ## Pull Request URL
 
+```
 https://github.com/snadaiapp-png/SNAD/pull/21
+```

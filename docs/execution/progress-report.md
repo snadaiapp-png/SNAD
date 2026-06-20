@@ -47,13 +47,13 @@ Built the SANAD platform backend from skeleton through full REST API:
 
 ### Step 1 — Backend Hosting Readiness (EXEC-PROMPT-027)
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 
-**Summary:** Established the production runtime baseline. Created `application-prod.yml` with full environment-variable externalization. Hardened `application.yml` with graceful shutdown timeout and logging pattern. Updated Dockerfile to Java 21, added container health check, and set default profile to `prod`. Created `docker-compose.prod.yml` with PostgreSQL 16 + backend. Created `.env.example` template. Added 6 health endpoint tests. Updated CI to include Docker build + container health validation job.
+**Summary:** Established the production runtime baseline. Created `application-prod.yml` with `ProductionDatabaseProperties` (`@ConfigurationProperties` + `@Validated` + `@NotBlank`) for fail-fast startup validation. Implemented `CorsConfig` for `CORS_ALLOWED_ORIGINS`. Updated Dockerfile to Java 21 with health check and prod profile. Created `docker-compose.prod.yml` with PostgreSQL 16 (requires explicit credentials, no unsafe defaults). CI validates prod profile against PostgreSQL via 3 jobs (Build/Test/Package, Docker Build & Prod Health, Docker Compose Validation). Graceful shutdown uses `spring.lifecycle.timeout-per-shutdown-phase`. Added `ProductionStartupFailureTest` (Spring context startup failure), `ProductionProfileTest` (Testcontainers PostgreSQL), `CorsConfigTest`, and `HealthEndpointTest`.
 
 **Branch:** `feat/EXEC-PROMPT-027-backend-hosting-readiness`
 
-**Commit:** 
+**Commit:** `0b060ecd240b59c2aa964421a996dbcdbc3bc09a`
 
 **PR:** https://github.com/snadaiapp-png/SNAD/pull/21
 

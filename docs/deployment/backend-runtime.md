@@ -62,9 +62,11 @@ docker run -d \
 
 ### Docker Compose (Local Production Simulation)
 
+Docker Compose requires explicit `DATABASE_USERNAME` and `DATABASE_PASSWORD` — no unsafe default passwords are provided.
+
 ```bash
 cp .env.example .env
-# edit .env
+# edit .env with your secure credentials
 
 cd apps/sanad-platform
 docker compose -f docker-compose.prod.yml --env-file ../../.env up -d --build
@@ -89,7 +91,7 @@ In production, `show-details` is set to `never` — component-level details are 
 ## Graceful Shutdown
 
 - `server.shutdown=graceful`
-- `server.lifecycle.timeout-per-shutdown-phase=30s` (configurable via `SHUTDOWN_TIMEOUT`)
+- `spring.lifecycle.timeout-per-shutdown-phase=${SHUTDOWN_TIMEOUT:30s}` (configurable via `SHUTDOWN_TIMEOUT`)
 - Active requests are drained before the application stops
 
 ## Security
@@ -100,3 +102,6 @@ In production, `show-details` is set to `never` — component-level details are 
 - No environment/config endpoints exposed
 - `JPA_DDL_AUTO=validate` — no schema mutations
 - `flyway.clean-disabled=true` — no production DB cleaning
+- `ProductionDatabaseProperties` with `@NotBlank` validation fails startup if `DATABASE_URL`, `DATABASE_USERNAME`, or `DATABASE_PASSWORD` are missing
+- CORS: `CorsConfig` applies `CORS_ALLOWED_ORIGINS` to `/api/**` routes only; explicit methods, headers, and credentials; no wildcard in production
+- Docker Compose requires explicit `DATABASE_USERNAME` and `DATABASE_PASSWORD` — no default credentials
