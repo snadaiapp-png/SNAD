@@ -1,23 +1,14 @@
-# Render Blueprint for SANAD Platform
+# Render Blueprint for SANAD Backend (Free Pilot)
 # ============================================================
-# This file defines the Render infrastructure as code.
-# Secrets are wired via fromDatabase references — no manual
-# password copying required.
+# This Blueprint deploys only the Spring Boot backend on Render.
+# PostgreSQL is hosted externally on Supabase.
 #
-# Apply with:
-#   render blueprint apply
-#
-# Region: frankfurt (see ADR-028 for rationale)
-# Auto-deploy: OFF (manual until first release verified)
+# Pilot constraints:
+# - Render backend plan: free
+# - Supabase PostgreSQL: external Session Pooler on port 5432
+# - Auto-deploy: OFF
+# - Secrets are entered in Render Dashboard and never committed
 # ============================================================
-
-databases:
-  - name: sanad-database
-    databaseName: sanad
-    user: sanad
-    region: frankfurt
-    plan: basic-256mb
-    ipAllowList: []
 
 services:
   - type: web
@@ -25,7 +16,7 @@ services:
     runtime: docker
     branch: main
     region: frankfurt
-    plan: starter
+    plan: free
     rootDir: apps/sanad-platform
     dockerfilePath: apps/sanad-platform/Dockerfile
     dockerContext: apps/sanad-platform
@@ -39,6 +30,12 @@ services:
         value: "8080"
       - key: DATABASE_DRIVER
         value: org.postgresql.Driver
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_USERNAME
+        sync: false
+      - key: DATABASE_PASSWORD
+        sync: false
       - key: JPA_DDL_AUTO
         value: validate
       - key: FLYWAY_ENABLED
@@ -54,24 +51,8 @@ services:
       - key: SHUTDOWN_TIMEOUT
         value: 30s
       - key: DATABASE_POOL_MAX
-        value: "20"
-      - key: DATABASE_POOL_MIN
         value: "5"
+      - key: DATABASE_POOL_MIN
+        value: "1"
       - key: DATABASE_POOL_TIMEOUT
         value: "30000"
-      # Database credentials wired via fromDatabase — no manual copying
-      - key: DATABASE_USERNAME
-        fromDatabase:
-          name: sanad-database
-          property: user
-      - key: DATABASE_PASSWORD
-        fromDatabase:
-          name: sanad-database
-          property: password
-      # Render provides the internal connection string as postgresql://host:port/db
-      # The backend accepts this via the RENDER_DATABASE_URL env var and converts
-      # it to JDBC format at startup (see application-prod.yml).
-      - key: RENDER_DATABASE_URL
-        fromDatabase:
-          name: sanad-database
-          property: connectionString
