@@ -66,6 +66,11 @@ Built the SANAD platform backend from skeleton through full REST API:
 - `.env.example` — NEW environment variable template
 - `.github/workflows/ci.yml` — added Docker build + health validation job
 - `apps/sanad-platform/src/test/java/.../HealthEndpointTest.java` — NEW 6 tests
+- `apps/sanad-platform/src/test/java/.../ProductionStartupFailureTest.java` — NEW 4 tests (Spring context startup failure)
+- `apps/sanad-platform/src/test/java/.../ProductionProfileTest.java` — NEW 10 tests (Testcontainers PostgreSQL)
+- `apps/sanad-platform/src/test/java/.../config/CorsConfigTest.java` — NEW 4 CORS tests
 - `docs/execution/EXEC-PROMPT-027-backend-hosting-readiness.md` — NEW
 - `docs/deployment/backend-runtime.md` — NEW
 - `docs/execution/progress-report.md` — updated
+
+**Test totals:** 278 tests (0 failures, 0 errors, 10 skipped locally — ProductionProfileTest runs in CI with Testcontainers)

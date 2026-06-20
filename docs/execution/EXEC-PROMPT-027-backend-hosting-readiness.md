@@ -18,7 +18,7 @@ Prepare the SANAD Spring Boot backend for secure and repeatable production hosti
 | Existing profiles | default (PostgreSQL), dev (PostgreSQL), local (H2) |
 | Docker | Multi-stage Dockerfile with Java 17 builder |
 | Docker Compose | App-only (no PostgreSQL service) |
-| CORS | Not configured |
+| CORS | Configured via `CorsConfig` (global, `/api/**` routes only) |
 | Graceful shutdown | `server.shutdown: graceful` (no timeout) |
 | Secrets | Environment-variable-based (no hardcoded credentials) |
 | .env.example | Did not exist |
@@ -155,10 +155,11 @@ CI uses temporary CI-only credentials that are not exposed in logs.
 
 ## Known Limitations
 
-1. No CORS filter implementation yet — `CORS_ALLOWED_ORIGINS` is documented but no `WebMvcConfigurer` exists to consume it. This is a future task.
-2. No structured JSON logging — plain text with timestamp/level/logger pattern. JSON can be added later via Logback encoder.
-3. Frontend has no test runner — this task does not add one.
-4. No external secrets manager integration — environment variables are the sole configuration mechanism.
+1. **No dynamic per-tenant CORS management** — CORS origins are configured globally via `CORS_ALLOWED_ORIGINS` environment variable and applied uniformly to all `/api/**` routes. There is no mechanism to define different allowed origins per tenant. This is a future task when multi-tenant routing is introduced.
+2. **No centrally-stored CORS policies** — Allowed origins are not persisted in a database or configuration store; they are resolved exclusively from environment variables at startup. Runtime changes require a restart. A centralized policy store is a future enhancement.
+3. **No structured JSON logging** — Plain text with timestamp/level/logger pattern. JSON can be added later via Logback encoder.
+4. **Frontend has no test runner** — This task does not add one.
+5. **No external secrets manager integration** — Environment variables are the sole configuration mechanism.
 
 ## Rollback Procedure
 
