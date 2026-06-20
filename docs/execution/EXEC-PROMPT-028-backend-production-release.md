@@ -1,166 +1,116 @@
 # EXEC-PROMPT-028 — Backend Production Release
 
+## Status
+
+**IN PROGRESS — MANUAL PROVISIONING PENDING**
+
 ## Objective
 
-Deploy the SANAD Spring Boot backend to Render, provision managed PostgreSQL, configure production secrets, connect the Vercel frontend to the production API, and validate the complete production release and rollback path.
+Prepare SANAD for the first production backend deployment on Render, provision managed PostgreSQL, connect the Vercel frontend, and validate deployment, smoke testing, and rollback.
 
-## Initial Runtime State
+## Provider Decision
 
-| Aspect | Value |
+| Item | Value |
 |---|---|
-| Backend internal port | 8080 |
-| Backend artifact name | sanad-platform-0.1.0-SNAPSHOT.jar |
-| Frontend API configuration | Not configured (no NEXT_PUBLIC_API_BASE_URL) |
-| Current CORS origin | https://snad-app.vercel.app |
-| Required production variables | DATABASE_URL, DATABASE_USERNAME, DATABASE_PASSWORD, SPRING_PROFILES_ACTIVE, CORS_ALLOWED_ORIGINS |
-| Database migration strategy | Flyway V1–V9, ddl-auto=validate, clean-disabled=true |
-| Existing custom domains | snad-app.vercel.app (Vercel frontend) |
-| Existing smoke-test behavior | Frontend-only (Vercel page check) |
-| Render configuration | Did not exist |
-
-## Provider Comparison
-
-See [ADR-028](../architecture/adr/ADR-028-backend-hosting-provider.md) for full comparison.
-
-**Selected: Render** — lowest operational complexity, predictable pricing, native Docker support, managed PostgreSQL with backups.
-
-## Region Decision
-
-**Selected: Frankfurt (US West)** — closest available Render region to Saudi Arabia (~120-180ms estimated RTT). Migration to AWS Bahrain or Fly.io Amman should be considered when sub-150ms latency is required.
-
-## Render Service Configuration
-
-| Setting | Value |
-|---|---|
-| Service name | sanad-backend |
-| Type | Web Service |
+| Provider | Render |
+| Region | Frankfurt — EU Central |
+| Backend service | `sanad-backend` |
 | Runtime | Docker |
-| Root directory | apps/sanad-platform |
-| Dockerfile path | ./Dockerfile |
-| Branch | main |
-| Health check path | /actuator/health |
-| Region | frankfurt |
-| Plan | starter |
-| Auto-deploy | true (from render.yaml) |
+| Branch | `main` |
+| Web service plan | `starter` |
+| Database service | `sanad-database` |
+| Database plan | `basic-256mb` |
+| Database name | `sanad` |
+| First deployment | Manual |
+| Automatic deployment | Disabled |
+| Blueprint setting | `autoDeployTrigger: off` |
 
-## Database Configuration
+## Repository Configuration
 
 | Setting | Value |
 |---|---|
-| Service name | sanad-database |
-| Type | Managed PostgreSQL (psdb) |
-| Region | frankfurt |
-| Plan | starter |
-| Database name | sanad |
-| TLS | Enabled (Render default) |
-| Public access | Disabled (internal only) |
-| Backups | Daily, 7-day retention (Starter plan) |
-| Connection limits | Plan-dependent (Starter: ~20 connections) |
+| Root directory | `apps/sanad-platform` |
+| Dockerfile path | `apps/sanad-platform/Dockerfile` |
+| Docker context | `apps/sanad-platform` |
+| Health check path | `/actuator/health` |
+| Database declaration | Top-level `databases:` section |
+| Structural Blueprint validation | Passed in CI |
+| Official Render Blueprint validation | Pending manual provisioning gate |
 
-Render provides the database URL in PostgreSQL format (`postgresql://user:pass@host:port/db`). The backend requires JDBC format (`jdbc:postgresql://host:port/db`). The `DATABASE_URL` environment variable in the backend must be set to the JDBC-converted form in the Render dashboard.
+## Database Wiring
 
-## Environment-Variable Inventory
+The Blueprint wires database values through `fromDatabase`:
 
-| Variable | Source | Secret? |
-|---|---|---|
-| SPRING_PROFILES_ACTIVE | render.yaml (value: prod) | No |
-| SERVER_PORT | render.yaml (value: 8080) | No |
-| DATABASE_URL | Render dashboard (JDBC format) | Yes |
-| DATABASE_USERNAME | Render dashboard | Yes |
-| DATABASE_PASSWORD | Render dashboard | Yes |
-| DATABASE_DRIVER | render.yaml (value: org.postgresql.Driver) | No |
-| JPA_DDL_AUTO | render.yaml (value: validate) | No |
-| FLYWAY_ENABLED | render.yaml (value: true) | No |
-| CORS_ALLOWED_ORIGINS | render.yaml (value: https://snad-app.vercel.app) | No |
-| LOG_LEVEL_ROOT | render.yaml (value: INFO) | No |
-| LOG_LEVEL_SANAD | render.yaml (value: INFO) | No |
-| MANAGEMENT_ENDPOINTS | render.yaml (value: health) | No |
-| SHUTDOWN_TIMEOUT | render.yaml (value: 30s) | No |
-| DATABASE_POOL_MAX | render.yaml (value: 20) | No |
-| DATABASE_POOL_MIN | render.yaml (value: 5) | No |
-| DATABASE_POOL_TIMEOUT | render.yaml (value: 30000) | No |
-| NEXT_PUBLIC_API_BASE_URL | Vercel project settings | No (public) |
-| RENDER_DEPLOY_HOOK_URL | GitHub secret | Yes |
+- `DATABASE_USERNAME` ← `user`
+- `DATABASE_PASSWORD` ← `password`
+- `RENDER_DATABASE_URL` ← `connectionString`
 
-## DNS and TLS
+`RenderDatabaseUrlConverter` parses `RENDER_DATABASE_URL` during Spring Boot startup and sets the JDBC datasource URL, username, and password. Explicit `DATABASE_URL`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD` values override converted values.
 
-| Domain | Provider | TLS | Status |
-|---|---|---|---|
-| snad-app.vercel.app | Vercel | Automatic | Active |
-| sanad-backend.onrender.com | Render | Automatic | Pending provisioning |
-| api.sanad-domain (custom) | TBD | TBD | Pending owner domain acquisition |
+No database credentials are copied manually and no secrets are committed.
 
-## Deployment Commands
+## Production Controls
 
-```bash
-# Manual deployment via GitHub Actions
-# Go to: Actions → Backend Deploy → Run workflow → Type "deploy"
+- Production profile: `prod`
+- Hibernate schema mode: `validate`
+- Flyway: enabled
+- CORS origin: `https://snad-app.vercel.app`
+- Health, liveness, and readiness endpoints enabled
+- `/actuator/env` must return 404
+- Swagger UI must return 404
+- Graceful shutdown timeout: 30 seconds
 
-# Or via Render CLI
-render deploys create --service sanad-backend
+## Frontend Integration
 
-# Or via Render dashboard
-# https://dashboard.render.com/web/srv-xxx/manual-deploy
-```
+- Public variable: `NEXT_PUBLIC_API_BASE_URL`
+- Status route: `/api/system/backend-status`
+- Production smoke verifies frontend-to-backend reachability
+- Route output is limited to `configured`, `reachable`, and `statusCode`
+
+## Current Verification Status
+
+| Verification | Status |
+|---|---|
+| Backend tests | 303 passed; 0 failures; 0 errors; 10 skipped locally |
+| Frontend tests | 19 passed; 0 failures |
+| Backend CI | Passed on current PR head |
+| Web CI | Passed on current PR head |
+| Blueprint structural validation | Passed |
+| Official Render validation | Pending |
+| Render resource provisioning | Pending |
+| Flyway V1–V9 production execution | Pending |
+| Production deployment | Pending |
+| Production smoke | Not executed |
+| Rollback validation | Not executed |
 
 ## Production URLs
 
-| Service | URL |
+| Endpoint | Status |
 |---|---|
-| Frontend | https://snad-app.vercel.app |
-| Backend | https://sanad-backend.onrender.com (pending provisioning) |
-| Backend health | https://sanad-backend.onrender.com/actuator/health |
-| Backend liveness | https://sanad-backend.onrender.com/actuator/health/liveness |
-| Backend readiness | https://sanad-backend.onrender.com/actuator/health/readiness |
+| Backend production URL | Pending verification |
+| Backend health URL | Pending verification |
+| Backend liveness URL | Pending verification |
+| Backend readiness URL | Pending verification |
 
-## Migration Evidence
+## Backup and Recovery
 
-Flyway V1–V9 will run on first production startup. Expected:
-- 9 migrations applied
-- Schema version: 9
-- All migrations: SUCCESS
-- Hibernate validate: PASS
+Backup, PITR, log-retention, and recovery-window availability must be confirmed in the Render Dashboard during provisioning. No production backup, PITR, or retention configuration has yet been verified.
 
-**Evidence will be captured after first production deployment.**
+## Remaining Manual Gate
 
-## Smoke-Test Evidence
+1. Open Render Dashboard and create a Blueprint from `snadaiapp-png/SNAD`.
+2. Confirm Render parses `render.yaml` without field or schema errors.
+3. Apply the Blueprint only after validation succeeds.
+4. Confirm `sanad-backend` and `sanad-database` are provisioned in Frankfurt.
+5. Configure GitHub and Vercel production variables.
+6. Trigger the first manual deployment.
+7. Verify Flyway V1–V9, health, liveness, readiness, CORS, and frontend integration.
+8. Run production smoke and validate rollback.
 
-**Evidence will be captured after first production deployment.**
+## Cost
 
-## Rollback Procedure
+All pricing is a planning estimate and must be confirmed in the Render Dashboard before provisioning.
 
-1. **Render dashboard rollback**: Navigate to the service → Deployments → select previous deployment → click "Roll back to this deployment"
-2. **Redeploy previous commit**: `git checkout <known-good-sha> && git push origin main`
-3. **Expected recovery time**: 3–5 minutes
-4. **Database compatibility**: All migrations are forward-compatible; rollback does not require database changes
-5. **Verification after rollback**: Run backend-production-smoke.yml workflow
-
-## Monitoring Baseline
-
-See [backend-monitoring.md](../operations/backend-monitoring.md) for full details.
-
-## Known Risks
-
-1. **Latency**: Frankfurt region adds ~120-180ms estimated RTT to KSA. Not ideal for real-time features.
-2. **Starter plan limits**: 512MB RAM, shared CPU. May need upgrading at scale.
-3. **No custom domain yet**: Backend uses `*.onrender.com` until owner acquires a domain.
-4. **Render PostgreSQL Starter**: 90-day data retention. Upgrade to Standard for 1-year retention.
-5. **First deployment requires manual provisioning**: Render account, database creation, and secret configuration require human access.
-
-## Monthly Cost Estimate
-
-| Service | Plan | Cost/month |
-|---|---|---|
-| Render Web Service | Starter | $7 |
-| Render PostgreSQL | Starter | $7 |
-| Vercel | Hobby (free) | $0 |
-| GitHub | Free | $0 |
-| **Total** | | **~$14/month** |
-
-## Commit SHA
-
-
-
-## Pull Request URL
+## Pull Request
 
 https://github.com/snadaiapp-png/SNAD/pull/23
