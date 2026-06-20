@@ -14,14 +14,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Scan repository dependencies and files
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          format: table
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: '1'
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            aquasec/trivy:0.58.2 fs \
+            --scanners vuln,secret,misconfig \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1 \
+            /workspace
 
   backend-image-scan:
     runs-on: ubuntu-latest
@@ -31,10 +32,11 @@ jobs:
         working-directory: apps/sanad-platform
         run: docker build -t sanad-backend:security-ci .
       - name: Scan backend image
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: sanad-backend:security-ci
-          format: table
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: '1'
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.58.2 image \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1 \
+            sanad-backend:security-ci
