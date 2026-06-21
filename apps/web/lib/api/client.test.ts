@@ -57,9 +57,11 @@ describe("ApiClient", () => {
 
   it("normalizes HTTP errors", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ message: "duplicate", path: "/api/v1/items" }, 409, { "x-request-id": "req-1" })));
-    const promise = client().post("/api/v1/items", { name: "duplicate" });
-    await expect(promise).rejects.toBeInstanceOf(ApiHttpError);
-    try { await promise; } catch (error) {
+    try {
+      await client().post("/api/v1/items", { name: "duplicate" });
+      throw new Error("expected request to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiHttpError);
       const http = error as ApiHttpError;
       expect(http.status).toBe(409);
       expect(http.backendMessage).toBe("duplicate");
@@ -82,9 +84,9 @@ describe("ApiClient", () => {
     vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
       init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
     })));
-    const promise = client().get("/api/v1/items", { timeoutMs: 25 });
+    const assertion = expect(client().get("/api/v1/items", { timeoutMs: 25 })).rejects.toBeInstanceOf(ApiTimeoutError);
     await vi.advanceTimersByTimeAsync(30);
-    await expect(promise).rejects.toBeInstanceOf(ApiTimeoutError);
+    await assertion;
   });
 
   it("classifies external cancellation separately", async () => {
