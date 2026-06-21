@@ -15,6 +15,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Scan current repository tree for secrets
+        id: gitleaks
+        continue-on-error: true
         run: |
           docker run --rm \
             -v "$PWD:/repo" \
@@ -22,7 +24,20 @@ jobs:
             --source=/repo \
             --no-git \
             --redact \
+            --report-format=json \
+            --report-path=/repo/gitleaks-report.json \
             --exit-code=1
+      - name: Upload redacted Gitleaks diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-redacted-diagnostics
+          path: gitleaks-report.json
+          if-no-files-found: error
+          retention-days: 1
+      - name: Enforce secret scan result
+        if: steps.gitleaks.outcome == 'failure'
+        run: exit 1
 
   frontend-production-audit:
     name: Frontend Production Dependency Audit
