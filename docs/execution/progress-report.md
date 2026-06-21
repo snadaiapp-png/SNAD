@@ -1,12 +1,14 @@
 # Progress Report
 
+## Stage 1 — Backend Foundation
+
+EXEC-PROMPT-001 through EXEC-PROMPT-017 established the SANAD backend foundation: Tenant, Organization, Membership, User, role/access domains, Spring Boot, PostgreSQL/H2, Flyway V1–V9, REST APIs, automated tests, and GitHub Actions.
+
 ## Stage 2 — Engineering Foundation and Delivery Governance
 
-### Step 1 — Main Branch CI Stabilization (EXEC-PROMPT-026)
+### EXEC-PROMPT-026 — Main Branch CI Stabilization
 
 **Status:** COMPLETE
-
-**Summary:** Stabilized GitHub Actions CI workflows for the `main` branch. Removed obsolete feature-branch-only triggers from `ci.yml` and `web-ci.yml`. Added `workflow_dispatch` and least-privilege `permissions: contents: read` to all three workflows. Added a lint step to the frontend CI. Verified backend (250 tests pass) and frontend lint + build pass locally before pushing.
 
 **Branch:** `fix/EXEC-PROMPT-026-main-ci-stabilization`
 
@@ -14,33 +16,13 @@
 
 **PR:** https://github.com/snadaiapp-png/SNAD/pull/19
 
-**Backend path detected:** `apps/sanad-platform/` (Maven, pom.xml)
-
-**Frontend path detected:** `apps/web/` (npm, package-lock.json, Next.js 16)
-
-**Test totals:** 250 backend tests (0 failures), frontend lint + build pass
-
----
-
-### Previous Stages
-
-**Stage 1 — Backend Foundation (EXEC-PROMPT-001 through EXEC-PROMPT-017)**
-
-Built the SANAD platform backend from skeleton through full REST API:
-- Tenant, Organization, Membership, and User domains
-- Spring Boot 3.3.5, Java 17, PostgreSQL/H2, Flyway V1–V9
-- 250+ automated tests
-- REST APIs and GitHub Actions CI
-
----
+Main-branch CI was stabilized with least-privilege permissions, current triggers, frontend linting, and verified backend/frontend pipelines.
 
 ## Stage 3 — Backend Production Runtime
 
-### Step 1 — Backend Hosting Readiness (EXEC-PROMPT-027)
+### EXEC-PROMPT-027 — Backend Hosting Readiness
 
 **Status:** COMPLETE
-
-**Summary:** Established the production runtime baseline, production profile validation, CORS configuration, Java 21 Docker runtime, PostgreSQL production compose validation, health checks, graceful shutdown, and three backend CI jobs.
 
 **Branch:** `feat/EXEC-PROMPT-027-backend-hosting-readiness`
 
@@ -48,52 +30,54 @@ Built the SANAD platform backend from skeleton through full REST API:
 
 **PR:** https://github.com/snadaiapp-png/SNAD/pull/21
 
-**EXEC-PROMPT-027 historical test total:** 278 tests (0 failures, 0 errors, 10 skipped locally).
+Established the production runtime baseline, PostgreSQL production validation, CORS, Java 21 container runtime, health checks, graceful shutdown, and backend CI jobs.
 
----
+## Stage 4 — Backend Pilot Release
 
-## Stage 4 — Backend Production Release
-
-### Step 1 — Backend Production Release Readiness (EXEC-PROMPT-028)
+### EXEC-PROMPT-028 — Backend Production Release Readiness
 
 **Status:** PILOT INTEGRATION VERIFIED — APPROVED FOR CONTINUED PILOT USE
 
-**Summary:** The owner approved and verified the temporary free-tier pilot architecture using Vercel for the frontend, Render Free for the Spring Boot backend, and Supabase Free PostgreSQL in Central EU (Frankfurt). End-to-end connectivity has been validated from the production frontend through the backend to the database.
+- Frontend: Vercel `snad-app`
+- Backend: Render at `https://sanad-backend-mcrj.onrender.com`
+- Database: Supabase PostgreSQL in Frankfurt
+- Flyway schema: version 9 verified
+- Backend health: passed
+- Frontend-to-backend smoke: HTTP 200
+- Rollback: passed
 
-| Item | Status |
-|---|---|
-| Frontend | Vercel `snad-app` — live |
-| Backend provider | Render |
-| Backend URL | `https://sanad-backend-mcrj.onrender.com` |
-| Backend region | Frankfurt — EU Central |
-| Backend plan | `free` — pilot only |
-| Database provider | Supabase PostgreSQL |
-| Database region | Central EU (Frankfurt) |
-| Database plan | `free` — pilot only |
-| Database connection | Session Pooler, port 5432, TLS required |
-| Blueprint structural validation | Passed |
-| Render Blueprint validation | Passed |
-| Provisioning | Complete |
-| Pilot deployment | Complete |
-| Flyway verification | Passed — schema version 9 |
-| Backend health | Passed |
-| Frontend-to-backend smoke | Passed — HTTP 200 |
-| Rollback validation | Passed |
-| Database password rotation | Complete |
+Render and Supabase free plans remain pilot-only. Commercial production approval is not granted and remains governed by the separate production-readiness gates.
 
-**Validation evidence:**
-- Backend deployment is live on Render.
-- Spring Boot production profile is active.
-- PostgreSQL connection to Supabase succeeded.
-- Flyway validated all 9 migrations and confirmed schema version 9.
-- Tomcat started on port 8080.
-- Backend health returned `UP` with liveness and readiness groups.
-- Vercel production connectivity returned configured=true, reachable=true, statusCode=200.
-- Render rollback completed successfully and restored a live deployment.
-- Post-rollback backend health returned `UP`.
-- Post-rollback Vercel connectivity returned configured=true, reachable=true, statusCode=200.
-- The exposed Supabase database password was rotated, updated in Render, and revalidated successfully.
+## Stage 5 — Frontend–Backend Integration
 
-**Operational note:** Render Free may enter sleep mode during inactivity and can produce cold-start delays. This is accepted for pilot verification only.
+### EXEC-PROMPT-029 — Typed API Client Foundation
 
-**Production gate:** The free-tier architecture is not approved for commercial production. Before launch, backend and database must move to approved paid plans and complete backup, restore, monitoring, latency, residency, compliance, and production-scale validation.
+**Status:** IMPLEMENTED — CI AND PM REVIEW PENDING
+
+**Branch:** `feat/EXEC-PROMPT-029-frontend-backend-integration-foundation`
+
+**Base:** `c9c4829b4e04c6c1b8c262a6a3224abec41b8afb`
+
+Delivered:
+
+- Environment-aware API configuration and URL validation
+- Typed GET, POST, PUT, PATCH, and DELETE requests
+- Query-parameter encoding
+- JSON request/response handling
+- HTTP 204 and empty-response support
+- Unified configuration, network, HTTP, timeout, cancellation, serialization, and parsing errors
+- Explicit timeout versus external-cancellation classification
+- Protected request headers
+- Backend health integration
+- Backward-compatible legacy imports
+- Unit and route-contract tests
+- Developer and execution documentation
+
+Verified backend contracts:
+
+- Base path `/api/v1`
+- Tenant identity currently uses the `tenantId` query parameter
+- Health endpoint `/actuator/health`
+- No authentication injection or automatic tenant resolution in this stage
+
+**Gate:** Merge only after Web CI passes and PM review is recorded.
