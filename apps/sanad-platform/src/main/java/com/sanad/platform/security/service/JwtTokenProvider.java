@@ -19,11 +19,11 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.UUID;
 
-/**
- * Mints and validates short-lived JWT access tokens.
- */
+/** Mints and validates short-lived JWT access tokens. */
 @Component
 public class JwtTokenProvider {
+
+    public static final String ROTATION_REQUIRED_CLAIM = "credential_rotation_required";
 
     private static final Logger log = LoggerFactory.getLogger(JwtTokenProvider.class);
     private static final int MIN_SECRET_BYTES = 32;
@@ -37,11 +37,6 @@ public class JwtTokenProvider {
         this.environment = environment;
     }
 
-    /**
-     * Production always fails closed when the signing secret is absent or weak.
-     * Profile detection uses Spring's profile API so combinations such as
-     * {@code prod,cloud} remain protected.
-     */
     @PostConstruct
     public void validateSecret() {
         String secret = jwtConfig.getSecret();
@@ -50,8 +45,7 @@ public class JwtTokenProvider {
         if (secret == null || secret.isBlank()) {
             if (production) {
                 throw new IllegalStateException(
-                        "JWT_SECRET is not set. Production requires at least 32 bytes."
-                );
+                        "JWT_SECRET is not set. Production requires at least 32 bytes.");
             }
             byte[] generated = new byte[MIN_SECRET_BYTES];
             new SecureRandom().nextBytes(generated);
@@ -64,14 +58,22 @@ public class JwtTokenProvider {
         if (secretBytes.length < MIN_SECRET_BYTES) {
             throw new IllegalStateException(
                     "JWT_SECRET is too short (" + secretBytes.length
-                            + " bytes). At least 32 bytes are required."
-            );
+                            + " bytes). At least 32 bytes are required.");
         }
 
         signingKey = Keys.hmacShaKeyFor(secretBytes);
     }
 
     public String mintAccessToken(UUID userId, UUID tenantId, String email) {
+        return mintAccessToken(userId, tenantId, email, false);
+    }
+
+    public String mintAccessToken(
+            UUID userId,
+            UUID tenantId,
+            String email,
+            boolean credentialRotationRequired
+    ) {
         Instant now = Instant.now();
         Instant expiry = now.plus(jwtConfig.getAccessTokenTtl());
 
@@ -79,6 +81,7 @@ public class JwtTokenProvider {
                 .subject(userId.toString())
                 .claim("tenant_id", tenantId.toString())
                 .claim("email", email)
+                .claim(ROTATION_REQUIRED_CLAIM, credentialRotationRequired)
                 .issuer(jwtConfig.getIssuer())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(expiry))
