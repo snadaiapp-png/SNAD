@@ -1,21 +1,27 @@
 package com.sanad.platform.security;
 
+import com.sanad.platform.security.service.JwtTokenProvider;
+import org.mockito.Mockito;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
- * Test-only chain for pre-authentication integration suites.
- *
- * <p>The negative order is intentional: Spring selects the first matching
- * SecurityFilterChain, so this chain must precede the production chain.
- * Authentication-specific tests do not import this configuration.</p>
+ * Test-only boundary for integration suites that predate authentication.
+ * Authentication-specific tests do not import this configuration.
  */
 @TestConfiguration
 public class SecurityPermitAllTestConfig {
+
+    @Bean
+    @Primary
+    public JwtTokenProvider testJwtTokenProvider() {
+        return Mockito.mock(JwtTokenProvider.class);
+    }
 
     @Bean
     @Order(-100)
