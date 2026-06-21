@@ -1,6 +1,6 @@
 /** Backend health check using the typed API client. */
 import { apiClient, ApiClient } from "./client";
-import { isApiClientError, isApiHttpError, ApiConfigurationError } from "./errors";
+import { isApiClientError, isApiHttpError, ApiConfigurationError, ApiNetworkError } from "./errors";
 import type { HealthCheckResult } from "./types";
 
 interface ActuatorHealthResponse { status: string; }
@@ -18,6 +18,9 @@ export async function checkBackendIntegration(client: ApiClient = apiClient): Pr
     }
     if (isApiHttpError(err)) {
       return { configured: true, reachable: false, statusCode: err.status, error: err.toSafeSummary() };
+    }
+    if (err instanceof ApiNetworkError && err.cause instanceof Error) {
+      return { configured: true, reachable: false, statusCode: null, error: err.cause.message };
     }
     if (isApiClientError(err)) {
       return { configured: true, reachable: false, statusCode: null, error: err.toSafeSummary() };
