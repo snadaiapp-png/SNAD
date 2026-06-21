@@ -1,0 +1,60 @@
+# EXEC-PROMPT-029 — Frontend–Backend Integration Foundation
+
+## Status
+
+IMPLEMENTED — PENDING CI AND PM REVIEW
+
+## Objective
+
+Establish the reusable typed frontend API integration boundary required by all subsequent SANAD live-data, authentication, authorization, and tenant-aware UI stages.
+
+## Scope delivered
+
+- Environment-aware API base URL validation
+- Safe URL and query-parameter construction
+- Generic GET, POST, PUT, PATCH, and DELETE client
+- JSON request serialization and response parsing
+- HTTP 204 and empty-response handling
+- Distinct internal-timeout and external-cancellation errors
+- Protected request headers
+- Normalized backend HTTP errors and request IDs
+- Backend health integration
+- Backward-compatible exports for existing frontend files
+- Unit and route-contract tests
+
+## Backend contracts verified
+
+- API base path is `/api/v1`
+- Tenant identity is currently supplied through the `tenantId` query parameter
+- Health endpoint is `/actuator/health`
+- Handled errors expose timestamp, status, error, message, and path
+- No JWT or automatic authorization injection is introduced by this stage
+
+## Security controls
+
+- No credentials or secrets in source
+- Reject non-local cleartext API base URLs
+- Reject base URLs with embedded credentials
+- Block caller overrides of authorization and protocol-critical headers
+- Do not expose internal health errors through the public system-status route
+- Keep tenant selection explicit
+
+## Validation commands
+
+From `apps/web` run `npm ci`, `npm run lint`, `npm test`, and `npm run build`.
+
+## Compatibility
+
+The legacy API configuration and integration modules remain as compatibility shims. The public backend-status route keeps only the configured, reachable, and statusCode fields.
+
+## Deferred stages
+
+- Organization live integration: EXEC-PROMPT-030
+- Users and memberships: EXEC-PROMPT-031
+- Authentication and tokens: EXEC-PROMPT-032 and 033
+- Authorization enforcement: EXEC-PROMPT-034
+- Automatic tenant and organization context: EXEC-PROMPT-035
+
+## Rollback
+
+Revert the stage commit or close the pull request before merge. No backend schema or production deployment migration is included.
