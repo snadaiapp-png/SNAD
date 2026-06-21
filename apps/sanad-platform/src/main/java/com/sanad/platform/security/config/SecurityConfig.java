@@ -18,6 +18,8 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -60,7 +62,6 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .csrf(csrf -> csrf.disable()) // Stateless JWT — no CSRF needed
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
@@ -115,6 +116,17 @@ public class SecurityConfig {
                         })
                 );
 
+        // CSRF: enabled in production (double-submit cookie pattern),
+        // disabled in local/dev (for testing convenience).
+        if (isProdProfile()) {
+            http.csrf(csrf -> csrf
+                    .ignoringRequestMatchers("/api/v1/auth/login")
+                    .csrfTokenRepository(csrfTokenRepository())
+            );
+        } else {
+            http.csrf(csrf -> csrf.disable());
+        }
+
         // Frame options: SAMEORIGIN for all profiles (clickjacking protection)
         http.headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()));
 
@@ -159,12 +171,36 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(Arrays.asList(corsAllowedOrigins.split(",")));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-Requested-With"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-Requested-With", "X-XSRF-TOKEN"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", configuration);
         return source;
+    }
+
+    /**
+     * CSRF token repository using the double-submit cookie pattern.
+     *
+     * <p>The CSRF token is stored in a cookie named {@code XSRF-TOKEN}
+     * (readable by JavaScript). The frontend must send it back via the
+     * {@code X-XSRF-TOKEN} header on state-changing requests (POST, PUT,
+     * PATCH, DELETE).</p>
+     *
+     * <p>This protects against CSRF attacks on cookie-based endpoints
+     * (refresh, logout) while remaining compatible with stateless JWT
+     * authentication.</p>
+     */
+    private boolean isProdProfile() {
+        return "prod".equals(activeProfile) || "production".equals(activeProfile);
+    }
+
+    @Bean
+    public CsrfTokenRepository csrfTokenRepository() {
+        CookieCsrfTokenRepository repository = new CookieCsrfTokenRepository();
+        repository.setCookieName("XSRF-TOKEN");
+        repository.setHeaderName("X-XSRF-TOKEN");
+        return repository;
     }
 }

@@ -54,22 +54,25 @@ public class JwtTokenProvider {
     /**
      * Validate the JWT secret at startup.
      *
-     * <p>In production (when {@code RENDER_DATABASE_URL} is set, indicating
-     * a real Render deployment), the secret must be at least 32 bytes.
-     * If it's empty or too short, the application fails fast.</p>
+     * <p>In any production profile ({@code prod} or {@code production}),
+     * the secret must be set via {@code JWT_SECRET} env var and be at
+     * least 32 bytes (256 bits). If it's empty or too short, the
+     * application fails fast with a clear error message.</p>
      *
-     * <p>In CI environments (where {@code RENDER_DATABASE_URL} is NOT set
-     * but the profile is {@code prod}), a warning is logged and a random
-     * key is generated. This allows CI to run without requiring
-     * {@code JWT_SECRET} to be set in every workflow.</p>
+     * <p>In non-production profiles ({@code local}, {@code dev}), a
+     * random test key is generated with a warning. This allows local
+     * development without requiring {@code JWT_SECRET}.</p>
+     *
+     * <p>CI workflows that use the {@code prod} profile MUST set
+     * {@code JWT_SECRET} to a test value. This is intentional — it
+     * ensures that every CI run validates the full prod startup path,
+     * including secret validation.</p>
      */
     @PostConstruct
     public void validateSecret() {
         String secret = jwtConfig.getSecret();
-        boolean isRealProduction = System.getenv("RENDER_DATABASE_URL") != null;
-
         if (secret == null || secret.isBlank()) {
-            if (isProdProfile() && isRealProduction) {
+            if (isProdProfile()) {
                 throw new IllegalStateException(
                         "JWT_SECRET is not set. Production requires a strong secret of at least 32 bytes. " +
                         "Set the JWT_SECRET environment variable."
@@ -84,7 +87,7 @@ public class JwtTokenProvider {
 
         byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
         if (secretBytes.length < 32) {
-            if (isProdProfile() && isRealProduction) {
+            if (isProdProfile()) {
                 throw new IllegalStateException(
                         "JWT_SECRET is too short (" + secretBytes.length + " bytes). " +
                         "Production requires at least 32 bytes (256 bits)."

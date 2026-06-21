@@ -1,5 +1,11 @@
 package com.sanad.platform.security.config;
 
+import com.sanad.platform.access.grant.UserGrantStatus;
+import com.sanad.platform.access.grant.UserRoleGrant;
+import com.sanad.platform.access.grant.UserRoleGrantRepository;
+import com.sanad.platform.access.role.Role;
+import com.sanad.platform.access.role.RoleRepository;
+import com.sanad.platform.access.role.RoleStatus;
 import com.sanad.platform.tenant.domain.Tenant;
 import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
@@ -60,6 +66,8 @@ public class CredentialBootstrapConfig {
     public CommandLineRunner credentialBootstrap(
             TenantRepository tenantRepository,
             UserRepository userRepository,
+            RoleRepository roleRepository,
+            UserRoleGrantRepository userRoleGrantRepository,
             PasswordEncoder passwordEncoder
     ) {
         return args -> {
@@ -106,6 +114,29 @@ public class CredentialBootstrapConfig {
             User adminUser = new User(tenant.getId(), bootstrapEmail, bootstrapDisplayName, UserStatus.ACTIVE);
             adminUser.setPasswordHash(passwordEncoder.encode(bootstrapPassword));
             userRepository.save(adminUser);
+
+            // Create or find the ADMIN role for this tenant
+            String adminRoleCode = "ADMIN";
+            Role adminRole = roleRepository.findByTenantIdAndCode(tenant.getId(), adminRoleCode)
+                    .orElseGet(() -> {
+                        Role newRole = new Role(tenant.getId(), adminRoleCode, "Administrator",
+                                "Full administrative access (bootstrap-created)");
+                        return roleRepository.save(newRole);
+                    });
+
+            // Grant the ADMIN role to the bootstrap user (tenant-wide, no org scope)
+            boolean alreadyGranted = !userRoleGrantRepository
+                    .findByTenantIdAndUserIdAndRoleIdAndOrganizationIdIsNull(
+                            tenant.getId(), adminUser.getId(), adminRole.getId()
+                    ).isEmpty();
+            if (!alreadyGranted) {
+                UserRoleGrant grant = new UserRoleGrant(
+                        tenant.getId(), adminUser.getId(), adminRole.getId(), null
+                );
+                userRoleGrantRepository.save(grant);
+                log.info("Bootstrap: granted ADMIN role to user (userId={}, tenantId={})",
+                        adminUser.getId(), tenant.getId());
+            }
 
             log.info("Bootstrap: created admin user (email={}, tenantId={}) — change the password after first login.",
                     bootstrapEmail, tenant.getId());
