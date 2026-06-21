@@ -22,26 +22,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
-/**
- * JPA entity representing a User in the SANAD platform.
- *
- * <p>A User is scoped to a Tenant. The {@code tenantId} is a plain UUID
- * column (no entity relationship) to keep user queries lightweight — the
- * same pattern used for {@code OrganizationMembership}. Tenant isolation
- * is enforced at the repository query level (every method takes a
- * {@code tenantId} parameter).</p>
- *
- * <p>This is the persistence foundation only. Authentication credential
- * storage (password_hash) was added in EXEC-PROMPT-032A, but the actual
- * authentication logic lives in the security package. Role/permission
- * models exist in the access package.</p>
- *
- * <h2>Email Normalization</h2>
- * <p>Emails are normalized to lowercase before persistence (see
- * {@link #normalizeEmail(String)}) so that uniqueness checks are
- * case-insensitive. The unique constraint {@code uk_users_tenant_email}
- * backs this at the database level.</p>
- */
+/** JPA entity representing a tenant-scoped SANAD user. */
 @Entity
 @Table(
         name = "users",
@@ -58,36 +39,44 @@ public class User {
     @Column(name = "id", nullable = false, updatable = false, columnDefinition = "uuid")
     private UUID id;
 
-    /** Tenant scope. Plain UUID (no entity relationship) for query efficiency. */
     @NotNull
     @Column(name = "tenant_id", nullable = false, columnDefinition = "uuid")
     private UUID tenantId;
 
-    /** Email address. Stored lowercase for case-insensitive uniqueness. */
     @NotBlank
     @Email
     @Size(max = 255)
     @Column(name = "email", nullable = false, length = 255)
     private String email;
 
-    /** Optional human-readable display name. */
     @Size(max = 200)
     @Column(name = "display_name", length = 200)
     private String displayName;
 
-    /** Current lifecycle status. */
     @NotNull
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private UserStatus status;
 
-    /** BCrypt password hash. Nullable — users created before auth was enabled have no password. */
+    /** BCrypt password hash. Never expose through APIs or logs. */
     @Column(name = "password_hash", length = 255)
     private String passwordHash;
 
-    /** Timestamp of the last successful login. Nullable if never logged in. */
     @Column(name = "last_login_at")
     private Instant lastLoginAt;
+
+    /** Audit timestamp for the most recent controlled credential enrollment. */
+    @Column(name = "password_set_at")
+    private Instant passwordSetAt;
+
+    /** Non-secret actor identifier for the credential enrollment. */
+    @Size(max = 100)
+    @Column(name = "password_set_by", length = 100)
+    private String passwordSetBy;
+
+    /** Restricts the session until the bootstrap credential is rotated. */
+    @Column(name = "must_change_password", nullable = false)
+    private boolean mustChangePassword;
 
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -96,10 +85,6 @@ public class User {
     @LastModifiedDate
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
-
-    // ------------------------------------------------------------
-    // Constructors
-    // ------------------------------------------------------------
 
     protected User() {
     }
@@ -110,10 +95,6 @@ public class User {
         this.displayName = displayName;
         this.status = status;
     }
-
-    // ------------------------------------------------------------
-    // Getters / Setters
-    // ------------------------------------------------------------
 
     public UUID getId() { return id; }
 
@@ -129,23 +110,25 @@ public class User {
     public UserStatus getStatus() { return status; }
     public void setStatus(UserStatus status) { this.status = status; }
 
-    /**
-     * Returns the BCrypt password hash.
-     * <p><strong>Never expose this in API responses or logs.</strong></p>
-     */
     public String getPasswordHash() { return passwordHash; }
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
 
     public Instant getLastLoginAt() { return lastLoginAt; }
     public void setLastLoginAt(Instant lastLoginAt) { this.lastLoginAt = lastLoginAt; }
 
+    public Instant getPasswordSetAt() { return passwordSetAt; }
+    public void setPasswordSetAt(Instant passwordSetAt) { this.passwordSetAt = passwordSetAt; }
+
+    public String getPasswordSetBy() { return passwordSetBy; }
+    public void setPasswordSetBy(String passwordSetBy) { this.passwordSetBy = passwordSetBy; }
+
+    public boolean isMustChangePassword() { return mustChangePassword; }
+    public void setMustChangePassword(boolean mustChangePassword) {
+        this.mustChangePassword = mustChangePassword;
+    }
+
     public Instant getCreatedAt() { return createdAt; }
-
     public Instant getUpdatedAt() { return updatedAt; }
-
-    // ------------------------------------------------------------
-    // equals / hashCode / toString
-    // ------------------------------------------------------------
 
     @Override
     public boolean equals(Object o) {
@@ -163,7 +146,6 @@ public class User {
 
     @Override
     public String toString() {
-        // Never include passwordHash in toString() — it could leak via logs.
         return "User{" +
                 "id=" + id +
                 ", tenantId=" + tenantId +
@@ -171,16 +153,12 @@ public class User {
                 ", displayName='" + displayName + '\'' +
                 ", status=" + status +
                 ", lastLoginAt=" + lastLoginAt +
+                ", mustChangePassword=" + mustChangePassword +
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +
                 '}';
     }
 
-    // ------------------------------------------------------------
-    // Internal helpers
-    // ------------------------------------------------------------
-
-    /** Lowercase + trim the email so uniqueness is case-insensitive. */
     private static String normalizeEmail(String email) {
         return email == null ? null : email.trim().toLowerCase();
     }
