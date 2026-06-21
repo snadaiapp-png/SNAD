@@ -1,6 +1,5 @@
 package com.sanad.platform.security.config;
 
-import jakarta.validation.constraints.NotBlank;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
@@ -11,7 +10,8 @@ import java.time.Duration;
  *
  * <p>Binds to {@code sanad.security.*} properties. In production,
  * {@code sanad.security.jwt.secret} must be set via the {@code JWT_SECRET}
- * environment variable — there is no default secret for safety.</p>
+ * environment variable. The {@link JwtTokenProvider} validates the secret
+ * at startup and logs a warning if it's too short.</p>
  */
 @ConfigurationProperties(prefix = "sanad.security")
 @Validated
@@ -33,7 +33,6 @@ public class SecurityProperties {
     /** Access JWT configuration. */
     public static class Jwt {
         /** Secret key for signing JWTs. Must be set in production via JWT_SECRET env var. */
-        @NotBlank
         private String secret = "";
 
         /** Access token time-to-live. Default: 15 minutes. */
