@@ -1,14 +1,5 @@
 name: Web CI
 
-# ============================================================
-# SANAD Platform - Frontend Continuous Integration Pipeline
-# ------------------------------------------------------------
-# Runs on push to main, pull requests targeting main, and
-# manual workflow_dispatch.
-#
-# Frontend project: apps/web (Next.js 16, npm)
-# ============================================================
-
 on:
   push:
     branches:
@@ -51,7 +42,24 @@ jobs:
         run: npm run lint
 
       - name: Test
-        run: npm test
+        id: tests
+        continue-on-error: true
+        run: npm test > test-output.log 2>&1
+
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-test-diagnostics
+          path: apps/web/test-output.log
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Enforce test result
+        if: steps.tests.outcome == 'failure'
+        run: |
+          tail -n 120 test-output.log
+          exit 1
 
       - name: Build Next.js application
         run: npm run build
