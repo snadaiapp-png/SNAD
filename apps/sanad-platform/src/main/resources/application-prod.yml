@@ -1,13 +1,5 @@
 # ============================================================
-# SANAD Platform — `prod` production profile
-# ------------------------------------------------------------
-# All externalized settings are resolved from environment
-# variables. No credentials are hardcoded.
-#
-# Mandatory validation is handled by ProductionDatabaseProperties
-# (@ConfigurationProperties + @Validated + @NotBlank).
-# Startup fails with a clear message if DATABASE_URL,
-# DATABASE_USERNAME, or DATABASE_PASSWORD are missing.
+# SANAD Platform — production profile
 # ============================================================
 
 sanad:
@@ -17,8 +9,6 @@ sanad:
     password: ${DATABASE_PASSWORD:}
   security:
     jwt:
-      # No default secret in production — must be set via JWT_SECRET env var.
-      # Startup will fail if not set (handled by SecurityProperties @NotBlank).
       secret: ${JWT_SECRET:}
       access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:15m}
       issuer: ${JWT_ISSUER:sanad-platform}
@@ -32,18 +22,15 @@ sanad:
       same-site: ${COOKIE_SAME_SITE:lax}
       domain: ${COOKIE_DOMAIN:}
     bootstrap:
-      admin-email: ${BOOTSTRAP_ADMIN_EMAIL:admin@sanad.local}
-      admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:}
+      enabled: ${BOOTSTRAP_ENABLED:false}
+      tenant-id: ${BOOTSTRAP_TENANT_ID:}
+      admin-email: ${BOOTSTRAP_ADMIN_EMAIL:}
+      admin-credential: ${BOOTSTRAP_ADMIN_CREDENTIAL:}
       admin-display-name: ${BOOTSTRAP_ADMIN_DISPLAY_NAME:SANAD Admin}
-      tenant-name: ${BOOTSTRAP_TENANT_NAME:SANAD Default Tenant}
-      tenant-subdomain: ${BOOTSTRAP_TENANT_SUBDOMAIN:sanad-default}
+      audit-actor: ${BOOTSTRAP_AUDIT_ACTOR:credential-bootstrap}
 
 spring:
   datasource:
-    # DATABASE_URL, DATABASE_USERNAME, DATABASE_PASSWORD can be set explicitly.
-    # If RENDER_DATABASE_URL is set instead, RenderDatabaseUrlConverter
-    # (EnvironmentPostProcessor) will parse it and set these properties
-    # at startup, unless explicitly overridden here.
     url: ${DATABASE_URL:}
     username: ${DATABASE_USERNAME:}
     password: ${DATABASE_PASSWORD:}
