@@ -1,14 +1,15 @@
-# Render Blueprint for SANAD Backend (Free Pilot)
+# Render Blueprint for SANAD Backend
 # ============================================================
-# Secrets are entered in Render Dashboard and never committed.
-# Administrative bootstrap variables are temporary dashboard-only values and
-# must be removed immediately after the one-time enrollment succeeds.
+# GitHub is the release authority. Render stores runtime secrets.
+# Automatic deploy is intentionally disabled; the protected production
+# workflow deploys an exact, reviewed main commit.
 # ============================================================
 
 services:
   - type: web
     name: sanad-backend
     runtime: docker
+    repo: https://github.com/snadaiapp-png/SNAD
     branch: main
     region: frankfurt
     plan: free
@@ -23,7 +24,7 @@ services:
       - key: SERVER_PORT
         value: "8080"
       - key: JWT_SECRET
-        sync: false
+        generateValue: true
       - key: DATABASE_DRIVER
         value: org.postgresql.Driver
       - key: DATABASE_URL
