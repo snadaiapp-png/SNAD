@@ -61,6 +61,17 @@ jobs:
 
           provider_url=$(jq -r '.serviceDetails.url // .url // empty' /tmp/render-service.json)
           test -n "$provider_url"
+
+          provider_url="${provider_url%/}"
+          configured_url="${PRODUCTION_BASE_URL%/}"
+          [ "$provider_url" = "$configured_url" ] || {
+            echo "::error::PRODUCTION_BASE_URL does not match the authoritative Render service URL."
+            echo "Configured host: ${configured_url#https://}"
+            echo "Provider host: ${provider_url#https://}"
+            exit 1
+          }
+
+          echo "AUTHORITATIVE_RENDER_URL=$provider_url" >> "$GITHUB_ENV"
           jq '{id, name, type, repo, branch, providerUrl: (.serviceDetails.url // .url)}' \
             /tmp/render-service.json > render-service-evidence.json
 
@@ -103,7 +114,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          health_url="${PRODUCTION_BASE_URL%/}/actuator/health"
+          health_url="${AUTHORITATIVE_RENDER_URL%/}/actuator/health"
           health_file=/tmp/render-health.json
           healthy=false
 
@@ -157,7 +168,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Render production preflight passed for service \`$EXPECTED_SERVICE_NAME\` (ID retained in protected configuration). Repository \`$EXPECTED_REPOSITORY\`, branch \`$EXPECTED_BRANCH\`, required environment-key policy, bootstrap removal, and production health were verified by workflow run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. No secret values were recorded."
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Render production preflight passed for service \`$EXPECTED_SERVICE_NAME\` (ID retained in protected configuration). Repository \`$EXPECTED_REPOSITORY\`, branch \`$EXPECTED_BRANCH\`, authoritative provider URL, required environment-key policy, bootstrap removal, and production health were verified by workflow run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. No secret values were recorded."
           gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --reason completed
 
       - name: Write gate summary
@@ -167,6 +178,7 @@ jobs:
             echo "## Render Production Preflight"
             echo "- Service identity: VERIFIED"
             echo "- Repository and branch: VERIFIED"
+            echo "- Provider URL identity: VERIFIED"
             echo "- Managed signing key presence: VERIFIED"
             echo "- Temporary bootstrap keys absent: VERIFIED"
             echo "- BOOTSTRAP_ENABLED=false: VERIFIED"
