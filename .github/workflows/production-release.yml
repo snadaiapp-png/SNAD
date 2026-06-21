@@ -33,12 +33,6 @@ jobs:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
-      SMOKE_TENANT_A_ID: ${{ vars.SMOKE_TENANT_A_ID }}
-      SMOKE_TENANT_A_EMAIL: ${{ vars.SMOKE_TENANT_A_EMAIL }}
-      SMOKE_TENANT_A_PASSWORD: ${{ secrets.SMOKE_TENANT_A_PASSWORD }}
-      SMOKE_TENANT_B_ID: ${{ vars.SMOKE_TENANT_B_ID }}
-      SMOKE_TENANT_B_EMAIL: ${{ vars.SMOKE_TENANT_B_EMAIL }}
-      SMOKE_TENANT_B_PASSWORD: ${{ secrets.SMOKE_TENANT_B_PASSWORD }}
     steps:
       - name: Validate protected release inputs
         shell: bash
@@ -77,7 +71,6 @@ jobs:
             --header "Authorization: Bearer $RENDER_API_KEY" \
             --header "Accept: application/json" \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=20" > /tmp/render-deploys.json
-
           previous=$(jq -r '
             [ .[]? | (.deploy // .) ]
             | map(select((.status // "") == "live"))
@@ -103,11 +96,9 @@ jobs:
             --output json \
             --confirm > render-deployment.json
           jq -e '(.status // "") == "live"' render-deployment.json >/dev/null
-          jq -r '(.id // .deploy.id // empty)' render-deployment.json | {
-            read -r deploy_id
-            test -n "$deploy_id"
-            echo "id=$deploy_id" >> "$GITHUB_OUTPUT"
-          }
+          deploy_id=$(jq -r '(.id // .deploy.id // empty)' render-deployment.json)
+          test -n "$deploy_id"
+          echo "id=$deploy_id" >> "$GITHUB_OUTPUT"
 
       - name: Wait for production readiness
         shell: bash
@@ -128,7 +119,7 @@ jobs:
         shell: bash
         run: bash scripts/production/verify-flyway.sh
 
-      - name: Execute authentication and tenant-isolation smoke suite
+      - name: Verify production security boundary
         shell: bash
         run: bash scripts/production/verify-auth-contract.sh
 
@@ -142,7 +133,7 @@ jobs:
             --arg deployment "${{ steps.deploy.outputs.id }}" \
             --arg previous "${{ steps.previous.outputs.sha }}" \
             --arg url "$PRODUCTION_BASE_URL" \
-            '{result:"PASSED",commit:$commit,deploymentId:$deployment,previousCommit:$previous,productionUrl:$url,flyway:["V10","V11"],health:"UP",authentication:"PASSED",tenantIsolation:"PASSED"}' \
+            '{result:"DEPLOYMENT_VERIFIED",commit:$commit,deploymentId:$deployment,previousCommit:$previous,productionUrl:$url,flyway:["V10","V11"],health:"UP",unauthenticatedSecurityBoundary:"PASSED",authenticatedProductionSmoke:"PENDING",gate032:"OPEN"}' \
             > production-release-evidence.json
 
       - name: Upload release evidence
@@ -153,24 +144,26 @@ jobs:
           path: |
             render-deployment.json
             production-release-evidence.json
+            render-rollback.json
           if-no-files-found: warn
           retention-days: 90
 
-      - name: Record successful release and close Gate 032
+      - name: Record verified deployment with smoke hold
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pull_request_number }}
         shell: bash
         run: |
-          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Production release passed for exact commit \`${{ steps.target.outputs.sha }}\`. Render deployment \`${{ steps.deploy.outputs.id }}\`, readiness, Flyway V10/V11, authentication/session smoke tests, and tenant isolation were verified by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Gate #032 is CLOSED. No secret values were recorded."
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Production deployment passed for exact commit \`${{ steps.target.outputs.sha }}\`. Render deployment \`${{ steps.deploy.outputs.id }}\`, readiness, Flyway V10/V11, and the unauthenticated security boundary were verified by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Authenticated production login/refresh/logout and tenant-isolation smoke evidence is still required; Gate #032 remains OPEN. No secret values were recorded."
           {
-            echo "## Gate #032 — CLOSED"
+            echo "## Production deployment — VERIFIED"
             echo "- Exact commit: ${{ steps.target.outputs.sha }}"
             echo "- Render deployment: ${{ steps.deploy.outputs.id }}"
             echo "- Flyway V10/V11: VERIFIED"
-            echo "- Authentication smoke: PASSED"
-            echo "- Tenant isolation: PASSED"
+            echo "- Security boundary: VERIFIED"
+            echo "- Authenticated production smoke: PENDING"
+            echo "- Gate #032: OPEN"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Roll back failed release
