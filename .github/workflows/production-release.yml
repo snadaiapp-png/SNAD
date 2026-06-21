@@ -1,0 +1,196 @@
+name: SANAD Production Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Exact main commit to deploy
+        required: true
+      pull_request_number:
+        description: Pull request used for release evidence
+        required: true
+        default: "54"
+      rollback_on_failure:
+        description: Redeploy the previous successful commit when verification fails
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+
+jobs:
+  deploy-and-verify:
+    name: Deploy exact commit and verify production
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      SMOKE_TENANT_A_ID: ${{ vars.SMOKE_TENANT_A_ID }}
+      SMOKE_TENANT_A_EMAIL: ${{ vars.SMOKE_TENANT_A_EMAIL }}
+      SMOKE_TENANT_A_PASSWORD: ${{ secrets.SMOKE_TENANT_A_PASSWORD }}
+      SMOKE_TENANT_B_ID: ${{ vars.SMOKE_TENANT_B_ID }}
+      SMOKE_TENANT_B_EMAIL: ${{ vars.SMOKE_TENANT_B_EMAIL }}
+      SMOKE_TENANT_B_PASSWORD: ${{ secrets.SMOKE_TENANT_B_PASSWORD }}
+    steps:
+      - name: Validate protected release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_DATABASE_URL PRODUCTION_BASE_URL; do
+            test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
+          done
+          [[ "${{ inputs.commit_sha }}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PRODUCTION_BASE_URL" == https://* ]]
+
+      - name: Verify target is the current main head
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_main=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')
+          [ "$remote_main" = "${{ inputs.commit_sha }}" ] || {
+            echo "::error::Requested commit is not the current main head."
+            exit 1
+          }
+          echo "sha=$remote_main" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout exact release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.target.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Capture previous successful production commit
+        id: previous
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=20" > /tmp/render-deploys.json
+
+          previous=$(jq -r '
+            [ .[]? | (.deploy // .) ]
+            | map(select((.status // "") == "live"))
+            | .[0].commit.id // .[0].commitId // empty
+          ' /tmp/render-deploys.json)
+          echo "sha=$previous" >> "$GITHUB_OUTPUT"
+
+      - name: Install Render CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://raw.githubusercontent.com/render-oss/cli/main/bin/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Deploy exact commit
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          render deploys create "$RENDER_SERVICE_ID" \
+            --commit "${{ steps.target.outputs.sha }}" \
+            --wait \
+            --output json \
+            --confirm > render-deployment.json
+          jq -e '(.status // "") == "live"' render-deployment.json >/dev/null
+          jq -r '(.id // .deploy.id // empty)' render-deployment.json | {
+            read -r deploy_id
+            test -n "$deploy_id"
+            echo "id=$deploy_id" >> "$GITHUB_OUTPUT"
+          }
+
+      - name: Wait for production readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            status=$(curl --silent --show-error --output /tmp/readiness.json --write-out '%{http_code}' \
+              "$PRODUCTION_BASE_URL/actuator/health/readiness" || true)
+            if [ "$status" = "200" ] && jq -e '.status == "UP"' /tmp/readiness.json >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Production readiness did not become UP."
+          exit 1
+
+      - name: Verify Flyway V10 and V11
+        shell: bash
+        run: bash scripts/production/verify-flyway.sh
+
+      - name: Execute authentication and tenant-isolation smoke suite
+        shell: bash
+        run: bash scripts/production/verify-auth-contract.sh
+
+      - name: Write sanitized release evidence
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg commit "${{ steps.target.outputs.sha }}" \
+            --arg deployment "${{ steps.deploy.outputs.id }}" \
+            --arg previous "${{ steps.previous.outputs.sha }}" \
+            --arg url "$PRODUCTION_BASE_URL" \
+            '{result:"PASSED",commit:$commit,deploymentId:$deployment,previousCommit:$previous,productionUrl:$url,flyway:["V10","V11"],health:"UP",authentication:"PASSED",tenantIsolation:"PASSED"}' \
+            > production-release-evidence.json
+
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-release-${{ github.run_id }}
+          path: |
+            render-deployment.json
+            production-release-evidence.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Record successful release and close Gate 032
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pull_request_number }}
+        shell: bash
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Production release passed for exact commit \`${{ steps.target.outputs.sha }}\`. Render deployment \`${{ steps.deploy.outputs.id }}\`, readiness, Flyway V10/V11, authentication/session smoke tests, and tenant isolation were verified by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Gate #032 is CLOSED. No secret values were recorded."
+          {
+            echo "## Gate #032 — CLOSED"
+            echo "- Exact commit: ${{ steps.target.outputs.sha }}"
+            echo "- Render deployment: ${{ steps.deploy.outputs.id }}"
+            echo "- Flyway V10/V11: VERIFIED"
+            echo "- Authentication smoke: PASSED"
+            echo "- Tenant isolation: PASSED"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Roll back failed release
+        if: failure() && inputs.rollback_on_failure && steps.previous.outputs.sha != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          render deploys create "$RENDER_SERVICE_ID" \
+            --commit "${{ steps.previous.outputs.sha }}" \
+            --wait \
+            --output json \
+            --confirm > render-rollback.json
+          curl --fail-with-body --silent --show-error "$PRODUCTION_BASE_URL/actuator/health" \
+            | jq -e '.status == "UP"' >/dev/null
+
+      - name: Record failed release
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pull_request_number }}
+        shell: bash
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Production release verification FAILED for commit \`${{ inputs.commit_sha }}\`. Rollback was attempted when a previous successful commit was available. Gate #032 remains OPEN. Evidence: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
