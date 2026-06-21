@@ -4,13 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Response body for {@code GET /api/v1/auth/me}.
- *
- * <p>Returns the authenticated user's identity, their organization
- * memberships, and their active role grants. This is the session
- * bootstrap payload for the frontend.</p>
- */
+/** Response body for GET /api/v1/auth/me. */
 public class MeResponse {
 
     private UUID id;
@@ -19,15 +13,12 @@ public class MeResponse {
     private String displayName;
     private String status;
     private Instant lastLoginAt;
+    private boolean credentialRotationRequired;
     private List<MembershipSummary> memberships;
     private List<RoleGrantSummary> roleGrants;
 
     public MeResponse() {
     }
-
-    // ------------------------------------------------------------
-    // Getters / Setters
-    // ------------------------------------------------------------
 
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
@@ -47,15 +38,16 @@ public class MeResponse {
     public Instant getLastLoginAt() { return lastLoginAt; }
     public void setLastLoginAt(Instant lastLoginAt) { this.lastLoginAt = lastLoginAt; }
 
+    public boolean isCredentialRotationRequired() { return credentialRotationRequired; }
+    public void setCredentialRotationRequired(boolean credentialRotationRequired) {
+        this.credentialRotationRequired = credentialRotationRequired;
+    }
+
     public List<MembershipSummary> getMemberships() { return memberships; }
     public void setMemberships(List<MembershipSummary> memberships) { this.memberships = memberships; }
 
     public List<RoleGrantSummary> getRoleGrants() { return roleGrants; }
     public void setRoleGrants(List<RoleGrantSummary> roleGrants) { this.roleGrants = roleGrants; }
-
-    // ------------------------------------------------------------
-    // Nested summaries
-    // ------------------------------------------------------------
 
     public static class MembershipSummary {
         private UUID id;
