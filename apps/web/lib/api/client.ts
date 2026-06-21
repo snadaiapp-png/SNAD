@@ -102,6 +102,8 @@ export class ApiClient {
     return buildUrl(this.baseUrl, path, query as Record<string, unknown>);
   }
   get isConfigured(): boolean { return this.baseUrl.length > 0; }
+  /** The normalized base URL (no trailing slash). Safe to expose for health diagnostics. */
+  get baseUrlValue(): string { return this.baseUrl; }
 
   async request<TResponse, TBody = undefined>(req: ApiRequest<TResponse, TBody>): Promise<TResponse> {
     validateBaseUrl(this.baseUrl);
@@ -123,6 +125,7 @@ export class ApiClient {
         throw new ApiClientCancellation(`Request to ${req.method} ${req.path} was cancelled`, req.signal?.reason);
       }
       const init: RequestInit = { method: req.method, headers, credentials: "include", signal: requestSignal.signal };
+      if (req.cache !== undefined) init.cache = req.cache;
       if (serializedBody !== undefined) init.body = serializedBody;
       const response = await fetch(fullUrl, init);
       if (response.status === 204) return undefined as TResponse;
@@ -154,7 +157,7 @@ export class ApiClient {
   delete<TResponse>(path: string, options?: RequestOptions): Promise<TResponse> { return this.request<TResponse>({ method: "DELETE", path, ...options }); }
 }
 
-type RequestOptions = { query?: QueryParams; context?: ApiRequestContext; signal?: AbortSignal; timeoutMs?: number };
+type RequestOptions = { query?: QueryParams; context?: ApiRequestContext; signal?: AbortSignal; timeoutMs?: number; cache?: RequestCache };
 
 export class ApiClientCancellation extends ApiClientError {
   readonly code = "API_CLIENT_CANCELLATION";
