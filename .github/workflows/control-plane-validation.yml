@@ -1,0 +1,38 @@
+name: Production Control Plane Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'render.yaml'
+      - '.github/workflows/render-production-preflight.yml'
+      - '.github/workflows/production-release.yml'
+      - '.github/workflows/control-plane-validation.yml'
+      - 'scripts/production/**'
+      - 'docs/operations/render-production-control-plane.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell scripts
+        run: |
+          bash -n scripts/production/verify-flyway.sh
+          bash -n scripts/production/verify-auth-contract.sh
+      - name: Validate Blueprint contract
+        run: |
+          grep -q 'repo: https://github.com/snadaiapp-png/SNAD' render.yaml
+          grep -q 'branch: main' render.yaml
+          grep -q 'autoDeployTrigger: "off"' render.yaml
+          grep -q 'generateValue: true' render.yaml
+          grep -A1 'key: BOOTSTRAP_ENABLED' render.yaml | grep -q 'value: "false"'
+          ! grep -Eq 'BOOTSTRAP_(TENANT_ID|ADMIN_EMAIL|ADMIN_CREDENTIAL|ADMIN_DISPLAY_NAME|AUDIT_ACTOR)' render.yaml
+      - name: Validate workflow YAML
+        run: |
+          ruby -e "require 'yaml'; YAML.load_file('.github/workflows/render-production-preflight.yml', aliases: true); YAML.load_file('.github/workflows/production-release.yml', aliases: true)"
