@@ -4,6 +4,10 @@ import java.util.UUID;
 
 /** Validates the explicit one-time administrative enrollment contract. */
 public final class CredentialBootstrapPolicy {
+
+    private static final int MIN_CREDENTIAL_LENGTH = 14;
+    private static final int MAX_AUDIT_ACTOR_LENGTH = 100;
+
     private CredentialBootstrapPolicy() {
     }
 
@@ -28,8 +32,23 @@ public final class CredentialBootstrapPolicy {
         if (email == null || email.isBlank()) {
             throw new IllegalStateException("BOOTSTRAP_ADMIN_EMAIL is required when bootstrap is enabled");
         }
-        if (credential == null || credential.length() < 14) {
-            throw new IllegalStateException("Bootstrap credential must contain at least 14 characters");
+        if (credential == null || credential.length() < MIN_CREDENTIAL_LENGTH) {
+            throw new IllegalStateException(
+                    "Bootstrap credential must contain at least " + MIN_CREDENTIAL_LENGTH + " characters");
         }
+    }
+
+    public static String requireAuditActor(boolean enabled, String actor) {
+        if (!enabled) {
+            return null;
+        }
+        if (actor == null || actor.isBlank()) {
+            throw new IllegalStateException("BOOTSTRAP_AUDIT_ACTOR is required when bootstrap is enabled");
+        }
+        String normalized = actor.trim();
+        if (normalized.length() > MAX_AUDIT_ACTOR_LENGTH) {
+            throw new IllegalStateException("BOOTSTRAP_AUDIT_ACTOR must not exceed 100 characters");
+        }
+        return normalized;
     }
 }
