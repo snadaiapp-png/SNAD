@@ -1,0 +1,209 @@
+/** Typed, reusable API client for the SANAD frontend. */
+import {
+  API_BASE_URL,
+  IS_API_CONFIGURED,
+  DEFAULT_API_TIMEOUT_MS,
+  buildUrl,
+  validateBaseUrl,
+} from "./config";
+import {
+  ApiClientError,
+  ApiConfigurationError,
+  ApiHttpError,
+  ApiNetworkError,
+  ApiResponseParseError,
+  ApiRequestSerializationError,
+  ApiTimeoutError,
+} from "./errors";
+import type { ApiRequest, ApiRequestContext, ApiErrorDetails, QueryParams } from "./types";
+
+const PROTECTED_HEADERS = new Set(["host", "content-length", "connection", "origin", "authorization"]);
+
+function buildDefaultHeaders(hasBody: boolean): Record<string, string> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (hasBody) headers["Content-Type"] = "application/json";
+  return headers;
+}
+
+function mergeHeaders(hasBody: boolean, contextHeaders?: Record<string, string>): Record<string, string> {
+  const merged = buildDefaultHeaders(hasBody);
+  for (const [key, value] of Object.entries(contextHeaders ?? {})) {
+    if (!PROTECTED_HEADERS.has(key.toLowerCase())) merged[key] = value;
+  }
+  return merged;
+}
+
+async function extractErrorDetails(response: Response): Promise<ApiErrorDetails> {
+  const status = response.status;
+  const error = response.statusText || null;
+  const headerRequestId = response.headers.get("x-request-id") || response.headers.get("request-id") || response.headers.get("x-correlation-id") || null;
+  let body: Record<string, unknown> | null = null;
+  let message: string | null = null;
+  let bodyPath: string | null = null;
+  let bodyRequestId: string | null = null;
+  try {
+    if ((response.headers.get("content-type") || "").includes("application/json")) {
+      const text = await response.text();
+      if (text) {
+        body = JSON.parse(text) as Record<string, unknown>;
+        if (typeof body.message === "string") message = body.message;
+        else if (typeof body.error === "string") message = body.error;
+        if (typeof body.path === "string") bodyPath = body.path;
+        if (typeof body.requestId === "string") bodyRequestId = body.requestId;
+      }
+    }
+  } catch {
+    body = null;
+  }
+  return {
+    status,
+    error,
+    message,
+    path: bodyPath || response.url || null,
+    requestId: headerRequestId || bodyRequestId,
+    body,
+  };
+}
+
+function createRequestSignal(timeoutMs: number, externalSignal?: AbortSignal): {
+  signal: AbortSignal;
+  cleanup: () => void;
+  abortKind: () => "timeout" | "external" | null;
+} {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new ApiConfigurationError(`Request timeout must be a positive finite number, got ${timeoutMs}`);
+  }
+  const controller = new AbortController();
+  let kind: "timeout" | "external" | null = null;
+  const abortFromExternal = () => {
+    if (controller.signal.aborted) return;
+    kind = "external";
+    controller.abort(externalSignal?.reason ?? new DOMException("Request cancelled", "AbortError"));
+  };
+  if (externalSignal?.aborted) abortFromExternal();
+  else externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
+  const timer = setTimeout(() => {
+    if (controller.signal.aborted) return;
+    kind = "timeout";
+    controller.abort(new DOMException(`Request timed out after ${timeoutMs}ms`, "TimeoutError"));
+  }, timeoutMs);
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timer);
+      externalSignal?.removeEventListener("abort", abortFromExternal);
+    },
+    abortKind: () => kind,
+  };
+}
+
+export class ApiClient {
+  private readonly baseUrl: string;
+  private readonly defaultTimeoutMs: number;
+
+  constructor(options?: { baseUrl?: string; timeoutMs?: number }) {
+    this.baseUrl = options?.baseUrl ?? API_BASE_URL;
+    this.defaultTimeoutMs = options?.timeoutMs ?? DEFAULT_API_TIMEOUT_MS;
+  }
+
+  buildUrl(path: string, query?: QueryParams): string {
+    return buildUrl(this.baseUrl, path, query as Record<string, unknown>);
+  }
+
+  get isConfigured(): boolean { return this.baseUrl.length > 0; }
+
+  async request<TResponse, TBody = undefined>(req: ApiRequest<TResponse, TBody>): Promise<TResponse> {
+    validateBaseUrl(this.baseUrl);
+    const hasBody = req.body !== undefined && req.body !== null;
+    const timeoutMs = req.timeoutMs ?? this.defaultTimeoutMs;
+    const fullUrl = this.buildUrl(req.path, req.query as QueryParams);
+    const headers = mergeHeaders(hasBody, req.context?.headers);
+
+    let serializedBody: string | undefined;
+    if (hasBody && req.method !== "GET") {
+      try { serializedBody = JSON.stringify(req.body); }
+      catch (err) {
+        throw new ApiRequestSerializationError(`Failed to serialize request body for ${req.method} ${req.path}`, err);
+      }
+      if (serializedBody === undefined) {
+        throw new ApiRequestSerializationError(`Request body for ${req.method} ${req.path} is not JSON-serializable`);
+      }
+    }
+
+    const requestSignal = createRequestSignal(timeoutMs, req.signal);
+    try {
+      if (requestSignal.abortKind() === "external") {
+        throw new ApiClientCancellation(`Request to ${req.method} ${req.path} was cancelled`, req.signal?.reason);
+      }
+      const init: RequestInit = {
+        method: req.method,
+        headers,
+        credentials: "include",
+        signal: requestSignal.signal,
+      };
+      if (serializedBody !== undefined) init.body = serializedBody;
+      const response = await fetch(fullUrl, init);
+      if (response.status === 204) return undefined as TResponse;
+      if (!response.ok) {
+        const details = await extractErrorDetails(response);
+        throw new ApiHttpError(`HTTP ${details.status} ${details.error || ""}: ${req.method} ${req.path}`.trim(), details);
+      }
+      if (response.headers.get("content-length") === "0") return undefined as TResponse;
+      if (!(response.headers.get("content-type") || "").includes("application/json")) return undefined as TResponse;
+      const text = await response.text();
+      if (!text) return undefined as TResponse;
+      try { return JSON.parse(text) as TResponse; }
+      catch (err) {
+        throw new ApiResponseParseError(`Failed to parse JSON response from ${req.method} ${req.path}`, response.status, err);
+      }
+    } catch (err) {
+      if (err instanceof ApiClientError) throw err;
+      const kind = requestSignal.abortKind();
+      if (kind === "timeout") {
+        throw new ApiTimeoutError(`Request to ${req.method} ${req.path} timed out after ${timeoutMs}ms`, timeoutMs, err);
+      }
+      if (kind === "external" || isAbortLike(err)) {
+        throw new ApiClientCancellation(`Request to ${req.method} ${req.path} was cancelled`, err);
+      }
+      throw new ApiNetworkError(`Network error while requesting ${req.method} ${req.path}: ${safeErrorMessage(err)}`, err);
+    } finally {
+      requestSignal.cleanup();
+    }
+  }
+
+  get<TResponse>(path: string, options?: RequestOptions): Promise<TResponse> {
+    return this.request<TResponse>({ method: "GET", path, ...options });
+  }
+  post<TResponse, TBody = undefined>(path: string, body?: TBody, options?: RequestOptions): Promise<TResponse> {
+    return this.request<TResponse, TBody>({ method: "POST", path, body, ...options });
+  }
+  put<TResponse, TBody = undefined>(path: string, body?: TBody, options?: RequestOptions): Promise<TResponse> {
+    return this.request<TResponse, TBody>({ method: "PUT", path, body, ...options });
+  }
+  patch<TResponse, TBody = undefined>(path: string, body?: TBody, options?: RequestOptions): Promise<TResponse> {
+    return this.request<TResponse, TBody>({ method: "PATCH", path, body, ...options });
+  }
+  delete<TResponse>(path: string, options?: RequestOptions): Promise<TResponse> {
+    return this.request<TResponse>({ method: "DELETE", path, ...options });
+  }
+}
+
+type RequestOptions = {
+  query?: QueryParams;
+  context?: ApiRequestContext;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+};
+
+export class ApiClientCancellation extends ApiClientError {
+  readonly code = "API_CLIENT_CANCELLATION";
+  constructor(message = "Request cancelled", cause?: unknown) { super(message, cause); }
+}
+
+function isAbortLike(err: unknown): boolean {
+  return err instanceof DOMException && (err.name === "AbortError" || err.name === "TimeoutError");
+}
+function safeErrorMessage(err: unknown): string { return err instanceof Error ? err.message : String(err); }
+
+export const apiClient = new ApiClient();
+export { API_BASE_URL, IS_API_CONFIGURED, DEFAULT_API_TIMEOUT_MS };
