@@ -155,7 +155,11 @@ public class AuthService {
     @Transactional
     public AuthResponse refresh(RefreshRequest request) {
         String tokenHash = hashToken(request.getRefreshToken());
-        Optional<RefreshToken> tokenOpt = refreshTokenRepository.findByTokenHash(tokenHash);
+
+        // ATOMIC CONSUMPTION: use pessimistic write lock (SELECT FOR UPDATE)
+        // to prevent concurrent refresh requests with the same token from
+        // both succeeding. The lock is held until the transaction commits.
+        Optional<RefreshToken> tokenOpt = refreshTokenRepository.findByTokenHashForUpdate(tokenHash);
 
         if (tokenOpt.isEmpty()) {
             log.warn("Refresh failed: token not found");

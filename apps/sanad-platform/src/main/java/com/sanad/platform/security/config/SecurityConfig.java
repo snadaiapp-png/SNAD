@@ -80,11 +80,10 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/swagger-ui.html"
                         ).permitAll()
-                        // H2 console: local profile ONLY
-                        .requestMatchers("/h2-console/**").permitAll()
                         // All other /api/** endpoints require authentication
                         .requestMatchers("/api/**").authenticated()
                         // Everything else is permitted (static resources, etc.)
+                        // H2 console is handled by a separate @Profile("local") filter chain below
                         .anyRequest().permitAll()
                 )
                 .exceptionHandling(ex -> ex
@@ -116,18 +115,37 @@ public class SecurityConfig {
                         })
                 );
 
-        // Frame options: disable for local (H2 console), SAMEORIGIN for prod
-        if (isLocalProfile()) {
-            http.headers(headers -> headers.frameOptions(frame -> frame.disable()));
-        } else {
-            http.headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()));
-        }
+        // Frame options: SAMEORIGIN for all profiles (clickjacking protection)
+        http.headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()));
 
         http.addFilterBefore(
                 new JwtAuthenticationFilter(jwtTokenProvider),
                 UsernamePasswordAuthenticationFilter.class
         );
 
+        // Order 1 — runs before the main chain for /h2-console/** in local profile only
+        http.securityContext(sc -> sc.requireExplicitSave(false));
+
+        return http.build();
+    }
+
+    /**
+     * Separate SecurityFilterChain for H2 console — local profile ONLY.
+     * This chain runs at order 0 (before the main chain) and only matches
+     * /h2-console/**. It disables frame options and CSRF for H2 console
+     * to work correctly.
+     *
+     * <p>In production, this bean is not created (no H2 console).</p>
+     */
+    @Bean
+    @org.springframework.core.annotation.Order(0)
+    @org.springframework.context.annotation.Profile("local")
+    public SecurityFilterChain h2ConsoleSecurityFilterChain(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher("/h2-console/**")
+                .csrf(csrf -> csrf.disable())
+                .headers(headers -> headers.frameOptions(frame -> frame.disable()))
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
         return http.build();
     }
 
@@ -148,9 +166,5 @@ public class SecurityConfig {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", configuration);
         return source;
-    }
-
-    private boolean isLocalProfile() {
-        return "local".equals(activeProfile);
     }
 }

@@ -44,9 +44,10 @@ import java.util.stream.Collectors;
  * and the access token is returned in the JSON response body (for the
  * frontend to use in Authorization headers).</p>
  *
- * <p>For backward compatibility, the refresh token is ALSO returned in the
- * JSON response body. The frontend can choose to use either the cookie
- * (recommended) or the body value.</p>
+ * <p><strong>The refresh token is NEVER included in the JSON response body.</strong>
+ * It exists only as an HttpOnly cookie. In the {@code local} profile, a body
+ * fallback is available for testing convenience. In production, only the
+ * cookie is accepted.</p>
  */
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -62,6 +63,7 @@ public class AuthController {
     private final OrganizationMembershipRepository membershipRepository;
     private final UserRoleGrantRepository roleGrantRepository;
     private final RoleRepository roleRepository;
+    private final String activeProfile;
 
     @Value("${sanad.security.cookie.secure:true}")
     private boolean cookieSecure;
@@ -77,40 +79,43 @@ public class AuthController {
             UserRepository userRepository,
             OrganizationMembershipRepository membershipRepository,
             UserRoleGrantRepository roleGrantRepository,
-            RoleRepository roleRepository
+            RoleRepository roleRepository,
+            @Value("${spring.profiles.active:local}") String activeProfile
     ) {
         this.authService = authService;
         this.userRepository = userRepository;
         this.membershipRepository = membershipRepository;
         this.roleGrantRepository = roleGrantRepository;
         this.roleRepository = roleRepository;
+        this.activeProfile = activeProfile;
     }
 
     @PostMapping("/login")
-    @Operation(summary = "Authenticate and obtain access + refresh tokens")
+    @Operation(summary = "Authenticate and obtain an access token (refresh token set as HttpOnly cookie)")
     public ResponseEntity<AuthResponse> login(
             @Valid @RequestBody LoginRequest request,
             HttpServletResponse response
     ) {
         AuthResponse authResponse = authService.login(request);
+        // Set refresh token as HttpOnly cookie — NOT in JSON body
         setRefreshCookie(response, authResponse.getRefreshToken());
         return ResponseEntity.ok(authResponse);
     }
 
     @PostMapping("/refresh")
-    @Operation(summary = "Exchange a refresh token for a new access + refresh token pair")
+    @Operation(summary = "Exchange a refresh token (from HttpOnly cookie) for a new access token")
     public ResponseEntity<AuthResponse> refresh(
-            @RequestBody(required = false) RefreshRequest body,
             HttpServletRequest request,
-            HttpServletResponse response
+            HttpServletResponse response,
+            @RequestBody(required = false) RefreshRequest body
     ) {
-        // Try cookie first (BFF pattern), fall back to body (backward compatibility)
         String refreshToken = extractRefreshToken(request, body);
         if (refreshToken == null || refreshToken.isBlank()) {
             return ResponseEntity.status(401).build();
         }
 
         AuthResponse authResponse = authService.refresh(new RefreshRequest(refreshToken));
+        // Rotate the cookie with the new refresh token
         setRefreshCookie(response, authResponse.getRefreshToken());
         return ResponseEntity.ok(authResponse);
     }
@@ -128,7 +133,6 @@ public class AuthController {
             authService.logout(tenantId, userId);
         }
 
-        // Clear the refresh cookie
         clearRefreshCookie(response);
         return ResponseEntity.noContent().build();
     }
@@ -155,13 +159,11 @@ public class AuthController {
         response.setStatus(user.getStatus().name());
         response.setLastLoginAt(user.getLastLoginAt());
 
-        // Load memberships
         List<OrganizationMembership> memberships = membershipRepository.findByTenantIdAndUserId(tenantId, userId);
         response.setMemberships(memberships.stream()
                 .map(m -> new MeResponse.MembershipSummary(m.getId(), m.getOrganizationId(), m.getStatus().name()))
                 .collect(Collectors.toList()));
 
-        // Load role grants with role codes
         List<UserRoleGrant> grants = roleGrantRepository.findByTenantIdAndUserIdAndStatus(tenantId, userId, UserGrantStatus.ACTIVE);
         List<MeResponse.RoleGrantSummary> grantSummaries = grants.stream().map(grant -> {
             String roleCode = roleRepository.findByTenantIdAndId(tenantId, grant.getRoleId())
@@ -185,41 +187,30 @@ public class AuthController {
     // ------------------------------------------------------------
 
     private void setRefreshCookie(HttpServletResponse response, String refreshToken) {
-        Cookie cookie = new Cookie(REFRESH_COOKIE_NAME, refreshToken);
-        cookie.setHttpOnly(true);
-        cookie.setSecure(cookieSecure);
-        cookie.setPath(REFRESH_COOKIE_PATH);
-        cookie.setMaxAge(60 * 60 * 24 * 7); // 7 days
-        if (cookieDomain != null && !cookieDomain.isBlank()) {
-            cookie.setDomain(cookieDomain);
-        }
-        // SameSite is set via header because Cookie API doesn't support it directly
-        response.addCookie(cookie);
-        // Add SameSite attribute via header
-        String sameSiteHeader = String.format("%s=%s; Path=%s; HttpOnly; %s; SameSite=%s%s",
+        String header = String.format("%s=%s; Path=%s; HttpOnly; %s; SameSite=%s; Max-Age=%d%s",
                 REFRESH_COOKIE_NAME,
                 refreshToken,
                 REFRESH_COOKIE_PATH,
                 cookieSecure ? "Secure" : "",
                 cookieSameSite,
+                60 * 60 * 24 * 7, // 7 days
                 (cookieDomain != null && !cookieDomain.isBlank()) ? "; Domain=" + cookieDomain : ""
         );
-        response.setHeader("Set-Cookie", sameSiteHeader);
+        response.setHeader("Set-Cookie", header);
     }
 
     private void clearRefreshCookie(HttpServletResponse response) {
-        Cookie cookie = new Cookie(REFRESH_COOKIE_NAME, "");
-        cookie.setHttpOnly(true);
-        cookie.setSecure(cookieSecure);
-        cookie.setPath(REFRESH_COOKIE_PATH);
-        cookie.setMaxAge(0); // Delete immediately
-        response.addCookie(cookie);
-        response.setHeader("Set-Cookie", String.format("%s=; Path=%s; HttpOnly; %s; SameSite=%s; Max-Age=0",
-                REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATH, cookieSecure ? "Secure" : "", cookieSameSite));
+        String header = String.format("%s=; Path=%s; HttpOnly; %s; SameSite=%s; Max-Age=0",
+                REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATH, cookieSecure ? "Secure" : "", cookieSameSite);
+        response.setHeader("Set-Cookie", header);
     }
 
+    /**
+     * Extract refresh token from cookie (always) or body (local/dev only).
+     * In production, ONLY the cookie is accepted.
+     */
     private String extractRefreshToken(HttpServletRequest request, RefreshRequest body) {
-        // Try cookie first
+        // Always try cookie first (BFF pattern)
         if (request.getCookies() != null) {
             for (Cookie cookie : request.getCookies()) {
                 if (REFRESH_COOKIE_NAME.equals(cookie.getName())) {
@@ -227,10 +218,16 @@ public class AuthController {
                 }
             }
         }
-        // Fall back to body
-        if (body != null && body.getRefreshToken() != null && !body.getRefreshToken().isBlank()) {
+
+        // Body fallback: local/dev profile ONLY (for testing convenience)
+        if (isLocalOrDevProfile() && body != null && body.getRefreshToken() != null && !body.getRefreshToken().isBlank()) {
             return body.getRefreshToken();
         }
+
         return null;
+    }
+
+    private boolean isLocalOrDevProfile() {
+        return "local".equals(activeProfile) || "dev".equals(activeProfile);
     }
 }

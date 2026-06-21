@@ -117,6 +117,12 @@ sanad:
       secure: ${COOKIE_SECURE:true}
       same-site: ${COOKIE_SAME_SITE:lax}
       domain: ${COOKIE_DOMAIN:}
+    bootstrap:
+      admin-email: ${BOOTSTRAP_ADMIN_EMAIL:admin@sanad.local}
+      admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:}
+      admin-display-name: ${BOOTSTRAP_ADMIN_DISPLAY_NAME:SANAD Admin}
+      tenant-name: ${BOOTSTRAP_TENANT_NAME:SANAD Default Tenant}
+      tenant-subdomain: ${BOOTSTRAP_TENANT_SUBDOMAIN:sanad-default}
 
 # Logging
 logging:

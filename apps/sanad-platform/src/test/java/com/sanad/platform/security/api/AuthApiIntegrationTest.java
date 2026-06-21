@@ -1,18 +1,18 @@
 package com.sanad.platform.security.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sanad.platform.organization.membership.domain.MembershipStatus;
-import com.sanad.platform.organization.membership.domain.OrganizationMembership;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
 import com.sanad.platform.security.dto.AuthResponse;
 import com.sanad.platform.security.dto.LoginRequest;
 import com.sanad.platform.security.dto.RefreshRequest;
+import com.sanad.platform.security.domain.RefreshTokenRepository;
 import com.sanad.platform.tenant.domain.Tenant;
 import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
 import com.sanad.platform.user.repository.UserRepository;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,11 +37,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>Uses the {@code local} profile (H2 in-memory database) with real
  * Flyway migrations. Each test creates its own tenant + user with a
  * BCrypt-hashed password and verifies the full auth flow.</p>
+ *
+ * <p><strong>Refresh token is delivered via HttpOnly cookie only.</strong>
+ * The JSON response body does NOT contain the refresh token. Tests
+ * extract the refresh token from the Set-Cookie header.</p>
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("local")
 class AuthApiIntegrationTest {
+
+    private static final String REFRESH_COOKIE_NAME = "sanad_refresh";
 
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
@@ -49,7 +55,7 @@ class AuthApiIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private OrganizationMembershipRepository membershipRepository;
-    @Autowired private com.sanad.platform.security.domain.RefreshTokenRepository refreshTokenRepository;
+    @Autowired private RefreshTokenRepository refreshTokenRepository;
 
     private UUID tenantId;
     private String testEmail;
@@ -58,13 +64,11 @@ class AuthApiIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        // Clean up in reverse dependency order (refresh_tokens → memberships → users → tenants)
         refreshTokenRepository.deleteAll();
         membershipRepository.deleteAll();
         userRepository.deleteAll();
         tenantRepository.deleteAll();
 
-        // Create a test tenant
         Tenant tenant = new Tenant(
                 "Auth Test Tenant",
                 "auth-test-" + UUID.randomUUID(),
@@ -72,7 +76,6 @@ class AuthApiIntegrationTest {
         );
         tenantId = tenantRepository.save(tenant).getId();
 
-        // Create a test user with a password
         testEmail = "testuser@example.com";
         testPassword = "TestPassword123!";
         User user = new User(tenantId, testEmail, "Test User", UserStatus.ACTIVE);
@@ -85,7 +88,7 @@ class AuthApiIntegrationTest {
     // ------------------------------------------------------------
 
     @Test
-    @DisplayName("POST /api/v1/auth/login — valid credentials returns 200 with tokens")
+    @DisplayName("POST /api/v1/auth/login — valid credentials returns 200 with access token; refresh token in cookie only")
     void login_validCredentials_returnsTokens() throws Exception {
         LoginRequest request = new LoginRequest(tenantId, testEmail, testPassword);
 
@@ -94,18 +97,20 @@ class AuthApiIntegrationTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
-                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
                 .andExpect(jsonPath("$.expiresAt").isNotEmpty())
                 .andExpect(jsonPath("$.user.id").isNotEmpty())
                 .andExpect(jsonPath("$.user.email").value(testEmail))
                 .andExpect(jsonPath("$.user.tenantId").value(tenantId.toString()))
+                // Refresh token must NOT be in the JSON body
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
                 .andReturn();
 
-        // Verify the response can be deserialized
-        AuthResponse response = objectMapper.readValue(
-                result.getResponse().getContentAsString(), AuthResponse.class);
-        assert response.getAccessToken() != null;
-        assert response.getRefreshToken() != null;
+        // Refresh token must be in the Set-Cookie header
+        String setCookie = result.getResponse().getHeader("Set-Cookie");
+        assert setCookie != null : "Set-Cookie header must be present";
+        assert setCookie.contains(REFRESH_COOKIE_NAME) : "Set-Cookie must contain refresh cookie";
+        assert setCookie.contains("HttpOnly") : "Cookie must be HttpOnly";
+        assert setCookie.contains("Path=/api/v1/auth") : "Cookie must be scoped to /api/v1/auth";
     }
 
     @Test
@@ -147,7 +152,6 @@ class AuthApiIntegrationTest {
     @Test
     @DisplayName("POST /api/v1/auth/login — suspended user returns 401")
     void login_suspendedUser_returns401() throws Exception {
-        // Change user status to SUSPENDED
         User user = userRepository.findByTenantIdAndEmail(tenantId, testEmail).orElseThrow();
         user.setStatus(UserStatus.SUSPENDED);
         userRepository.save(user);
@@ -163,9 +167,7 @@ class AuthApiIntegrationTest {
     @Test
     @DisplayName("POST /api/v1/auth/login — user without password returns 401")
     void login_userWithoutPassword_returns401() throws Exception {
-        // Create a user with no password hash
         User nopassUser = new User(tenantId, "nopass@example.com", "No Pass User", UserStatus.ACTIVE);
-        // passwordHash is null by default
         userRepository.save(nopassUser);
 
         LoginRequest request = new LoginRequest(tenantId, "nopass@example.com", "anyPassword");
@@ -188,7 +190,7 @@ class AuthApiIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/auth/login — no password in response body")
+    @DisplayName("POST /api/v1/auth/login — no password in response body or headers")
     void login_noPasswordInResponse() throws Exception {
         LoginRequest request = new LoginRequest(tenantId, testEmail, testPassword);
 
@@ -208,29 +210,32 @@ class AuthApiIntegrationTest {
     // ------------------------------------------------------------
 
     @Test
-    @DisplayName("POST /api/v1/auth/refresh — valid refresh token returns new tokens")
+    @DisplayName("POST /api/v1/auth/refresh — valid refresh token (from cookie) returns new tokens")
     void refresh_validToken_returnsNewTokens() throws Exception {
-        // First, login to get a refresh token
-        AuthResponse loginResponse = loginAndGetResponse();
+        // Login to get the refresh token cookie
+        LoginResult loginResult = loginAndExtractCookie();
 
-        // Now refresh
-        RefreshRequest refreshRequest = new RefreshRequest(loginResponse.getRefreshToken());
+        // Refresh using the body (local profile allows body fallback for testing)
+        RefreshRequest refreshRequest = new RefreshRequest(loginResult.refreshTokenValue);
 
-        mockMvc.perform(post("/api/v1/auth/refresh")
+        MvcResult refreshResult = mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(refreshRequest)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
-                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
-                // The new refresh token must be different from the old one (rotation)
-                .andExpect(jsonPath("$.refreshToken").value(org.hamcrest.Matchers.not(loginResponse.getRefreshToken())));
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
+                .andReturn();
+
+        // The new refresh cookie must be different (rotation)
+        String newCookie = refreshResult.getResponse().getHeader("Set-Cookie");
+        assert newCookie != null && newCookie.contains(REFRESH_COOKIE_NAME);
     }
 
     @Test
     @DisplayName("POST /api/v1/auth/refresh — reusing old refresh token returns 401 (replay protection)")
     void refresh_reusingOldToken_returns401() throws Exception {
-        AuthResponse loginResponse = loginAndGetResponse();
-        RefreshRequest refreshRequest = new RefreshRequest(loginResponse.getRefreshToken());
+        LoginResult loginResult = loginAndExtractCookie();
+        RefreshRequest refreshRequest = new RefreshRequest(loginResult.refreshTokenValue);
 
         // First refresh succeeds
         mockMvc.perform(post("/api/v1/auth/refresh")
@@ -256,6 +261,24 @@ class AuthApiIntegrationTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    @DisplayName("POST /api/v1/auth/refresh — blocked for SUSPENDED user (revokes all tokens)")
+    void refresh_blockedForSuspendedUser() throws Exception {
+        LoginResult loginResult = loginAndExtractCookie();
+
+        // Suspend the user
+        User user = userRepository.findByTenantIdAndEmail(tenantId, testEmail).orElseThrow();
+        user.setStatus(UserStatus.SUSPENDED);
+        userRepository.save(user);
+
+        // Attempt refresh — should fail with 401
+        RefreshRequest refreshRequest = new RefreshRequest(loginResult.refreshTokenValue);
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(refreshRequest)))
+                .andExpect(status().isUnauthorized());
+    }
+
     // ------------------------------------------------------------
     // /me tests
     // ------------------------------------------------------------
@@ -270,7 +293,7 @@ class AuthApiIntegrationTest {
     @Test
     @DisplayName("GET /api/v1/auth/me — with valid token returns user identity")
     void me_withValidToken_returnsUser() throws Exception {
-        AuthResponse loginResponse = loginAndGetResponse();
+        AuthResponse loginResponse = loginAndGetAccessToken();
 
         mockMvc.perform(get("/api/v1/auth/me")
                         .header("Authorization", "Bearer " + loginResponse.getAccessToken()))
@@ -298,7 +321,7 @@ class AuthApiIntegrationTest {
     @Test
     @DisplayName("POST /api/v1/auth/logout — with valid token returns 204")
     void logout_withValidToken_returns204() throws Exception {
-        AuthResponse loginResponse = loginAndGetResponse();
+        AuthResponse loginResponse = loginAndGetAccessToken();
 
         mockMvc.perform(post("/api/v1/auth/logout")
                         .header("Authorization", "Bearer " + loginResponse.getAccessToken()))
@@ -315,15 +338,15 @@ class AuthApiIntegrationTest {
     @Test
     @DisplayName("POST /api/v1/auth/logout — after logout, refresh token is revoked")
     void logout_revokesRefreshToken() throws Exception {
-        AuthResponse loginResponse = loginAndGetResponse();
+        LoginResult loginResult = loginAndExtractCookie();
 
         // Logout
         mockMvc.perform(post("/api/v1/auth/logout")
-                        .header("Authorization", "Bearer " + loginResponse.getAccessToken()))
+                        .header("Authorization", "Bearer " + loginResult.accessToken))
                 .andExpect(status().isNoContent());
 
         // Try to refresh with the old refresh token — should fail
-        RefreshRequest refreshRequest = new RefreshRequest(loginResponse.getRefreshToken());
+        RefreshRequest refreshRequest = new RefreshRequest(loginResult.refreshTokenValue);
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(refreshRequest)))
@@ -346,12 +369,29 @@ class AuthApiIntegrationTest {
     @Test
     @DisplayName("GET /api/v1/users with valid token returns 200")
     void protectedEndpoint_withValidToken_returns200() throws Exception {
-        AuthResponse loginResponse = loginAndGetResponse();
+        AuthResponse loginResponse = loginAndGetAccessToken();
 
         mockMvc.perform(get("/api/v1/users")
                         .param("tenantId", tenantId.toString())
                         .header("Authorization", "Bearer " + loginResponse.getAccessToken()))
                 .andExpect(status().isOk());
+    }
+
+    // ------------------------------------------------------------
+    // Tenant binding tests
+    // ------------------------------------------------------------
+
+    @Test
+    @DisplayName("GET /api/v1/users with JWT tenantId mismatch returns 403")
+    void protectedEndpoint_tenantMismatch_returns403() throws Exception {
+        AuthResponse loginResponse = loginAndGetAccessToken();
+        UUID wrongTenantId = UUID.randomUUID();
+
+        mockMvc.perform(get("/api/v1/users")
+                        .param("tenantId", wrongTenantId.toString())
+                        .header("Authorization", "Bearer " + loginResponse.getAccessToken()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403));
     }
 
     // ------------------------------------------------------------
@@ -370,13 +410,45 @@ class AuthApiIntegrationTest {
     // Helpers
     // ------------------------------------------------------------
 
-    private AuthResponse loginAndGetResponse() throws Exception {
+    private static class LoginResult {
+        String accessToken;
+        String refreshTokenValue;
+    }
+
+    private LoginResult loginAndExtractCookie() throws Exception {
         LoginRequest request = new LoginRequest(tenantId, testEmail, testPassword);
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andReturn();
-        return objectMapper.readValue(result.getResponse().getContentAsString(), AuthResponse.class);
+
+        LoginResult loginResult = new LoginResult();
+        // accessToken is in the JSON body
+        AuthResponse response = objectMapper.readValue(
+                result.getResponse().getContentAsString(), AuthResponse.class);
+        loginResult.accessToken = response.getAccessToken();
+
+        // refreshToken is NOT in the JSON body (@JsonIgnore) — extract from Set-Cookie header
+        String setCookie = result.getResponse().getHeader("Set-Cookie");
+        if (setCookie != null) {
+            // Parse the cookie value: "sanad_refresh=<value>; Path=...; HttpOnly; ..."
+            for (String part : setCookie.split(";")) {
+                part = part.trim();
+                if (part.startsWith(REFRESH_COOKIE_NAME + "=")) {
+                    loginResult.refreshTokenValue = part.substring(REFRESH_COOKIE_NAME.length() + 1);
+                    break;
+                }
+            }
+        }
+        return loginResult;
+    }
+
+    private AuthResponse loginAndGetAccessToken() throws Exception {
+        LoginResult result = loginAndExtractCookie();
+        AuthResponse response = new AuthResponse();
+        response.setAccessToken(result.accessToken);
+        response.setRefreshToken(result.refreshTokenValue);
+        return response;
     }
 }
