@@ -8,6 +8,7 @@ import com.sanad.platform.access.role.RoleRepository;
 import com.sanad.platform.organization.membership.domain.OrganizationMembership;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
 import com.sanad.platform.security.dto.AuthResponse;
+import com.sanad.platform.security.dto.ChangeCredentialRequest;
 import com.sanad.platform.security.dto.LoginRequest;
 import com.sanad.platform.security.dto.MeResponse;
 import com.sanad.platform.security.dto.RefreshRequest;
@@ -34,11 +35,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-/**
- * Authentication API consumed by the trusted Next.js server-side BFF.
- * The opaque refresh token is never serialized in JSON and its transport
- * header is not available through the browser CORS contract.
- */
+/** Authentication API consumed by the trusted same-origin Next.js BFF. */
 @RestController
 @RequestMapping("/api/v1/auth")
 @Tag(name = "Authentication", description = "Login, logout, refresh, and session management.")
@@ -96,15 +93,29 @@ public class AuthController {
 
     @PostMapping("/logout")
     @Operation(summary = "Revoke all active refresh tokens for the authenticated user")
-    @SuppressWarnings("unchecked")
     public ResponseEntity<Void> logout(Authentication authentication) {
-        if (authentication != null && authentication.getDetails() instanceof Map<?, ?>) {
-            Map<String, Object> claims = (Map<String, Object>) authentication.getDetails();
-            authService.logout(
-                    UUID.fromString((String) claims.get("tenant_id")),
-                    UUID.fromString((String) claims.get("user_id"))
-            );
+        PrincipalIds principal = principal(authentication);
+        if (principal != null) {
+            authService.logout(principal.tenantId(), principal.userId());
         }
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .build();
+    }
+
+    @PostMapping("/change-credential")
+    @Operation(summary = "Rotate the authenticated account credential and terminate refresh sessions")
+    public ResponseEntity<Void> changeCredential(
+            Authentication authentication,
+            @Valid @RequestBody ChangeCredentialRequest request
+    ) {
+        PrincipalIds principal = principal(authentication);
+        if (principal == null) {
+            return ResponseEntity.status(401)
+                    .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                    .build();
+        }
+        authService.changeCredential(principal.tenantId(), principal.userId(), request);
         return ResponseEntity.noContent()
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .build();
@@ -112,15 +123,16 @@ public class AuthController {
 
     @GetMapping("/me")
     @Operation(summary = "Get the authenticated user's identity, memberships, and role grants")
-    @SuppressWarnings("unchecked")
     public ResponseEntity<MeResponse> me(Authentication authentication) {
-        if (authentication == null || !(authentication.getDetails() instanceof Map<?, ?>)) {
-            return ResponseEntity.status(401).build();
+        PrincipalIds principal = principal(authentication);
+        if (principal == null) {
+            return ResponseEntity.status(401)
+                    .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                    .build();
         }
 
-        Map<String, Object> claims = (Map<String, Object>) authentication.getDetails();
-        UUID tenantId = UUID.fromString((String) claims.get("tenant_id"));
-        UUID userId = UUID.fromString((String) claims.get("user_id"));
+        UUID tenantId = principal.tenantId();
+        UUID userId = principal.userId();
         User user = userRepository.findByTenantIdAndId(tenantId, userId)
                 .orElseThrow(() -> new IllegalStateException("Authenticated user not found"));
 
@@ -131,11 +143,15 @@ public class AuthController {
         response.setDisplayName(user.getDisplayName());
         response.setStatus(user.getStatus().name());
         response.setLastLoginAt(user.getLastLoginAt());
+        response.setCredentialRotationRequired(user.isMustChangePassword());
 
-        List<OrganizationMembership> memberships = membershipRepository.findByTenantIdAndUserId(tenantId, userId);
+        List<OrganizationMembership> memberships =
+                membershipRepository.findByTenantIdAndUserId(tenantId, userId);
         response.setMemberships(memberships.stream()
                 .map(membership -> new MeResponse.MembershipSummary(
-                        membership.getId(), membership.getOrganizationId(), membership.getStatus().name()))
+                        membership.getId(),
+                        membership.getOrganizationId(),
+                        membership.getStatus().name()))
                 .collect(Collectors.toList()));
 
         List<UserRoleGrant> grants = roleGrantRepository.findByTenantIdAndUserIdAndStatus(
@@ -145,8 +161,11 @@ public class AuthController {
                     .map(Role::getCode)
                     .orElse("UNKNOWN");
             return new MeResponse.RoleGrantSummary(
-                    grant.getId(), grant.getRoleId(), roleCode,
-                    grant.getOrganizationId(), grant.getStatus().name());
+                    grant.getId(),
+                    grant.getRoleId(),
+                    roleCode,
+                    grant.getOrganizationId(),
+                    grant.getStatus().name());
         }).collect(Collectors.toList()));
 
         return ResponseEntity.ok()
@@ -166,7 +185,21 @@ public class AuthController {
         return builder.body(response);
     }
 
+    @SuppressWarnings("unchecked")
+    private PrincipalIds principal(Authentication authentication) {
+        if (authentication == null || !(authentication.getDetails() instanceof Map<?, ?>)) {
+            return null;
+        }
+        Map<String, Object> claims = (Map<String, Object>) authentication.getDetails();
+        return new PrincipalIds(
+                UUID.fromString((String) claims.get("tenant_id")),
+                UUID.fromString((String) claims.get("user_id")));
+    }
+
     private boolean isLocalOrDev() {
         return environment.acceptsProfiles(Profiles.of("local", "dev"));
+    }
+
+    private record PrincipalIds(UUID tenantId, UUID userId) {
     }
 }
