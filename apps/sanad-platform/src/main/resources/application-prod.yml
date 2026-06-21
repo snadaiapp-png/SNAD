@@ -15,6 +15,18 @@ sanad:
     url: ${DATABASE_URL:}
     username: ${DATABASE_USERNAME:}
     password: ${DATABASE_PASSWORD:}
+  security:
+    jwt:
+      # No default secret in production — must be set via JWT_SECRET env var.
+      # Startup will fail if not set (handled by SecurityProperties @NotBlank).
+      secret: ${JWT_SECRET:}
+      access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:15m}
+      issuer: ${JWT_ISSUER:sanad-platform}
+    refresh:
+      refresh-token-ttl: ${REFRESH_TOKEN_TTL:168h}
+    login-rate-limit:
+      max-attempts: ${LOGIN_RATE_LIMIT_MAX_ATTEMPTS:5}
+      window: ${LOGIN_RATE_LIMIT_WINDOW:5m}
 
 spring:
   datasource:

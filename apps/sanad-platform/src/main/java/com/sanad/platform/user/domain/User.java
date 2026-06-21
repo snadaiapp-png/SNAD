@@ -31,9 +31,10 @@ import java.util.UUID;
  * is enforced at the repository query level (every method takes a
  * {@code tenantId} parameter).</p>
  *
- * <p>This is the persistence foundation only. No authentication, password,
- * RBAC, or login logic exists here. Future stages will link Users to
- * Organization Memberships and add role/permission models.</p>
+ * <p>This is the persistence foundation only. Authentication credential
+ * storage (password_hash) was added in EXEC-PROMPT-032A, but the actual
+ * authentication logic lives in the security package. Role/permission
+ * models exist in the access package.</p>
  *
  * <h2>Email Normalization</h2>
  * <p>Emails are normalized to lowercase before persistence (see
@@ -80,6 +81,14 @@ public class User {
     @Column(name = "status", nullable = false, length = 20)
     private UserStatus status;
 
+    /** BCrypt password hash. Nullable — users created before auth was enabled have no password. */
+    @Column(name = "password_hash", length = 255)
+    private String passwordHash;
+
+    /** Timestamp of the last successful login. Nullable if never logged in. */
+    @Column(name = "last_login_at")
+    private Instant lastLoginAt;
+
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -120,6 +129,16 @@ public class User {
     public UserStatus getStatus() { return status; }
     public void setStatus(UserStatus status) { this.status = status; }
 
+    /**
+     * Returns the BCrypt password hash.
+     * <p><strong>Never expose this in API responses or logs.</strong></p>
+     */
+    public String getPasswordHash() { return passwordHash; }
+    public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
+
+    public Instant getLastLoginAt() { return lastLoginAt; }
+    public void setLastLoginAt(Instant lastLoginAt) { this.lastLoginAt = lastLoginAt; }
+
     public Instant getCreatedAt() { return createdAt; }
 
     public Instant getUpdatedAt() { return updatedAt; }
@@ -144,12 +163,14 @@ public class User {
 
     @Override
     public String toString() {
+        // Never include passwordHash in toString() — it could leak via logs.
         return "User{" +
                 "id=" + id +
                 ", tenantId=" + tenantId +
                 ", email='" + email + '\'' +
                 ", displayName='" + displayName + '\'' +
                 ", status=" + status +
+                ", lastLoginAt=" + lastLoginAt +
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +
                 '}';

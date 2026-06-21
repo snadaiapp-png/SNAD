@@ -14,6 +14,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * the membership FK constraints are satisfied.</p>
  */
 @SpringBootTest
+@Import(SecurityPermitAllTestConfig.class)
 @AutoConfigureMockMvc
 @ActiveProfiles("local")
 @Transactional

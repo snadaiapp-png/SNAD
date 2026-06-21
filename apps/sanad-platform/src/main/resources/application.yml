@@ -101,6 +101,19 @@ springdoc:
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS:https://snad-app.vercel.app}
 
+# Security (EXEC-PROMPT-032A)
+sanad:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:dev-only-secret-key-change-in-production-min-32-bytes-long}
+      access-token-ttl: 15m
+      issuer: sanad-platform
+    refresh:
+      refresh-token-ttl: 168h
+    login-rate-limit:
+      max-attempts: 5
+      window: 5m
+
 # Logging
 logging:
   level:

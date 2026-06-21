@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -18,6 +20,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
+@Import(SecurityPermitAllTestConfig.class)
 @AutoConfigureMockMvc
 @ActiveProfiles("local")
 class PlatformApiCountTest {
@@ -36,7 +39,7 @@ class PlatformApiCountTest {
 
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
-        assertThat(count(paths, null)).isEqualTo(44);
+        assertThat(count(paths, null)).isEqualTo(48); // 44 + 4 auth endpoints (login, refresh, logout, me)
         assertThat(paths.path("/api/v1/access/evaluation").has("get")).isTrue();
     }
 
