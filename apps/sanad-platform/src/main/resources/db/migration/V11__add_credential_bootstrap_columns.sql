@@ -1,10 +1,6 @@
 -- ============================================================
--- V11: Add bootstrap admin credential columns
--- EXEC-PROMPT-032A: Credential Bootstrap
--- ============================================================
--- Adds a column to track whether a user's password was set
--- via bootstrap (initial admin setup) vs. normal password flow.
--- This is for auditing only — no security logic depends on it.
+-- V11: Credential bootstrap audit and forced rotation state
+-- EXEC-PROMPT-032A
 -- ============================================================
 
 ALTER TABLE users
@@ -12,3 +8,13 @@ ALTER TABLE users
 
 ALTER TABLE users
     ADD COLUMN password_set_by VARCHAR(100);
+
+ALTER TABLE users
+    ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+
+COMMENT ON COLUMN users.password_set_at IS
+    'UTC timestamp of the last controlled credential enrollment.';
+COMMENT ON COLUMN users.password_set_by IS
+    'Non-secret audit actor identifier for credential enrollment.';
+COMMENT ON COLUMN users.must_change_password IS
+    'Forces credential rotation after administrative bootstrap.';
