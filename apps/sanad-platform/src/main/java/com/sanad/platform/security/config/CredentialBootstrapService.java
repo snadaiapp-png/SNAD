@@ -82,7 +82,7 @@ public class CredentialBootstrapService {
         }
 
         String normalizedEmail = adminEmail.trim().toLowerCase(Locale.ROOT);
-        User adminUser = userRepository.findByTenantIdAndEmail(tenantId, normalizedEmail)
+        User candidate = userRepository.findByTenantIdAndEmail(tenantId, normalizedEmail)
                 .map(user -> prepareExistingUser(user, tenantId))
                 .orElseGet(() -> new User(
                         tenantId,
@@ -90,14 +90,13 @@ public class CredentialBootstrapService {
                         normalizeDisplayName(displayName),
                         UserStatus.ACTIVE));
 
-        Instant enrolledAt = Instant.now();
-        adminUser.setPasswordHash(passwordEncoder.encode(adminCredential));
-        adminUser.setPasswordSetAt(enrolledAt);
-        adminUser.setPasswordSetBy(auditActor);
-        adminUser.setMustChangePassword(true);
-        adminUser.setLastLoginAt(null);
-        adminUser.setStatus(UserStatus.ACTIVE);
-        adminUser = userRepository.save(adminUser);
+        candidate.setPasswordHash(passwordEncoder.encode(adminCredential));
+        candidate.setPasswordSetAt(Instant.now());
+        candidate.setPasswordSetBy(auditActor);
+        candidate.setMustChangePassword(true);
+        candidate.setLastLoginAt(null);
+        candidate.setStatus(UserStatus.ACTIVE);
+        final User adminUser = userRepository.save(candidate);
 
         Role adminRole = roleRepository.findByTenantIdAndCode(tenantId, ADMIN_ROLE_CODE)
                 .map(this::requireActiveAdminRole)
