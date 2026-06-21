@@ -2,7 +2,7 @@
 
 ## Status
 
-IMPLEMENTED — PENDING CI AND PM REVIEW
+APPROVED — READY FOR MERGE
 
 ## Objective
 
@@ -39,9 +39,17 @@ Establish the reusable typed frontend API integration boundary required by all s
 - Do not expose internal health errors through the public system-status route
 - Keep tenant selection explicit
 
-## Validation commands
+## Validation evidence
 
-From `apps/web` run `npm ci`, `npm run lint`, `npm test`, and `npm run build`.
+The final reviewed branch passed all required repository gates on 21 June 2026:
+
+- Web CI passed lint, tests, and Next.js build
+- Backend CI passed build, tests, packaging, Docker Compose validation, and production health validation
+- Security Baseline passed repository secret scanning, frontend production dependency audit, and backend container hardening
+- Master Backlog Validation passed
+- Service Decomposition Validation passed
+
+Pull Request: `#48`
 
 ## Compatibility
 
@@ -57,4 +65,4 @@ The legacy API configuration and integration modules remain as compatibility shi
 
 ## Rollback
 
-Revert the stage commit or close the pull request before merge. No backend schema or production deployment migration is included.
+Revert the merged stage commit. No backend schema or commercial-production deployment migration is included.
