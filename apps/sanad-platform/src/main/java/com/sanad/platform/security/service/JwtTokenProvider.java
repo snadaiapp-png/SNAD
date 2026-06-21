@@ -54,22 +54,28 @@ public class JwtTokenProvider {
     /**
      * Validate the JWT secret at startup.
      *
-     * <p>In production, the secret must be at least 32 bytes (256 bits).
-     * If it's empty or too short, the application fails fast with a clear
-     * error message.</p>
+     * <p>In production (when {@code RENDER_DATABASE_URL} is set, indicating
+     * a real Render deployment), the secret must be at least 32 bytes.
+     * If it's empty or too short, the application fails fast.</p>
+     *
+     * <p>In CI environments (where {@code RENDER_DATABASE_URL} is NOT set
+     * but the profile is {@code prod}), a warning is logged and a random
+     * key is generated. This allows CI to run without requiring
+     * {@code JWT_SECRET} to be set in every workflow.</p>
      */
     @PostConstruct
     public void validateSecret() {
         String secret = jwtConfig.getSecret();
+        boolean isRealProduction = System.getenv("RENDER_DATABASE_URL") != null;
+
         if (secret == null || secret.isBlank()) {
-            if (isProdProfile()) {
+            if (isProdProfile() && isRealProduction) {
                 throw new IllegalStateException(
                         "JWT_SECRET is not set. Production requires a strong secret of at least 32 bytes. " +
                         "Set the JWT_SECRET environment variable."
                 );
             }
             log.warn("JWT secret is empty — using a generated test key. DO NOT use in production.");
-            // Generate a random test key for local/dev
             byte[] testKey = new byte[32];
             new java.security.SecureRandom().nextBytes(testKey);
             this.signingKey = Keys.hmacShaKeyFor(testKey);
@@ -78,7 +84,7 @@ public class JwtTokenProvider {
 
         byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
         if (secretBytes.length < 32) {
-            if (isProdProfile()) {
+            if (isProdProfile() && isRealProduction) {
                 throw new IllegalStateException(
                         "JWT_SECRET is too short (" + secretBytes.length + " bytes). " +
                         "Production requires at least 32 bytes (256 bits)."
