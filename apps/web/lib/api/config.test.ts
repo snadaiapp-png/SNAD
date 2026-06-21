@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiConfigurationError } from "./errors";
 
 describe("API configuration", () => {
   afterEach(() => vi.resetModules());
@@ -23,12 +22,12 @@ describe("API configuration", () => {
 
   it("rejects an empty base URL", async () => {
     const { validateBaseUrl } = await import("./config");
-    expect(() => validateBaseUrl("")).toThrow(ApiConfigurationError);
+    expect(() => validateBaseUrl("")).toThrowError(/not set/i);
   });
 
   it("rejects non-local HTTP", async () => {
     const { validateBaseUrl } = await import("./config");
-    expect(() => validateBaseUrl("http://api.example.com")).toThrow(ApiConfigurationError);
+    expect(() => validateBaseUrl("http://api.example.com")).toThrowError(/https/i);
   });
 
   it("permits local HTTP", async () => {
