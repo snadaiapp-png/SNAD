@@ -63,6 +63,8 @@ export interface ApiRequest<TResponse, TBody = undefined> {
   signal?: AbortSignal;
   /** Per-request timeout in ms. Overrides the default. */
   timeoutMs?: number;
+  /** Fetch cache mode (e.g. "no-store" for health checks). Optional. */
+  cache?: RequestCache;
   /** Optional response type marker for the caller's reference. */
   _responseType?: TResponse;
 }
@@ -95,14 +97,18 @@ export interface ApiErrorDetails {
 /**
  * Result of a backend health check.
  *
- * Only `configured`, `reachable`, and `statusCode` are exposed via
- * the public `/api/system/backend-status` route. The `error` field
- * is kept internal for logging but NEVER returned to the client.
+ * `configured`, `reachable`, `statusCode`, `targetHost`, and `checkedAt`
+ * are safe to expose via the public `/api/system/backend-status` route.
+ * The `error` field is kept internal for logging but NEVER returned to the client.
  */
 export interface HealthCheckResult {
   configured: boolean;
   reachable: boolean;
   statusCode: number | null;
+  /** Backend hostname (no scheme, no path, no port unless non-standard) — safe to expose. */
+  targetHost: string | null;
+  /** UTC ISO-8601 timestamp when the check was performed. */
+  checkedAt: string;
   /** Internal error message — must NOT be forwarded to end users. */
   error: string | null;
 }
