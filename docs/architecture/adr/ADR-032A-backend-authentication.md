@@ -1,119 +1,86 @@
-# ADR-032A: Backend Authentication Architecture
+# ADR-032A: Backend Authentication and Session Boundary
 
 ## Status
 
-Accepted
-
-## Date
-
-2026-06-21
+Accepted — 2026-06-21
 
 ## Context
 
-The SANAD backend has zero authentication infrastructure (confirmed by EXEC-PROMPT-032 Contract Gap Report). All API endpoints are publicly accessible with only `tenantId` query parameter scoping. EXEC-PROMPT-032A authorizes building the backend authentication foundation.
-
-The existing codebase has:
-- `User` entity with `id, tenantId, email, displayName, status, createdAt, updatedAt` — no password field
-- `UserStatus` enum: `ACTIVE, INACTIVE, INVITED, SUSPENDED, ARCHIVED`
-- `UserRoleGrant` + `Role` + `AccessCapability` RBAC infrastructure (already functional)
-- `OrganizationMembership` linking users to organizations within a tenant
-- Tenant scoping via `tenantId` query parameter (not header)
-- No Spring Security, no JWT, no password encoder
+SANAD requires a real authentication contract before frontend EXEC-PROMPT-032 can protect its operational panels. The backend now has user lifecycle, tenant, membership, role, and capability models but previously had no trusted principal or session lifecycle.
 
 ## Decision
 
-### 1. Session Model: Stateless JWT with Refresh Token Rotation
+### Access authentication
 
-**Access Token:** Short-lived JWT (15 minutes), passed via `Authorization: Bearer <token>` header. Contains `sub` (userId), `tenantId`, `email`, `iat`, `exp`. Stateless — no server-side session store needed.
+- Access tokens are short-lived HS256 JWTs, default lifetime 15 minutes.
+- Claims: `sub`, `tenant_id`, `email`, `iat`, `exp`, and `iss`.
+- Production startup fails when the signing material is blank or shorter than 32 bytes, including combined production profiles.
+- Browser API calls send the access token through `Authorization: Bearer`.
 
-**Refresh Token:** Long-lived (7 days), opaque random token (not JWT), stored in `refresh_tokens` table with server-side validation. Rotated on each use (old token revoked, new token issued). Replay protection via rotation + single-use enforcement.
+### Refresh-session boundary
 
-**Why not server-side sessions?**
-- The frontend (Vercel) and backend (Render) are on different domains — cookie-based sessions require SameSite/CORS complexity
-- The existing API is designed as a stateless REST API (tenantId as query param, no session affinity)
-- JWT allows the frontend to include the token in requests without server-side lookup overhead
-- Refresh token rotation provides revocation capability without a session store
+The approved topology is:
 
-**Why not JWT-only (no refresh table)?**
-- JWT-only with long lifetime is insecure (cannot revoke)
-- JWT-only with short lifetime requires frequent re-authentication (bad UX)
-- Refresh token table allows revocation on logout, password change, or suspicious activity
+```text
+Browser → same-origin Next.js BFF → Render backend
+```
 
-### 2. Credential Storage: BCrypt Password Hash
+- The browser never receives the opaque refresh token in JSON.
+- The Render backend returns and accepts the refresh token through `X-SANAD-Refresh-Token` only for server-to-server BFF calls.
+- This header is intentionally absent from CORS allowed and exposed headers.
+- EXEC-PROMPT-032 stores the refresh token in a Secure, HttpOnly, SameSite cookie owned by the Vercel same-origin BFF.
+- The backend creates no production browser cookie; therefore its API remains stateless and CSRF is enforced at the BFF cookie boundary.
+- Local/development compatibility may use a local-only HttpOnly cookie and request-body fallback. Neither path is active in production.
 
-- **Algorithm:** BCrypt (via `BCryptPasswordEncoder`, strength 10)
-- **Column:** `password_hash VARCHAR(255)` added to `users` table (nullable — existing users have no password until they set one)
-- **Never log or expose** the password hash in API responses, logs, or error messages
-- Passwords are normalized (trimmed) before encoding
+### Refresh rotation
 
-### 3. Login Tenant Resolution
+- Refresh values are opaque 256-bit random tokens; only SHA-256 hashes are persisted.
+- Each refresh is consumed under a pessimistic database lock.
+- The old record becomes `USED`, links to exactly one replacement, and the replacement becomes the only active descendant.
+- Reuse of a `USED` value triggers family invalidation.
+- Refresh is rejected and active tokens are revoked when the user is not `ACTIVE`.
+- `replaced_by_id` has a nullable self-referencing foreign key to preserve lineage integrity.
 
-**Login request includes `tenantId` explicitly.** The `users` table has a unique constraint on `(tenant_id, email)` — emails can repeat across tenants. Requiring `tenantId` in the login request is the cleanest design and avoids ambiguity.
+### Tenant isolation
 
-`LoginRequest { tenantId: UUID, email: String, password: String }`
+- JWTs carry the authenticated tenant identifier.
+- Requests containing the legacy `tenantId` query parameter are rejected with 403 when it differs from the authenticated tenant.
+- Services and repositories remain tenant-scoped.
+- Resource-ID-only endpoints must validate ownership in their service/repository lookup; negative integration coverage is required for Organizations, Users, Memberships, Roles, Grants, and Capabilities.
 
-Lookup: `UserRepository.findByTenantIdAndEmail(tenantId, email)` (already exists).
+### Credentials and bootstrap
 
-### 4. Identity Relationship
+- Credentials use BCrypt and are never returned or logged.
+- Existing users may initially have no credential.
+- Administrative bootstrap is disabled by default and must target an existing active tenant.
+- Bootstrap is one-time: an already enrolled account causes startup failure rather than silent credential rotation.
+- The administrator receives a tenant-wide `ADMIN` role grant.
+- V11 records credential-enrollment audit fields and a forced-rotation flag.
+- Bootstrap environment values must be removed immediately after successful enrollment.
 
-- **User lifecycle:** Login is blocked unless `user.status == ACTIVE`. `SUSPENDED`, `INACTIVE`, `INVITED`, `ARCHIVED` users cannot log in.
-- **Tenant scope:** The JWT contains `tenantId` from the authenticated user. All subsequent requests use this tenant identity (but the existing `tenantId` query parameter is still required on tenant-scoped endpoints for backward compatibility — it will be validated to match the JWT's tenantId in a future stage).
-- **Organization memberships:** Not loaded into the JWT. The `/api/v1/auth/me` endpoint returns the user's memberships via `OrganizationMembershipRepository.findByTenantIdAndUserId(tenantId, userId)`.
-- **RBAC:** User's role grants (`UserRoleGrantRepository.findByTenantIdAndUserIdAndStatus(tenantId, userId, ACTIVE)`) are loaded on `/api/v1/auth/me` for the frontend to use. They are NOT embedded in the JWT (roles can change during the token's lifetime).
+### Endpoint contract
 
-### 5. Endpoint Contracts
+| Method | Path | Authentication | Contract |
+|---|---|---|---|
+| POST | `/api/v1/auth/login` | Public | JSON access response; refresh value in trusted BFF response header |
+| POST | `/api/v1/auth/refresh` | Trusted BFF refresh header | Rotated access response and replacement refresh header |
+| POST | `/api/v1/auth/logout` | Access JWT | Revokes all active refresh values for the principal |
+| GET | `/api/v1/auth/me` | Access JWT | Current user, memberships, and active role grants |
 
-| Method | Path | Auth Required | Body | Response |
-|---|---|---|---|---|
-| POST | `/api/v1/auth/login` | No | `LoginRequest` | `AuthResponse` (accessToken, refreshToken, expiresIn, user) |
-| POST | `/api/v1/auth/refresh` | No (refresh token in body) | `RefreshRequest` | `AuthResponse` (new accessToken, new refreshToken, expiresIn, user) |
-| POST | `/api/v1/auth/logout` | Yes (Bearer token) | — | 204 No Content |
-| GET | `/api/v1/auth/me` | Yes (Bearer token) | — | `MeResponse` (user + memberships + roleGrants) |
+All authentication responses use `Cache-Control: no-store`.
 
-### 6. Token Lifetimes
+### Security configuration
 
-| Token | Lifetime | Configurable Via |
-|---|---|---|
-| Access JWT | 15 minutes | `sanad.security.jwt.access-token-ttl` (default: `15m`) |
-| Refresh token | 7 days | `sanad.security.jwt.refresh-token-ttl` (default: `168h`) |
-
-### 7. Refresh Token Rotation & Revocation
-
-- Each refresh token is a single-use opaque token (256-bit random, URL-safe base64)
-- On `POST /api/v1/auth/refresh`: the old refresh token is marked `USED` (revoked), a new refresh token is issued
-- If a `USED` token is presented again → replay attack detected → all refresh tokens for that user are revoked (family invalidation)
-- On `POST /api/v1/auth/logout`: the refresh token associated with the access token is revoked
-- Refresh tokens are stored in a `refresh_tokens` table with `userId, tokenHash, status (ACTIVE/USED/REVOKED), expiresAt, createdAt, replacedById`
-
-### 8. Brute-Force Protection
-
-- Login rate limiting: max 5 failed attempts per `(tenantId, email)` per 5-minute window
-- Tracked in-memory (Caffeine cache) — sufficient for a single-instance pilot
-- After 5 failures: returns 429 Too Many Requests with `Retry-After` header
-- Successful login resets the counter
-
-### 9. Security Configuration
-
-- `SecurityFilterChain`: 
-  - `permitAll()`: `/api/v1/auth/login`, `/api/v1/auth/refresh`, `/actuator/health`, `/actuator/health/**`, `/v3/api-docs/**`, `/swagger-ui/**`, `/h2-console/**` (local only)
-  - `authenticated()`: all other `/api/**` paths
-  - `csrf().disable()` (stateless JWT, no cookies)
-  - `sessionManagement().sessionCreationPolicy(STATELESS)`
-  - `cors()` with existing CORS configuration
-  - `addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter)`
-- `PasswordEncoder`: `BCryptPasswordEncoder` bean
-- `JwtAuthenticationFilter`: extracts Bearer token, validates, populates `SecurityContext`
-
-### 10. RBAC Integration
-
-- `@EnableMethodSecurity` enabled
-- `JwtAuthenticationFilter` populates `Authentication` with authorities from the JWT's `authorities` claim
-- Future stages can use `@PreAuthorize("hasAuthority('...')")` on controller methods
-- For this stage, RBAC enforcement is NOT applied to existing endpoints (they remain open to any authenticated user) — only the auth endpoints themselves are secured
+- `/api/v1/auth/login`, `/api/v1/auth/refresh`, and health probes are public.
+- All other `/api/**` routes require authentication.
+- H2 console access and frame-option relaxation exist only in the `local` profile.
+- Production Swagger and non-health actuator endpoints remain disabled.
+- CORS allows the approved frontend origin and ordinary access-token headers only; credentials are disabled at the Render API boundary.
 
 ## Consequences
 
-- **Breaking change:** All existing API endpoints (except `/actuator/health`) will now require a valid JWT. The frontend (EXEC-PROMPT-032 frontend) must authenticate before calling them. However, EXEC-PROMPT-032A only adds the backend infrastructure — the frontend is NOT modified in this stage.
-- **Migration:** `V10__add_user_password_hash.sql` adds `password_hash` column (nullable). Existing users have no password until set via a future password-setting flow.
-- **Test impact:** Existing integration tests that call `/api/v1/**` endpoints will get 401 unless they authenticate. A test helper will be added to mint JWTs for tests.
-- **Configuration:** `sanad.security.jwt.secret` must be set in production (env var `JWT_SECRET`). Local/dev profiles use a default test key.
+- Backend APIs become inaccessible to anonymous callers.
+- Frontend EXEC-PROMPT-032 must implement the same-origin BFF before operational panels can call protected APIs.
+- Access JWT revocation remains bounded by its short lifetime; refresh revocation is immediate.
+- In-memory login throttling is pilot-only and must move to shared infrastructure before multi-instance operation.
+- Full capability enforcement remains a separate authorization stage; authentication and tenant isolation cannot be deferred.
