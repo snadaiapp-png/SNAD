@@ -20,23 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * JWT authentication filter with central tenant binding enforcement.
- *
- * <p>Extracts the Bearer token from the {@code Authorization} header,
- * validates it, and populates the {@code SecurityContext} with the
- * authenticated user's identity.</p>
- *
- * <p><strong>Tenant Binding:</strong> For any request to {@code /api/**}
- * that includes a {@code tenantId} query parameter, the filter validates
- * that the parameter matches the {@code tenant_id} claim in the JWT.
- * If they don't match, the request is rejected with 403 Forbidden.
- * This prevents cross-tenant data access even if a frontend bug sends
- * the wrong tenantId.</p>
- *
- * <p>Endpoints that don't take a {@code tenantId} parameter (like
- * {@code /api/v1/auth/me}) are not subject to this check.</p>
- */
+/** JWT authentication filter with tenant binding and bootstrap-session restriction. */
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
@@ -54,9 +38,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             HttpServletResponse response,
             FilterChain filterChain
     ) throws ServletException, IOException {
-
         String authHeader = request.getHeader("Authorization");
-
         if (authHeader == null || !authHeader.startsWith(BEARER_PREFIX)) {
             filterChain.doFilter(request, response);
             return;
@@ -64,73 +46,82 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String token = authHeader.substring(BEARER_PREFIX.length()).trim();
         Claims claims = jwtTokenProvider.parseAndValidate(token);
-
         if (claims == null) {
             log.debug("Invalid JWT token presented to {}", request.getRequestURI());
             filterChain.doFilter(request, response);
             return;
         }
 
-        // Extract tenant_id from JWT
         String jwtTenantIdStr = claims.get("tenant_id", String.class);
-        UUID jwtTenantId = null;
+        UUID jwtTenantId;
         try {
             jwtTenantId = UUID.fromString(jwtTenantIdStr);
         } catch (IllegalArgumentException | NullPointerException e) {
-            log.warn("JWT token has invalid tenant_id claim: {}", jwtTenantIdStr);
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.setContentType("application/json");
-            response.getWriter().write(
-                    "{\"timestamp\":\"" + java.time.Instant.now() + "\","
-                            + "\"status\":401,"
-                            + "\"error\":\"Unauthorized\","
-                            + "\"message\":\"رمز المصادقة غير صالح\","
-                            + "\"path\":\"" + request.getRequestURI() + "\"}"
-            );
+            writeError(response, request, 401, "Unauthorized", "رمز المصادقة غير صالح");
             return;
         }
 
-        // CENTRAL TENANT BINDING: validate that the request's tenantId param
-        // matches the JWT's tenant_id. This prevents cross-tenant access.
         String requestTenantIdParam = request.getParameter("tenantId");
         if (requestTenantIdParam != null && !requestTenantIdParam.isBlank()) {
             try {
                 UUID requestTenantId = UUID.fromString(requestTenantIdParam);
                 if (!requestTenantId.equals(jwtTenantId)) {
-                    log.warn("Tenant binding violation: JWT tenantId={} but request tenantId={} for path={}",
+                    log.warn("Tenant binding violation: JWT tenantId={} request tenantId={} path={}",
                             jwtTenantId, requestTenantId, request.getRequestURI());
-                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                    response.setContentType("application/json");
-                    response.getWriter().write(
-                            "{\"timestamp\":\"" + java.time.Instant.now() + "\","
-                                    + "\"status\":403,"
-                                    + "\"error\":\"Forbidden\","
-                                    + "\"message\":\"تم رفض الوصول: تعارض في هوية المستأجر\","
-                                    + "\"path\":\"" + request.getRequestURI() + "\"}"
-                    );
+                    writeError(response, request, 403, "Forbidden",
+                            "تم رفض الوصول: تعارض في هوية المستأجر");
                     return;
                 }
-            } catch (IllegalArgumentException e) {
-                // Malformed tenantId param — let the controller handle it as 400
+            } catch (IllegalArgumentException ignored) {
+                // The controller validates malformed tenant identifiers as a bad request.
             }
         }
 
-        // Build the authentication object with claims as details
+        boolean rotationRequired = Boolean.TRUE.equals(
+                claims.get(JwtTokenProvider.ROTATION_REQUIRED_CLAIM, Boolean.class));
+        if (rotationRequired && request.getRequestURI().startsWith("/api/")
+                && !isRotationSafeEndpoint(request.getRequestURI())) {
+            writeError(response, request, 403, "Forbidden",
+                    "يجب تغيير بيانات الاعتماد قبل استخدام واجهات المنصة");
+            return;
+        }
+
         Map<String, Object> details = new HashMap<>();
         details.put("user_id", claims.getSubject());
         details.put("tenant_id", jwtTenantIdStr);
         details.put("email", claims.get("email", String.class));
+        details.put(JwtTokenProvider.ROTATION_REQUIRED_CLAIM, rotationRequired);
 
         List<SimpleGrantedAuthority> authorities = Collections.singletonList(
-                new SimpleGrantedAuthority("ROLE_USER")
-        );
-
+                new SimpleGrantedAuthority("ROLE_USER"));
         UsernamePasswordAuthenticationToken authentication =
                 new UsernamePasswordAuthenticationToken(claims.getSubject(), null, authorities);
         authentication.setDetails(details);
-
         SecurityContextHolder.getContext().setAuthentication(authentication);
 
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isRotationSafeEndpoint(String uri) {
+        return "/api/v1/auth/me".equals(uri)
+                || "/api/v1/auth/change-credential".equals(uri)
+                || "/api/v1/auth/logout".equals(uri);
+    }
+
+    private void writeError(
+            HttpServletResponse response,
+            HttpServletRequest request,
+            int status,
+            String error,
+            String message
+    ) throws IOException {
+        response.setStatus(status);
+        response.setContentType("application/json");
+        response.getWriter().write(
+                "{\"timestamp\":\"" + java.time.Instant.now() + "\"," 
+                        + "\"status\":" + status + ","
+                        + "\"error\":\"" + error + "\","
+                        + "\"message\":\"" + message + "\","
+                        + "\"path\":\"" + request.getRequestURI() + "\"}");
     }
 }
