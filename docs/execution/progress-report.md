@@ -81,3 +81,16 @@ Verified backend contracts:
 - No authentication injection or automatic tenant resolution in this stage
 
 **Gate:** Merge only after Web CI passes and PM review is recorded.
+
+---
+
+## EXEC-PROMPT-031 — Users & Organization Memberships Live Integration
+
+**Status:** IMPLEMENTED — PENDING CI AND PM REVIEW
+
+**Summary:** Connected the SANAD frontend to the live Backend APIs for Users and Organization Memberships using the typed API client from EXEC-PROMPT-029. Created typed API modules (`users.ts`, `memberships.ts`) following the factory pattern established by `organizations.ts`, input validation (`validation.ts`), Arabic error mapper (`user-facing-errors.ts`) that handles `ApiRequestSerializationError` from main, and two Arabic RTL UI panels wired into `app/page.tsx` alongside the existing `OrganizationLivePanel` and `SanadDashboard`. All inputs validated client-side before transport. Memberships invite enforces body/path/query ID consistency. `remove` is a soft delete via PATCH (not HTTP DELETE).
+
+**Branch:** `feat/EXEC-PROMPT-031-users-memberships-live-integration`
+**Base:** `bc42935b4808afd0a2700579bfd95ce4f971dec9` (EXEC-PROMPT-030 merge via PR #49)
+
+**Gate:** Merge only after Web CI passes and PM review is recorded. EXEC-PROMPT-032 remains blocked until this stage is merged and approved.
