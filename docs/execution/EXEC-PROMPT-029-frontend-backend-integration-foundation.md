@@ -51,7 +51,7 @@ The legacy API configuration and integration modules remain as compatibility shi
 
 - Organization live integration: EXEC-PROMPT-030
 - Users and memberships: EXEC-PROMPT-031
-- Authentication and tokens: EXEC-PROMPT-032 and 033
+- Authentication foundation and session-token lifecycle: EXEC-PROMPT-032 and 033
 - Authorization enforcement: EXEC-PROMPT-034
 - Automatic tenant and organization context: EXEC-PROMPT-035
 
