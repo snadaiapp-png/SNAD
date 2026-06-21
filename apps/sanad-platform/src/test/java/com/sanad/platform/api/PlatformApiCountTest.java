@@ -2,11 +2,11 @@ package com.sanad.platform.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -39,7 +39,8 @@ class PlatformApiCountTest {
 
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
-        assertThat(count(paths, null)).isEqualTo(48); // 44 + 4 auth endpoints (login, refresh, logout, me)
+        assertThat(count(paths, null)).isEqualTo(49);
+        assertThat(paths.path("/api/v1/auth/change-credential").has("post")).isTrue();
         assertThat(paths.path("/api/v1/access/evaluation").has("get")).isTrue();
     }
 
