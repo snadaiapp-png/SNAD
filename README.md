@@ -16,15 +16,17 @@ Enterprise AI-Powered ERP, CRM and Workflow Platform.
 - Java 17 (target) / 21 (runtime)
 - Maven
 - PostgreSQL 16 (Flyway migrations V1-V9)
-- Backend hosting target: Render
-- Provisioning status: pending
-- Production URL: pending verification
+- Backend hosting: Render
+- Pilot backend deployed and verified
+- Commercial production not approved
+- Free-tier pilot only
 
 ### Infrastructure
 - Docker (multi-stage build, non-root user)
-- GitHub Actions CI/CD (backend + frontend + Docker + Render Blueprint validation)
-- Vercel (frontend)
-- Render (backend + managed PostgreSQL) — pending provisioning
+- GitHub Actions CI/CD
+- Vercel frontend
+- Render backend
+- Supabase PostgreSQL pilot database
 
 ## Project Structure
 
@@ -35,26 +37,25 @@ apps/
 docs/
   architecture/adr/ # Architecture Decision Records
   deployment/       # Deployment guides
+  development/      # Developer guides
   execution/        # Execution progress reports
   operations/       # Operations and monitoring
 .github/workflows/  # CI/CD pipelines
-render.yaml         # Render Blueprint
-.env.example        # Environment variable template
 ```
 
-## Production URLs
+## Pilot URLs
 
 | Service | URL | Status |
 |---|---|---|
-| Frontend | https://snad-app.vercel.app | Live |
-| Backend | Pending provisioning | Pending |
+| Frontend | https://snad-app.vercel.app | Live pilot |
+| Backend | https://sanad-backend-mcrj.onrender.com | Live pilot |
 
 ## Documentation
 
 - [Backend Runtime](docs/deployment/backend-runtime.md)
 - [Render Deployment Guide](docs/deployment/render-backend-deployment.md)
 - [Monitoring Baseline](docs/operations/backend-monitoring.md)
-- [ADR-028: Hosting Provider Selection](docs/architecture/adr/ADR-028-backend-hosting-provider.md)
+- [Frontend API Client Guide](docs/development/frontend-api-client.md)
 - [Progress Report](docs/execution/progress-report.md)
 
-Status: Stage 4 - Backend Production Release (IN PROGRESS)
+Status: Stage 5 - Frontend–Backend Integration Foundation (IN PROGRESS)
