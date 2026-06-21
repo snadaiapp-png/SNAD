@@ -1,19 +1,15 @@
-# Render Blueprint for SANAD Backend (Free Pilot)
+# Render Blueprint for SANAD Backend
 # ============================================================
-# This Blueprint deploys only the Spring Boot backend on Render.
-# PostgreSQL is hosted externally on Supabase.
-#
-# Pilot constraints:
-# - Render backend plan: free
-# - Supabase PostgreSQL: external Session Pooler on port 5432
-# - Auto-deploy: OFF
-# - Secrets are entered in Render Dashboard and never committed
+# GitHub is the release authority. Render stores runtime secrets.
+# Automatic deploy is intentionally disabled; the protected production
+# workflow deploys an exact, reviewed main commit.
 # ============================================================
 
 services:
   - type: web
     name: sanad-backend
     runtime: docker
+    repo: https://github.com/snadaiapp-png/SNAD
     branch: main
     region: frankfurt
     plan: free
@@ -27,6 +23,8 @@ services:
         value: prod
       - key: SERVER_PORT
         value: "8080"
+      - key: JWT_SECRET
+        generateValue: true
       - key: DATABASE_DRIVER
         value: org.postgresql.Driver
       - key: DATABASE_URL
@@ -41,6 +39,8 @@ services:
         value: "true"
       - key: CORS_ALLOWED_ORIGINS
         value: https://snad-app.vercel.app
+      - key: BOOTSTRAP_ENABLED
+        value: "false"
       - key: LOG_LEVEL_ROOT
         value: INFO
       - key: LOG_LEVEL_SANAD
