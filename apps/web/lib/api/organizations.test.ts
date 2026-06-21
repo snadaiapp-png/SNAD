@@ -46,10 +46,10 @@ describe("organizationsApi", () => {
     });
   });
 
-  it("rejects blank names before transport", async () => {
+  it("rejects blank names before transport", () => {
     const { client, api } = setup();
     const post = vi.spyOn(client, "post");
-    await expect(api.create("tenant-1", { name: " " })).rejects.toThrow(/name is required/i);
+    expect(() => api.create("tenant-1", { name: " " })).toThrow(/name is required/i);
     expect(post).not.toHaveBeenCalled();
   });
 });
