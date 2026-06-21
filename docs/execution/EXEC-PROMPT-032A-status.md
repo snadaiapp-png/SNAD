@@ -1,5 +1,23 @@
 # EXEC-PROMPT-032A Status
 
-Head: `16ebe623a4f8255ed432da578b615b3a8e7ec672`
+The backend authentication foundation is complete at code and CI level.
 
-The backend authentication foundation has passed all seven required workflows. Merge is pending verification that the production runtime contains the required cryptographic signing configuration and completion of post-deployment smoke testing.
+## Delivered
+
+- Login, refresh, logout, and current-user contracts.
+- Strict production JWT signing validation.
+- BCrypt credential storage.
+- Opaque refresh rotation with PostgreSQL locking and replay invalidation.
+- User lifecycle and tenant mismatch enforcement.
+- Same-origin Next.js BFF session boundary.
+- Local-only H2 access.
+- Refresh lineage referential integrity.
+- Dynamic Flyway backup and restore validation.
+
+## Evidence
+
+All seven required workflows passed on the reviewed implementation head. The current documentation-only head must retain the same green status before merge.
+
+## Remaining production gate
+
+Before deployment, the Render runtime must contain strong signing configuration of at least 32 bytes. Production startup intentionally fails when this configuration is absent or weak. After merge, login, refresh, logout, tenant isolation, and health smoke tests must pass before Gate #032 is closed.
