@@ -103,9 +103,42 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          health=$(curl --fail-with-body --silent --show-error "$PRODUCTION_BASE_URL/actuator/health")
-          jq -e '.status == "UP"' <<< "$health" >/dev/null
-          printf '%s\n' "$health" | jq '{status}' > render-health-evidence.json
+          health_url="${PRODUCTION_BASE_URL%/}/actuator/health"
+          health_file=/tmp/render-health.json
+          healthy=false
+
+          # Render free services can be suspended after inactivity. Poll long enough
+          # for a cold start instead of failing the production gate on the first request.
+          for attempt in $(seq 1 36); do
+            http_status=$(curl \
+              --silent \
+              --show-error \
+              --location \
+              --connect-timeout 10 \
+              --max-time 20 \
+              --output "$health_file" \
+              --write-out '%{http_code}' \
+              "$health_url" || true)
+
+            if [ "$http_status" = "200" ] && jq -e '.status == "UP"' "$health_file" >/dev/null 2>&1; then
+              healthy=true
+              echo "Render production health is UP after attempt $attempt."
+              break
+            fi
+
+            echo "Health attempt $attempt/36 returned HTTP ${http_status:-000}; waiting for service readiness."
+            sleep 10
+          done
+
+          [ "$healthy" = "true" ] || {
+            echo "::error::Production health did not become UP within the preflight window."
+            if [ -s "$health_file" ]; then
+              jq -c '{status: (.status // "UNKNOWN")}' "$health_file" 2>/dev/null || true
+            fi
+            exit 1
+          }
+
+          jq '{status}' "$health_file" > render-health-evidence.json
 
       - name: Upload sanitized evidence
         uses: actions/upload-artifact@v4
