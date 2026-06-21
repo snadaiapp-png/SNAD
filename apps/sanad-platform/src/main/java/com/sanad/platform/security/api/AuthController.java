@@ -36,11 +36,8 @@ import java.util.stream.Collectors;
 
 /**
  * Authentication API consumed by the trusted Next.js server-side BFF.
- *
- * <p>The opaque refresh token is transported in a response/request header
- * that is deliberately absent from the browser CORS allow/expose lists.
- * EXEC-PROMPT-032 will persist it in a same-origin Secure HttpOnly cookie
- * at the Vercel BFF boundary. The Render backend creates no browser cookie.</p>
+ * The opaque refresh token is never serialized in JSON and its transport
+ * header is not available through the browser CORS contract.
  */
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -48,6 +45,7 @@ import java.util.stream.Collectors;
 public class AuthController {
 
     public static final String REFRESH_TOKEN_HEADER = "X-SANAD-Refresh-Token";
+    private static final String LOCAL_REFRESH_COOKIE = "sanad_refresh";
 
     private final AuthService authService;
     private final UserRepository userRepository;
@@ -102,9 +100,10 @@ public class AuthController {
     public ResponseEntity<Void> logout(Authentication authentication) {
         if (authentication != null && authentication.getDetails() instanceof Map<?, ?>) {
             Map<String, Object> claims = (Map<String, Object>) authentication.getDetails();
-            UUID tenantId = UUID.fromString((String) claims.get("tenant_id"));
-            UUID userId = UUID.fromString((String) claims.get("user_id"));
-            authService.logout(tenantId, userId);
+            authService.logout(
+                    UUID.fromString((String) claims.get("tenant_id")),
+                    UUID.fromString((String) claims.get("user_id"))
+            );
         }
         return ResponseEntity.noContent()
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
@@ -156,10 +155,15 @@ public class AuthController {
     }
 
     private ResponseEntity<AuthResponse> authResponse(AuthResponse response) {
-        return ResponseEntity.ok()
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
                 .header(REFRESH_TOKEN_HEADER, response.getRefreshToken())
-                .header(HttpHeaders.CACHE_CONTROL, "no-store")
-                .body(response);
+                .header(HttpHeaders.CACHE_CONTROL, "no-store");
+        if (isLocalOrDev()) {
+            builder.header(HttpHeaders.SET_COOKIE,
+                    LOCAL_REFRESH_COOKIE + "=" + response.getRefreshToken()
+                            + "; Path=/api/v1/auth; HttpOnly; SameSite=Strict");
+        }
+        return builder.body(response);
     }
 
     private boolean isLocalOrDev() {
