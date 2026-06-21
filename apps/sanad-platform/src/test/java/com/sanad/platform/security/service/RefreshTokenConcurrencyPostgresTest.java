@@ -12,7 +12,6 @@ import com.sanad.platform.tenant.repository.TenantRepository;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
 import com.sanad.platform.user.repository.UserRepository;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -86,7 +85,7 @@ class RefreshTokenConcurrencyPostgresTest {
     }
 
     @Test
-    void sameRefreshValueCanBeConsumedOnlyOnce() throws Exception {
+    void concurrentReuseInvalidatesTheIssuedFamily() throws Exception {
         AuthResponse login = authService.login(new LoginRequest(tenantId, email, credential));
         String refreshValue = login.getRefreshToken();
 
@@ -99,12 +98,19 @@ class RefreshTokenConcurrencyPostgresTest {
             assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
             start.countDown();
 
-            List<Boolean> outcomes = List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS));
+            List<Boolean> outcomes = List.of(
+                    first.get(20, TimeUnit.SECONDS),
+                    second.get(20, TimeUnit.SECONDS));
             assertThat(outcomes).containsExactlyInAnyOrder(true, false);
 
-            List<RefreshToken> family = refreshTokenRepository.findAllByTenantIdAndUserId(tenantId, userId);
-            assertThat(family.stream().filter(token -> token.getStatus() == RefreshTokenStatus.ACTIVE)).hasSize(1);
-            assertThat(family.stream().filter(token -> token.getStatus() == RefreshTokenStatus.USED)).hasSize(1);
+            List<RefreshToken> family =
+                    refreshTokenRepository.findAllByTenantIdAndUserId(tenantId, userId);
+            assertThat(family.stream()
+                    .filter(token -> token.getStatus() == RefreshTokenStatus.ACTIVE)).isEmpty();
+            assertThat(family.stream()
+                    .filter(token -> token.getStatus() == RefreshTokenStatus.USED)).hasSize(1);
+            assertThat(family.stream()
+                    .filter(token -> token.getStatus() == RefreshTokenStatus.REVOKED)).hasSize(1);
         } finally {
             executor.shutdownNow();
         }
