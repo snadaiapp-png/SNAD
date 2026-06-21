@@ -2,16 +2,17 @@ package com.sanad.platform.security.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sanad.platform.security.domain.RefreshTokenRepository;
 import com.sanad.platform.security.dto.ChangeCredentialRequest;
 import com.sanad.platform.security.dto.LoginRequest;
 import com.sanad.platform.security.dto.RefreshRequest;
-import com.sanad.platform.security.domain.RefreshTokenRepository;
 import com.sanad.platform.tenant.domain.Tenant;
 import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
 import com.sanad.platform.user.repository.UserRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -21,11 +22,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -35,7 +36,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("local")
-@Transactional
 class CredentialRotationIntegrationTest {
 
     @Autowired private MockMvc mockMvc;
@@ -44,6 +44,13 @@ class CredentialRotationIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private RefreshTokenRepository refreshTokenRepository;
     @Autowired private PasswordEncoder encoder;
+
+    @AfterEach
+    void cleanUp() {
+        refreshTokenRepository.deleteAll();
+        userRepository.deleteAll();
+        tenantRepository.deleteAll();
+    }
 
     @Test
     void bootstrapSessionIsRestrictedUntilCredentialRotation() throws Exception {
@@ -108,7 +115,7 @@ class CredentialRotationIntegrationTest {
                 .andExpect(status().isOk())
                 .andReturn();
         String replacementAccess = objectMapper.readTree(
-                replacementResult.getResponse().getContentAsString())
+                        replacementResult.getResponse().getContentAsString())
                 .path("accessToken").asText();
 
         mockMvc.perform(get("/api/v1/auth/me")
@@ -117,10 +124,10 @@ class CredentialRotationIntegrationTest {
                 .andExpect(jsonPath("$.credentialRotationRequired").value(false));
 
         User persisted = userRepository.findByTenantIdAndEmail(tenant.getId(), email).orElseThrow();
-        org.assertj.core.api.Assertions.assertThat(persisted.isMustChangePassword()).isFalse();
-        org.assertj.core.api.Assertions.assertThat(persisted.getPasswordSetBy()).isEqualTo("self-service");
-        org.assertj.core.api.Assertions.assertThat(
-                refreshTokenRepository.findAllByTenantIdAndUserId(tenant.getId(), persisted.getId()))
+        assertThat(persisted.isMustChangePassword()).isFalse();
+        assertThat(persisted.getPasswordSetBy()).isEqualTo("self-service");
+        assertThat(refreshTokenRepository
+                .findAllByTenantIdAndUserId(tenant.getId(), persisted.getId()))
                 .isNotEmpty();
     }
 }
