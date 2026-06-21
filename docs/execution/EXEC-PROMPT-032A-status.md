@@ -1,3 +1,3 @@
 # EXEC-PROMPT-032A Status
 
-Code gate complete. Deployment remains gated by runtime configuration verification.
+Code and CI gates are complete. Deployment is pending runtime signing configuration and authentication smoke verification.
