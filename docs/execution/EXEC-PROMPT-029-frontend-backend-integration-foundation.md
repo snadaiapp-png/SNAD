@@ -49,11 +49,11 @@ The legacy API configuration and integration modules remain as compatibility shi
 
 ## Deferred stages
 
-- Organization live integration: EXEC-PROMPT-030
-- Users and memberships: EXEC-PROMPT-031
-- Authentication foundation and session-token lifecycle: EXEC-PROMPT-032 and 033
-- Authorization enforcement: EXEC-PROMPT-034
-- Automatic tenant and organization context: EXEC-PROMPT-035
+- EXEC-PROMPT-030 covers organization live integration.
+- EXEC-PROMPT-031 covers users and memberships.
+- EXEC-PROMPT-032 and EXEC-PROMPT-033 cover authentication foundation and session lifecycle.
+- EXEC-PROMPT-034 covers authorization enforcement.
+- EXEC-PROMPT-035 covers automatic tenant and organization context.
 
 ## Rollback
 
