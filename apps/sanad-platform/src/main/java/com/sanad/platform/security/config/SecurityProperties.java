@@ -20,6 +20,7 @@ public class SecurityProperties {
     private Jwt jwt = new Jwt();
     private Refresh refresh = new Refresh();
     private LoginRateLimit loginRateLimit = new LoginRateLimit();
+    private Cookie cookie = new Cookie();
 
     public Jwt getJwt() { return jwt; }
     public void setJwt(Jwt jwt) { this.jwt = jwt; }
@@ -29,6 +30,9 @@ public class SecurityProperties {
 
     public LoginRateLimit getLoginRateLimit() { return loginRateLimit; }
     public void setLoginRateLimit(LoginRateLimit loginRateLimit) { this.loginRateLimit = loginRateLimit; }
+
+    public Cookie getCookie() { return cookie; }
+    public void setCookie(Cookie cookie) { this.cookie = cookie; }
 
     /** Access JWT configuration. */
     public static class Jwt {
@@ -73,5 +77,26 @@ public class SecurityProperties {
 
         public Duration getWindow() { return window; }
         public void setWindow(Duration window) { this.window = window; }
+    }
+
+    /** Cookie configuration for refresh token (BFF pattern). */
+    public static class Cookie {
+        /** Whether to set the Secure flag on the cookie. Default: true. */
+        private boolean secure = true;
+
+        /** SameSite attribute. Default: lax. */
+        private String sameSite = "lax";
+
+        /** Domain for the cookie. Empty = host-only. */
+        private String domain = "";
+
+        public boolean isSecure() { return secure; }
+        public void setSecure(boolean secure) { this.secure = secure; }
+
+        public String getSameSite() { return sameSite; }
+        public void setSameSite(String sameSite) { this.sameSite = sameSite; }
+
+        public String getDomain() { return domain; }
+        public void setDomain(String domain) { this.domain = domain; }
     }
 }

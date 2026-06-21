@@ -5,8 +5,10 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
@@ -36,18 +38,53 @@ public class JwtTokenProvider {
 
     private static final Logger log = LoggerFactory.getLogger(JwtTokenProvider.class);
 
-    private final SecretKey signingKey;
     private final SecurityProperties.Jwt jwtConfig;
+    private final String activeProfile;
 
-    public JwtTokenProvider(SecurityProperties securityProperties) {
+    private SecretKey signingKey;
+
+    public JwtTokenProvider(
+            SecurityProperties securityProperties,
+            @Value("${spring.profiles.active:local}") String activeProfile
+    ) {
         this.jwtConfig = securityProperties.getJwt();
-        // The secret must be at least 256 bits (32 bytes) for HS256.
-        // If it's shorter, we pad it — but log a warning.
-        byte[] secretBytes = jwtConfig.getSecret().getBytes(StandardCharsets.UTF_8);
+        this.activeProfile = activeProfile;
+    }
+
+    /**
+     * Validate the JWT secret at startup.
+     *
+     * <p>In production, the secret must be at least 32 bytes (256 bits).
+     * If it's empty or too short, the application fails fast with a clear
+     * error message.</p>
+     */
+    @PostConstruct
+    public void validateSecret() {
+        String secret = jwtConfig.getSecret();
+        if (secret == null || secret.isBlank()) {
+            if (isProdProfile()) {
+                throw new IllegalStateException(
+                        "JWT_SECRET is not set. Production requires a strong secret of at least 32 bytes. " +
+                        "Set the JWT_SECRET environment variable."
+                );
+            }
+            log.warn("JWT secret is empty — using a generated test key. DO NOT use in production.");
+            // Generate a random test key for local/dev
+            byte[] testKey = new byte[32];
+            new java.security.SecureRandom().nextBytes(testKey);
+            this.signingKey = Keys.hmacShaKeyFor(testKey);
+            return;
+        }
+
+        byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
         if (secretBytes.length < 32) {
-            log.warn("JWT secret is shorter than 256 bits — this is insecure for production. " +
-                    "Set JWT_SECRET to a strong secret of at least 32 bytes.");
-            // Pad to 32 bytes using a deterministic derivation (not ideal, but safe for local/dev).
+            if (isProdProfile()) {
+                throw new IllegalStateException(
+                        "JWT_SECRET is too short (" + secretBytes.length + " bytes). " +
+                        "Production requires at least 32 bytes (256 bits)."
+                );
+            }
+            log.warn("JWT secret is shorter than 256 bits — padding for local/dev. DO NOT use in production.");
             byte[] padded = new byte[32];
             System.arraycopy(secretBytes, 0, padded, 0, secretBytes.length);
             this.signingKey = Keys.hmacShaKeyFor(padded);
@@ -56,13 +93,12 @@ public class JwtTokenProvider {
         }
     }
 
+    private boolean isProdProfile() {
+        return "prod".equals(activeProfile) || "production".equals(activeProfile);
+    }
+
     /**
      * Mint a new access JWT for the given user.
-     *
-     * @param userId   the authenticated user's ID
-     * @param tenantId the user's tenant ID
-     * @param email    the user's email
-     * @return the signed JWT string
      */
     public String mintAccessToken(UUID userId, UUID tenantId, String email) {
         Instant now = Instant.now();
@@ -94,7 +130,6 @@ public class JwtTokenProvider {
                     .parseSignedClaims(token)
                     .getPayload();
         } catch (JwtException e) {
-            // Don't log the token value — just the exception type.
             log.debug("JWT validation failed: {}", e.getMessage());
             return null;
         }
@@ -102,9 +137,6 @@ public class JwtTokenProvider {
 
     /**
      * Extract the user ID from a valid JWT.
-     *
-     * @param token the raw JWT string
-     * @return the user ID, or {@code null} if the token is invalid
      */
     public UUID extractUserId(String token) {
         Claims claims = parseAndValidate(token);
@@ -117,9 +149,7 @@ public class JwtTokenProvider {
     }
 
     /**
-     * Get the access token TTL (for inclusion in auth responses).
-     *
-     * @return the TTL as an {@link Instant} offset from now
+     * Get the access token expiry (for inclusion in auth responses).
      */
     public Instant getAccessTokenExpiry() {
         return Instant.now().plus(jwtConfig.getAccessTokenTtl());

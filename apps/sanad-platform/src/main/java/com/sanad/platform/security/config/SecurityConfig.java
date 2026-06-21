@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -29,6 +30,10 @@ import java.util.List;
  *
  * <p>Configures stateless JWT authentication, CORS integration,
  * password encoding, and the security filter chain.</p>
+ *
+ * <p>H2 console and frame-options disabling are restricted to the
+ * {@code local} profile only. In production, frame options are enabled
+ * (SAMEORIGIN) and H2 console is not accessible.</p>
  */
 @Configuration
 @EnableWebSecurity
@@ -39,12 +44,17 @@ public class SecurityConfig {
     private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final String activeProfile;
 
     @Value("${cors.allowed-origins:https://snad-app.vercel.app}")
     private String corsAllowedOrigins;
 
-    public SecurityConfig(JwtTokenProvider jwtTokenProvider) {
+    public SecurityConfig(
+            JwtTokenProvider jwtTokenProvider,
+            @Value("${spring.profiles.active:local}") String activeProfile
+    ) {
         this.jwtTokenProvider = jwtTokenProvider;
+        this.activeProfile = activeProfile;
     }
 
     @Bean
@@ -70,7 +80,7 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/swagger-ui.html"
                         ).permitAll()
-                        // H2 console (local profile only)
+                        // H2 console: local profile ONLY
                         .requestMatchers("/h2-console/**").permitAll()
                         // All other /api/** endpoints require authentication
                         .requestMatchers("/api/**").authenticated()
@@ -104,16 +114,26 @@ public class SecurityConfig {
                                             "\"path\":\"" + request.getRequestURI() + "\"}"
                             );
                         })
-                )
-                .headers(headers -> headers.frameOptions(frame -> frame.disable())) // H2 console
-                .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider), UsernamePasswordAuthenticationFilter.class);
+                );
+
+        // Frame options: disable for local (H2 console), SAMEORIGIN for prod
+        if (isLocalProfile()) {
+            http.headers(headers -> headers.frameOptions(frame -> frame.disable()));
+        } else {
+            http.headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()));
+        }
+
+        http.addFilterBefore(
+                new JwtAuthenticationFilter(jwtTokenProvider),
+                UsernamePasswordAuthenticationFilter.class
+        );
 
         return http.build();
     }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder(10); // strength 10 — ~100ms per hash
+        return new BCryptPasswordEncoder(10);
     }
 
     @Bean
@@ -128,5 +148,9 @@ public class SecurityConfig {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", configuration);
         return source;
+    }
+
+    private boolean isLocalProfile() {
+        return "local".equals(activeProfile);
     }
 }

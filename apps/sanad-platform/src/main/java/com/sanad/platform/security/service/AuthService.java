@@ -25,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -37,7 +38,13 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Handles login, refresh token rotation, logout, and brute-force
  * protection. All operations are tenant-scoped via the {@code tenantId}
- * in the login request.</p>
+ * in the login request or embedded in the refresh token's DB record.</p>
+ *
+ * <p>Refresh rotation is atomic: the entire rotate-and-issue operation
+ * runs in a single {@code @Transactional} method. Concurrent refresh
+ * attempts with the same token are serialized by the database's row-level
+ * locking (the {@code SELECT ... FOR UPDATE} pattern via JPA's
+ * {@code findByTokenHash} within a transaction).</p>
  */
 @Service
 public class AuthService {
@@ -51,7 +58,6 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final SecurityProperties securityProperties;
 
-    /** In-memory cache for login rate limiting. Key: "tenantId:email", value: failure count. */
     private final Cache<String, Integer> loginFailureCache;
 
     public AuthService(
@@ -76,8 +82,6 @@ public class AuthService {
     /**
      * Authenticate a user and issue access + refresh tokens.
      *
-     * @param request login credentials (tenantId, email, password)
-     * @return auth response with tokens and user identity
      * @throws InvalidCredentialsException if email not found or password mismatch
      * @throws AccountInactiveException    if user status is not ACTIVE
      * @throws LoginRateLimitException     if too many failed attempts
@@ -131,45 +135,22 @@ public class AuthService {
         userRepository.save(user);
 
         // Issue tokens
-        String accessToken = jwtTokenProvider.mintAccessToken(user.getId(), user.getTenantId(), user.getEmail());
-        String refreshTokenValue = generateRefreshTokenValue();
-        String refreshTokenHash = hashToken(refreshTokenValue);
-
-        RefreshToken refreshToken = new RefreshToken(
-                user.getTenantId(),
-                user.getId(),
-                refreshTokenHash,
-                Instant.now().plus(securityProperties.getRefresh().getRefreshTokenTtl())
-        );
-        refreshTokenRepository.save(refreshToken);
-
-        log.info("Login successful for userId={} tenantId={}", user.getId(), user.getTenantId());
-
-        return new AuthResponse(
-                accessToken,
-                refreshTokenValue,
-                jwtTokenProvider.getAccessTokenExpiry(),
-                new AuthResponse.AuthUser(
-                        user.getId(),
-                        user.getTenantId(),
-                        user.getEmail(),
-                        user.getDisplayName(),
-                        user.getStatus().name()
-                )
-        );
+        return issueTokens(user);
     }
 
     /**
      * Refresh an access token using a refresh token.
      *
-     * <p>The old refresh token is marked USED and a new one is issued.
-     * If a USED token is presented again, all refresh tokens for that
-     * user are revoked (replay protection).</p>
+     * <p>This operation is atomic: the old token is marked USED and the
+     * new token is issued in the same transaction. If any step fails,
+     * the entire operation rolls back.</p>
      *
-     * @param request contains the refresh token
-     * @return new auth response with fresh tokens
-     * @throws InvalidCredentialsException    if token not found or expired
-     * @throws RefreshTokenReplayException    if a USED token is presented (replay attack)
+     * <p>Refresh is blocked for non-ACTIVE users. If a user's status
+     * has changed since the refresh token was issued (e.g., SUSPENDED),
+     * the refresh is rejected and the token is revoked.</p>
+     *
+     * @throws InvalidCredentialsException  if token not found, expired, or user not ACTIVE
+     * @throws RefreshTokenReplayException  if a USED token is presented (replay attack)
      */
     @Transactional
     public AuthResponse refresh(RefreshRequest request) {
@@ -204,7 +185,28 @@ public class AuthService {
             throw new InvalidCredentialsException("رمز التحديث منتهي الصلاحية");
         }
 
-        // Mark old token as USED
+        // Load user and check status — block refresh for non-ACTIVE users
+        Optional<User> userOpt = userRepository.findByTenantIdAndId(
+                refreshToken.getTenantId(),
+                refreshToken.getUserId()
+        );
+        if (userOpt.isEmpty()) {
+            log.error("Refresh: user not found for userId={} tenantId={}",
+                    refreshToken.getUserId(), refreshToken.getTenantId());
+            throw new InvalidCredentialsException("المستخدم غير موجود");
+        }
+        User user = userOpt.get();
+
+        // Block refresh for non-ACTIVE users
+        if (user.getStatus() != UserStatus.ACTIVE) {
+            log.warn("Refresh blocked: user status is {} for userId={}", user.getStatus(), user.getId());
+            // Revoke all tokens for this user
+            refreshTokenRepository.revokeAllActive(refreshToken.getTenantId(), refreshToken.getUserId());
+            throw new AccountInactiveException("حساب المستخدم غير نشط");
+        }
+
+        // Atomic rotation: mark old token as USED, issue new token, link them
+        // All in the same transaction — if any step fails, everything rolls back
         refreshToken.setStatus(RefreshTokenStatus.USED);
         refreshToken.setUsedAt(Instant.now());
 
@@ -220,22 +222,11 @@ public class AuthService {
         );
         refreshTokenRepository.save(newRefreshToken);
 
-        // Link old → new
+        // Link old → new (soft reference, no FK constraint)
         refreshToken.setReplacedById(newRefreshToken.getId());
         refreshTokenRepository.save(refreshToken);
 
-        // Load user for the new access token
-        Optional<User> userOpt = userRepository.findByTenantIdAndId(
-                refreshToken.getTenantId(),
-                refreshToken.getUserId()
-        );
-        if (userOpt.isEmpty()) {
-            log.error("Refresh: user not found for userId={} tenantId={}",
-                    refreshToken.getUserId(), refreshToken.getTenantId());
-            throw new InvalidCredentialsException("المستخدم غير موجود");
-        }
-        User user = userOpt.get();
-
+        // Issue new access token
         String accessToken = jwtTokenProvider.mintAccessToken(user.getId(), user.getTenantId(), user.getEmail());
 
         log.info("Refresh successful for userId={} tenantId={}", user.getId(), user.getTenantId());
@@ -260,9 +251,6 @@ public class AuthService {
      * <p>The access JWT is stateless and cannot be revoked. It will
      * expire naturally (15 minutes). The frontend should discard it
      * immediately on logout.</p>
-     *
-     * @param tenantId the authenticated user's tenant ID
-     * @param userId   the authenticated user's ID
      */
     @Transactional
     public void logout(UUID tenantId, UUID userId) {
@@ -275,35 +263,59 @@ public class AuthService {
     // Helpers
     // ------------------------------------------------------------
 
+    /**
+     * Issue access + refresh tokens for a user. Used by login and refresh.
+     */
+    private AuthResponse issueTokens(User user) {
+        String accessToken = jwtTokenProvider.mintAccessToken(user.getId(), user.getTenantId(), user.getEmail());
+        String refreshTokenValue = generateRefreshTokenValue();
+        String refreshTokenHash = hashToken(refreshTokenValue);
+
+        RefreshToken refreshToken = new RefreshToken(
+                user.getTenantId(),
+                user.getId(),
+                refreshTokenHash,
+                Instant.now().plus(securityProperties.getRefresh().getRefreshTokenTtl())
+        );
+        refreshTokenRepository.save(refreshToken);
+
+        log.info("Tokens issued for userId={} tenantId={}", user.getId(), user.getTenantId());
+
+        return new AuthResponse(
+                accessToken,
+                refreshTokenValue,
+                jwtTokenProvider.getAccessTokenExpiry(),
+                new AuthResponse.AuthUser(
+                        user.getId(),
+                        user.getTenantId(),
+                        user.getEmail(),
+                        user.getDisplayName(),
+                        user.getStatus().name()
+                )
+        );
+    }
+
     private void recordLoginFailure(String key) {
         Integer current = loginFailureCache.getIfPresent(key);
         loginFailureCache.put(key, (current == null ? 0 : current) + 1);
     }
 
-    /**
-     * Generate a cryptographically secure opaque refresh token (256 bits, URL-safe Base64).
-     */
     private String generateRefreshTokenValue() {
         byte[] bytes = new byte[32]; // 256 bits
         SECURE_RANDOM.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    /**
-     * Hash a refresh token with SHA-256. The raw token is never persisted;
-     * only this hash is stored.
-     */
     private String hashToken(String token) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(token.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            byte[] hash = digest.digest(token.getBytes(StandardCharsets.UTF_8));
             return Base64.getEncoder().encodeToString(hash);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 not available", e);
         }
     }
 
-    /** Expose the rate-limit window for test/inspection. */
     public Duration getRateLimitWindow() {
         return securityProperties.getLoginRateLimit().getWindow();
     }

@@ -113,6 +113,10 @@ sanad:
     login-rate-limit:
       max-attempts: 5
       window: 5m
+    cookie:
+      secure: ${COOKIE_SECURE:true}
+      same-site: ${COOKIE_SAME_SITE:lax}
+      domain: ${COOKIE_DOMAIN:}
 
 # Logging
 logging:
