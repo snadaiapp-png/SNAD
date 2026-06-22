@@ -8,6 +8,9 @@ import { useAuth } from "@/lib/auth/auth-provider";
  * Also handles INITIALIZING, EXPIRED, and ERROR states.
  * The login form is rendered inline (not imported from /app/login) to avoid
  * SSR issues with useAuth.
+ *
+ * Login is email+password only — no Tenant UUID required.
+ * Tenant context is derived automatically from the authenticated session.
  */
 export function AuthBoundary({ children }: { children: ReactNode }) {
   const { state, error, login } = useAuth();
@@ -33,18 +36,17 @@ function LoginForm({
   state,
   error,
 }: {
-  login: (req: { tenantId: string; email: string; password: string }) => Promise<void>;
+  login: (req: { email: string; password: string }) => Promise<void>;
   state: string;
   error: { title: string; message: string } | null;
 }) {
-  const [tenantId, setTenantId] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const busy = state === "AUTHENTICATING";
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    await login({ tenantId: tenantId.trim(), email: email.trim(), password });
+    await login({ email: email.trim(), password });
   }
 
   return (
@@ -53,7 +55,7 @@ function LoginForm({
         <div className="mb-6 text-center">
           <p className="text-xs font-black tracking-[0.18em] text-teal-700">SANAD BUSINESS OPERATING SYSTEM</p>
           <h1 className="mt-2 text-2xl font-black text-slate-900">تسجيل الدخول</h1>
-          <p className="mt-1 text-sm text-slate-500">أدخل بيانات الاعتماد للوصول إلى المنصة</p>
+          <p className="mt-1 text-sm text-slate-500">أدخل بريدك الإلكتروني وكلمة المرور</p>
         </div>
 
         {error && (
@@ -65,18 +67,6 @@ function LoginForm({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <label className="grid gap-1 text-sm font-bold text-slate-700">
-            Tenant UUID
-            <input
-              dir="ltr"
-              type="text"
-              required
-              value={tenantId}
-              onChange={(e) => setTenantId(e.target.value)}
-              placeholder="00000000-0000-4000-8000-000000000000"
-              className="rounded-xl border border-slate-200 px-3 py-2.5 font-mono text-sm outline-none focus:border-teal-600"
-            />
-          </label>
-          <label className="grid gap-1 text-sm font-bold text-slate-700">
             البريد الإلكتروني
             <input
               dir="ltr"
@@ -84,7 +74,7 @@ function LoginForm({
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@sanad.local"
+              placeholder="snad@app.com"
               className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-teal-600"
             />
           </label>

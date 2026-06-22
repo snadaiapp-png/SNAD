@@ -44,4 +44,11 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query("SELECT CASE WHEN COUNT(u) > 0 THEN TRUE ELSE FALSE END "
             + "FROM User u WHERE u.tenantId = :tenantId AND u.email = :email")
     boolean existsByTenantIdAndEmail(@Param("tenantId") UUID tenantId, @Param("email") String email);
+
+    /**
+     * Find users by email across ALL tenants (for email-only login).
+     * Returns a list because the same email can exist in different tenants.
+     */
+    @Query("SELECT u FROM User u WHERE u.email = :email")
+    List<User> findAllByEmail(@Param("email") String email);
 }

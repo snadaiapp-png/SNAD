@@ -11,6 +11,7 @@ import com.sanad.platform.security.dto.ChangeCredentialRequest;
 import com.sanad.platform.security.dto.LoginRequest;
 import com.sanad.platform.security.dto.RefreshRequest;
 import com.sanad.platform.security.exception.AccountInactiveException;
+import com.sanad.platform.security.exception.AmbiguousTenantException;
 import com.sanad.platform.security.exception.InvalidCredentialsException;
 import com.sanad.platform.security.exception.LoginRateLimitException;
 import com.sanad.platform.security.exception.RefreshTokenReplayException;
@@ -30,6 +31,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -69,26 +71,44 @@ public class AuthService {
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
-        String rateLimitKey = request.getTenantId() + ":" + request.getEmail().trim().toLowerCase();
+        String normalizedEmail = request.getEmail().trim().toLowerCase();
+
+        // Rate limit by email only (no tenantId in key)
+        String rateLimitKey = "email:" + normalizedEmail;
         Integer failures = loginFailureCache.getIfPresent(rateLimitKey);
         int maxAttempts = securityProperties.getLoginRateLimit().getMaxAttempts();
         if (failures != null && failures >= maxAttempts) {
-            log.warn("Login rate limit exceeded for tenantId={} email={}",
-                    request.getTenantId(), request.getEmail());
+            log.warn("Login rate limit exceeded for email={}", normalizedEmail);
             throw new LoginRateLimitException(
                     "تم تجاوز عدد محاولات الدخول المسموح بها. حاول لاحقًا.");
         }
 
-        Optional<User> userOpt = userRepository.findByTenantIdAndEmail(
-                request.getTenantId(), request.getEmail().trim().toLowerCase());
-        if (userOpt.isEmpty()) {
+        // Find user by email across all tenants (or scoped if tenantId provided)
+        User user;
+        if (request.getTenantId() != null) {
+            // Login with explicit tenantId (backward compatibility)
+            user = userRepository.findByTenantIdAndEmail(request.getTenantId(), normalizedEmail)
+                    .orElse(null);
+        } else {
+            // Email-only login: find across all tenants
+            List<User> users = userRepository.findAllByEmail(normalizedEmail);
+            if (users.isEmpty()) {
+                user = null;
+            } else if (users.size() == 1) {
+                user = users.get(0);
+            } else {
+                // Multiple tenants — return 409 with tenant list for selection
+                log.warn("Login ambiguous: email={} found in {} tenants", normalizedEmail, users.size());
+                throw new AmbiguousTenantException("البريد الإلكتروني موجود في عدة مستأجرين", users);
+            }
+        }
+
+        if (user == null) {
             recordLoginFailure(rateLimitKey);
-            log.warn("Login failed: user not found for tenantId={} email={}",
-                    request.getTenantId(), request.getEmail());
+            log.warn("Login failed: user not found for email={}", normalizedEmail);
             throw new InvalidCredentialsException("بيانات الدخول غير صحيحة");
         }
 
-        User user = userOpt.get();
         if (user.getPasswordHash() == null
                 || !passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
             recordLoginFailure(rateLimitKey);

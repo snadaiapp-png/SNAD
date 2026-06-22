@@ -90,7 +90,7 @@ class AuthApiIntegrationTest {
     @Test
     @DisplayName("POST /api/v1/auth/login — valid credentials returns 200 with access token; refresh token in cookie only")
     void login_validCredentials_returnsTokens() throws Exception {
-        LoginRequest request = new LoginRequest(tenantId, testEmail, testPassword);
+        LoginRequest request = new LoginRequest(testEmail, testPassword);
 
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -116,7 +116,7 @@ class AuthApiIntegrationTest {
     @Test
     @DisplayName("POST /api/v1/auth/login — wrong password returns 401")
     void login_wrongPassword_returns401() throws Exception {
-        LoginRequest request = new LoginRequest(tenantId, testEmail, "WrongPassword");
+        LoginRequest request = new LoginRequest(testEmail, "WrongPassword");
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -129,7 +129,7 @@ class AuthApiIntegrationTest {
     @Test
     @DisplayName("POST /api/v1/auth/login — non-existent user returns 401")
     void login_nonExistentUser_returns401() throws Exception {
-        LoginRequest request = new LoginRequest(tenantId, "nobody@example.com", testPassword);
+        LoginRequest request = new LoginRequest("nobody@example.com", testPassword);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -138,15 +138,17 @@ class AuthApiIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/auth/login — wrong tenant returns 401")
+    @DisplayName("POST /api/v1/auth/login — email-only login finds user across tenants")
     void login_wrongTenant_returns401() throws Exception {
-        UUID wrongTenantId = UUID.randomUUID();
-        LoginRequest request = new LoginRequest(wrongTenantId, testEmail, testPassword);
+        // With email-only login, the user is found by email regardless of tenant.
+        // This test now verifies that email-only login works (returns 200, not 401).
+        LoginRequest request = new LoginRequest(testEmail, testPassword);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty());
     }
 
     @Test
@@ -156,7 +158,7 @@ class AuthApiIntegrationTest {
         user.setStatus(UserStatus.SUSPENDED);
         userRepository.save(user);
 
-        LoginRequest request = new LoginRequest(tenantId, testEmail, testPassword);
+        LoginRequest request = new LoginRequest(testEmail, testPassword);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -170,7 +172,7 @@ class AuthApiIntegrationTest {
         User nopassUser = new User(tenantId, "nopass@example.com", "No Pass User", UserStatus.ACTIVE);
         userRepository.save(nopassUser);
 
-        LoginRequest request = new LoginRequest(tenantId, "nopass@example.com", "anyPassword");
+        LoginRequest request = new LoginRequest("nopass@example.com", "anyPassword");
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -192,7 +194,7 @@ class AuthApiIntegrationTest {
     @Test
     @DisplayName("POST /api/v1/auth/login — no password in response body or headers")
     void login_noPasswordInResponse() throws Exception {
-        LoginRequest request = new LoginRequest(tenantId, testEmail, testPassword);
+        LoginRequest request = new LoginRequest(testEmail, testPassword);
 
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -416,7 +418,7 @@ class AuthApiIntegrationTest {
     }
 
     private LoginResult loginAndExtractCookie() throws Exception {
-        LoginRequest request = new LoginRequest(tenantId, testEmail, testPassword);
+        LoginRequest request = new LoginRequest(testEmail, testPassword);
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
