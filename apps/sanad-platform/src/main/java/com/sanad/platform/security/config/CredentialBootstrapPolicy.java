@@ -13,7 +13,11 @@ import java.util.UUID;
  */
 public final class CredentialBootstrapPolicy {
 
-    private static final int MIN_CREDENTIAL_LENGTH = 14;
+    // Minimum bootstrap password length. Lower than typical production policy because
+    // the bootstrap flow forces `must_change_password=true` — the admin MUST rotate
+    // this credential on first authenticated login. This value exists only to reject
+    // empty / trivially-short values during initial enrollment.
+    private static final int MIN_CREDENTIAL_LENGTH = 8;
     private static final int MAX_AUDIT_ACTOR_LENGTH = 100;
     private static final int MAX_TENANT_NAME_LENGTH = 200;
     private static final int MAX_TENANT_SUBDOMAIN_LENGTH = 63;
