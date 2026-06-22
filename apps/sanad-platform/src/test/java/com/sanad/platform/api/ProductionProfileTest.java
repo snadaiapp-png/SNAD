@@ -6,6 +6,8 @@ import org.junit.jupiter.api.condition.DisabledIf;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -27,6 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * dev environment without Docker). Runs in CI where Docker is present.</p>
  */
 @SpringBootTest
+@Import(SecurityPermitAllTestConfig.class)
 @AutoConfigureMockMvc
 @ActiveProfiles("prod")
 @DisabledIf("dockerNotAvailable")

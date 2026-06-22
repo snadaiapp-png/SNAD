@@ -11,6 +11,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,11 +26,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * Repository-level integration tests for {@link UserRepository}.
  *
- * <p>Uses {@link SpringBootTest @SpringBootTest} with the {@code local}
+ * <p>Uses {@link SpringBootTest @SpringBootTest
+@Import(SecurityPermitAllTestConfig.class)} with the {@code local}
  * profile to boot the full Spring context (including JPA auditing)
  * against the H2 in-memory database with Flyway V1+V2+V3+V4 applied.</p>
  */
 @SpringBootTest
+@Import(SecurityPermitAllTestConfig.class)
 @AutoConfigureMockMvc
 @ActiveProfiles("local")
 @Transactional

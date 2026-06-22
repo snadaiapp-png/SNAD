@@ -1,28 +1,10 @@
 name: CI
 
-# ============================================================
-# SANAD Platform - Backend Continuous Integration Pipeline
-# ------------------------------------------------------------
-# Runs on push to main, pull requests targeting main, and
-# manual workflow_dispatch.
-#
-# Backend project: apps/sanad-platform (Maven, Java 21)
-#
-# Jobs:
-#   1. build-test-package: Maven compile + test + package
-#   2. docker-build-and-health: Docker build + prod profile
-#      container health validation against PostgreSQL
-#   3. docker-compose-validation: Full docker-compose.prod.yml
-#      with PostgreSQL + backend health checks
-# ============================================================
-
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -37,17 +19,14 @@ jobs:
     name: Build, Test & Package
     runs-on: ubuntu-latest
     timeout-minutes: 25
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Set up JDK 21 (Temurin)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
-
       - name: Cache Maven repository
         uses: actions/cache@v4
         with:
@@ -55,19 +34,15 @@ jobs:
           key: ${{ runner.os }}-maven-${{ hashFiles('apps/sanad-platform/pom.xml') }}
           restore-keys: |
             ${{ runner.os }}-maven-
-
-      - name: Build (compile main sources)
+      - name: Build
         working-directory: apps/sanad-platform
         run: mvn -B -ntp clean compile
-
-      - name: Test (mvn clean test)
+      - name: Test
         working-directory: apps/sanad-platform
         run: mvn -B -ntp clean test
-
-      - name: Package (mvn clean package)
+      - name: Package
         working-directory: apps/sanad-platform
         run: mvn -B -ntp clean package
-
       - name: Upload surefire test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -76,7 +51,6 @@ jobs:
           path: apps/sanad-platform/target/surefire-reports/
           if-no-files-found: warn
           retention-days: 7
-
       - name: Upload built jar
         uses: actions/upload-artifact@v4
         with:
@@ -90,7 +64,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: build-test-package
-
     services:
       postgres:
         image: postgres:16-alpine
@@ -105,21 +78,24 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
+      - name: Generate ephemeral JWT secret
+        run: |
+          JWT_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
+          echo "::add-mask::$JWT_SECRET"
+          echo "JWT_SECRET=$JWT_SECRET" >> "$GITHUB_ENV"
       - name: Build Docker image
         working-directory: apps/sanad-platform
         run: docker build -t sanad-backend:ci .
-
       - name: Start backend with prod profile
         run: |
           docker run -d --name sanad-ci \
             --network host \
             -p 8080:8080 \
             -e SPRING_PROFILES_ACTIVE=prod \
+            -e JWT_SECRET \
             -e DATABASE_URL=jdbc:postgresql://localhost:5432/sanad_ci \
             -e DATABASE_USERNAME=sanad_ci \
             -e DATABASE_PASSWORD=ci_only_password \
@@ -129,7 +105,6 @@ jobs:
             -e CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app \
             -e MANAGEMENT_ENDPOINTS=health \
             sanad-backend:ci
-
       - name: Wait for health endpoint
         run: |
           for attempt in $(seq 1 30); do
@@ -138,37 +113,18 @@ jobs:
               echo "Health endpoint UP (attempt ${attempt})"
               exit 0
             fi
-            echo "Attempt ${attempt}: HTTP ${code}; waiting..."
             sleep 5
           done
-          echo "Health endpoint did not become ready."
           docker logs sanad-ci || true
           exit 1
-
       - name: Verify liveness endpoint
-        run: |
-          code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/liveness)
-          [ "$code" = "200" ] || { echo "Liveness failed: HTTP ${code}"; exit 1; }
-          echo "Liveness OK"
-
+        run: test "$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/liveness)" = "200"
       - name: Verify readiness endpoint
-        run: |
-          code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/readiness)
-          [ "$code" = "200" ] || { echo "Readiness failed: HTTP ${code}"; exit 1; }
-          echo "Readiness OK"
-
-      - name: Verify env endpoint is NOT exposed
-        run: |
-          code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/env)
-          [ "$code" = "404" ] || { echo "Env endpoint should be 404 but got ${code}"; exit 1; }
-          echo "Env endpoint correctly NOT exposed"
-
+        run: test "$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/readiness)" = "200"
+      - name: Verify env endpoint is not exposed
+        run: test "$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/env)" = "404"
       - name: Verify Swagger UI is disabled
-        run: |
-          code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/swagger-ui.html)
-          [ "$code" = "404" ] || { echo "Swagger UI should be 404 but got ${code}"; exit 1; }
-          echo "Swagger UI correctly disabled"
-
+        run: test "$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/swagger-ui.html)" = "404"
       - name: Stop container
         if: always()
         run: docker rm -f sanad-ci || true
@@ -178,52 +134,41 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: build-test-package
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
+      - name: Generate compose validation environment
+        run: |
+          JWT_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
+          echo "::add-mask::$JWT_SECRET"
+          {
+            echo "DATABASE_USERNAME=compose_ci"
+            echo "DATABASE_PASSWORD=compose_ci_pwd"
+            echo "POSTGRES_DB=sanad_compose"
+            echo "CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app"
+            echo "JWT_SECRET=$JWT_SECRET"
+          } > /tmp/ci.env
       - name: Validate compose config
         working-directory: apps/sanad-platform
-        run: |
-          echo "DATABASE_USERNAME=compose_ci" > /tmp/ci.env
-          echo "DATABASE_PASSWORD=compose_ci_pwd" >> /tmp/ci.env
-          echo "POSTGRES_DB=sanad_compose" >> /tmp/ci.env
-          echo "CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app" >> /tmp/ci.env
-          docker compose -f docker-compose.prod.yml --env-file /tmp/ci.env config
-
+        run: docker compose -f docker-compose.prod.yml --env-file /tmp/ci.env config
       - name: Start composition
         working-directory: apps/sanad-platform
-        run: |
-          docker compose -f docker-compose.prod.yml --env-file /tmp/ci.env up -d --build
-
+        run: docker compose -f docker-compose.prod.yml --env-file /tmp/ci.env up -d --build
       - name: Wait for backend health
         run: |
           for attempt in $(seq 1 30); do
             code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || true)
             if [ "$code" = "200" ]; then
-              echo "Compose backend health UP (attempt ${attempt})"
               exit 0
             fi
-            echo "Attempt ${attempt}: HTTP ${code}; waiting..."
             sleep 5
           done
-          echo "Compose backend did not become healthy."
-          docker compose -f apps/sanad-platform/docker-compose.prod.yml logs || true
+          docker compose -f apps/sanad-platform/docker-compose.prod.yml --env-file /tmp/ci.env logs || true
           exit 1
-
       - name: Verify liveness
-        run: |
-          code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/liveness)
-          [ "$code" = "200" ] || { echo "Liveness failed: ${code}"; exit 1; }
-          echo "Compose liveness OK"
-
+        run: test "$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/liveness)" = "200"
       - name: Verify readiness
-        run: |
-          code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/readiness)
-          [ "$code" = "200" ] || { echo "Readiness failed: ${code}"; exit 1; }
-          echo "Compose readiness OK"
-
+        run: test "$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/readiness)" = "200"
       - name: Cleanup
         if: always()
         working-directory: apps/sanad-platform
