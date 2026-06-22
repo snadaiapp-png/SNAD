@@ -14,7 +14,15 @@
 - Production schema version: `11`
 - Flyway V10/V11 production verification: COMPLETED
 - Service startup and public availability: VERIFIED
-- Authentication and tenant-isolation smoke tests: PENDING
+- Backend production smoke workflow: PASSED
+- Backend production smoke run: `27943942508`
+- Health/liveness/readiness: VERIFIED
+- Sensitive actuator endpoint suppression: VERIFIED
+- Swagger suppression: VERIFIED
+- Unauthenticated API rejection: VERIFIED
+- Frontend CORS and backend integration: VERIFIED
+- Authenticated login/refresh/logout acceptance: PENDING
+- Cross-tenant isolation acceptance: PENDING
 - Rollback evidence and PM gate closure: PENDING
 
-Gate #032 remains OPEN until the pending production smoke tests and rollback evidence are completed and recorded.
+Gate #032 remains OPEN until authenticated session flows, cross-tenant isolation, and rollback evidence are completed and recorded.
