@@ -3,16 +3,16 @@ name: Backend Production Smoke
 # ============================================================
 # SANAD Platform - Backend Production Smoke Test
 # ------------------------------------------------------------
-# Manual trigger only until backend is provisioned.
-# Requires repository variable: BACKEND_PRODUCTION_URL
-# Optional repository variable: FRONTEND_PRODUCTION_URL
+# Uses the protected Production environment as the authoritative
+# source for the backend URL. An explicit workflow input may be used
+# only as a temporary override during incident diagnosis.
 # ============================================================
 
 on:
   workflow_dispatch:
     inputs:
       backend_url:
-        description: 'Backend production URL (overrides BACKEND_PRODUCTION_URL var)'
+        description: 'Optional backend URL override; defaults to Production/PRODUCTION_BASE_URL'
         required: false
         default: ''
         type: string
@@ -29,33 +29,46 @@ jobs:
     name: Verify Backend Production
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: production
 
     env:
-      BACKEND_URL: ${{ inputs.backend_url || vars.BACKEND_PRODUCTION_URL }}
+      BACKEND_URL: ${{ inputs.backend_url || vars.PRODUCTION_BASE_URL || vars.BACKEND_PRODUCTION_URL }}
       FRONTEND_URL: ${{ vars.FRONTEND_PRODUCTION_URL || 'https://snad-app.vercel.app' }}
 
     steps:
-      - name: Validate backend URL is set
+      - name: Validate production URLs
+        shell: bash
         run: |
+          set -euo pipefail
           if [ -z "$BACKEND_URL" ]; then
-            echo "ERROR: BACKEND_PRODUCTION_URL repository variable is not set"
+            echo "::error::Production backend URL is missing. Configure Production/PRODUCTION_BASE_URL."
             exit 1
           fi
-          echo "Backend URL: ${BACKEND_URL}"
+          [[ "$BACKEND_URL" == https://* ]] || {
+            echo "::error::Production backend URL must use HTTPS."
+            exit 1
+          }
+          echo "BACKEND_URL=${BACKEND_URL%/}" >> "$GITHUB_ENV"
+          echo "FRONTEND_URL=${FRONTEND_URL%/}" >> "$GITHUB_ENV"
+          echo "Production URLs configured"
 
       - name: Verify health endpoint
+        shell: bash
         run: |
-          for attempt in $(seq 1 12); do
-            code=$(curl -sS -o /dev/null -w '%{http_code}' \
-              --max-time 10 "${BACKEND_URL}/actuator/health" || true)
-            if [ "$code" = "200" ]; then
+          set -euo pipefail
+          for attempt in $(seq 1 36); do
+            body_file=/tmp/backend-health.json
+            code=$(curl -sS -L -o "$body_file" -w '%{http_code}' \
+              --connect-timeout 10 --max-time 20 \
+              "${BACKEND_URL}/actuator/health" || true)
+            if [ "$code" = "200" ] && jq -e '.status == "UP"' "$body_file" >/dev/null 2>&1; then
               echo "Health endpoint UP (attempt ${attempt})"
               exit 0
             fi
             echo "Attempt ${attempt}: health HTTP ${code}; waiting..."
             sleep 10
           done
-          echo "Health endpoint did not become ready."
+          echo "::error::Health endpoint did not become ready."
           exit 1
 
       - name: Verify liveness endpoint
@@ -70,7 +83,7 @@ jobs:
             "${BACKEND_URL}/actuator/health/readiness")
           [ "$code" = "200" ] || { echo "Readiness failed: HTTP ${code}"; exit 1; }
 
-      - name: Verify env endpoint is NOT exposed
+      - name: Verify sensitive actuator endpoint is not exposed
         run: |
           code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
             "${BACKEND_URL}/actuator/env")
@@ -82,82 +95,91 @@ jobs:
             "${BACKEND_URL}/swagger-ui.html")
           [ "$code" = "404" ] || { echo "Swagger should be 404 but got ${code}"; exit 1; }
 
-      - name: Verify CORS allows frontend origin (strict)
+      - name: Verify unauthenticated API access is rejected
+        shell: bash
         run: |
-          # Extract origin (scheme + host, no path, no trailing slash)
-          FRONTEND_ORIGIN=$(echo "${FRONTEND_URL}" | sed -E 's|/+$||')
-          echo "Testing CORS from origin: ${FRONTEND_ORIGIN}"
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/unauthenticated.json -w '%{http_code}' --max-time 10 \
+            "${BACKEND_URL}/api/v1/auth/me")
+          [ "$code" = "401" ] || {
+            echo "Unauthenticated /me should return 401 but got ${code}"
+            exit 1
+          }
+          jq -e '.status == 401' /tmp/unauthenticated.json >/dev/null
 
-          # Capture only the response headers we need
-          CORS_RESPONSE=$(curl -sS -D /tmp/cors-headers.txt -o /dev/null --max-time 10 \
+      - name: Verify browser CORS policy for frontend origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          FRONTEND_ORIGIN="${FRONTEND_URL%/}"
+          curl -sS -D /tmp/cors-headers.txt -o /dev/null --max-time 10 \
             -X OPTIONS \
             -H "Origin: ${FRONTEND_ORIGIN}" \
             -H "Access-Control-Request-Method: GET" \
-            "${BACKEND_URL}/api/v1/organizations" || true)
+            "${BACKEND_URL}/api/v1/organizations"
 
           HTTP_CODE=$(head -1 /tmp/cors-headers.txt | grep -oP '\d{3}' || echo "000")
+          ACAO=$(grep -i '^access-control-allow-origin:' /tmp/cors-headers.txt | tr -d '\r' | awk -F': ' '{print $2}' || true)
+          ACAC=$(grep -i '^access-control-allow-credentials:' /tmp/cors-headers.txt | tr -d '\r' | awk -F': ' '{print $2}' || true)
 
-          ACAO=$(grep -i "access-control-allow-origin" /tmp/cors-headers.txt | tr -d '\r' | awk -F': ' '{print $2}')
-          ACAC=$(grep -i "access-control-allow-credentials" /tmp/cors-headers.txt | tr -d '\r' | awk -F': ' '{print $2}')
-
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "CORS FAILED:"
-            echo "  HTTP status: ${HTTP_CODE} (expected 200)"
-            echo "  Access-Control-Allow-Origin: ${ACAO:-<missing>}"
-            echo "  Access-Control-Allow-Credentials: ${ACAC:-<missing>}"
+          [ "$HTTP_CODE" = "200" ] || {
+            echo "CORS preflight failed: HTTP ${HTTP_CODE}"
             exit 1
-          fi
-
-          if [ "$ACAO" != "$FRONTEND_ORIGIN" ]; then
-            echo "CORS FAILED:"
-            echo "  HTTP status: ${HTTP_CODE}"
-            echo "  Access-Control-Allow-Origin: ${ACAO:-<missing>} (expected ${FRONTEND_ORIGIN})"
-            echo "  Access-Control-Allow-Credentials: ${ACAC:-<missing>}"
+          }
+          [ "$ACAO" = "$FRONTEND_ORIGIN" ] || {
+            echo "CORS origin mismatch: ${ACAO:-<missing>}"
             exit 1
-          fi
-
-          if [ "$ACAC" != "true" ]; then
-            echo "CORS FAILED:"
-            echo "  HTTP status: ${HTTP_CODE}"
-            echo "  Access-Control-Allow-Origin: ${ACAO}"
-            echo "  Access-Control-Allow-Credentials: ${ACAC:-<missing>} (expected true)"
+          }
+          [ -z "$ACAC" ] || [ "$ACAC" = "false" ] || {
+            echo "Browser credentials must not be enabled for the stateless backend: ${ACAC}"
             exit 1
-          fi
-
-          echo "CORS PASSED: HTTP 200, Allow-Origin=${ACAO}, Allow-Credentials=${ACAC}"
+          }
+          echo "CORS PASSED: origin allowed; browser credentials disabled"
 
       - name: Verify frontend production page
         run: |
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+          code=$(curl -sS -L -o /dev/null -w '%{http_code}' --max-time 15 \
             "${FRONTEND_URL}")
           [ "$code" = "200" ] || { echo "Frontend failed: HTTP ${code}"; exit 1; }
           echo "Frontend OK"
 
       - name: Verify frontend integration route
+        shell: bash
         run: |
-          # Call the frontend's backend-status API route
-          RESPONSE=$(curl -sS --max-time 15 \
+          set -euo pipefail
+          RESPONSE=$(curl -sS --max-time 20 \
             "${FRONTEND_URL}/api/system/backend-status" || true)
-
           echo "Frontend integration response: ${RESPONSE}"
 
-          CONFIGURED=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('configured',''))" 2>/dev/null || echo "")
-          REACHABLE=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('reachable',''))" 2>/dev/null || echo "")
-          STATUS_CODE=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('statusCode',''))" 2>/dev/null || echo "")
+          CONFIGURED=$(echo "$RESPONSE" | jq -r '.configured // false' 2>/dev/null || echo false)
+          REACHABLE=$(echo "$RESPONSE" | jq -r '.reachable // false' 2>/dev/null || echo false)
+          STATUS_CODE=$(echo "$RESPONSE" | jq -r '.statusCode // 0' 2>/dev/null || echo 0)
 
-          if [ "$CONFIGURED" != "True" ]; then
-            echo "ERROR: Frontend reports API not configured (configured=${CONFIGURED})"
+          [ "$CONFIGURED" = "true" ] || {
+            echo "ERROR: Frontend reports API not configured"
             exit 1
-          fi
-
-          if [ "$REACHABLE" != "True" ]; then
-            echo "ERROR: Frontend reports backend not reachable (reachable=${REACHABLE})"
+          }
+          [ "$REACHABLE" = "true" ] || {
+            echo "ERROR: Frontend reports backend not reachable"
             exit 1
-          fi
-
-          if [ "$STATUS_CODE" != "200" ]; then
+          }
+          [ "$STATUS_CODE" = "200" ] || {
             echo "ERROR: Backend status code is ${STATUS_CODE}, expected 200"
             exit 1
-          fi
+          }
+          echo "Frontend integration verified"
 
-          echo "✅ Frontend integration verified"
+      - name: Write production smoke summary
+        if: success()
+        run: |
+          {
+            echo "## Backend Production Smoke"
+            echo "- Production environment URL: VERIFIED"
+            echo "- Health/liveness/readiness: VERIFIED"
+            echo "- Sensitive actuator endpoint: NOT EXPOSED"
+            echo "- Swagger UI: DISABLED"
+            echo "- Unauthenticated API access: REJECTED"
+            echo "- Frontend CORS origin: VERIFIED"
+            echo "- Browser credentials: DISABLED"
+            echo "- Frontend integration: VERIFIED"
+          } >> "$GITHUB_STEP_SUMMARY"
