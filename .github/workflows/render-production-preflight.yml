@@ -87,8 +87,8 @@ jobs:
           jq '[.[]? | (.envVar // .)]' /tmp/render-env.json > /tmp/render-env-normalized.json
           jq '[.[].key] | sort' /tmp/render-env-normalized.json > render-env-keys-evidence.json
 
-          required=(SPRING_PROFILES_ACTIVE DATABASE_URL DATABASE_USERNAME DATABASE_PASSWORD JWT_SECRET BOOTSTRAP_ENABLED)
-          forbidden=(BOOTSTRAP_TENANT_ID BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_CREDENTIAL BOOTSTRAP_ADMIN_DISPLAY_NAME BOOTSTRAP_AUDIT_ACTOR)
+          required=(SPRING_PROFILES_ACTIVE DATABASE_URL DATABASE_USERNAME DATABASE_PASSWORD JWT_SECRET)
+          forbidden=(BOOTSTRAP_ENABLED BOOTSTRAP_TENANT_ID BOOTSTRAP_TENANT_NAME BOOTSTRAP_TENANT_SUBDOMAIN BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_PASSWORD BOOTSTRAP_ADMIN_DISPLAY_NAME BOOTSTRAP_AUDIT_ACTOR SANAD_SECURITY_BOOTSTRAP_ENABLED SANAD_SECURITY_BOOTSTRAP_TENANT_ID SANAD_SECURITY_BOOTSTRAP_TENANT_NAME SANAD_SECURITY_BOOTSTRAP_TENANT_SUBDOMAIN SANAD_SECURITY_BOOTSTRAP_ADMIN_EMAIL SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD SANAD_SECURITY_BOOTSTRAP_ADMIN_DISPLAY_NAME)
 
           for key in "${required[@]}"; do
             jq -e --arg key "$key" 'any(.[]; .key == $key)' /tmp/render-env-normalized.json >/dev/null || {
@@ -104,11 +104,13 @@ jobs:
             fi
           done
 
-          bootstrap_value=$(jq -r '.[] | select(.key == "BOOTSTRAP_ENABLED") | .value // empty' /tmp/render-env-normalized.json)
-          [ "$bootstrap_value" = "false" ] || {
-            echo "::error::BOOTSTRAP_ENABLED must equal false."
-            exit 1
-          }
+          bootstrap_value=$(jq -r '.[] | select(.key == "BOOTSTRAP_ENABLED" or .key == "SANAD_SECURITY_BOOTSTRAP_ENABLED") | .value // empty' /tmp/render-env-normalized.json)
+          if [ -n "$bootstrap_value" ]; then
+            [ "$bootstrap_value" = "false" ] || {
+              echo "::error::Bootstrap must be disabled (BOOTSTRAP_ENABLED/SANAD_SECURITY_BOOTSTRAP_ENABLED must equal false or be absent)."
+              exit 1
+            }
+          fi
 
       - name: Verify production health and identity URL
         shell: bash
@@ -181,7 +183,7 @@ jobs:
             echo "- Provider URL identity: VERIFIED"
             echo "- Managed signing key presence: VERIFIED"
             echo "- Temporary bootstrap keys absent: VERIFIED"
-            echo "- BOOTSTRAP_ENABLED=false: VERIFIED"
+            echo "- Bootstrap disabled: VERIFIED"
             echo "- Production health: VERIFIED"
             echo "- Issue #${{ inputs.issue_number }}: CLOSED"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -37,7 +37,8 @@ class CredentialBootstrapServiceTest {
     @Test
     void disabledModeDoesNotWrite() {
         UUID tenantId = UUID.randomUUID();
-        User result = service.bootstrap(false, tenantId, email(), value(), "Admin", "test-actor");
+        User result = service.bootstrap(
+                false, tenantId, null, null, email(), value(), "Admin", "test-actor");
         assertThat(result).isNull();
         assertThat(userRepository.findByTenantId(tenantId)).isEmpty();
     }
@@ -45,14 +46,14 @@ class CredentialBootstrapServiceTest {
     @Test
     void requiresExistingActiveTenant() {
         assertThatThrownBy(() -> service.bootstrap(
-                true, UUID.randomUUID(), email(), value(), "Admin", "test-actor"))
+                true, UUID.randomUUID(), null, null, email(), value(), "Admin", "test-actor"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("does not exist");
 
         Tenant tenant = tenantRepository.save(new Tenant(
                 "Suspended", "suspended-" + UUID.randomUUID(), TenantStatus.SUSPENDED));
         assertThatThrownBy(() -> service.bootstrap(
-                true, tenant.getId(), email(), value(), "Admin", "test-actor"))
+                true, tenant.getId(), null, null, email(), value(), "Admin", "test-actor"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("must be ACTIVE");
     }
@@ -64,7 +65,7 @@ class CredentialBootstrapServiceTest {
         String value = value();
 
         User user = service.bootstrap(
-                true, tenant.getId(), email, value, "Bootstrap Admin", "test-actor");
+                true, tenant.getId(), null, null, email, value, "Bootstrap Admin", "test-actor");
 
         assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
         assertThat(encoder.matches(value, user.getPasswordHash())).isTrue();
@@ -90,13 +91,13 @@ class CredentialBootstrapServiceTest {
                 tenant.getId(), email, "Existing", UserStatus.INVITED));
 
         User enrolled = service.bootstrap(
-                true, tenant.getId(), email, value, "Admin", "test-actor");
+                true, tenant.getId(), null, null, email, value, "Admin", "test-actor");
         assertThat(enrolled.getId()).isEqualTo(existing.getId());
         assertThat(enrolled.getStatus()).isEqualTo(UserStatus.ACTIVE);
         String originalHash = enrolled.getPasswordHash();
 
         assertThatThrownBy(() -> service.bootstrap(
-                true, tenant.getId(), email, value(), "Admin", "test-actor"))
+                true, tenant.getId(), null, null, email, value(), "Admin", "test-actor"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("already enrolled");
         assertThat(userRepository.findByTenantIdAndEmail(tenant.getId(), email)
@@ -114,5 +115,49 @@ class CredentialBootstrapServiceTest {
 
     private String value() {
         return UUID.randomUUID().toString();
+    }
+
+    @Test
+    void autoCreatesTenantWhenTenantIdIsNullAndSubdomainIsNew() {
+        String subdomain = "auto-" + UUID.randomUUID();
+        String email = email();
+        String password = "StrongBootstrapPassword123!";
+
+        User user = service.bootstrap(
+                true, null, "Auto Tenant", subdomain, email, password, "Auto Admin", "test-actor");
+
+        assertThat(user).isNotNull();
+        assertThat(user.getTenantId()).isNotNull();
+        Tenant created = tenantRepository.findBySubdomain(subdomain).orElseThrow();
+        assertThat(created.getName()).isEqualTo("Auto Tenant");
+        assertThat(created.getStatus()).isEqualTo(TenantStatus.ACTIVE);
+        assertThat(user.getTenantId()).isEqualTo(created.getId());
+        assertThat(encoder.matches(password, user.getPasswordHash())).isTrue();
+    }
+
+    @Test
+    void autoCreateModeReusesExistingActiveTenantWithSameSubdomain() {
+        String subdomain = "reuse-" + UUID.randomUUID();
+        Tenant first = tenantRepository.save(new Tenant(
+                "First", subdomain, TenantStatus.ACTIVE));
+
+        String email = email();
+        String password = "StrongBootstrapPassword456!";
+
+        User user = service.bootstrap(
+                true, null, "Ignored Name", subdomain, email, password, "Admin", "test-actor");
+
+        assertThat(user.getTenantId()).isEqualTo(first.getId());
+        // Should not have created a second tenant with the same subdomain
+        assertThat(tenantRepository.findAll()).filteredOn(t -> subdomain.equals(t.getSubdomain()))
+                .hasSize(1);
+    }
+
+    @Test
+    void autoCreateModeFailsWhenBothTenantIdAndSubdomainAreAbsent() {
+        assertThatThrownBy(() -> service.bootstrap(
+                true, null, null, null, email(), value(), "Admin", "test-actor"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("tenant-name + tenant-subdomain");
     }
 }

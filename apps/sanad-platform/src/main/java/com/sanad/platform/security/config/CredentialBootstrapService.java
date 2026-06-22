@@ -21,9 +21,22 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 
-/** Executes the explicit, one-time administrative credential enrollment. */
+/**
+ * Executes the explicit, one-time administrative credential enrollment.
+ *
+ * <p>Supports two tenant-resolution modes:</p>
+ * <ul>
+ *   <li><b>Explicit tenant-id</b>: {@code tenantId != null} — the tenant must already
+ *       exist and be ACTIVE. Use this for re-enrolling into an established tenant.</li>
+ *   <li><b>Auto-create tenant</b>: {@code tenantId == null} and both {@code tenantName}
+ *       and {@code tenantSubdomain} are non-blank — the service looks up the tenant by
+ *       subdomain; if absent, creates a new ACTIVE tenant. Use this for first-run
+ *       bootstrap on a fresh database.</li>
+ * </ul>
+ */
 @Service
 @Profile({"prod", "local"})
 public class CredentialBootstrapService {
@@ -52,15 +65,28 @@ public class CredentialBootstrapService {
     }
 
     /**
-     * Enrolls exactly one administrator credential in an existing ACTIVE tenant.
-     * Re-running against an already enrolled account fails closed.
+     * Enrolls exactly one administrator credential.
+     *
+     * <p>Re-running against an already-enrolled account fails closed.</p>
+     *
+     * @param enabled          when false, logs and returns null without writing
+     * @param tenantId         explicit tenant UUID, or null to use auto-create mode
+     * @param tenantName       required when {@code tenantId == null}; ignored otherwise
+     * @param tenantSubdomain  required when {@code tenantId == null}; ignored otherwise
+     * @param adminEmail       the admin login email (lowercased)
+     * @param adminPassword    plaintext password (BCrypt-hashed before storage)
+     * @param displayName      display name for the admin user
+     * @param auditActor       audit identity recorded on the password-set audit columns
+     * @return the enrolled admin user, or null when disabled
      */
     @Transactional
     public User bootstrap(
             boolean enabled,
             UUID tenantId,
+            String tenantName,
+            String tenantSubdomain,
             String adminEmail,
-            String adminCredential,
+            String adminPassword,
             String displayName,
             String auditActor
     ) {
@@ -69,28 +95,19 @@ public class CredentialBootstrapService {
             return null;
         }
 
-        if (tenantId == null) {
-            throw new IllegalStateException("Bootstrap tenant id is required");
-        }
-
-        Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> new IllegalStateException(
-                        "Bootstrap tenant does not exist: " + tenantId));
-        if (tenant.getStatus() != TenantStatus.ACTIVE) {
-            throw new IllegalStateException(
-                    "Bootstrap tenant must be ACTIVE: " + tenantId);
-        }
+        Tenant tenant = resolveTenant(tenantId, tenantName, tenantSubdomain);
+        UUID resolvedTenantId = tenant.getId();
 
         String normalizedEmail = adminEmail.trim().toLowerCase(Locale.ROOT);
-        User candidate = userRepository.findByTenantIdAndEmail(tenantId, normalizedEmail)
-                .map(user -> prepareExistingUser(user, tenantId))
+        User candidate = userRepository.findByTenantIdAndEmail(resolvedTenantId, normalizedEmail)
+                .map(user -> prepareExistingUser(user, resolvedTenantId))
                 .orElseGet(() -> new User(
-                        tenantId,
+                        resolvedTenantId,
                         normalizedEmail,
                         normalizeDisplayName(displayName),
                         UserStatus.ACTIVE));
 
-        candidate.setPasswordHash(passwordEncoder.encode(adminCredential));
+        candidate.setPasswordHash(passwordEncoder.encode(adminPassword));
         candidate.setPasswordSetAt(Instant.now());
         candidate.setPasswordSetBy(auditActor);
         candidate.setMustChangePassword(true);
@@ -98,27 +115,74 @@ public class CredentialBootstrapService {
         candidate.setStatus(UserStatus.ACTIVE);
         final User adminUser = userRepository.save(candidate);
 
-        Role adminRole = roleRepository.findByTenantIdAndCode(tenantId, ADMIN_ROLE_CODE)
+        Role adminRole = roleRepository.findByTenantIdAndCode(resolvedTenantId, ADMIN_ROLE_CODE)
                 .map(this::requireActiveAdminRole)
                 .orElseGet(() -> roleRepository.save(new Role(
-                        tenantId,
+                        resolvedTenantId,
                         ADMIN_ROLE_CODE,
                         "Administrator",
                         "Tenant-wide administrative access")));
 
         UserRoleGrant grant = userRoleGrantRepository
                 .findByTenantIdAndUserIdAndRoleIdAndOrganizationIdIsNull(
-                        tenantId, adminUser.getId(), adminRole.getId())
+                        resolvedTenantId, adminUser.getId(), adminRole.getId())
                 .orElseGet(() -> new UserRoleGrant(
-                        tenantId, adminUser.getId(), adminRole.getId(), null));
+                        resolvedTenantId, adminUser.getId(), adminRole.getId(), null));
         if (grant.getStatus() != UserGrantStatus.ACTIVE) {
             grant.setStatus(UserGrantStatus.ACTIVE);
         }
         userRoleGrantRepository.save(grant);
 
         log.info("Credential bootstrap completed for userId={} tenantId={}; forced rotation enabled.",
-                adminUser.getId(), tenantId);
+                adminUser.getId(), resolvedTenantId);
         return adminUser;
+    }
+
+    /**
+     * Resolves the bootstrap tenant.
+     *
+     * <p>If {@code tenantId} is non-null, looks it up and requires ACTIVE status.</p>
+     * <p>If {@code tenantId} is null, looks up by {@code tenantSubdomain}; if absent,
+     * creates a new ACTIVE tenant with the provided name and subdomain.</p>
+     */
+    private Tenant resolveTenant(UUID tenantId, String tenantName, String tenantSubdomain) {
+        if (tenantId != null) {
+            Tenant tenant = tenantRepository.findById(tenantId)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Bootstrap tenant does not exist: " + tenantId));
+            if (tenant.getStatus() != TenantStatus.ACTIVE) {
+                throw new IllegalStateException(
+                        "Bootstrap tenant must be ACTIVE: " + tenantId);
+            }
+            return tenant;
+        }
+
+        if (tenantName == null || tenantName.isBlank()
+                || tenantSubdomain == null || tenantSubdomain.isBlank()) {
+            throw new IllegalStateException(
+                    "Bootstrap requires either tenant-id or (tenant-name + tenant-subdomain)");
+        }
+
+        String normalizedSubdomain = tenantSubdomain.trim().toLowerCase(Locale.ROOT);
+        Optional<Tenant> existing = tenantRepository.findBySubdomain(normalizedSubdomain);
+        if (existing.isPresent()) {
+            Tenant tenant = existing.get();
+            if (tenant.getStatus() != TenantStatus.ACTIVE) {
+                throw new IllegalStateException(
+                        "Bootstrap tenant must be ACTIVE: " + tenant.getId());
+            }
+            log.info("Bootstrap reusing existing tenant id={} subdomain={}",
+                    tenant.getId(), normalizedSubdomain);
+            return tenant;
+        }
+
+        Tenant created = tenantRepository.save(new Tenant(
+                tenantName.trim(),
+                normalizedSubdomain,
+                TenantStatus.ACTIVE));
+        log.info("Bootstrap created new tenant id={} name='{}' subdomain='{}'",
+                created.getId(), created.getName(), created.getSubdomain());
+        return created;
     }
 
     private User prepareExistingUser(User user, UUID tenantId) {

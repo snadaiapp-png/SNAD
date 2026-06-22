@@ -24,8 +24,10 @@ sanad:
     bootstrap:
       enabled: ${BOOTSTRAP_ENABLED:false}
       tenant-id: ${BOOTSTRAP_TENANT_ID:}
+      tenant-name: ${BOOTSTRAP_TENANT_NAME:}
+      tenant-subdomain: ${BOOTSTRAP_TENANT_SUBDOMAIN:}
       admin-email: ${BOOTSTRAP_ADMIN_EMAIL:}
-      admin-credential: ${BOOTSTRAP_ADMIN_CREDENTIAL:}
+      admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:}
       admin-display-name: ${BOOTSTRAP_ADMIN_DISPLAY_NAME:SANAD Admin}
       audit-actor: ${BOOTSTRAP_AUDIT_ACTOR:credential-bootstrap}
 
