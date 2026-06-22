@@ -1,0 +1,267 @@
+name: Auth & Tenant Production Acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Governance issue to update after successful acceptance
+        required: true
+        default: "59"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: auth-tenant-production-acceptance
+  cancel-in-progress: false
+
+jobs:
+  production-acceptance:
+    name: Verify authenticated sessions and tenant isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      BACKEND_URL: ${{ vars.PRODUCTION_BASE_URL }}
+      TENANT_A_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
+      TENANT_A_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+      TENANT_A_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+      TENANT_B_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+      TENANT_B_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
+      TENANT_B_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
+
+    steps:
+      - name: Validate protected production inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(BACKEND_URL TENANT_A_ID TENANT_A_EMAIL TENANT_A_PASSWORD TENANT_B_ID TENANT_B_EMAIL TENANT_B_PASSWORD)
+          for name in "${required[@]}"; do
+            value="${!name:-}"
+            [ -n "$value" ] || {
+              echo "::error::Missing protected Production value: $name"
+              exit 1
+            }
+          done
+
+          [[ "$BACKEND_URL" == https://* ]] || {
+            echo "::error::PRODUCTION_BASE_URL must use HTTPS."
+            exit 1
+          }
+          uuid_re='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+          [[ "$TENANT_A_ID" =~ $uuid_re ]] || { echo "::error::TENANT_A_ID is not a UUID."; exit 1; }
+          [[ "$TENANT_B_ID" =~ $uuid_re ]] || { echo "::error::TENANT_B_ID is not a UUID."; exit 1; }
+          [ "$TENANT_A_ID" != "$TENANT_B_ID" ] || {
+            echo "::error::Tenant A and Tenant B must be distinct."
+            exit 1
+          }
+
+          for secret in "$TENANT_A_ID" "$TENANT_A_EMAIL" "$TENANT_A_PASSWORD" "$TENANT_B_ID" "$TENANT_B_EMAIL" "$TENANT_B_PASSWORD"; do
+            echo "::add-mask::$secret"
+          done
+          echo "BACKEND_URL=${BACKEND_URL%/}" >> "$GITHUB_ENV"
+
+      - name: Authenticate controlled identities
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          login_identity() {
+            local prefix="$1" tenant_id="$2" email="$3" password="$4"
+            local body="/tmp/${prefix}-login.json" headers="/tmp/${prefix}-login.headers"
+            local payload code access refresh response_tenant
+
+            payload=$(jq -n \
+              --arg tenantId "$tenant_id" \
+              --arg email "$email" \
+              --arg password "$password" \
+              '{tenantId:$tenantId,email:$email,password:$password}')
+
+            code=$(curl -sS -D "$headers" -o "$body" -w '%{http_code}' \
+              --connect-timeout 10 --max-time 30 \
+              -H 'Content-Type: application/json' \
+              -X POST "${BACKEND_URL}/api/v1/auth/login" \
+              --data "$payload")
+            [ "$code" = "200" ] || {
+              echo "::error::Controlled identity ${prefix} login failed with HTTP ${code}."
+              exit 1
+            }
+
+            access=$(jq -r '.accessToken // empty' "$body")
+            response_tenant=$(jq -r '.user.tenantId // empty' "$body")
+            refresh=$(awk 'BEGIN{IGNORECASE=1} /^X-SANAD-Refresh-Token:/ {sub(/^[^:]+:[[:space:]]*/,""); sub(/\r$/,""); print; exit}' "$headers")
+
+            [ -n "$access" ] || { echo "::error::Identity ${prefix} access token missing."; exit 1; }
+            [ -n "$refresh" ] || { echo "::error::Identity ${prefix} refresh token header missing."; exit 1; }
+            [ "$response_tenant" = "$tenant_id" ] || {
+              echo "::error::Identity ${prefix} login tenant mismatch."
+              exit 1
+            }
+
+            echo "::add-mask::$access"
+            echo "::add-mask::$refresh"
+            echo "${prefix}_ACCESS=$access" >> "$GITHUB_ENV"
+            echo "${prefix}_REFRESH=$refresh" >> "$GITHUB_ENV"
+          }
+
+          login_identity A "$TENANT_A_ID" "$TENANT_A_EMAIL" "$TENANT_A_PASSWORD"
+          login_identity B "$TENANT_B_ID" "$TENANT_B_EMAIL" "$TENANT_B_PASSWORD"
+
+      - name: Verify authenticated identity and tenant binding
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          verify_me() {
+            local prefix="$1" access="$2" expected_tenant="$3"
+            local body="/tmp/${prefix}-me.json" code
+            code=$(curl -sS -o "$body" -w '%{http_code}' \
+              --connect-timeout 10 --max-time 20 \
+              -H "Authorization: Bearer $access" \
+              "${BACKEND_URL}/api/v1/auth/me")
+            [ "$code" = "200" ] || {
+              echo "::error::Identity ${prefix} /me failed with HTTP ${code}."
+              exit 1
+            }
+            jq -e --arg tenant "$expected_tenant" '
+              (.tenantId == $tenant) and
+              (.status == "ACTIVE") and
+              (.credentialRotationRequired == false)
+            ' "$body" >/dev/null || {
+              echo "::error::Identity ${prefix} /me tenant or account state mismatch."
+              exit 1
+            }
+          }
+
+          verify_me A "$A_ACCESS" "$TENANT_A_ID"
+          verify_me B "$B_ACCESS" "$TENANT_B_ID"
+
+      - name: Verify cross-tenant credential rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          expect_rejected_login() {
+            local tenant_id="$1" email="$2" password="$3" label="$4"
+            local payload code
+            payload=$(jq -n \
+              --arg tenantId "$tenant_id" \
+              --arg email "$email" \
+              --arg password "$password" \
+              '{tenantId:$tenantId,email:$email,password:$password}')
+            code=$(curl -sS -o /tmp/cross-tenant.json -w '%{http_code}' \
+              --connect-timeout 10 --max-time 20 \
+              -H 'Content-Type: application/json' \
+              -X POST "${BACKEND_URL}/api/v1/auth/login" \
+              --data "$payload")
+            [ "$code" = "401" ] || {
+              echo "::error::Cross-tenant login ${label} should return 401 but returned ${code}."
+              exit 1
+            }
+          }
+
+          expect_rejected_login "$TENANT_B_ID" "$TENANT_A_EMAIL" "$TENANT_A_PASSWORD" 'A credentials against tenant B'
+          expect_rejected_login "$TENANT_A_ID" "$TENANT_B_EMAIL" "$TENANT_B_PASSWORD" 'B credentials against tenant A'
+
+      - name: Verify refresh rotation and replay-family invalidation
+        shell: bash
+        run: |
+          set -euo pipefail
+          headers=/tmp/a-refresh.headers
+          body=/tmp/a-refresh.json
+
+          code=$(curl -sS -D "$headers" -o "$body" -w '%{http_code}' \
+            --connect-timeout 10 --max-time 20 \
+            -H "X-SANAD-Refresh-Token: $A_REFRESH" \
+            -X POST "${BACKEND_URL}/api/v1/auth/refresh")
+          [ "$code" = "200" ] || {
+            echo "::error::Refresh rotation failed with HTTP ${code}."
+            exit 1
+          }
+
+          rotated_access=$(jq -r '.accessToken // empty' "$body")
+          rotated_refresh=$(awk 'BEGIN{IGNORECASE=1} /^X-SANAD-Refresh-Token:/ {sub(/^[^:]+:[[:space:]]*/,""); sub(/\r$/,""); print; exit}' "$headers")
+          [ -n "$rotated_access" ] && [ -n "$rotated_refresh" ] || {
+            echo "::error::Rotated token pair missing."
+            exit 1
+          }
+          [ "$rotated_refresh" != "$A_REFRESH" ] || {
+            echo "::error::Refresh token was not rotated."
+            exit 1
+          }
+
+          echo "::add-mask::$rotated_access"
+          echo "::add-mask::$rotated_refresh"
+
+          me_code=$(curl -sS -o /tmp/a-refreshed-me.json -w '%{http_code}' \
+            --max-time 20 -H "Authorization: Bearer $rotated_access" \
+            "${BACKEND_URL}/api/v1/auth/me")
+          [ "$me_code" = "200" ] || {
+            echo "::error::Rotated access token failed /me with HTTP ${me_code}."
+            exit 1
+          }
+          jq -e --arg tenant "$TENANT_A_ID" '.tenantId == $tenant' /tmp/a-refreshed-me.json >/dev/null
+
+          replay_code=$(curl -sS -o /tmp/a-replay.json -w '%{http_code}' \
+            --max-time 20 \
+            -H "X-SANAD-Refresh-Token: $A_REFRESH" \
+            -X POST "${BACKEND_URL}/api/v1/auth/refresh")
+          [[ "$replay_code" == "401" || "$replay_code" == "409" ]] || {
+            echo "::error::Refresh replay should be rejected but returned ${replay_code}."
+            exit 1
+          }
+
+          family_code=$(curl -sS -o /tmp/a-family.json -w '%{http_code}' \
+            --max-time 20 \
+            -H "X-SANAD-Refresh-Token: $rotated_refresh" \
+            -X POST "${BACKEND_URL}/api/v1/auth/refresh")
+          [[ "$family_code" == "401" || "$family_code" == "409" ]] || {
+            echo "::error::Replay-family invalidation failed; rotated token returned ${family_code}."
+            exit 1
+          }
+
+      - name: Verify logout revokes refresh sessions
+        shell: bash
+        run: |
+          set -euo pipefail
+          logout_code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            --connect-timeout 10 --max-time 20 \
+            -H "Authorization: Bearer $B_ACCESS" \
+            -X POST "${BACKEND_URL}/api/v1/auth/logout")
+          [ "$logout_code" = "204" ] || {
+            echo "::error::Logout should return 204 but returned ${logout_code}."
+            exit 1
+          }
+
+          refresh_code=$(curl -sS -o /tmp/b-after-logout.json -w '%{http_code}' \
+            --max-time 20 \
+            -H "X-SANAD-Refresh-Token: $B_REFRESH" \
+            -X POST "${BACKEND_URL}/api/v1/auth/refresh")
+          [[ "$refresh_code" == "401" || "$refresh_code" == "409" ]] || {
+            echo "::error::Refresh after logout should be rejected but returned ${refresh_code}."
+            exit 1
+          }
+
+      - name: Record acceptance evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Authenticated production acceptance passed in workflow run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Verified: two controlled identity logins, tenant binding through /me, bidirectional cross-tenant credential rejection, refresh rotation, replay-family invalidation, and logout revocation. No credentials or token values were recorded."
+
+      - name: Write gate evidence summary
+        run: |
+          {
+            echo "## Auth & Tenant Production Acceptance"
+            echo "- Controlled identity A login: VERIFIED"
+            echo "- Controlled identity B login: VERIFIED"
+            echo "- /me tenant binding: VERIFIED"
+            echo "- Cross-tenant credential rejection: VERIFIED"
+            echo "- Refresh rotation: VERIFIED"
+            echo "- Refresh replay-family invalidation: VERIFIED"
+            echo "- Logout revocation: VERIFIED"
+            echo "- Secrets and token values in evidence: NONE"
+          } >> "$GITHUB_STEP_SUMMARY"
