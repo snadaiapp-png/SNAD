@@ -2,21 +2,18 @@ package com.sanad.platform.security.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
-
-import java.util.UUID;
 
 /**
  * Request body for {@code POST /api/v1/auth/login}.
  *
- * <p>Requires explicit {@code tenantId} because email uniqueness is scoped
- * to (tenantId, email) — the same email can exist in different tenants.</p>
+ * <p>Email-only login — no tenantId required. The backend searches
+ * for the user by email across all tenants. If exactly one match is
+ * found, login proceeds. If multiple matches exist (same email in
+ * different tenants), a 409 is returned with the list of tenants
+ * so the frontend can prompt for selection.</p>
  */
 public class LoginRequest {
-
-    @NotNull
-    private UUID tenantId;
 
     @NotBlank
     @Email
@@ -27,6 +24,9 @@ public class LoginRequest {
     @Size(min = 1, max = 256)
     private String password;
 
+    /** Optional tenantId — if provided, scopes the login to a specific tenant. */
+    private java.util.UUID tenantId;
+
     // ------------------------------------------------------------
     // Constructors
     // ------------------------------------------------------------
@@ -34,8 +34,7 @@ public class LoginRequest {
     public LoginRequest() {
     }
 
-    public LoginRequest(UUID tenantId, String email, String password) {
-        this.tenantId = tenantId;
+    public LoginRequest(String email, String password) {
         this.email = email;
         this.password = password;
     }
@@ -44,12 +43,12 @@ public class LoginRequest {
     // Getters / Setters
     // ------------------------------------------------------------
 
-    public UUID getTenantId() { return tenantId; }
-    public void setTenantId(UUID tenantId) { this.tenantId = tenantId; }
-
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }
 
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
+
+    public java.util.UUID getTenantId() { return tenantId; }
+    public void setTenantId(java.util.UUID tenantId) { this.tenantId = tenantId; }
 }

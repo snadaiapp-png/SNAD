@@ -67,7 +67,7 @@ class CredentialRotationIntegrationTest {
         user.setMustChangePassword(true);
         userRepository.save(user);
 
-        LoginRequest login = new LoginRequest(tenant.getId(), email, initialValue);
+        LoginRequest login = new LoginRequest(email, initialValue);
         MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(login)))
@@ -107,8 +107,7 @@ class CredentialRotationIntegrationTest {
                         .content(objectMapper.writeValueAsString(login)))
                 .andExpect(status().isUnauthorized());
 
-        LoginRequest replacementLogin = new LoginRequest(
-                tenant.getId(), email, replacementValue);
+        LoginRequest replacementLogin = new LoginRequest(email, replacementValue);
         MvcResult replacementResult = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(replacementLogin)))

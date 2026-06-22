@@ -9,6 +9,8 @@
  *
  * The refresh token is delivered via HttpOnly cookie (BFF pattern).
  * In local/dev, a body fallback is available for testing.
+ *
+ * Login is email+password only — no tenantId required.
  */
 
 import { apiClient, ApiClient } from "./client";
@@ -32,9 +34,9 @@ export interface AuthResponse {
 }
 
 export interface LoginRequest {
-  tenantId: string;
   email: string;
   password: string;
+  tenantId?: string;
 }
 
 export interface MeResponse {

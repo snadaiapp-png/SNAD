@@ -2,6 +2,7 @@ package com.sanad.platform.security.api;
 
 import com.sanad.platform.organization.api.ApiErrorResponse;
 import com.sanad.platform.security.exception.AccountInactiveException;
+import com.sanad.platform.security.exception.AmbiguousTenantException;
 import com.sanad.platform.security.exception.InvalidCredentialsException;
 import com.sanad.platform.security.exception.LoginRateLimitException;
 import com.sanad.platform.security.exception.RefreshTokenReplayException;
@@ -49,6 +50,19 @@ public class AuthApiExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleRefreshReplay(
             RefreshTokenReplayException ex, HttpServletRequest request) {
         return error(HttpStatus.UNAUTHORIZED, ex.getMessage(), request, ex);
+    }
+
+    @ExceptionHandler(AmbiguousTenantException.class)
+    public ResponseEntity<ApiErrorResponse> handleAmbiguousTenant(
+            AmbiguousTenantException ex, HttpServletRequest request) {
+        ApiErrorResponse response = new ApiErrorResponse(
+                java.time.Instant.now(),
+                409,
+                "Conflict",
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+        return ResponseEntity.status(409).body(response);
     }
 
     @ExceptionHandler(LoginRateLimitException.class)
