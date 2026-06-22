@@ -6,40 +6,33 @@ import {
   type OrganizationLifecycleAction,
   type OrganizationResponse,
 } from "@/lib/api/organizations";
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "تعذر إكمال الطلب.";
-}
+import { useTenantContext } from "@/lib/auth/tenant-context";
+import { toUserFacingError, type UserFacingError } from "@/lib/api/user-facing-errors";
 
 function statusLabel(status: OrganizationResponse["status"]): string {
   return status === "ACTIVE" ? "نشطة" : status === "ARCHIVED" ? "مؤرشفة" : "غير نشطة";
 }
 
 export default function OrganizationLivePanel() {
-  const [tenantId, setTenantId] = useState("");
+  const { tenantId, isReady } = useTenantContext();
   const [organizations, setOrganizations] = useState<OrganizationResponse[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
-  const [notice, setNotice] = useState("أدخل Tenant UUID لتحميل المؤسسات الفعلية.");
-
-  const normalizedTenantId = tenantId.trim();
-  const tenantIsValid = UUID_PATTERN.test(normalizedTenantId);
+  const [notice, setNotice] = useState("اضغط تحميل لعرض المؤسسات.");
+  const [error, setError] = useState<UserFacingError | null>(null);
 
   async function loadOrganizations() {
-    if (!tenantIsValid) {
-      setNotice("Tenant UUID غير صالح.");
-      return;
-    }
+    if (!tenantId) return;
     setBusy("load");
+    setError(null);
     try {
-      const result = await organizationsApi.list(normalizedTenantId);
+      const result = await organizationsApi.list(tenantId);
       setOrganizations(result);
       setNotice(`تم تحميل ${result.length} مؤسسة من Backend.`);
-    } catch (error) {
-      setNotice(errorMessage(error));
+    } catch (err) {
+      setError(toUserFacingError(err));
+      setOrganizations([]);
     } finally {
       setBusy(null);
     }
@@ -47,19 +40,17 @@ export default function OrganizationLivePanel() {
 
   async function createOrganization(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!tenantIsValid) {
-      setNotice("Tenant UUID غير صالح.");
-      return;
-    }
+    if (!tenantId) return;
     setBusy("create");
+    setError(null);
     try {
-      const saved = await organizationsApi.create(normalizedTenantId, { name, description });
+      const saved = await organizationsApi.create(tenantId, { name, description });
       setOrganizations((items) => [saved, ...items]);
       setName("");
       setDescription("");
       setNotice("تم إنشاء المؤسسة في Backend بنجاح.");
-    } catch (error) {
-      setNotice(errorMessage(error));
+    } catch (err) {
+      setError(toUserFacingError(err));
     } finally {
       setBusy(null);
     }
@@ -67,12 +58,13 @@ export default function OrganizationLivePanel() {
 
   async function transition(item: OrganizationResponse, action: OrganizationLifecycleAction) {
     setBusy(item.id);
+    setError(null);
     try {
-      const saved = await organizationsApi.transition(normalizedTenantId, item.id, action);
-      setOrganizations((items) => items.map((current) => current.id === saved.id ? saved : current));
+      const saved = await organizationsApi.transition(tenantId!, item.id, action);
+      setOrganizations((items) => items.map((current) => (current.id === saved.id ? saved : current)));
       setNotice("تم تحديث حالة المؤسسة.");
-    } catch (error) {
-      setNotice(errorMessage(error));
+    } catch (err) {
+      setError(toUserFacingError(err));
     } finally {
       setBusy(null);
     }
@@ -85,26 +77,23 @@ export default function OrganizationLivePanel() {
           <div>
             <p className="text-xs font-black tracking-[0.16em] text-teal-700">EXEC-PROMPT-030 · LIVE API</p>
             <h2 id="live-organizations-title" className="mt-2 text-2xl font-black text-slate-900">إدارة المؤسسات الفعلية</h2>
-            <p className="mt-2 max-w-3xl text-sm text-slate-500">يُمرر Tenant UUID صراحة إلى Backend. لا توجد مصادقة أو هوية مستأجر تلقائية في هذه المرحلة.</p>
+            <p className="mt-2 max-w-3xl text-sm text-slate-500">سياق المستأجر يُشتق تلقائياً من الجلسة المصادقة — لا حاجة لإدخال UUID يدوياً.</p>
           </div>
           <span className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-black text-amber-800 ring-1 ring-amber-700/20">Pilot only</span>
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <label className="grid gap-1 text-sm font-bold text-slate-700">
-            Tenant UUID
-            <input
-              dir="ltr"
-              value={tenantId}
-              onChange={(event) => setTenantId(event.target.value)}
-              placeholder="00000000-0000-4000-8000-000000000000"
-              className="rounded-xl border border-slate-200 px-3 py-2.5 font-mono text-sm outline-none focus:border-teal-600"
-            />
-          </label>
-          <button type="button" onClick={loadOrganizations} disabled={busy !== null} className="self-end rounded-xl bg-teal-800 px-5 py-2.5 font-black text-white disabled:opacity-50">
+        <div className="mt-5">
+          <button type="button" onClick={loadOrganizations} disabled={busy !== null || !isReady} className="rounded-xl bg-teal-800 px-5 py-2.5 font-black text-white disabled:opacity-50">
             {busy === "load" ? "جارٍ التحميل…" : "تحميل المؤسسات"}
           </button>
         </div>
+
+        {error && (
+          <div className="mt-3 rounded-xl bg-rose-50 px-4 py-3 ring-1 ring-rose-600/20" role="alert">
+            <p className="text-sm font-black text-rose-700">{error.title}</p>
+            <p className="mt-1 text-sm text-rose-600">{error.message}</p>
+          </div>
+        )}
 
         <p className="mt-3 rounded-xl bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700" role="status">{notice}</p>
 
@@ -119,7 +108,7 @@ export default function OrganizationLivePanel() {
               الوصف
               <textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={1000} rows={4} className="rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-teal-600" />
             </label>
-            <button disabled={busy !== null || !tenantIsValid} className="rounded-xl bg-teal-800 px-4 py-2.5 font-black text-white disabled:opacity-50">{busy === "create" ? "جارٍ الحفظ…" : "إنشاء في Backend"}</button>
+            <button disabled={busy !== null || !isReady} className="rounded-xl bg-teal-800 px-4 py-2.5 font-black text-white disabled:opacity-50">{busy === "create" ? "جارٍ الحفظ…" : "إنشاء في Backend"}</button>
           </form>
 
           <div className="grid content-start gap-3">

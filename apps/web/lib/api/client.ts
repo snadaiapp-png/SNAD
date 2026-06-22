@@ -11,13 +11,22 @@ import {
 } from "./errors";
 import type { ApiRequest, ApiRequestContext, ApiErrorDetails, QueryParams } from "./types";
 
-const PROTECTED_HEADERS = new Set(["host", "content-length", "connection", "origin", "authorization"]);
+const PROTECTED_HEADERS = new Set(["host", "content-length", "connection", "origin"]);
+/** Headers that callers cannot set via context.headers (but the client can set via setDefaultHeader). */
+const CALLER_PROTECTED_HEADERS = new Set(["host", "content-length", "connection", "origin", "authorization"]);
 
-function mergeHeaders(hasBody: boolean, contextHeaders?: Record<string, string>): Record<string, string> {
+function mergeHeaders(hasBody: boolean, contextHeaders?: Record<string, string>, clientDefaultHeaders?: Record<string, string>): Record<string, string> {
   const merged: Record<string, string> = { Accept: "application/json" };
   if (hasBody) merged["Content-Type"] = "application/json";
+  // Apply client default headers (e.g. Authorization from auth provider) — these CAN set Authorization
+  if (clientDefaultHeaders) {
+    for (const [key, value] of Object.entries(clientDefaultHeaders)) {
+      if (!PROTECTED_HEADERS.has(key.toLowerCase())) merged[key] = value;
+    }
+  }
+  // Apply caller context headers — these CANNOT set Authorization (caller-protected)
   for (const [key, value] of Object.entries(contextHeaders ?? {})) {
-    if (!PROTECTED_HEADERS.has(key.toLowerCase())) merged[key] = value;
+    if (!CALLER_PROTECTED_HEADERS.has(key.toLowerCase())) merged[key] = value;
   }
   return merged;
 }
@@ -92,10 +101,21 @@ function createRequestSignal(timeoutMs: number, externalSignal?: AbortSignal): {
 export class ApiClient {
   private readonly baseUrl: string;
   private readonly defaultTimeoutMs: number;
+  private defaultHeaders: Record<string, string> = {};
 
   constructor(options?: { baseUrl?: string; timeoutMs?: number }) {
     this.baseUrl = options?.baseUrl ?? API_BASE_URL;
     this.defaultTimeoutMs = options?.timeoutMs ?? DEFAULT_API_TIMEOUT_MS;
+  }
+
+  /** Set a default header (e.g. Authorization) on all subsequent requests. */
+  setDefaultHeader(name: string, value: string): void {
+    this.defaultHeaders[name] = value;
+  }
+
+  /** Remove a default header. */
+  removeDefaultHeader(name: string): void {
+    delete this.defaultHeaders[name];
   }
 
   buildUrl(path: string, query?: QueryParams): string {
@@ -110,7 +130,7 @@ export class ApiClient {
     const hasBody = req.body !== undefined && req.body !== null;
     const timeoutMs = req.timeoutMs ?? this.defaultTimeoutMs;
     const fullUrl = this.buildUrl(req.path, req.query as QueryParams);
-    const headers = mergeHeaders(hasBody, req.context?.headers);
+    const headers = mergeHeaders(hasBody, req.context?.headers, this.defaultHeaders);
 
     let serializedBody: string | undefined;
     if (hasBody && req.method !== "GET") {

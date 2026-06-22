@@ -73,3 +73,14 @@ export type {
 // User-facing error mapper (EXEC-PROMPT-031)
 export { toUserFacingError, toUserFacingMessage, toUserFacingTitle } from "./user-facing-errors";
 export type { UserFacingError } from "./user-facing-errors";
+
+// Auth API (EXEC-PROMPT-032)
+export { authApi, createAuthApi } from "./auth";
+export type {
+  AuthUser,
+  AuthResponse,
+  LoginRequest,
+  MeResponse,
+  MeMembership,
+  MeRoleGrant,
+} from "./auth";
