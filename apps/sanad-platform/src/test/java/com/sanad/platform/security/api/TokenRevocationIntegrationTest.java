@@ -1,6 +1,14 @@
 package com.sanad.platform.security.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sanad.platform.access.capability.AccessCapability;
+import com.sanad.platform.access.capability.AccessCapabilityRepository;
+import com.sanad.platform.access.grant.UserRoleGrant;
+import com.sanad.platform.access.grant.UserRoleGrantRepository;
+import com.sanad.platform.access.role.Role;
+import com.sanad.platform.access.role.RoleCapability;
+import com.sanad.platform.access.role.RoleCapabilityRepository;
+import com.sanad.platform.access.role.RoleRepository;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
 import com.sanad.platform.security.dto.AuthResponse;
 import com.sanad.platform.security.dto.ChangeCredentialRequest;
@@ -55,6 +63,10 @@ class TokenRevocationIntegrationTest {
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private OrganizationMembershipRepository membershipRepository;
     @Autowired private RefreshTokenRepository refreshTokenRepository;
+    @Autowired private RoleRepository roleRepository;
+    @Autowired private UserRoleGrantRepository userRoleGrantRepository;
+    @Autowired private AccessCapabilityRepository accessCapabilityRepository;
+    @Autowired private RoleCapabilityRepository roleCapabilityRepository;
 
     private UUID tenantId;
     private String testEmail;
@@ -63,8 +75,11 @@ class TokenRevocationIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        roleCapabilityRepository.deleteAll();
+        userRoleGrantRepository.deleteAll();
         refreshTokenRepository.deleteAll();
         membershipRepository.deleteAll();
+        roleRepository.deleteAll();
         userRepository.deleteAll();
         tenantRepository.deleteAll();
 
@@ -80,6 +95,21 @@ class TokenRevocationIntegrationTest {
         User user = new User(tenantId, testEmail, "Revocation Test User", UserStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(testPassword));
         userId = userRepository.save(user).getId();
+
+        // Grant VIEWER role with USER.READ capability for protected endpoint tests
+        Role viewerRole = roleRepository.findByTenantIdAndCode(tenantId, "VIEWER")
+                .orElseGet(() -> roleRepository.save(new Role(
+                        tenantId, "VIEWER", "Viewer", "Read-only access")));
+        AccessCapability userReadCap = accessCapabilityRepository.findByCode("USER.READ")
+                .orElseGet(() -> accessCapabilityRepository.save(new AccessCapability(
+                        "USER.READ", "Read Users", null)));
+        if (!roleCapabilityRepository.existsByTenantIdAndRoleIdAndCapabilityId(
+                tenantId, viewerRole.getId(), userReadCap.getId())) {
+            roleCapabilityRepository.save(new RoleCapability(
+                    tenantId, viewerRole.getId(), userReadCap.getId()));
+        }
+        UserRoleGrant grant = new UserRoleGrant(tenantId, userId, viewerRole.getId(), null);
+        userRoleGrantRepository.save(grant);
     }
 
     // ================================================================
