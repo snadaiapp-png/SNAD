@@ -99,13 +99,25 @@ public class CredentialBootstrapService {
         UUID resolvedTenantId = tenant.getId();
 
         String normalizedEmail = adminEmail.trim().toLowerCase(Locale.ROOT);
-        User candidate = userRepository.findByTenantIdAndEmail(resolvedTenantId, normalizedEmail)
-                .map(user -> prepareExistingUser(user, resolvedTenantId))
-                .orElseGet(() -> new User(
-                        resolvedTenantId,
-                        normalizedEmail,
-                        normalizeDisplayName(displayName),
-                        UserStatus.ACTIVE));
+        User existingCheck = userRepository.findByTenantIdAndEmail(resolvedTenantId, normalizedEmail)
+                .orElse(null);
+        User candidate;
+        if (existingCheck != null) {
+            User prepared = prepareExistingUser(existingCheck, resolvedTenantId);
+            if (prepared == null) {
+                // Already enrolled — idempotent skip, ensure role grant exists and return
+                log.info("Bootstrap: admin already enrolled, ensuring role grant for tenant={}", resolvedTenantId);
+                ensureAdminRoleGrant(resolvedTenantId, existingCheck);
+                return existingCheck;
+            }
+            candidate = prepared;
+        } else {
+            candidate = new User(
+                    resolvedTenantId,
+                    normalizedEmail,
+                    normalizeDisplayName(displayName),
+                    UserStatus.ACTIVE);
+        }
 
         candidate.setPasswordHash(passwordEncoder.encode(adminPassword));
         candidate.setPasswordSetAt(Instant.now());
@@ -115,23 +127,7 @@ public class CredentialBootstrapService {
         candidate.setStatus(UserStatus.ACTIVE);
         final User adminUser = userRepository.save(candidate);
 
-        Role adminRole = roleRepository.findByTenantIdAndCode(resolvedTenantId, ADMIN_ROLE_CODE)
-                .map(this::requireActiveAdminRole)
-                .orElseGet(() -> roleRepository.save(new Role(
-                        resolvedTenantId,
-                        ADMIN_ROLE_CODE,
-                        "Administrator",
-                        "Tenant-wide administrative access")));
-
-        UserRoleGrant grant = userRoleGrantRepository
-                .findByTenantIdAndUserIdAndRoleIdAndOrganizationIdIsNull(
-                        resolvedTenantId, adminUser.getId(), adminRole.getId())
-                .orElseGet(() -> new UserRoleGrant(
-                        resolvedTenantId, adminUser.getId(), adminRole.getId(), null));
-        if (grant.getStatus() != UserGrantStatus.ACTIVE) {
-            grant.setStatus(UserGrantStatus.ACTIVE);
-        }
-        userRoleGrantRepository.save(grant);
+        ensureAdminRoleGrant(resolvedTenantId, adminUser);
 
         log.info("Credential bootstrap completed for userId={} tenantId={}; forced rotation enabled.",
                 adminUser.getId(), resolvedTenantId);
@@ -186,19 +182,22 @@ public class CredentialBootstrapService {
     }
 
     private User prepareExistingUser(User user, UUID tenantId) {
-        if (user.getPasswordHash() != null && !user.getPasswordHash().isBlank()) {
-            throw new IllegalStateException(
-                    "Bootstrap account is already enrolled; refusing credential replacement for tenant "
-                            + tenantId);
-        }
-        if (user.getPasswordSetAt() != null) {
-            throw new IllegalStateException(
-                    "Bootstrap account has prior enrollment audit state; refusing reuse for tenant "
-                            + tenantId);
-        }
         if (user.getStatus() == UserStatus.SUSPENDED || user.getStatus() == UserStatus.ARCHIVED) {
             throw new IllegalStateException(
                     "Bootstrap account must not be SUSPENDED or ARCHIVED for tenant " + tenantId);
+        }
+        // Idempotent: if the account is already enrolled, skip credential replacement.
+        // This allows the application to restart without error when bootstrap is re-triggered
+        // (e.g., after a deployment or environment variable change).
+        if (user.getPasswordHash() != null && !user.getPasswordHash().isBlank()) {
+            log.info("Bootstrap account already enrolled for userId={} tenantId={}; skipping credential replacement.",
+                    user.getId(), tenantId);
+            return null; // signal to skip this user entirely
+        }
+        if (user.getPasswordSetAt() != null) {
+            log.info("Bootstrap account has prior enrollment audit state for userId={} tenantId={}; skipping.",
+                    user.getId(), tenantId);
+            return null;
         }
         return user;
     }
@@ -216,5 +215,29 @@ public class CredentialBootstrapService {
             return "SANAD Admin";
         }
         return displayName.trim();
+    }
+
+    /**
+     * Ensures the ADMIN role exists and is granted to the specified user.
+     * Safe to call multiple times (idempotent).
+     */
+    private void ensureAdminRoleGrant(UUID resolvedTenantId, User adminUser) {
+        Role adminRole = roleRepository.findByTenantIdAndCode(resolvedTenantId, ADMIN_ROLE_CODE)
+                .map(this::requireActiveAdminRole)
+                .orElseGet(() -> roleRepository.save(new Role(
+                        resolvedTenantId,
+                        ADMIN_ROLE_CODE,
+                        "Administrator",
+                        "Tenant-wide administrative access")));
+
+        UserRoleGrant grant = userRoleGrantRepository
+                .findByTenantIdAndUserIdAndRoleIdAndOrganizationIdIsNull(
+                        resolvedTenantId, adminUser.getId(), adminRole.getId())
+                .orElseGet(() -> new UserRoleGrant(
+                        resolvedTenantId, adminUser.getId(), adminRole.getId(), null));
+        if (grant.getStatus() != UserGrantStatus.ACTIVE) {
+            grant.setStatus(UserGrantStatus.ACTIVE);
+        }
+        userRoleGrantRepository.save(grant);
     }
 }
