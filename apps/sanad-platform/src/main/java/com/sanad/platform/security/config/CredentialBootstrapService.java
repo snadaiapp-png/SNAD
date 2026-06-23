@@ -127,6 +127,10 @@ public class CredentialBootstrapService {
         candidate.setMustChangePassword(true);
         candidate.setLastLoginAt(null);
         candidate.setStatus(UserStatus.ACTIVE);
+        // Increment session version to invalidate any pre-existing access tokens
+        if (existingCheck != null) {
+            candidate.incrementSessionVersion();
+        }
         final User adminUser = userRepository.save(candidate);
 
         // Revoke all existing refresh tokens on force reset

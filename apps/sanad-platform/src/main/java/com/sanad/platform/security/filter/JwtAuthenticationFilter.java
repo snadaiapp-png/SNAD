@@ -1,6 +1,7 @@
 package com.sanad.platform.security.filter;
 
 import com.sanad.platform.security.service.JwtTokenProvider;
+import com.sanad.platform.user.repository.UserRepository;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -20,16 +21,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** JWT authentication filter with tenant binding and bootstrap-session restriction. */
+/** JWT authentication filter with tenant binding, session versioning, and bootstrap-session restriction. */
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final UserRepository userRepository;
 
-    public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider) {
+    public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider, UserRepository userRepository) {
         this.jwtTokenProvider = jwtTokenProvider;
+        this.userRepository = userRepository;
     }
 
     @Override
@@ -77,6 +80,40 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
         }
 
+        // --- Session version validation (DEFECT-001) ---
+        // Compare the session_version in the JWT against the current DB value.
+        // If they differ, the token was issued before a logout/password-change/reset
+        // and must be rejected immediately.
+        UUID jwtUserId;
+        try {
+            jwtUserId = UUID.fromString(claims.getSubject());
+        } catch (IllegalArgumentException | NullPointerException e) {
+            writeError(response, request, 401, "Unauthorized", "رمز المصادقة غير صالح");
+            return;
+        }
+
+        Long currentSessionVersion = userRepository.findSessionVersionByTenantIdAndId(jwtTenantId, jwtUserId);
+        if (currentSessionVersion == null) {
+            // User no longer exists — treat as unauthenticated
+            log.debug("Session version check failed: user not found for userId={} tenantId={}", jwtUserId, jwtTenantId);
+            writeError(response, request, 401, "Unauthorized", "رمز المصادقة غير صالح");
+            return;
+        }
+
+        Object jwtVersionObj = claims.get(JwtTokenProvider.SESSION_VERSION_CLAIM);
+        long jwtSessionVersion = 0L;
+        if (jwtVersionObj instanceof Number) {
+            jwtSessionVersion = ((Number) jwtVersionObj).longValue();
+        }
+
+        if (jwtSessionVersion != currentSessionVersion) {
+            log.debug("Session version mismatch: JWT={} DB={} userId={} path={}",
+                    jwtSessionVersion, currentSessionVersion, jwtUserId, request.getRequestURI());
+            writeError(response, request, 401, "Unauthorized",
+                    "تم إبطال الجلسة؛ يرجى تسجيل الدخول مرة أخرى");
+            return;
+        }
+
         boolean rotationRequired = Boolean.TRUE.equals(
                 claims.get(JwtTokenProvider.ROTATION_REQUIRED_CLAIM, Boolean.class));
         if (rotationRequired && request.getRequestURI().startsWith("/api/")
@@ -91,6 +128,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         details.put("tenant_id", jwtTenantIdStr);
         details.put("email", claims.get("email", String.class));
         details.put(JwtTokenProvider.ROTATION_REQUIRED_CLAIM, rotationRequired);
+        details.put(JwtTokenProvider.SESSION_VERSION_CLAIM, jwtSessionVersion);
 
         List<SimpleGrantedAuthority> authorities = Collections.singletonList(
                 new SimpleGrantedAuthority("ROLE_USER"));
@@ -118,7 +156,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         response.setStatus(status);
         response.setContentType("application/json");
         response.getWriter().write(
-                "{\"timestamp\":\"" + java.time.Instant.now() + "\"," 
+                "{\"timestamp\":\"" + java.time.Instant.now() + "\","
                         + "\"status\":" + status + ","
                         + "\"error\":\"" + error + "\","
                         + "\"message\":\"" + message + "\","

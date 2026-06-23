@@ -78,6 +78,14 @@ public class User {
     @Column(name = "must_change_password", nullable = false)
     private boolean mustChangePassword;
 
+    /**
+     * Monotonically-increasing session version for immediate token revocation.
+     * Incremented on logout, password change, and password reset.
+     * Embedded in JWT at mint time; mismatch triggers 401.
+     */
+    @Column(name = "session_version", nullable = false)
+    private long sessionVersion;
+
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -127,6 +135,16 @@ public class User {
         this.mustChangePassword = mustChangePassword;
     }
 
+    public long getSessionVersion() { return sessionVersion; }
+    public void setSessionVersion(long sessionVersion) {
+        this.sessionVersion = sessionVersion;
+    }
+
+    /** Increments and returns the new session version. */
+    public long incrementSessionVersion() {
+        return ++this.sessionVersion;
+    }
+
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 
@@ -154,6 +172,7 @@ public class User {
                 ", status=" + status +
                 ", lastLoginAt=" + lastLoginAt +
                 ", mustChangePassword=" + mustChangePassword +
+                ", sessionVersion=" + sessionVersion +
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +
                 '}';
