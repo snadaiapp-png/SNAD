@@ -6,6 +6,12 @@ import com.sanad.platform.access.grant.UserRoleGrantRepository;
 import com.sanad.platform.access.role.Role;
 import com.sanad.platform.access.role.RoleRepository;
 import com.sanad.platform.access.role.RoleStatus;
+import com.sanad.platform.organization.domain.Organization;
+import com.sanad.platform.organization.domain.OrganizationStatus;
+import com.sanad.platform.organization.membership.domain.MembershipStatus;
+import com.sanad.platform.organization.membership.domain.OrganizationMembership;
+import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
+import com.sanad.platform.organization.repository.OrganizationRepository;
 import com.sanad.platform.tenant.domain.Tenant;
 import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
@@ -20,6 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -44,10 +51,14 @@ public class CredentialBootstrapService {
     private static final Logger log = LoggerFactory.getLogger(CredentialBootstrapService.class);
     private static final String ADMIN_ROLE_CODE = "ADMIN";
 
+    private static final String DEFAULT_ORG_NAME = "Default Organization";
+
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final UserRoleGrantRepository userRoleGrantRepository;
+    private final OrganizationRepository organizationRepository;
+    private final OrganizationMembershipRepository organizationMembershipRepository;
     private final PasswordEncoder passwordEncoder;
 
     public CredentialBootstrapService(
@@ -55,12 +66,16 @@ public class CredentialBootstrapService {
             UserRepository userRepository,
             RoleRepository roleRepository,
             UserRoleGrantRepository userRoleGrantRepository,
+            OrganizationRepository organizationRepository,
+            OrganizationMembershipRepository organizationMembershipRepository,
             PasswordEncoder passwordEncoder
     ) {
         this.tenantRepository = tenantRepository;
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.userRoleGrantRepository = userRoleGrantRepository;
+        this.organizationRepository = organizationRepository;
+        this.organizationMembershipRepository = organizationMembershipRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -139,6 +154,7 @@ public class CredentialBootstrapService {
         }
 
         ensureAdminRoleGrant(resolvedTenantId, adminUser);
+        ensureAdminMembership(tenant, adminUser, normalizedEmail);
 
         log.info("Credential bootstrap completed for userId={} tenantId={}; forced rotation enabled.",
                 adminUser.getId(), resolvedTenantId);
@@ -226,6 +242,73 @@ public class CredentialBootstrapService {
             return "SANAD Admin";
         }
         return displayName.trim();
+    }
+
+    /**
+     * Ensures the admin user has an organization membership.
+     * Creates a default organization if none exists, then creates an ACTIVE
+     * membership linking the admin user to that organization.
+     * Idempotent — skips if the admin already has an ACTIVE membership.
+     *
+     * <p>DEFECT-002: Previously, bootstrap only created user + role grant but
+     * no organization membership, causing /auth/me to return empty memberships.</p>
+     */
+    private void ensureAdminMembership(Tenant tenant, User adminUser, String normalizedEmail) {
+        UUID tenantId = tenant.getId();
+
+        // Check if the admin already has an ACTIVE membership in any org
+        List<OrganizationMembership> existing = organizationMembershipRepository
+                .findByTenantIdAndUserId(tenantId, adminUser.getId());
+        boolean hasActiveMembership = existing.stream()
+                .anyMatch(m -> m.getStatus() == MembershipStatus.ACTIVE);
+        if (hasActiveMembership) {
+            log.info("Bootstrap: admin already has ACTIVE membership in tenant={}; skipping.", tenantId);
+            return;
+        }
+
+        // Ensure a default organization exists
+        List<Organization> orgs = organizationRepository.findByTenantId(tenantId);
+        Organization org;
+        if (orgs.isEmpty()) {
+            org = organizationRepository.save(new Organization(
+                    tenant, DEFAULT_ORG_NAME,
+                    "Default organization created during bootstrap",
+                    OrganizationStatus.ACTIVE));
+            log.info("Bootstrap created default organization id={} name='{}' for tenant={}",
+                    org.getId(), DEFAULT_ORG_NAME, tenantId);
+        } else {
+            org = orgs.get(0);
+            log.info("Bootstrap using existing organization id={} for admin membership", org.getId());
+        }
+
+        // Check if a membership for this email already exists (e.g., from an invitation)
+        boolean emailMembershipExists = organizationMembershipRepository
+                .existsByTenantIdAndOrganizationIdAndEmail(tenantId, org.getId(), normalizedEmail);
+
+        if (emailMembershipExists) {
+            // Link the existing invitation-based membership to the user
+            organizationMembershipRepository
+                    .findByTenantIdAndOrganizationIdAndUserId(tenantId, org.getId(), adminUser.getId())
+                    .ifPresentOrElse(
+                            m -> {
+                                if (m.getStatus() != MembershipStatus.ACTIVE) {
+                                    m.setStatus(MembershipStatus.ACTIVE);
+                                    organizationMembershipRepository.save(m);
+                                    log.info("Bootstrap reactivated existing membership id={} for admin", m.getId());
+                                }
+                            },
+                            () -> log.info("Bootstrap: email membership exists but user-linked membership not found; skipping.")
+                    );
+        } else {
+            // Create a new ACTIVE membership
+            OrganizationMembership membership = new OrganizationMembership(
+                    tenantId, org.getId(), normalizedEmail,
+                    adminUser.getDisplayName(), MembershipStatus.ACTIVE);
+            membership.setUserId(adminUser.getId());
+            organizationMembershipRepository.save(membership);
+            log.info("Bootstrap created organization membership: orgId={} userId={} email={}",
+                    org.getId(), adminUser.getId(), normalizedEmail);
+        }
     }
 
     /**

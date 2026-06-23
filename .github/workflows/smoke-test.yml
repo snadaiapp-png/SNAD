@@ -1,0 +1,86 @@
+# ============================================================
+# SANAD Platform — Production Smoke Test
+# DEFECT-009/010: Post-deploy verification
+# ============================================================
+# Runs after successful Render deployment.
+# Verifies critical production endpoints.
+# ============================================================
+
+name: Production Smoke Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend_url:
+        description: 'Backend URL'
+        required: true
+        default: 'https://sanad-backend-mcrj.onrender.com'
+      admin_email:
+        description: 'Admin email'
+        required: true
+        default: 'snad@app.com'
+      admin_password:
+        description: 'Admin password'
+        required: true
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+
+jobs:
+  smoke-test:
+    name: Production Health Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run production smoke test
+        env:
+          BASE_URL: ${{ github.event.inputs.backend_url || 'https://sanad-backend-mcrj.onrender.com' }}
+          ADMIN_EMAIL: ${{ github.event.inputs.admin_email || 'snad@app.com' }}
+          ADMIN_PASSWORD: ${{ github.event.inputs.admin_password || '' }}
+        run: |
+          echo "=== SANAD Production Smoke Test ==="
+          echo "Target: $BASE_URL"
+          PASS=0
+          FAIL=0
+
+          # Health check
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/actuator/health")
+          if [ "$STATUS" = "200" ]; then echo "✅ Health: $STATUS"; PASS=$((PASS+1)); else echo "❌ Health: $STATUS"; FAIL=$((FAIL+1)); fi
+
+          # Login
+          if [ -n "$ADMIN_PASSWORD" ]; then
+            LOGIN=$(curl -s -X POST "$BASE_URL/api/v1/auth/login" \
+              -H "Content-Type: application/json" \
+              -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}")
+            TOKEN=$(echo "$LOGIN" | python3 -c "import sys,json; print(json.load(sys.stdin).get('accessToken',''))" 2>/dev/null || echo "")
+
+            if [ -n "$TOKEN" ]; then
+              echo "✅ Login: success"; PASS=$((PASS+1))
+
+              # /auth/me
+              ME=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/api/v1/auth/me" -H "Authorization: Bearer $TOKEN")
+              if [ "$ME" = "200" ]; then echo "✅ /auth/me: $ME"; PASS=$((PASS+1)); else echo "❌ /auth/me: $ME"; FAIL=$((FAIL+1)); fi
+
+              # Logout
+              OUT=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/api/v1/auth/logout" -H "Authorization: Bearer $TOKEN")
+              if [ "$OUT" = "204" ]; then echo "✅ Logout: $OUT"; PASS=$((PASS+1)); else echo "❌ Logout: $OUT"; FAIL=$((FAIL+1)); fi
+
+              # DEFECT-001: Token revoked after logout
+              ME2=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/api/v1/auth/me" -H "Authorization: Bearer $TOKEN")
+              if [ "$ME2" = "401" ]; then echo "✅ Token revoked after logout: $ME2"; PASS=$((PASS+1)); else echo "❌ Token NOT revoked after logout: $ME2"; FAIL=$((FAIL+1)); fi
+            else
+              echo "❌ Login: failed"; FAIL=$((FAIL+1))
+            fi
+          else
+            echo "⚠️  Skipping login tests (no password provided)"
+          fi
+
+          # No auth = 401
+          NOAUTH=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/api/v1/auth/me")
+          if [ "$NOAUTH" = "401" ]; then echo "✅ No auth → 401: $NOAUTH"; PASS=$((PASS+1)); else echo "❌ No auth: $NOAUTH"; FAIL=$((FAIL+1)); fi
+
+          echo ""
+          echo "=== Results: $PASS passed, $FAIL failed ==="
+          if [ "$FAIL" -gt 0 ]; then exit 1; fi

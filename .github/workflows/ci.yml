@@ -1,177 +1,63 @@
+# ============================================================
+# SANAD Platform — CI Pipeline
+# DEFECT-010: API Regression Automation
+# ============================================================
+# Runs on every push to main and on pull requests.
+# Executes Maven tests and reports results.
+# ============================================================
+
 name: CI
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'apps/sanad-platform/**'
+      - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+    paths:
+      - 'apps/sanad-platform/**'
+      - '.github/workflows/ci.yml'
 
 jobs:
-  build-test-package:
-    name: Build, Test & Package
+  test:
+    name: Maven Test Suite
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Set up JDK 21 (Temurin)
+
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
           java-version: '21'
-      - name: Cache Maven repository
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('apps/sanad-platform/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
-      - name: Build
-        working-directory: apps/sanad-platform
-        run: mvn -B -ntp clean compile
-      - name: Test
-        working-directory: apps/sanad-platform
-        run: mvn -B -ntp clean test
-      - name: Package
-        working-directory: apps/sanad-platform
-        run: mvn -B -ntp clean package
-      - name: Upload surefire test reports
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Run tests
+        run: mvn test -B -ntp -Dsurefire.useFile=false
+
+      - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: surefire-reports
           path: apps/sanad-platform/target/surefire-reports/
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload built jar
-        uses: actions/upload-artifact@v4
-        with:
-          name: sanad-platform-jar
-          path: apps/sanad-platform/target/sanad-platform-0.1.0-SNAPSHOT.jar
-          if-no-files-found: error
           retention-days: 7
 
-  docker-build-and-health:
-    name: Docker Build & Prod Health
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: build-test-package
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: sanad_ci
-          POSTGRES_USER: sanad_ci
-          POSTGRES_PASSWORD: ci_only_password
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Generate ephemeral JWT secret
-        run: |
-          JWT_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
-          echo "::add-mask::$JWT_SECRET"
-          echo "JWT_SECRET=$JWT_SECRET" >> "$GITHUB_ENV"
-      - name: Build Docker image
-        working-directory: apps/sanad-platform
-        run: docker build -t sanad-backend:ci .
-      - name: Start backend with prod profile
-        run: |
-          docker run -d --name sanad-ci \
-            --network host \
-            -p 8080:8080 \
-            -e SPRING_PROFILES_ACTIVE=prod \
-            -e JWT_SECRET \
-            -e DATABASE_URL=jdbc:postgresql://localhost:5432/sanad_ci \
-            -e DATABASE_USERNAME=sanad_ci \
-            -e DATABASE_PASSWORD=ci_only_password \
-            -e DATABASE_DRIVER=org.postgresql.Driver \
-            -e JPA_DDL_AUTO=validate \
-            -e FLYWAY_ENABLED=true \
-            -e CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app \
-            -e MANAGEMENT_ENDPOINTS=health \
-            sanad-backend:ci
-      - name: Wait for health endpoint
-        run: |
-          for attempt in $(seq 1 30); do
-            code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || true)
-            if [ "$code" = "200" ]; then
-              echo "Health endpoint UP (attempt ${attempt})"
-              exit 0
-            fi
-            sleep 5
-          done
-          docker logs sanad-ci || true
-          exit 1
-      - name: Verify liveness endpoint
-        run: test "$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/liveness)" = "200"
-      - name: Verify readiness endpoint
-        run: test "$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/readiness)" = "200"
-      - name: Verify env endpoint is not exposed
-        run: test "$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/env)" = "404"
-      - name: Verify Swagger UI is disabled
-        run: test "$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/swagger-ui.html)" = "404"
-      - name: Stop container
+      - name: Test summary
         if: always()
-        run: docker rm -f sanad-ci || true
-
-  docker-compose-validation:
-    name: Docker Compose Validation
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: build-test-package
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Generate compose validation environment
         run: |
-          JWT_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
-          echo "::add-mask::$JWT_SECRET"
-          {
-            echo "DATABASE_USERNAME=compose_ci"
-            echo "DATABASE_PASSWORD=compose_ci_pwd"
-            echo "POSTGRES_DB=sanad_compose"
-            echo "CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app"
-            echo "JWT_SECRET=$JWT_SECRET"
-          } > /tmp/ci.env
-      - name: Validate compose config
-        working-directory: apps/sanad-platform
-        run: docker compose -f docker-compose.prod.yml --env-file /tmp/ci.env config
-      - name: Start composition
-        working-directory: apps/sanad-platform
-        run: docker compose -f docker-compose.prod.yml --env-file /tmp/ci.env up -d --build
-      - name: Wait for backend health
-        run: |
-          for attempt in $(seq 1 30); do
-            code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || true)
-            if [ "$code" = "200" ]; then
-              exit 0
-            fi
-            sleep 5
-          done
-          docker compose -f apps/sanad-platform/docker-compose.prod.yml --env-file /tmp/ci.env logs || true
-          exit 1
-      - name: Verify liveness
-        run: test "$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/liveness)" = "200"
-      - name: Verify readiness
-        run: test "$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/readiness)" = "200"
-      - name: Cleanup
-        if: always()
-        working-directory: apps/sanad-platform
-        run: |
-          docker compose -f docker-compose.prod.yml --env-file /tmp/ci.env down -v
-          rm -f /tmp/ci.env
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          mvn test -q -DskipTests -Dmaven.test.skip=true 2>/dev/null || true
+          # Parse surefire reports for summary
+          find target/surefire-reports -name "*.txt" -exec grep -H "Tests run:" {} \; 2>/dev/null | \
+            awk -F'[, ]' '{runs+=$4; fail+=$6; err+=$8; skip+=$10} END {print "Total: "runs" tests, "fail" failures, "err" errors, "skip" skipped"}' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

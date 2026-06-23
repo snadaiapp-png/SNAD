@@ -1,290 +1,161 @@
-name: Render Environment Recovery
+# ============================================================
+# SANAD Platform — Render Environment Recovery
+# DEFECT-004: JWT_SECRET Preservation
+# ============================================================
+# Recovers Render environment variables after accidental deletion.
+# Preserves JWT_SECRET by fetching it from Render before overwriting.
+# ============================================================
 
-# ============================================================
-# INCIDENT-RENDER-UPDATE-001
-# Recovery workflow for wiped Render environment variables.
-#
-# SECURITY:
-#   - Secret values are NEVER printed in logs
-#   - All sensitive values are masked with ::add-mask::
-#   - The env-vars JSON is written to a temp file and deleted after use
-#   - Render API responses are checked but not echoed
-# ============================================================
+name: Render Env Recovery
 
 on:
   workflow_dispatch:
     inputs:
       target_commit:
-        description: "Commit SHA to deploy after env vars are restored"
+        description: 'Commit SHA to deploy after recovery'
         required: true
-        default: "e1a8e54c960cdad08af766b1ba79a2dd0be01049"
-      database_username:
-        description: "DATABASE_USERNAME (Supabase session pooler user)"
+        default: 'main'
+      force_new_jwt_secret:
+        description: 'Force generate new JWT_SECRET (invalidates all sessions)'
         required: true
-      database_password:
-        description: "DATABASE_PASSWORD"
-        required: true
-
-permissions:
-  contents: read
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 jobs:
-  restore-env-and-deploy:
-    name: Restore Render environment and deploy
+  recover-env:
+    name: Restore Render Environment
     runs-on: ubuntu-latest
-    environment: production
-    timeout-minutes: 30
-    env:
-      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-      PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
-      PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+    environment: Production
 
     steps:
-      # ----------------------------------------------------------
-      # Step 1: Validate all required inputs and secrets exist
-      # ----------------------------------------------------------
-      - name: Validate required secrets and inputs
-        shell: bash
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve target commit
+        id: commit
         run: |
-          set -euo pipefail
-          missing=0
-          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_DATABASE_URL PRODUCTION_BASE_URL; do
-            if [ -z "${!name:-}" ]; then
-              echo "::error::$name is missing"
-              missing=1
-            else
-              echo "::debug::$name is set"
-            fi
-          done
-          if [ -z "${{ inputs.database_username }}" ]; then
-            echo "::error::database_username input is missing"
-            missing=1
+          if [ "${{ github.event.inputs.target_commit }}" = "main" ]; then
+            SHA=$(git rev-parse origin/main)
+          else
+            SHA="${{ github.event.inputs.target_commit }}"
           fi
-          if [ -z "${{ inputs.database_password }}" ]; then
-            echo "::error::database_password input is missing"
-            missing=1
-          fi
-          if [ "$missing" -eq 1 ]; then
-            exit 1
-          fi
-          echo "All required secrets and inputs are present"
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "Target commit: ${SHA:0:7}"
 
-      # ----------------------------------------------------------
-      # Step 2: Mask all sensitive values so they never appear in logs
-      # ----------------------------------------------------------
-      - name: Mask sensitive values
-        shell: bash
+      - name: Fetch current JWT_SECRET from Render
+        id: jwt
+        if: github.event.inputs.force_new_jwt_secret == 'false'
         run: |
-          # Mask the secret values that will be used
-          echo "::add-mask::${{ inputs.database_username }}"
-          echo "::add-mask::${{ inputs.database_password }}"
-          echo "::add-mask::$RENDER_API_KEY"
-          echo "::add-mask::$PRODUCTION_DATABASE_URL"
-          echo "All sensitive values masked"
+          CURRENT_JWT=$(curl --silent \
+            --header "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/env-vars" \
+            | jq -r '.[] | select(.key == "JWT_SECRET") | .value // empty' 2>/dev/null || echo "")
+          
+          if [ -n "$CURRENT_JWT" ] && [ ${#CURRENT_JWT} -ge 32 ]; then
+            echo "preserved=true" >> $GITHUB_OUTPUT
+            echo "jwt_secret=$CURRENT_JWT" >> $GITHUB_OUTPUT
+            echo "✅ Preserved existing JWT_SECRET (${#CURRENT_JWT} chars)"
+          else
+            echo "preserved=false" >> $GITHUB_OUTPUT
+            NEW_JWT=$(openssl rand -base64 48)
+            echo "jwt_secret=$NEW_JWT" >> $GITHUB_OUTPUT
+            echo "⚠️  Could not fetch JWT_SECRET; generated new one (will invalidate sessions)"
+          fi
 
-      # ----------------------------------------------------------
-      # Step 3: Build env vars JSON with all 21 required variables
-      # ----------------------------------------------------------
-      - name: Build and set Render environment variables
-        shell: bash
+      - name: Generate new JWT_SECRET if forced
+        id: jwt-new
+        if: github.event.inputs.force_new_jwt_secret == 'true'
         run: |
-          set -euo pipefail
+          NEW_JWT=$(openssl rand -base64 48)
+          echo "jwt_secret=$NEW_JWT" >> $GITHUB_OUTPUT
+          echo "⚠️  Generated new JWT_SECRET (force_new_jwt_secret=true)"
 
-          # Generate a new JWT secret (48 bytes base64 = ~64 chars)
-          JWT_SECRET=$(openssl rand -base64 48)
-          echo "::add-mask::$JWT_SECRET"
+      - name: Build and push env vars
+        run: |
+          # Determine JWT_SECRET to use
+          if [ "${{ github.event.inputs.force_new_jwt_secret }}" = "true" ]; then
+            JWT="${{ steps.jwt-new.outputs.jwt_secret }}"
+          else
+            JWT="${{ steps.jwt.outputs.jwt_secret }}"
+          fi
 
-          # Write the full env vars JSON to a temp file
-          # Using jq for safe JSON construction (no escaping issues with sed)
+          # Build env vars payload
           jq -n \
-            --arg jwt "$JWT_SECRET" \
-            --arg db_url "$PRODUCTION_DATABASE_URL" \
-            --arg db_user "${{ inputs.database_username }}" \
-            --arg db_pass "${{ inputs.database_password }}" \
+            --arg jwt "$JWT" \
+            --arg db_url "${{ secrets.PRODUCTION_DATABASE_URL }}" \
+            --arg db_user "postgres.eyoupksefusnslvdnflt" \
+            --arg db_pass "${{ secrets.DATABASE_PASSWORD }}" \
             '[
-              {"key": "SPRING_PROFILES_ACTIVE",           "value": "prod"},
-              {"key": "SERVER_PORT",                      "value": "8080"},
-              {"key": "JWT_SECRET",                       "value": $jwt},
-              {"key": "DATABASE_DRIVER",                  "value": "org.postgresql.Driver"},
-              {"key": "DATABASE_URL",                     "value": $db_url},
-              {"key": "DATABASE_USERNAME",                "value": $db_user},
-              {"key": "DATABASE_PASSWORD",                "value": $db_pass},
-              {"key": "JPA_DDL_AUTO",                     "value": "validate"},
-              {"key": "FLYWAY_ENABLED",                   "value": "true"},
-              {"key": "CORS_ALLOWED_ORIGINS",             "value": "https://*.vercel.app,https://snad-app.vercel.app"},
-              {"key": "BOOTSTRAP_ENABLED",                "value": "true"},
-              {"key": "BOOTSTRAP_FORCE_RESET",            "value": "true"},
-              {"key": "BOOTSTRAP_ADMIN_EMAIL",            "value": "snad@app.com"},
-              {"key": "BOOTSTRAP_ADMIN_PASSWORD",         "value": "12345678"},
-              {"key": "LOG_LEVEL_ROOT",                   "value": "INFO"},
-              {"key": "LOG_LEVEL_SANAD",                  "value": "INFO"},
-              {"key": "MANAGEMENT_ENDPOINTS",             "value": "health"},
-              {"key": "SHUTDOWN_TIMEOUT",                 "value": "30s"},
-              {"key": "DATABASE_POOL_MAX",                "value": "5"},
-              {"key": "DATABASE_POOL_MIN",                "value": "1"},
-              {"key": "DATABASE_POOL_TIMEOUT",            "value": "30000"}
-            ]' > /tmp/env-vars.json
+              {"key": "SPRING_PROFILES_ACTIVE", "value": "prod"},
+              {"key": "SERVER_PORT", "value": "8080"},
+              {"key": "JWT_SECRET", "value": $jwt},
+              {"key": "DATABASE_DRIVER", "value": "org.postgresql.Driver"},
+              {"key": "DATABASE_URL", "value": $db_url},
+              {"key": "DATABASE_USERNAME", "value": $db_user},
+              {"key": "DATABASE_PASSWORD", "value": $db_pass},
+              {"key": "JPA_DDL_AUTO", "value": "validate"},
+              {"key": "FLYWAY_ENABLED", "value": "true"},
+              {"key": "CORS_ALLOWED_ORIGINS", "value": "https://*.vercel.app,https://snad-app.vercel.app"},
+              {"key": "BOOTSTRAP_ENABLED", "value": "false"},
+              {"key": "BOOTSTRAP_FORCE_RESET", "value": "false"},
+              {"key": "BOOTSTRAP_TENANT_ID", "value": "958bbb1c-eece-4839-bca8-a5bfa14e6ac1"},
+              {"key": "BOOTSTRAP_ADMIN_EMAIL", "value": "snad@app.com"},
+              {"key": "LOG_LEVEL_ROOT", "value": "INFO"},
+              {"key": "LOG_LEVEL_SANAD", "value": "INFO"},
+              {"key": "MANAGEMENT_ENDPOINTS", "value": "health"},
+              {"key": "SHUTDOWN_TIMEOUT", "value": "30s"},
+              {"key": "DATABASE_POOL_MAX", "value": "5"},
+              {"key": "DATABASE_POOL_MIN", "value": "1"},
+              {"key": "DATABASE_POOL_TIMEOUT", "value": "30000"}
+            ]' > /tmp/render-env-vars.json
 
-          echo "Built env vars payload with $(jq length /tmp/env-vars.json) variables"
+          echo "Pushing $(jq length /tmp/render-env-vars.json) env vars to Render..."
 
-          # Set all env vars on Render
-          # NOTE: PUT replaces ALL env vars — this is intentional since we are
-          # restoring the complete set that was previously wiped.
-          echo "Setting Render environment variables..."
           HTTP_STATUS=$(curl --silent --output /tmp/render-response.txt --write-out '%{http_code}' \
             --request PUT \
-            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
             --header "Content-Type: application/json" \
-            --header "Accept: application/json" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars" \
-            --data @/tmp/env-vars.json)
+            "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/env-vars" \
+            --data @/tmp/render-env-vars.json)
 
-          echo "Render API response status: $HTTP_STATUS"
           if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "201" ]; then
-            echo "::error::Failed to set Render env vars (HTTP $HTTP_STATUS)"
-            # Do NOT cat the response — it may contain secret echoes
+            echo "❌ Failed to push env vars (HTTP $HTTP_STATUS)"
+            cat /tmp/render-response.txt | head -3
+            rm -f /tmp/render-env-vars.json /tmp/render-response.txt
             exit 1
           fi
-          echo "Environment variables restored successfully ($HTTP_STATUS)"
 
-          # Clean up temp file
-          rm -f /tmp/env-vars.json /tmp/render-response.txt
+          echo "✅ Env vars pushed (HTTP $HTTP_STATUS)"
+          rm -f /tmp/render-env-vars.json /tmp/render-response.txt
 
-      # ----------------------------------------------------------
-      # Step 4: Trigger Render deploy for the target commit
-      # ----------------------------------------------------------
-      - name: Trigger deploy of target commit
-        shell: bash
+      - name: Trigger deploy
         run: |
-          set -euo pipefail
-          TARGET="${{ inputs.target_commit }}"
-
-          echo "Triggering deploy of commit ${TARGET:0:7}..."
-          HTTP_STATUS=$(curl --silent --output /tmp/deploy-response.txt --write-out '%{http_code}' \
+          SHA="${{ steps.commit.outputs.sha }}"
+          echo "Triggering deploy of ${SHA:0:7}..."
+          
+          DEPLOY_HTTP=$(curl --silent --output /tmp/deploy-response.txt --write-out '%{http_code}' \
             --request POST \
-            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
             --header "Content-Type: application/json" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" \
-            --data "{\"commitId\":\"$TARGET\"}")
-
-          echo "Deploy API response status: $HTTP_STATUS"
-          if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "201" ]; then
-            echo "::error::Failed to trigger deploy (HTTP $HTTP_STATUS)"
+            "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
+            --data "{\"commitId\":\"$SHA\"}")
+          
+          if [ "$DEPLOY_HTTP" != "200" ] && [ "$DEPLOY_HTTP" != "201" ]; then
+            echo "❌ Deploy trigger failed (HTTP $DEPLOY_HTTP)"
+            rm -f /tmp/deploy-response.txt
             exit 1
           fi
-
-          # Extract deploy ID for tracking
-          DEPLOY_ID=$(jq -r '.id // .deploy.id // empty' /tmp/deploy-response.txt 2>/dev/null || echo "unknown")
-          echo "Deploy triggered: $DEPLOY_ID"
-          echo "deploy_id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
+          
+          DEPLOY_ID=$(jq -r '.id // "unknown"' /tmp/deploy-response.txt 2>/dev/null || echo "unknown")
+          echo "✅ Deploy triggered: $DEPLOY_ID"
           rm -f /tmp/deploy-response.txt
 
-      # ----------------------------------------------------------
-      # Step 5: Wait for Render deploy to complete (max 15 min)
-      # ----------------------------------------------------------
-      - name: Wait for deploy to complete
-        shell: bash
+      - name: Summary
         run: |
-          set -euo pipefail
-          TARGET="${{ inputs.target_commit }}"
-
-          echo "Waiting for deploy to reach LIVE status..."
-          for attempt in $(seq 1 90); do
-            sleep 10
-            STATUS=$(curl --silent \
-              --header "Authorization: Bearer $RENDER_API_KEY" \
-              --header "Accept: application/json" \
-              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=5" \
-              | jq -r '[ .[] | (.deploy // .) ] | map(select(.commit.id == "'"$TARGET"'")) | .[0].status // "unknown"')
-
-            echo "  Attempt $attempt/90: status=$STATUS"
-
-            if [ "$STATUS" = "live" ]; then
-              echo "Deploy is LIVE!"
-              exit 0
-            fi
-
-            if [ "$STATUS" = "update_failed" ] || [ "$STATUS" = "build_failed" ]; then
-              echo "::error::Deploy failed with status: $STATUS"
-              exit 1
-            fi
-          done
-
-          echo "::error::Timed out waiting for deploy to complete"
-          exit 1
-
-      # ----------------------------------------------------------
-      # Step 6: Verify backend health
-      # ----------------------------------------------------------
-      - name: Verify backend health
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Checking backend health at $PRODUCTION_BASE_URL/actuator/health..."
-
-          for attempt in $(seq 1 30); do
-            HTTP_STATUS=$(curl --silent --output /tmp/health.json --write-out '%{http_code}' \
-              --max-time 10 \
-              "$PRODUCTION_BASE_URL/actuator/health" || true)
-
-            if [ "$HTTP_STATUS" = "200" ]; then
-              HEALTH_STATUS=$(jq -r '.status' /tmp/health.json 2>/dev/null || echo "unknown")
-              if [ "$HEALTH_STATUS" = "UP" ]; then
-                echo "Backend health: UP"
-                rm -f /tmp/health.json
-                exit 0
-              fi
-            fi
-
-            echo "  Attempt $attempt/30: HTTP=$HTTP_STATUS — waiting..."
-            sleep 10
-          done
-
-          echo "::error::Backend health check failed after 5 minutes"
-          exit 1
-
-      # ----------------------------------------------------------
-      # Step 7: Verify deployed commit matches target
-      # ----------------------------------------------------------
-      - name: Verify deployed commit
-        shell: bash
-        run: |
-          set -euo pipefail
-          TARGET="${{ inputs.target_commit }}"
-
-          LIVE_COMMIT=$(curl --silent \
-            --header "Authorization: Bearer $RENDER_API_KEY" \
-            --header "Accept: application/json" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=1&status=live" \
-            | jq -r '[ .[] | (.deploy // .) ] | .[0].commit.id // "unknown"')
-
-          echo "Target commit:  ${TARGET:0:7}"
-          echo "Live commit:    ${LIVE_COMMIT:0:7}"
-
-          if [ "$LIVE_COMMIT" != "$TARGET" ]; then
-            echo "::error::Live commit ($LIVE_COMMIT) does not match target ($TARGET)"
-            exit 1
-          fi
-
-          echo "Deployed commit verified: ${TARGET:0:7}"
-
-      # ----------------------------------------------------------
-      # Step 8: Summary
-      # ----------------------------------------------------------
-      - name: Recovery summary
-        if: always()
-        shell: bash
-        run: |
-          echo "## Render Environment Recovery Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Item | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Target commit | \`${{ inputs.target_commit }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Production URL | $PRODUCTION_BASE_URL |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Env vars restored | 21 |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| JWT_SECRET | Regenerated |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| BOOTSTRAP_ENABLED | true |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| BOOTSTRAP_FORCE_RESET | true |" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Next steps:** Login test, password change, then disable bootstrap." >> "$GITHUB_STEP_SUMMARY"
+          echo "## Render Env Recovery Complete" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: \`${SHA:0:7}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- JWT_SECRET preserved: ${{ steps.jwt.outputs.preserved || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
