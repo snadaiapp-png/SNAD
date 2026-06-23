@@ -1,6 +1,7 @@
 package com.sanad.platform.organization.membership.api;
 
 import com.sanad.platform.organization.api.ApiErrorResponse;
+import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.organization.membership.dto.InviteOrganizationMemberRequest;
 import com.sanad.platform.organization.membership.dto.OrganizationMembershipResponse;
 import com.sanad.platform.organization.membership.service.OrganizationMembershipService;
@@ -73,6 +74,7 @@ public class OrganizationMembershipController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
+    @RequireCapability("MEMBERSHIP.CREATE")
     @PostMapping
     public ResponseEntity<OrganizationMembershipResponse> inviteMember(
             @Parameter(description = "Organization UUID", required = true)
@@ -105,6 +107,7 @@ public class OrganizationMembershipController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
+    @RequireCapability("MEMBERSHIP.READ")
     @GetMapping
     public ResponseEntity<List<OrganizationMembershipResponse>> listMemberships(
             @Parameter(description = "Organization UUID", required = true)
@@ -131,6 +134,7 @@ public class OrganizationMembershipController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
+    @RequireCapability("MEMBERSHIP.READ")
     @GetMapping("/{membershipId}")
     public ResponseEntity<OrganizationMembershipResponse> getMembership(
             @Parameter(description = "Organization UUID", required = true)
@@ -159,6 +163,7 @@ public class OrganizationMembershipController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
+    @RequireCapability("MEMBERSHIP.WRITE")
     @PatchMapping("/{membershipId}/activate")
     public ResponseEntity<OrganizationMembershipResponse> activateMembership(
             @PathVariable UUID organizationId,
@@ -184,6 +189,7 @@ public class OrganizationMembershipController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
+    @RequireCapability("MEMBERSHIP.WRITE")
     @PatchMapping("/{membershipId}/deactivate")
     public ResponseEntity<OrganizationMembershipResponse> deactivateMembership(
             @PathVariable UUID organizationId,
@@ -209,6 +215,7 @@ public class OrganizationMembershipController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
+    @RequireCapability("MEMBERSHIP.DELETE")
     @PatchMapping("/{membershipId}/remove")
     public ResponseEntity<OrganizationMembershipResponse> removeMembership(
             @PathVariable UUID organizationId,

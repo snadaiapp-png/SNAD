@@ -1,6 +1,7 @@
 package com.sanad.platform.access.api;
 
 import com.sanad.platform.access.role.RoleAccessResponse;
+import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.access.role.RoleCapabilityService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +20,7 @@ public class RoleAccessController {
         this.mappingService = mappingService;
     }
 
+    @RequireCapability("ROLE.WRITE")
     @PostMapping("/{capabilityId}")
     ResponseEntity<RoleAccessResponse> attach(
             @RequestParam UUID tenantId,
@@ -28,6 +30,7 @@ public class RoleAccessController {
                 .body(mappingService.attach(tenantId, roleId, capabilityId));
     }
 
+    @RequireCapability("ROLE.WRITE")
     @DeleteMapping("/{capabilityId}")
     ResponseEntity<Void> detach(
             @RequestParam UUID tenantId,
@@ -37,6 +40,7 @@ public class RoleAccessController {
         return ResponseEntity.noContent().build();
     }
 
+    @RequireCapability("ROLE.READ")
     @GetMapping
     ResponseEntity<List<RoleAccessResponse>> list(
             @RequestParam UUID tenantId,

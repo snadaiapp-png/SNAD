@@ -1,6 +1,7 @@
 package com.sanad.platform.organization.api;
 
 import com.sanad.platform.organization.dto.CreateOrganizationRequest;
+import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.organization.dto.OrganizationResponse;
 import com.sanad.platform.organization.dto.UpdateOrganizationRequest;
 import com.sanad.platform.organization.service.OrganizationService;
@@ -123,6 +124,7 @@ public class OrganizationController {
                     )
             )
     })
+    @RequireCapability("ORGANIZATION.CREATE")
     @PostMapping
     public ResponseEntity<OrganizationResponse> createOrganization(
             @Valid @RequestBody CreateOrganizationRequest request) {
@@ -187,6 +189,7 @@ public class OrganizationController {
                     )
             )
     })
+    @RequireCapability("ORGANIZATION.READ")
     @GetMapping("/{id}")
     public ResponseEntity<OrganizationResponse> getOrganization(
             @Parameter(description = "Organization UUID", required = true)
@@ -231,6 +234,7 @@ public class OrganizationController {
                     )
             )
     })
+    @RequireCapability("ORGANIZATION.READ")
     @GetMapping
     public ResponseEntity<List<OrganizationResponse>> listOrganizations(
             @Parameter(description = "Tenant UUID (scope)", required = true)
@@ -287,6 +291,7 @@ public class OrganizationController {
                     )
             )
     })
+    @RequireCapability("ORGANIZATION.WRITE")
     @PutMapping("/{id}")
     public ResponseEntity<OrganizationResponse> updateOrganization(
             @Parameter(description = "Organization UUID", required = true)
@@ -332,6 +337,7 @@ public class OrganizationController {
                     )
             )
     })
+    @RequireCapability("ORGANIZATION.WRITE")
     @PatchMapping("/{id}/activate")
     public ResponseEntity<OrganizationResponse> activateOrganization(
             @Parameter(description = "Organization UUID", required = true)
@@ -376,6 +382,7 @@ public class OrganizationController {
                     )
             )
     })
+    @RequireCapability("ORGANIZATION.WRITE")
     @PatchMapping("/{id}/deactivate")
     public ResponseEntity<OrganizationResponse> deactivateOrganization(
             @Parameter(description = "Organization UUID", required = true)
@@ -427,6 +434,7 @@ public class OrganizationController {
                     )
             )
     })
+    @RequireCapability("ORGANIZATION.DELETE")
     @PatchMapping("/{id}/archive")
     public ResponseEntity<OrganizationResponse> archiveOrganization(
             @Parameter(description = "Organization UUID", required = true)

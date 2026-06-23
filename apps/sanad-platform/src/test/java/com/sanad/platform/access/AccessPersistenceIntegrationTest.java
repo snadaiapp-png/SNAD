@@ -66,7 +66,7 @@ class AccessPersistenceIntegrationTest {
         roleB = roleRepository.save(new Role(
                 tenantB, "ADMIN", "Admin B", null)).getId();
         capabilityId = capabilityRepository.save(new AccessCapability(
-                "USER.READ", "Read users", null)).getId();
+                "TEST_PERSISTENCE.READ", "Test persistence read", null)).getId();
     }
 
     @Test

@@ -91,6 +91,12 @@
             <artifactId>caffeine</artifactId>
         </dependency>
 
+        <!-- AOP for @RequireCapability authorization aspect (DEFECT-007) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
         <!-- Database: PostgreSQL driver (runtime) -->
         <dependency>
             <groupId>org.postgresql</groupId>

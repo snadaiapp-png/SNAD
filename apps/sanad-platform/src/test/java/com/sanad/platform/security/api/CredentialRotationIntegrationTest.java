@@ -2,6 +2,9 @@ package com.sanad.platform.security.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sanad.platform.access.grant.UserRoleGrantRepository;
+import com.sanad.platform.access.role.RoleCapabilityRepository;
+import com.sanad.platform.access.role.RoleRepository;
 import com.sanad.platform.security.domain.RefreshTokenRepository;
 import com.sanad.platform.security.dto.ChangeCredentialRequest;
 import com.sanad.platform.security.dto.LoginRequest;
@@ -44,10 +47,16 @@ class CredentialRotationIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private RefreshTokenRepository refreshTokenRepository;
     @Autowired private PasswordEncoder encoder;
+    @Autowired private UserRoleGrantRepository userRoleGrantRepository;
+    @Autowired private RoleCapabilityRepository roleCapabilityRepository;
+    @Autowired private RoleRepository roleRepository;
 
     @AfterEach
     void cleanUp() {
+        roleCapabilityRepository.deleteAll();
+        userRoleGrantRepository.deleteAll();
         refreshTokenRepository.deleteAll();
+        roleRepository.deleteAll();
         userRepository.deleteAll();
         tenantRepository.deleteAll();
     }
