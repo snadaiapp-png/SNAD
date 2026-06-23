@@ -61,6 +61,16 @@ export type {
   UserLifecycleAction,
 } from "./users";
 
+// Organizations API (EXEC-PROMPT-031)
+export { organizationsApi, createOrganizationsApi } from "./organizations";
+export type {
+  OrganizationStatus,
+  OrganizationResponse,
+  CreateOrganizationRequest,
+  UpdateOrganizationRequest,
+  OrganizationLifecycleAction,
+} from "./organizations";
+
 // Memberships API (EXEC-PROMPT-031)
 export { membershipsApi, createMembershipsApi } from "./memberships";
 export type {
