@@ -38,7 +38,7 @@ class CredentialBootstrapServiceTest {
     void disabledModeDoesNotWrite() {
         UUID tenantId = UUID.randomUUID();
         User result = service.bootstrap(
-                false, tenantId, null, null, email(), value(), "Admin", "test-actor");
+                false, false, tenantId, null, null, email(), value(), "Admin", "test-actor");
         assertThat(result).isNull();
         assertThat(userRepository.findByTenantId(tenantId)).isEmpty();
     }
@@ -46,14 +46,14 @@ class CredentialBootstrapServiceTest {
     @Test
     void requiresExistingActiveTenant() {
         assertThatThrownBy(() -> service.bootstrap(
-                true, UUID.randomUUID(), null, null, email(), value(), "Admin", "test-actor"))
+                true, false, UUID.randomUUID(), null, null, email(), value(), "Admin", "test-actor"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("does not exist");
 
         Tenant tenant = tenantRepository.save(new Tenant(
                 "Suspended", "suspended-" + UUID.randomUUID(), TenantStatus.SUSPENDED));
         assertThatThrownBy(() -> service.bootstrap(
-                true, tenant.getId(), null, null, email(), value(), "Admin", "test-actor"))
+                true, false, tenant.getId(), null, null, email(), value(), "Admin", "test-actor"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("must be ACTIVE");
     }
@@ -65,7 +65,7 @@ class CredentialBootstrapServiceTest {
         String value = value();
 
         User user = service.bootstrap(
-                true, tenant.getId(), null, null, email, value, "Bootstrap Admin", "test-actor");
+                true, false, tenant.getId(), null, null, email, value, "Bootstrap Admin", "test-actor");
 
         assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
         assertThat(encoder.matches(value, user.getPasswordHash())).isTrue();
@@ -83,7 +83,7 @@ class CredentialBootstrapServiceTest {
     }
 
     @Test
-    void existingUserIsGrantedAdminAndSecondEnrollmentFailsClosed() {
+    void existingUserIsGrantedAdminAndSecondEnrollmentIsIdempotent() {
         Tenant tenant = activeTenant("existing");
         String email = email();
         String value = value();
@@ -91,17 +91,37 @@ class CredentialBootstrapServiceTest {
                 tenant.getId(), email, "Existing", UserStatus.INVITED));
 
         User enrolled = service.bootstrap(
-                true, tenant.getId(), null, null, email, value, "Admin", "test-actor");
+                true, false, tenant.getId(), null, null, email, value, "Admin", "test-actor");
         assertThat(enrolled.getId()).isEqualTo(existing.getId());
         assertThat(enrolled.getStatus()).isEqualTo(UserStatus.ACTIVE);
         String originalHash = enrolled.getPasswordHash();
 
-        assertThatThrownBy(() -> service.bootstrap(
-                true, tenant.getId(), null, null, email, value(), "Admin", "test-actor"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("already enrolled");
-        assertThat(userRepository.findByTenantIdAndEmail(tenant.getId(), email)
-                .orElseThrow().getPasswordHash()).isEqualTo(originalHash);
+        // Second enrollment without forceReset is idempotent — returns same user, doesn't change password
+        User reEnrolled = service.bootstrap(
+                true, false, tenant.getId(), null, null, email, value(), "Admin", "test-actor");
+        assertThat(reEnrolled.getId()).isEqualTo(existing.getId());
+        assertThat(reEnrolled.getPasswordHash()).isEqualTo(originalHash);
+    }
+
+    @Test
+    void forceResetOverwritesExistingPassword() {
+        Tenant tenant = activeTenant("force-reset");
+        String email = email();
+        String originalPassword = value();
+        String newPassword = value();
+
+        User enrolled = service.bootstrap(
+                true, false, tenant.getId(), null, null, email, originalPassword, "Admin", "test-actor");
+        assertThat(encoder.matches(originalPassword, enrolled.getPasswordHash())).isTrue();
+        String originalHash = enrolled.getPasswordHash();
+
+        // Force reset with new password
+        User resetUser = service.bootstrap(
+                true, true, tenant.getId(), null, null, email, newPassword, "Admin", "force-reset-actor");
+        assertThat(resetUser.getPasswordHash()).isNotEqualTo(originalHash);
+        assertThat(encoder.matches(newPassword, resetUser.getPasswordHash())).isTrue();
+        assertThat(resetUser.isMustChangePassword()).isTrue();
+        assertThat(resetUser.getPasswordSetBy()).isEqualTo("force-reset-actor");
     }
 
     private Tenant activeTenant(String prefix) {
@@ -124,7 +144,7 @@ class CredentialBootstrapServiceTest {
         String password = "StrongBootstrapPassword123!";
 
         User user = service.bootstrap(
-                true, null, "Auto Tenant", subdomain, email, password, "Auto Admin", "test-actor");
+                true, false, null, "Auto Tenant", subdomain, email, password, "Auto Admin", "test-actor");
 
         assertThat(user).isNotNull();
         assertThat(user.getTenantId()).isNotNull();
@@ -145,7 +165,7 @@ class CredentialBootstrapServiceTest {
         String password = "StrongBootstrapPassword456!";
 
         User user = service.bootstrap(
-                true, null, "Ignored Name", subdomain, email, password, "Admin", "test-actor");
+                true, false, null, "Ignored Name", subdomain, email, password, "Admin", "test-actor");
 
         assertThat(user.getTenantId()).isEqualTo(first.getId());
         // Should not have created a second tenant with the same subdomain
@@ -156,7 +176,7 @@ class CredentialBootstrapServiceTest {
     @Test
     void autoCreateModeFailsWhenBothTenantIdAndSubdomainAreAbsent() {
         assertThatThrownBy(() -> service.bootstrap(
-                true, null, null, null, email(), value(), "Admin", "test-actor"))
+                true, false, null, null, null, email(), value(), "Admin", "test-actor"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("tenant-name + tenant-subdomain");
     }
