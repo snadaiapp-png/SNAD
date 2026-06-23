@@ -107,10 +107,20 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.stream(corsAllowedOrigins.split(","))
+        // Use allowedOriginPatterns instead of allowedOrigins to support wildcard patterns
+        // like https://snad-*.vercel.app for Vercel preview deployments.
+        // Each preview deploy gets a unique subdomain, so wildcards are required.
+        List<String> origins = Arrays.stream(corsAllowedOrigins.split(","))
                 .map(String::trim)
                 .filter(value -> !value.isBlank())
-                .toList());
+                .toList();
+        // Convert exact origins to patterns; add wildcard for Vercel preview URLs
+        List<String> patterns = new java.util.ArrayList<>(origins);
+        // Allow any Vercel preview deployment under snad-team
+        patterns.add("https://snad-*.vercel.app");
+        // Allow localhost for local development
+        patterns.add("http://localhost:*");
+        configuration.setAllowedOriginPatterns(patterns);
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-Requested-With", "X-SANAD-Refresh-Token"));
         configuration.setAllowCredentials(true);
