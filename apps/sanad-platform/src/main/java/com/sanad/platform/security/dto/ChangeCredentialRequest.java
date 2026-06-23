@@ -11,7 +11,7 @@ public class ChangeCredentialRequest {
     private String currentCredential;
 
     @NotBlank
-    @Size(min = 14, max = 256)
+    @Size(min = 8, max = 256)
     private String newCredential;
 
     public ChangeCredentialRequest() {

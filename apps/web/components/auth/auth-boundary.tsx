@@ -149,30 +149,81 @@ function ForcedPasswordChange() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLocalError(null);
     clearError();
 
+    // Client-side validation: minimum length
+    if (newPassword.length < 8) {
+      setLocalError("يجب أن تكون كلمة المرور الجديدة 8 أحرف على الأقل.");
+      return;
+    }
+
+    // Client-side validation: confirm password match
     if (newPassword !== confirmPassword) {
       setLocalError("كلمة المرور الجديدة وتأكيدها غير متطابقين.");
       return;
     }
 
-    if (newPassword.length < 8) {
-      setLocalError("يجب أن تكون كلمة المرور الجديدة 8 أحرف على الأقل.");
+    // Client-side validation: must differ from current password
+    if (newPassword === currentPassword) {
+      setLocalError("يجب أن تختلف كلمة المرور الجديدة عن الحالية.");
       return;
     }
 
     setBusy(true);
     try {
       await changeCredential(currentPassword, newPassword);
+      setSuccess(true);
     } catch {
-      // Error is handled by auth provider
+      // Error is handled by auth provider — displayed via error prop
     } finally {
       setBusy(false);
     }
+  }
+
+  // Password strength indicator
+  const passwordStrength = (() => {
+    if (!newPassword) return { level: 0, label: "", color: "" };
+    let score = 0;
+    if (newPassword.length >= 8) score++;
+    if (newPassword.length >= 12) score++;
+    if (/[A-Z]/.test(newPassword)) score++;
+    if (/[0-9]/.test(newPassword)) score++;
+    if (/[^A-Za-z0-9]/.test(newPassword)) score++;
+    if (score <= 2) return { level: 1, label: "ضعيفة", color: "bg-rose-400" };
+    if (score <= 3) return { level: 2, label: "متوسطة", color: "bg-amber-400" };
+    return { level: 3, label: "قوية", color: "bg-emerald-400" };
+  })();
+
+  if (success) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#0f2d2a] px-4" dir="rtl">
+        <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
+          <div className="text-center">
+            <div className="mx-auto mb-4 grid size-16 place-items-center rounded-full bg-emerald-50 ring-4 ring-emerald-100">
+              <span className="text-2xl text-emerald-600">✓</span>
+            </div>
+            <p className="text-xs font-black tracking-[0.18em] text-teal-700">SANAD BUSINESS OPERATING SYSTEM</p>
+            <h1 className="mt-2 text-2xl font-black text-slate-900">تم تغيير كلمة المرور بنجاح</h1>
+            <p className="mt-2 text-sm text-slate-500">
+              تم تحديث كلمة المرور الخاصة بك. يمكنك الآن الوصول إلى المنصة.
+            </p>
+          </div>
+          <div className="mt-6">
+            <a
+              href="/"
+              className="block w-full rounded-xl bg-teal-800 px-4 py-3 text-center font-black text-white hover:bg-teal-900"
+            >
+              المتابعة إلى المنصة
+            </a>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -221,6 +272,37 @@ function ForcedPasswordChange() {
               className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-teal-600"
             />
           </label>
+          {/* Password strength indicator */}
+          {newPassword.length > 0 && (
+            <div className="flex items-center gap-2 px-1">
+              <div className="flex flex-1 gap-1">
+                {[1, 2, 3].map((level) => (
+                  <div
+                    key={level}
+                    className={`h-1.5 flex-1 rounded-full transition-colors ${
+                      passwordStrength.level >= level ? passwordStrength.color : "bg-slate-200"
+                    }`}
+                  />
+                ))}
+              </div>
+              <span className="text-xs font-bold text-slate-500">{passwordStrength.label}</span>
+            </div>
+          )}
+          {/* Password policy hint */}
+          <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500" dir="rtl">
+            <p className="font-bold text-slate-600">متطلبات كلمة المرور:</p>
+            <ul className="mt-1 space-y-0.5 pr-3">
+              <li className={newPassword.length >= 8 ? "text-emerald-600" : ""}>
+                {newPassword.length >= 8 ? "✓" : "○"} 8 أحرف على الأقل
+              </li>
+              <li className={/[A-Z]/.test(newPassword) ? "text-emerald-600" : ""}>
+                {/[A-Z]/.test(newPassword) ? "✓" : "○"} حرف كبير واحد على الأقل
+              </li>
+              <li className={/[0-9]/.test(newPassword) ? "text-emerald-600" : ""}>
+                {/[0-9]/.test(newPassword) ? "✓" : "○"} رقم واحد على الأقل
+              </li>
+            </ul>
+          </div>
           <label className="grid gap-1 text-sm font-bold text-slate-700">
             تأكيد كلمة المرور الجديدة
             <input
@@ -230,12 +312,19 @@ function ForcedPasswordChange() {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               minLength={8}
-              className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-teal-600"
+              className={`rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-teal-600 ${
+                confirmPassword && newPassword !== confirmPassword
+                  ? "border-rose-300 ring-1 ring-rose-200"
+                  : "border-slate-200"
+              }`}
             />
+            {confirmPassword && newPassword !== confirmPassword && (
+              <p className="text-xs font-bold text-rose-500">كلمة المرور غير متطابقة</p>
+            )}
           </label>
           <button
             type="submit"
-            disabled={busy}
+            disabled={busy || (confirmPassword.length > 0 && newPassword !== confirmPassword)}
             className="w-full rounded-xl bg-teal-800 px-4 py-3 font-black text-white disabled:opacity-50"
           >
             {busy ? "جارٍ تغيير كلمة المرور…" : "تغيير كلمة المرور"}

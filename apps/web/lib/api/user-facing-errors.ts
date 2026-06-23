@@ -84,6 +84,28 @@ export function toUserFacingError(err: unknown): UserFacingError {
 
 function mapHttpError(err: ApiHttpError): UserFacingError {
   const status = err.status;
+  const backendMsg = err.backendMessage;
+
+  // If the backend sent an Arabic message, use it directly — it's already
+  // a user-facing validation message in the correct language.
+  if (backendMsg && containsArabic(backendMsg)) {
+    if (status === 400) {
+      return { title: "بيانات غير صالحة", message: backendMsg, kind: "validation" };
+    }
+    if (status === 401) {
+      return { title: "غير مصرح", message: backendMsg, kind: "validation" };
+    }
+    if (status === 403) {
+      return { title: "ممنوع الوصول", message: backendMsg, kind: "validation" };
+    }
+    if (status === 409) {
+      return { title: "تعارض في البيانات", message: backendMsg, kind: "conflict" };
+    }
+    if (status === 429) {
+      return { title: "طلبات كثيرة", message: backendMsg, kind: "validation" };
+    }
+  }
+
   if (status === 400) {
     return { title: "بيانات غير صالحة", message: "البيانات المرسلة غير صالحة. راجع الحقول وأعد المحاولة.", kind: "validation" };
   }
@@ -98,6 +120,9 @@ function mapHttpError(err: ApiHttpError): UserFacingError {
   }
   if (status === 409) {
     return { title: "تعارض في البيانات", message: "البريد الإلكتروني أو العضوية موجودة مسبقًا.", kind: "conflict" };
+  }
+  if (status === 429) {
+    return { title: "طلبات كثيرة", message: "تم تجاوز عدد الطلبات المسموح بها. حاول لاحقًا.", kind: "validation" };
   }
   if (status === 422) {
     return { title: "بيانات غير قابلة للمعالجة", message: "تعذر معالجة البيانات المرسلة. راجع الحقول وأعد المحاولة.", kind: "validation" };
