@@ -32,6 +32,9 @@ public class ApiErrorResponse {
     /** Request path that triggered the error (best-effort). */
     private String path;
 
+    /** Tenant IDs associated with the error (used in 409 Ambiguous Tenant responses). */
+    private java.util.List<String> tenantIds;
+
     // ------------------------------------------------------------
     // Constructors
     // ------------------------------------------------------------
@@ -45,6 +48,15 @@ public class ApiErrorResponse {
         this.error = error;
         this.message = message;
         this.path = path;
+    }
+
+    public ApiErrorResponse(Instant timestamp, int status, String error, String message, String path, java.util.List<String> tenantIds) {
+        this.timestamp = timestamp;
+        this.status = status;
+        this.error = error;
+        this.message = message;
+        this.path = path;
+        this.tenantIds = tenantIds;
     }
 
     // ------------------------------------------------------------
@@ -89,6 +101,14 @@ public class ApiErrorResponse {
 
     public void setPath(String path) {
         this.path = path;
+    }
+
+    public java.util.List<String> getTenantIds() {
+        return tenantIds;
+    }
+
+    public void setTenantIds(java.util.List<String> tenantIds) {
+        this.tenantIds = tenantIds;
     }
 
     @Override

@@ -55,12 +55,16 @@ public class AuthApiExceptionHandler {
     @ExceptionHandler(AmbiguousTenantException.class)
     public ResponseEntity<ApiErrorResponse> handleAmbiguousTenant(
             AmbiguousTenantException ex, HttpServletRequest request) {
+        java.util.List<String> tenantIdStrings = ex.getTenantIds().stream()
+                .map(java.util.UUID::toString)
+                .collect(java.util.stream.Collectors.toList());
         ApiErrorResponse response = new ApiErrorResponse(
                 java.time.Instant.now(),
                 409,
                 "Conflict",
                 ex.getMessage(),
-                request.getRequestURI()
+                request.getRequestURI(),
+                tenantIdStrings
         );
         return ResponseEntity.status(409).body(response);
     }
