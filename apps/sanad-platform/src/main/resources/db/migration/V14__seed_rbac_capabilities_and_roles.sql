@@ -14,36 +14,36 @@
 -- -----------------------------------------------------------
 
 INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at)
-SELECT uuid, code, name, description, status, created_at, updated_at
+SELECT uuid_val, code, name, description, status, created_at, updated_at
 FROM (
     VALUES
     -- User management
-    ('a0000001-0000-0000-0000-000000000001', 'USER.READ',   'Read Users',          'View user profiles and list users', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    ('a0000001-0000-0000-0000-000000000002', 'USER.CREATE', 'Create Users',        'Create new user accounts',           'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    ('a0000001-0000-0000-0000-000000000003', 'USER.WRITE',  'Update Users',        'Modify user profile and status',     'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    ('a0000001-0000-0000-0000-000000000004', 'USER.DELETE', 'Delete/Archive Users','Archive or remove users',            'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000001-0000-0000-0000-000000000001' AS uuid), 'USER.READ',   'Read Users',          'View user profiles and list users', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000001-0000-0000-0000-000000000002' AS uuid), 'USER.CREATE', 'Create Users',        'Create new user accounts',           'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000001-0000-0000-0000-000000000003' AS uuid), 'USER.WRITE',  'Update Users',        'Modify user profile and status',     'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000001-0000-0000-0000-000000000004' AS uuid), 'USER.DELETE', 'Delete/Archive Users','Archive or remove users',            'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
     -- Organization management
-    ('a0000002-0000-0000-0000-000000000001', 'ORGANIZATION.READ',   'Read Organizations',   'View organization details and list', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    ('a0000002-0000-0000-0000-000000000002', 'ORGANIZATION.CREATE', 'Create Organizations', 'Create new organizations',            'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    ('a0000002-0000-0000-0000-000000000003', 'ORGANIZATION.WRITE',  'Update Organizations', 'Modify organization details/status',  'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    ('a0000002-0000-0000-0000-000000000004', 'ORGANIZATION.DELETE', 'Delete Organizations', 'Archive or remove organizations',     'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000002-0000-0000-0000-000000000001' AS uuid), 'ORGANIZATION.READ',   'Read Organizations',   'View organization details and list', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000002-0000-0000-0000-000000000002' AS uuid), 'ORGANIZATION.CREATE', 'Create Organizations', 'Create new organizations',            'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000002-0000-0000-0000-000000000003' AS uuid), 'ORGANIZATION.WRITE',  'Update Organizations', 'Modify organization details/status',  'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000002-0000-0000-0000-000000000004' AS uuid), 'ORGANIZATION.DELETE', 'Delete Organizations', 'Archive or remove organizations',     'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
     -- Membership management
-    ('a0000003-0000-0000-0000-000000000001', 'MEMBERSHIP.READ',   'Read Memberships',   'View organization memberships',     'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    ('a0000003-0000-0000-0000-000000000002', 'MEMBERSHIP.CREATE', 'Create Memberships',  'Invite members to organizations',   'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    ('a0000003-0000-0000-0000-000000000003', 'MEMBERSHIP.WRITE',  'Update Memberships',  'Activate/deactivate memberships',   'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    ('a0000003-0000-0000-0000-000000000004', 'MEMBERSHIP.DELETE', 'Remove Memberships',  'Remove memberships from orgs',      'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000003-0000-0000-0000-000000000001' AS uuid), 'MEMBERSHIP.READ',   'Read Memberships',   'View organization memberships',     'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000003-0000-0000-0000-000000000002' AS uuid), 'MEMBERSHIP.CREATE', 'Create Memberships',  'Invite members to organizations',   'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000003-0000-0000-0000-000000000003' AS uuid), 'MEMBERSHIP.WRITE',  'Update Memberships',  'Activate/deactivate memberships',   'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000003-0000-0000-0000-000000000004' AS uuid), 'MEMBERSHIP.DELETE', 'Remove Memberships',  'Remove memberships from orgs',      'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
     -- Role management
-    ('a0000004-0000-0000-0000-000000000001', 'ROLE.READ',   'Read Roles',   'View roles and their capabilities', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    ('a0000004-0000-0000-0000-000000000002', 'ROLE.WRITE',  'Manage Roles', 'Create, update, and configure roles', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000004-0000-0000-0000-000000000001' AS uuid), 'ROLE.READ',   'Read Roles',   'View roles and their capabilities', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000004-0000-0000-0000-000000000002' AS uuid), 'ROLE.WRITE',  'Manage Roles', 'Create, update, and configure roles', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
     -- Capability catalog management
-    ('a0000005-0000-0000-0000-000000000001', 'CAPABILITY.READ',   'Read Capabilities',  'View the capability catalog',       'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    ('a0000005-0000-0000-0000-000000000002', 'CAPABILITY.MANAGE', 'Manage Capabilities','Create, update, activate/deactivate capabilities', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000005-0000-0000-0000-000000000001' AS uuid), 'CAPABILITY.READ',   'Read Capabilities',  'View the capability catalog',       'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000005-0000-0000-0000-000000000002' AS uuid), 'CAPABILITY.MANAGE', 'Manage Capabilities','Create, update, activate/deactivate capabilities', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
     -- Access evaluation
-    ('a0000006-0000-0000-0000-000000000001', 'ACCESS.EVALUATE', 'Evaluate Access', 'Check user capabilities and permissions', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000006-0000-0000-0000-000000000001' AS uuid), 'ACCESS.EVALUATE', 'Evaluate Access', 'Check user capabilities and permissions', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
     -- User role grant management
-    ('a0000007-0000-0000-0000-000000000001', 'USER.GRANT_ROLE',  'Grant Roles',  'Assign roles to users',              'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    ('a0000007-0000-0000-0000-000000000002', 'USER.REVOKE_ROLE', 'Revoke Roles', 'Remove role assignments from users', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-) AS t(uuid, code, name, description, status, created_at, updated_at)
+    (CAST('a0000007-0000-0000-0000-000000000001' AS uuid), 'USER.GRANT_ROLE',  'Grant Roles',  'Assign roles to users',              'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (CAST('a0000007-0000-0000-0000-000000000002' AS uuid), 'USER.REVOKE_ROLE', 'Revoke Roles', 'Remove role assignments from users', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+) AS t(uuid_val, code, name, description, status, created_at, updated_at)
 WHERE NOT EXISTS (SELECT 1 FROM access_capabilities WHERE code = t.code);
 
 -- -----------------------------------------------------------
