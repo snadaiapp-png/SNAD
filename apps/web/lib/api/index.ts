@@ -85,7 +85,7 @@ export { toUserFacingError, toUserFacingMessage, toUserFacingTitle } from "./use
 export type { UserFacingError } from "./user-facing-errors";
 
 // Auth API (EXEC-PROMPT-032)
-export { authApi, createAuthApi } from "./auth";
+export { authApi, createAuthApi, AmbiguousTenantError } from "./auth";
 export type {
   AuthUser,
   AuthResponse,
@@ -93,4 +93,10 @@ export type {
   MeResponse,
   MeMembership,
   MeRoleGrant,
+  ForgotPasswordRequest,
+  ForgotPasswordResponse,
+  ResetPasswordRequest,
+  ResetPasswordResponse,
+  ChangeCredentialRequest,
+  AdminResetPasswordRequest,
 } from "./auth";

@@ -23,7 +23,8 @@ export type AuthState =
   | "EXPIRED"
   | "ERROR"
   | "AMBIGUOUS_TENANT"
-  | "LOGGING_OUT";
+  | "LOGGING_OUT"
+  | "CREDENTIAL_ROTATION_REQUIRED";
 
 interface AuthContextValue {
   state: AuthState;
@@ -38,6 +39,8 @@ interface AuthContextValue {
   refresh: () => Promise<void>;
   loadMe: () => Promise<void>;
   dismissAmbiguousTenant: () => void;
+  changeCredential: (currentPassword: string, newPassword: string) => Promise<void>;
+  clearError: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -86,7 +89,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           displayName: meData.displayName,
           status: meData.status,
         });
-        setState("AUTHENTICATED");
+        // If credential rotation is required, go to rotation state instead of authenticated
+        if (meData.credentialRotationRequired) {
+          setState("CREDENTIAL_ROTATION_REQUIRED");
+        } else {
+          setState("AUTHENTICATED");
+        }
       })
       .catch(() => {
         if (cancelled) return;
@@ -114,7 +122,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const meData = await authApi.me();
       setMe(meData);
-      setState("AUTHENTICATED");
+      // Check if credential rotation is required after login
+      if (meData.credentialRotationRequired) {
+        setState("CREDENTIAL_ROTATION_REQUIRED");
+      } else {
+        setState("AUTHENTICATED");
+      }
     } catch (err) {
       if (err instanceof AmbiguousTenantError) {
         setAmbiguousTenantIds(err.tenantIds);
@@ -143,7 +156,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const meData = await authApi.me();
       setMe(meData);
-      setState("AUTHENTICATED");
+      if (meData.credentialRotationRequired) {
+        setState("CREDENTIAL_ROTATION_REQUIRED");
+      } else {
+        setState("AUTHENTICATED");
+      }
     } catch (err) {
       if (err instanceof AmbiguousTenantError) {
         setAmbiguousTenantIds(err.tenantIds);
@@ -217,9 +234,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  /** Change credential (self-service password rotation). Used for forced password change flow. */
+  const changeCredential = useCallback(async (currentPassword: string, newPassword: string) => {
+    setError(null);
+    try {
+      await authApi.changeCredential({
+        currentCredential: currentPassword,
+        newCredential: newPassword,
+      });
+      // After successful credential change, reload /me to get updated state
+      const meData = await authApi.me();
+      setMe(meData);
+      setState("AUTHENTICATED");
+    } catch (err) {
+      setError(toUserFacingError(err));
+      throw err;
+    }
+  }, []);
+
+  /** Clear the current error state. */
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
   const value = useMemo(
-    () => ({ state, user, me, error, ambiguousTenantIds, lastLoginEmail, login, loginWithTenant, dismissAmbiguousTenant, logout, refresh, loadMe }),
-    [state, user, me, error, ambiguousTenantIds, lastLoginEmail, login, loginWithTenant, dismissAmbiguousTenant, logout, refresh, loadMe]
+    () => ({ state, user, me, error, ambiguousTenantIds, lastLoginEmail, login, loginWithTenant, dismissAmbiguousTenant, logout, refresh, loadMe, changeCredential, clearError }),
+    [state, user, me, error, ambiguousTenantIds, lastLoginEmail, login, loginWithTenant, dismissAmbiguousTenant, logout, refresh, loadMe, changeCredential, clearError]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

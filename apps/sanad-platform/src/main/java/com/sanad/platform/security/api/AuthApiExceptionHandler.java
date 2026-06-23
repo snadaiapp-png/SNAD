@@ -4,7 +4,9 @@ import com.sanad.platform.organization.api.ApiErrorResponse;
 import com.sanad.platform.security.exception.AccountInactiveException;
 import com.sanad.platform.security.exception.AmbiguousTenantException;
 import com.sanad.platform.security.exception.InvalidCredentialsException;
+import com.sanad.platform.security.exception.InvalidResetTokenException;
 import com.sanad.platform.security.exception.LoginRateLimitException;
+import com.sanad.platform.security.exception.PasswordResetRateLimitException;
 import com.sanad.platform.security.exception.RefreshTokenReplayException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -75,6 +77,27 @@ public class AuthApiExceptionHandler {
         log.warn("Auth rate limited: path={} message={}", request.getRequestURI(), ex.getMessage());
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .header("Retry-After", "300")
+                .body(new ApiErrorResponse(
+                        Instant.now(),
+                        HttpStatus.TOO_MANY_REQUESTS.value(),
+                        HttpStatus.TOO_MANY_REQUESTS.getReasonPhrase(),
+                        ex.getMessage(),
+                        request.getRequestURI()
+                ));
+    }
+
+    @ExceptionHandler(InvalidResetTokenException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidResetToken(
+            InvalidResetTokenException ex, HttpServletRequest request) {
+        return error(HttpStatus.BAD_REQUEST, ex.getMessage(), request, ex);
+    }
+
+    @ExceptionHandler(PasswordResetRateLimitException.class)
+    public ResponseEntity<ApiErrorResponse> handlePasswordResetRateLimit(
+            PasswordResetRateLimitException ex, HttpServletRequest request) {
+        log.warn("Password reset rate limited: path={} message={}", request.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", "3600")
                 .body(new ApiErrorResponse(
                         Instant.now(),
                         HttpStatus.TOO_MANY_REQUESTS.value(),
