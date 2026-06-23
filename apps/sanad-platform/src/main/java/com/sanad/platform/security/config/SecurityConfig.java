@@ -116,8 +116,9 @@ public class SecurityConfig {
                 .toList();
         // Convert exact origins to patterns; add wildcard for Vercel preview URLs
         List<String> patterns = new java.util.ArrayList<>(origins);
-        // Allow any Vercel preview deployment under snad-team
-        patterns.add("https://snad-*.vercel.app");
+        // Allow any Vercel deployment (production, preview, branch) — each deploy
+        // gets a unique subdomain like snad-abc123-snad-team.vercel.app
+        patterns.add("https://*.vercel.app");
         // Allow localhost for local development
         patterns.add("http://localhost:*");
         configuration.setAllowedOriginPatterns(patterns);
