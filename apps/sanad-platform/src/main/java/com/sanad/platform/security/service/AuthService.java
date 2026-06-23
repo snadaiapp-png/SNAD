@@ -213,7 +213,7 @@ public class AuthService {
         refreshTokenRepository.save(refreshToken);
 
         String accessToken = jwtTokenProvider.mintAccessToken(
-                user.getId(), user.getTenantId(), user.getEmail(), user.isMustChangePassword());
+                user.getId(), user.getTenantId(), user.getEmail(), user.isMustChangePassword(), user.getSessionVersion());
         log.info("Refresh successful for userId={} tenantId={}", user.getId(), user.getTenantId());
 
         return new AuthResponse(
@@ -231,7 +231,14 @@ public class AuthService {
     @Transactional
     public void logout(UUID tenantId, UUID userId) {
         int revoked = refreshTokenRepository.revokeAllActive(tenantId, userId);
-        log.info("Logout: revoked {} refresh tokens for userId={} tenantId={}",
+
+        // Increment session version to invalidate all outstanding access tokens
+        userRepository.findByTenantIdAndId(tenantId, userId).ifPresent(user -> {
+            user.incrementSessionVersion();
+            userRepository.save(user);
+        });
+
+        log.info("Logout: revoked {} refresh tokens and incremented session version for userId={} tenantId={}",
                 revoked, userId, tenantId);
     }
 
@@ -256,10 +263,11 @@ public class AuthService {
         user.setPasswordSetAt(Instant.now());
         user.setPasswordSetBy("self-service");
         user.setMustChangePassword(false);
+        user.incrementSessionVersion();
         userRepository.save(user);
         refreshTokenRepository.revokeAllActive(tenantId, userId);
 
-        log.info("Credential rotated and refresh sessions revoked for userId={} tenantId={}",
+        log.info("Credential rotated, session version incremented, and refresh sessions revoked for userId={} tenantId={}",
                 userId, tenantId);
     }
 
@@ -361,11 +369,12 @@ public class AuthService {
         User user = userRepository.findByTenantIdAndId(resetToken.getTenantId(), resetToken.getUserId())
                 .orElseThrow(() -> new InvalidResetTokenException("المستخدم غير موجود"));
 
-        // Update password
+        // Update password and invalidate all sessions
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setPasswordSetAt(Instant.now());
         user.setPasswordSetBy("password-reset");
         user.setMustChangePassword(false);
+        user.incrementSessionVersion();
         userRepository.save(user);
 
         // Mark token as used
@@ -404,11 +413,12 @@ public class AuthService {
             throw new AccountInactiveException("حساب المستخدم غير نشط");
         }
 
-        // Update password
+        // Update password and invalidate all sessions
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setPasswordSetAt(Instant.now());
         user.setPasswordSetBy("admin-reset");
         user.setMustChangePassword(request.isForceChange());
+        user.incrementSessionVersion();
         userRepository.save(user);
 
         // Revoke all refresh tokens (force re-login on all devices)
@@ -427,7 +437,7 @@ public class AuthService {
 
     private AuthResponse issueTokens(User user) {
         String accessToken = jwtTokenProvider.mintAccessToken(
-                user.getId(), user.getTenantId(), user.getEmail(), user.isMustChangePassword());
+                user.getId(), user.getTenantId(), user.getEmail(), user.isMustChangePassword(), user.getSessionVersion());
         String refreshTokenValue = generateRefreshTokenValue();
         RefreshToken refreshToken = new RefreshToken(
                 user.getTenantId(),

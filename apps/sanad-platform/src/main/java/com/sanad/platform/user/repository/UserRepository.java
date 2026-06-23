@@ -51,4 +51,12 @@ public interface UserRepository extends JpaRepository<User, UUID> {
      */
     @Query("SELECT u FROM User u WHERE u.email = :email")
     List<User> findAllByEmail(@Param("email") String email);
+
+    /**
+     * Returns only the session_version for a tenant-scoped user.
+     * Used by JwtAuthenticationFilter to validate token session version
+     * without loading the full User entity.
+     */
+    @Query("SELECT u.sessionVersion FROM User u WHERE u.tenantId = :tenantId AND u.id = :id")
+    Long findSessionVersionByTenantIdAndId(@Param("tenantId") UUID tenantId, @Param("id") UUID id);
 }

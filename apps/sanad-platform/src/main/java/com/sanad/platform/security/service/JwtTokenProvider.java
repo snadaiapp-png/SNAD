@@ -24,6 +24,7 @@ import java.util.UUID;
 public class JwtTokenProvider {
 
     public static final String ROTATION_REQUIRED_CLAIM = "credential_rotation_required";
+    public static final String SESSION_VERSION_CLAIM = "session_version";
 
     private static final Logger log = LoggerFactory.getLogger(JwtTokenProvider.class);
     private static final int MIN_SECRET_BYTES = 32;
@@ -65,7 +66,7 @@ public class JwtTokenProvider {
     }
 
     public String mintAccessToken(UUID userId, UUID tenantId, String email) {
-        return mintAccessToken(userId, tenantId, email, false);
+        return mintAccessToken(userId, tenantId, email, false, 0L);
     }
 
     public String mintAccessToken(
@@ -73,6 +74,16 @@ public class JwtTokenProvider {
             UUID tenantId,
             String email,
             boolean credentialRotationRequired
+    ) {
+        return mintAccessToken(userId, tenantId, email, credentialRotationRequired, 0L);
+    }
+
+    public String mintAccessToken(
+            UUID userId,
+            UUID tenantId,
+            String email,
+            boolean credentialRotationRequired,
+            long sessionVersion
     ) {
         Instant now = Instant.now();
         Instant expiry = now.plus(jwtConfig.getAccessTokenTtl());
@@ -82,6 +93,7 @@ public class JwtTokenProvider {
                 .claim("tenant_id", tenantId.toString())
                 .claim("email", email)
                 .claim(ROTATION_REQUIRED_CLAIM, credentialRotationRequired)
+                .claim(SESSION_VERSION_CLAIM, sessionVersion)
                 .issuer(jwtConfig.getIssuer())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(expiry))

@@ -2,6 +2,7 @@ package com.sanad.platform.security.config;
 
 import com.sanad.platform.security.filter.JwtAuthenticationFilter;
 import com.sanad.platform.security.service.JwtTokenProvider;
+import com.sanad.platform.user.repository.UserRepository;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -35,12 +36,14 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final UserRepository userRepository;
 
     @Value("${cors.allowed-origins:https://snad-app.vercel.app}")
     private String corsAllowedOrigins;
 
-    public SecurityConfig(JwtTokenProvider jwtTokenProvider) {
+    public SecurityConfig(JwtTokenProvider jwtTokenProvider, UserRepository userRepository) {
         this.jwtTokenProvider = jwtTokenProvider;
+        this.userRepository = userRepository;
     }
 
     @Bean
@@ -83,7 +86,7 @@ public class SecurityConfig {
                 .securityContext(sc -> sc.requireExplicitSave(false));
 
         http.addFilterBefore(
-                new JwtAuthenticationFilter(jwtTokenProvider),
+                new JwtAuthenticationFilter(jwtTokenProvider, userRepository),
                 UsernamePasswordAuthenticationFilter.class
         );
         return http.build();
