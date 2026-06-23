@@ -7,11 +7,14 @@ import com.sanad.platform.access.role.Role;
 import com.sanad.platform.access.role.RoleRepository;
 import com.sanad.platform.organization.membership.domain.OrganizationMembership;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
+import com.sanad.platform.security.dto.AdminResetPasswordRequest;
 import com.sanad.platform.security.dto.AuthResponse;
 import com.sanad.platform.security.dto.ChangeCredentialRequest;
+import com.sanad.platform.security.dto.ForgotPasswordRequest;
 import com.sanad.platform.security.dto.LoginRequest;
 import com.sanad.platform.security.dto.MeResponse;
 import com.sanad.platform.security.dto.RefreshRequest;
+import com.sanad.platform.security.dto.ResetPasswordRequest;
 import com.sanad.platform.security.service.AuthService;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.repository.UserRepository;
@@ -25,6 +28,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -38,7 +42,7 @@ import java.util.stream.Collectors;
 /** Authentication API consumed by the trusted same-origin Next.js BFF. */
 @RestController
 @RequestMapping("/api/v1/auth")
-@Tag(name = "Authentication", description = "Login, logout, refresh, and session management.")
+@Tag(name = "Authentication", description = "Login, logout, refresh, password recovery, and session management.")
 public class AuthController {
 
     public static final String REFRESH_TOKEN_HEADER = "X-SANAD-Refresh-Token";
@@ -172,6 +176,80 @@ public class AuthController {
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .body(response);
     }
+
+    // =========================================================================
+    // Password Recovery (AUTH-RECOVERY-001)
+    // =========================================================================
+
+    @PostMapping("/forgot-password")
+    @Operation(summary = "Request a password reset link. Always returns 200 to prevent account enumeration.")
+    public ResponseEntity<Map<String, Object>> forgotPassword(
+            @Valid @RequestBody ForgotPasswordRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        String ipAddress = httpRequest.getRemoteAddr();
+        String rawToken = authService.initiatePasswordReset(request, ipAddress);
+
+        // Always return success — no account enumeration
+        Map<String, Object> response = new java.util.HashMap<>();
+        response.put("message", "إذا كان البريد الإلكتروني مسجلاً لدينا، فستتلقى رابط إعادة تعيين كلمة المرور.");
+
+        // In development/local mode, include the token in the response for testing
+        if (isLocalOrDev() && rawToken != null) {
+            response.put("token", rawToken);
+            response.put("resetUrl", "https://snad-app.vercel.app/reset-password?token=" + rawToken);
+        }
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(response);
+    }
+
+    @PostMapping("/reset-password")
+    @Operation(summary = "Reset password using a valid reset token")
+    public ResponseEntity<Map<String, Object>> resetPassword(
+            @Valid @RequestBody ResetPasswordRequest request
+    ) {
+        authService.completePasswordReset(request);
+
+        Map<String, Object> response = new java.util.HashMap<>();
+        response.put("message", "تم إعادة تعيين كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول بكلمة المرور الجديدة.");
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(response);
+    }
+
+    // =========================================================================
+    // Administrative Password Reset (AUTH-ACCOUNT-001)
+    // =========================================================================
+
+    @PostMapping("/admin-reset-password/{userId}")
+    @Operation(summary = "Administratively reset a user's password. Requires authentication.")
+    public ResponseEntity<Map<String, Object>> adminResetPassword(
+            Authentication authentication,
+            @PathVariable UUID userId,
+            @Valid @RequestBody AdminResetPasswordRequest request
+    ) {
+        PrincipalIds principal = principal(authentication);
+        if (principal == null) {
+            return ResponseEntity.status(401)
+                    .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                    .build();
+        }
+        authService.adminResetPassword(principal.tenantId(), userId, request);
+
+        Map<String, Object> response = new java.util.HashMap<>();
+        response.put("message", "تم إعادة تعيين كلمة المرور إداريًا بنجاح.");
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(response);
+    }
+
+    // =========================================================================
+    // Internal helpers
+    // =========================================================================
 
     private ResponseEntity<AuthResponse> authResponse(AuthResponse response) {
         ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
