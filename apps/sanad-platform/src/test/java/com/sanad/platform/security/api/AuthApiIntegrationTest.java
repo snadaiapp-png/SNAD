@@ -207,6 +207,69 @@ class AuthApiIntegrationTest {
         assert !responseBody.contains("passwordHash") : "Password hash must not appear in response";
     }
 
+    @Test
+    @DisplayName("POST /api/v1/auth/login — login with optional tenantId returns 200")
+    void login_withOptionalTenantId_returns200() throws Exception {
+        LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.user.tenantId").value(tenantId.toString()));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/login — duplicate email across tenants returns 409 with tenantIds")
+    void login_duplicateEmailAcrossTenants_returns409() throws Exception {
+        // Create a second tenant with the same email
+        Tenant tenant2 = new Tenant(
+                "Second Tenant",
+                "second-tenant-" + UUID.randomUUID(),
+                TenantStatus.ACTIVE
+        );
+        UUID tenant2Id = tenantRepository.save(tenant2).getId();
+        User user2 = new User(tenant2Id, testEmail, "Duplicate User", UserStatus.ACTIVE);
+        user2.setPasswordHash(passwordEncoder.encode(testPassword));
+        userRepository.save(user2);
+
+        // Login without tenantId should return 409
+        LoginRequest request = new LoginRequest(testEmail, testPassword);
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.tenantIds").isArray())
+                .andExpect(jsonPath("$.tenantIds.length()").value(2));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/login — duplicate email resolved with explicit tenantId")
+    void login_duplicateEmailWithExplicitTenantId_returns200() throws Exception {
+        // Create a second tenant with the same email
+        Tenant tenant2 = new Tenant(
+                "Second Tenant",
+                "second-tenant-explicit-" + UUID.randomUUID(),
+                TenantStatus.ACTIVE
+        );
+        UUID tenant2Id = tenantRepository.save(tenant2).getId();
+        User user2 = new User(tenant2Id, testEmail, "Duplicate User", UserStatus.ACTIVE);
+        user2.setPasswordHash(passwordEncoder.encode(testPassword));
+        userRepository.save(user2);
+
+        // Login WITH explicit tenantId should succeed
+        LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.tenantId").value(tenantId.toString()));
+    }
+
     // ------------------------------------------------------------
     // Refresh tests
     // ------------------------------------------------------------
@@ -304,6 +367,7 @@ class AuthApiIntegrationTest {
                 .andExpect(jsonPath("$.email").value(testEmail))
                 .andExpect(jsonPath("$.tenantId").value(tenantId.toString()))
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.credentialRotationRequired").isBoolean())
                 .andExpect(jsonPath("$.memberships").isArray())
                 .andExpect(jsonPath("$.roleGrants").isArray());
     }

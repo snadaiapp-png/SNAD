@@ -10,7 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { authApi, type AuthUser, type LoginRequest, type MeResponse } from "@/lib/api/auth";
+import { authApi, type AuthUser, type LoginRequest, type MeResponse, AmbiguousTenantError } from "@/lib/api/auth";
 import { apiClient } from "@/lib/api/client";
 import { toUserFacingError, type UserFacingError } from "@/lib/api/user-facing-errors";
 
@@ -22,6 +22,7 @@ export type AuthState =
   | "REFRESHING"
   | "EXPIRED"
   | "ERROR"
+  | "AMBIGUOUS_TENANT"
   | "LOGGING_OUT";
 
 interface AuthContextValue {
@@ -29,10 +30,14 @@ interface AuthContextValue {
   user: AuthUser | null;
   me: MeResponse | null;
   error: UserFacingError | null;
+  ambiguousTenantIds: string[];
+  lastLoginEmail: string;
   login: (req: LoginRequest) => Promise<void>;
+  loginWithTenant: (tenantId: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   loadMe: () => Promise<void>;
+  dismissAmbiguousTenant: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -54,6 +59,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [me, setMe] = useState<MeResponse | null>(null);
   const [error, setError] = useState<UserFacingError | null>(null);
+  const [ambiguousTenantIds, setAmbiguousTenantIds] = useState<string[]>([]);
+  const [lastLoginEmail, setLastLoginEmail] = useState("");
+  const lastLoginPasswordRef = useRef<string>("");
   const refreshPromiseRef = useRef<Promise<void> | null>(null);
 
   // Bootstrap: if we have a stored token, verify it by loading /me
@@ -94,6 +102,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (req: LoginRequest) => {
     setState("AUTHENTICATING");
     setError(null);
+    setAmbiguousTenantIds([]);
+    setLastLoginEmail(req.email);
+    lastLoginPasswordRef.current = req.password;
     try {
       const res = await authApi.login(req);
       localStorage.setItem(TOKEN_STORAGE_KEY, res.accessToken);
@@ -105,9 +116,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setMe(meData);
       setState("AUTHENTICATED");
     } catch (err) {
-      setError(toUserFacingError(err));
-      setState("ERROR");
+      if (err instanceof AmbiguousTenantError) {
+        setAmbiguousTenantIds(err.tenantIds);
+        setState("AMBIGUOUS_TENANT");
+      } else {
+        setError(toUserFacingError(err));
+        setState("ERROR");
+      }
     }
+  }, []);
+
+  /** Re-login with a specific tenantId after an ambiguous tenant 409. */
+  const loginWithTenant = useCallback(async (tenantId: string) => {
+    setState("AUTHENTICATING");
+    setError(null);
+    try {
+      const res = await authApi.login({
+        email: lastLoginEmail,
+        password: lastLoginPasswordRef.current,
+        tenantId,
+      });
+      localStorage.setItem(TOKEN_STORAGE_KEY, res.accessToken);
+      localStorage.setItem(TOKEN_EXPIRY_KEY, res.expiresAt);
+      apiClient.setDefaultHeader("Authorization", `Bearer ${res.accessToken}`);
+      setUser(res.user);
+
+      const meData = await authApi.me();
+      setMe(meData);
+      setState("AUTHENTICATED");
+    } catch (err) {
+      if (err instanceof AmbiguousTenantError) {
+        setAmbiguousTenantIds(err.tenantIds);
+        setState("AMBIGUOUS_TENANT");
+      } else {
+        setError(toUserFacingError(err));
+        setState("ERROR");
+      }
+    }
+  }, [lastLoginEmail]);
+
+  /** Dismiss the tenant picker and go back to login form. */
+  const dismissAmbiguousTenant = useCallback(() => {
+    setAmbiguousTenantIds([]);
+    setState("ANONYMOUS");
   }, []);
 
   const logout = useCallback(async () => {
@@ -167,8 +218,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ state, user, me, error, login, logout, refresh, loadMe }),
-    [state, user, me, error, login, logout, refresh, loadMe]
+    () => ({ state, user, me, error, ambiguousTenantIds, lastLoginEmail, login, loginWithTenant, dismissAmbiguousTenant, logout, refresh, loadMe }),
+    [state, user, me, error, ambiguousTenantIds, lastLoginEmail, login, loginWithTenant, dismissAmbiguousTenant, logout, refresh, loadMe]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

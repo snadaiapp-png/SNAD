@@ -65,6 +65,16 @@ export interface MeRoleGrant {
   status: string;
 }
 
+/** Error thrown when login finds the same email in multiple tenants (HTTP 409). */
+export class AmbiguousTenantError extends Error {
+  readonly tenantIds: string[];
+  constructor(message: string, tenantIds: string[]) {
+    super(message);
+    this.name = "AmbiguousTenantError";
+    this.tenantIds = tenantIds;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // API
 // ---------------------------------------------------------------------------
@@ -72,7 +82,29 @@ export interface MeRoleGrant {
 export function createAuthApi(client: ApiClient = apiClient) {
   return {
     async login(req: LoginRequest): Promise<AuthResponse> {
-      return client.post<AuthResponse, LoginRequest>("/api/v1/auth/login", req);
+      try {
+        return await client.post<AuthResponse, LoginRequest>("/api/v1/auth/login", req);
+      } catch (err) {
+        // Handle 409 Ambiguous Tenant — extract tenant IDs from the response
+        if (
+          err &&
+          typeof err === "object" &&
+          "status" in err &&
+          (err as { status: number }).status === 409 &&
+          "body" in err
+        ) {
+          const body = (err as { body?: Record<string, unknown> }).body;
+          const tenantIds = Array.isArray(body?.tenantIds)
+            ? (body.tenantIds as string[])
+            : [];
+          const message =
+            typeof body?.message === "string"
+              ? body.message
+              : "البريد الإلكتروني موجود في عدة مستأجرين";
+          throw new AmbiguousTenantError(message, tenantIds);
+        }
+        throw err;
+      }
     },
 
     async refresh(refreshToken?: string): Promise<AuthResponse> {
