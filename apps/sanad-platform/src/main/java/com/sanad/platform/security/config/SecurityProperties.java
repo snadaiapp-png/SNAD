@@ -67,10 +67,10 @@ public class SecurityProperties {
     /** Login brute-force protection configuration. */
     public static class LoginRateLimit {
         /** Max failed login attempts before rate limiting kicks in. */
-        private int maxAttempts = 5;
+        private int maxAttempts = 20;
 
         /** Sliding window for failed attempts. Default: 5 minutes. */
-        private Duration window = Duration.ofMinutes(5);
+        private Duration window = Duration.ofMinutes(1);
 
         public int getMaxAttempts() { return maxAttempts; }
         public void setMaxAttempts(int maxAttempts) { this.maxAttempts = maxAttempts; }
