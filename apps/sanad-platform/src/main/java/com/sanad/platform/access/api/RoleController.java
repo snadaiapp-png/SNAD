@@ -1,6 +1,7 @@
 package com.sanad.platform.access.api;
 
 import com.sanad.platform.access.role.*;
+import com.sanad.platform.security.authorization.RequireCapability;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +20,7 @@ public class RoleController {
         this.roleService = roleService;
     }
 
+    @RequireCapability("ROLE.WRITE")
     @PostMapping
     ResponseEntity<RoleResponse> create(
             @RequestParam UUID tenantId,
@@ -27,17 +29,20 @@ public class RoleController {
                 .body(roleService.create(tenantId, request));
     }
 
+    @RequireCapability("ROLE.READ")
     @GetMapping
     ResponseEntity<List<RoleResponse>> list(@RequestParam UUID tenantId) {
         return ResponseEntity.ok(roleService.list(tenantId));
     }
 
+    @RequireCapability("ROLE.READ")
     @GetMapping("/{roleId}")
     ResponseEntity<RoleResponse> get(
             @RequestParam UUID tenantId, @PathVariable UUID roleId) {
         return ResponseEntity.ok(roleService.get(tenantId, roleId));
     }
 
+    @RequireCapability("ROLE.WRITE")
     @PutMapping("/{roleId}")
     ResponseEntity<RoleResponse> update(
             @RequestParam UUID tenantId,
@@ -46,6 +51,7 @@ public class RoleController {
         return ResponseEntity.ok(roleService.update(tenantId, roleId, request));
     }
 
+    @RequireCapability("ROLE.WRITE")
     @PatchMapping("/{roleId}/activate")
     ResponseEntity<RoleResponse> activate(
             @RequestParam UUID tenantId, @PathVariable UUID roleId) {
@@ -53,6 +59,7 @@ public class RoleController {
                 tenantId, roleId, RoleStatus.ACTIVE));
     }
 
+    @RequireCapability("ROLE.WRITE")
     @PatchMapping("/{roleId}/deactivate")
     ResponseEntity<RoleResponse> deactivate(
             @RequestParam UUID tenantId, @PathVariable UUID roleId) {
@@ -60,6 +67,7 @@ public class RoleController {
                 tenantId, roleId, RoleStatus.INACTIVE));
     }
 
+    @RequireCapability("ROLE.WRITE")
     @PatchMapping("/{roleId}/archive")
     ResponseEntity<RoleResponse> archive(
             @RequestParam UUID tenantId, @PathVariable UUID roleId) {

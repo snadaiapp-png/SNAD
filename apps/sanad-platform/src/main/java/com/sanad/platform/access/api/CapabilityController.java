@@ -1,6 +1,7 @@
 package com.sanad.platform.access.api;
 
 import com.sanad.platform.access.capability.*;
+import com.sanad.platform.security.authorization.RequireCapability;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -19,22 +20,26 @@ public class CapabilityController {
         this.capabilityService = capabilityService;
     }
 
+    @RequireCapability("CAPABILITY.MANAGE")
     @PostMapping
     ResponseEntity<CapabilityResponse> create(@RequestBody Map<String, String> body) {
         return ResponseEntity.status(HttpStatus.CREATED).body(capabilityService.create(
                 body.get("code"), body.get("name"), body.get("description")));
     }
 
+    @RequireCapability("CAPABILITY.READ")
     @GetMapping
     ResponseEntity<List<CapabilityResponse>> list() {
         return ResponseEntity.ok(capabilityService.list());
     }
 
+    @RequireCapability("CAPABILITY.READ")
     @GetMapping("/{capabilityId}")
     ResponseEntity<CapabilityResponse> get(@PathVariable UUID capabilityId) {
         return ResponseEntity.ok(capabilityService.get(capabilityId));
     }
 
+    @RequireCapability("CAPABILITY.MANAGE")
     @PutMapping("/{capabilityId}")
     ResponseEntity<CapabilityResponse> update(
             @PathVariable UUID capabilityId, @RequestBody Map<String, String> body) {
@@ -42,12 +47,14 @@ public class CapabilityController {
                 capabilityId, body.get("name"), body.get("description")));
     }
 
+    @RequireCapability("CAPABILITY.MANAGE")
     @PatchMapping("/{capabilityId}/activate")
     ResponseEntity<CapabilityResponse> activate(@PathVariable UUID capabilityId) {
         return ResponseEntity.ok(capabilityService.changeStatus(
                 capabilityId, CapabilityStatus.ACTIVE));
     }
 
+    @RequireCapability("CAPABILITY.MANAGE")
     @PatchMapping("/{capabilityId}/deactivate")
     ResponseEntity<CapabilityResponse> deactivate(@PathVariable UUID capabilityId) {
         return ResponseEntity.ok(capabilityService.changeStatus(

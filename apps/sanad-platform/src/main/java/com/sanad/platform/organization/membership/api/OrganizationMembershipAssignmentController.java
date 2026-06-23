@@ -1,6 +1,7 @@
 package com.sanad.platform.organization.membership.api;
 
 import com.sanad.platform.organization.membership.dto.OrganizationMembershipResponse;
+import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.organization.membership.service.OrganizationMembershipUserLinkService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -22,6 +23,7 @@ public class OrganizationMembershipAssignmentController {
         this.assignmentService = assignmentService;
     }
 
+    @RequireCapability("MEMBERSHIP.WRITE")
     @PatchMapping("/{membershipId}/assign/{userId}")
     public ResponseEntity<OrganizationMembershipResponse> assignUser(
             @PathVariable UUID organizationId,
@@ -32,6 +34,7 @@ public class OrganizationMembershipAssignmentController {
                 tenantId, organizationId, membershipId, userId));
     }
 
+    @RequireCapability("MEMBERSHIP.WRITE")
     @PatchMapping("/{membershipId}/unassign")
     public ResponseEntity<OrganizationMembershipResponse> unassignUser(
             @PathVariable UUID organizationId,

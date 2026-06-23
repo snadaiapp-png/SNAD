@@ -1,6 +1,7 @@
 package com.sanad.platform.access.api;
 
 import com.sanad.platform.access.AccessDecisionResponse;
+import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.access.evaluation.CapabilityEvaluationService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,6 +21,7 @@ public class CapabilityEvaluationController {
         this.evaluationService = evaluationService;
     }
 
+    @RequireCapability("ACCESS.EVALUATE")
     @GetMapping
     ResponseEntity<AccessDecisionResponse> evaluate(
             @RequestParam UUID tenantId,

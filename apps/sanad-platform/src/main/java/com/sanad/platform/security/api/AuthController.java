@@ -1,6 +1,7 @@
 package com.sanad.platform.security.api;
 
 import com.sanad.platform.access.grant.UserGrantStatus;
+import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.access.grant.UserRoleGrant;
 import com.sanad.platform.access.grant.UserRoleGrantRepository;
 import com.sanad.platform.access.role.Role;
@@ -224,6 +225,7 @@ public class AuthController {
     // Administrative Password Reset (AUTH-ACCOUNT-001)
     // =========================================================================
 
+    @RequireCapability("USER.WRITE")
     @PostMapping("/admin-reset-password/{userId}")
     @Operation(summary = "Administratively reset a user's password. Requires authentication.")
     public ResponseEntity<Map<String, Object>> adminResetPassword(

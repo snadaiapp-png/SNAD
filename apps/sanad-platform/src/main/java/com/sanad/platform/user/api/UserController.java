@@ -1,6 +1,7 @@
 package com.sanad.platform.user.api;
 
 import com.sanad.platform.organization.api.ApiErrorResponse;
+import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.user.dto.CreateUserRequest;
 import com.sanad.platform.user.dto.UpdateUserRequest;
 import com.sanad.platform.user.dto.UserResponse;
@@ -65,6 +66,7 @@ public class UserController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
+    @RequireCapability("USER.CREATE")
     @PostMapping
     public ResponseEntity<UserResponse> createUser(
             @Parameter(description = "Tenant UUID (scope)", required = true)
@@ -88,6 +90,7 @@ public class UserController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
+    @RequireCapability("USER.READ")
     @GetMapping
     public ResponseEntity<List<UserResponse>> listUsers(
             @Parameter(description = "Tenant UUID (scope)", required = true)
@@ -108,6 +111,7 @@ public class UserController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
+    @RequireCapability("USER.READ")
     @GetMapping("/{userId}")
     public ResponseEntity<UserResponse> getUser(
             @Parameter(description = "User UUID", required = true)
@@ -133,6 +137,7 @@ public class UserController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
+    @RequireCapability("USER.WRITE")
     @PutMapping("/{userId}")
     public ResponseEntity<UserResponse> updateUser(
             @Parameter(description = "User UUID", required = true)
@@ -153,6 +158,7 @@ public class UserController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
+    @RequireCapability("USER.WRITE")
     @PatchMapping("/{userId}/activate")
     public ResponseEntity<UserResponse> activateUser(
             @PathVariable UUID userId,
@@ -170,6 +176,7 @@ public class UserController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
+    @RequireCapability("USER.WRITE")
     @PatchMapping("/{userId}/deactivate")
     public ResponseEntity<UserResponse> deactivateUser(
             @PathVariable UUID userId,
@@ -187,6 +194,7 @@ public class UserController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
+    @RequireCapability("USER.WRITE")
     @PatchMapping("/{userId}/suspend")
     public ResponseEntity<UserResponse> suspendUser(
             @PathVariable UUID userId,
@@ -204,6 +212,7 @@ public class UserController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
+    @RequireCapability("USER.DELETE")
     @PatchMapping("/{userId}/archive")
     public ResponseEntity<UserResponse> archiveUser(
             @PathVariable UUID userId,
