@@ -99,6 +99,7 @@ sanad:
       domain: ${COOKIE_DOMAIN:}
     bootstrap:
       enabled: ${BOOTSTRAP_ENABLED:false}
+      force-reset: ${BOOTSTRAP_FORCE_RESET:false}
       tenant-id: ${BOOTSTRAP_TENANT_ID:}
       tenant-name: ${BOOTSTRAP_TENANT_NAME:}
       tenant-subdomain: ${BOOTSTRAP_TENANT_SUBDOMAIN:}

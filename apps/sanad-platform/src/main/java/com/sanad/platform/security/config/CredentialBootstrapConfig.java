@@ -36,6 +36,9 @@ public class CredentialBootstrapConfig {
     @Value("${sanad.security.bootstrap.enabled:false}")
     private boolean enabled;
 
+    @Value("${sanad.security.bootstrap.force-reset:false}")
+    private boolean forceReset;
+
     @Value("${sanad.security.bootstrap.tenant-id:}")
     private String tenantIdValue;
 
@@ -72,6 +75,7 @@ public class CredentialBootstrapConfig {
 
             service.bootstrap(
                     true,
+                    forceReset,
                     tenantId,
                     tenantName,
                     tenantSubdomain,

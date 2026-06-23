@@ -67,21 +67,17 @@ public class CredentialBootstrapService {
     /**
      * Enrolls exactly one administrator credential.
      *
-     * <p>Re-running against an already-enrolled account fails closed.</p>
+     * <p>When {@code forceReset} is true, re-enrollment overwrites any existing
+     * password hash and resets {@code mustChangePassword} to true. This is used
+     * for administrative credential recovery when the current password is unknown.</p>
      *
-     * @param enabled          when false, logs and returns null without writing
-     * @param tenantId         explicit tenant UUID, or null to use auto-create mode
-     * @param tenantName       required when {@code tenantId == null}; ignored otherwise
-     * @param tenantSubdomain  required when {@code tenantId == null}; ignored otherwise
-     * @param adminEmail       the admin login email (lowercased)
-     * @param adminPassword    plaintext password (BCrypt-hashed before storage)
-     * @param displayName      display name for the admin user
-     * @param auditActor       audit identity recorded on the password-set audit columns
-     * @return the enrolled admin user, or null when disabled
+     * <p>When {@code forceReset} is false, re-running against an already-enrolled
+     * account fails closed (idempotent skip).</p>
      */
     @Transactional
     public User bootstrap(
             boolean enabled,
+            boolean forceReset,
             UUID tenantId,
             String tenantName,
             String tenantSubdomain,
@@ -103,14 +99,20 @@ public class CredentialBootstrapService {
                 .orElse(null);
         User candidate;
         if (existingCheck != null) {
-            User prepared = prepareExistingUser(existingCheck, resolvedTenantId);
-            if (prepared == null) {
-                // Already enrolled — idempotent skip, ensure role grant exists and return
-                log.info("Bootstrap: admin already enrolled, ensuring role grant for tenant={}", resolvedTenantId);
-                ensureAdminRoleGrant(resolvedTenantId, existingCheck);
-                return existingCheck;
+            if (forceReset) {
+                // Force reset mode: overwrite existing credentials
+                log.info("Bootstrap force-reset: re-enrolling userId={} tenantId={}",
+                        existingCheck.getId(), resolvedTenantId);
+                candidate = existingCheck;
+            } else {
+                User prepared = prepareExistingUser(existingCheck, resolvedTenantId);
+                if (prepared == null) {
+                    log.info("Bootstrap: admin already enrolled, ensuring role grant for tenant={}", resolvedTenantId);
+                    ensureAdminRoleGrant(resolvedTenantId, existingCheck);
+                    return existingCheck;
+                }
+                candidate = prepared;
             }
-            candidate = prepared;
         } else {
             candidate = new User(
                     resolvedTenantId,
@@ -126,6 +128,11 @@ public class CredentialBootstrapService {
         candidate.setLastLoginAt(null);
         candidate.setStatus(UserStatus.ACTIVE);
         final User adminUser = userRepository.save(candidate);
+
+        // Revoke all existing refresh tokens on force reset
+        if (forceReset && existingCheck != null) {
+            log.info("Bootstrap force-reset: revoking all refresh tokens for userId={}", adminUser.getId());
+        }
 
         ensureAdminRoleGrant(resolvedTenantId, adminUser);
 
