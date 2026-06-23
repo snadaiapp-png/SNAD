@@ -4,6 +4,7 @@ import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -33,6 +34,7 @@ import java.util.UUID;
  * <p>Also ensures the existing ADMIN role (created by bootstrap) gets all
  * capabilities, treating it equivalently to SUPER_ADMIN.</p>
  */
+@Component
 public class V15__seed_rbac_roles_and_capabilities extends BaseJavaMigration {
 
     private static final Logger log = LoggerFactory.getLogger(V15__seed_rbac_roles_and_capabilities.class);
