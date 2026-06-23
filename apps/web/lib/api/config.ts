@@ -1,7 +1,7 @@
 /** Environment-aware API configuration for SANAD. */
 import { ApiConfigurationError } from "./errors";
 
-export const DEFAULT_API_TIMEOUT_MS = 10_000;
+export const DEFAULT_API_TIMEOUT_MS = 60_000;
 const ALLOWED_PROTOCOLS = new Set(["https:", "http:"]);
 const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
 
