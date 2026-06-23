@@ -1,0 +1,391 @@
+# ============================================================
+# SANAD Platform — Backup Verification
+# ============================================================
+# Runs daily at 02:00 UTC to verify the production database
+# integrity: checks the Flyway schema version against the
+# expected level, counts records in critical tables, and
+# compares against configurable baselines. A manifest file
+# is produced and uploaded as an artifact. A GitHub issue is
+# created if any verification step fails.
+# ============================================================
+
+name: Backup Verify
+
+on:
+  schedule:
+    - cron: '0 2 * * *'      # Daily at 02:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write               # Required to create verification failure issues
+
+concurrency:
+  group: backup-verify
+  cancel-in-progress: true
+
+env:
+  EXPECTED_FLYWAY_VERSION: "15"
+  # Baseline record counts for deviation detection.
+  # A warning is emitted if the current count deviates by >50%
+  # from the baseline. Set to 0 to skip baseline comparison.
+  BASELINE_TENANTS: "1"
+  BASELINE_USERS: "1"
+  BASELINE_ORGANIZATIONS: "1"
+  BASELINE_MEMBERSHIPS: "1"
+  BASELINE_ROLES: "1"
+  BASELINE_ACCESS_CAPABILITIES: "1"
+  BASELINE_ROLE_CAPABILITIES: "1"
+
+jobs:
+  verify-database:
+    name: Verify Production Database
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # -------------------------------------------------------
+      # Step 1: Install PostgreSQL client tools
+      # -------------------------------------------------------
+      - name: Install PostgreSQL client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      # -------------------------------------------------------
+      # Step 2: Verify Flyway schema version
+      # -------------------------------------------------------
+      - name: Verify Flyway schema version
+        id: flyway
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export PGPASSWORD="${{ secrets.DATABASE_PASSWORD }}"
+
+          current_version=$(psql \
+            -h aws-1-eu-central-1.pooler.supabase.com \
+            -p 5432 \
+            -U "${{ secrets.DATABASE_USERNAME }}" \
+            -d postgres \
+            -t -A \
+            -c "SELECT version FROM flyway_schema_history WHERE success = true ORDER BY installed_rank DESC LIMIT 1;" \
+            2>/dev/null || echo "QUERY_FAILED")
+
+          if [ "$current_version" = "QUERY_FAILED" ]; then
+            echo "flyway_check=failed" >> "$GITHUB_OUTPUT"
+            echo "current_version=unknown" >> "$GITHUB_OUTPUT"
+            echo "ERROR: Could not query Flyway schema version"
+            exit 1
+          fi
+
+          echo "current_version=$current_version" >> "$GITHUB_OUTPUT"
+
+          if [ "$current_version" = "${{ env.EXPECTED_FLYWAY_VERSION }}" ]; then
+            echo "flyway_check=passed" >> "$GITHUB_OUTPUT"
+            echo "Flyway version OK: $current_version (expected ${{ env.EXPECTED_FLYWAY_VERSION }})"
+          else
+            echo "flyway_check=failed" >> "$GITHUB_OUTPUT"
+            echo "Flyway version MISMATCH: $current_version (expected ${{ env.EXPECTED_FLYWAY_VERSION }})"
+          fi
+
+      # -------------------------------------------------------
+      # Step 3: Check record counts for critical tables
+      # -------------------------------------------------------
+      - name: Check critical table record counts
+        id: counts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export PGPASSWORD="${{ secrets.DATABASE_PASSWORD }}"
+
+          # Helper: query a count from a table
+          query_count() {
+            local table="$1"
+            psql \
+              -h aws-1-eu-central-1.pooler.supabase.com \
+              -p 5432 \
+              -U "${{ secrets.DATABASE_USERNAME }}" \
+              -d postgres \
+              -t -A \
+              -c "SELECT COUNT(*) FROM $table;" \
+              2>/dev/null || echo "-1"
+          }
+
+          # Helper: check deviation from baseline
+          check_deviation() {
+            local name="$1"
+            local current="$2"
+            local baseline="$3"
+
+            if [ "$baseline" -eq 0 ] || [ "$current" -eq -1 ]; then
+              echo "$name: $current (baseline comparison skipped)"
+              return 0
+            fi
+
+            # Calculate deviation percentage
+            # Using awk for floating-point arithmetic
+            deviation=$(awk -v c="$current" -v b="$baseline" 'BEGIN {
+              if (b == 0) { print 0; exit }
+              diff = (c - b) / b * 100
+              if (diff < 0) diff = -diff
+              printf "%.1f", diff
+            }')
+
+            if awk -v d="$deviation" 'BEGIN { exit (d > 50) ? 1 : 0 }'; then
+              echo "$name: $current (baseline: $baseline, deviation: ${deviation}%) — OK"
+              return 0
+            else
+              echo "$name: $current (baseline: $baseline, deviation: ${deviation}%) — WARNING: >50% deviation!"
+              return 1
+            fi
+          }
+
+          overall_ok="true"
+          warnings=""
+
+          # tenants
+          tenants_count=$(query_count "tenants")
+          echo "tenants_count=$tenants_count" >> "$GITHUB_OUTPUT"
+          if ! check_deviation "tenants" "$tenants_count" "${{ env.BASELINE_TENANTS }}"; then
+            warnings="${warnings}tenants: ${tenants_count} (>50%% deviation)\n"
+            overall_ok="false"
+          fi
+
+          # users
+          users_count=$(query_count "users")
+          echo "users_count=$users_count" >> "$GITHUB_OUTPUT"
+          if ! check_deviation "users" "$users_count" "${{ env.BASELINE_USERS }}"; then
+            warnings="${warnings}users: ${users_count} (>50%% deviation)\n"
+            overall_ok="false"
+          fi
+
+          # organizations
+          orgs_count=$(query_count "organizations")
+          echo "organizations_count=$orgs_count" >> "$GITHUB_OUTPUT"
+          if ! check_deviation "organizations" "$orgs_count" "${{ env.BASELINE_ORGANIZATIONS }}"; then
+            warnings="${warnings}organizations: ${orgs_count} (>50%% deviation)\n"
+            overall_ok="false"
+          fi
+
+          # memberships (organization_memberships)
+          memberships_count=$(query_count "organization_memberships")
+          echo "memberships_count=$memberships_count" >> "$GITHUB_OUTPUT"
+          if ! check_deviation "memberships" "$memberships_count" "${{ env.BASELINE_MEMBERSHIPS }}"; then
+            warnings="${warnings}memberships: ${memberships_count} (>50%% deviation)\n"
+            overall_ok="false"
+          fi
+
+          # roles
+          roles_count=$(query_count "roles")
+          echo "roles_count=$roles_count" >> "$GITHUB_OUTPUT"
+          if ! check_deviation "roles" "$roles_count" "${{ env.BASELINE_ROLES }}"; then
+            warnings="${warnings}roles: ${roles_count} (>50%% deviation)\n"
+            overall_ok="false"
+          fi
+
+          # access_capabilities
+          capabilities_count=$(query_count "access_capabilities")
+          echo "access_capabilities_count=$capabilities_count" >> "$GITHUB_OUTPUT"
+          if ! check_deviation "access_capabilities" "$capabilities_count" "${{ env.BASELINE_ACCESS_CAPABILITIES }}"; then
+            warnings="${warnings}access_capabilities: ${capabilities_count} (>50%% deviation)\n"
+            overall_ok="false"
+          fi
+
+          # role_capabilities
+          role_caps_count=$(query_count "role_capabilities")
+          echo "role_capabilities_count=$role_caps_count" >> "$GITHUB_OUTPUT"
+          if ! check_deviation "role_capabilities" "$role_caps_count" "${{ env.BASELINE_ROLE_CAPABILITIES }}"; then
+            warnings="${warnings}role_capabilities: ${role_caps_count} (>50%% deviation)\n"
+            overall_ok="false"
+          fi
+
+          echo "warnings=${warnings}" >> "$GITHUB_OUTPUT"
+          echo "counts_ok=$overall_ok" >> "$GITHUB_OUTPUT"
+
+      # -------------------------------------------------------
+      # Step 4: Create manifest file
+      # -------------------------------------------------------
+      - name: Create verification manifest
+        id: manifest
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          flyway_ok="${{ steps.flyway.outputs.flyway_check || 'unknown' }}"
+          counts_ok="${{ steps.counts.outputs.counts_ok || 'unknown' }}"
+
+          if [ "$flyway_ok" = "passed" ] && [ "$counts_ok" = "true" ]; then
+            overall_status="PASSED"
+          else
+            overall_status="FAILED"
+          fi
+
+          jq -n \
+            --arg ts "$timestamp" \
+            --arg flyway_version "${{ steps.flyway.outputs.current_version || 'unknown' }}" \
+            --arg expected_flyway "${{ env.EXPECTED_FLYWAY_VERSION }}" \
+            --arg flyway_check "$flyway_ok" \
+            --arg counts_check "$counts_ok" \
+            --arg overall "$overall_status" \
+            --arg tenants "${{ steps.counts.outputs.tenants_count || 'N/A' }}" \
+            --arg users "${{ steps.counts.outputs.users_count || 'N/A' }}" \
+            --arg organizations "${{ steps.counts.outputs.organizations_count || 'N/A' }}" \
+            --arg memberships "${{ steps.counts.outputs.memberships_count || 'N/A' }}" \
+            --arg roles "${{ steps.counts.outputs.roles_count || 'N/A' }}" \
+            --arg access_capabilities "${{ steps.counts.outputs.access_capabilities_count || 'N/A' }}" \
+            --arg role_capabilities "${{ steps.counts.outputs.role_capabilities_count || 'N/A' }}" \
+            '{
+              timestamp: $ts,
+              verification: {
+                overall_status: $overall,
+                flyway: {
+                  current_version: $flyway_version,
+                  expected_version: ($expected_flyway | tonumber),
+                  check: $flyway_check
+                },
+                record_counts: {
+                  tenants: ($tenants | tonumber? // -1),
+                  users: ($users | tonumber? // -1),
+                  organizations: ($organizations | tonumber? // -1),
+                  memberships: ($memberships | tonumber? // -1),
+                  roles: ($roles | tonumber? // -1),
+                  access_capabilities: ($access_capabilities | tonumber? // -1),
+                  role_capabilities: ($role_capabilities | tonumber? // -1)
+                },
+                counts_check: $counts_check
+              }
+            }' > backup-verify-manifest.json
+
+          echo "overall_status=$overall_status" >> "$GITHUB_OUTPUT"
+          echo "Manifest created — overall status: $overall_status"
+
+      # -------------------------------------------------------
+      # Step 5: Upload manifest artifact
+      # -------------------------------------------------------
+      - name: Upload manifest artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-verify-manifest-${{ github.run_id }}
+          path: backup-verify-manifest.json
+          if-no-files-found: error
+          retention-days: 90     # Long retention for audit trail
+
+      # -------------------------------------------------------
+      # Step 6: Create GitHub issue on verification failure
+      # -------------------------------------------------------
+      - name: Create verification failure issue
+        if: always() && steps.manifest.outputs.overall_status == 'FAILED'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          timestamp=$(date -u +"%Y-%m-%d %H:%M UTC")
+          flyway_version="${{ steps.flyway.outputs.current_version || 'unknown' }}"
+          flyway_check="${{ steps.flyway.outputs.flyway_check || 'unknown' }}"
+          warnings="${{ steps.counts.outputs.warnings || 'None' }}"
+
+          # Check if an open backup-verify issue already exists
+          existing=$(gh issue list \
+            --label "backup-verify" \
+            --state open \
+            --limit 1 \
+            --json number \
+            --jq '.[0].number' 2>/dev/null || echo "")
+
+          issue_body="## Backup Verification Failed\n\n**Timestamp:** $timestamp\n**Workflow run:** ${{ github.run_id }}\n\n### Flyway Schema Version\n- Current: $flyway_version\n- Expected: ${{ env.EXPECTED_FLYWAY_VERSION }}\n- Check: $flyway_check\n\n### Record Count Warnings\n${warnings}\n\n### Next Steps\n1. Check the database connectivity and credentials\n2. Verify Flyway migrations are applied correctly\n3. Investigate any unexpected record count deviations\n4. Re-run the verification workflow after remediation\n\n*Auto-created by backup-verify workflow.*"
+
+          if [ -n "$existing" ]; then
+            echo "Open verification issue #$existing found — updating"
+            gh issue comment "$existing" --body "## Updated Verification — $timestamp\n\nFlyway: $flyway_check ($flyway_version / expected ${{ env.EXPECTED_FLYWAY_VERSION }})\n\nWarnings:\n${warnings}\n\n*Updated by backup-verify workflow (run ${{ github.run_id }}).*" 2>/dev/null || true
+          else
+            gh issue create \
+              --title "Backup Verification Failed — $timestamp" \
+              --body "$issue_body" \
+              --label "backup-verify" \
+              --label "P2" \
+              --assignee "snadaiapp-png" 2>/dev/null || true
+          fi
+
+      # -------------------------------------------------------
+      # Step 7: Close issue on successful verification
+      # -------------------------------------------------------
+      - name: Close verification issue on success
+        if: success() && steps.manifest.outputs.overall_status == 'PASSED'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          existing=$(gh issue list \
+            --label "backup-verify" \
+            --state open \
+            --limit 1 \
+            --json number \
+            --jq '.[0].number' 2>/dev/null || echo "")
+
+          if [ -n "$existing" ]; then
+            timestamp=$(date -u +"%Y-%m-%d %H:%M UTC")
+            gh issue comment "$existing" --body "Verification PASSED at $timestamp. Closing." 2>/dev/null || true
+            gh issue close "$existing" --reason "completed" 2>/dev/null || true
+            echo "Closed verification issue #$existing"
+          else
+            echo "No open verification issues — all clear"
+          fi
+
+      # -------------------------------------------------------
+      # Step 8: Write GITHUB_STEP_SUMMARY
+      # -------------------------------------------------------
+      - name: Write verification summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          overall="${{ steps.manifest.outputs.overall_status || 'UNKNOWN' }}"
+          flyway_version="${{ steps.flyway.outputs.current_version || 'N/A' }}"
+          flyway_check="${{ steps.flyway.outputs.flyway_check || 'N/A' }}"
+          counts_ok="${{ steps.counts.outputs.counts_ok || 'N/A' }}"
+
+          if [ "$overall" = "PASSED" ]; then
+            status_icon=":green_circle:"
+          else
+            status_icon=":red_circle:"
+          fi
+
+          {
+            echo "## Database Backup Verification"
+            echo ""
+            echo "$status_icon **Overall: $overall**"
+            echo ""
+            echo "### Flyway Schema Version"
+            echo ""
+            echo "| Check | Current | Expected |"
+            echo "|-------|---------|----------|"
+            echo "| Flyway | $flyway_check | ${{ env.EXPECTED_FLYWAY_VERSION }} |"
+            echo ""
+            echo "### Record Counts"
+            echo ""
+            echo "| Table | Count | Baseline |"
+            echo "|-------|-------|----------|"
+            printf '| tenants | %s | %s |\n' "${{ steps.counts.outputs.tenants_count || 'N/A' }}" "${{ env.BASELINE_TENANTS }}"
+            printf '| users | %s | %s |\n' "${{ steps.counts.outputs.users_count || 'N/A' }}" "${{ env.BASELINE_USERS }}"
+            printf '| organizations | %s | %s |\n' "${{ steps.counts.outputs.organizations_count || 'N/A' }}" "${{ env.BASELINE_ORGANIZATIONS }}"
+            printf '| memberships | %s | %s |\n' "${{ steps.counts.outputs.memberships_count || 'N/A' }}" "${{ env.BASELINE_MEMBERSHIPS }}"
+            printf '| roles | %s | %s |\n' "${{ steps.counts.outputs.roles_count || 'N/A' }}" "${{ env.BASELINE_ROLES }}"
+            printf '| access_capabilities | %s | %s |\n' "${{ steps.counts.outputs.access_capabilities_count || 'N/A' }}" "${{ env.BASELINE_ACCESS_CAPABILITIES }}"
+            printf '| role_capabilities | %s | %s |\n' "${{ steps.counts.outputs.role_capabilities_count || 'N/A' }}" "${{ env.BASELINE_ROLE_CAPABILITIES }}"
+            echo ""
+            echo "- Verified at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "- Manifest artifact: backup-verify-manifest-${{ github.run_id }}"
+          } >> "$GITHUB_STEP_SUMMARY"

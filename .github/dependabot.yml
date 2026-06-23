@@ -1,0 +1,88 @@
+# ============================================================
+# SANAD Platform — Dependabot Configuration
+# ============================================================
+# Configures GitHub Dependabot to automatically check for
+# dependency updates across the three ecosystem layers:
+#   1. npm — Frontend (apps/web)
+#   2. Maven — Backend (apps/sanad-platform)
+#   3. GitHub Actions — CI/CD workflows (.github/workflows)
+#
+# Schedule: weekly (Monday)
+# Reviewer: snadaiapp-png
+# Labels: dependencies
+# ============================================================
+
+version: 2
+
+updates:
+  # ---------------------------------------------------------
+  # npm — Frontend application
+  # ---------------------------------------------------------
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: UTC
+    reviewer:
+      - snadaiapp-png
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps-web)"
+      include: scope
+    open-pull-requests-limit: 10
+    # Group patch and minor updates together to reduce PR noise
+    groups:
+      patch-and-minor:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+
+  # ---------------------------------------------------------
+  # Maven — Backend service
+  # ---------------------------------------------------------
+  - package-ecosystem: maven
+    directory: /apps/sanad-platform
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: UTC
+    reviewer:
+      - snadaiapp-png
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps-backend)"
+      include: scope
+    open-pull-requests-limit: 10
+    groups:
+      patch-and-minor:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+
+  # ---------------------------------------------------------
+  # GitHub Actions — CI/CD workflow dependencies
+  # ---------------------------------------------------------
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: UTC
+    reviewer:
+      - snadaiapp-png
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps-ci)"
+      include: scope
+    open-pull-requests-limit: 5

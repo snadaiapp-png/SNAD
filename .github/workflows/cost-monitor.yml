@@ -1,0 +1,261 @@
+# ============================================================
+# SANAD Platform — Cost Monitor
+# ============================================================
+# Runs daily to track infrastructure and CI/CD costs:
+#   - Fetches Render service info (plan, status, usage)
+#   - Counts GitHub Actions workflow runs over the past day
+#   - Produces a cost summary in GITHUB_STEP_SUMMARY
+# Uses secrets: RENDER_API_KEY, RENDER_SERVICE_ID
+# ============================================================
+
+name: Cost Monitor
+
+on:
+  schedule:
+    - cron: '0 6 * * *'      # Daily at 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read               # Required to query workflow runs
+
+concurrency:
+  group: cost-monitor
+  cancel-in-progress: true
+
+jobs:
+  cost-report:
+    name: Generate Cost Report
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # -------------------------------------------------------
+      # Step 1: Fetch Render service information
+      # -------------------------------------------------------
+      - name: Fetch Render service info
+        id: render
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RENDER_API_KEY="${{ secrets.RENDER_API_KEY }}"
+          RENDER_SERVICE_ID="${{ secrets.RENDER_SERVICE_ID }}"
+          RENDER_API_BASE="https://api.render.com/v1"
+
+          if [ -z "$RENDER_API_KEY" ] || [ -z "$RENDER_SERVICE_ID" ]; then
+            echo "WARNING: Render API credentials not configured"
+            echo "render_plan=N/A"         >> "$GITHUB_OUTPUT"
+            echo "render_status=N/A"       >> "$GITHUB_OUTPUT"
+            echo "render_type=N/A"         >> "$GITHUB_OUTPUT"
+            echo "render_region=N/A"       >> "$GITHUB_OUTPUT"
+            echo "render_created=N/A"      >> "$GITHUB_OUTPUT"
+            echo "render_available= false"  >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Fetch service details
+          response=$(curl --silent --show-error \
+            --connect-timeout 15 --max-time 30 \
+            -H "Accept: application/json" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            "${RENDER_API_BASE}/services/${RENDER_SERVICE_ID}" || echo '{}')
+
+          # Parse response fields
+          render_plan=$(printf '%s' "$response" | jq -r '.plan // "unknown"' 2>/dev/null || echo "unknown")
+          render_status=$(printf '%s' "$response" | jq -r '.status // "unknown"' 2>/dev/null || echo "unknown")
+          render_type=$(printf '%s' "$response" | jq -r '.type // "unknown"' 2>/dev/null || echo "unknown")
+          render_region=$(printf '%s' "$response" | jq -r '.region // "unknown"' 2>/dev/null || echo "unknown")
+          render_created=$(printf '%s' "$response" | jq -r '.createdAt // "unknown"' 2>/dev/null || echo "unknown")
+
+          echo "render_plan=$render_plan"         >> "$GITHUB_OUTPUT"
+          echo "render_status=$render_status"     >> "$GITHUB_OUTPUT"
+          echo "render_type=$render_type"         >> "$GITHUB_OUTPUT"
+          echo "render_region=$render_region"     >> "$GITHUB_OUTPUT"
+          echo "render_created=$render_created"   >> "$GITHUB_OUTPUT"
+          echo "render_available=true"            >> "$GITHUB_OUTPUT"
+
+          echo "Render service: plan=$render_plan, status=$render_status, type=$render_type"
+
+      # -------------------------------------------------------
+      # Step 2: Fetch Render service usage metrics
+      # -------------------------------------------------------
+      # Note: Render's API may not expose granular usage metrics.
+      # This step attempts to fetch what's available and falls
+      # back gracefully if the endpoint is unavailable.
+      - name: Fetch Render usage metrics
+        id: render-usage
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RENDER_API_KEY="${{ secrets.RENDER_API_KEY }}"
+          RENDER_SERVICE_ID="${{ secrets.RENDER_SERVICE_ID }}"
+
+          if [ -z "$RENDER_API_KEY" ] || [ -z "$RENDER_SERVICE_ID" ]; then
+            echo "usage_data={}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Try to fetch custom domains / metrics (may 404 on free tier)
+          # Render doesn't have a public usage metrics endpoint yet,
+          # so we estimate based on plan and uptime
+          response=$(curl --silent --show-error \
+            --connect-timeout 15 --max-time 30 \
+            -H "Accept: application/json" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/metrics?from=$(date -u -d '1 day ago' +%s)000&to=$(date -u +%s)000" \
+            2>/dev/null || echo '{}')
+
+          if printf '%s' "$response" | jq -e 'type == "object" or type == "array"' >/dev/null 2>&1; then
+            echo "usage_data=${response}" >> "$GITHUB_OUTPUT"
+          else
+            echo "usage_data={}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # -------------------------------------------------------
+      # Step 3: Check GitHub Actions usage
+      # -------------------------------------------------------
+      - name: Check GitHub Actions usage
+        id: actions-usage
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Count workflow runs in the last 24 hours
+          since=$(date -u -d '1 day ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || \
+                  date -u -v-1d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || \
+                  echo "")
+
+          if [ -n "$since" ]; then
+            total_runs=$(gh run list \
+              --repo "${{ github.repository }}" \
+              --created ">=$since" \
+              --limit 500 \
+              --json status \
+              --jq 'length' 2>/dev/null || echo "0")
+
+            success_runs=$(gh run list \
+              --repo "${{ github.repository }}" \
+              --created ">=$since" \
+              --status success \
+              --limit 500 \
+              --json status \
+              --jq 'length' 2>/dev/null || echo "0")
+
+            failed_runs=$(gh run list \
+              --repo "${{ github.repository }}" \
+              --created ">=$since" \
+              --status failure \
+              --limit 500 \
+              --json status \
+              --jq 'length' 2>/dev/null || echo "0")
+          else
+            total_runs="0"
+            success_runs="0"
+            failed_runs="0"
+          fi
+
+          echo "total_runs=$total_runs"       >> "$GITHUB_OUTPUT"
+          echo "success_runs=$success_runs"   >> "$GITHUB_OUTPUT"
+          echo "failed_runs=$failed_runs"     >> "$GITHUB_OUTPUT"
+
+          echo "GitHub Actions (last 24h): $total_runs total, $success_runs success, $failed_runs failed"
+
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # -------------------------------------------------------
+      # Step 4: Estimate monthly costs
+      # -------------------------------------------------------
+      - name: Estimate monthly costs
+        id: cost-estimate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          render_plan="${{ steps.render.outputs.render_plan || 'unknown' }}"
+
+          # Render plan cost mapping (approximate monthly rates)
+          case "$render_plan" in
+            starter)
+              render_monthly="7"
+              ;;
+            standard)
+              render_monthly="25"
+              ;;
+            pro)
+              render_monthly="85"
+            ;;
+            pro_plus)
+              render_monthly="170"
+              ;;
+            *)
+              # Free tier or unknown
+              render_monthly="0"
+              ;;
+          esac
+
+          # GitHub Actions: free for public repos; 2000 min/mo for
+          # private repos on Team plan. Estimate minutes used.
+          total_runs="${{ steps.actions-usage.outputs.total_runs || '0' }}"
+          # Rough estimate: average 3 minutes per workflow run
+          estimated_minutes=$(( total_runs * 3 ))
+
+          echo "render_monthly=$render_monthly"         >> "$GITHUB_OUTPUT"
+          echo "estimated_actions_minutes=$estimated_minutes" >> "$GITHUB_OUTPUT"
+
+      # -------------------------------------------------------
+      # Step 5: Write cost summary to GITHUB_STEP_SUMMARY
+      # -------------------------------------------------------
+      - name: Write cost summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          {
+            echo "## SANAD Cost Monitor Report"
+            echo ""
+            echo "Generated at: $timestamp"
+            echo ""
+
+            echo "### Render Infrastructure"
+            echo ""
+            echo "| Property | Value |"
+            echo "|----------|-------|"
+            printf '| Plan | %s |\n' "${{ steps.render.outputs.render_plan || 'N/A' }}"
+            printf '| Status | %s |\n' "${{ steps.render.outputs.render_status || 'N/A' }}"
+            printf '| Type | %s |\n' "${{ steps.render.outputs.render_type || 'N/A' }}"
+            printf '| Region | %s |\n' "${{ steps.render.outputs.render_region || 'N/A' }}"
+            printf '| Created | %s |\n' "${{ steps.render.outputs.render_created || 'N/A' }}"
+            printf '| Est. Monthly Cost | $%s |\n' "${{ steps.cost-estimate.outputs.render_monthly || '0' }}"
+            echo ""
+
+            echo "### GitHub Actions Usage (Last 24h)"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            printf '| Total Workflow Runs | %s |\n' "${{ steps.actions-usage.outputs.total_runs || '0' }}"
+            printf '| Successful Runs | %s |\n' "${{ steps.actions-usage.outputs.success_runs || '0' }}"
+            printf '| Failed Runs | %s |\n' "${{ steps.actions-usage.outputs.failed_runs || '0' }}"
+            printf '| Est. Minutes Used | %s |\n' "${{ steps.cost-estimate.outputs.estimated_actions_minutes || '0' }}"
+            echo ""
+
+            echo "### Cost Summary"
+            echo ""
+            echo "| Service | Est. Monthly |"
+            echo "|---------|-------------|"
+            printf '| Render (%s) | $%s |\n' \
+              "${{ steps.render.outputs.render_plan || 'unknown' }}" \
+              "${{ steps.cost-estimate.outputs.render_monthly || '0' }}"
+            printf '| GitHub Actions | Included in plan |\n'
+            echo "| **Total Estimated** | **\$${{ steps.cost-estimate.outputs.render_monthly || '0' }}** |"
+            echo ""
+
+            echo "> **Note:** Costs are estimates based on current plan. Actual billing may vary."
+            echo "> Render metrics API availability depends on your plan tier."
+
+          } >> "$GITHUB_STEP_SUMMARY"

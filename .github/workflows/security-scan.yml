@@ -1,0 +1,224 @@
+# ============================================================
+# SANAD Platform — OWASP Dependency-Check Security Scan
+# ============================================================
+# Runs weekly (Monday 06:00 UTC) and on every push to main.
+# Uses the OWASP dependency-check-maven plugin to scan the
+# backend for known CVEs in transitive dependencies.
+# Uploads the HTML report as an artifact and creates a
+# GitHub issue when HIGH or CRITICAL vulnerabilities are
+# detected.
+# ============================================================
+
+name: Security Scan (OWASP)
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'     # Every Monday at 06:00 UTC
+  push:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/pom.xml'
+      - 'apps/sanad-platform/src/**'
+      - '.github/workflows/security-scan.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write               # Required to create vulnerability issues
+
+concurrency:
+  group: security-scan
+  cancel-in-progress: true
+
+jobs:
+  dependency-check:
+    name: OWASP Dependency-Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45       # NVD download can be slow on first run
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+
+    steps:
+      # -------------------------------------------------------
+      # Step 1: Checkout repository
+      # -------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------------
+      # Step 2: Set up JDK 17 (matches project java.version)
+      # -------------------------------------------------------
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # -------------------------------------------------------
+      # Step 3: Run OWASP dependency-check-maven
+      # -------------------------------------------------------
+      # The plugin scans all transitive dependencies against the
+      # NVD (National Vulnerability Database). The NVD data cache
+      # is persisted across runs using a shared directory.
+      - name: Run OWASP dependency-check
+        continue-on-error: true   # Don't fail the workflow; we parse results below
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mvn org.owasp:dependency-check-maven:12.1.0:check \
+            -DfailBuildOnCVSS=0 \
+            -Dformat=HTML,JSON,SARIF \
+            -DoutputDirectory=target/dependency-check-report \
+            -DdataDirectory=${{ runner.temp }}/nvd-cache \
+            -DnvdApiKey="${{ secrets.NVD_API_KEY }}" \
+            -DsuppressionFile=dependency-check-suppressions.xml \
+            --batch-mode \
+            --no-transfer-progress
+
+      # -------------------------------------------------------
+      # Step 4: Parse scan results for severity levels
+      # -------------------------------------------------------
+      - name: Parse vulnerability results
+        id: vuln-results
+        if: always()
+        shell: bash
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+
+          report_dir="target/dependency-check-report"
+          json_report="$report_dir/dependency-check-report.json"
+
+          high_count=0
+          critical_count=0
+          medium_count=0
+          low_count=0
+
+          if [ -f "$json_report" ]; then
+            # Count vulnerabilities by severity from the JSON report
+            high_count=$(jq '[.dependencies[].vulnerabilities[]? | select(.severity | test("HIGH"; "i"))] | length' "$json_report" 2>/dev/null || echo "0")
+            critical_count=$(jq '[.dependencies[].vulnerabilities[]? | select(.severity | test("CRITICAL"; "i"))] | length' "$json_report" 2>/dev/null || echo "0")
+            medium_count=$(jq '[.dependencies[].vulnerabilities[]? | select(.severity | test("MEDIUM|MODERATE"; "i"))] | length' "$json_report" 2>/dev/null || echo "0")
+            low_count=$(jq '[.dependencies[].vulnerabilities[]? | select(.severity | test("LOW"; "i"))] | length' "$json_report" 2>/dev/null || echo "0")
+          else
+            echo "WARNING: JSON report not found at $json_report"
+          fi
+
+          echo "high_count=$high_count"           >> "$GITHUB_OUTPUT"
+          echo "critical_count=$critical_count"   >> "$GITHUB_OUTPUT"
+          echo "medium_count=$medium_count"       >> "$GITHUB_OUTPUT"
+          echo "low_count=$low_count"             >> "$GITHUB_OUTPUT"
+
+          total_high_critical=$(( high_count + critical_count ))
+
+          if [ "$total_high_critical" -gt 0 ]; then
+            echo "has_high_critical=true" >> "$GITHUB_OUTPUT"
+            echo "VULNERABILITIES FOUND: $critical_count CRITICAL, $high_count HIGH, $medium_count MEDIUM, $low_count LOW"
+          else
+            echo "has_high_critical=false" >> "$GITHUB_OUTPUT"
+            echo "No HIGH/CRITICAL vulnerabilities found"
+          fi
+
+      # -------------------------------------------------------
+      # Step 5: Upload reports as artifacts
+      # -------------------------------------------------------
+      - name: Upload OWASP reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-dependency-check-report-${{ github.run_id }}
+          path: apps/sanad-platform/target/dependency-check-report/
+          if-no-files-found: warn
+          retention-days: 30
+
+      # -------------------------------------------------------
+      # Step 6: Create GitHub issue for HIGH/CRITICAL vulns
+      # -------------------------------------------------------
+      - name: Create vulnerability issue
+        if: always() && steps.vuln-results.outputs.has_high_critical == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          critical="${{ steps.vuln-results.outputs.critical_count }}"
+          high="${{ steps.vuln-results.outputs.high_count }}"
+          medium="${{ steps.vuln-results.outputs.medium_count }}"
+          low="${{ steps.vuln-results.outputs.low_count }}"
+          timestamp=$(date -u +"%Y-%m-%d %H:%M UTC")
+
+          # Check if an open vulnerability issue already exists
+          existing=$(gh issue list \
+            --label "security-vulnerability" \
+            --state open \
+            --limit 1 \
+            --json number \
+            --jq '.[0].number' 2>/dev/null || echo "")
+
+          if [ -n "$existing" ]; then
+            echo "Open vulnerability issue #$existing found — updating"
+            gh issue comment "$existing" --body "## Updated Scan Results — $timestamp\n\n- CRITICAL: $critical\n- HIGH: $high\n- MEDIUM: $medium\n- LOW: $low\n\n*Updated by security-scan workflow (run ${{ github.run_id }}).*"
+          else
+            gh issue create \
+              --title "Security: HIGH/CRITICAL Vulnerabilities Detected — $timestamp" \
+              --body "## OWASP Dependency-Check Results\n\n**Scan date:** $timestamp\n**Workflow run:** ${{ github.run_id }}\n\n| Severity | Count |\n|----------|-------|\n| CRITICAL | $critical |\n| HIGH | $high |\n| MEDIUM | $medium |\n| LOW | $low |\n\n### Next Steps\n1. Download the full report from the workflow artifacts\n2. Review each HIGH/CRITICAL finding\n3. Update the affected dependency or apply a suppression\n4. Re-run the security scan to verify remediation\n\n*Auto-created by security-scan workflow.*" \
+              --label "security-vulnerability" \
+              --label "P1" \
+              --assignee "snadaiapp-png"
+          fi
+
+      # -------------------------------------------------------
+      # Step 7: Write GITHUB_STEP_SUMMARY
+      # -------------------------------------------------------
+      - name: Write security scan summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          critical="${{ steps.vuln-results.outputs.critical_count || 'N/A' }}"
+          high="${{ steps.vuln-results.outputs.high_count || 'N/A' }}"
+          medium="${{ steps.vuln-results.outputs.medium_count || 'N/A' }}"
+          low="${{ steps.vuln-results.outputs.low_count || 'N/A' }}"
+          has_issue="${{ steps.vuln-results.outputs.has_high_critical || 'false' }}"
+
+          if [ "$has_issue" = "true" ]; then
+            status_icon=":red_circle:"
+            status_text="VULNERABILITIES FOUND"
+          else
+            status_icon=":green_circle:"
+            status_text="NO HIGH/CRITICAL VULNERABILITIES"
+          fi
+
+          {
+            echo "## OWASP Dependency-Check Scan"
+            echo ""
+            echo "$status_icon **$status_text**"
+            echo ""
+            echo "| Severity | Count |"
+            echo "|----------|-------|"
+            echo "| CRITICAL | $critical |"
+            echo "| HIGH | $high |"
+            echo "| MEDIUM | $medium |"
+            echo "| LOW | $low |"
+            echo ""
+            echo "- Scanned at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "- Working directory: apps/sanad-platform"
+            echo "- Report artifact: owasp-dependency-check-report-${{ github.run_id }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # -------------------------------------------------------
+      # Step 8: Fail the workflow if HIGH/CRITICAL found
+      # -------------------------------------------------------
+      # This is separate from the issue creation so that the
+      # issue is created even though we ultimately fail.
+      - name: Fail on HIGH/CRITICAL vulnerabilities
+        if: steps.vuln-results.outputs.has_high_critical == 'true'
+        shell: bash
+        run: |
+          echo "Failing workflow: HIGH/CRITICAL vulnerabilities detected"
+          exit 1
