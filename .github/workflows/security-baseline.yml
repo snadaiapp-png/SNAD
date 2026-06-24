@@ -20,6 +20,7 @@ jobs:
             -v "$PWD:/repo" \
             zricethezav/gitleaks:v8.24.3 detect \
             --source=/repo \
+            --config=/repo/.gitleaks.toml \
             --no-git \
             --redact \
             --exit-code=1
