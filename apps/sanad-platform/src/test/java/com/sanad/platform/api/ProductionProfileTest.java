@@ -28,7 +28,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>Automatically disabled when Docker is not available (e.g. local
  * dev environment without Docker). Runs in CI where Docker is present.</p>
  */
-@SpringBootTest
+@SpringBootTest(
+    properties = {
+        "sanad.cors.allowed-origins=https://snad-app.vercel.app"
+    }
+)
 @Import(SecurityPermitAllTestConfig.class)
 @AutoConfigureMockMvc
 @ActiveProfiles("prod")
