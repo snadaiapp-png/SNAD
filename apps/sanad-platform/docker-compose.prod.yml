@@ -52,7 +52,21 @@ services:
       JPA_DDL_AUTO: validate
       FLYWAY_ENABLED: "true"
       SANAD_CORS_ALLOWED_ORIGINS: ${SANAD_CORS_ALLOWED_ORIGINS:-https://snad-app.vercel.app}
-      COOKIE_SAME_SITE: ${COOKIE_SAME_SITE:-None}
+      # DEFECT-029 remediation: align the default SameSite value to 'lax'
+      # with application-prod.yml (which already defaults to 'lax').
+      # Previously this file defaulted to 'None', which:
+      #   1. Required COOKIE_SECURE=true to be respected by browsers
+      #      (cross-site cookies with SameSite=None MUST be Secure).
+      #   2. Allowed the refresh cookie to be sent on cross-site requests,
+      #      widening the CSRF attack surface.
+      # 'lax' is the safer default — the cookie is only sent on same-site
+      # requests and top-level cross-site navigations (GET). The frontend
+      # and backend are both served from same-site subdomains of
+      # *.vercel.app and *.onrender.com respectively, which is sufficient
+      # for 'lax' to work for the silent-refresh flow.
+      # Operators who need cross-site cookie transmission (rare) can
+      # override via the COOKIE_SAME_SITE env var.
+      COOKIE_SAME_SITE: ${COOKIE_SAME_SITE:-lax}
       COOKIE_SECURE: "true"
       BOOTSTRAP_ENABLED: ${BOOTSTRAP_ENABLED:-false}
       BOOTSTRAP_TENANT_ID: ${BOOTSTRAP_TENANT_ID:-}
