@@ -141,7 +141,7 @@ class CredentialBootstrapServiceTest {
     void autoCreatesTenantWhenTenantIdIsNullAndSubdomainIsNew() {
         String subdomain = "auto-" + UUID.randomUUID();
         String email = email();
-        String password = "StrongBootstrapPassword123!";
+        String password = UUID.randomUUID().toString();
 
         User user = service.bootstrap(
                 true, false, null, "Auto Tenant", subdomain, email, password, "Auto Admin", "test-actor");
@@ -162,7 +162,7 @@ class CredentialBootstrapServiceTest {
                 "First", subdomain, TenantStatus.ACTIVE));
 
         String email = email();
-        String password = "StrongBootstrapPassword456!";
+        String password = UUID.randomUUID().toString();
 
         User user = service.bootstrap(
                 true, false, null, "Ignored Name", subdomain, email, password, "Admin", "test-actor");

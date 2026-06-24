@@ -91,7 +91,7 @@ class TokenRevocationIntegrationTest {
         tenantId = tenantRepository.save(tenant).getId();
 
         testEmail = "revocation-test@example.com";
-        testPassword = "TestPassword123!";
+        testPassword = UUID.randomUUID().toString();
         User user = new User(tenantId, testEmail, "Revocation Test User", UserStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(testPassword));
         userId = userRepository.save(user).getId();
@@ -222,7 +222,7 @@ class TokenRevocationIntegrationTest {
             // Change password
             ChangeCredentialRequest changeRequest = new ChangeCredentialRequest();
             changeRequest.setCurrentCredential(testPassword);
-            changeRequest.setNewCredential("NewPassword456!");
+            changeRequest.setNewCredential(UUID.randomUUID().toString());
 
             mockMvc.perform(post("/api/v1/auth/change-credential")
                             .header("Authorization", "Bearer " + accessToken)
@@ -240,7 +240,7 @@ class TokenRevocationIntegrationTest {
         @DisplayName("After password change, re-login with new password works")
         void passwordChange_reLoginWithNewPassword() throws Exception {
             String accessToken = loginAndGetAccessToken();
-            String newPassword = "NewPassword456!";
+            String newPassword = UUID.randomUUID().toString();
 
             ChangeCredentialRequest changeRequest = new ChangeCredentialRequest();
             changeRequest.setCurrentCredential(testPassword);
@@ -305,7 +305,7 @@ class TokenRevocationIntegrationTest {
             String accessToken = loginAndGetAccessToken();
             ChangeCredentialRequest changeRequest = new ChangeCredentialRequest();
             changeRequest.setCurrentCredential(testPassword);
-            changeRequest.setNewCredential("NewPassword456!");
+            changeRequest.setNewCredential(UUID.randomUUID().toString());
 
             mockMvc.perform(post("/api/v1/auth/change-credential")
                             .header("Authorization", "Bearer " + accessToken)

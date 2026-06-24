@@ -87,7 +87,7 @@ jobs:
           jq -n \
             --arg jwt "$JWT" \
             --arg db_url "${{ secrets.PRODUCTION_DATABASE_URL }}" \
-            --arg db_user "postgres.eyoupksefusnslvdnflt" \
+            --arg db_user "${{ secrets.DATABASE_USERNAME }}" \
             --arg db_pass "${{ secrets.DATABASE_PASSWORD }}" \
             '[
               {"key": "SPRING_PROFILES_ACTIVE", "value": "prod"},
@@ -102,8 +102,8 @@ jobs:
               {"key": "SANAD_CORS_ALLOWED_ORIGINS", "value": "https://snad-app.vercel.app"},
               {"key": "BOOTSTRAP_ENABLED", "value": "false"},
               {"key": "BOOTSTRAP_FORCE_RESET", "value": "false"},
-              {"key": "BOOTSTRAP_TENANT_ID", "value": "958bbb1c-eece-4839-bca8-a5bfa14e6ac1"},
-              {"key": "BOOTSTRAP_ADMIN_EMAIL", "value": "snad@app.com"},
+              {"key": "BOOTSTRAP_TENANT_ID", "value": "${{ secrets.BOOTSTRAP_TENANT_ID }}"},
+              {"key": "BOOTSTRAP_ADMIN_EMAIL", "value": "${{ secrets.SANAD_ADMIN_EMAIL }}"},
               {"key": "LOG_LEVEL_ROOT", "value": "INFO"},
               {"key": "LOG_LEVEL_SANAD", "value": "INFO"},
               {"key": "MANAGEMENT_ENDPOINTS", "value": "health"},
