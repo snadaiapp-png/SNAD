@@ -69,9 +69,10 @@ describe("Login flow logic", () => {
   });
 
   it("Authorization header format is Bearer + accessToken", () => {
-    const accessToken = "eyJhbGciOiJIUzI1NiJ9.test";
+    // Use a non-secret-shaped test token; JWT-shaped literals trigger secret scanners
+    const accessToken = "test-access-token-not-a-jwt";
     const header = `Bearer ${accessToken}`;
-    expect(header).toBe("Bearer eyJhbGciOiJIUzI1NiJ9.test");
+    expect(header).toBe("Bearer test-access-token-not-a-jwt");
     expect(header.startsWith("Bearer ")).toBe(true);
   });
 });
