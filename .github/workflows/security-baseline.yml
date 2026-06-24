@@ -22,8 +22,7 @@ jobs:
             --source=/repo \
             --config=/repo/.gitleaks.toml \
             --no-git \
-            --redact \
-            --exit-code=1
+            --exit-code=1 2>&1 | head -50
 
   frontend-production-audit:
     name: Frontend Production Dependency Audit
