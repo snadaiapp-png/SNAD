@@ -24,6 +24,9 @@ on:
           - 'false'
           - 'true'
 
+permissions:
+  contents: read
+
 jobs:
   recover-env:
     name: Restore Render Environment
