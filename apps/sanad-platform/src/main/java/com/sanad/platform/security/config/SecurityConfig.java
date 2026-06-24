@@ -1,15 +1,16 @@
 package com.sanad.platform.security.config;
 
+import com.sanad.platform.config.CorsProperties;
 import com.sanad.platform.security.filter.JwtAuthenticationFilter;
 import com.sanad.platform.security.service.JwtTokenProvider;
 import com.sanad.platform.user.repository.UserRepository;
+import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.annotation.Order;
+import org.springframework.core.env.Environment;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -32,18 +33,31 @@ import java.util.List;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties(SecurityProperties.class)
 public class SecurityConfig {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final UserRepository userRepository;
+    private final CorsProperties corsProperties;
+    private final Environment environment;
 
-    @Value("${cors.allowed-origins:https://snad-app.vercel.app}")
-    private String corsAllowedOrigins;
-
-    public SecurityConfig(JwtTokenProvider jwtTokenProvider, UserRepository userRepository) {
+    public SecurityConfig(JwtTokenProvider jwtTokenProvider,
+                          UserRepository userRepository,
+                          CorsProperties corsProperties,
+                          Environment environment) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.userRepository = userRepository;
+        this.corsProperties = corsProperties;
+        this.environment = environment;
+    }
+
+    /**
+     * Validate and parse CORS origins after property binding.
+     * In production profile, enforces HTTPS-only, no wildcards, no empty list.
+     */
+    @PostConstruct
+    void initializeCorsOrigins() {
+        boolean isProduction = Arrays.asList(environment.getActiveProfiles()).contains("prod");
+        corsProperties.validateAndParse(isProduction);
     }
 
     @Bean
@@ -109,26 +123,41 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder(10);
     }
 
+    /**
+     * CORS configuration source using exact-origin allowlist.
+     *
+     * <p>Only explicitly configured origins are accepted. No wildcards,
+     * no pattern matching, no Vercel subdomain inference. Origins are
+     * validated at startup via {@link CorsProperties}.</p>
+     *
+     * <p>Allowed methods: GET, POST, PUT, PATCH, DELETE, OPTIONS —
+     * the methods used by the SANAD REST API.</p>
+     *
+     * <p>Allowed request headers: Authorization (JWT), Content-Type,
+     * Accept, X-Requested-With, X-SANAD-Refresh-Token (refresh flow).</p>
+     *
+     * <p>Exposed response headers: X-SANAD-Refresh-Token (required for
+     * the refresh-token cookie header on login/refresh responses), Location
+     * (for redirect scenarios).</p>
+     */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        // Use allowedOriginPatterns instead of allowedOrigins to support wildcard patterns
-        // like https://snad-*.vercel.app for Vercel preview deployments.
-        // Each preview deploy gets a unique subdomain, so wildcards are required.
-        List<String> origins = Arrays.stream(corsAllowedOrigins.split(","))
-                .map(String::trim)
-                .filter(value -> !value.isBlank())
-                .toList();
-        // Convert exact origins to patterns; add wildcard for Vercel preview URLs
-        List<String> patterns = new java.util.ArrayList<>(origins);
-        // Allow any Vercel deployment (production, preview, branch) — each deploy
-        // gets a unique subdomain like snad-abc123-snad-team.vercel.app
-        patterns.add("https://*.vercel.app");
-        // Allow localhost for local development
-        patterns.add("http://localhost:*");
-        configuration.setAllowedOriginPatterns(patterns);
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-Requested-With", "X-SANAD-Refresh-Token"));
+
+        // Use allowedOrigins (exact match) — NOT allowedOriginPatterns
+        List<String> origins = corsProperties.getParsedOrigins();
+        configuration.setAllowedOrigins(origins);
+
+        configuration.setAllowedMethods(
+                Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+
+        configuration.setAllowedHeaders(
+                List.of("Authorization", "Content-Type", "Accept",
+                        "X-Requested-With", "X-SANAD-Refresh-Token"));
+
+        configuration.setExposedHeaders(
+                List.of("X-SANAD-Refresh-Token", "Location"));
+
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
 

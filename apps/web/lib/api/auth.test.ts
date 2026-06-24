@@ -6,12 +6,18 @@ import { ApiHttpError } from "./errors";
 describe("createAuthApi", () => {
   function mockClient(status: number, body: unknown): ApiClient {
     const client = new ApiClient({ baseUrl: "https://api.example.com", timeoutMs: 1000 });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(body), {
-        status,
-        headers: { "content-type": "application/json" },
-      })
-    ));
+    if (status === 204) {
+      vi.stubGlobal("fetch", vi.fn().mockImplementation(() =>
+        Promise.resolve(new Response(null, { status }))
+      ));
+    } else {
+      vi.stubGlobal("fetch", vi.fn().mockImplementation(() =>
+        Promise.resolve(new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        }))
+      ));
+    }
     return client;
   }
 

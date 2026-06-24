@@ -18,6 +18,7 @@
  */
 
 import { apiClient, ApiClient } from "./client";
+import { ApiHttpError } from "./errors";
 
 // ---------------------------------------------------------------------------
 // Types (match backend DTOs)
@@ -126,14 +127,8 @@ export function createAuthApi(client: ApiClient = apiClient) {
         return await client.post<AuthResponse, LoginRequest>("/api/v1/auth/login", req);
       } catch (err) {
         // Handle 409 Ambiguous Tenant — extract tenant IDs from the response
-        if (
-          err &&
-          typeof err === "object" &&
-          "status" in err &&
-          (err as { status: number }).status === 409 &&
-          "body" in err
-        ) {
-          const body = (err as { body?: Record<string, unknown> }).body;
+        if (err instanceof ApiHttpError && err.status === 409) {
+          const body = err.details.body;
           const tenantIds = Array.isArray(body?.tenantIds)
             ? (body.tenantIds as string[])
             : [];
