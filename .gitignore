@@ -142,3 +142,7 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 .vercel
+
+# Build artifacts (security: contain test tokens)
+apps/sanad-platform/target/
+apps/web/.next/

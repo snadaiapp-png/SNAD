@@ -20,6 +20,9 @@ on:
       - 'apps/sanad-platform/**'
       - '.github/workflows/ci.yml'
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Maven Test Suite
