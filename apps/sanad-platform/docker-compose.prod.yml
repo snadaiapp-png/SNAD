@@ -38,7 +38,7 @@ services:
       DATABASE_DRIVER: org.postgresql.Driver
       JPA_DDL_AUTO: validate
       FLYWAY_ENABLED: "true"
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://snad-app.vercel.app}
+      SANAD_CORS_ALLOWED_ORIGINS: ${SANAD_CORS_ALLOWED_ORIGINS:-https://snad-app.vercel.app}
       COOKIE_SAME_SITE: ${COOKIE_SAME_SITE:-None}
       COOKIE_SECURE: "true"
       BOOTSTRAP_ENABLED: ${BOOTSTRAP_ENABLED:-false}

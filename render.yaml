@@ -37,7 +37,7 @@ services:
         value: validate
       - key: FLYWAY_ENABLED
         value: "true"
-      - key: CORS_ALLOWED_ORIGINS
+      - key: SANAD_CORS_ALLOWED_ORIGINS
         value: https://snad-app.vercel.app
       - key: BOOTSTRAP_ENABLED
         value: "false"
