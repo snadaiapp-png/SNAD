@@ -196,18 +196,69 @@ CSRF-like attacks.
 
 | Defect | Status |
 |--------|--------|
-| DEFECT-011 | IMPLEMENTED — PENDING DEPLOYMENT VERIFICATION |
+| DEFECT-011 | IMPLEMENTED — CI BLOCKED (GitHub Actions runner allocation failure) |
 | DEFECT-022 | FIXED (CorsConfig deleted) |
-| Deployment verification | PENDING |
+| Deployment verification | NOT STARTED |
+
+## CI Evidence
+
+### GitHub Actions Status
+
+All 10 workflow runs on commit `ec369ae` failed with **zero steps executed** and **Runner ID = 0**.
+This indicates a GitHub Actions runner allocation failure, not a code or test failure.
+
+| Run ID | Workflow | Conclusion | Steps Executed | Runner ID |
+|--------|----------|------------|----------------|-----------|
+| 28068405529 | CI | failure | 0 | 0 |
+| 28068405550 | Web CI | failure | 0 | 0 |
+| 28068405505 | Render Blueprint Validation | failure | 0 | 0 |
+| 28068405512 | Compile Diagnostics | failure | 0 | 0 |
+| 28068405523 | Security Baseline | failure | 0 | 0 |
+| 28068405470 | Production Control Plane Validation | failure | 0 | 0 |
+| 28068405488 | Backup Restore Validation | failure | 0 | 0 |
+| 28068405477 | Performance Baseline | failure | 0 | 0 |
+| 28068405484 | Master Backlog Validation | failure | 0 | 0 |
+| 28068405490 | Service Decomposition Validation | failure | 0 | 0 |
+
+### Root Cause Classification: Category C — GitHub Actions runner/billing/platform restriction
+
+All jobs completed in 3-4 seconds with zero steps and Runner ID 0.
+The log blob does not exist (404 BlobNotFound), confirming the runner was never allocated.
+
+### Pre-existing CI Failure
+
+This CI failure **predates PR #70**. The same zero-step, Runner ID 0 pattern is observed on:
+
+| SHA | Branch | CI Result | Steps | Runner ID |
+|-----|--------|-----------|-------|-----------|
+| 635ebe3 (base SHA) | main | failure | 0 | 0 |
+| a891d73 | main | failure | 0 | 0 |
+| cec99c1 | main | failure | 0 | 0 |
+| d100caa | main | failure | 0 | 0 |
+
+**Last known green CI**: SHA `5f446d1` on 2026-06-22T18:36:55Z (Runner ID: 1000001287, 13 steps completed)
+
+**First zero-step failure on main**: SHA `d100caa` on 2026-06-23T09:54:25Z
+
+### CI Corrective Commit
+
+Commit `c7f6029` fixes three workflow files that still used the obsolete `CORS_ALLOWED_ORIGINS` env var:
+
+1. `render-env-recovery.yml` — replaced `CORS_ALLOWED_ORIGINS` with `SANAD_CORS_ALLOWED_ORIGINS` and removed `https://*.vercel.app` wildcard
+2. `backup-restore-validation.yml` — replaced `CORS_ALLOWED_ORIGINS` with `SANAD_CORS_ALLOWED_ORIGINS` (2 locations)
+3. `performance-baseline.yml` — replaced `CORS_ALLOWED_ORIGINS` with `SANAD_CORS_ALLOWED_ORIGINS`
+
+These fixes ensure that Docker-based CI workflows that start the `prod` profile will supply the correct env var name. However, the zero-step runner allocation failure is a **platform-level issue** that requires administrative correction.
 
 ## Stop Condition Check
 
 | Condition | Status |
 |-----------|--------|
-| Backend tests pass | PASS (422/422, 0 failures) |
+| Backend tests pass | PASS (422/422, 0 failures locally) |
 | Production profile fails without allowlist | PASS |
 | Wildcard configuration rejected | PASS |
 | Unauthorized Vercel origin rejected | PASS |
 | No secrets in git diff | VERIFIED |
 | No frontend regression from this change | VERIFIED (3 pre-existing failures, not caused by CORS fix) |
 | Canonical production origin verified | PASS |
+| **GitHub CI green** | **BLOCKED — runner allocation failure (Category C)** |
