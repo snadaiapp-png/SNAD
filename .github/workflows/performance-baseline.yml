@@ -58,7 +58,7 @@ jobs:
             -e DATABASE_DRIVER=org.postgresql.Driver \
             -e JPA_DDL_AUTO=validate \
             -e FLYWAY_ENABLED=true \
-            -e CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app \
+            -e SANAD_CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app \
             -e MANAGEMENT_ENDPOINTS=health \
             sanad-backend:perf-ci
       - name: Wait for readiness
