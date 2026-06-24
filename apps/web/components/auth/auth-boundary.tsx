@@ -30,7 +30,7 @@ export function AuthBoundary({ children }: { children: ReactNode }) {
     return <>{children}</>;
   }
 
-  if (state === "INITIALIZING") {
+  if (state === "INITIALIZING" || state === "REFRESHING") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0f2d2a]" dir="rtl">
         <p className="text-sm font-bold text-teal-200">جارٍ التحقق من الجلسة…</p>
