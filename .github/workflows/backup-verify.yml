@@ -1,24 +1,24 @@
 # ============================================================
 # SANAD Platform — Backup Verification
 # ============================================================
-# Runs daily at 02:00 UTC to verify the production database
-# integrity: checks the Flyway schema version against the
-# expected level, counts records in critical tables, and
-# compares against configurable baselines. A manifest file
-# is produced and uploaded as an artifact. A GitHub issue is
-# created if any verification step fails.
+# Verifies production database integrity: checks Flyway schema
+# version against the expected level, counts records in
+# critical tables, and produces a manifest artifact.
+#
+# Canonical secret model: PRODUCTION_DATABASE_URL
+# This single JDBC URL is parsed to extract connection params.
+# Do NOT require separate DATABASE_HOST/PORT/NAME/USERNAME/
+# PASSWORD secrets when PRODUCTION_DATABASE_URL is available.
 # ============================================================
 
 name: Backup Verify
 
 on:
-  schedule:
-    - cron: '0 2 * * *'      # Daily at 02:00 UTC
   workflow_dispatch:
 
 permissions:
   contents: read
-  issues: write               # Required to create verification failure issues
+  issues: write
 
 concurrency:
   group: backup-verify
@@ -26,9 +26,6 @@ concurrency:
 
 env:
   EXPECTED_FLYWAY_VERSION: "15"
-  # Baseline record counts for deviation detection.
-  # A warning is emitted if the current count deviates by >50%
-  # from the baseline. Set to 0 to skip baseline comparison.
   BASELINE_TENANTS: "1"
   BASELINE_USERS: "1"
   BASELINE_ORGANIZATIONS: "1"
@@ -42,11 +39,23 @@ jobs:
     name: Verify Production Database
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment: Production
 
     steps:
-      # -------------------------------------------------------
-      # Step 1: Install PostgreSQL client tools
-      # -------------------------------------------------------
+      - uses: actions/checkout@v4
+
+      - name: Verify PRODUCTION_DATABASE_URL exists
+        shell: bash
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PRODUCTION_DATABASE_URL:-}" ]; then
+            echo "::error::Missing protected Production value: PRODUCTION_DATABASE_URL"
+            exit 1
+          fi
+          echo "PRODUCTION_DATABASE_URL: PRESENT"
+
       - name: Install PostgreSQL client
         shell: bash
         run: |
@@ -55,21 +64,62 @@ jobs:
           sudo apt-get install -y -qq postgresql-client
 
       # -------------------------------------------------------
-      # Step 2: Verify Flyway schema version
+      # Parse PRODUCTION_DATABASE_URL (JDBC format):
+      # jdbc:postgresql://host:port/dbname?user=xxx&password=xxx
+      # or PostgreSQL URI: postgresql://user:pass@host:port/dbname
       # -------------------------------------------------------
-      - name: Verify Flyway schema version
+      - name: Parse database URL and verify Flyway schema version
         id: flyway
         shell: bash
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
         run: |
           set -euo pipefail
 
-          export PGPASSWORD="${{ secrets.DATABASE_PASSWORD }}"
+          # Parse the JDBC URL into psql-compatible connection parameters
+          # Supports: jdbc:postgresql://host:port/dbname?user=xxx&password=xxx
+          # and: postgresql://user:pass@host:port/dbname
+
+          db_url="${PRODUCTION_DATABASE_URL}"
+
+          # Strip jdbc: prefix if present
+          clean_url="${db_url#jdbc:}"
+
+          # Extract host, port, dbname, user, password from URL
+          # Format: postgresql://user:password@host:port/dbname?params
+          if echo "$clean_url" | grep -q '@'; then
+            # Format: postgresql://user:pass@host:port/dbname
+            user_part=$(echo "$clean_url" | sed -E 's|postgresql://([^@]+)@.*|\1|')
+            DB_USER=$(echo "$user_part" | cut -d: -f1)
+            DB_PASS=$(echo "$user_part" | cut -d: -f2 -s)
+            host_part=$(echo "$clean_url" | sed -E 's|postgresql://[^@]+@([^/]+).*|\1|')
+            DB_HOST=$(echo "$host_part" | cut -d: -f1)
+            DB_PORT=$(echo "$host_part" | cut -d: -f2 -s)
+            DB_NAME=$(echo "$clean_url" | sed -E 's|postgresql://[^@]+@[^/]+/([^?]+).*|\1|')
+          else
+            # Format: postgresql://host:port/dbname?user=xxx&password=xxx
+            host_part=$(echo "$clean_url" | sed -E 's|postgresql://([^/]+).*|\1|')
+            DB_HOST=$(echo "$host_part" | cut -d: -f1)
+            DB_PORT=$(echo "$host_part" | cut -d: -f2 -s)
+            DB_NAME=$(echo "$clean_url" | sed -E 's|postgresql://[^/]+/([^?]+).*|\1|')
+            DB_USER=$(echo "$clean_url" | grep -oP 'user=\K[^&]+' || echo "")
+            DB_PASS=$(echo "$clean_url" | grep -oP 'password=\K[^&]+' || echo "")
+          fi
+
+          # Mask all extracted values
+          echo "::add-mask::${DB_HOST}"
+          echo "::add-mask::${DB_PORT}"
+          echo "::add-mask::${DB_NAME}"
+          echo "::add-mask::${DB_USER}"
+          echo "::add-mask::${DB_PASS}"
+
+          export PGPASSWORD="$DB_PASS"
 
           current_version=$(psql \
-            -h aws-1-eu-central-1.pooler.supabase.com \
-            -p 5432 \
-            -U "${{ secrets.DATABASE_USERNAME }}" \
-            -d postgres \
+            -h "$DB_HOST" \
+            -p "${DB_PORT:-5432}" \
+            -U "$DB_USER" \
+            -d "$DB_NAME" \
             -t -A \
             -c "SELECT version FROM flyway_schema_history WHERE success = true ORDER BY installed_rank DESC LIMIT 1;" \
             2>/dev/null || echo "QUERY_FAILED")
@@ -77,7 +127,7 @@ jobs:
           if [ "$current_version" = "QUERY_FAILED" ]; then
             echo "flyway_check=failed" >> "$GITHUB_OUTPUT"
             echo "current_version=unknown" >> "$GITHUB_OUTPUT"
-            echo "ERROR: Could not query Flyway schema version"
+            echo "::error::Could not query Flyway schema version"
             exit 1
           fi
 
@@ -85,56 +135,80 @@ jobs:
 
           if [ "$current_version" = "${{ env.EXPECTED_FLYWAY_VERSION }}" ]; then
             echo "flyway_check=passed" >> "$GITHUB_OUTPUT"
-            echo "Flyway version OK: $current_version (expected ${{ env.EXPECTED_FLYWAY_VERSION }})"
+            echo "Flyway version OK: $current_version"
           else
             echo "flyway_check=failed" >> "$GITHUB_OUTPUT"
-            echo "Flyway version MISMATCH: $current_version (expected ${{ env.EXPECTED_FLYWAY_VERSION }})"
+            echo "::error::Flyway version MISMATCH: $current_version (expected ${{ env.EXPECTED_FLYWAY_VERSION }})"
           fi
 
-      # -------------------------------------------------------
-      # Step 3: Check record counts for critical tables
-      # -------------------------------------------------------
+          # Verify V15 ADMIN capabilities
+          admin_caps=$(psql \
+            -h "$DB_HOST" \
+            -p "${DB_PORT:-5432}" \
+            -U "$DB_USER" \
+            -d "$DB_NAME" \
+            -t -A \
+            -c "SELECT COUNT(*) FROM role_capabilities WHERE role_id IN (SELECT id FROM roles WHERE code = 'ADMIN');" \
+            2>/dev/null || echo "-1")
+          echo "admin_capabilities=$admin_caps" >> "$GITHUB_OUTPUT"
+          echo "ADMIN capabilities count: $admin_caps"
+
       - name: Check critical table record counts
         id: counts
         shell: bash
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
         run: |
           set -euo pipefail
 
-          export PGPASSWORD="${{ secrets.DATABASE_PASSWORD }}"
+          db_url="${PRODUCTION_DATABASE_URL}"
+          clean_url="${db_url#jdbc:}"
 
-          # Helper: query a count from a table
+          if echo "$clean_url" | grep -q '@'; then
+            user_part=$(echo "$clean_url" | sed -E 's|postgresql://([^@]+)@.*|\1|')
+            DB_USER=$(echo "$user_part" | cut -d: -f1)
+            DB_PASS=$(echo "$user_part" | cut -d: -f2 -s)
+            host_part=$(echo "$clean_url" | sed -E 's|postgresql://[^@]+@([^/]+).*|\1|')
+            DB_HOST=$(echo "$host_part" | cut -d: -f1)
+            DB_PORT=$(echo "$host_part" | cut -d: -f2 -s)
+            DB_NAME=$(echo "$clean_url" | sed -E 's|postgresql://[^@]+@[^/]+/([^?]+).*|\1|')
+          else
+            host_part=$(echo "$clean_url" | sed -E 's|postgresql://([^/]+).*|\1|')
+            DB_HOST=$(echo "$host_part" | cut -d: -f1)
+            DB_PORT=$(echo "$host_part" | cut -d: -f2 -s)
+            DB_NAME=$(echo "$clean_url" | sed -E 's|postgresql://[^/]+/([^?]+).*|\1|')
+            DB_USER=$(echo "$clean_url" | grep -oP 'user=\K[^&]+' || echo "")
+            DB_PASS=$(echo "$clean_url" | grep -oP 'password=\K[^&]+' || echo "")
+          fi
+
+          export PGPASSWORD="$DB_PASS"
+
           query_count() {
             local table="$1"
             psql \
-              -h aws-1-eu-central-1.pooler.supabase.com \
-              -p 5432 \
-              -U "${{ secrets.DATABASE_USERNAME }}" \
-              -d postgres \
+              -h "$DB_HOST" \
+              -p "${DB_PORT:-5432}" \
+              -U "$DB_USER" \
+              -d "$DB_NAME" \
               -t -A \
               -c "SELECT COUNT(*) FROM $table;" \
               2>/dev/null || echo "-1"
           }
 
-          # Helper: check deviation from baseline
           check_deviation() {
             local name="$1"
             local current="$2"
             local baseline="$3"
-
             if [ "$baseline" -eq 0 ] || [ "$current" -eq -1 ]; then
               echo "$name: $current (baseline comparison skipped)"
               return 0
             fi
-
-            # Calculate deviation percentage
-            # Using awk for floating-point arithmetic
             deviation=$(awk -v c="$current" -v b="$baseline" 'BEGIN {
               if (b == 0) { print 0; exit }
               diff = (c - b) / b * 100
               if (diff < 0) diff = -diff
               printf "%.1f", diff
             }')
-
             if awk -v d="$deviation" 'BEGIN { exit (d > 50) ? 1 : 0 }'; then
               echo "$name: $current (baseline: $baseline, deviation: ${deviation}%) — OK"
               return 0
@@ -147,7 +221,6 @@ jobs:
           overall_ok="true"
           warnings=""
 
-          # tenants
           tenants_count=$(query_count "tenants")
           echo "tenants_count=$tenants_count" >> "$GITHUB_OUTPUT"
           if ! check_deviation "tenants" "$tenants_count" "${{ env.BASELINE_TENANTS }}"; then
@@ -155,7 +228,6 @@ jobs:
             overall_ok="false"
           fi
 
-          # users
           users_count=$(query_count "users")
           echo "users_count=$users_count" >> "$GITHUB_OUTPUT"
           if ! check_deviation "users" "$users_count" "${{ env.BASELINE_USERS }}"; then
@@ -163,7 +235,6 @@ jobs:
             overall_ok="false"
           fi
 
-          # organizations
           orgs_count=$(query_count "organizations")
           echo "organizations_count=$orgs_count" >> "$GITHUB_OUTPUT"
           if ! check_deviation "organizations" "$orgs_count" "${{ env.BASELINE_ORGANIZATIONS }}"; then
@@ -171,7 +242,6 @@ jobs:
             overall_ok="false"
           fi
 
-          # memberships (organization_memberships)
           memberships_count=$(query_count "organization_memberships")
           echo "memberships_count=$memberships_count" >> "$GITHUB_OUTPUT"
           if ! check_deviation "memberships" "$memberships_count" "${{ env.BASELINE_MEMBERSHIPS }}"; then
@@ -179,7 +249,6 @@ jobs:
             overall_ok="false"
           fi
 
-          # roles
           roles_count=$(query_count "roles")
           echo "roles_count=$roles_count" >> "$GITHUB_OUTPUT"
           if ! check_deviation "roles" "$roles_count" "${{ env.BASELINE_ROLES }}"; then
@@ -187,7 +256,6 @@ jobs:
             overall_ok="false"
           fi
 
-          # access_capabilities
           capabilities_count=$(query_count "access_capabilities")
           echo "access_capabilities_count=$capabilities_count" >> "$GITHUB_OUTPUT"
           if ! check_deviation "access_capabilities" "$capabilities_count" "${{ env.BASELINE_ACCESS_CAPABILITIES }}"; then
@@ -195,7 +263,6 @@ jobs:
             overall_ok="false"
           fi
 
-          # role_capabilities
           role_caps_count=$(query_count "role_capabilities")
           echo "role_capabilities_count=$role_caps_count" >> "$GITHUB_OUTPUT"
           if ! check_deviation "role_capabilities" "$role_caps_count" "${{ env.BASELINE_ROLE_CAPABILITIES }}"; then
@@ -206,9 +273,6 @@ jobs:
           echo "warnings=${warnings}" >> "$GITHUB_OUTPUT"
           echo "counts_ok=$overall_ok" >> "$GITHUB_OUTPUT"
 
-      # -------------------------------------------------------
-      # Step 4: Create manifest file
-      # -------------------------------------------------------
       - name: Create verification manifest
         id: manifest
         if: always()
@@ -241,6 +305,7 @@ jobs:
             --arg roles "${{ steps.counts.outputs.roles_count || 'N/A' }}" \
             --arg access_capabilities "${{ steps.counts.outputs.access_capabilities_count || 'N/A' }}" \
             --arg role_capabilities "${{ steps.counts.outputs.role_capabilities_count || 'N/A' }}" \
+            --arg admin_caps "${{ steps.flyway.outputs.admin_capabilities || 'N/A' }}" \
             '{
               timestamp: $ts,
               verification: {
@@ -250,6 +315,7 @@ jobs:
                   expected_version: ($expected_flyway | tonumber),
                   check: $flyway_check
                 },
+                admin_capabilities_count: ($admin_caps | tonumber? // -1),
                 record_counts: {
                   tenants: ($tenants | tonumber? // -1),
                   users: ($users | tonumber? // -1),
@@ -266,9 +332,6 @@ jobs:
           echo "overall_status=$overall_status" >> "$GITHUB_OUTPUT"
           echo "Manifest created — overall status: $overall_status"
 
-      # -------------------------------------------------------
-      # Step 5: Upload manifest artifact
-      # -------------------------------------------------------
       - name: Upload manifest artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -276,11 +339,8 @@ jobs:
           name: backup-verify-manifest-${{ github.run_id }}
           path: backup-verify-manifest.json
           if-no-files-found: error
-          retention-days: 90     # Long retention for audit trail
+          retention-days: 90
 
-      # -------------------------------------------------------
-      # Step 6: Create GitHub issue on verification failure
-      # -------------------------------------------------------
       - name: Create verification failure issue
         if: always() && steps.manifest.outputs.overall_status == 'FAILED'
         env:
@@ -294,7 +354,6 @@ jobs:
           flyway_check="${{ steps.flyway.outputs.flyway_check || 'unknown' }}"
           warnings="${{ steps.counts.outputs.warnings || 'None' }}"
 
-          # Check if an open backup-verify issue already exists
           existing=$(gh issue list \
             --label "backup-verify" \
             --state open \
@@ -302,23 +361,18 @@ jobs:
             --json number \
             --jq '.[0].number' 2>/dev/null || echo "")
 
-          issue_body="## Backup Verification Failed\n\n**Timestamp:** $timestamp\n**Workflow run:** ${{ github.run_id }}\n\n### Flyway Schema Version\n- Current: $flyway_version\n- Expected: ${{ env.EXPECTED_FLYWAY_VERSION }}\n- Check: $flyway_check\n\n### Record Count Warnings\n${warnings}\n\n### Next Steps\n1. Check the database connectivity and credentials\n2. Verify Flyway migrations are applied correctly\n3. Investigate any unexpected record count deviations\n4. Re-run the verification workflow after remediation\n\n*Auto-created by backup-verify workflow.*"
+          issue_body="## Backup Verification Failed\n\n**Timestamp:** $timestamp\n**Workflow run:** ${{ github.run_id }}\n\n### Flyway Schema Version\n- Current: $flyway_version\n- Expected: ${{ env.EXPECTED_FLYWAY_VERSION }}\n- Check: $flyway_check\n\n### Record Count Warnings\n${warnings}\n\n*Auto-created by backup-verify workflow.*"
 
           if [ -n "$existing" ]; then
-            echo "Open verification issue #$existing found — updating"
-            gh issue comment "$existing" --body "## Updated Verification — $timestamp\n\nFlyway: $flyway_check ($flyway_version / expected ${{ env.EXPECTED_FLYWAY_VERSION }})\n\nWarnings:\n${warnings}\n\n*Updated by backup-verify workflow (run ${{ github.run_id }}).*" 2>/dev/null || true
+            gh issue comment "$existing" --body "## Updated Verification — $timestamp\n\nFlyway: $flyway_check\n\n*Updated by backup-verify workflow (run ${{ github.run_id }}).*" 2>/dev/null || true
           else
             gh issue create \
               --title "Backup Verification Failed — $timestamp" \
               --body "$issue_body" \
               --label "backup-verify" \
-              --label "P2" \
-              --assignee "snadaiapp-png" 2>/dev/null || true
+              --label "P2" 2>/dev/null || true
           fi
 
-      # -------------------------------------------------------
-      # Step 7: Close issue on successful verification
-      # -------------------------------------------------------
       - name: Close verification issue on success
         if: success() && steps.manifest.outputs.overall_status == 'PASSED'
         env:
@@ -338,14 +392,8 @@ jobs:
             timestamp=$(date -u +"%Y-%m-%d %H:%M UTC")
             gh issue comment "$existing" --body "Verification PASSED at $timestamp. Closing." 2>/dev/null || true
             gh issue close "$existing" --reason "completed" 2>/dev/null || true
-            echo "Closed verification issue #$existing"
-          else
-            echo "No open verification issues — all clear"
           fi
 
-      # -------------------------------------------------------
-      # Step 8: Write GITHUB_STEP_SUMMARY
-      # -------------------------------------------------------
       - name: Write verification summary
         if: always()
         shell: bash
@@ -355,18 +403,11 @@ jobs:
           overall="${{ steps.manifest.outputs.overall_status || 'UNKNOWN' }}"
           flyway_version="${{ steps.flyway.outputs.current_version || 'N/A' }}"
           flyway_check="${{ steps.flyway.outputs.flyway_check || 'N/A' }}"
-          counts_ok="${{ steps.counts.outputs.counts_ok || 'N/A' }}"
-
-          if [ "$overall" = "PASSED" ]; then
-            status_icon=":green_circle:"
-          else
-            status_icon=":red_circle:"
-          fi
 
           {
             echo "## Database Backup Verification"
             echo ""
-            echo "$status_icon **Overall: $overall**"
+            echo "**Overall: $overall**"
             echo ""
             echo "### Flyway Schema Version"
             echo ""
@@ -387,5 +428,5 @@ jobs:
             printf '| role_capabilities | %s | %s |\n' "${{ steps.counts.outputs.role_capabilities_count || 'N/A' }}" "${{ env.BASELINE_ROLE_CAPABILITIES }}"
             echo ""
             echo "- Verified at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-            echo "- Manifest artifact: backup-verify-manifest-${{ github.run_id }}"
+            echo "- Secret model: PRODUCTION_DATABASE_URL (canonical)"
           } >> "$GITHUB_STEP_SUMMARY"
