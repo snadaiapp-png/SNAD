@@ -1,8 +1,8 @@
 # SANAD Gate Status
 
-**Program**: SANAD-FDP-001 — EXEC-PROMPT-001
+**Program**: SANAD-FDP-001 — EXEC-PROMPT-008B
 **Date**: 2026-06-24
-**Repository SHA**: 635ebe3
+**Repository SHA**: Recorded after merge
 
 ---
 
@@ -12,14 +12,15 @@
 |------|--------|----------|
 | Architecture Gate | PASS | None |
 | Backend Build Gate | PASS | None |
-| Frontend Build Gate | PARTIAL | 3 test failures, 6 lint errors |
-| Authentication Gate | PARTIAL | CORS wildcard, rate limiting non-distributed |
+| Frontend Build Gate | PASS | 0 lint errors, 175 tests pass |
+| Authentication Gate | PARTIAL | Rate limiting non-distributed |
 | Tenant Isolation Gate | PASS | Minor: UserMembershipController gap |
-| RBAC Gate | PARTIAL | No migration seeding for ADMIN capabilities |
-| Database Migration Gate | PARTIAL | No V15 for RBAC seeding |
-| CI Gate | PARTIAL | Plaintext password in smoke test |
+| RBAC Gate | PASS | V15 migration seeds ADMIN capabilities |
+| Database Migration Gate | PASS | V1-V15, no gaps |
+| CI Gate | PASS | No plaintext secrets, enforcing scan |
+| Security Scan Gate | PASS | Gitleaks with enforcing scan, negative control |
 | Deployment Gate | PASS | Backend + Frontend both live and healthy |
-| Production Readiness Gate | FAIL | Multiple P1 issues unresolved |
+| Production Readiness Gate | FAIL | External verification required |
 | Commercial Go-Live Gate | FAIL | Infrastructure free-tier, security gaps |
 
 ---
@@ -47,15 +48,15 @@
 | Docker build | PASS | Multi-stage, non-root, health check |
 | Production startup | PASS | Health UP at /actuator/health |
 
-### Frontend Build Gate — PARTIAL
+### Frontend Build Gate — PASS
 
 | Check | Result | Evidence |
 |-------|--------|----------|
 | `npm ci` | PASS | Dependencies installed |
 | `npm run build` | PASS | Next.js 16 compiled, 5 pages generated |
 | Type checking | PASS | No type errors |
-| `npm run lint` | FAIL | 6 errors, 3 warnings |
-| `npm test` | FAIL | 3 of 151 tests fail |
+| `npm run lint` | PASS | 0 errors |
+| `npm test` | PASS | 175 passed, 0 failed |
 
 ### Authentication Gate — PARTIAL
 
@@ -96,19 +97,19 @@
 | ADMIN bootstrap | PARTIAL | Runtime only — no migration seeding |
 | Positive/negative tests | PASS | Both exist |
 
-### Database Migration Gate — PARTIAL
+### Database Migration Gate — PASS
 
 | Check | Result | Evidence |
 |-------|--------|----------|
-| All migrations sequential | PASS | V1–V14, no gaps |
+| All migrations sequential | PASS | V1–V15, no gaps |
 | No duplicate versions | PASS | All unique |
 | No destructive operations | PASS | No DROP/TRUNCATE |
 | UUID consistency | PASS | Native uuid type throughout |
 | FK and index integrity | PASS | Named constraints, composite FKs |
-| ADMIN role seeding | PARTIAL | Only at runtime, not in migrations |
+| ADMIN role seeding | PASS | V15 migration with idempotent WHERE NOT EXISTS |
 | flyway_schema_history alignment | PASS | V1–V14 applied in production |
 
-### CI Gate — PARTIAL
+### CI Gate — PASS
 
 | Check | Result | Evidence |
 |-------|--------|----------|
@@ -116,8 +117,9 @@
 | Backend tests in CI | PASS | mvn test |
 | Frontend tests in CI | PASS | npm test |
 | Build fails on test failure | PASS | No suppression on test steps |
-| No false-success patterns | PASS | All || true are curl patterns |
-| Secrets management | FAIL | Plaintext admin_password in smoke-test.yml |
+| No false-success patterns | PASS | Scanner exit code preserved via `set +e` / `$?` / `set -e` |
+| Secrets management | PASS | All secrets use GitHub Secrets; no plaintext credentials |
+| Security Baseline enforcing | PASS | Single-pass scan with real exit code; synthetic negative control |
 | SHA verification | PARTIAL | Only in production-release.yml |
 | Rollback procedure | PARTIAL | Only in production-release.yml; never tested |
 
@@ -156,7 +158,8 @@
 
 | Check | Status | Blocker |
 |-------|--------|---------|
-| All P1 defects resolved | FAIL | DEFECT-011 through DEFECT-014 open |
+| All P1 defects resolved | PASS | DEFECT-011 through DEFECT-014 resolved and merged |
+| Gitleaks scan clean | PASS | 0 findings, enforcing scan with negative control |
 | Production infrastructure | FAIL | Free tier, no HA |
 | Load tested | NOT EVIDENCED | No load test conducted |
 | Security audit passed | NOT EVIDENCED | No external security audit |

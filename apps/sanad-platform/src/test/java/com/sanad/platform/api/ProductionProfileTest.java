@@ -44,7 +44,7 @@ class ProductionProfileTest {
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
             .withDatabaseName("sanad_test")
             .withUsername("sanad_test")
-            .withPassword(UUID.randomUUID().toString()); // gitleaks:allow — ephemeral Testcontainers password, not a real credential
+            .withPassword(UUID.randomUUID().toString());
 
     static boolean dockerNotAvailable() {
         return !DockerClientFactory.instance().isDockerAvailable();

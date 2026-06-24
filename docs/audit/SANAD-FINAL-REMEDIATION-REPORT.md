@@ -1,19 +1,19 @@
 # SANAD Final Remediation Report
 
-**Program**: SANAD-FDP-001 — EXEC-PROMPT-008 FINAL
+**Program**: SANAD-FDP-001 — EXEC-PROMPT-008B FINAL
 **Date**: 2026-06-24
 **Code remediation baseline SHA**: 941987782dd010a02d8593093e2cbe25ed8f8f14
 **Documentation source baseline SHA**: d2e259f75f709b307645e01a5fb6b9e0bcd3f462
-**EXEC-PROMPT-008 branch head SHA**: Recorded after merge in the final PR comment and Issue #29 evidence comment.
-**EXEC-PROMPT-008 merge SHA**: Recorded after merge in the final PR comment and Issue #29 evidence comment.
-**Final main SHA verified after merge**: Recorded after merge in the final PR comment and Issue #29 evidence comment.
+**EXEC-PROMPT-008B branch head SHA**: Recorded after push
+**EXEC-PROMPT-008B merge SHA**: Recorded after merge
+**Final main SHA verified after merge**: Recorded after merge
 **Repository Visibility**: PUBLIC — TEMPORARY FOR CI VALIDATION
 
 ---
 
 ## Executive Summary
 
-All four P1 defects have been resolved, merged to main, and verified through GitHub Actions CI. The SANAD platform codebase is now in a clean, auditable state with no unresolved P0 or P1 defects.
+All four P1 defects have been resolved, merged to main, and verified through GitHub Actions CI. The SANAD platform codebase is now in a clean, auditable state with no unresolved P0 or P1 defects. EXEC-PROMPT-008B resolved the final Gitleaks finding, restored enforcing scanner integrity, and added a synthetic negative control to prove default detection rules are active.
 
 ---
 
@@ -169,18 +169,54 @@ All four P1 defects have been resolved, merged to main, and verified through Git
 
 ---
 
-## Gitleaks Secret-Scanning Hardening (EXEC-PROMPT-008)
+## Gitleaks Secret-Scanning Hardening (EXEC-PROMPT-008 → EXEC-PROMPT-008B)
+
+### EXEC-PROMPT-008B — Final Finding Resolution
+
+| Aspect | Detail |
+|--------|--------|
+| Gitleaks RuleID | Default rule detecting secret-shaped JWT literal |
+| File | `apps/sanad-platform/src/main/resources/application-local.yml` |
+| StartLine | 46 (original, before fix) |
+| Finding value | `local-development-jwt-secret-not-for-production` |
+| Classification | PLACEHOLDER — not a real credential, but committed secret-shaped literal triggers scanner |
+| Correction | Removed literal; replaced with `${JWT_SECRET:}` (empty default) |
+| Runtime behavior | `JwtTokenProvider.validateSecret()` generates 32-byte ephemeral HMAC key when secret is blank |
+| Fingerprint exception used | No |
+| `gitleaks:allow` used | No — removed from YAML and Java files |
+
+### Previous False-Success Root Cause
+
+| Aspect | Detail |
+|--------|--------|
+| Mechanism | `gitleaks ... 2>&1 \| head -50` returned `head` exit code (0), not gitleaks exit code (1) |
+| Additional masking | `|| true` on first pass, re-running scanner to recover exit code |
+| Impact | Security Baseline reported SUCCESS while 1 finding existed |
+
+### Scanner Integrity Corrections (EXEC-PROMPT-008B)
+
+| Aspect | Before (Diagnostic) | After (Enforcing) |
+|--------|---------------------|-------------------|
+| Exit code | `|| true` masks exit; re-runs scanner | `set +e` / `SCAN_STATUS=$?` / `set -e` |
+| Pipeline masking | `2>&1 \| head -50` | No pipe on enforcing scan |
+| Report | Two-pass (SARIF + JSON) | Single JSON pass with `--redact` |
+| Failure enforcement | Re-runs scanner for exit code | Uses captured `$SCAN_STATUS` |
+| Synthetic control | None | AWS AKIA canary constructed at runtime, must be detected |
+| `continue-on-error` | Not used | Not used |
+
+### Gitleaks Configuration Final State
 
 | Aspect | Before | After |
 |--------|--------|-------|
 | Default rules inherited | No (`useDefault` missing) | Yes (`[extend] useDefault = true`) |
 | Broad path exclusions | 2 entire test files excluded | Removed — no full-file exclusions |
 | Global regex exclusions | 3 patterns excluded everywhere | Removed — no global regex exclusions |
-| Test fixture passwords | Hardcoded literals (`ci_test_password`, `test_only_database_password`) | Runtime-generated `UUID.randomUUID().toString()` |
-| Placeholder email | `snad@app.com` (potentially real-looking) | `admin@example.invalid` (RFC 2606 reserved TLD) |
-| Line-specific exceptions | None | `gitleaks:allow` comments on UUID lines with justification |
-| Scanner integrity | Default rules not active (custom config overrode all) | Default rules fully active |
-| Backup Verify | FAIL — missing DATABASE_PASSWORD secret | EXTERNAL BLOCKER — requires owner to configure secrets |
+| Test fixture passwords | Hardcoded literals | Runtime-generated `UUID.randomUUID().toString()` |
+| Placeholder email | `snad@app.com` | `admin@example.invalid` (RFC 2606) |
+| JWT secret in local profile | Committed literal `local-development-jwt-secret-not-for-production` | Empty default, ephemeral key at runtime |
+| Line-specific exceptions | `gitleaks:allow` on 3 lines | None needed — no committed secret-like literals |
+| Scanner integrity | Default rules not active, exit code masked | Default rules fully active, exit code preserved |
+| Negative control | None | AWS AKIA canary must be detected |
 
 ---
 

@@ -43,7 +43,11 @@ spring:
 sanad:
   security:
     jwt:
-      secret: local-development-jwt-secret-not-for-production # gitleaks:allow — local dev only, not a real credential
+      # No committed secret — JwtTokenProvider generates an ephemeral HMAC key
+      # at startup when the secret is empty. This is safe for local development
+      # because tokens are not shared across restarts or between machines.
+      # Production must set JWT_SECRET via environment variable.
+      secret: ${JWT_SECRET:}
 
 logging:
   level:

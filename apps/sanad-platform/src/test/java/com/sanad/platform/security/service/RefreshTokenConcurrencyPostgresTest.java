@@ -43,7 +43,7 @@ class RefreshTokenConcurrencyPostgresTest {
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
             .withDatabaseName("sanad_refresh_lock")
             .withUsername("sanad_test")
-            .withPassword(UUID.randomUUID().toString()); // gitleaks:allow — ephemeral Testcontainers password, not a real credential
+            .withPassword(UUID.randomUUID().toString());
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
