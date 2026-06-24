@@ -40,6 +40,15 @@ spring:
       enabled: true
       path: /h2-console
 
+sanad:
+  security:
+    jwt:
+      # No committed secret — JwtTokenProvider generates an ephemeral HMAC key
+      # at startup when the secret is empty. This is safe for local development
+      # because tokens are not shared across restarts or between machines.
+      # Production must set JWT_SECRET via environment variable.
+      secret: ${JWT_SECRET:}
+
 logging:
   level:
     root: INFO

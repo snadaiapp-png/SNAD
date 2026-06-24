@@ -43,7 +43,7 @@ class RefreshTokenConcurrencyPostgresTest {
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
             .withDatabaseName("sanad_refresh_lock")
             .withUsername("sanad_test")
-            .withPassword("test_only_database_password");
+            .withPassword(UUID.randomUUID().toString());
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {

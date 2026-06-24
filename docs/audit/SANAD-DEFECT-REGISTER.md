@@ -340,6 +340,7 @@
 | Title | Login form uses `snad@app.com` as placeholder — reveals admin email pattern |
 | Severity | P4 |
 | Recommended remediation | Use generic placeholder like `email@example.com` |
+| **Remediation status** | **RESOLVED** — replaced with `admin@example.invalid` (RFC 2606 reserved TLD) in EXEC-PROMPT-008 |
 
 ### DEFECT-029: COOKIE_SAME_SITE Default Mismatch
 

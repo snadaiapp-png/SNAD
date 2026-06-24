@@ -15,6 +15,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.DockerClientFactory;
 
+import java.util.UUID;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -42,7 +44,7 @@ class ProductionProfileTest {
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
             .withDatabaseName("sanad_test")
             .withUsername("sanad_test")
-            .withPassword("ci_test_password");
+            .withPassword(UUID.randomUUID().toString());
 
     static boolean dockerNotAvailable() {
         return !DockerClientFactory.instance().isDockerAvailable();

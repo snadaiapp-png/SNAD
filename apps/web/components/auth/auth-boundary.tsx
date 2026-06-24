@@ -396,7 +396,7 @@ function LoginForm({
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="snad@app.com"
+              placeholder="admin@example.invalid"
               className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-teal-600"
             />
           </label>
@@ -507,7 +507,7 @@ function ForgotPasswordForm({
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="snad@app.com"
+                  placeholder="admin@example.invalid"
                   className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-teal-600"
                 />
               </label>

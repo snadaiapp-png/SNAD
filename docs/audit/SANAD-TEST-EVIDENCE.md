@@ -1,8 +1,8 @@
 # SANAD Test Evidence
 
-**Program**: SANAD-FDP-001 — EXEC-PROMPT-001
+**Program**: SANAD-FDP-001 — EXEC-PROMPT-008B
 **Date**: 2026-06-24
-**Repository SHA**: 635ebe3
+**Repository SHA**: Recorded after merge
 
 ---
 
@@ -310,3 +310,123 @@
 | lint | 6 errors, 3 warnings — PRE-EXISTING |
 | test | 3 failed, 148 passed (151) — PRE-EXISTING |
 | build | PASS (Next.js 16.2.9 Turbopack) |
+
+---
+
+## EXEC-PROMPT-008B — Gitleaks Finding Resolution and Scanner Integrity
+
+### Previous False-Success Mechanism
+
+| Field | Value |
+|-------|-------|
+| Pattern | `gitleaks ... 2>&1 \| head -50` |
+| Effect | Pipeline returned `head` exit code (0) instead of gitleaks exit code (1) |
+| Impact | Security Baseline appeared green while 1 finding existed |
+| Additional masking | `|| true` on first scan pass, re-running scanner to recover exit code |
+
+### Gitleaks Finding Metadata
+
+| Field | Value |
+|-------|-------|
+| RuleID | `generic-api-key` |
+| File | `apps/web/lib/api/auth-flow.test.ts` |
+| StartLine | 72 (original) |
+| EndLine | 72 (original) |
+| Match | JWT-shaped literal `eyJhbGciOiJIUzI1NiJ9.test` |
+| Classification | NON-SENSITIVE TEST FIXTURE — JWT-shaped string used only to test Bearer header format |
+| Fingerprint exception used | No |
+
+### Correction Applied
+
+| Field | Value |
+|-------|-------|
+| File corrected | `auth-flow.test.ts` |
+| Secret removed | Yes — `eyJhbGciOiJIUzI1NiJ9.test` removed |
+| Replacement | `test-access-token-not-a-jwt` — plain string tests same Bearer format |
+| Runtime generation used | No — test only needs Bearer format, not a JWT structure |
+| Line allow used | No — `gitleaks:allow` comment removed |
+| Fingerprint allow used | No |
+| Broad exclusions | None |
+| Default rules enabled | Yes — `[extend] useDefault = true` in `.gitleaks.toml` |
+
+### Additional Cleanup
+
+| File | Change |
+|------|--------|
+| `ProductionProfileTest.java` | Removed `gitleaks:allow` comment — `UUID.randomUUID()` is not a committed secret |
+| `RefreshTokenConcurrencyPostgresTest.java` | Removed `gitleaks:allow` comment — `UUID.randomUUID()` is not a committed secret |
+
+### Scanner Integrity Corrections
+
+| Aspect | Before (Diagnostic) | After (Enforcing) |
+|--------|---------------------|-------------------|
+| Exit code preservation | `|| true` masks exit code; re-runs scanner | `set +e` / `SCAN_STATUS=$?` / `set -e` |
+| Pipeline masking | `2>&1 \| head -50` returns head's exit code | No pipe on enforcing scan |
+| Report generation | SARIF + JSON in separate passes | Single JSON pass with `--redact` |
+| Finding display | Python3 inline metadata extraction | Same, from report file |
+| Failure enforcement | Re-runs scanner for exit code | Uses captured `$SCAN_STATUS` |
+| `continue-on-error` | Not used | Not used |
+
+### Synthetic Negative Control
+
+| Field | Value |
+|-------|-------|
+| Canary type | AWS AKIA access key ID |
+| Construction | `printf 'AKIA%s\n' 'IOSFODNN7EXAMPLE'` at runtime |
+| Committed | No |
+| Expected result | Gitleaks detects it (exit code 1) |
+| Purpose | Proves default detection rules are active |
+
+### Backend Verification (EXEC-PROMPT-008B)
+
+#### Full Maven Run 1
+
+| Field | Value |
+|-------|-------|
+| Command | `mvn clean verify` |
+| Tests | 422 |
+| Failures | 0 |
+| Errors | 0 |
+| Skipped | 11 |
+| Duration | 31.0s |
+| Result | BUILD SUCCESS |
+
+#### Full Maven Run 2
+
+| Field | Value |
+|-------|-------|
+| Command | `rm -rf target && mvn clean verify` |
+| Tests | 422 |
+| Failures | 0 |
+| Errors | 0 |
+| Skipped | 11 |
+| Duration | 31.1s |
+| Result | BUILD SUCCESS |
+
+### Frontend Verification (EXEC-PROMPT-008B)
+
+| Check | Result |
+|-------|--------|
+| `npm ci` | PASS |
+| `npm run lint` | 0 errors |
+| `npm test` | 175 passed, 0 failed |
+| `npm run build` | PASS (Next.js 16) |
+| typecheck | NOT DEFINED IN package.json |
+
+### Application Configuration Safety
+
+| Profile | JWT Secret | Datasource Password | Safety |
+|---------|-----------|-------------------|--------|
+| `application.yml` (base) | `${JWT_SECRET:}` (empty default) | `${SPRING_DATASOURCE_PASSWORD:}` (empty default) | Safe — no committed secrets |
+| `application-local.yml` | `${JWT_SECRET:}` (empty, ephemeral key generated) | empty (H2 in-memory) | Safe — no committed secrets |
+| `application-dev.yml` | Not set (inherits base empty) | `${SPRING_DATASOURCE_PASSWORD:}` (no default) | Safe — fails clearly without env var |
+| `application-prod.yml` | `${JWT_SECRET:}` (empty, startup fails if blank) | `${DATABASE_PASSWORD:}` (empty) | Safe — startup validation enforced |
+
+### Security Baseline Workflow Run
+
+| Field | Value |
+|-------|-------|
+| Workflow | `.github/workflows/security-baseline.yml` |
+| Run ID | To be recorded after push and CI completion |
+| Job ID | To be recorded after push and CI completion |
+| Conclusion | Expected: SUCCESS |

@@ -12,7 +12,7 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/sanad}
     username: ${SPRING_DATASOURCE_USERNAME:sanad}
-    password: ${SPRING_DATASOURCE_PASSWORD:sanad}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
       pool-name: SanadHikariCP
@@ -86,7 +86,7 @@ sanad:
     allowed-origins: ${SANAD_CORS_ALLOWED_ORIGINS:https://snad-app.vercel.app}
   security:
     jwt:
-      secret: ${JWT_SECRET:dev-only-secret-key-change-in-production-min-32-bytes-long}
+      secret: ${JWT_SECRET:}
       access-token-ttl: 15m
       issuer: sanad-platform
     refresh:
