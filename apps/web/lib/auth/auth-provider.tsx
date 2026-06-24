@@ -45,20 +45,39 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const TOKEN_STORAGE_KEY = "sanad_access_token";
-const TOKEN_EXPIRY_KEY = "sanad_access_token_expires_at";
+/**
+ * In-memory session store — access tokens are NEVER written to localStorage,
+ * sessionStorage, or cookies. They survive SPA navigation but not page reload.
+ * On reload, session is restored via silent refresh using the HttpOnly refresh cookie.
+ *
+ * Expiry is kept in memory for proactive/anticipatory refresh decisions.
+ */
+function useInMemorySession() {
+  const accessTokenRef = useRef<string | null>(null);
+  const expiresAtRef = useRef<string | null>(null);
+
+  const setSession = useCallback((accessToken: string, expiresAt: string) => {
+    accessTokenRef.current = accessToken;
+    expiresAtRef.current = expiresAt;
+    apiClient.setDefaultHeader("Authorization", `Bearer ${accessToken}`);
+  }, []);
+
+  const clearSession = useCallback(() => {
+    accessTokenRef.current = null;
+    expiresAtRef.current = null;
+    apiClient.removeDefaultHeader("Authorization");
+  }, []);
+
+  const getAccessToken = useCallback(() => accessTokenRef.current, []);
+  const getExpiresAt = useCallback(() => expiresAtRef.current, []);
+
+  return { setSession, clearSession, getAccessToken, getExpiresAt };
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AuthState>(() => {
-    // Check for stored token during initialization (not in effect)
-    if (typeof window === "undefined") return "INITIALIZING";
-    const token = localStorage.getItem(TOKEN_STORAGE_KEY);
-    const expiresAt = localStorage.getItem(TOKEN_EXPIRY_KEY);
-    if (!token || !expiresAt || new Date(expiresAt) <= new Date()) {
-      return "ANONYMOUS";
-    }
-    return "INITIALIZING"; // Will be resolved by the bootstrap effect
-  });
+  // On client, always start as INITIALIZING so the bootstrap effect can attempt
+  // a silent refresh via the HttpOnly refresh cookie.
+  const [state, setState] = useState<AuthState>("INITIALIZING");
   const [user, setUser] = useState<AuthUser | null>(null);
   const [me, setMe] = useState<MeResponse | null>(null);
   const [error, setError] = useState<UserFacingError | null>(null);
@@ -66,30 +85,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [lastLoginEmail, setLastLoginEmail] = useState("");
   const lastLoginPasswordRef = useRef<string>("");
   const refreshPromiseRef = useRef<Promise<void> | null>(null);
+  const session = useInMemorySession();
 
-  // Bootstrap: if we have a stored token, verify it by loading /me
+  // Bootstrap: attempt silent refresh via HttpOnly refresh cookie to restore session.
+  // If refresh succeeds, load /me for full profile. If it fails, go to ANONYMOUS.
   useEffect(() => {
     if (state !== "INITIALIZING") return;
 
-    const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
-    if (!token) return;
-
-    apiClient.setDefaultHeader("Authorization", `Bearer ${token}`);
-
     let cancelled = false;
+
     authApi
-      .me()
-      .then((meData) => {
+      .refresh()
+      .then((res) => {
         if (cancelled) return;
+        session.setSession(res.accessToken, res.expiresAt);
+        setUser(res.user);
+
+        // Load full profile (/me) after restoring token
+        return authApi.me();
+      })
+      .then((meData) => {
+        if (cancelled || !meData) return;
         setMe(meData);
-        setUser({
-          id: meData.id,
-          tenantId: meData.tenantId,
-          email: meData.email,
-          displayName: meData.displayName,
-          status: meData.status,
-        });
-        // If credential rotation is required, go to rotation state instead of authenticated
         if (meData.credentialRotationRequired) {
           setState("CREDENTIAL_ROTATION_REQUIRED");
         } else {
@@ -98,14 +115,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {
         if (cancelled) return;
-        localStorage.removeItem(TOKEN_STORAGE_KEY);
-        localStorage.removeItem(TOKEN_EXPIRY_KEY);
-        apiClient.removeDefaultHeader("Authorization");
+        session.clearSession();
+        setUser(null);
+        setMe(null);
         setState("ANONYMOUS");
       });
 
     return () => { cancelled = true; };
-  }, [state]);
+  }, [state, session]);
 
   const login = useCallback(async (req: LoginRequest) => {
     setState("AUTHENTICATING");
@@ -115,9 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     lastLoginPasswordRef.current = req.password;
     try {
       const res = await authApi.login(req);
-      localStorage.setItem(TOKEN_STORAGE_KEY, res.accessToken);
-      localStorage.setItem(TOKEN_EXPIRY_KEY, res.expiresAt);
-      apiClient.setDefaultHeader("Authorization", `Bearer ${res.accessToken}`);
+      session.setSession(res.accessToken, res.expiresAt);
       setUser(res.user);
 
       const meData = await authApi.me();
@@ -137,7 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setState("ERROR");
       }
     }
-  }, []);
+  }, [session]);
 
   /** Re-login with a specific tenantId after an ambiguous tenant 409. */
   const loginWithTenant = useCallback(async (tenantId: string) => {
@@ -149,9 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password: lastLoginPasswordRef.current,
         tenantId,
       });
-      localStorage.setItem(TOKEN_STORAGE_KEY, res.accessToken);
-      localStorage.setItem(TOKEN_EXPIRY_KEY, res.expiresAt);
-      apiClient.setDefaultHeader("Authorization", `Bearer ${res.accessToken}`);
+      session.setSession(res.accessToken, res.expiresAt);
       setUser(res.user);
 
       const meData = await authApi.me();
@@ -170,7 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setState("ERROR");
       }
     }
-  }, [lastLoginEmail]);
+  }, [lastLoginEmail, session]);
 
   /** Dismiss the tenant picker and go back to login form. */
   const dismissAmbiguousTenant = useCallback(() => {
@@ -185,14 +198,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Ignore
     }
-    localStorage.removeItem(TOKEN_STORAGE_KEY);
-    localStorage.removeItem(TOKEN_EXPIRY_KEY);
-    apiClient.removeDefaultHeader("Authorization");
+    session.clearSession();
     setUser(null);
     setMe(null);
     setError(null);
     setState("ANONYMOUS");
-  }, []);
+  }, [session]);
 
   const refresh = useCallback(async () => {
     if (refreshPromiseRef.current) return refreshPromiseRef.current;
@@ -201,16 +212,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const promise = authApi
       .refresh()
       .then((res) => {
-        localStorage.setItem(TOKEN_STORAGE_KEY, res.accessToken);
-        localStorage.setItem(TOKEN_EXPIRY_KEY, res.expiresAt);
-        apiClient.setDefaultHeader("Authorization", `Bearer ${res.accessToken}`);
+        session.setSession(res.accessToken, res.expiresAt);
         setUser(res.user);
         setState("AUTHENTICATED");
       })
       .catch((err) => {
-        localStorage.removeItem(TOKEN_STORAGE_KEY);
-        localStorage.removeItem(TOKEN_EXPIRY_KEY);
-        apiClient.removeDefaultHeader("Authorization");
+        session.clearSession();
         setUser(null);
         setMe(null);
         setError(toUserFacingError(err));
@@ -223,7 +230,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     refreshPromiseRef.current = promise;
     return promise;
-  }, []);
+  }, [session]);
 
   const loadMe = useCallback(async () => {
     try {
