@@ -78,7 +78,7 @@ class RefreshTokenConcurrencyPostgresTest {
                 TenantStatus.ACTIVE));
         tenantId = tenant.getId();
         email = "refresh-lock@example.com";
-        credential = "ConcurrencyTestCredential123!";
+        credential = UUID.randomUUID().toString();
         User user = new User(tenantId, email, "Refresh Lock User", UserStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(credential));
         userId = userRepository.save(user).getId();

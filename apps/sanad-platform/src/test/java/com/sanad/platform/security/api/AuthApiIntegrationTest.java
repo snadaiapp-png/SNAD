@@ -96,7 +96,7 @@ class AuthApiIntegrationTest {
         tenantId = tenantRepository.save(tenant).getId();
 
         testEmail = "testuser@example.com";
-        testPassword = "TestPassword123!";
+        testPassword = UUID.randomUUID().toString();
         User user = new User(tenantId, testEmail, "Test User", UserStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(testPassword));
         userId = userRepository.save(user).getId();

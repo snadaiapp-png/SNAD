@@ -93,7 +93,7 @@ class ApiRegressionSuiteTest {
         tenantId = tenant.getId();
 
         testEmail = "regression@example.com";
-        testPassword = "Regression123!";
+        testPassword = UUID.randomUUID().toString();
         User user = new User(tenantId, testEmail, "Regression User", UserStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(testPassword));
         userId = userRepository.save(user).getId();
@@ -157,10 +157,11 @@ class ApiRegressionSuiteTest {
         @DisplayName("Change credential revokes all tokens")
         void changeCredentialRevokesTokens() throws Exception {
             String accessToken = loginAndGetToken();
+            String newPassword = UUID.randomUUID().toString();
 
             ChangeCredentialRequest changeRequest = new ChangeCredentialRequest();
             changeRequest.setCurrentCredential(testPassword);
-            changeRequest.setNewCredential("NewRegression456!");
+            changeRequest.setNewCredential(newPassword);
 
             mockMvc.perform(post("/api/v1/auth/change-credential")
                             .header("Authorization", "Bearer " + accessToken)
@@ -174,7 +175,7 @@ class ApiRegressionSuiteTest {
                     .andExpect(status().isUnauthorized());
 
             // Login with new password works
-            LoginRequest newLogin = new LoginRequest(testEmail, "NewRegression456!");
+            LoginRequest newLogin = new LoginRequest(testEmail, newPassword);
             MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(newLogin)))
