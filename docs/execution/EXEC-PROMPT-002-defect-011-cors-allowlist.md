@@ -196,9 +196,51 @@ CSRF-like attacks.
 
 | Defect | Status |
 |--------|--------|
-| DEFECT-011 | IMPLEMENTED — CI BLOCKED (GitHub Actions runner allocation failure) |
+| DEFECT-011 | IMPLEMENTED — CI INFRASTRUCTURE BLOCKED |
 | DEFECT-022 | FIXED (CorsConfig deleted) |
 | Deployment verification | NOT STARTED |
+
+## Test Suite Fix Evidence
+
+### Root Cause of 26 Errors
+
+The `AuthApiIntegrationTest` (25 errors) and `CredentialRotationIntegrationTest` (1 error)
+failed with `DataIntegrityViolationException: Referential integrity constraint violation`.
+The test `@BeforeEach`/`@AfterEach` cleanup methods attempted `tenantRepository.deleteAll()`
+and `userRepository.deleteAll()` while `organizations` records still referenced those tenants
+and `organization_memberships` still referenced those users via FK constraints.
+
+### FK Dependency Chain
+
+```
+tenants ← organizations ← organization_memberships → users
+```
+
+The correct deletion order must respect FK dependencies:
+1. `roleCapabilityRepository.deleteAll()`
+2. `userRoleGrantRepository.deleteAll()`
+3. `refreshTokenRepository.deleteAll()`
+4. **`membershipRepository.deleteAll()`** ← was missing
+5. `roleRepository.deleteAll()`
+6. `userRepository.deleteAll()`
+7. **`organizationRepository.deleteAll()`** ← was missing
+8. `tenantRepository.deleteAll()`
+
+### Fix
+
+Added `OrganizationRepository` and `OrganizationMembershipRepository` injection and
+deletion to both test classes in the correct FK order.
+
+### Verification
+
+Two independent `mvn clean verify` runs from clean state:
+
+| Run | Tests | Failures | Errors | Skipped | Duration | Result |
+|-----|-------|----------|--------|---------|----------|--------|
+| 1 | 422 | 0 | 0 | 11 | 34.4s | BUILD SUCCESS |
+| 2 | 422 | 0 | 0 | 11 | 31.5s | BUILD SUCCESS |
+
+CORS security contract unchanged — all 62 focused CORS tests pass.
 
 ## CI Evidence
 
@@ -220,10 +262,19 @@ This indicates a GitHub Actions runner allocation failure, not a code or test fa
 | 28068405484 | Master Backlog Validation | failure | 0 | 0 |
 | 28068405490 | Service Decomposition Validation | failure | 0 | 0 |
 
-### Root Cause Classification: Category C — GitHub Actions runner/billing/platform restriction
+### Root Cause Classification: Category C — GitHub Actions runner not allocated
 
 All jobs completed in 3-4 seconds with zero steps and Runner ID 0.
 The log blob does not exist (404 BlobNotFound), confirming the runner was never allocated.
+
+GitHub provides no annotation, no error message, and no explanation for why the runner
+is not allocated. The GitHub Status page shows "All Systems Operational."
+
+**Exact administrative cause: UNVERIFIED** — organization-level billing and spending
+limit settings are not accessible through the repository-scoped API token.
+
+**Owner action required**: Check GitHub organization billing, spending limits,
+and Actions usage at https://github.com/organizations/snadaiapp-png/settings/billing
 
 ### Pre-existing CI Failure
 
@@ -254,7 +305,7 @@ These fixes ensure that Docker-based CI workflows that start the `prod` profile 
 
 | Condition | Status |
 |-----------|--------|
-| Backend tests pass | PASS (422/422, 0 failures locally) |
+| Backend tests pass | PASS (422/422, 0 failures, 0 errors — 2 independent verify runs) |
 | Production profile fails without allowlist | PASS |
 | Wildcard configuration rejected | PASS |
 | Unauthorized Vercel origin rejected | PASS |

@@ -38,9 +38,9 @@
 | Dependencies | None |
 | Estimated complexity | Low (1 hour) |
 | Go-live blocking | Yes |
-| **Remediation status** | **IMPLEMENTED — CI BLOCKED** |
+| **Remediation status** | **IMPLEMENTED — CI INFRASTRUCTURE BLOCKED** |
 | Remediation branch | `fix/EXEC-PROMPT-002-defect-011-cors-allowlist` |
-| Remediation details | Replaced `setAllowedOriginPatterns(wildcards)` with `setAllowedOrigins(exact)`. Added `CorsProperties` with startup validation. Deleted dead `CorsConfig` (DEFECT-022). Unified env var to `SANAD_CORS_ALLOWED_ORIGINS`. Local: 422 backend tests pass (0 failures). GitHub CI: BLOCKED — runner allocation failure (Category C), pre-existing since SHA d100caa. |
+| Remediation details | Replaced `setAllowedOriginPatterns(wildcards)` with `setAllowedOrigins(exact)`. Added `CorsProperties` with startup validation. Deleted dead `CorsConfig` (DEFECT-022). Unified env var to `SANAD_CORS_ALLOWED_ORIGINS`. Fixed test FK deletion order (26 errors → 0). Local: 422 tests, 0 failures, 0 errors (2 independent verify runs). GitHub CI: BLOCKED — runner not allocated, exact cause UNVERIFIED (org settings inaccessible). |
 
 ### DEFECT-012: Admin Password in Plaintext CI Input
 
