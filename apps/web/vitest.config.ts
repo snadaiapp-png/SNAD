@@ -6,7 +6,14 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'node',
-    include: ['lib/**/*.test.ts', 'lib/**/*.test.tsx', 'app/**/*.test.ts', 'app/**/*.test.tsx'],
+    include: [
+      'lib/**/*.test.ts',
+      'lib/**/*.test.tsx',
+      'app/**/*.test.ts',
+      'app/**/*.test.tsx',
+      'middleware.test.ts',
+      'next.config.test.ts',
+    ],
   },
   resolve: {
     alias: {
