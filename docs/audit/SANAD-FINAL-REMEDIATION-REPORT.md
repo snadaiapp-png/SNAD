@@ -1,8 +1,12 @@
 # SANAD Final Remediation Report
 
-**Program**: SANAD-FDP-001 — EXEC-PROMPT-002 FINAL
+**Program**: SANAD-FDP-001 — EXEC-PROMPT-008 FINAL
 **Date**: 2026-06-24
-**Final main SHA**: 941987782dd010a02d8593093e2cbe25ed8f8f14
+**Code remediation baseline SHA**: 941987782dd010a02d8593093e2cbe25ed8f8f14
+**Documentation source baseline SHA**: d2e259f75f709b307645e01a5fb6b9e0bcd3f462
+**EXEC-PROMPT-008 branch head SHA**: Recorded after merge in the final PR comment and Issue #29 evidence comment.
+**EXEC-PROMPT-008 merge SHA**: Recorded after merge in the final PR comment and Issue #29 evidence comment.
+**Final main SHA verified after merge**: Recorded after merge in the final PR comment and Issue #29 evidence comment.
 **Repository Visibility**: PUBLIC — TEMPORARY FOR CI VALIDATION
 
 ---
@@ -149,7 +153,7 @@ All four P1 defects have been resolved, merged to main, and verified through Git
 | DEFECT-025 | Free-tier infrastructure | P3 | Open |
 | DEFECT-026 | No structured audit | P4 | Open |
 | DEFECT-027 | No CSP headers | P4 | Open |
-| DEFECT-028 | Admin email placeholder | P4 | Open |
+| DEFECT-028 | Admin email placeholder | P4 | RESOLVED (replaced with admin@example.invalid) |
 | DEFECT-029 | Cookie SameSite default mismatch | P4 | Open |
 
 ---
@@ -157,18 +161,51 @@ All four P1 defects have been resolved, merged to main, and verified through Git
 ## Owner Actions Required
 
 1. **GitHub Secrets**: Configure `SANAD_ADMIN_EMAIL` and `SANAD_ADMIN_PASSWORD` repository secrets for the smoke test workflow
-2. **Credential Rotation**: If the previous `admin_password` was ever entered in a workflow dispatch, rotate it
-3. **Repository Visibility**: Return to private after CI validation is confirmed
-4. **Production Deployment**: Deploy the merged `main` to Render to apply the CORS fix and V15 migration
-5. **V15 Migration**: After deployment, verify `SELECT COUNT(*) FROM role_capabilities WHERE role_id = (SELECT id FROM roles WHERE code = 'ADMIN')` returns 19 per tenant
+2. **GitHub Secrets**: Configure `DATABASE_USERNAME` and `DATABASE_PASSWORD` repository secrets for Backup Verify workflow
+3. **Credential Rotation**: If the previous `admin_password` was ever entered in a workflow dispatch, rotate it
+4. **Repository Visibility**: Return to private after CI validation is confirmed
+5. **Production Deployment**: Deploy the merged `main` to Render to apply the CORS fix and V15 migration
+6. **V15 Migration**: After deployment, verify `SELECT COUNT(*) FROM role_capabilities WHERE role_id = (SELECT id FROM roles WHERE code = 'ADMIN')` returns 19 per tenant
+
+---
+
+## Gitleaks Secret-Scanning Hardening (EXEC-PROMPT-008)
+
+| Aspect | Before | After |
+|--------|--------|-------|
+| Default rules inherited | No (`useDefault` missing) | Yes (`[extend] useDefault = true`) |
+| Broad path exclusions | 2 entire test files excluded | Removed — no full-file exclusions |
+| Global regex exclusions | 3 patterns excluded everywhere | Removed — no global regex exclusions |
+| Test fixture passwords | Hardcoded literals (`ci_test_password`, `test_only_database_password`) | Runtime-generated `UUID.randomUUID().toString()` |
+| Placeholder email | `snad@app.com` (potentially real-looking) | `admin@example.invalid` (RFC 2606 reserved TLD) |
+| Line-specific exceptions | None | `gitleaks:allow` comments on UUID lines with justification |
+| Scanner integrity | Default rules not active (custom config overrode all) | Default rules fully active |
+| Backup Verify | FAIL — missing DATABASE_PASSWORD secret | EXTERNAL BLOCKER — requires owner to configure secrets |
+
+---
+
+## Workflow Gate Classification
+
+| Gate | Status | Evidence |
+|------|--------|----------|
+| CODE GATES | PASS | CI, Web CI, Compile Diagnostics all SUCCESS |
+| SECURITY GATES | PASS | Security Baseline (Gitleaks + container hardening) SUCCESS |
+| OPERATIONAL GATES | PARTIAL | Backup Verify = EXTERNAL BLOCKER (missing DB secrets) |
+| DEPLOYMENT GATES | NOT VERIFIED | Production deployment not triggered from this code change |
 
 ---
 
 ## Classification
 
-**CODE AND CI REMEDIATION COMPLETE — EXTERNAL OWNER ACTION REQUIRED**
+**CODE AND SECURITY REMEDIATION COMPLETE**
+
+**REPOSITORY READY TO RETURN TO PRIVATE**
+
+**PRODUCTION GO-LIVE BLOCKED BY EXTERNAL VERIFICATION**
 
 - All P1 defects resolved and merged
-- All CI workflows pass (except pre-existing infrastructure-dependent workflows)
+- Gitleaks default rules fully active with no broad exclusions
+- All CI/security workflows pass on PR
+- Backup Verify externally blocked (requires DATABASE_USERNAME and DATABASE_PASSWORD secrets)
 - Production deployment verification requires external provider access
 - Repository visibility change reserved for owner Abdulrhman Senen
