@@ -23,7 +23,17 @@ jobs:
             --config=/repo/.gitleaks.toml \
             --no-git \
             --redact \
+            --report-format=sarif \
+            --report-path=/tmp/gitleaks-report.sarif \
             --exit-code=1
+
+      - name: Upload redacted scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: /tmp/gitleaks-report.sarif
+          retention-days: 1
 
   frontend-production-audit:
     name: Frontend Production Dependency Audit
