@@ -59,7 +59,7 @@ export default function MembershipsLivePanel() {
 
   useEffect(() => {
     if (isReady && tenantId) {
-      loadOrganizations();
+      queueMicrotask(() => { loadOrganizations(); });
     }
   }, [isReady, tenantId, loadOrganizations]);
 
@@ -87,9 +87,9 @@ export default function MembershipsLivePanel() {
   // Auto-load memberships when organization changes
   useEffect(() => {
     if (selectedOrgId && tenantId) {
-      loadMemberships();
+      queueMicrotask(() => { loadMemberships(); });
     } else {
-      setMemberships([]);
+      queueMicrotask(() => setMemberships([]));
     }
   }, [selectedOrgId, tenantId, loadMemberships]);
 

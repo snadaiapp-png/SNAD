@@ -1,6 +1,7 @@
 "use client";
 
-import { type ReactNode, FormEvent, useState, useEffect, useCallback } from "react";
+import { type ReactNode, FormEvent, useState, useEffect } from "react";
+import Link from "next/link";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { authApi } from "@/lib/api/auth";
 import { toUserFacingError, type UserFacingError } from "@/lib/api/user-facing-errors";
@@ -143,7 +144,7 @@ function TenantPicker({
  * The JWT filter blocks all API calls except /auth/me, /auth/change-credential, /auth/logout.
  */
 function ForcedPasswordChange() {
-  const { me, changeCredential, logout, error, clearError } = useAuth();
+  const { changeCredential, logout, error, clearError } = useAuth();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -214,12 +215,12 @@ function ForcedPasswordChange() {
             </p>
           </div>
           <div className="mt-6">
-            <a
+            <Link
               href="/"
               className="block w-full rounded-xl bg-teal-800 px-4 py-3 text-center font-black text-white hover:bg-teal-900"
             >
               المتابعة إلى المنصة
-            </a>
+            </Link>
           </div>
         </div>
       </div>
@@ -552,7 +553,7 @@ export function ResetPasswordPage() {
       const params = new URLSearchParams(window.location.search);
       const t = params.get("token");
       if (t) {
-        setToken(t);
+        queueMicrotask(() => setToken(t));
       }
     }
   }, []);
@@ -604,12 +605,12 @@ export function ResetPasswordPage() {
                 يمكنك الآن تسجيل الدخول باستخدام كلمة المرور الجديدة.
               </p>
             </div>
-            <a
+            <Link
               href="/"
               className="block w-full rounded-xl bg-teal-800 px-4 py-3 text-center font-black text-white hover:bg-teal-900"
             >
               تسجيل الدخول
-            </a>
+            </Link>
           </div>
         ) : !token ? (
           <div className="space-y-4">
@@ -619,12 +620,12 @@ export function ResetPasswordPage() {
                 الرابط المستخدم غير صالح أو منتهي الصلاحية. يرجى طلب رابط جديد.
               </p>
             </div>
-            <a
+            <Link
               href="/"
               className="block w-full rounded-xl border border-slate-200 px-4 py-3 text-center text-sm font-bold text-slate-600 hover:bg-slate-50"
             >
               العودة لتسجيل الدخول
-            </a>
+            </Link>
           </div>
         ) : (
           <>

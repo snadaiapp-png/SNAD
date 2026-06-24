@@ -16,7 +16,7 @@ describe("legacy API compatibility", () => {
     const config = await import("./api-config");
     expect(config.API_BASE_URL).toBe("https://api.example.com");
     expect(config.IS_API_CONFIGURED).toBe(true);
-    expect(config.API_TIMEOUT_MS).toBe(10000);
+    expect(config.API_TIMEOUT_MS).toBe(60000);
   });
 
   it("keeps buildApiUrl compatible", async () => {

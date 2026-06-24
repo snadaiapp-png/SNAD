@@ -1,0 +1,31 @@
+# Gitleaks configuration for SANAD Platform
+#
+# This file defines narrow allowlist rules for known non-sensitive
+# test fixtures that would otherwise trigger secret detection.
+#
+# Each rule documents WHY the value is non-sensitive.
+# Real secrets must NEVER be added to this allowlist.
+
+[allowlist]
+  description = "Global allowlist for non-sensitive test fixtures and placeholders"
+
+  [[allowlist.paths]]
+    # Testcontainers PostgreSQL credentials used in integration tests.
+    # These are ephemeral containers that only exist during test execution.
+    # They connect to no real database and have no persistence.
+    # The password "ci_test_password" is hardcoded because Testcontainers
+    # requires explicit credentials even for throwaway instances.
+    description = "Testcontainers PostgreSQL test credentials (ephemeral, no real database)"
+    paths = [
+      '''apps/sanad-platform/src/test/java/com/sanad/platform/api/ProductionProfileTest\.java''',
+      '''apps/sanad-platform/src/test/java/com/sanad/platform/security/service/RefreshTokenConcurrencyPostgresTest\.java''',
+    ]
+
+  [[allowlist.regexes]]
+    # The placeholder email "snad@app.com" in the login form is not a real
+    # account credential — it is a UI hint shown inside an HTML input field.
+    # DEFECT-028 tracks replacing this with a generic placeholder.
+    description = "Login form placeholder email (not a real account)"
+    regexes = [
+      '''snad@app\.com''',
+    ]
