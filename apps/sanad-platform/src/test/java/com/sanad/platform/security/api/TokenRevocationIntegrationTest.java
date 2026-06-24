@@ -10,6 +10,7 @@ import com.sanad.platform.access.role.RoleCapability;
 import com.sanad.platform.access.role.RoleCapabilityRepository;
 import com.sanad.platform.access.role.RoleRepository;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
+import com.sanad.platform.organization.repository.OrganizationRepository;
 import com.sanad.platform.security.dto.AuthResponse;
 import com.sanad.platform.security.dto.ChangeCredentialRequest;
 import com.sanad.platform.security.dto.LoginRequest;
@@ -62,6 +63,7 @@ class TokenRevocationIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private OrganizationMembershipRepository membershipRepository;
+    @Autowired private OrganizationRepository organizationRepository;
     @Autowired private RefreshTokenRepository refreshTokenRepository;
     @Autowired private RoleRepository roleRepository;
     @Autowired private UserRoleGrantRepository userRoleGrantRepository;
@@ -79,6 +81,7 @@ class TokenRevocationIntegrationTest {
         userRoleGrantRepository.deleteAll();
         refreshTokenRepository.deleteAll();
         membershipRepository.deleteAll();
+        organizationRepository.deleteAll();
         roleRepository.deleteAll();
         userRepository.deleteAll();
         tenantRepository.deleteAll();
