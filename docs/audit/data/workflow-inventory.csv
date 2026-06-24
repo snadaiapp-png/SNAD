@@ -1,0 +1,26 @@
+workflow_name,path,purpose,trigger_type,target_environment,last_conclusion,failure_count_5_recent,recommended_action
+"CI",.github/workflows/ci.yml,"Backend Maven tests on push/PR",push+pull_request,none,success,0,KEEP
+"Web CI",.github/workflows/web-ci.yml,"Frontend lint/test/build on push/PR",push+pull_request,none,success,0,KEEP
+"Compile Diagnostics",.github/workflows/compile-diagnostics.yml,"Compile and test verification",workflow_dispatch+push,none,success,0,KEEP
+"Security Baseline",.github/workflows/security-baseline.yml,"Security lint and checks",workflow_dispatch+push,none,success,0,KEEP
+"Security Scan (OWASP)",.github/workflows/security-scan.yml,"OWASP dependency check",workflow_dispatch+push,none,cancelled,5,FIX — all recent cancelled
+"Backend Deploy",.github/workflows/backend-deploy.yml,"Deploy backend to Render",workflow_dispatch,Production,failure,1,FIX — failing on Render API
+"Backend Production Smoke",.github/workflows/backend-production-smoke.yml,"Post-deploy smoke test",workflow_dispatch,Production,success,1,KEEP
+"Production Smoke",.github/workflows/production-smoke.yml,"Production smoke test",workflow_dispatch+schedule,Production,success,2,KEEP
+"Production Smoke Test",.github/workflows/smoke-test.yml,"Quick production smoke",workflow_dispatch,none,success,0,KEEP
+"Auth Tenant Production Acceptance",.github/workflows/auth-tenant-production-acceptance.yml,"Auth acceptance gate",workflow_dispatch,Production,unknown,0,FIX — no runs recorded
+"Backup Restore Validation",.github/workflows/backup-restore-validation.yml,"Backup restore test",workflow_dispatch+push,none,success,0,KEEP
+"Backup Verify",.github/workflows/backup-verify.yml,"Backup integrity check",workflow_dispatch+schedule,none,failure,1,FIX — last run failed
+"Performance Baseline",.github/workflows/performance-baseline.yml,"Performance benchmarks",workflow_dispatch+push,none,success,0,KEEP
+"Metrics Collector",.github/workflows/metrics-collector.yml,"Collect production metrics",workflow_dispatch+schedule,none,failure,2,FIX — all recent failed
+"Cost Monitor",.github/workflows/cost-monitor.yml,"Render cost monitoring",workflow_dispatch+schedule,none,success,0,KEEP
+"Uptime Monitor",.github/workflows/uptime-monitor.yml,"Uptime health check",workflow_dispatch+schedule,none,success,1,KEEP
+"Master Backlog Validation",.github/workflows/master-backlog-validation.yml,"Validate backlog completeness",workflow_dispatch+push,none,success,0,KEEP
+"Service Decomposition Validation",.github/workflows/service-decomposition-validation.yml,"Validate service boundaries",workflow_dispatch+push,none,success,0,KEEP
+"SANAD Production Release",.github/workflows/production-release.yml,"Full production release",workflow_dispatch,Production,unknown,0,KEEP
+"Render Blueprint Validation",.github/workflows/render-blueprint-validation.yml,"Validate render.yaml",workflow_dispatch+push,none,success,1,KEEP
+"Render Env Recovery",.github/workflows/render-env-recovery.yml,"Recover Render env vars",workflow_dispatch,Production,failure,1,FIX — last run failed
+"Render Production Preflight",.github/workflows/render-production-preflight.yml,"Pre-deploy Render check",workflow_dispatch,Production,success,3,FIX — high failure rate
+"Pilot Synthetic Monitoring",.github/workflows/pilot-synthetic-monitoring.yml,"Synthetic monitoring",workflow_dispatch+schedule,Production,success,3,KEEP
+"Production Control Plane Validation",.github/workflows/control-plane-validation.yml,"Control plane checks",workflow_dispatch,none,success,2,KEEP
+"Test Scope Check",.github/workflows/test-scope-check.yml,"Validate test scope",pull_request,none,failure,1,DELETE — obsolete single-use

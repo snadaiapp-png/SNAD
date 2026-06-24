@@ -1,0 +1,22 @@
+pr_number,title,head_branch,base_branch,head_sha,merge_sha,state,merged,security_impact,deployment_impact,branch_deleted
+80,"fix(security): remove plaintext credentials from workflows and test code",fix/admin-unify-and-credential-cleanup,main,51e66df,51e66df7a15d,closed,True,HIGH — removed plaintext passwords from test code and workflows,None,True
+79,"fix(ops): correct bash syntax and SQL schema in admin recovery workflow",fix/EXEC-PROMPT-009D-secure-admin-recovery,main,32cc876,32cc8762e968,closed,True,MEDIUM — fixed SQL and bash issues in recovery workflow,None,True
+78,"feat(ops): one-time administrator credential recovery workflow",fix/EXEC-PROMPT-009D-secure-admin-recovery,main,b68f253,b68f25358c5f,closed,True,HIGH — introduced recovery workflow (later deleted),None,True
+77,"fix(ops): align production acceptance workflows with runtime contracts",fix/EXEC-PROMPT-009A-production-workflow-contract,main,c1c3fa1,c1c3fa1a21a6,closed,True,LOW — workflow contract alignment,None,True
+76,"feat(ops): complete production acceptance and gate closure",fix/EXEC-PROMPT-009-production-gate-closure,main,c4f8959,c4f8959ca89a,closed,True,LOW — production gate workflows,None,True
+75,"fix(security): harden Gitleaks configuration and reconcile final evidence",fix/EXEC-PROMPT-008-final-security-and-evidence-correction,main,5dfc589,5dfc58909bb7,closed,True,MEDIUM — Gitleaks config hardened,None,True
+72,"fix(rbac): add V15 migration for ADMIN role and capability seeding",fix/EXEC-PROMPT-005-defect-014-admin-capability-migration,main,b44ce24,b44ce2440cfc,closed,True,LOW — DB migration for RBAC,None,True
+71,"fix(security): move access tokens from localStorage to in-memory storage",fix/EXEC-PROMPT-004-defect-013-secure-session-storage,main,90f2908,90f29086d1ff,closed,True,HIGH — fixed token storage vulnerability,None,True
+70,"fix(security): restrict production CORS exact origins",fix/EXEC-PROMPT-002-defect-011-cors-allowlist,main,cbab491,cbab491a9a31,closed,True,HIGH — CORS hardening,None,True
+68,"fix(auth): memberships remediation, password recovery, environment fixes",fix/sanad-unified-remediation-auth-memberships,main,9978727,9978727da540,closed,True,MEDIUM — auth fixes,None,True
+67,"fix(auth): resolve login blockers and tenant context flow",fix/login-blockers-auth-flow,main,28264cb,28264cb99c15,closed,True,MEDIUM — auth flow fixes,None,True
+66,"fix(auth): increase login rate limit",fix/relax-rate-limit,main,06592a5,06592a59d8c5,closed,True,LOW — rate limit adjustment,None,True
+65,"fix(api): increase default timeout for Render cold starts",fix/api-timeout-cold-start,main,362957c,362957c836d4,closed,True,LOW — timeout adjustment,None,True
+64,"fix(bootstrap): make CredentialBootstrapService idempotent on restart",fix/bootstrap-idempotent-restart,main,bbd931f,bbd931f5a06c,closed,True,MEDIUM — bootstrap idempotency,None,True
+63,"fix(docker): optimize Dockerfile for Render free tier",fix/auth-email-only-login,main,2436f61,2436f616aae9,closed,True,LOW — Docker optimization,None,True
+62,"fix(auth): email-only login — remove mandatory Tenant UUID",fix/auth-email-only-login,main,f618fe2,f618fe2281c3,closed,True,MEDIUM — simplified login,None,True
+61,"feat(web): tenant context resolution via authenticated session",feat/EXEC-PROMPT-032-frontend-auth-tenant-context,main,97456cc,97456ccb6a00,closed,True,LOW — frontend tenant context,None,True
+60,"feat(ops): add authenticated production acceptance gate",feat/auth-tenant-production-acceptance,main,a4bedb1,N/A,closed,False,MEDIUM — acceptance tests (unmerged),None,False
+58,"fix(ops): use production environment URL in backend smoke",fix/backend-smoke-production-url-source,main,c3adc6f,c3adc6fc6db7,closed,True,LOW — URL source fix,None,True
+54,"feat(backend): add authentication and secure session foundation",feat/EXEC-PROMPT-032A-backend-auth-session,main,7a886eb,7a886ebc4fe8,closed,True,HIGH — core auth foundation,None,True
+81,"fix(security): EXEC-PROMPT-010A emergency workflow quarantine",fix/EXEC-PROMPT-010A-emergency-workflow-quarantine,main,57f6b22,24987e2,closed,True,HIGH — least-privilege permissions + gitignore,None,False
