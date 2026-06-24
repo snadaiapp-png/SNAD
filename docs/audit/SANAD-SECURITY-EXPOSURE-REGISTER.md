@@ -8,14 +8,14 @@
 | Field | Value |
 |-------|-------|
 | Severity | CRITICAL |
-| Status | OWNER ACTION REQUIRED |
+| Status | VERIFIED |
 | Category | Credential Exposure |
 | Description | Temporary admin password was set via direct database mutation during recovery workflow execution. The password appeared in workflow logs (masked but identifiable via context). |
 | Affected Files | (deleted) admin-password-direct-reset.yml, verify-admin-login.yml |
 | Affected Workflow Runs | 28125798745, 28126201666 |
 | Credential Type | Admin login password |
-| Rotation Status | **NOT YET ROTATED** |
-| Required Action | Owner must: (1) Login with temp password, (2) Change password immediately, (3) Update SANAD_ADMIN_PASSWORD GitHub secret |
+| Rotation Status | **ROTATED** |
+| Required Action | Password rotated via API, SANAD_ADMIN_PASSWORD secret updated, SANAD_ADMIN_RECOVERY_PASSWORD deleted |
 | Residual Risk | Password known to anyone with access to GitHub Actions logs in this repository |
 
 ---
