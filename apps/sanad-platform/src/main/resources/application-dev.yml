@@ -13,7 +13,7 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://sanad-dev-db.internal:5432/sanad_dev}
     username: ${SPRING_DATASOURCE_USERNAME:sanad_app}
-    password: ${SPRING_DATASOURCE_PASSWORD:change-me-in-secret-manager}
+    password: ${SPRING_DATASOURCE_PASSWORD:} # no default — must be set via environment
 
   jpa:
     show-sql: true
