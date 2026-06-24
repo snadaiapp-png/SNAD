@@ -78,7 +78,12 @@ jobs:
           rm -rf "$CANARY_DIR"
           mkdir -p "$CANARY_DIR"
 
-          printf 'AKIA%s\n' 'IOSFODNN7EXAMPLE' > "$CANARY_DIR/canary.txt"
+          # Construct a synthetic AWS access key ID that is NOT in gitleaks' allowlist.
+          # AKIA prefix + 16 alphanumeric chars triggers the aws-access-token rule.
+          # Split across variables so the canary itself is not committed as a literal.
+          PREFIX='AKIA'
+          SUFFIX='XSCQAUTO81234567'
+          printf '%s%s\n' "$PREFIX" "$SUFFIX" > "$CANARY_DIR/canary.txt"
 
           set +e
           docker run --rm \

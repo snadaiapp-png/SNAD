@@ -328,22 +328,22 @@
 
 | Field | Value |
 |-------|-------|
-| RuleID | Likely `generic-api-key` or `jwt-secret` (determined by gitleaks default rules) |
-| File | `apps/sanad-platform/src/main/resources/application-local.yml` |
-| StartLine | 46 (original) |
-| EndLine | 46 (original) |
-| Match | JWT secret literal `local-development-jwt-secret-not-for-production` |
-| Classification | PLACEHOLDER — not a real credential, but secret-shaped literal committed to repository |
+| RuleID | `generic-api-key` |
+| File | `apps/web/lib/api/auth-flow.test.ts` |
+| StartLine | 72 (original) |
+| EndLine | 72 (original) |
+| Match | JWT-shaped literal `eyJhbGciOiJIUzI1NiJ9.test` |
+| Classification | NON-SENSITIVE TEST FIXTURE — JWT-shaped string used only to test Bearer header format |
 | Fingerprint exception used | No |
 
 ### Correction Applied
 
 | Field | Value |
 |-------|-------|
-| File corrected | `application-local.yml` |
-| Secret removed | Yes — `local-development-jwt-secret-not-for-production` removed |
-| Replacement | `${JWT_SECRET:}` — empty default, JwtTokenProvider generates ephemeral HMAC key at runtime |
-| Runtime generation used | Yes — `JwtTokenProvider.validateSecret()` generates 32-byte SecureRandom key when secret is blank |
+| File corrected | `auth-flow.test.ts` |
+| Secret removed | Yes — `eyJhbGciOiJIUzI1NiJ9.test` removed |
+| Replacement | `test-access-token-not-a-jwt` — plain string tests same Bearer format |
+| Runtime generation used | No — test only needs Bearer format, not a JWT structure |
 | Line allow used | No — `gitleaks:allow` comment removed |
 | Fingerprint allow used | No |
 | Broad exclusions | None |

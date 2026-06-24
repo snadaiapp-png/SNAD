@@ -175,15 +175,15 @@ All four P1 defects have been resolved, merged to main, and verified through Git
 
 | Aspect | Detail |
 |--------|--------|
-| Gitleaks RuleID | Default rule detecting secret-shaped JWT literal |
-| File | `apps/sanad-platform/src/main/resources/application-local.yml` |
-| StartLine | 46 (original, before fix) |
-| Finding value | `local-development-jwt-secret-not-for-production` |
-| Classification | PLACEHOLDER — not a real credential, but committed secret-shaped literal triggers scanner |
-| Correction | Removed literal; replaced with `${JWT_SECRET:}` (empty default) |
-| Runtime behavior | `JwtTokenProvider.validateSecret()` generates 32-byte ephemeral HMAC key when secret is blank |
+| Gitleaks RuleID | `generic-api-key` |
+| File | `apps/web/lib/api/auth-flow.test.ts` |
+| StartLine | 72 (original, before fix) |
+| Finding value | JWT-shaped literal `eyJhbGciOiJIUzI1NiJ9.test` |
+| Classification | NON-SENSITIVE TEST FIXTURE — JWT-shaped string used only to test Bearer header format |
+| Correction | Replaced with `test-access-token-not-a-jwt` — plain string tests same Bearer format |
+| Runtime behavior | Test only verifies Bearer prefix, does not need JWT structure |
 | Fingerprint exception used | No |
-| `gitleaks:allow` used | No — removed from YAML and Java files |
+| `gitleaks:allow` used | No |
 
 ### Previous False-Success Root Cause
 
@@ -214,6 +214,7 @@ All four P1 defects have been resolved, merged to main, and verified through Git
 | Test fixture passwords | Hardcoded literals | Runtime-generated `UUID.randomUUID().toString()` |
 | Placeholder email | `snad@app.com` | `admin@example.invalid` (RFC 2606) |
 | JWT secret in local profile | Committed literal `local-development-jwt-secret-not-for-production` | Empty default, ephemeral key at runtime |
+| JWT-shaped test fixture | `eyJhbGciOiJIUzI1NiJ9.test` in auth-flow.test.ts | Plain test string `test-access-token-not-a-jwt` |
 | Line-specific exceptions | `gitleaks:allow` on 3 lines | None needed — no committed secret-like literals |
 | Scanner integrity | Default rules not active, exit code masked | Default rules fully active, exit code preserved |
 | Negative control | None | AWS AKIA canary must be detected |
