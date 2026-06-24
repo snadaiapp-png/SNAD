@@ -40,6 +40,11 @@ spring:
       enabled: true
       path: /h2-console
 
+sanad:
+  security:
+    jwt:
+      secret: local-development-jwt-secret-not-for-production # gitleaks:allow — local dev only, not a real credential
+
 logging:
   level:
     root: INFO
