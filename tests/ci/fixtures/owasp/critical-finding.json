@@ -1,0 +1,16 @@
+{
+  "projectInfo": {"name": "test", "reportDate": "2026-06-25T00:00:00Z"},
+  "dependencies": [
+    {
+      "fileName": "critical-lib.jar",
+      "isVirtual": false,
+      "vulnerabilities": [
+        {
+          "name": "CVE-2024-0099",
+          "severity": "CRITICAL",
+          "cvssv3": {"baseScore": 9.8, "baseSeverity": "CRITICAL"}
+        }
+      ]
+    }
+  ]
+}

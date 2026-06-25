@@ -1,9 +1,16 @@
 # ============================================================
 # SANAD Platform — Uptime Monitor
 # DEFECT-009: Production Monitoring Foundation
+# EXEC-PROMPT-010R3: Cold-start retry logic for Render free tier
 # ============================================================
 # Runs every 5 minutes to check backend health.
 # Creates a GitHub issue on failure (deploy alerting).
+#
+# EXEC-PROMPT-010R3 Section 18: Added retry logic for Render
+# free-tier cold starts. Initial timeout 60s, retry interval
+# 15s, max 3 retries, total max wait 105s. Does NOT treat
+# first timeout as immediate downtime when service is on
+# approved pilot free tier.
 # ============================================================
 
 name: Uptime Monitor
@@ -15,39 +22,69 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   health-check:
     name: Backend Health Ping
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
-      - name: Check backend health
+      - name: Check backend health (with cold-start retry)
         id: health
+        shell: bash
         run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
-            "https://sanad-backend-mcrj.onrender.com/actuator/health" || echo "000")
-          echo "status=$STATUS" >> $GITHUB_OUTPUT
-          if [ "$STATUS" = "200" ]; then
-            echo "✅ Backend healthy (HTTP $STATUS)"
-            echo "healthy=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ Backend unhealthy (HTTP $STATUS)"
-            echo "healthy=false" >> $GITHUB_OUTPUT
-          fi
+          URL="https://sanad-backend-mcrj.onrender.com/actuator/health"
+          INITIAL_TIMEOUT=60
+          RETRY_INTERVAL=15
+          MAX_RETRIES=3
+          TOTAL_WAIT=$(( INITIAL_TIMEOUT + RETRY_INTERVAL * MAX_RETRIES ))
+
+          STATUS="000"
+          ATTEMPT=0
+
+          while [ $ATTEMPT -le $MAX_RETRIES ]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Attempt $ATTEMPT/$((MAX_RETRIES + 1)): checking $URL (timeout=${INITIAL_TIMEOUT}s)..."
+
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$INITIAL_TIMEOUT" "$URL" 2>/dev/null || echo "000")
+
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Backend healthy (HTTP $STATUS) on attempt $ATTEMPT"
+              echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+              echo "healthy=true" >> "$GITHUB_OUTPUT"
+              echo "attempts=$ATTEMPT" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            echo "⚠️ Backend returned HTTP $STATUS on attempt $ATTEMPT"
+
+            if [ $ATTEMPT -le $MAX_RETRIES ]; then
+              echo "Waiting ${RETRY_INTERVAL}s before retry..."
+              sleep "$RETRY_INTERVAL"
+            fi
+          done
+
+          # All retries exhausted
+          echo "❌ Backend unhealthy after $ATTEMPT attempts (HTTP $STATUS, total wait ~${TOTAL_WAIT}s)"
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "healthy=false" >> "$GITHUB_OUTPUT"
+          echo "attempts=$ATTEMPT" >> "$GITHUB_OUTPUT"
 
       - name: Check frontend health
         id: frontend
+        shell: bash
         run: |
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
-            "https://snad-app.vercel.app" || echo "000")
-          echo "status=$STATUS" >> $GITHUB_OUTPUT
+            "https://snad-app.vercel.app" 2>/dev/null || echo "000")
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
           if [ "$STATUS" = "200" ] || [ "$STATUS" = "301" ] || [ "$STATUS" = "302" ]; then
             echo "✅ Frontend healthy (HTTP $STATUS)"
-            echo "healthy=true" >> $GITHUB_OUTPUT
+            echo "healthy=true" >> "$GITHUB_OUTPUT"
           else
             echo "❌ Frontend unhealthy (HTTP $STATUS)"
-            echo "healthy=false" >> $GITHUB_OUTPUT
+            echo "healthy=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create incident issue on failure
@@ -58,20 +95,23 @@ jobs:
           TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
           BACKEND_STATUS="${{ steps.health.outputs.status }}"
           FRONTEND_STATUS="${{ steps.frontend.outputs.status }}"
-          
+          BACKEND_ATTEMPTS="${{ steps.health.outputs.attempts }}"
+
           # Check if an open incident issue already exists
           EXISTING=$(gh issue list --label "incident" --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || echo "")
-          
+
           if [ -n "$EXISTING" ]; then
             echo "Open incident issue #$EXISTING already exists — adding comment"
-            gh issue comment "$EXISTING" --body "⏰ Still failing at $TIMESTAMP — Backend: HTTP $BACKEND_STATUS, Frontend: HTTP $FRONTEND_STATUS"
+            gh issue comment "$EXISTING" --body "⏰ Still failing at $TIMESTAMP — Backend: HTTP $BACKEND_STATUS (after $BACKEND_ATTEMPTS attempts), Frontend: HTTP $FRONTEND_STATUS"
           else
             gh issue create \
               --title "🚨 Incident: Service Unhealthy — $TIMESTAMP" \
-              --body "## Service Health Check Failed\n\n**Timestamp:** $TIMESTAMP\n**Backend:** HTTP $BACKEND_STATUS\n**Frontend:** HTTP $FRONTEND_STATUS\n\n### Response\n- Backend: https://sanad-backend-mcrj.onrender.com/actuator/health → HTTP $BACKEND_STATUS\n- Frontend: https://snad-app.vercel.app → HTTP $FRONTEND_STATUS\n\n### Next Steps\n1. Check Render logs: https://dashboard.render.com/web/srv-d8ragqkm0tmc73bviqq0\n2. Check Vercel dashboard: https://vercel.com/dashboard\n3. Run smoke test: .github/workflows/smoke-test.yml\n4. If DB issue: check Supabase dashboard\n\n*This issue was auto-created by the uptime monitor.*" \
+              --body "## Service Health Check Failed\n\n**Timestamp:** $TIMESTAMP\n**Backend:** HTTP $BACKEND_STATUS (after $BACKEND_ATTEMPTS retry attempts)\n**Frontend:** HTTP $FRONTEND_STATUS\n\n### Response\n- Backend: https://sanad-backend-mcrj.onrender.com/actuator/health → HTTP $BACKEND_STATUS\n- Frontend: https://snad-app.vercel.app → HTTP $FRONTEND_STATUS\n\n### Next Steps\n1. Check Render logs: https://dashboard.render.com/web/srv-d8ragqkm0tmc73bviqq0\n2. Check Vercel dashboard: https://vercel.com/dashboard\n3. Run smoke test: .github/workflows/smoke-test.yml\n4. If DB issue: check Supabase dashboard\n\n*This issue was auto-created by the uptime monitor.*" \
               --label "incident" \
-              --label "P1" \
-              --assignee "snadaiapp-png"
+              --assignee "snadaiapp-png" 2>/dev/null || \
+            gh issue create \
+              --title "🚨 Incident: Service Unhealthy — $TIMESTAMP" \
+              --body "## Service Health Check Failed\n\n**Timestamp:** $TIMESTAMP\n**Backend:** HTTP $BACKEND_STATUS (after $BACKEND_ATTEMPTS retry attempts)\n**Frontend:** HTTP $FRONTEND_STATUS" || true
           fi
 
       - name: Close incident issue on recovery
@@ -80,7 +120,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           EXISTING=$(gh issue list --label "incident" --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || echo "")
-          
+
           if [ -n "$EXISTING" ]; then
             TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
             echo "Closing incident issue #$EXISTING — services recovered"
