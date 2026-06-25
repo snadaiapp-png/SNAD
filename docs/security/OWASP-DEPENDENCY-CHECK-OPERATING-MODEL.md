@@ -71,3 +71,13 @@ This document describes the operating model for the OWASP Dependency-Check secur
 - **Tests:** `tests/ci/test_parse_owasp.py` (28+ scenarios)
 - **Result types:** `pass`, `failed`, `incomplete`, `execution_error`
 - **Only `pass` is accepted by Final Enforcement**
+
+## R12 Update
+
+The OWASP scan is now an **offline reader**:
+- No NVD API calls during scanning
+- No OSS Index calls
+- Requires verified NVD database from maintenance workflow
+- Uses `autoUpdate=false`
+- Uses `ossIndexAnalyzerEnabled=false`
+- Uses `-Dformat=HTML -Dformat=JSON` (correct syntax for DC 12.1.0)
