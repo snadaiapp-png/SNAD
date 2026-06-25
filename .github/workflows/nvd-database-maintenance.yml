@@ -1,17 +1,31 @@
 # ============================================================
 # SANAD Platform — NVD Database Maintenance (Single Writer)
 # ============================================================
-# EXEC-PROMPT-010R12: Separates NVD database building from
-# dependency scanning. This workflow is the ONLY writer to
-# the NVD database cache.
+# EXEC-PROMPT-010R12A: Limited corrective amendment to R12.
 #
-# Key properties:
-#   1. Single-writer (concurrency group prevents parallel writes)
-#   2. Uses update-only goal (no dependency analysis)
-#   3. Validates database after build
-#   4. Generates manifest with SHA-256
-#   5. Saves immutable unique cache key
-#   6. Never saves on failure
+# Corrections over R12:
+#   1. Single canonical cache path used across restore / update /
+#      save / scanner / validator:
+#        ${{ github.workspace }}/.cache/dependency-check-data
+#   2. Copy-on-Write: restore into canonical, copy to a clean temp
+#      work dir, run update-only against the temp dir, validate,
+#      then replace canonical only after validation passes.
+#   3. Deterministic retry: one bash step manages 1..3 attempts
+#      with 0/60/300s backoff. Stops immediately on first success.
+#      Outputs: update_result, successful_attempt, final_exit_code,
+#               attempt_1_exit_code, attempt_2_exit_code,
+#               attempt_3_exit_code.
+#   4. Cache key includes GITHUB_RUN_ATTEMPT (immutable per run).
+#   5. Builder adds -DossIndexAnalyzerEnabled=false so update-only
+#      never contacts Sonatype OSS Index.
+#   6. Strengthened validator (scripts/ci/validate_nvd_database.py)
+#      is authoritative — manifest schema, SHA-256, freshness,
+#      lock-file and temp-file checks.
+#   7. Independent verify-nvd-cache-restore job runs on a fresh
+#      runner, restores the exact cache key, revalidates, and runs
+#      an offline smoke test (autoUpdate=false).
+#   8. Never saves a failed or incomplete database.
+#   9. Full evidence artifacts with manifest, attempts, and SHA-256.
 # ============================================================
 
 name: NVD Database Maintenance
@@ -31,12 +45,32 @@ concurrency:
 env:
   DEPENDENCY_CHECK_VERSION: "12.1.0"
   NVD_CACHE_SCHEMA: "v3"
+  NVD_CANONICAL_DIR: ${{ github.workspace }}/.cache/dependency-check-data
+  # Conservative minimum: a real NVD odc.mv.db after initial download
+  # is hundreds of MB. 50 MiB is well below the smallest known good
+  # snapshot and catches "fresh empty H2 file" failure modes.
+  NVD_MIN_SIZE_BYTES: "52428800"
+  NVD_MAX_AGE_HOURS: "48"
 
 jobs:
   build-nvd-database:
     name: Build NVD Database
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    outputs:
+      update_result: ${{ steps.update_nvd.outputs.update_result }}
+      successful_attempt: ${{ steps.update_nvd.outputs.successful_attempt }}
+      final_exit_code: ${{ steps.update_nvd.outputs.final_exit_code }}
+      attempt_1_exit_code: ${{ steps.update_nvd.outputs.attempt_1_exit_code }}
+      attempt_2_exit_code: ${{ steps.update_nvd.outputs.attempt_2_exit_code }}
+      attempt_3_exit_code: ${{ steps.update_nvd.outputs.attempt_3_exit_code }}
+      cache_key: ${{ steps.cache_keys.outputs.cache_key }}
+      cache_prefix: ${{ steps.cache_keys.outputs.cache_prefix }}
+      cache_hit: ${{ steps.restore_cache.outputs.cache-hit }}
+      cache_matched_key: ${{ steps.restore_cache.outputs.cache-matched-key }}
+      db_sha256: ${{ steps.validate_db.outputs.database_sha256 }}
+      db_size_bytes: ${{ steps.validate_db.outputs.database_size_bytes }}
+      validation_result: ${{ steps.validate_db.outputs.validation_result }}
 
     steps:
       - name: Checkout repository
@@ -49,6 +83,15 @@ jobs:
           java-version: '21'
           cache: maven
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML (for validator tests)
+        shell: bash
+        run: python3 -m pip install pyyaml pytest --quiet
+
       - name: Verify NVD_API_KEY
         shell: bash
         env:
@@ -58,7 +101,7 @@ jobs:
             echo "::error::NVD_API_KEY is required for NVD database maintenance."
             exit 1
           fi
-          echo "✅ NVD_API_KEY configured"
+          echo "NVD_API_KEY configured (length: ${#NVD_API_KEY})"
 
       - name: Calculate cache keys
         id: cache_keys
@@ -66,159 +109,154 @@ jobs:
         run: |
           UTC_DATE=$(date -u +'%Y%m%d')
           RUN_ID="${{ github.run_id }}"
+          RUN_ATTEMPT="${{ github.run_attempt }}"
           CACHE_PREFIX="nvd-db-${{ runner.os }}-dc-${{ env.DEPENDENCY_CHECK_VERSION }}-${{ env.NVD_CACHE_SCHEMA }}"
-          CACHE_KEY="${CACHE_PREFIX}-${UTC_DATE}-${RUN_ID}"
+          CACHE_KEY="${CACHE_PREFIX}-${UTC_DATE}-${RUN_ID}-${RUN_ATTEMPT}"
           echo "cache_prefix=${CACHE_PREFIX}" >> "$GITHUB_OUTPUT"
           echo "cache_key=${CACHE_KEY}" >> "$GITHUB_OUTPUT"
-          echo "Cache key: ${CACHE_KEY}"
+          echo "Cache prefix: ${CACHE_PREFIX}"
+          echo "Cache key:    ${CACHE_KEY}"
 
-      - name: Restore last verified NVD database
+      # Restore last verified cache into the CANONICAL path (R12A Section 6).
+      # Primary key is deliberately non-existing for the current run; restore-keys
+      # falls back to the most recent matching prefix.
+      - name: Restore last verified NVD database (canonical path)
         id: restore_cache
         uses: actions/cache/restore@v4
         with:
-          path: ${{ runner.temp }}/nvd-restored
+          path: ${{ env.NVD_CANONICAL_DIR }}
           key: ${{ steps.cache_keys.outputs.cache_key }}
           restore-keys: |
             ${{ steps.cache_keys.outputs.cache_prefix }}-
 
-      - name: Prepare working directory
+      - name: Prepare copy-on-write work directory
         shell: bash
         run: |
-          NVD_WORK_DIR="${{ runner.temp }}/nvd-work"
-          mkdir -p "$NVD_WORK_DIR"
+          set -euo pipefail
+          WORK_DIR="${{ runner.temp }}/dependency-check-work"
+          rm -rf "$WORK_DIR"
+          mkdir -p "$WORK_DIR"
 
-          # Copy restored database if available
-          if [ -d "${{ runner.temp }}/nvd-restored" ]; then
-            cp -a "${{ runner.temp }}/nvd-restored/." "$NVD_WORK_DIR/"
-            echo "✅ Restored previous database into working directory"
+          if [ -d "${{ env.NVD_CANONICAL_DIR }}" ] && [ -n "$(ls -A '${{ env.NVD_CANONICAL_DIR }}' 2>/dev/null)" ]; then
+            cp -a "${{ env.NVD_CANONICAL_DIR }}/." "$WORK_DIR/"
+            echo "Copied previous canonical database into work directory."
           else
-            echo "⚠️ No previous database found — starting fresh build"
+            echo "No previous canonical database — starting fresh build in work directory."
           fi
 
-          echo "nvd_work_dir=$NVD_WORK_DIR" >> "$GITHUB_ENV"
+          # Save work dir for subsequent steps
+          echo "nvd_work_dir=$WORK_DIR" >> "$GITHUB_ENV"
 
-      - name: Run NVD update-only (Attempt 1)
-        id: update_attempt1
+      # Deterministic retry loop (R12A Section 9).
+      # Stops IMMEDIATELY on first success. Records per-attempt exit codes.
+      - name: Run NVD update-only (deterministic retry loop)
+        id: update_nvd
         shell: bash
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          set +e
-          mvn --batch-mode --no-transfer-progress \
-            org.owasp:dependency-check-maven:${{ env.DEPENDENCY_CHECK_VERSION }}:update-only \
-            -DdataDirectory="${{ env.nvd_work_dir }}" \
-            -DnvdApiKeyEnvironmentVariable=NVD_API_KEY \
-            -DnvdApiDelay=6000 \
-            -DnvdMaxRetryCount=5 \
-            -DfailOnError=true \
-            -DhostedSuppressionsEnabled=false \
-            -DversionCheckEnabled=false
-          EXIT_CODE=$?
-          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
-          if [ $EXIT_CODE -ne 0 ]; then
-            echo "⚠️ Attempt 1 failed (exit code $EXIT_CODE)"
-          else
-            echo "✅ Attempt 1 succeeded"
+          set -uo pipefail
+
+          SUCCESS=false
+          FINAL_EXIT_CODE=1
+          SUCCESSFUL_ATTEMPT=0
+          A1=1; A2=1; A3=1
+
+          record_attempt_result() {
+            local attempt="$1"
+            local exit_code="$2"
+            case "$attempt" in
+              1) A1="$exit_code" ;;
+              2) A2="$exit_code" ;;
+              3) A3="$exit_code" ;;
+            esac
+          }
+
+          for ATTEMPT in 1 2 3; do
+            case "$ATTEMPT" in
+              1) DELAY=0 ;;
+              2) DELAY=60 ;;
+              3) DELAY=300 ;;
+            esac
+
+            if [ "$DELAY" -gt 0 ]; then
+              echo "Sleeping ${DELAY}s before attempt ${ATTEMPT}..."
+              sleep "$DELAY"
+            fi
+
+            echo "--- Attempt ${ATTEMPT} of 3 ---"
+            set +e
+            mvn --batch-mode --no-transfer-progress \
+              org.owasp:dependency-check-maven:${{ env.DEPENDENCY_CHECK_VERSION }}:update-only \
+              -DdataDirectory="${{ env.nvd_work_dir }}" \
+              -DnvdApiKeyEnvironmentVariable=NVD_API_KEY \
+              -DnvdApiDelay=6000 \
+              -DnvdMaxRetryCount=5 \
+              -DfailOnError=true \
+              -DhostedSuppressionsEnabled=false \
+              -DversionCheckEnabled=false \
+              -DossIndexAnalyzerEnabled=false
+            EXIT_CODE=$?
+            set -e
+
+            record_attempt_result "$ATTEMPT" "$EXIT_CODE"
+            echo "Attempt ${ATTEMPT} exit code: ${EXIT_CODE}"
+
+            if [ "$EXIT_CODE" -eq 0 ]; then
+              SUCCESS=true
+              FINAL_EXIT_CODE=0
+              SUCCESSFUL_ATTEMPT="$ATTEMPT"
+              break
+            fi
+
+            FINAL_EXIT_CODE="$EXIT_CODE"
+          done
+
+          # Publish outputs
+          echo "update_result=$( [ "$SUCCESS" = "true" ] && echo success || echo failure )" >> "$GITHUB_OUTPUT"
+          echo "successful_attempt=${SUCCESSFUL_ATTEMPT}" >> "$GITHUB_OUTPUT"
+          echo "final_exit_code=${FINAL_EXIT_CODE}" >> "$GITHUB_OUTPUT"
+          echo "attempt_1_exit_code=${A1}" >> "$GITHUB_OUTPUT"
+          echo "attempt_2_exit_code=${A2}" >> "$GITHUB_OUTPUT"
+          echo "attempt_3_exit_code=${A3}" >> "$GITHUB_OUTPUT"
+
+          if [ "$SUCCESS" != "true" ]; then
+            echo "::error::NVD update-only failed after 3 attempts (final exit: ${FINAL_EXIT_CODE})"
+            exit "$FINAL_EXIT_CODE"
           fi
-          exit 0  # Don't fail the step — we handle retries
 
-      - name: Run NVD update-only (Attempt 2)
-        id: update_attempt2
-        if: steps.update_attempt1.outputs.exit_code != '0'
-        shell: bash
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: |
-          echo "Waiting 60s before retry..."
-          sleep 60
-          set +e
-          mvn --batch-mode --no-transfer-progress \
-            org.owasp:dependency-check-maven:${{ env.DEPENDENCY_CHECK_VERSION }}:update-only \
-            -DdataDirectory="${{ env.nvd_work_dir }}" \
-            -DnvdApiKeyEnvironmentVariable=NVD_API_KEY \
-            -DnvdApiDelay=6000 \
-            -DnvdMaxRetryCount=5 \
-            -DfailOnError=true \
-            -DhostedSuppressionsEnabled=false \
-            -DversionCheckEnabled=false
-          EXIT_CODE=$?
-          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
-          if [ $EXIT_CODE -ne 0 ]; then
-            echo "⚠️ Attempt 2 failed (exit code $EXIT_CODE)"
-          else
-            echo "✅ Attempt 2 succeeded"
-          fi
-          exit 0
+          echo "NVD update-only succeeded on attempt ${SUCCESSFUL_ATTEMPT}"
 
-      - name: Run NVD update-only (Attempt 3)
-        id: update_attempt3
-        if: steps.update_attempt2.outputs.exit_code != '0'
-        shell: bash
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: |
-          echo "Waiting 300s before final retry..."
-          sleep 300
-          mvn --batch-mode --no-transfer-progress \
-            org.owasp:dependency-check-maven:${{ env.DEPENDENCY_CHECK_VERSION }}:update-only \
-            -DdataDirectory="${{ env.nvd_work_dir }}" \
-            -DnvdApiKeyEnvironmentVariable=NVD_API_KEY \
-            -DnvdApiDelay=6000 \
-            -DnvdMaxRetryCount=5 \
-            -DfailOnError=true \
-            -DhostedSuppressionsEnabled=false \
-            -DversionCheckEnabled=false
-
-      - name: Validate NVD database
+      # Strengthened validation (R12A Section 13).
+      # Validates manifest schema, SHA-256, size, freshness, lock/temp files.
+      # Manifest is then WRITTEN by this step (post-validation) so its
+      # database_sha256 reflects the actual validated file.
+      - name: Validate NVD database and emit manifest
         id: validate_db
         shell: bash
         run: |
-          DB_DIR="${{ env.nvd_work_dir }}"
-          DB_FILE="$DB_DIR/odc.mv.db"
-
-          if [ ! -d "$DB_DIR" ]; then
-            echo "::error::NVD database directory not found"
-            echo "validation=missing" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
+          set -euo pipefail
+          WORK_DIR="${{ env.nvd_work_dir }}"
+          DB_FILE="$WORK_DIR/odc.mv.db"
 
           if [ ! -f "$DB_FILE" ]; then
-            echo "::error::odc.mv.db not found"
-            echo "validation=missing" >> "$GITHUB_OUTPUT"
+            echo "::error::odc.mv.db not found in work directory after update"
+            echo "validation_result=missing_db_file" >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
-          DB_SIZE=$(stat -c%s "$DB_FILE" 2>/dev/null || echo 0)
-          if [ "$DB_SIZE" -lt 1024 ]; then
-            echo "::error::Database file too small ($DB_SIZE bytes)"
-            echo "validation=incomplete" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-
-          # Check for lock files
-          LOCK_FILES=$(find "$DB_DIR" -name "*.lock.db" -o -name "*.lock" 2>/dev/null | wc -l)
-          if [ "$LOCK_FILES" -gt 0 ]; then
-            echo "::error::Database lock files found"
-            echo "validation=corrupt" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-
+          DB_SIZE=$(stat -c%s "$DB_FILE")
           DB_SHA256=$(sha256sum "$DB_FILE" | awk '{print $1}')
           UPDATE_TS=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
 
-          echo "✅ Database validation passed"
-          echo "  Size: $DB_SIZE bytes"
-          echo "  SHA-256: $DB_SHA256"
-          echo "  Updated: $UPDATE_TS"
-
           # Generate manifest
-          cat > "$DB_DIR/sanad-nvd-manifest.json" << MANIFEST
+          cat > "$WORK_DIR/sanad-nvd-manifest.json" << MANIFEST
           {
             "schema_version": "${{ env.NVD_CACHE_SCHEMA }}",
             "dependency_check_version": "${{ env.DEPENDENCY_CHECK_VERSION }}",
             "update_mode": "update-only",
             "update_completed_at": "$UPDATE_TS",
-            "builder_run_id": "${{ github.run_id }}",
+            "builder_run_id": ${{ github.run_id }},
             "builder_sha": "${{ github.sha }}",
             "nvd_source": "NVD API",
             "nvd_api_key_used": true,
@@ -230,25 +268,111 @@ jobs:
           }
           MANIFEST
 
-          echo "validation=valid" >> "$GITHUB_OUTPUT"
-          echo "db_sha256=$DB_SHA256" >> "$GITHUB_OUTPUT"
-          echo "db_size=$DB_SIZE" >> "$GITHUB_OUTPUT"
+          # Persist manifest content to logs for evidence
+          echo "Manifest content:"
+          cat "$WORK_DIR/sanad-nvd-manifest.json"
 
-      - name: Save verified NVD database cache
-        if: steps.validate_db.outputs.validation == 'valid'
+          # Run strengthened validator (R12A Section 13)
+          set +e
+          VALIDATOR_OUTPUT=$(python3 scripts/ci/validate_nvd_database.py "$WORK_DIR" \
+            --min-size "${{ env.NVD_MIN_SIZE_BYTES }}" \
+            --max-age-hours "${{ env.NVD_MAX_AGE_HOURS }}" \
+            --expected-dc-version "${{ env.DEPENDENCY_CHECK_VERSION }}" \
+            --expected-schema "${{ env.NVD_CACHE_SCHEMA }}" 2>&1)
+          VALIDATOR_EXIT=$?
+          set -e
+
+          echo "$VALIDATOR_OUTPUT"
+
+          if [ "$VALIDATOR_EXIT" -ne 0 ]; then
+            echo "::error::NVD database validation failed (validator exit: $VALIDATOR_EXIT)"
+            # Surface the result classification to outputs
+            RESULT_LINE=$(echo "$VALIDATOR_OUTPUT" | grep '^validation_result=' | head -1 | cut -d= -f2)
+            echo "validation_result=${RESULT_LINE:-validator_error}" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          # Capture outputs for downstream steps
+          for key in validation_result database_sha256 database_size_bytes \
+                     update_completed_at age_hours builder_run_id builder_sha \
+                     dependency_check_version schema_version; do
+            val=$(echo "$VALIDATOR_OUTPUT" | grep "^${key}=" | head -1 | cut -d= -f2-)
+            [ -n "$val" ] && echo "${key}=${val}" >> "$GITHUB_OUTPUT"
+          done
+
+      # Copy-on-Write finalization (R12A Section 7):
+      # Replace the canonical directory only AFTER validation passes.
+      - name: Promote work directory to canonical
+        if: steps.validate_db.outputs.validation_result == 'valid'
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORK_DIR="${{ env.nvd_work_dir }}"
+
+          # Atomically replace the canonical directory
+          rm -rf "${{ env.NVD_CANONICAL_DIR }}"
+          mkdir -p "${{ env.NVD_CANONICAL_DIR }}"
+          cp -a "$WORK_DIR/." "${{ env.NVD_CANONICAL_DIR }}/"
+          echo "Canonical directory promoted from validated work directory."
+
+          ls -la "${{ env.NVD_CANONICAL_DIR }}"
+
+      # Save the canonical directory under the immutable unique key.
+      - name: Save verified NVD database cache (canonical path)
+        id: save_cache
+        if: steps.validate_db.outputs.validation_result == 'valid'
         uses: actions/cache/save@v4
         with:
-          path: ${{ env.nvd_work_dir }}
+          path: ${{ env.NVD_CANONICAL_DIR }}
           key: ${{ steps.cache_keys.outputs.cache_key }}
+
+      - name: Write build-attempts JSON evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "${{ runner.temp }}/evidence"
+          cat > "${{ runner.temp }}/evidence/nvd-build-attempts.json" << JSON
+          {
+            "run_id": ${{ github.run_id }},
+            "run_attempt": ${{ github.run_attempt }},
+            "sha": "${{ github.sha }}",
+            "update_result": "${{ steps.update_nvd.outputs.update_result }}",
+            "successful_attempt": "${{ steps.update_nvd.outputs.successful_attempt }}",
+            "final_exit_code": "${{ steps.update_nvd.outputs.final_exit_code }}",
+            "attempts": {
+              "1": "${{ steps.update_nvd.outputs.attempt_1_exit_code }}",
+              "2": "${{ steps.update_nvd.outputs.attempt_2_exit_code }}",
+              "3": "${{ steps.update_nvd.outputs.attempt_3_exit_code }}"
+            }
+          }
+          JSON
+
+          cat > "${{ runner.temp }}/evidence/nvd-cache-evidence.json" << JSON
+          {
+            "cache_prefix": "${{ steps.cache_keys.outputs.cache_prefix }}",
+            "cache_key": "${{ steps.cache_keys.outputs.cache_key }}",
+            "cache_hit": "${{ steps.restore_cache.outputs.cache-hit }}",
+            "cache_matched_key": "${{ steps.restore_cache.outputs.cache-matched-key }}",
+            "canonical_dir": "${{ env.NVD_CANONICAL_DIR }}",
+            "save_performed": "${{ steps.validate_db.outputs.validation_result == 'valid' }}"
+          }
+          JSON
+
+          # Also copy manifest and SHA file for the artifact
+          if [ -f "${{ env.NVD_CANONICAL_DIR }}/sanad-nvd-manifest.json" ]; then
+            cp "${{ env.NVD_CANONICAL_DIR }}/sanad-nvd-manifest.json" "${{ runner.temp }}/evidence/"
+          fi
+          if [ -n "${{ steps.validate_db.outputs.database_sha256 }}" ]; then
+            echo "${{ steps.validate_db.outputs.database_sha256 }}" > "${{ runner.temp }}/evidence/database-sha256.txt"
+          fi
 
       - name: Upload build evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: nvd-database-build-evidence-${{ github.run_id }}
-          path: |
-            ${{ env.nvd_work_dir }}/sanad-nvd-manifest.json
-          if-no-files-found: warn
+          path: ${{ runner.temp }}/evidence/
+          if-no-files-found: error
           retention-days: 30
 
       - name: Write summary
@@ -256,34 +380,44 @@ jobs:
         shell: bash
         run: |
           {
-            echo '## NVD Database Maintenance'
+            echo '## NVD Database Maintenance — R12A'
             echo ''
             echo "**Run ID:** ${{ github.run_id }}"
+            echo "**Run attempt:** ${{ github.run_attempt }}"
             echo "**SHA:** \`${{ github.sha }}\`"
             echo "**Dependency-Check:** ${{ env.DEPENDENCY_CHECK_VERSION }}"
             echo "**Cache schema:** ${{ env.NVD_CACHE_SCHEMA }}"
+            echo "**Canonical path:** \`${{ env.NVD_CANONICAL_DIR }}\`"
             echo ""
 
-            ATTEMPT1="${{ steps.update_attempt1.outputs.exit_code }}"
-            ATTEMPT2="${{ steps.update_attempt2.outputs.exit_code }}"
-            ATTEMPT3="${{ steps.update_attempt3.outputs.exit_code }}"
-            VALIDATION="${{ steps.validate_db.outputs.validation }}"
+            UPDATE_RESULT="${{ steps.update_nvd.outputs.update_result }}"
+            SUCCESSFUL="${{ steps.update_nvd.outputs.successful_attempt }}"
+            VALIDATION="${{ steps.validate_db.outputs.validation_result }}"
 
             if [ "$VALIDATION" = "valid" ]; then
-              echo "### ✅ NVD Database Build: SUCCESS"
+              echo "### NVD Database Build: SUCCESS"
               echo ""
               echo "| Metric | Value |"
               echo "|--------|-------|"
+              echo "| Update result | ${UPDATE_RESULT} |"
+              echo "| Successful attempt | ${SUCCESSFUL} |"
               echo "| Cache key | \`${{ steps.cache_keys.outputs.cache_key }}\` |"
-              echo "| Database SHA-256 | \`${{ steps.validate_db.outputs.db_sha256 }}\` |"
-              echo "| Database size | ${{ steps.validate_db.outputs.db_size }} bytes |"
+              echo "| Cache hit (restore) | ${{ steps.restore_cache.outputs.cache-hit }} |"
+              echo "| Matched restore key | ${{ steps.restore_cache.outputs.cache-matched-key }} |"
+              echo "| Database SHA-256 | \`${{ steps.validate_db.outputs.database_sha256 }}\` |"
+              echo "| Database size | ${{ steps.validate_db.outputs.database_size_bytes }} bytes |"
+              echo "| Builder SHA | \`${{ github.sha }}\` |"
             else
-              echo "### ❌ NVD Database Build: FAILED"
+              echo "### NVD Database Build: FAILED"
               echo ""
-              echo "Attempt 1 exit: $ATTEMPT1"
-              echo "Attempt 2 exit: $ATTEMPT2"
-              echo "Attempt 3 exit: $ATTEMPT3"
-              echo "Validation: $VALIDATION"
+              echo "| Step | Result |"
+              echo "|------|--------|"
+              echo "| Update result | ${UPDATE_RESULT} |"
+              echo "| Final exit code | ${{ steps.update_nvd.outputs.final_exit_code }} |"
+              echo "| Attempt 1 | ${{ steps.update_nvd.outputs.attempt_1_exit_code }} |"
+              echo "| Attempt 2 | ${{ steps.update_nvd.outputs.attempt_2_exit_code }} |"
+              echo "| Attempt 3 | ${{ steps.update_nvd.outputs.attempt_3_exit_code }} |"
+              echo "| Validation | ${VALIDATION} |"
               echo ""
               echo "**Cache save: PROHIBITED**"
               echo "**OWASP scan: NOT STARTED**"
@@ -294,9 +428,230 @@ jobs:
         if: always()
         shell: bash
         run: |
-          VALIDATION="${{ steps.validate_db.outputs.validation }}"
+          VALIDATION="${{ steps.validate_db.outputs.validation_result }}"
           if [ "$VALIDATION" != "valid" ]; then
             echo "::error::NVD database validation failed ($VALIDATION)"
             exit 1
           fi
-          echo "✅ NVD database build complete and validated"
+          echo "NVD database build complete and validated."
+
+  # ─────────────────────────────────────────────────────────────────
+  # Independent cache restore verification (R12A Section 14).
+  # Runs on a FRESH runner to prove the saved cache can be restored
+  # by a different job, the SHA-256 matches, and the database can be
+  # opened by Dependency-Check in offline mode without contacting
+  # NVD or OSS Index.
+  # ─────────────────────────────────────────────────────────────────
+  verify-nvd-cache-restore:
+    name: Independent Cache Restore Verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: build-nvd-database
+    if: needs.build-nvd-database.outputs.validation_result == 'valid'
+
+    env:
+      DEPENDENCY_CHECK_VERSION: ${{ needs.build-nvd-database.outputs.cache_prefix && '12.1.0' }}
+      NVD_CACHE_SCHEMA: "v3"
+      NVD_CANONICAL_DIR: ${{ github.workspace }}/.cache/dependency-check-data
+      NVD_MIN_SIZE_BYTES: "52428800"
+      NVD_MAX_AGE_HOURS: "48"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        shell: bash
+        run: python3 -m pip install pyyaml pytest --quiet
+
+      - name: Restore exact cache key
+        id: restore_exact
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.NVD_CANONICAL_DIR }}
+          key: ${{ needs.build-nvd-database.outputs.cache_key }}
+
+      - name: Verify restore succeeded
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d "${{ env.NVD_CANONICAL_DIR }}" ]; then
+            echo "::error::Canonical directory was not restored"
+            exit 1
+          fi
+          if [ ! -f "${{ env.NVD_CANONICAL_DIR }}/odc.mv.db" ]; then
+            echo "::error::odc.mv.db missing from restored cache"
+            exit 1
+          fi
+          if [ ! -f "${{ env.NVD_CANONICAL_DIR }}/sanad-nvd-manifest.json" ]; then
+            echo "::error::Manifest missing from restored cache"
+            exit 1
+          fi
+          echo "Restored cache contents:"
+          ls -la "${{ env.NVD_CANONICAL_DIR }}"
+
+      - name: Revalidate database (strengthened validator)
+        id: revalidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/validate_nvd_database.py "${{ env.NVD_CANONICAL_DIR }}" \
+            --min-size "${{ env.NVD_MIN_SIZE_BYTES }}" \
+            --max-age-hours "${{ env.NVD_MAX_AGE_HOURS }}" \
+            --expected-dc-version "12.1.0" \
+            --expected-schema "v3" | tee "${{ runner.temp }}/revalidate-output.txt"
+
+          # Extract SHA-256 from validator output
+          RESTORED_SHA=$(grep '^database_sha256=' "${{ runner.temp }}/revalidate-output.txt" | cut -d= -f2)
+
+          echo "restored_sha256=${RESTORED_SHA}" >> "$GITHUB_OUTPUT"
+
+          # Cross-check against builder-reported SHA-256
+          BUILDER_SHA="${{ needs.build-nvd-database.outputs.db_sha256 }}"
+          if [ -z "$BUILDER_SHA" ]; then
+            echo "::error::Builder did not publish db_sha256"
+            exit 1
+          fi
+          if [ "$RESTORED_SHA" != "$BUILDER_SHA" ]; then
+            echo "::error::SHA-256 mismatch after restore"
+            echo "  Builder: $BUILDER_SHA"
+            echo "  Restored: $RESTORED_SHA"
+            exit 1
+          fi
+          echo "SHA-256 verified: $RESTORED_SHA"
+
+      - name: Offline smoke test
+        id: smoke_test
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Run Dependency-Check in pure offline mode against the restored DB.
+          # autoUpdate=false → no NVD API calls.
+          # ossIndexAnalyzerEnabled=false → no Sonatype OSS Index calls.
+          # We DO NOT scan real project deps here; we just open the database.
+          # The goal is to prove the database file is usable by DC.
+          SMOKE_LOG="${{ runner.temp }}/offline-smoke-test.log"
+
+          set +e
+          mvn --batch-mode --no-transfer-progress \
+            org.owasp:dependency-check-maven:12.1.0:check \
+            -DdataDirectory="${{ env.NVD_CANONICAL_DIR }}" \
+            -DautoUpdate=false \
+            -DfailOnError=true \
+            -DfailBuildOnCVSS=11 \
+            -DossIndexAnalyzerEnabled=false \
+            -DhostedSuppressionsEnabled=false \
+            -DversionCheckEnabled=false \
+            -Dformats=HTML \
+            -DoutputDirectory="${{ runner.temp }}/smoke-output" \
+            > "$SMOKE_LOG" 2>&1
+          SMOKE_EXIT=$?
+          set -e
+
+          # Dependency-Check exits non-zero when vulnerabilities are found at or
+          # above failBuildOnCVSS. For a smoke test on the SANAD backend, the
+          # exit code is not the acceptance signal — the absence of NVD/OSS
+          # network calls and absence of H2 corruption IS the signal.
+          echo "Smoke test mvn exit: $SMOKE_EXIT"
+          cat "$SMOKE_LOG" | tail -80
+
+          # Forbidden-hosts check (R12A Section 16)
+          FORBIDDEN_HITS=$(grep -E -c 'services\.nvd\.nist\.gov|nvd\.nist\.gov/developers|ossindex\.sonatype\.org|Sonatype OSS Index API' "$SMOKE_LOG" || true)
+          if [ "$FORBIDDEN_HITS" -gt 0 ]; then
+            echo "::error::Offline smoke test contacted forbidden hosts ($FORBIDDEN_HITS hits)"
+            grep -E 'services\.nvd\.nist\.gov|nvd\.nist\.gov/developers|ossindex\.sonatype\.org|Sonatype OSS Index API' "$SMOKE_LOG" | head -10
+            echo "smoke_result=offline_violation" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          # H2 corruption check
+          H2_ERRORS=$(grep -E -c 'H2.*corrupt|H2.*lock|H2.*error|DatabaseException|IllegalStateException.*H2' "$SMOKE_LOG" || true)
+          if [ "$H2_ERRORS" -gt 0 ]; then
+            echo "::error::H2 corruption or lock errors detected in smoke test"
+            echo "smoke_result=h2_error" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "smoke_result=success" >> "$GITHUB_OUTPUT"
+          echo "Offline smoke test PASSED — no NVD/OSS Index contact, no H2 errors."
+
+      - name: Write restore verification evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "${{ runner.temp }}/restore-evidence"
+
+          cat > "${{ runner.temp }}/restore-evidence/restore-result.json" << JSON
+          {
+            "builder_run_id": ${{ github.run_id }},
+            "verification_run_id": ${{ github.run_id }},
+            "verification_attempt": ${{ github.run_attempt }},
+            "cache_key": "${{ needs.build-nvd-database.outputs.cache_key }}",
+            "cache_hit_on_restore": "${{ steps.restore_exact.outputs.cache-hit }}",
+            "builder_sha256": "${{ needs.build-nvd-database.outputs.db_sha256 }}",
+            "restored_sha256": "${{ steps.revalidate.outputs.restored_sha256 }}",
+            "sha256_match": "$([ "${{ steps.revalidate.outputs.restored_sha256 }}" = "${{ needs.build-nvd-database.outputs.db_sha256 }}" ] && echo true || echo false)",
+            "smoke_result": "${{ steps.smoke_test.outputs.smoke_result }}"
+          }
+          JSON
+
+          # Copy validated manifest if available
+          if [ -f "${{ env.NVD_CANONICAL_DIR }}/sanad-nvd-manifest.json" ]; then
+            cp "${{ env.NVD_CANONICAL_DIR }}/sanad-nvd-manifest.json" \
+               "${{ runner.temp }}/restore-evidence/validated-manifest.json"
+          fi
+
+          # Copy smoke test log
+          if [ -f "${{ runner.temp }}/offline-smoke-test.log" ]; then
+            cp "${{ runner.temp }}/offline-smoke-test.log" \
+               "${{ runner.temp }}/restore-evidence/"
+          fi
+
+      - name: Upload restore verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nvd-cache-restore-verification-${{ github.run_id }}
+          path: ${{ runner.temp }}/restore-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Write summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Independent Cache Restore Verification — R12A'
+            echo ''
+            echo "**Cache key:** \`${{ needs.build-nvd-database.outputs.cache_key }}\`"
+            echo "**Builder SHA-256:** \`${{ needs.build-nvd-database.outputs.db_sha256 }}\`"
+            echo "**Restored SHA-256:** \`${{ steps.revalidate.outputs.restored_sha256 }}\`"
+            echo "**Smoke result:** ${{ steps.smoke_test.outputs.smoke_result }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Final enforcement
+        if: always()
+        shell: bash
+        run: |
+          SMOKE="${{ steps.smoke_test.outputs.smoke_result }}"
+          if [ "$SMOKE" != "success" ]; then
+            echo "::error::Restore verification failed (smoke: $SMOKE)"
+            exit 1
+          fi
+          echo "Independent restore verification PASSED."

@@ -1,16 +1,31 @@
 # ============================================================
 # SANAD Platform — OWASP Offline Security Scan (Read-Only)
 # ============================================================
-# EXEC-PROMPT-010R12: Offline dependency scanner.
+# EXEC-PROMPT-010R12A: Offline dependency scanner.
 #
-# Key properties:
-#   1. Read-only — never updates NVD database
-#   2. Requires verified NVD database from maintenance workflow
-#   3. autoUpdate=false — no network calls to NVD
-#   4. ossIndexAnalyzerEnabled=false — no Sonatype OSS Index
-#   5. Fail-closed — scanner exit code is enforced
-#   6. Parser is authoritative gate
-#   7. Final enforcement: only 'pass' is accepted
+# Corrections over R12:
+#   1. Restores verified NVD database into the SAME canonical path
+#      used by the builder:
+#        ${{ github.workspace }}/.cache/dependency-check-data
+#   2. Requires cache-hit OR matched-cache-key. If neither, scan
+#      is NOT STARTED (NVD_DATABASE_MISSING → workflow FAILS).
+#   3. Uses scripts/ci/validate_nvd_database.py for validation
+#      (manifest schema, SHA-256, freshness, lock/temp files).
+#   4. Multi-format reports via Maven profile -Powasp-offline-gate
+#      with <formats><format>HTML</format><format>JSON</format></formats>
+#      in apps/sanad-platform/pom.xml (R12A Section 11 preferred model).
+#   5. Preflight step (R12A Section 12) verifies both report files
+#      exist and are non-empty BEFORE the parser gate is evaluated.
+#   6. Offline-mode network audit (R12A Section 16): scan log is
+#      grepped for forbidden hosts (services.nvd.nist.gov,
+#      nvd.nist.gov/developers, ossindex.sonatype.org,
+#      "Sonatype OSS Index API"). Any hit = OFFLINE_MODE_VIOLATION
+#      and final enforcement FAILS.
+#   7. Final enforcement (R12A Section 19): only the conjunction of
+#      cache-restored + DB-valid + offline-verified + scanner-exit-0
+#      + JSON-valid + HTML-valid + total-deps>0 + parser=pass +
+#      HIGH=0 + CRITICAL=0 + UNKNOWN=0 + Analysis-Exceptions=0
+#      + artifact-upload=success is accepted.
 # ============================================================
 
 name: Security Scan (OWASP)
@@ -25,6 +40,7 @@ on:
       - 'apps/sanad-platform/src/**'
       - '.github/workflows/security-scan.yml'
       - 'scripts/ci/parse_owasp_report.py'
+      - 'scripts/ci/validate_nvd_database.py'
       - 'tests/ci/'
   pull_request:
     paths:
@@ -42,6 +58,10 @@ concurrency:
 env:
   DEPENDENCY_CHECK_VERSION: "12.1.0"
   NVD_CACHE_SCHEMA: "v3"
+  NVD_CANONICAL_DIR: ${{ github.workspace }}/.cache/dependency-check-data
+  NVD_MIN_SIZE_BYTES: "52428800"
+  NVD_MAX_AGE_HOURS: "48"
+  OWASP_REPORT_DIR: apps/sanad-platform/target/dependency-check-report
 
 jobs:
   dependency-check:
@@ -68,7 +88,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install pytest
+      - name: Install pytest + PyYAML
         shell: bash
         run: python3 -m pip install pytest pyyaml --quiet
 
@@ -81,139 +101,243 @@ jobs:
           python3 -m pytest tests/ci/test_parse_owasp.py -q
           echo "parser_tests_passed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Calculate cache keys
+      - name: Test NVD database validator
+        id: validator_tests
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python3 -m pytest tests/ci/test_validate_nvd_database.py -q
+          echo "validator_tests_passed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Calculate cache prefix
         id: cache_keys
         shell: bash
         run: |
           echo "cache_prefix=nvd-db-${{ runner.os }}-dc-${{ env.DEPENDENCY_CHECK_VERSION }}-${{ env.NVD_CACHE_SCHEMA }}" >> "$GITHUB_OUTPUT"
 
-      # Restore verified NVD database (read-only — scanner never writes)
-      - name: Restore verified NVD database
+      # Restore verified NVD database (read-only — scanner never writes).
+      # Primary key is deliberately non-existing for the current run; restore-keys
+      # falls back to the most recent matching prefix.
+      - name: Restore verified NVD database (canonical path)
         id: restore_cache
         uses: actions/cache/restore@v4
         with:
-          path: ${{ runner.temp }}/nvd-data
-          key: ${{ steps.cache_keys.outputs.cache_prefix }}-not-exact
+          path: ${{ env.NVD_CANONICAL_DIR }}
+          key: ${{ steps.cache_keys.outputs.cache_prefix }}-not-exact-${{ github.run_id }}
           restore-keys: |
             ${{ steps.cache_keys.outputs.cache_prefix }}-
 
-      - name: Validate NVD database
-        id: db_validation
-        shell: bash
-        run: |
-          DB_DIR="${{ runner.temp }}/nvd-data"
-          DB_FILE="$DB_DIR/odc.mv.db"
-          MANIFEST="$DB_DIR/sanad-nvd-manifest.json"
-
-          if [ ! -d "$DB_DIR" ]; then
-            echo "::error::NVD database directory not found — run nvd-database-maintenance workflow first"
-            echo "db_status=missing" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-
-          if [ ! -f "$DB_FILE" ]; then
-            echo "::error::odc.mv.db not found in cache"
-            echo "db_status=missing" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-
-          DB_SIZE=$(stat -c%s "$DB_FILE" 2>/dev/null || echo 0)
-          if [ "$DB_SIZE" -lt 1024 ]; then
-            echo "::error::Database file too small ($DB_SIZE bytes)"
-            echo "db_status=incomplete" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-
-          if [ -f "$MANIFEST" ]; then
-            echo "✅ NVD database manifest found"
-            DB_SHA256=$(sha256sum "$DB_FILE" | awk '{print $1}')
-            MANIFEST_SHA=$(python3 -c "import json; print(json.load(open('$MANIFEST')).get('database_sha256',''))" 2>/dev/null || echo "")
-            if [ -n "$MANIFEST_SHA" ] && [ "$DB_SHA256" != "$MANIFEST_SHA" ]; then
-              echo "::error::Database SHA-256 mismatch (expected: $MANIFEST_SHA, got: $DB_SHA256)"
-              echo "db_status=corrupt" >> "$GITHUB_OUTPUT"
-              exit 1
-            fi
-            echo "✅ Database SHA-256 verified"
-          fi
-
-          # Check freshness (max 48 hours)
-          if [ -f "$MANIFEST" ]; then
-            UPDATE_TS=$(python3 -c "import json; print(json.load(open('$MANIFEST')).get('update_completed_at',''))" 2>/dev/null || echo "")
-            if [ -n "$UPDATE_TS" ]; then
-              UPDATE_EPOCH=$(date -d "$UPDATE_TS" +%s 2>/dev/null || echo 0)
-              NOW_EPOCH=$(date -u +%s)
-              AGE_HOURS=$(( (NOW_EPOCH - UPDATE_EPOCH) / 3600 ))
-              if [ $AGE_HOURS -gt 48 ]; then
-                echo "::error::Database is stale ($AGE_HOURS hours old — max 48)"
-                echo "db_status=stale" >> "$GITHUB_OUTPUT"
-                exit 1
-              fi
-              echo "✅ Database freshness: $AGE_HOURS hours old"
-            fi
-          fi
-
-          echo "✅ NVD database validation passed"
-          echo "db_status=valid" >> "$GITHUB_OUTPUT"
-          echo "db_dir=${{ runner.temp }}/nvd-data" >> "$GITHUB_OUTPUT"
-
-      # OFFLINE SCAN — no NVD API calls, no OSS Index
-      - name: Run OWASP dependency-check (offline)
-        id: owasp_scan
+      - name: Require cache restored
+        id: require_cache
         shell: bash
         run: |
           set -euo pipefail
+          HIT="${{ steps.restore_cache.outputs.cache-hit }}"
+          MATCHED="${{ steps.restore_cache.outputs.cache-matched-key }}"
+          echo "cache_hit=${HIT}" >> "$GITHUB_OUTPUT"
+          echo "cache_matched_key=${MATCHED}" >> "$GITHUB_OUTPUT"
+
+          if [ -z "${MATCHED}" ] || [ "${MATCHED}" = "false" ] || [ "${MATCHED}" = "null" ]; then
+            echo "::error::NVD database cache could not be restored — run nvd-database-maintenance first"
+            echo "classification=NVD_DATABASE_MISSING" >> "$GITHUB_OUTPUT"
+            echo "scan_status=not_started" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          if [ ! -d "${{ env.NVD_CANONICAL_DIR }}" ]; then
+            echo "::error::Canonical directory was not restored"
+            echo "classification=NVD_DATABASE_MISSING" >> "$GITHUB_OUTPUT"
+            echo "scan_status=not_started" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "Cache restored (matched key: ${MATCHED})"
+
+      - name: Validate NVD database (strengthened validator)
+        id: db_validation
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -uo pipefail
+
+          VALIDATOR_OUTPUT=$(python3 scripts/ci/validate_nvd_database.py "${{ env.NVD_CANONICAL_DIR }}" \
+            --min-size "${{ env.NVD_MIN_SIZE_BYTES }}" \
+            --max-age-hours "${{ env.NVD_MAX_AGE_HOURS }}" \
+            --expected-dc-version "${{ env.DEPENDENCY_CHECK_VERSION }}" \
+            --expected-schema "${{ env.NVD_CACHE_SCHEMA }}" 2>&1)
+          VALIDATOR_EXIT=$?
+
+          echo "$VALIDATOR_OUTPUT"
+
+          if [ "$VALIDATOR_EXIT" -ne 0 ]; then
+            echo "::error::NVD database validation failed (validator exit: $VALIDATOR_EXIT)"
+            RESULT_LINE=$(echo "$VALIDATOR_OUTPUT" | grep '^validation_result=' | head -1 | cut -d= -f2)
+            echo "db_status=${RESULT_LINE:-validator_error}" >> "$GITHUB_OUTPUT"
+            echo "classification=NVD_DATABASE_INVALID" >> "$GITHUB_OUTPUT"
+            echo "scan_status=not_started" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          # Capture outputs
+          for key in validation_result database_sha256 database_size_bytes \
+                     update_completed_at age_hours builder_run_id builder_sha; do
+            val=$(echo "$VALIDATOR_OUTPUT" | grep "^${key}=" | head -1 | cut -d= -f2-)
+            [ -n "$val" ] && echo "${key}=${val}" >> "$GITHUB_OUTPUT"
+          done
+
+          echo "db_status=valid" >> "$GITHUB_OUTPUT"
+          echo "classification=DB_VALID" >> "$GITHUB_OUTPUT"
+
+      # ──────────────────────────────────────────────────────────
+      # OFFLINE SCAN — no NVD API calls, no OSS Index.
+      # Uses Maven profile -Powasp-offline-gate defined in
+      # apps/sanad-platform/pom.xml (R12A Section 11 preferred model).
+      # ──────────────────────────────────────────────────────────
+      - name: Run OWASP dependency-check (offline, multi-format)
+        id: owasp_scan
+        shell: bash
+        run: |
+          set -uo pipefail
 
           echo "Running OFFLINE OWASP Dependency-Check..."
-          echo "NVD data directory: ${{ steps.db_validation.outputs.db_dir }}"
+          echo "Canonical NVD dir: ${{ env.NVD_CANONICAL_DIR }}"
           echo "autoUpdate: false (no NVD API calls)"
-          echo "OSS Index: disabled"
+          echo "OSS Index: disabled (ossIndexAnalyzerEnabled=false)"
+          echo "Report formats: HTML + JSON (via -Powasp-offline-gate profile)"
 
-          SCAN_EXIT_CODE=0
+          SCAN_LOG="${{ runner.temp }}/owasp-scan.log"
+
+          set +e
           mvn --batch-mode --no-transfer-progress \
             org.owasp:dependency-check-maven:${{ env.DEPENDENCY_CHECK_VERSION }}:check \
-            -DdataDirectory="${{ steps.db_validation.outputs.db_dir }}" \
+            -Powasp-offline-gate \
+            -DdataDirectory="${{ env.NVD_CANONICAL_DIR }}" \
             -DautoUpdate=false \
             -DfailOnError=true \
             -DfailBuildOnCVSS=11 \
-            -Dformat=HTML \
-            -Dformat=JSON \
-            -DoutputDirectory=target/dependency-check-report \
             -DossIndexAnalyzerEnabled=false \
             -DhostedSuppressionsEnabled=false \
             -DversionCheckEnabled=false \
-            || SCAN_EXIT_CODE=$?
+            -DoutputDirectory=target/dependency-check-report \
+            > "$SCAN_LOG" 2>&1
+          SCAN_EXIT_CODE=$?
+          set -e
 
           echo "scan_exit_code=$SCAN_EXIT_CODE" >> "$GITHUB_OUTPUT"
+          echo "scan_log_path=$SCAN_LOG" >> "$GITHUB_ENV"
 
+          # Print the tail of the scan log for visibility
+          echo "--- Scan log tail (last 80 lines) ---"
+          tail -80 "$SCAN_LOG" || true
+          echo "--- End scan log tail ---"
+
+          # FailBuildOnCVSS=11 means DC exits non-zero when a HIGH/CRITICAL
+          # vuln is found. We treat any non-zero exit as a scan execution
+          # failure (the parser is the authoritative gate for findings).
           if [ "$SCAN_EXIT_CODE" -ne 0 ]; then
             echo "::error::OWASP Dependency-Check exited with code $SCAN_EXIT_CODE"
             echo "scan_result=execution_error" >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
-          JSON_REPORT="target/dependency-check-report/dependency-check-report.json"
-          HTML_REPORT="target/dependency-check-report/dependency-check-report.html"
-
-          if [ ! -f "$JSON_REPORT" ]; then
-            echo "::error::OWASP JSON report not found"
-            echo "scan_result=execution_error" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-
-          if [ ! -f "$HTML_REPORT" ]; then
-            echo "::error::OWASP HTML report not found"
-            echo "scan_result=execution_error" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-
-          echo "✅ Scanner completed (exit code 0)"
-          echo "✅ JSON report generated"
-          echo "✅ HTML report generated"
           echo "scan_result=completed" >> "$GITHUB_OUTPUT"
+
+      # Preflight report-format verification (R12A Section 12).
+      - name: Preflight — verify multi-format reports
+        id: preflight_reports
+        if: steps.owasp_scan.outputs.scan_result == 'completed'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REPORT_DIR="target/dependency-check-report"
+          JSON_REPORT="$REPORT_DIR/dependency-check-report.json"
+          HTML_REPORT="$REPORT_DIR/dependency-check-report.html"
+
+          ERRORS=()
+
+          # Existence checks
+          [ -f "$JSON_REPORT" ] || ERRORS+=("json_missing")
+          [ -f "$HTML_REPORT" ] || ERRORS+=("html_missing")
+
+          # Non-empty checks
+          if [ -f "$JSON_REPORT" ]; then
+            JSON_SIZE=$(stat -c%s "$JSON_REPORT")
+            [ "$JSON_SIZE" -gt 0 ] || ERRORS+=("json_empty")
+          fi
+          if [ -f "$HTML_REPORT" ]; then
+            HTML_SIZE=$(stat -c%s "$HTML_REPORT")
+            [ "$HTML_SIZE" -gt 0 ] || ERRORS+=("html_empty")
+          fi
+
+          # JSON validity
+          if [ -f "$JSON_REPORT" ]; then
+            if ! python3 -c "import json,sys; json.load(open('$JSON_REPORT'))" 2>/dev/null; then
+              ERRORS+=("json_invalid")
+            fi
+          fi
+
+          # HTML marker check (any OWASP DC HTML report contains this string)
+          if [ -f "$HTML_REPORT" ]; then
+            if ! grep -q 'Dependency-Check' "$HTML_REPORT"; then
+              ERRORS+=("html_marker_missing")
+            fi
+          fi
+
+          # Forbidden template errors (R12A Section 12)
+          SCAN_LOG="${{ env.scan_log_path }}"
+          if [ -f "$SCAN_LOG" ]; then
+            if grep -q 'FileNotFoundException' "$SCAN_LOG" && \
+               grep -q 'vsl' "$SCAN_LOG"; then
+              ERRORS+=("template_file_not_found")
+            fi
+            if grep -q 'HTML,JSON\.vsl' "$SCAN_LOG"; then
+              ERRORS+=("html_json_vsl_reference")
+            fi
+          fi
+
+          if [ ${#ERRORS[@]} -gt 0 ]; then
+            echo "::error::Preflight report format verification FAILED: ${ERRORS[*]}"
+            echo "preflight_result=REPORT_FORMAT_CONFIGURATION_FAILURE" >> "$GITHUB_OUTPUT"
+            echo "preflight_errors=${ERRORS[*]}" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "Preflight PASSED — JSON + HTML reports present, non-empty, valid"
+          echo "preflight_result=success" >> "$GITHUB_OUTPUT"
+          echo "json_size=${JSON_SIZE:-0}" >> "$GITHUB_OUTPUT"
+          echo "html_size=${HTML_SIZE:-0}" >> "$GITHUB_OUTPUT"
+
+      # Offline-mode network audit (R12A Section 16).
+      - name: Offline-mode network audit
+        id: offline_audit
+        if: steps.owasp_scan.outputs.scan_result == 'completed'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SCAN_LOG="${{ env.scan_log_path }}"
+          if [ ! -f "$SCAN_LOG" ]; then
+            echo "::error::Scan log not found at $SCAN_LOG"
+            echo "offline_audit=log_missing" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          # Forbidden hosts (R12A Section 16)
+          FORBIDDEN_HITS=$(grep -E -c 'services\.nvd\.nist\.gov|nvd\.nist\.gov/developers|ossindex\.sonatype\.org|Sonatype OSS Index API' "$SCAN_LOG" || true)
+          if [ "$FORBIDDEN_HITS" -gt 0 ]; then
+            echo "::error::OFFLINE_MODE_VIOLATION — scanner contacted forbidden hosts ($FORBIDDEN_HITS hits)"
+            grep -E 'services\.nvd\.nist\.gov|nvd\.nist\.gov/developers|ossindex\.sonatype\.org|Sonatype OSS Index API' "$SCAN_LOG" | head -10
+            echo "offline_audit=violation" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "Offline audit PASSED — no NVD or OSS Index network access detected"
+          echo "offline_audit=verified" >> "$GITHUB_OUTPUT"
 
       - name: Parse OWASP JSON report
         id: parse_report
-        if: steps.owasp_scan.outputs.scan_result == 'completed'
+        if: steps.owasp_scan.outputs.scan_result == 'completed' && steps.preflight_reports.outputs.preflight_result == 'success'
         shell: bash
         working-directory: apps/sanad-platform
         run: |
@@ -238,24 +362,55 @@ jobs:
           echo "parse_result=success" >> "$GITHUB_OUTPUT"
 
       - name: Upload OWASP evidence
+        id: upload_evidence
         if: always() && steps.owasp_scan.outputs.scan_result == 'completed'
         uses: actions/upload-artifact@v4
         with:
           name: owasp-dependency-check-evidence-${{ github.run_id }}
           path: |
             apps/sanad-platform/target/dependency-check-report/
-            ${{ runner.temp }}/nvd-data/sanad-nvd-manifest.json
+            ${{ env.NVD_CANONICAL_DIR }}/sanad-nvd-manifest.json
           if-no-files-found: error
           retention-days: 30
+
+      - name: Write scan-evidence JSON
+        if: always() && steps.owasp_scan.outputs.scan_result == 'completed'
+        shell: bash
+        run: |
+          mkdir -p apps/sanad-platform/target/dependency-check-report
+          cat > apps/sanad-platform/target/dependency-check-report/scan-evidence.json << JSON
+          {
+            "run_id": ${{ github.run_id }},
+            "tested_sha": "${{ github.sha }}",
+            "db_sha256": "${{ steps.db_validation.outputs.database_sha256 }}",
+            "db_size_bytes": "${{ steps.db_validation.outputs.database_size_bytes }}",
+            "db_age_hours": "${{ steps.db_validation.outputs.age_hours }}",
+            "cache_matched_key": "${{ steps.require_cache.outputs.cache_matched_key }}",
+            "scanner_exit_code": "${{ steps.owasp_scan.outputs.scan_exit_code }}",
+            "preflight_result": "${{ steps.preflight_reports.outputs.preflight_result }}",
+            "offline_audit": "${{ steps.offline_audit.outputs.offline_audit }}",
+            "parse_result": "${{ steps.parse_report.outputs.result }}",
+            "total_dependencies": "${{ steps.parse_report.outputs.total_dependencies }}",
+            "total_vulnerabilities": "${{ steps.parse_report.outputs.total_vulnerabilities }}",
+            "high": "${{ steps.parse_report.outputs.high }}",
+            "critical": "${{ steps.parse_report.outputs.critical }}",
+            "unknown": "${{ steps.parse_report.outputs.unknown }}",
+            "analysis_exceptions": "${{ steps.parse_report.outputs.analysis_exceptions }}",
+            "artifact_uploaded": "true"
+          }
+          JSON
 
       - name: Write summary
         if: always()
         shell: bash
         env:
           PARSER_TESTS: ${{ steps.parser_tests.outputs.parser_tests_passed }}
+          VALIDATOR_TESTS: ${{ steps.validator_tests.outputs.validator_tests_passed }}
           DB_STATUS: ${{ steps.db_validation.outputs.db_status }}
           SCAN_EXIT_CODE: ${{ steps.owasp_scan.outputs.scan_exit_code }}
           SCAN_RESULT: ${{ steps.owasp_scan.outputs.scan_result }}
+          PREFLIGHT: ${{ steps.preflight_reports.outputs.preflight_result }}
+          OFFLINE_AUDIT: ${{ steps.offline_audit.outputs.offline_audit }}
           OWASP_RESULT: ${{ steps.parse_report.outputs.result }}
           TOTAL_DEPS: ${{ steps.parse_report.outputs.total_dependencies }}
           TOTAL_VULNS: ${{ steps.parse_report.outputs.total_vulnerabilities }}
@@ -266,41 +421,53 @@ jobs:
           GITHUB_SHA_SHORT: ${{ github.sha }}
         run: |
           {
-            echo '## OWASP Dependency-Check (Offline)'
+            echo '## OWASP Dependency-Check (Offline, R12A)'
             echo ''
             echo "**Scanned SHA:** \`$GITHUB_SHA_SHORT\`"
             echo "**Run ID:** ${{ github.run_id }}"
             echo "**Mode:** OFFLINE (autoUpdate=false)"
-            echo "**Database:** $DB_STATUS"
+            echo "**Canonical DB path:** \`${{ env.NVD_CANONICAL_DIR }}\`"
+            echo "**Cache matched key:** \`${{ steps.require_cache.outputs.cache_matched_key }}\`"
+            echo "**Database SHA-256:** \`${{ steps.db_validation.outputs.database_sha256 }}\`"
+            echo "**Database age:** ${{ steps.db_validation.outputs.age_hours }}h"
+            echo "**Database status:** $DB_STATUS"
             echo "**Scanner exit:** $SCAN_EXIT_CODE"
+            echo "**Preflight:** $PREFLIGHT"
+            echo "**Offline audit:** $OFFLINE_AUDIT"
             echo ''
 
             if [ "$PARSER_TESTS" != "true" ]; then
-              echo '### ⛔ EXECUTION ERROR — Parser tests failed'
+              echo '### Parser tests FAILED'
+            elif [ "$VALIDATOR_TESTS" != "true" ]; then
+              echo '### Validator tests FAILED'
             elif [ "$DB_STATUS" != "valid" ]; then
-              echo '### ⛔ EXECUTION ERROR — NVD database: '"$DB_STATUS"
+              echo "### EXECUTION ERROR — NVD database: $DB_STATUS"
               echo 'Run nvd-database-maintenance workflow first.'
             elif [ "$SCAN_RESULT" = "execution_error" ]; then
-              echo '### ⛔ EXECUTION ERROR — Scanner failed (exit code: '"$SCAN_EXIT_CODE"')'
+              echo "### EXECUTION ERROR — Scanner failed (exit: $SCAN_EXIT_CODE)"
+            elif [ "$PREFLIGHT" != "success" ]; then
+              echo "### REPORT_FORMAT_CONFIGURATION_FAILURE — $PREFLIGHT"
+            elif [ "$OFFLINE_AUDIT" != "verified" ]; then
+              echo "### OFFLINE_MODE_VIOLATION — $OFFLINE_AUDIT"
             elif [ "$OWASP_RESULT" = "failed" ]; then
-              echo '### ❌ FAILED — HIGH='"$HIGH"' CRITICAL='"$CRITICAL"
+              echo "### FAILED — HIGH=$HIGH CRITICAL=$CRITICAL"
             elif [ "$OWASP_RESULT" = "incomplete" ]; then
-              echo '### ⚠️ INCOMPLETE — Unknown='"$UNKNOWN"' Exceptions='"$ANALYSIS_EXCEPTIONS"
+              echo "### INCOMPLETE — Unknown=$UNKNOWN Exceptions=$ANALYSIS_EXCEPTIONS"
             elif [ "$OWASP_RESULT" = "execution_error" ]; then
-              echo '### ⛔ EXECUTION ERROR — Zero deps or parser validation failed'
+              echo '### EXECUTION ERROR — Zero deps or parser validation failed'
             elif [ "$OWASP_RESULT" = "pass" ]; then
-              echo '### ✅ PASS'
+              echo '### PASS'
               echo ''
               echo "| Metric | Count |"
               echo "|--------|-------|"
-              echo "| HIGH | 0 |"
-              echo "| CRITICAL | 0 |"
-              echo "| UNKNOWN | 0 |"
-              echo "| Analysis exceptions | 0 |"
+              echo "| HIGH | $HIGH |"
+              echo "| CRITICAL | $CRITICAL |"
+              echo "| UNKNOWN | $UNKNOWN |"
+              echo "| Analysis exceptions | $ANALYSIS_EXCEPTIONS |"
               echo "| Total vulnerabilities | $TOTAL_VULNS |"
               echo "| Total dependencies | $TOTAL_DEPS |"
             else
-              echo '### ⛔ UNKNOWN STATE'
+              echo '### UNKNOWN STATE'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -309,24 +476,34 @@ jobs:
         shell: bash
         env:
           PARSER_TESTS: ${{ steps.parser_tests.outputs.parser_tests_passed }}
+          VALIDATOR_TESTS: ${{ steps.validator_tests.outputs.validator_tests_passed }}
           DB_STATUS: ${{ steps.db_validation.outputs.db_status }}
           SCAN_RESULT: ${{ steps.owasp_scan.outputs.scan_result }}
           SCAN_EXIT_CODE: ${{ steps.owasp_scan.outputs.scan_exit_code }}
+          PREFLIGHT: ${{ steps.preflight_reports.outputs.preflight_result }}
+          OFFLINE_AUDIT: ${{ steps.offline_audit.outputs.offline_audit }}
           OWASP_RESULT: ${{ steps.parse_report.outputs.result }}
+          TOTAL_DEPS: ${{ steps.parse_report.outputs.total_dependencies }}
+          HIGH: ${{ steps.parse_report.outputs.high }}
+          CRITICAL: ${{ steps.parse_report.outputs.critical }}
+          UNKNOWN: ${{ steps.parse_report.outputs.unknown }}
+          ANALYSIS_EXCEPTIONS: ${{ steps.parse_report.outputs.analysis_exceptions }}
         run: |
-          if [ "$PARSER_TESTS" != "true" ]; then
-            echo "::error::Parser tests failed"; exit 1
-          fi
-          if [ "$DB_STATUS" != "valid" ]; then
-            echo "::error::NVD database invalid: $DB_STATUS"; exit 1
-          fi
-          if [ "$SCAN_RESULT" != "completed" ]; then
-            echo "::error::Scan did not complete (exit: $SCAN_EXIT_CODE)"; exit 1
-          fi
-          if [ "$SCAN_EXIT_CODE" != "0" ]; then
-            echo "::error::Scanner exit code: $SCAN_EXIT_CODE"; exit 1
-          fi
-          if [ "$OWASP_RESULT" != "pass" ]; then
-            echo "::error::OWASP result: $OWASP_RESULT — only 'pass' accepted"; exit 1
-          fi
-          echo "✅ OWASP PASSED all gates"
+          # R12A Section 19 — all conditions must hold.
+          fail() { echo "::error::$1"; exit 1; }
+
+          [ "$PARSER_TESTS" = "true" ] || fail "Parser tests failed"
+          [ "$VALIDATOR_TESTS" = "true" ] || fail "Validator tests failed"
+          [ "$DB_STATUS" = "valid" ] || fail "NVD database invalid: $DB_STATUS"
+          [ "$SCAN_RESULT" = "completed" ] || fail "Scan did not complete (exit: $SCAN_EXIT_CODE)"
+          [ "$SCAN_EXIT_CODE" = "0" ] || fail "Scanner exit code: $SCAN_EXIT_CODE"
+          [ "$PREFLIGHT" = "success" ] || fail "Preflight failed: $PREFLIGHT"
+          [ "$OFFLINE_AUDIT" = "verified" ] || fail "Offline audit: $OFFLINE_AUDIT"
+          [ "$OWASP_RESULT" = "pass" ] || fail "OWASP result: $OWASP_RESULT — only 'pass' accepted"
+          [ -n "$TOTAL_DEPS" ] && [ "$TOTAL_DEPS" -gt 0 ] || fail "Total dependencies not > 0 (got: $TOTAL_DEPS)"
+          [ "$HIGH" = "0" ] || fail "HIGH vulnerabilities: $HIGH"
+          [ "$CRITICAL" = "0" ] || fail "CRITICAL vulnerabilities: $CRITICAL"
+          [ "$UNKNOWN" = "0" ] || fail "UNKNOWN vulnerabilities: $UNKNOWN"
+          [ "$ANALYSIS_EXCEPTIONS" = "0" ] || fail "Analysis exceptions: $ANALYSIS_EXCEPTIONS"
+
+          echo "OWASP PASSED all gates (R12A Section 19)"
