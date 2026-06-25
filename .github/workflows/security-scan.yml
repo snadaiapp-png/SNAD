@@ -1,7 +1,7 @@
 # ============================================================
 # SANAD Platform — OWASP Dependency-Check Security Scan
 # ============================================================
-# EXEC-PROMPT-010R4: Authoritative, fail-closed security gate.
+# EXEC-PROMPT-010R11: Fail-closed, complete NVD coverage.
 #
 # Key properties:
 #   1. Parser tests run BEFORE the real scan (blocks on failure)
@@ -10,10 +10,12 @@
 #   4. NVD_API_KEY required (owner-managed secret)
 #   5. failBuildOnCVSS=11 (non-blocking, allows report generation)
 #   6. Parser is authoritative gate (not Maven exit code)
-#   7. Zero dependencies = execution_error (never PASS)
-#   8. Unknown severity = incomplete (never PASS)
-#   9. Analysis exceptions = incomplete (never PASS)
-#  10. Conditional summary (never false PASS)
+#   7. fail-closed: scanner exit code IS part of the gate
+#   8. Complete NVD API download with persistent cache
+#   9. Cache validation before and after scan
+#  10. 180-minute timeout for initial NVD synchronization
+#  11. Conditional summary (never false PASS)
+#  12. Final enforcement: only 'pass' is accepted
 # ============================================================
 
 name: Security Scan (OWASP)
@@ -42,7 +44,7 @@ jobs:
   dependency-check:
     name: OWASP Dependency-Check
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     defaults:
       run:
         working-directory: apps/sanad-platform
@@ -63,10 +65,9 @@ jobs:
         with:
           python-version: '3.12'
 
-      # EXEC-PROMPT-010R4 Section 11: Run parser tests BEFORE the real scan
       - name: Install pytest
         shell: bash
-        run: python3 -m pip install pytest --quiet
+        run: python3 -m pip install pytest pyyaml --quiet
 
       - name: Test OWASP report parser
         id: parser_tests
@@ -77,7 +78,6 @@ jobs:
           python3 -m pytest tests/ci/test_parse_owasp.py -q
           echo "parser_tests_passed=true" >> "$GITHUB_OUTPUT"
 
-      # EXEC-PROMPT-010R4 Section 12: NVD_API_KEY owner gate
       - name: Verify NVD_API_KEY secret is configured
         id: check_nvd_key
         shell: bash
@@ -94,22 +94,49 @@ jobs:
           echo "✅ NVD_API_KEY is configured (value not printed)."
           echo "nvd_key_present=true" >> "$GITHUB_OUTPUT"
 
-      # EXEC-PROMPT-010R4 Section 10: Safe step ID (no hyphens)
       - name: Calculate OWASP cache period
         id: cache_period
         shell: bash
         run: |
           echo "week=$(date -u +'%Y-W%V')" >> "$GITHUB_OUTPUT"
 
-      - name: Cache NVD database
-        uses: actions/cache@v4
+      # Restore NVD cache (read-only restore — save only on success)
+      - name: Restore NVD database cache
+        id: restore_cache
+        uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/nvd-cache
-          key: nvd-cache-${{ runner.os }}-dc12.1.0-${{ steps.cache_period.outputs.week }}
+          key: nvd-cache-${{ runner.os }}-dc12.1.0-v2-${{ steps.cache_period.outputs.week }}
           restore-keys: |
-            nvd-cache-${{ runner.os }}-dc12.1.0-
+            nvd-cache-${{ runner.os }}-dc12.1.0-v2-
 
-      # EXEC-PROMPT-010R10: Stabilize OWASP — add NVD API delays + retries
+      - name: Validate restored NVD database
+        id: db_validation
+        shell: bash
+        run: |
+          DB_DIR="${{ runner.temp }}/nvd-cache"
+          if [ -d "$DB_DIR" ]; then
+            DB_FILES=$(find "$DB_DIR" -name "*.h2.db" -o -name "*.h2.tmp" -o -name "odc.mv.db" 2>/dev/null | wc -l)
+            if [ "$DB_FILES" -gt 0 ]; then
+              echo "✅ NVD database cache restored ($DB_FILES database files found)"
+              echo "db_present=true" >> "$GITHUB_OUTPUT"
+              echo "db_source=cache" >> "$GITHUB_OUTPUT"
+            else
+              echo "⚠️ Cache directory exists but no database files found — will initialize"
+              echo "db_present=false" >> "$GITHUB_OUTPUT"
+              echo "db_source=api" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "⚠️ No cache directory found — will initialize from NVD API"
+            echo "db_present=false" >> "$GITHUB_OUTPUT"
+            echo "db_source=api" >> "$GITHUB_OUTPUT"
+          fi
+
+      # EXEC-PROMPT-010R11: Complete NVD API download with fail-closed behavior
+      # Removed: -DnvdApiDataFeedUrl (single modified feed — insufficient coverage)
+      # Removed: -DfailOnError=false (fail-open — unacceptable)
+      # Kept: -DfailBuildOnCVSS=11 (allows report generation, parser is gate)
+      # Added: scanner exit code enforcement
       - name: Run OWASP dependency-check
         id: owasp_scan
         shell: bash
@@ -117,6 +144,10 @@ jobs:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           set -euo pipefail
+
+          echo "Running OWASP Dependency-Check with complete NVD API..."
+          echo "NVD data source: API (complete historical download)"
+          echo "Cache directory: ${{ runner.temp }}/nvd-cache"
 
           SCAN_EXIT_CODE=0
           mvn org.owasp:dependency-check-maven:12.1.0:check \
@@ -129,23 +160,39 @@ jobs:
             -DnvdMaxRetryCount=3 \
             -DhostedSuppressionsEnabled=false \
             -DhostedSuppressionsForceupdate=false \
-            -DnvdApiDataFeedUrl="https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-modified.json.gz" \
-            -DfailOnError=false \
             --batch-mode \
             --no-transfer-progress || SCAN_EXIT_CODE=$?
 
           echo "scan_exit_code=$SCAN_EXIT_CODE" >> "$GITHUB_OUTPUT"
 
+          # EXEC-PROMPT-010R11: Scanner exit code is part of the gate
+          if [ "$SCAN_EXIT_CODE" -ne 0 ]; then
+            echo "::error::OWASP Dependency-Check exited with code $SCAN_EXIT_CODE"
+            echo "::error::Scanner execution failed — cannot produce a valid security conclusion."
+            echo "scan_result=execution_error" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
           JSON_REPORT="target/dependency-check-report/dependency-check-report.json"
+          HTML_REPORT="target/dependency-check-report/dependency-check-report.html"
+
           if [ ! -f "$JSON_REPORT" ]; then
             echo "::error::OWASP JSON report not found at $JSON_REPORT"
             echo "scan_result=execution_error" >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
+          if [ ! -f "$HTML_REPORT" ]; then
+            echo "::error::OWASP HTML report not found at $HTML_REPORT"
+            echo "scan_result=execution_error" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "✅ Scanner completed successfully (exit code 0)"
+          echo "✅ JSON report generated"
+          echo "✅ HTML report generated"
           echo "scan_result=completed" >> "$GITHUB_OUTPUT"
 
-      # EXEC-PROMPT-010R4 Section 6+10: Use the tested parser (safe ID)
       - name: Parse OWASP JSON report
         id: parse_report
         if: steps.owasp_scan.outputs.scan_result == 'completed'
@@ -172,7 +219,6 @@ jobs:
 
           echo "$PARSE_OUTPUT"
 
-          # Export all outputs (snake_case only)
           while IFS='=' read -r key value; do
             [ -n "$key" ] && echo "$key=$value" >> "$GITHUB_OUTPUT"
           done <<< "$PARSE_OUTPUT"
@@ -188,13 +234,23 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # EXEC-PROMPT-010R4 Section 13: Conditional summary
+      # Save NVD cache only on successful scan
+      - name: Save NVD database cache
+        if: steps.owasp_scan.outputs.scan_result == 'completed'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/nvd-cache
+          key: nvd-cache-${{ runner.os }}-dc12.1.0-v2-${{ steps.cache_period.outputs.week }}
+
       - name: Write security scan summary
         if: always()
         shell: bash
         env:
           PARSER_TESTS: ${{ steps.parser_tests.outputs.parser_tests_passed }}
           NVD_KEY_PRESENT: ${{ steps.check_nvd_key.outputs.nvd_key_present }}
+          DB_PRESENT: ${{ steps.db_validation.outputs.db_present }}
+          DB_SOURCE: ${{ steps.db_validation.outputs.db_source }}
+          SCAN_EXIT_CODE: ${{ steps.owasp_scan.outputs.scan_exit_code }}
           SCAN_RESULT: ${{ steps.owasp_scan.outputs.scan_result }}
           PARSE_RESULT: ${{ steps.parse_report.outputs.parse_result }}
           OWASP_RESULT: ${{ steps.parse_report.outputs.result }}
@@ -214,36 +270,30 @@ jobs:
             echo ''
             echo "**Scanned SHA:** \`$GITHUB_SHA_SHORT\`"
             echo "**Run ID:** ${{ github.run_id }}"
+            echo "**NVD data source:** $DB_SOURCE (cache present: $DB_PRESENT)"
+            echo "**Scanner exit code:** $SCAN_EXIT_CODE"
             echo ''
 
             if [ "$PARSER_TESTS" != "true" ]; then
               echo '### ⛔ OWASP DEPENDENCY-CHECK: EXECUTION ERROR'
               echo ''
               echo 'Parser tests failed. The scan was not executed.'
-              echo 'No security conclusion may be inferred.'
               echo '**Commercial production gate remains CLOSED.**'
             elif [ "$NVD_KEY_PRESENT" != "true" ]; then
               echo '### ⛔ OWASP DEPENDENCY-CHECK: NOT STARTED — NVD KEY MISSING'
-              echo ''
-              echo 'NVD_API_KEY secret is not configured.'
-              echo 'Owner must configure it in repository Settings → Secrets.'
               echo '**Commercial production gate remains CLOSED.**'
             elif [ "$SCAN_RESULT" = "execution_error" ]; then
               echo '### ⛔ OWASP DEPENDENCY-CHECK: EXECUTION ERROR'
               echo ''
+              echo "Scanner exit code: $SCAN_EXIT_CODE"
               echo 'The scanner failed to produce a valid report.'
-              echo 'No security conclusion may be inferred.'
               echo '**Commercial production gate remains CLOSED.**'
             elif [ "$PARSE_RESULT" = "execution_error" ]; then
               echo '### ⛔ OWASP DEPENDENCY-CHECK: EXECUTION ERROR'
-              echo ''
               echo 'Report was generated but could not be parsed.'
-              echo 'No security conclusion may be inferred.'
               echo '**Commercial production gate remains CLOSED.**'
             elif [ -z "$HIGH" ] || [ -z "$CRITICAL" ]; then
               echo '### ⚠️ OWASP DEPENDENCY-CHECK: INCOMPLETE'
-              echo ''
-              echo 'HIGH and CRITICAL counts remain unknown.'
               echo '**Commercial production gate remains CLOSED.**'
             elif [ "$OWASP_RESULT" = "failed" ]; then
               echo '### ❌ OWASP DEPENDENCY-CHECK: FAILED'
@@ -254,11 +304,7 @@ jobs:
               echo "| CRITICAL | $CRITICAL |"
               echo "| Total vulnerabilities | $TOTAL_VULNS |"
               echo "| Total dependencies | $TOTAL_DEPS |"
-              echo "| Unknown | $UNKNOWN |"
-              echo "| Unique suppressions | $SUPPRESSED |"
-              echo "| Analysis exceptions | $ANALYSIS_EXCEPTIONS |"
               echo ''
-              echo 'Review the private report artifact for details.'
               echo '**Commercial production gate remains CLOSED.**'
             elif [ "$OWASP_RESULT" = "incomplete" ]; then
               echo '### ⚠️ OWASP DEPENDENCY-CHECK: INCOMPLETE'
@@ -267,15 +313,11 @@ jobs:
               echo "|--------|-------|"
               echo "| Unknown severity | $UNKNOWN |"
               echo "| Analysis exceptions | $ANALYSIS_EXCEPTIONS |"
-              echo "| Total vulnerabilities | $TOTAL_VULNS |"
-              echo "| Total dependencies | $TOTAL_DEPS |"
               echo ''
-              echo 'Unknown severities or analysis exceptions prevent a PASS conclusion.'
               echo '**Commercial production gate remains CLOSED.**'
             elif [ "$OWASP_RESULT" = "execution_error" ]; then
               echo '### ⛔ OWASP DEPENDENCY-CHECK: EXECUTION ERROR'
-              echo ''
-              echo 'Zero dependencies detected or parser validation failed.'
+              echo 'Zero dependencies or parser validation failed.'
               echo '**Commercial production gate remains CLOSED.**'
             else
               echo '### ✅ OWASP DEPENDENCY-CHECK: PASS'
@@ -295,7 +337,6 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # EXEC-PROMPT-010R4 Section 13: Final enforcement — fail for every non-pass result
       - name: Final enforcement
         if: always()
         shell: bash
@@ -303,6 +344,7 @@ jobs:
           PARSER_TESTS: ${{ steps.parser_tests.outputs.parser_tests_passed }}
           NVD_KEY_PRESENT: ${{ steps.check_nvd_key.outputs.nvd_key_present }}
           SCAN_RESULT: ${{ steps.owasp_scan.outputs.scan_result }}
+          SCAN_EXIT_CODE: ${{ steps.owasp_scan.outputs.scan_exit_code }}
           OWASP_RESULT: ${{ steps.parse_report.outputs.result }}
         run: |
           if [ "$PARSER_TESTS" != "true" ]; then
@@ -314,7 +356,11 @@ jobs:
             exit 1
           fi
           if [ "$SCAN_RESULT" != "completed" ]; then
-            echo "::error::OWASP scan did not complete."
+            echo "::error::OWASP scan did not complete (scan_result=$SCAN_RESULT, exit_code=$SCAN_EXIT_CODE)."
+            exit 1
+          fi
+          if [ "$SCAN_EXIT_CODE" != "0" ]; then
+            echo "::error::Scanner exit code is $SCAN_EXIT_CODE — only 0 is accepted."
             exit 1
           fi
           if [ "$OWASP_RESULT" != "pass" ]; then
