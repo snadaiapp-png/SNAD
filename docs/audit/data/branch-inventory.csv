@@ -1,49 +1,56 @@
-branch_name,head_sha,ahead_of_main,behind_main,classification,recommended_action,notes
-"chore/supabase-free-pilot",0fe42ab,4,96,STALE,DELETE — no unique production work,"Supabase pilot config superseded by production Supabase"
-"docs/approve-pilot-integration",55e51a0,2,93,STALE,DELETE — documentation only,"Pilot approval docs, no code changes"
-"executor-23-master-execution-backlog",a6794b7,4,86,STALE,DELETE — planning docs only,"Execution backlog planning superseded"
-"executor-24-solution-architecture",27d0003,1,84,STALE,DELETE — superseded by implementation,"Architecture docs already implemented in main"
-"executor-24-solution-architecture-service-decomposition",1844ef6,4,84,STALE,DELETE — superseded,"Service decomposition already in main"
-"feat/EXEC-PROMPT-005-organization-service",53d4be2,1,234,ALREADY MERGED,DELETE — work in main,"Only 1 ahead due to merge conflict resolution"
-"feat/EXEC-PROMPT-018A-frontend-foundation",5eb20ad,42,214,STALE,OWNER REVIEW REQUIRED,"42 commits ahead — check for unique frontend work"
-"feat/EXEC-PROMPT-027-backend-hosting-readiness",143f009,5,98,STALE,DELETE — hosting readiness done,"All hosting work completed and in main"
-"feat/EXEC-PROMPT-028-backend-production-release",fa9d535,12,97,STALE,DELETE — production release done,"Production release completed"
-"feat/EXEC-PROMPT-029-frontend-backend-integration-foundation",0b0f7e3,35,81,STALE,OWNER REVIEW REQUIRED,"35 commits — check for unique integration work"
-"feat/EXEC-PROMPT-029-production-readiness",05b372f,3,92,STALE,DELETE — production readiness done,"PR already merged"
-"feat/EXEC-PROMPT-031-users-memberships-live-integration",c55c7e7,1,79,ALREADY MERGED,DELETE,"Merged via PR #68"
-"feat/EXEC-PROMPT-032-frontend-auth-tenant-context",97456cc,1,63,ALREADY MERGED,DELETE,"Merged via PR #61"
-"feat/EXEC-PROMPT-032A-backend-auth-session",7a886eb,56,75,STALE,OWNER REVIEW REQUIRED,"56 commits — auth session already merged but branch has extra work?"
-"feat/PROD-GATE-01-restore-validation",4ca1e75,1,91,ALREADY MERGED,DELETE,"Work in main"
-"feat/PROD-GATE-02-monitoring-alerting",38157a3,2,91,STALE,DELETE — monitoring in main,"Monitoring work completed"
-"feat/PROD-GATE-03-performance-baseline",5d37ed2,3,90,STALE,DELETE — performance in main,"Performance work completed"
-"feat/auth-tenant-production-acceptance",a4bedb1,2,65,REQUIRES FIX,"PR #60 was closed unmerged — check for unique work","PR #60 was not merged but branch has acceptance tests"
-"fix/EXEC-FIX-031A-uncached-backend-health",db88a68,1,78,ALREADY MERGED,DELETE,"Fix already in main"
-"fix/EXEC-PROMPT-002-defect-011-cors-allowlist",cbab491,8,27,ALREADY MERGED,DELETE,"Merged via PR #70"
-"fix/EXEC-PROMPT-004-defect-013-secure-session-storage",90f2908,1,26,ALREADY MERGED,DELETE,"Merged via PR #71"
-"fix/EXEC-PROMPT-005-defect-014-admin-capability-migration",b44ce24,1,26,ALREADY MERGED,DELETE,"Merged via PR #72"
-"fix/EXEC-PROMPT-008-final-security-and-evidence-correction",5dfc589,11,23,ALREADY MERGED,DELETE,"Merged via PR #75"
-"fix/EXEC-PROMPT-009-production-gate-closure",c4f8959,1,22,ALREADY MERGED,DELETE,"Merged via PR #76"
-"fix/EXEC-PROMPT-009A-production-workflow-contract",c1c3fa1,1,21,ALREADY MERGED,DELETE,"Merged via PR #77"
-"fix/EXEC-PROMPT-010A-emergency-workflow-quarantine",57f6b22,1,1,JUST MERGED,DELETE,"Merged via PR #81"
-"fix/EXEC-PROMPT-018A-vercel-deploy-clean",ba0b92f,4,217,STALE,DELETE — vercel deploy done,"Vercel deployment already working"
-"fix/api-timeout-cold-start",362957c,1,53,ALREADY MERGED,DELETE,"Merged via PR #65"
-"fix/backend-smoke-production-url-source",c3adc6f,1,67,ALREADY MERGED,DELETE,"Merged via PR #58"
-"fix/bootstrap-idempotent-restart",bbd931f,1,54,ALREADY MERGED,DELETE,"Merged via PR #64"
-"fix/login-blockers-auth-flow",28264cb,1,51,ALREADY MERGED,DELETE,"Merged via PR #67"
-"fix/relax-rate-limit",06592a5,1,52,ALREADY MERGED,DELETE,"Merged via PR #66"
-"fix/render-docker-paths",d815088,1,94,ALREADY MERGED,DELETE,"Docker paths fix in main"
-"fix/render-free-blueprint-shutdown-delay",de68d21,1,95,ALREADY MERGED,DELETE,"Shutdown delay fix in main"
-"fix/render-preflight-authoritative-url",e3984d5,1,71,ALREADY MERGED,DELETE,"Preflight URL fix in main"
-"fix/render-preflight-health-retry",60d2902,1,72,ALREADY MERGED,DELETE,"Health retry fix in main"
-"fix/sanad-unified-remediation-auth-memberships",9978727,1,45,ALREADY MERGED,DELETE,"Merged via PR #68"
-"governance/approve-executor-23",611843a,1,85,STALE,DELETE — governance docs,"Superseded"
-"infra/EXEC-FIX-032-render-control-plane",fe29535,12,73,STALE,OWNER REVIEW REQUIRED,"Control plane work — check if unique"
-"infra/EXEC-FIX-032-render-control-plane-final",2de120c,9,73,STALE,DELETE — superseded by -work,"Duplicate of -work branch"
-"infra/EXEC-FIX-032-render-control-plane-open-pr",e9353e3,11,73,STALE,DELETE — superseded,"PR already processed"
-"infra/EXEC-FIX-032-render-control-plane-pr",7bcd582,10,73,STALE,DELETE — superseded,"PR already processed"
-"infra/EXEC-FIX-032-render-control-plane-review",e9353e3,11,73,STALE,DELETE — superseded,"Review branch processed"
-"infra/EXEC-FIX-032-render-control-plane-snapshot",f04bc82,5,73,STALE,DELETE — superseded,"Snapshot no longer needed"
-"infra/EXEC-FIX-032-render-control-plane-submit",7bcd582,10,73,STALE,DELETE — superseded,"Submit branch processed"
-"infra/EXEC-FIX-032-render-control-plane-work",e8516c7,2,73,STALE,OWNER REVIEW REQUIRED,"2 commits — check for unique work"
-"prod-gate-04-reliability",5d55752,1,89,STALE,DELETE — reliability in main,"Reliability work completed"
-"prod-gates-security-compliance-ops",696512a,7,87,STALE,OWNER REVIEW REQUIRED,"7 commits — security/compliance docs"
+Branch Name,Head SHA (short),Last Commit Date,Last Author,Protected,Classification,Recommended Action
+chore/supabase-free-pilot,0fe42abf28a4,,,False,REQUIRES REVIEW,OWNER REVIEW
+docs/approve-pilot-integration,55e51a06ac65,,,False,REQUIRES REVIEW,OWNER REVIEW
+executor-23-master-execution-backlog,a6794b772afc,,,False,STALE,REVIEW FOR ARCHIVE
+executor-24-solution-architecture,27d00038b962,,,False,STALE,REVIEW FOR ARCHIVE
+executor-24-solution-architecture-service-decomposition,1844ef62d9d8,,,False,STALE,REVIEW FOR ARCHIVE
+feat/EXEC-PROMPT-005-organization-service,53d4be2050e2,,,False,REQUIRES REVIEW,OWNER REVIEW
+feat/EXEC-PROMPT-018A-frontend-foundation,5eb20adb31aa,,,False,REQUIRES REVIEW,OWNER REVIEW
+feat/EXEC-PROMPT-027-backend-hosting-readiness,143f0097453f,,,False,REQUIRES REVIEW,OWNER REVIEW
+feat/EXEC-PROMPT-028-backend-production-release,fa9d535ca2db,,,False,REQUIRES REVIEW,OWNER REVIEW
+feat/EXEC-PROMPT-029-frontend-backend-integration-foundation,0b0f7e3cb583,,,False,REQUIRES REVIEW,OWNER REVIEW
+feat/EXEC-PROMPT-029-production-readiness,05b372fa0700,,,False,REQUIRES REVIEW,OWNER REVIEW
+feat/EXEC-PROMPT-031-users-memberships-live-integration,c55c7e76a623,,,False,REQUIRES REVIEW,OWNER REVIEW
+feat/EXEC-PROMPT-032-frontend-auth-tenant-context,97456ccb6a00,,,False,REQUIRES REVIEW,OWNER REVIEW
+feat/EXEC-PROMPT-032A-backend-auth-session,7a886ebc4fe8,,,False,REQUIRES REVIEW,OWNER REVIEW
+feat/PROD-GATE-01-restore-validation,4ca1e75028f1,,,False,REQUIRES REVIEW,OWNER REVIEW
+feat/PROD-GATE-02-monitoring-alerting,38157a361db9,,,False,REQUIRES REVIEW,OWNER REVIEW
+feat/PROD-GATE-03-performance-baseline,5d37ed2e34c6,,,False,REQUIRES REVIEW,OWNER REVIEW
+feat/auth-tenant-production-acceptance,a4bedb106a74,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/DEFECT-019-027-frontend-hardening,705bcbc9cf4a,,,False,MERGE READY (PR open),MERGE via PR
+fix/DEFECT-020-postgres-port-exposure,1d45a69d69f9,,,False,MERGE READY (PR open),MERGE via PR
+fix/DEFECT-021-user-membership-capability,219f4249fd82,,,False,MERGE READY (PR open),MERGE via PR
+fix/DEFECT-029-cookie-samesite-default,4df957709733,,,False,MERGE READY (PR open),MERGE via PR
+fix/DEFECT-030-token-revocation-test-fk-order,7c0d2603d193,,,False,MERGE READY (PR open),MERGE via PR
+fix/EXEC-FIX-031A-uncached-backend-health,db88a68db6b2,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/EXEC-PROMPT-002-defect-011-cors-allowlist,cbab491a9a31,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/EXEC-PROMPT-004-defect-013-secure-session-storage,90f29086d1ff,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/EXEC-PROMPT-005-defect-014-admin-capability-migration,b44ce2440cfc,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/EXEC-PROMPT-008-final-security-and-evidence-correction,5dfc58909bb7,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/EXEC-PROMPT-009-production-gate-closure,c4f8959ca89a,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/EXEC-PROMPT-009A-production-workflow-contract,c1c3fa1a21a6,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/EXEC-PROMPT-010A-emergency-workflow-quarantine,57f6b22e22bb,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/EXEC-PROMPT-018A-vercel-deploy-clean,ba0b92facecf,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/EXEC-PROMPT-026-main-ci-stabilization,e7a312731cd4,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/api-timeout-cold-start,362957c836d4,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/backend-smoke-production-url-source,c3adc6fc6db7,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/bootstrap-idempotent-restart,bbd931f5a06c,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/login-blockers-auth-flow,28264cb99c15,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/relax-rate-limit,06592a59d8c5,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/render-docker-paths,d8150884d35a,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/render-free-blueprint-shutdown-delay,de68d21fd35b,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/render-preflight-authoritative-url,e3984d52eb77,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/render-preflight-health-retry,60d29021f47e,,,False,REQUIRES REVIEW,OWNER REVIEW
+fix/sanad-unified-remediation-auth-memberships,9978727da540,,,False,REQUIRES REVIEW,OWNER REVIEW
+governance/approve-executor-23,611843a0d1e2,,,False,STALE,REVIEW FOR ARCHIVE
+infra/EXEC-FIX-032-render-control-plane,fe295358b2d6,,,False,REQUIRES REVIEW,OWNER REVIEW
+infra/EXEC-FIX-032-render-control-plane-final,2de120c0179c,,,False,REQUIRES REVIEW,OWNER REVIEW
+infra/EXEC-FIX-032-render-control-plane-open-pr,e9353e3990ce,,,False,REQUIRES REVIEW,OWNER REVIEW
+infra/EXEC-FIX-032-render-control-plane-pr,7bcd58278243,,,False,REQUIRES REVIEW,OWNER REVIEW
+infra/EXEC-FIX-032-render-control-plane-review,e9353e3990ce,,,False,REQUIRES REVIEW,OWNER REVIEW
+infra/EXEC-FIX-032-render-control-plane-snapshot,f04bc82d718a,,,False,REQUIRES REVIEW,OWNER REVIEW
+infra/EXEC-FIX-032-render-control-plane-submit,7bcd58278243,,,False,REQUIRES REVIEW,OWNER REVIEW
+infra/EXEC-FIX-032-render-control-plane-work,e8516c77b5f2,,,False,REQUIRES REVIEW,OWNER REVIEW
+main,6dfd05ebe14a,,,False,MAIN,KEEP (protected)
+prod-gate-04-reliability,5d55752503b4,,,False,STALE,REVIEW FOR ARCHIVE
+prod-gates-security-compliance-ops,696512a59ecd,,,False,STALE,REVIEW FOR ARCHIVE

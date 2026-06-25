@@ -1,0 +1,26 @@
+Workflow Name,Total Runs (30),Success,Failure,Cancelled,Skipped,Failure Rate %,Latest Status
+Auth Tenant Production Acceptance,0,0,0,0,0,0,no runs
+Backend Deploy,1,0,1,0,0,100.0,failure
+Backend Production Smoke,2,1,1,0,0,50.0,success
+Backup Restore Validation,30,21,9,0,0,30.0,success
+Backup Verify,1,0,1,0,0,100.0,failure
+CI,30,26,4,0,0,13.3,success
+Compile Diagnostics,30,21,9,0,0,30.0,success
+Production Control Plane Validation,13,8,5,0,0,38.5,success
+Cost Monitor,1,1,0,0,0,0.0,success
+Master Backlog Validation,30,27,3,0,0,10.0,success
+Metrics Collector,3,0,3,0,0,100.0,failure
+Performance Baseline,30,24,6,0,0,20.0,success
+Pilot Synthetic Monitoring,11,7,3,1,0,27.3,success
+SANAD Production Release,0,0,0,0,0,0,no runs
+Production Smoke,19,13,6,0,0,31.6,success
+Render Blueprint Validation,30,25,5,0,0,16.7,success
+Render Env Recovery,1,0,1,0,0,100.0,failure
+Render Production Preflight,4,1,3,0,0,75.0,success
+Security Baseline,30,16,14,0,0,46.7,success
+Security Scan (OWASP),6,0,1,5,0,16.7,cancelled
+Service Decomposition Validation,30,27,3,0,0,10.0,success
+Production Smoke Test,2,2,0,0,0,0.0,success
+.github/workflows/test-scope-check.yml,1,0,1,0,0,100.0,failure
+Uptime Monitor,3,1,2,0,0,66.7,failure
+Web CI,30,30,0,0,0,0.0,success
