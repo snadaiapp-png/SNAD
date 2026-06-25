@@ -1,5 +1,5 @@
 branch,head_sha,last_commit_date,ahead_by,behind_by,compare_status,associated_pr_numbers,associated_pr_states,merged_pr_numbers,changed_file_count,security_sensitive,deployment_dependency,classification,deletion_eligible,decision,decision_reason,owner_action
-audit/EXEC-PROMPT-010-stage-closure,72f0aeb75488,2026-06-25T00:58:46Z,11,25,diverged,87,closed,,23,NO,NO,SUPERSEDED — SAFE TO DELETE,YES,DELETE,"Superseded, 11 ahead, no open PR",N/A
+audit/EXEC-PROMPT-010-stage-closure,72f0aeb75488,2026-06-25T00:58:46Z,11,25,diverged,87,closed,,23,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,Ahead by 11 — requires commit-level proof before deletion,snadaiapp-png
 chore/supabase-free-pilot,0fe42abf28a4,2026-06-20T14:22:16Z,4,127,diverged,25,closed,25,4,NO,YES,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 4 commits ahead,snadaiapp-png
 docs/approve-pilot-integration,55e51a06ac65,2026-06-20T19:58:47Z,2,124,diverged,28,closed,28,1,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 2 commits ahead,snadaiapp-png
 executor-23-master-execution-backlog,a6794b772afc,2026-06-20T22:45:40Z,4,117,diverged,44,closed,44,4,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 4 commits ahead,snadaiapp-png
@@ -18,8 +18,8 @@ feat/PROD-GATE-01-restore-validation,4ca1e75028f1,2026-06-20T20:37:00Z,1,122,div
 feat/PROD-GATE-02-monitoring-alerting,38157a361db9,2026-06-20T20:41:18Z,2,122,diverged,40,closed,40,2,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 2 commits ahead,snadaiapp-png
 feat/PROD-GATE-03-performance-baseline,5d37ed2e34c6,2026-06-20T20:45:11Z,3,121,diverged,41,closed,41,3,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 3 commits ahead,snadaiapp-png
 feat/auth-tenant-production-acceptance,a4bedb106a74,2026-06-22T10:08:08Z,2,96,diverged,60,closed,,2,YES,NO,UNIQUE WORK — REVIEW,NO,KEEP,"2 unique commits, no PR",snadaiapp-png
-fix/DEFECT-019-027-frontend-hardening,705bcbc9cf4a,2026-06-24T23:35:41Z,1,25,diverged,85,closed,,5,YES,NO,SUPERSEDED — SAFE TO DELETE,YES,DELETE,"Superseded, 1 ahead, no open PR",N/A
-fix/DEFECT-029-cookie-samesite-default,4df957709733,2026-06-24T23:37:04Z,1,25,diverged,86,closed,,3,YES,NO,SUPERSEDED — SAFE TO DELETE,YES,DELETE,"Superseded, 1 ahead, no open PR",N/A
+fix/DEFECT-019-027-frontend-hardening,705bcbc9cf4a,2026-06-24T23:35:41Z,1,25,diverged,85,closed,,5,YES,NO,UNIQUE WORK — REVIEW,NO,KEEP,Ahead by 1 — requires commit-level proof before deletion,snadaiapp-png
+fix/DEFECT-029-cookie-samesite-default,4df957709733,2026-06-24T23:37:04Z,1,25,diverged,86,closed,,3,YES,NO,UNIQUE WORK — REVIEW,NO,KEEP,Ahead by 1 — requires commit-level proof before deletion,snadaiapp-png
 fix/EXEC-FIX-031A-uncached-backend-health,db88a68db6b2,2026-06-21T11:29:36Z,1,109,diverged,51,closed,51,6,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 1 commits ahead,snadaiapp-png
 fix/EXEC-PROMPT-002-defect-011-cors-allowlist,cbab491a9a31,2026-06-24T11:33:34Z,8,58,diverged,70,closed,70,35,YES,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 8 commits ahead,snadaiapp-png
 fix/EXEC-PROMPT-004-defect-013-secure-session-storage,90f29086d1ff,2026-06-24T11:50:50Z,1,57,diverged,71,closed,71,3,YES,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 1 commits ahead,snadaiapp-png
@@ -28,7 +28,7 @@ fix/EXEC-PROMPT-008-final-security-and-evidence-correction,5dfc58909bb7,2026-06-
 fix/EXEC-PROMPT-009-production-gate-closure,c4f8959ca89a,2026-06-24T15:08:59Z,1,53,diverged,76,closed,76,6,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 1 commits ahead,snadaiapp-png
 fix/EXEC-PROMPT-009A-production-workflow-contract,c1c3fa1a21a6,2026-06-24T15:44:24Z,1,52,diverged,77,closed,77,4,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 1 commits ahead,snadaiapp-png
 fix/EXEC-PROMPT-010A-emergency-workflow-quarantine,57f6b22e22bb,2026-06-24T20:33:37Z,1,32,diverged,81,closed,81,5,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 1 commits ahead,snadaiapp-png
-fix/EXEC-PROMPT-018A-vercel-deploy-clean,ba0b92facecf,2026-06-19T07:17:24Z,4,248,diverged,7,closed,,4,NO,NO,SUPERSEDED — SAFE TO DELETE,YES,DELETE,"Superseded, 4 ahead, no open PR",N/A
+fix/EXEC-PROMPT-018A-vercel-deploy-clean,ba0b92facecf,2026-06-19T07:17:24Z,4,248,diverged,7,closed,,4,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,Ahead by 4 — requires commit-level proof before deletion,snadaiapp-png
 fix/EXEC-PROMPT-026-main-ci-stabilization,e7a312731cd4,2026-06-19T23:05:14Z,3,130,diverged,19,closed,19,5,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 3 commits ahead,snadaiapp-png
 fix/api-timeout-cold-start,362957c836d4,2026-06-23T06:16:23Z,1,84,diverged,65,closed,65,1,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 1 commits ahead,snadaiapp-png
 fix/backend-smoke-production-url-source,c3adc6fc6db7,2026-06-22T08:49:52Z,1,98,diverged,58,closed,58,1,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 1 commits ahead,snadaiapp-png
@@ -39,7 +39,7 @@ fix/render-docker-paths,d8150884d35a,2026-06-20T17:42:07Z,1,125,diverged,27,clos
 fix/render-free-blueprint-shutdown-delay,de68d21fd35b,2026-06-20T14:44:18Z,1,126,diverged,26,closed,26,1,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 1 commits ahead,snadaiapp-png
 fix/render-preflight-authoritative-url,e3984d52eb77,2026-06-21T23:42:13Z,1,102,diverged,57,closed,57,1,YES,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 1 commits ahead,snadaiapp-png
 fix/render-preflight-health-retry,60d29021f47e,2026-06-21T23:06:06Z,1,103,diverged,56,closed,56,1,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 1 commits ahead,snadaiapp-png
-fix/reset-admin-password-v2,68b367680a10,2026-06-25T18:12:05Z,1,4,diverged,105,closed,,1,NO,NO,SUPERSEDED — SAFE TO DELETE,YES,DELETE,"Superseded, 1 ahead, no open PR",N/A
+fix/reset-admin-password-v2,68b367680a10,2026-06-25T18:12:05Z,1,4,diverged,105,closed,,1,NO,NO,SECURITY HOLD,NO,KEEP,Security hold until Issue #109 closure,snadaiapp-png
 fix/sanad-unified-remediation-auth-memberships,9978727da540,2026-06-23T12:40:43Z,1,76,diverged,68,closed,68,18,YES,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 1 commits ahead,snadaiapp-png
 governance/approve-executor-23,611843a0d1e2,2026-06-20T22:58:08Z,1,116,diverged,45,closed,45,1,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 1 commits ahead,snadaiapp-png
 infra/EXEC-FIX-032-render-control-plane,fe295358b2d6,2026-06-21T21:20:22Z,12,104,diverged,55,closed,55,10,NO,NO,UNIQUE WORK — REVIEW,NO,KEEP,PR merged but 12 commits ahead,snadaiapp-png

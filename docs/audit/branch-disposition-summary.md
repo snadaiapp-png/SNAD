@@ -1,25 +1,29 @@
 # Branch Disposition Summary
 
-**Generated:** 2026-06-25
+**Generated:** 2026-06-25 (EXEC-PROMPT-010R9 corrected)
 **Total branches:** 54
 
-## Classification Counts
+## Corrected Classification
+
+Per EXEC-PROMPT-010R9 Section 11.2: branches with `ahead_by > 0` cannot be classified as SAFE TO DELETE without patch-equivalence proof.
 
 | Classification | Count |
 |---------------|-------|
 | MAIN | 1 |
-| STALE — OWNER DECISION | 1 |
-| SUPERSEDED — SAFE TO DELETE | 5 |
-| UNIQUE WORK — REVIEW | 47 |
+| UNIQUE WORK — REVIEW | 53 |
+| SECURITY HOLD | 1 (fix/reset-admin-password-v2) |
 
 **Total:** 54
 
-## Deletion-Eligible: 5
+## Deletion-Eligible Branches
 
-| Branch | Reason |
-|--------|--------|
-| audit/EXEC-PROMPT-010-stage-closure | Superseded, 11 ahead, no open PR |
-| fix/DEFECT-019-027-frontend-hardening | Superseded, 1 ahead, no open PR |
-| fix/DEFECT-029-cookie-samesite-default | Superseded, 1 ahead, no open PR |
-| fix/EXEC-PROMPT-018A-vercel-deploy-clean | Superseded, 4 ahead, no open PR |
-| fix/reset-admin-password-v2 | Superseded, 1 ahead, no open PR |
+**0** — No branches are proven safe for deletion without commit-level patch-equivalence proof.
+
+## Security Hold
+
+`fix/reset-admin-password-v2` is under SECURITY HOLD until Issue #109 is formally resolved.
+
+## Owner Actions
+
+- Review 53 UNIQUE WORK — REVIEW branches for Sprint 0 relevance
+- Approve deletion only after commit-level proof for each branch
