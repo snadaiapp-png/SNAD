@@ -1,10 +1,10 @@
-# Sprint 0 — Approved Backlog
+# Sprint 0 — Proposed Backlog
 
 ## Secure Development Baseline
 
-**Status:** PROPOSED — Awaiting owner approval
+**Status:** PROPOSED — AWAITING OWNER APPROVAL
 **Date:** 2026-06-25
-**Execution Order:** EXEC-PROMPT-010R6
+**Execution Order:** EXEC-PROMPT-010R7
 
 ---
 
