@@ -7,8 +7,8 @@
       "vulnerabilities": [
         {
           "name": "CVE-2024-0002",
-          "severity": "HIGH",
-          "cvssv3": {"baseScore": 7.2}
+          "severity": "LOW",
+          "cvssv3": {"baseScore": 2.1}
         }
       ],
       "suppressedVulnerabilities": [

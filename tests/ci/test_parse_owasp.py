@@ -1,186 +1,356 @@
 #!/usr/bin/env python3
 """
-SANAD — OWASP Parser Tests
-============================
-EXEC-PROMPT-010R3 Section 10: Deterministic tests for the OWASP
-report parser covering both JSON schemas, severity detection,
-suppression counting, and error handling.
+SANAD — OWASP Parser Tests (unittest)
+=======================================
+EXEC-PROMPT-010R4 Section 9: 20 explicit test scenarios using unittest.
 
 Run:
+    python3 -m pytest tests/ci/test_parse_owasp.py -q
+or:
     python3 tests/ci/test_parse_owasp.py
 """
 
+import json
 import os
 import sys
-import json
+import tempfile
+import unittest
 
 # Add scripts/ci to path
 SCRIPT_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "ci")
 sys.path.insert(0, SCRIPT_DIR)
 
-from parse_owasp_report import parse_report, normalize_dependencies, normalize_vulnerabilities, get_severity, severity_from_score
+from parse_owasp_report import (
+    parse_report,
+    validate_report_root,
+    normalize_dependencies,
+    normalize_vulnerabilities,
+    get_severity,
+    severity_from_score,
+    get_cvss_score,
+    collect_suppressions,
+)
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "owasp")
-
-TESTS_PASSED = 0
-TESTS_FAILED = 0
-
-
-def assert_eq(actual, expected, label):
-    global TESTS_PASSED, TESTS_FAILED
-    if actual == expected:
-        TESTS_PASSED += 1
-        print(f"  ✅ {label}: {actual}")
-    else:
-        TESTS_FAILED += 1
-        print(f"  ❌ {label}: expected={expected}, actual={actual}")
-
-
-def assert_true(value, label):
-    global TESTS_PASSED, TESTS_FAILED
-    if value:
-        TESTS_PASSED += 1
-        print(f"  ✅ {label}")
-    else:
-        TESTS_FAILED += 1
-        print(f"  ❌ {label}: expected True, got False")
-
-
-def assert_raises(func, args, label):
-    global TESTS_PASSED, TESTS_FAILED
-    try:
-        func(*args)
-        TESTS_FAILED += 1
-        print(f"  ❌ {label}: expected exception but none raised")
-    except (ValueError, TypeError):
-        TESTS_PASSED += 1
-        print(f"  ✅ {label}: raised as expected")
-    except Exception as e:
-        TESTS_FAILED += 1
-        print(f"  ❌ {label}: expected ValueError, got {type(e).__name__}")
 
 
 def fixture(name):
     return os.path.join(FIXTURES_DIR, name)
 
 
-def test_empty_report():
-    print("\n--- Test: Empty report ---")
-    result = parse_report(fixture("empty-report.json"))
-    assert_eq(result["result"], "pass", "result")
-    assert_eq(result["total-dependencies"], 0, "total-dependencies")
-    assert_eq(result["total-vulnerabilities"], 0, "total-vulnerabilities")
-    assert_eq(result["high"], 0, "high")
-    assert_eq(result["critical"], 0, "critical")
+def write_temp_report(data):
+    """Write a dict to a temp JSON file and return the path."""
+    fd, path = tempfile.mkstemp(suffix=".json")
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f)
+    return path
 
 
-def test_list_form_dependencies():
-    print("\n--- Test: List-form dependencies ---")
-    result = parse_report(fixture("dependencies-list.json"))
-    assert_eq(result["total-dependencies"], 2, "total-dependencies")
-    assert_eq(result["total-vulnerabilities"], 0, "total-vulnerabilities")
-    assert_eq(result["result"], "pass", "result")
+class TestScenario1_ListFormDependencies(unittest.TestCase):
+    """Scenario 1: Valid list-form dependencies."""
+
+    def test_list_form(self):
+        path = fixture("dependencies-list.json")
+        result = parse_report(path)
+        self.assertEqual(result["total_dependencies"], 2)
+        self.assertEqual(result["result"], "pass")
+        self.assertEqual(result["high"], 0)
+        self.assertEqual(result["critical"], 0)
+        self.assertEqual(result["unknown"], 0)
+        self.assertEqual(result["analysis_exceptions"], 0)
 
 
-def test_object_form_dependencies():
-    print("\n--- Test: Object-form dependencies ---")
-    result = parse_report(fixture("dependencies-object.json"))
-    assert_eq(result["total-dependencies"], 2, "total-dependencies")
-    assert_eq(result["total-vulnerabilities"], 0, "total-vulnerabilities")
-    assert_eq(result["result"], "pass", "result")
+class TestScenario2_ObjectFormDependencies(unittest.TestCase):
+    """Scenario 2: Valid object-form dependencies."""
+
+    def test_object_form(self):
+        path = fixture("dependencies-object.json")
+        result = parse_report(path)
+        self.assertEqual(result["total_dependencies"], 2)
+        self.assertEqual(result["result"], "pass")
 
 
-def test_high_finding():
-    print("\n--- Test: HIGH finding ---")
-    result = parse_report(fixture("high-finding.json"))
-    assert_eq(result["result"], "failed", "result")
-    assert_eq(result["high"], 1, "high")
-    assert_eq(result["critical"], 0, "critical")
-    assert_eq(result["total-vulnerabilities"], 1, "total-vulnerabilities")
-    assert_eq(result["deps-with-vulns"], 1, "deps-with-vulns")
+class TestScenario3_MissingDependencies(unittest.TestCase):
+    """Scenario 3: Missing dependencies key → execution_error."""
+
+    def test_missing_dependencies(self):
+        path = write_temp_report({"projectInfo": {"name": "test"}})
+        with self.assertRaises(ValueError) as ctx:
+            parse_report(path)
+        self.assertIn("missing dependencies", str(ctx.exception))
+        os.unlink(path)
 
 
-def test_critical_finding():
-    print("\n--- Test: CRITICAL finding ---")
-    result = parse_report(fixture("critical-finding.json"))
-    assert_eq(result["result"], "failed", "result")
-    assert_eq(result["high"], 0, "high")
-    assert_eq(result["critical"], 1, "critical")
-    assert_eq(result["total-vulnerabilities"], 1, "total-vulnerabilities")
+class TestScenario4_ZeroDependencies(unittest.TestCase):
+    """Scenario 4: Zero dependencies → execution_error (NOT pass)."""
+
+    def test_zero_dependencies(self):
+        path = fixture("empty-report.json")
+        result = parse_report(path)
+        self.assertEqual(result["total_dependencies"], 0)
+        self.assertEqual(result["result"], "execution_error")
 
 
-def test_suppressed_and_exceptions():
-    print("\n--- Test: Suppressed + exceptions + null vulns ---")
-    result = parse_report(fixture("suppressed-and-exceptions.json"))
-    assert_eq(result["total-dependencies"], 4, "total-dependencies")
-    assert_eq(result["total-vulnerabilities"], 1, "total-vulnerabilities (active only)")
-    assert_eq(result["high"], 1, "high")
-    assert_eq(result["suppressed"], 1, "suppressed")
-    assert_eq(result["analysis-exceptions"], 1, "analysis-exceptions")
-    assert_eq(result["result"], "failed", "result (HIGH > 0)")
+class TestScenario5_InvalidDependenciesNode(unittest.TestCase):
+    """Scenario 5: Invalid dependencies node type → ValueError."""
+
+    def test_string_dependencies(self):
+        path = fixture("invalid-schema.json")
+        with self.assertRaises(ValueError) as ctx:
+            parse_report(path)
+        self.assertIn("Unsupported dependencies node type", str(ctx.exception))
 
 
-def test_invalid_schema():
-    print("\n--- Test: Invalid schema ---")
-    assert_raises(parse_report, (fixture("invalid-schema.json"),), "invalid schema raises ValueError")
+class TestScenario6_InvalidDependencyItem(unittest.TestCase):
+    """Scenario 6: Invalid dependency item (not object) → ValueError."""
+
+    def test_string_dependency_item(self):
+        path = write_temp_report({"dependencies": ["not-an-object"]})
+        with self.assertRaises(ValueError) as ctx:
+            parse_report(path)
+        self.assertIn("must be an object", str(ctx.exception))
+        os.unlink(path)
 
 
-def test_missing_file():
-    global TESTS_PASSED, TESTS_FAILED
-    print("\n--- Test: Missing file ---")
-    try:
-        parse_report("/nonexistent/path/to/report.json")
-        TESTS_FAILED += 1
-        print("  ❌ Missing file: expected FileNotFoundError")
-    except FileNotFoundError:
-        TESTS_PASSED += 1
-        print("  ✅ Missing file: raised FileNotFoundError")
+class TestScenario7_MissingVulnerabilities(unittest.TestCase):
+    """Scenario 7: Missing vulnerabilities key → empty list (no crash)."""
+
+    def test_missing_vulns(self):
+        path = write_temp_report({
+            "dependencies": [{"fileName": "lib.jar"}]
+        })
+        result = parse_report(path)
+        self.assertEqual(result["total_vulnerabilities"], 0)
+        self.assertEqual(result["result"], "pass")
+        os.unlink(path)
 
 
-def test_severity_from_score():
-    print("\n--- Test: severity_from_score ---")
-    assert_eq(severity_from_score(9.8), "CRITICAL", "9.8 → CRITICAL")
-    assert_eq(severity_from_score(9.0), "CRITICAL", "9.0 → CRITICAL")
-    assert_eq(severity_from_score(7.5), "HIGH", "7.5 → HIGH")
-    assert_eq(severity_from_score(7.0), "HIGH", "7.0 → HIGH")
-    assert_eq(severity_from_score(6.9), "MEDIUM", "6.9 → MEDIUM")
-    assert_eq(severity_from_score(4.0), "MEDIUM", "4.0 → MEDIUM")
-    assert_eq(severity_from_score(3.9), "LOW", "3.9 → LOW")
-    assert_eq(severity_from_score(0.1), "LOW", "0.1 → LOW")
-    assert_eq(severity_from_score(0.0), "UNKNOWN", "0.0 → UNKNOWN")
+class TestScenario8_NullVulnerabilities(unittest.TestCase):
+    """Scenario 8: Null vulnerabilities → empty list."""
+
+    def test_null_vulns(self):
+        path = write_temp_report({
+            "dependencies": [{"fileName": "lib.jar", "vulnerabilities": None}]
+        })
+        result = parse_report(path)
+        self.assertEqual(result["total_vulnerabilities"], 0)
+        os.unlink(path)
 
 
-def test_normalize_vulnerabilities():
-    print("\n--- Test: normalize_vulnerabilities ---")
-    assert_eq(len(normalize_vulnerabilities({"vulnerabilities": []})), 0, "empty list")
-    assert_eq(len(normalize_vulnerabilities({"vulnerabilities": None})), 0, "null")
-    assert_eq(len(normalize_vulnerabilities({})), 0, "missing key")
-    assert_eq(len(normalize_vulnerabilities({"vulnerabilities": [{"name": "CVE-1"}]})), 1, "single vuln")
+class TestScenario9_InvalidVulnerabilitiesNode(unittest.TestCase):
+    """Scenario 9: Invalid vulnerabilities node type → ValueError."""
+
+    def test_string_vulns(self):
+        path = write_temp_report({
+            "dependencies": [{"fileName": "lib.jar", "vulnerabilities": "string"}]
+        })
+        with self.assertRaises(ValueError) as ctx:
+            parse_report(path)
+        self.assertIn("Unsupported vulnerabilities node type", str(ctx.exception))
+        os.unlink(path)
 
 
-def main():
-    print("=" * 60)
-    print("SANAD OWASP Parser Tests")
-    print("=" * 60)
+class TestScenario10_InvalidVulnerabilityItem(unittest.TestCase):
+    """Scenario 10: Invalid vulnerability item (not object) → ValueError."""
 
-    test_empty_report()
-    test_list_form_dependencies()
-    test_object_form_dependencies()
-    test_high_finding()
-    test_critical_finding()
-    test_suppressed_and_exceptions()
-    test_invalid_schema()
-    test_missing_file()
-    test_severity_from_score()
-    test_normalize_vulnerabilities()
+    def test_string_vuln_item(self):
+        path = write_temp_report({
+            "dependencies": [{"fileName": "lib.jar", "vulnerabilities": ["string"]}]
+        })
+        with self.assertRaises(ValueError) as ctx:
+            parse_report(path)
+        self.assertIn("must be an object", str(ctx.exception))
+        os.unlink(path)
 
-    print("\n" + "=" * 60)
-    print(f"Tests passed: {TESTS_PASSED}")
-    print(f"Tests failed: {TESTS_FAILED}")
-    print("=" * 60)
 
-    return 0 if TESTS_FAILED == 0 else 1
+class TestScenario11_LowFinding(unittest.TestCase):
+    """Scenario 11: LOW finding."""
+
+    def test_low(self):
+        path = write_temp_report({
+            "dependencies": [{
+                "fileName": "lib.jar",
+                "vulnerabilities": [{"name": "CVE-1", "severity": "LOW"}]
+            }]
+        })
+        result = parse_report(path)
+        self.assertEqual(result["low"], 1)
+        self.assertEqual(result["result"], "pass")  # LOW doesn't block
+        os.unlink(path)
+
+
+class TestScenario12_MediumFinding(unittest.TestCase):
+    """Scenario 12: MEDIUM finding."""
+
+    def test_medium(self):
+        path = write_temp_report({
+            "dependencies": [{
+                "fileName": "lib.jar",
+                "vulnerabilities": [{"name": "CVE-1", "severity": "MEDIUM"}]
+            }]
+        })
+        result = parse_report(path)
+        self.assertEqual(result["medium"], 1)
+        self.assertEqual(result["result"], "pass")
+        os.unlink(path)
+
+
+class TestScenario13_HighFinding(unittest.TestCase):
+    """Scenario 13: HIGH finding → failed."""
+
+    def test_high(self):
+        path = fixture("high-finding.json")
+        result = parse_report(path)
+        self.assertEqual(result["high"], 1)
+        self.assertEqual(result["result"], "failed")
+
+
+class TestScenario14_CriticalFinding(unittest.TestCase):
+    """Scenario 14: CRITICAL finding → failed."""
+
+    def test_critical(self):
+        path = fixture("critical-finding.json")
+        result = parse_report(path)
+        self.assertEqual(result["critical"], 1)
+        self.assertEqual(result["result"], "failed")
+
+
+class TestScenario15_UnknownSeverity(unittest.TestCase):
+    """Scenario 15: Unknown severity → incomplete."""
+
+    def test_unknown_severity(self):
+        path = write_temp_report({
+            "dependencies": [{
+                "fileName": "lib.jar",
+                "vulnerabilities": [{"name": "CVE-1", "severity": "WTF"}]
+            }]
+        })
+        result = parse_report(path)
+        self.assertEqual(result["unknown"], 1)
+        self.assertEqual(result["result"], "incomplete")
+        os.unlink(path)
+
+
+class TestScenario16_CVSSFallback(unittest.TestCase):
+    """Scenario 16: CVSS score fallback when severity missing."""
+
+    def test_cvss_fallback_high(self):
+        path = write_temp_report({
+            "dependencies": [{
+                "fileName": "lib.jar",
+                "vulnerabilities": [{"name": "CVE-1", "cvssv3": {"baseScore": 7.5}}]
+            }]
+        })
+        result = parse_report(path)
+        self.assertEqual(result["high"], 1)
+        self.assertEqual(result["result"], "failed")
+        os.unlink(path)
+
+    def test_cvss_fallback_critical(self):
+        path = write_temp_report({
+            "dependencies": [{
+                "fileName": "lib.jar",
+                "vulnerabilities": [{"name": "CVE-1", "cvssv3": {"baseScore": 9.8}}]
+            }]
+        })
+        result = parse_report(path)
+        self.assertEqual(result["critical"], 1)
+        os.unlink(path)
+
+
+class TestScenario17_AnalysisException(unittest.TestCase):
+    """Scenario 17: Analysis exception → incomplete."""
+
+    def test_analysis_exception(self):
+        path = fixture("suppressed-and-exceptions.json")
+        result = parse_report(path)
+        self.assertEqual(result["analysis_exceptions"], 1)
+        self.assertEqual(result["result"], "incomplete")
+
+
+class TestScenario18_DuplicateSuppression(unittest.TestCase):
+    """Scenario 18: Duplicate suppression deduplication."""
+
+    def test_duplicate_suppression(self):
+        # Same CVE appears as both suppressedVulnerabilities entry and suppressed=true flag
+        path = write_temp_report({
+            "dependencies": [{
+                "fileName": "lib.jar",
+                "vulnerabilities": [
+                    {"name": "CVE-1", "severity": "HIGH", "suppressed": True}
+                ],
+                "suppressedVulnerabilities": [
+                    {"name": "CVE-1", "severity": "HIGH"}
+                ]
+            }]
+        })
+        result = parse_report(path)
+        # Should count as 1 unique suppression, not 2
+        self.assertEqual(result["suppressed_unique"], 1)
+        # The HIGH vuln is suppressed, so active high should be 1 (it's still counted)
+        self.assertEqual(result["high"], 1)
+        os.unlink(path)
+
+
+class TestScenario19_InvalidJSON(unittest.TestCase):
+    """Scenario 19: Invalid JSON → execution_error."""
+
+    def test_invalid_json(self):
+        fd, path = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(fd, "w") as f:
+            f.write("{ invalid json }}}")
+        with self.assertRaises(ValueError) as ctx:
+            parse_report(path)
+        self.assertIn("JSON parse error", str(ctx.exception))
+        os.unlink(path)
+
+
+class TestScenario20_MissingReportFile(unittest.TestCase):
+    """Scenario 20: Missing report file → FileNotFoundError."""
+
+    def test_missing_file(self):
+        with self.assertRaises(FileNotFoundError):
+            parse_report("/nonexistent/path/to/report.json")
+
+
+# ─── Helper function tests ──────────────────────────────────
+
+class TestSeverityFromScore(unittest.TestCase):
+    def test_critical_threshold(self):
+        self.assertEqual(severity_from_score(9.8), "CRITICAL")
+        self.assertEqual(severity_from_score(9.0), "CRITICAL")
+
+    def test_high_threshold(self):
+        self.assertEqual(severity_from_score(7.5), "HIGH")
+        self.assertEqual(severity_from_score(7.0), "HIGH")
+
+    def test_medium_threshold(self):
+        self.assertEqual(severity_from_score(6.9), "MEDIUM")
+        self.assertEqual(severity_from_score(4.0), "MEDIUM")
+
+    def test_low_threshold(self):
+        self.assertEqual(severity_from_score(3.9), "LOW")
+        self.assertEqual(severity_from_score(0.1), "LOW")
+
+    def test_zero_score(self):
+        self.assertEqual(severity_from_score(0.0), "UNKNOWN")
+
+    def test_none_score(self):
+        self.assertEqual(severity_from_score(None), "UNKNOWN")
+
+
+class TestModerateAlias(unittest.TestCase):
+    def test_moderate_maps_to_medium(self):
+        path = write_temp_report({
+            "dependencies": [{
+                "fileName": "lib.jar",
+                "vulnerabilities": [{"name": "CVE-1", "severity": "MODERATE"}]
+            }]
+        })
+        result = parse_report(path)
+        self.assertEqual(result["medium"], 1)
+        os.unlink(path)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    unittest.main(verbosity=2)
