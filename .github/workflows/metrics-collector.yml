@@ -123,12 +123,19 @@ jobs:
         run: |
           set -euo pipefail
 
+          # EXEC-PROMPT-010R4 Section 26-27: Corrected API paths + retry logic
+          # Use /api/v1/ prefix (was /api/ — wrong path caused failures)
           declare -A endpoints=(
             ["health"]="/actuator/health"
-            ["login"]="/api/auth/login"
-            ["me"]="/api/auth/me"
-            ["organizations"]="/api/organizations"
+            ["login"]="/api/v1/auth/login"
+            ["me"]="/api/v1/auth/me"
+            ["organizations"]="/api/v1/organizations"
           )
+
+          # Retry configuration (Section 27)
+          MAX_ATTEMPTS=4
+          PER_ATTEMPT_TIMEOUT=30
+          RETRY_INTERVAL=10
 
           results_json="{}"
           all_ok="true"
@@ -136,29 +143,52 @@ jobs:
           for name in "${!endpoints[@]}"; do
             path="${endpoints[$name]}"
             url="${{ env.BACKEND_URL }}${path}"
-            start_ms=$(date +%s%3N)
 
-            status_code=$(curl --silent --output /dev/null \
-              --connect-timeout 10 --max-time 30 \
-              --write-out '%{http_code}' "$url" || echo "000")
+            status_code="000"
+            elapsed_ms=0
+            attempt=0
 
-            end_ms=$(date +%s%3N)
-            elapsed_ms=$(( end_ms - start_ms ))
+            while [ $attempt -lt $MAX_ATTEMPTS ]; do
+              attempt=$((attempt + 1))
+              start_ms=$(date +%s%3N)
 
-            # For unauthenticated endpoints, 200 is expected.
-            # For authenticated endpoints, 401/403 means the service is
-            # reachable and enforcing auth — that counts as available.
-            case "$status_code" in
-              200|301|302|401|403)
-                available="true"
-                ;;
-              *)
-                available="false"
-                all_ok="false"
-                ;;
-            esac
+              status_code=$(curl --silent --output /dev/null \
+                --connect-timeout 10 --max-time "$PER_ATTEMPT_TIMEOUT" \
+                --write-out '%{http_code}' "$url" 2>/dev/null || echo "000")
 
-            echo "$name: HTTP $status_code (${elapsed_ms}ms) — available=$available"
+              end_ms=$(date +%s%3N)
+              elapsed_ms=$(( end_ms - start_ms ))
+
+              # For unauthenticated endpoints, 200 is expected.
+              # For authenticated endpoints, 401/403 means the service is
+              # reachable and enforcing auth — that counts as available.
+              case "$status_code" in
+                200|301|302|401|403)
+                  available="true"
+                  break
+                  ;;
+                502|503|504|000)
+                  # Retryable: timeout, cold start, gateway errors
+                  available="false"
+                  echo "$name: HTTP $status_code on attempt $attempt (retryable)"
+                  if [ $attempt -lt $MAX_ATTEMPTS ]; then
+                    sleep "$RETRY_INTERVAL"
+                  fi
+                  ;;
+                *)
+                  # Non-retryable: 4xx (except 401/403), 5xx (except 502/503/504)
+                  available="false"
+                  echo "$name: HTTP $status_code on attempt $attempt (non-retryable)"
+                  break
+                  ;;
+              esac
+            done
+
+            if [ "$available" = "false" ]; then
+              all_ok="false"
+            fi
+
+            echo "$name: HTTP $status_code (${elapsed_ms}ms, ${attempt} attempts) — available=$available"
 
             # Build JSON object using jq for safety
             results_json=$(printf '%s' "$results_json" | jq \
@@ -166,7 +196,8 @@ jobs:
               --arg code "$status_code" \
               --arg ms "$elapsed_ms" \
               --arg avail "$available" \
-              '. + { ($name): { status_code: ($code | tonumber), response_time_ms: ($ms | tonumber), available: ($avail == "true") } }')
+              --arg attempts "$attempt" \
+              '. + { ($name): { status_code: ($code | tonumber), response_time_ms: ($ms | tonumber), available: ($avail == "true"), attempts: ($attempts | tonumber) } }')
           done
 
           echo "all_ok=$all_ok" >> "$GITHUB_OUTPUT"
@@ -308,9 +339,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          set +euo pipefail
+          set -euo pipefail
 
-          # EXEC-PROMPT-010R3: Create labels if they don't exist (graceful handling)
+          # EXEC-PROMPT-010R4 Section 25: Restore strict mode
+          # Only optional operations use || true
+
+          # Create labels if they don't exist (optional operation)
           gh label create "metrics" --description "Metrics tracking issue" --color "0075ca" 2>/dev/null || true
           gh label create "degraded" --description "Service degradation detected" --color "fbca04" 2>/dev/null || true
 
@@ -323,7 +357,7 @@ jobs:
             --jq '.[0].number' 2>/dev/null || echo "")
 
           if [ -z "$issue_number" ]; then
-            # No open metrics issue — create one (without labels first, then add)
+            # No open metrics issue — create one
             timestamp=$(date -u +"%Y-%m-%d %H:%M UTC")
             issue_number=$(gh issue create \
               --title "Metrics Tracking — Service Degradation Detected" \
@@ -331,16 +365,16 @@ jobs:
               2>/dev/null | grep -oE '[0-9]+' || echo "")
 
             if [ -n "$issue_number" ]; then
-              # Add labels separately (graceful — won't fail if label creation was blocked)
+              # Add labels separately (optional operation)
               gh issue edit "$issue_number" --add-label "metrics,degraded" 2>/dev/null || true
               echo "Created metrics issue #$issue_number"
             fi
           else
-            # Add degraded label if not already present
+            # Add degraded label if not already present (optional operation)
             gh issue edit "$issue_number" --add-label "degraded" 2>/dev/null || true
             echo "Added degraded label to issue #$issue_number"
 
-            # Comment with current failure details
+            # Comment with current failure details (optional operation)
             timestamp=$(date -u +"%Y-%m-%d %H:%M UTC")
             gh issue comment "$issue_number" --body "Degradation detected at $timestamp — Backend: ${{ steps.backend.outputs.healthy }}, Frontend: ${{ steps.frontend.outputs.healthy }}, API endpoints: ${{ steps.api-endpoints.outputs.all_ok }}" 2>/dev/null || true
           fi
