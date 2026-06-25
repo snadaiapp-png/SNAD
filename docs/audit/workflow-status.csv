@@ -1,0 +1,28 @@
+workflow_file,workflow_name,trigger,schedule,manual_dispatch,permissions,environment,secrets_used,production_access,database_access,last_run_id,last_run_sha,last_status,last_conclusion,failure_reason,security_classification,action_required,owner
+auth-tenant-production-acceptance.yml,Auth Tenant Production Acceptance,workflow_dispatch,No,Yes,contents:read,Production,RENDER_API_KEY+RENDER_SERVICE_ID+SANAD_ADMIN_EMAIL+SANAD_ADMIN_PASSWORD,Yes (Render API),No,N/A,N/A,N/A,N/A,N/A,ACTIVE - OPTIONAL,Keep,snadaiapp-png
+backend-deploy.yml,Backend Deploy,workflow_dispatch,No,Yes,contents:read,Production,RENDER_API_KEY+RENDER_SERVICE_ID,Yes (Render API),No,N/A,N/A,N/A,N/A,N/A,MANUAL - CONTROLLED,Keep,snadaiapp-png
+backend-production-smoke.yml,Backend Production Smoke,workflow_dispatch,No,Yes,contents:read,Production,PRODUCTION_BASE_URL+SANAD_ADMIN_EMAIL+SANAD_ADMIN_PASSWORD,Yes (Render API),No,N/A,N/A,N/A,N/A,N/A,MANUAL - CONTROLLED,Keep,snadaiapp-png
+backup-restore-validation.yml,Backup Restore Validation,pull_request+workflow_dispatch,No,Yes,contents:read,N/A,No,No,No,N/A,N/A,N/A,N/A,N/A,ACTIVE - REQUIRED,Keep,snadaiapp-png
+backup-verify.yml,Backup Verify,workflow_dispatch,No,Yes,contents:read+issues:write,N/A,SUPABASE_DB_URL+SUPABASE_DB_PASSWORD,Yes (Supabase),Yes (read-only),N/A,N/A,N/A,N/A,N/A,ACTIVE - REQUIRED,Keep,snadaiapp-png
+branch-reconciliation-inventory.yml,Branch Reconciliation Inventory,workflow_dispatch+schedule+pull_request,Yes,Yes,contents:read,N/A,No,No,No,28188300970,60c9e3a,completed,success,N/A,ACTIVE - REQUIRED,Keep,snadaiapp-png
+ci.yml,CI,push+pull_request,No,No,contents:read,N/A,No,No,No,N/A,N/A,N/A,N/A,N/A,ACTIVE - REQUIRED,Keep,snadaiapp-png
+compile-diagnostics.yml,Compile Diagnostics,pull_request+workflow_dispatch,No,Yes,contents:read,N/A,No,No,No,N/A,N/A,N/A,N/A,N/A,ACTIVE - REQUIRED,Keep,snadaiapp-png
+control-plane-validation.yml,Control Plane Validation,pull_request+workflow_dispatch,No,Yes,contents:read,N/A,No,No,No,N/A,N/A,N/A,N/A,N/A,ACTIVE - OPTIONAL,Keep,snadaiapp-png
+cost-monitor.yml,Cost Monitor,schedule+workflow_dispatch,Yes,Yes,contents:read+actions:read,N/A,No,No,No,N/A,N/A,N/A,N/A,N/A,ACTIVE - OPTIONAL,Keep,snadaiapp-png
+development-security-acceptance.yml,Development Security Acceptance,workflow_dispatch+pull_request+push,No,Yes,contents:read,N/A,No,Docker (Testcontainers),No,28188303197,60c9e3a,completed,success,N/A,ACTIVE - REQUIRED,Keep,snadaiapp-png
+master-backlog-validation.yml,Master Backlog Validation,pull_request+workflow_dispatch,No,Yes,contents:read,N/A,No,No,No,N/A,N/A,N/A,N/A,N/A,ACTIVE - REQUIRED,Keep,snadaiapp-png
+metrics-collector-v2.yml,Metrics Collector v2,schedule+workflow_dispatch+pull_request+push,Yes,Yes,contents:read+issues:write,N/A,No,No,No,28188626127,60c9e3a,completed,success,N/A,ACTIVE - REQUIRED,Keep,snadaiapp-png
+performance-baseline.yml,Performance Baseline,pull_request+workflow_dispatch,No,Yes,contents:read,N/A,No,Docker (Testcontainers),No,N/A,N/A,N/A,N/A,N/A,ACTIVE - OPTIONAL,Keep,snadaiapp-png
+pilot-synthetic-monitoring.yml,Pilot Synthetic Monitoring,workflow_dispatch+schedule,Yes,Yes,contents:read,N/A,No,No,No,28188271947,60c9e3a,completed,success,N/A,ACTIVE - REQUIRED,Keep,snadaiapp-png
+postgres-acceptance.yml,PostgreSQL Acceptance,workflow_dispatch+pull_request+push,No,Yes,contents:read,N/A,No,Docker (Testcontainers),No,N/A,N/A,N/A,N/A,N/A,ACTIVE - REQUIRED,Keep,snadaiapp-png
+production-release.yml,Production Release,workflow_dispatch,No,Yes,contents:read,Production,RENDER_API_KEY+RENDER_SERVICE_ID+SANAD_ADMIN_EMAIL+SANAD_ADMIN_PASSWORD,Yes (Render API),No,N/A,N/A,N/A,N/A,N/A,MANUAL - CONTROLLED,Keep,snadaiapp-png
+production-smoke.yml,Production Smoke,push+workflow_dispatch,No,Yes,contents:read,N/A,PRODUCTION_BASE_URL,Yes (Render API),No,N/A,N/A,N/A,N/A,N/A,ACTIVE - OPTIONAL,Keep,snadaiapp-png
+render-blueprint-validation.yml,Render Blueprint Validation,push+pull_request+workflow_dispatch,No,Yes,contents:read,N/A,No,No,No,N/A,N/A,N/A,N/A,N/A,ACTIVE - OPTIONAL,Keep,snadaiapp-png
+render-env-recovery.yml,Render Environment Recovery,workflow_dispatch,No,Yes,contents:read,N/A,RENDER_API_KEY+RENDER_SERVICE_ID,Yes (Render API),No,N/A,N/A,N/A,N/A,N/A,MANUAL - CONTROLLED,Keep,snadaiapp-png
+render-production-preflight.yml,Render Production Preflight,workflow_dispatch,No,Yes,contents:read+issues:write,N/A,RENDER_API_KEY+RENDER_SERVICE_ID,Yes (Render API),No,N/A,N/A,N/A,N/A,N/A,MANUAL - CONTROLLED,Keep,snadaiapp-png
+security-baseline.yml,Security Baseline,pull_request+workflow_dispatch,No,Yes,contents:read,N/A,No,No,No,N/A,N/A,N/A,N/A,N/A,ACTIVE - REQUIRED,Keep,snadaiapp-png
+security-scan.yml,Security Scan (OWASP),schedule+push+workflow_dispatch,Yes,Yes,contents:read,N/A,NVD_API_KEY,No,No,28188267545,60c9e3a,in_progress,None,NVD download in progress,ACTIVE - REQUIRED,Keep,snadaiapp-png
+service-decomposition-validation.yml,Service Decomposition Validation,pull_request+workflow_dispatch,No,Yes,contents:read,N/A,No,No,No,N/A,N/A,N/A,N/A,N/A,ACTIVE - REQUIRED,Keep,snadaiapp-png
+smoke-test.yml,Smoke Test,workflow_dispatch+schedule,Yes,Yes,contents:read,N/A,PRODUCTION_BASE_URL+SANAD_ADMIN_EMAIL+SANAD_ADMIN_PASSWORD,Yes (Render API),No,N/A,N/A,N/A,N/A,N/A,MANUAL - CONTROLLED,Keep,snadaiapp-png
+uptime-monitor.yml,Uptime Monitor,schedule+workflow_dispatch,Yes,Yes,contents:read+issues:write,N/A,No,No,No,28188623709,60c9e3a,completed,success,N/A,ACTIVE - REQUIRED,Keep,snadaiapp-png
+web-ci.yml,Web CI,push+pull_request+workflow_dispatch,No,Yes,contents:read,N/A,No,No,No,N/A,N/A,N/A,N/A,N/A,ACTIVE - REQUIRED,Keep,snadaiapp-png
