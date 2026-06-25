@@ -1,16 +1,12 @@
-check_name,run_id,job_id,tested_sha,status,conclusion,artifact_id,artifact_digest,duration,evidence
-CI,N/A,N/A,42d42e6,N/A,N/A,N/A,N/A,N/A,Not dispatched separately — CI runs on PRs
-Web CI,N/A,N/A,42d42e6,N/A,N/A,N/A,N/A,N/A,Not dispatched separately — Web CI runs on PRs
-Security Baseline,dispatched,N/A,42d42e6,in_progress,N/A,N/A,N/A,N/A,Dispatched on clean SHA — pending result
-Workflow Security Policy,part of Security Baseline,N/A,42d42e6,N/A,N/A,N/A,N/A,N/A,Integrated into security-baseline.yml via PR #111
-Gitleaks Current Tree,28198998247,N/A,42d42e6,N/A,N/A,N/A,N/A,N/A,Part of Security Baseline secret-scan job
-Development Security Acceptance,28192161832,N/A,42d42e6,completed,success,available,N/A,<60s,41+ tests 0 failures 0 skipped
-PostgreSQL Acceptance,PR #96 CI,N/A,0fb9229,completed,success,7880620450,N/A,<300s,All Testcontainers tests executed 0 skipped
-Master Backlog Validation,N/A,N/A,42d42e6,N/A,N/A,N/A,N/A,N/A,Runs on PRs — not dispatched separately
-Service Decomposition Validation,N/A,N/A,42d42e6,N/A,N/A,N/A,N/A,N/A,Runs on PRs — not dispatched separately
-OWASP Dependency-Check,28198998247,N/A,42d42e6,in_progress,N/A,N/A,N/A,N/A,NVD download in progress — parser tests passed
-Uptime Monitor,28192154624,N/A,42d42e6,completed,success,N/A,N/A,<150s,Cold-start retry works — backend UP
-Metrics Collector v2,28192156475,N/A,42d42e6,completed,success,N/A,N/A,<120s,Corrected API paths + retry logic
-Pilot Synthetic Monitoring,28192294204,N/A,42d42e6,completed,success,N/A,N/A,<60s,All endpoints reachable
-Vercel Production,N/A,N/A,42d42e6,N/A,N/A,N/A,N/A,N/A,HTTP 200 verified
-Render Backend Health,N/A,N/A,42d42e6,N/A,UP,N/A,N/A,N/A,{"status":"UP"} verified
+check_name,workflow_name,run_id,job_id,tested_sha,status,conclusion,artifact_id,artifact_name,artifact_digest,started_at,completed_at,duration,parser_result,final_enforcement,evidence_url_or_reference
+Security Baseline,security-baseline.yml,28199294226,N/A,641fd5fec892,completed,success,NOT APPLICABLE,Security Baseline does not produce downloadable artifacts,N/A,2026-06-25T20:55:00Z,2026-06-25T20:57:00Z,~120s,N/A,N/A,https://github.com/snadaiapp-png/SNAD/actions/runs/28199294226
+Workflow Security Policy,security-baseline.yml (workflow-security-policy job),28199294226,N/A,641fd5fec892,completed,success,NOT APPLICABLE,Part of Security Baseline — no separate artifact,N/A,2026-06-25T20:55:00Z,2026-06-25T20:57:00Z,~30s,N/A,N/A,Part of Security Baseline run
+Gitleaks Current Tree,security-baseline.yml (secret-scan job),28199294226,N/A,641fd5fec892,completed,success,NOT APPLICABLE,Part of Security Baseline — no separate artifact,N/A,2026-06-25T20:55:00Z,2026-06-25T20:57:00Z,~20s,N/A,N/A,Part of Security Baseline run
+Development Security Acceptance,development-security-acceptance.yml,28199005289,N/A,42d42e68370c,completed,success,Available in run,surefire-reports,N/A,2026-06-25T20:39:00Z,2026-06-25T20:40:00Z,~60s,N/A,N/A,https://github.com/snadaiapp-png/SNAD/actions/runs/28199005289
+PostgreSQL Acceptance,postgres-acceptance.yml,NOT DISPATCHED ON 42d42e6,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A,Historical evidence: PR #96 CI on SHA 0fb9229 — needs rerun on final SHA
+Uptime Monitor,uptime-monitor.yml,28199000073,N/A,42d42e68370c,completed,success,NOT APPLICABLE,Uptime Monitor does not produce artifacts,N/A,2026-06-25T20:38:00Z,2026-06-25T20:40:00Z,~120s,N/A,N/A,https://github.com/snadaiapp-png/SNAD/actions/runs/28199000073
+Metrics Collector v2,metrics-collector-v2.yml,28199002144,N/A,42d42e68370c,completed,success,Available in run,metrics-report,N/A,2026-06-25T20:39:00Z,2026-06-25T20:40:00Z,~60s,N/A,N/A,https://github.com/snadaiapp-png/SNAD/actions/runs/28199002144
+Pilot Synthetic Monitoring,pilot-synthetic-monitoring.yml,28199003748,N/A,42d42e68370c,completed,success,Available in run,synthetic-monitoring-report,N/A,2026-06-25T20:39:00Z,2026-06-25T20:40:00Z,~60s,N/A,N/A,https://github.com/snadaiapp-png/SNAD/actions/runs/28199003748
+OWASP Dependency-Check,security-scan.yml,28198998247,N/A,42d42e68370c,in_progress,N/A,NOT YET GENERATED,NOT YET GENERATED,N/A,2026-06-25T20:38:16Z,N/A,N/A,PENDING,PENDING,https://github.com/snadaiapp-png/SNAD/actions/runs/28198998247
+Render Backend Health,N/A,N/A,N/A,42d42e68370c,N/A,UP,N/A,N/A,N/A,2026-06-25T21:20:00Z,N/A,N/A,N/A,N/A,curl https://sanad-backend-mcrj.onrender.com/actuator/health → {"status":"UP"}
+Vercel Production,N/A,N/A,N/A,42d42e68370c,N/A,HTTP 200,N/A,N/A,N/A,2026-06-25T21:20:00Z,N/A,N/A,N/A,N/A,curl https://snad-app.vercel.app/ → HTTP 200
