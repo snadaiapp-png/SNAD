@@ -1,0 +1,339 @@
+# ============================================================
+# SANAD Platform — Metrics Collector v2
+# ============================================================
+# EXEC-PROMPT-010R5
+# Method-aware, fail-visible monitoring for backend, frontend,
+# and protected API endpoints. Produces a JSON artifact and a
+# human-readable summary before final enforcement.
+# ============================================================
+
+name: Metrics Collector
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/metrics-collector-v2.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/metrics-collector-v2.yml'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: metrics-collector-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BACKEND_URL: https://sanad-backend-mcrj.onrender.com
+  FRONTEND_URL: https://snad-app.vercel.app
+
+jobs:
+  collect-metrics:
+    name: Collect Platform Metrics
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check platform endpoints
+        id: probes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MAX_ATTEMPTS=4
+          PER_ATTEMPT_TIMEOUT=30
+          RETRY_INTERVAL=10
+          results_json='{}'
+          all_ok='true'
+
+          probe() {
+            local name="$1"
+            local method="$2"
+            local url="$3"
+            local body="$4"
+            local expected_csv="$5"
+            local require_up_body="$6"
+
+            local attempt=0
+            local status_code='000'
+            local elapsed_ms=0
+            local available='false'
+            local response_file
+            response_file=$(mktemp)
+
+            while [ "$attempt" -lt "$MAX_ATTEMPTS" ]; do
+              attempt=$((attempt + 1))
+              : > "$response_file"
+              local start_ms end_ms curl_exit
+              start_ms=$(date +%s%3N)
+
+              set +e
+              if [ "$method" = 'POST' ]; then
+                status_code=$(curl --silent --show-error --location \
+                  --request POST \
+                  --header 'Content-Type: application/json' \
+                  --data "$body" \
+                  --connect-timeout 10 \
+                  --max-time "$PER_ATTEMPT_TIMEOUT" \
+                  --output "$response_file" \
+                  --write-out '%{http_code}' \
+                  "$url")
+                curl_exit=$?
+              else
+                status_code=$(curl --silent --show-error --location \
+                  --request GET \
+                  --connect-timeout 10 \
+                  --max-time "$PER_ATTEMPT_TIMEOUT" \
+                  --output "$response_file" \
+                  --write-out '%{http_code}' \
+                  "$url")
+                curl_exit=$?
+              fi
+              set -e
+
+              end_ms=$(date +%s%3N)
+              elapsed_ms=$((end_ms - start_ms))
+
+              if [ "$curl_exit" -ne 0 ] || [ -z "$status_code" ]; then
+                status_code='000'
+              fi
+
+              if printf ',%s,' "$expected_csv" | grep -q ",$status_code,"; then
+                if [ "$require_up_body" = 'true' ]; then
+                  if grep -Eq '"status"[[:space:]]*:[[:space:]]*"UP"' "$response_file"; then
+                    available='true'
+                    break
+                  fi
+                  available='false'
+                  echo "$name: HTTP $status_code but health body is not UP"
+                  break
+                fi
+
+                available='true'
+                break
+              fi
+
+              case "$status_code" in
+                000|502|503|504)
+                  available='false'
+                  echo "$name: HTTP $status_code on attempt $attempt/$MAX_ATTEMPTS (retryable)"
+                  if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+                    sleep "$RETRY_INTERVAL"
+                  fi
+                  ;;
+                *)
+                  available='false'
+                  echo "$name: HTTP $status_code on attempt $attempt/$MAX_ATTEMPTS (non-retryable; expected $expected_csv)"
+                  break
+                  ;;
+              esac
+            done
+
+            rm -f "$response_file"
+
+            if [ "$available" != 'true' ]; then
+              all_ok='false'
+            fi
+
+            echo "$name: HTTP $status_code (${elapsed_ms}ms, ${attempt} attempts) — available=$available"
+
+            results_json=$(printf '%s' "$results_json" | jq \
+              --arg name "$name" \
+              --arg method "$method" \
+              --arg code "$status_code" \
+              --arg ms "$elapsed_ms" \
+              --arg avail "$available" \
+              --arg attempts "$attempt" \
+              --arg expected "$expected_csv" \
+              '. + { ($name): {
+                method: $method,
+                status_code: ($code | tonumber),
+                response_time_ms: ($ms | tonumber),
+                available: ($avail == "true"),
+                attempts: ($attempts | tonumber),
+                expected_statuses: $expected
+              } }')
+          }
+
+          probe 'backend_health' 'GET' \
+            "${BACKEND_URL}/actuator/health" '' '200' 'true'
+
+          probe 'frontend' 'GET' \
+            "${FRONTEND_URL}" '' '200,301,302' 'false'
+
+          probe 'login_contract' 'POST' \
+            "${BACKEND_URL}/api/v1/auth/login" '{}' '400,401' 'false'
+
+          probe 'me_protection' 'GET' \
+            "${BACKEND_URL}/api/v1/auth/me" '' '401,403' 'false'
+
+          probe 'organizations_protection' 'GET' \
+            "${BACKEND_URL}/api/v1/organizations" '' '401,403' 'false'
+
+          printf '%s\n' "$results_json" > metrics-probes.json
+          jq empty metrics-probes.json
+          echo "all_ok=$all_ok" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble metrics JSON
+        id: assemble
+        if: always()
+        shell: bash
+        env:
+          ALL_OK: ${{ steps.probes.outputs.all_ok }}
+        run: |
+          set -euo pipefail
+
+          timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          safe_results='{}'
+          safe_all_ok="${ALL_OK:-false}"
+
+          if [ -s metrics-probes.json ] && jq empty metrics-probes.json >/dev/null 2>&1; then
+            safe_results=$(cat metrics-probes.json)
+          else
+            echo '::error::Probe results file is missing or invalid.'
+            safe_all_ok='false'
+          fi
+
+          jq -n \
+            --arg timestamp "$timestamp" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg run_number "${{ github.run_number }}" \
+            --arg tested_sha "${{ github.sha }}" \
+            --arg healthy "$safe_all_ok" \
+            --argjson probes "$safe_results" \
+            '{
+              timestamp: $timestamp,
+              run_id: $run_id,
+              run_number: ($run_number | tonumber),
+              tested_sha: $tested_sha,
+              overall_healthy: ($healthy == "true"),
+              probes: $probes
+            }' > metrics.json
+
+          echo "overall_healthy=$safe_all_ok" >> "$GITHUB_OUTPUT"
+
+      - name: Upload metrics artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: metrics-${{ github.run_id }}
+          path: |
+            metrics.json
+            metrics-probes.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Write metrics summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          {
+            echo '## SANAD Platform Metrics'
+            echo ''
+            echo "**Tested SHA:** \`${{ github.sha }}\`"
+            echo "**Run ID:** ${{ github.run_id }}"
+            echo ''
+            echo '| Probe | Method | HTTP | Expected | Attempts | Response Time | Available |'
+            echo '|-------|--------|------|----------|----------|---------------|-----------|'
+
+            if [ -f metrics.json ]; then
+              jq -r '.probes | to_entries[] |
+                "| \(.key) | \(.value.method) | \(.value.status_code) | \(.value.expected_statuses) | \(.value.attempts) | \(.value.response_time_ms)ms | \(if .value.available then "OK" else "FAIL" end) |"' \
+                metrics.json
+
+              overall=$(jq -r '.overall_healthy' metrics.json)
+              echo ''
+              if [ "$overall" = 'true' ]; then
+                echo ':green_circle: **Overall: HEALTHY**'
+              else
+                echo ':red_circle: **Overall: DEGRADED**'
+              fi
+            else
+              echo '| metrics artifact | N/A | N/A | N/A | N/A | N/A | FAIL |'
+              echo ''
+              echo ':red_circle: **Overall: EXECUTION ERROR**'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply degraded label on failure
+        if: always() && steps.assemble.outputs.overall_healthy != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh label create 'metrics' \
+            --description 'Metrics tracking issue' \
+            --color '0075ca' 2>/dev/null || true
+          gh label create 'degraded' \
+            --description 'Service degradation detected' \
+            --color 'fbca04' 2>/dev/null || true
+
+          issue_number=$(gh issue list \
+            --label 'metrics' \
+            --state open \
+            --limit 1 \
+            --json number \
+            --jq '.[0].number' 2>/dev/null || true)
+
+          timestamp=$(date -u +'%Y-%m-%d %H:%M UTC')
+
+          if [ -z "$issue_number" ]; then
+            issue_url=$(gh issue create \
+              --title 'Metrics Tracking — Service Degradation Detected' \
+              --body "Automated metrics degradation detected at **$timestamp**. Run: ${{ github.run_id }}. Tested SHA: ${{ github.sha }}." 2>/dev/null || true)
+            issue_number=$(printf '%s' "$issue_url" | grep -oE '[0-9]+$' || true)
+          fi
+
+          if [ -n "$issue_number" ]; then
+            gh issue edit "$issue_number" --add-label 'metrics,degraded' 2>/dev/null || true
+            gh issue comment "$issue_number" \
+              --body "Metrics run ${{ github.run_id }} is degraded at $timestamp. Tested SHA: ${{ github.sha }}." \
+              2>/dev/null || true
+          fi
+
+      - name: Remove degraded label on recovery
+        if: always() && steps.assemble.outputs.overall_healthy == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          issue_number=$(gh issue list \
+            --label 'metrics' \
+            --label 'degraded' \
+            --state open \
+            --limit 1 \
+            --json number \
+            --jq '.[0].number' 2>/dev/null || true)
+
+          if [ -n "$issue_number" ]; then
+            gh issue edit "$issue_number" --remove-label 'degraded' 2>/dev/null || true
+            gh issue comment "$issue_number" \
+              --body "Metrics recovered in run ${{ github.run_id }} on SHA ${{ github.sha }}." \
+              2>/dev/null || true
+          fi
+
+      - name: Final enforcement
+        if: always()
+        shell: bash
+        env:
+          OVERALL_HEALTHY: ${{ steps.assemble.outputs.overall_healthy }}
+        run: |
+          set -euo pipefail
+          if [ "${OVERALL_HEALTHY:-false}" != 'true' ]; then
+            echo '::error::One or more platform probes failed. Review metrics artifact and summary.'
+            exit 1
+          fi
+          echo 'All platform probes passed.'
