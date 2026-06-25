@@ -109,7 +109,7 @@ jobs:
           restore-keys: |
             nvd-cache-${{ runner.os }}-dc12.1.0-
 
-      # EXEC-PROMPT-010R4 Section 7: failBuildOnCVSS=11 (non-blocking)
+      # EXEC-PROMPT-010R10: Stabilize OWASP — add NVD API delays + retries
       - name: Run OWASP dependency-check
         id: owasp_scan
         shell: bash
@@ -125,6 +125,10 @@ jobs:
             -DoutputDirectory=target/dependency-check-report \
             -DdataDirectory=${{ runner.temp }}/nvd-cache \
             -DnvdApiKey="${NVD_API_KEY}" \
+            -DnvdApiDelay=6000 \
+            -DnvdMaxRetryCount=3 \
+            -DhostedSuppressionsEnabled=false \
+            -DhostedSuppressionsForceupdate=false \
             --batch-mode \
             --no-transfer-progress || SCAN_EXIT_CODE=$?
 
