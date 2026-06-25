@@ -1,3 +1,5 @@
+> **STATUS: SUPERSEDED BY EXEC-PROMPT-010R9**
+
 # EXEC-PROMPT-010R6 — Final Evidence Report
 
 ---
