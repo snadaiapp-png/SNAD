@@ -1,11 +1,17 @@
 # ============================================================
 # SANAD Platform — OWASP Dependency-Check Security Scan
 # ============================================================
-# Runs on push to main and weekly (Monday 06:00 UTC).
-# Uses the OWASP dependency-check-maven plugin to scan the
-# backend for known CVEs in transitive dependencies.
-# Uploads the HTML report as a private artifact and fails
-# on HIGH or CRITICAL findings.
+# EXEC-PROMPT-010R2: Authoritative, non-misleading security scan.
+#
+# Key fixes:
+#   1. cancel-in-progress: false (never cancel an active main scan)
+#   2. timeout-minutes: 90 (sufficient for initial NVD download)
+#   3. NVD data cache via actions/cache (keyed by OS + DC version + week)
+#   4. NVD_API_KEY required (fails clearly if absent)
+#   5. JSON report parsed for exact HIGH/CRITICAL counts
+#   6. Summary is conditional — never claims success under if: always()
+#   7. Permissions: contents: read only (removed issues: write)
+#   8. if-no-files-found: error (not warn)
 # ============================================================
 
 name: Security Scan (OWASP)
@@ -23,17 +29,16 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 concurrency:
-  group: security-scan
-  cancel-in-progress: true
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   dependency-check:
     name: OWASP Dependency-Check
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: apps/sanad-platform
@@ -49,19 +54,157 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Run OWASP dependency-check
+      - name: Verify NVD_API_KEY secret is configured
         shell: bash
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          if [ -z "$NVD_API_KEY" ]; then
+            echo "::error::NVD_API_KEY is required for a reliable production security scan."
+            echo "::error::Configure it in repository Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          echo "✅ NVD_API_KEY is configured (value not printed)."
+
+      - name: Cache NVD database
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/nvd-cache
+          key: nvd-cache-${{ runner.os }}-dc12.1.0-week-$(date -u +'%Y-W%V')
+          restore-keys: |
+            nvd-cache-${{ runner.os }}-dc12.1.0-week-
+
+      - name: Run OWASP dependency-check
+        id: owasp-scan
+        shell: bash
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           set -euo pipefail
 
+          # Run the scan. failBuildOnCVSS=0 means the Maven plugin will return
+          # non-zero if ANY vulnerability is found (CVSS >= 0). We capture the
+          # exit code and parse the JSON report ourselves for precise counts.
+          SCAN_EXIT_CODE=0
           mvn org.owasp:dependency-check-maven:12.1.0:check \
             -DfailBuildOnCVSS=0 \
             -Dformat=HTML,JSON \
             -DoutputDirectory=target/dependency-check-report \
             -DdataDirectory=${{ runner.temp }}/nvd-cache \
-            -DnvdApiKey="${{ secrets.NVD_API_KEY }}" \
+            -DnvdApiKey="${NVD_API_KEY}" \
             --batch-mode \
-            --no-transfer-progress
+            --no-transfer-progress || SCAN_EXIT_CODE=$?
+
+          echo "scan-exit-code=$SCAN_EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+          # Verify the JSON report exists
+          JSON_REPORT="target/dependency-check-report/dependency-check-report.json"
+          if [ ! -f "$JSON_REPORT" ]; then
+            echo "::error::OWASP JSON report not found at $JSON_REPORT"
+            echo "scan-result=execution-error" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "scan-result=completed" >> "$GITHUB_OUTPUT"
+
+      - name: Parse OWASP JSON report
+        id: parse-report
+        if: steps.owasp-scan.outputs.scan-result == 'completed'
+        shell: bash
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+
+          JSON_REPORT="target/dependency-check-report/dependency-check-report.json"
+
+          # Verify JSON is parseable
+          if ! python3 -c "import json; json.load(open('$JSON_REPORT'))" 2>/dev/null; then
+            echo "::error::OWASP JSON report cannot be parsed."
+            exit 1
+          fi
+
+          # Parse the report using Python (jq may not handle large files well)
+          python3 << 'PYEOF' > /tmp/owasp-summary.txt
+          import json
+          import sys
+
+          with open('target/dependency-check-report/dependency-check-report.json') as f:
+              report = json.load(f)
+
+          project = report.get('projectInfo', {})
+          dependencies = report.get('dependencies', {}).get('dependency', [])
+          total_deps = len(dependencies)
+
+          # Count vulnerabilities by severity
+          severity_counts = {'LOW': 0, 'MODERATE': 0, 'MEDIUM': 0, 'HIGH': 0, 'CRITICAL': 0, 'UNKNOWN': 0}
+          total_vulns = 0
+          suppressed = 0
+          analysis_exceptions = 0
+
+          for dep in dependencies:
+              for vuln in dep.get('vulnerabilities', []) or []:
+                  total_vulns += 1
+                  # Check if suppressed
+                  if vuln.get('vulnerableSoftware', []) and any(
+                      vs.get('versionStartIncluding') or vs.get('versionEndExcluding')
+                      for vs in vuln.get('vulnerableSoftware', [])
+                  ):
+                      pass  # not a suppression check — suppressed is separate
+
+                  # Get severity (may be under 'severity' or 'cvssv3' or 'cvssv2')
+                  severity = vuln.get('severity', '').upper()
+                  if not severity:
+                      # Try to derive from CVSS score
+                      cvssv3 = vuln.get('cvssv3', {})
+                      if isinstance(cvssv3, dict):
+                          score = cvssv3.get('baseScore', 0)
+                      else:
+                          score = 0
+                      if score >= 9.0:
+                          severity = 'CRITICAL'
+                      elif score >= 7.0:
+                          severity = 'HIGH'
+                      elif score >= 4.0:
+                          severity = 'MEDIUM'
+                      elif score > 0:
+                          severity = 'LOW'
+                      else:
+                          severity = 'UNKNOWN'
+
+                  if severity in severity_counts:
+                      severity_counts[severity] += 1
+                  else:
+                      severity_counts['UNKNOWN'] += 1
+
+                  # Check for suppression entries
+                  for sup in vuln.get('suppressedVulnerabilities', []) or []:
+                      suppressed += 1
+
+              # Count analysis exceptions
+              if dep.get('analysisExceptions'):
+                  analysis_exceptions += len(dep['analysisExceptions'])
+
+          # Also count top-level suppressed vulnerabilities
+          for dep in dependencies:
+              for sv in dep.get('suppressedVulnerabilities', []) or []:
+                  suppressed += 1
+
+          print(f"total-dependencies={total_deps}")
+          print(f"total-vulnerabilities={total_vulns}")
+          print(f"low={severity_counts['LOW']}")
+          print(f"medium={severity_counts['MEDIUM'] + severity_counts['MODERATE']}")
+          print(f"high={severity_counts['HIGH']}")
+          print(f"critical={severity_counts['CRITICAL']}")
+          print(f"suppressed={suppressed}")
+          print(f"analysis-exceptions={analysis_exceptions}")
+          PYEOF
+
+          cat /tmp/owasp-summary.txt
+
+          # Export as outputs
+          while IFS='=' read -r key value; do
+            echo "$key=$value" >> "$GITHUB_OUTPUT"
+          done < /tmp/owasp-summary.txt
 
       - name: Upload OWASP reports
         if: always()
@@ -69,18 +212,79 @@ jobs:
         with:
           name: owasp-dependency-check-report-${{ github.run_id }}
           path: apps/sanad-platform/target/dependency-check-report/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
 
       - name: Write security scan summary
         if: always()
         shell: bash
+        env:
+          SCAN_RESULT: ${{ steps.owasp-scan.outputs.scan-result }}
+          SCAN_EXIT_CODE: ${{ steps.owasp-scan.outputs.scan-exit-code }}
+          HIGH: ${{ steps.parse-report.outputs.high }}
+          CRITICAL: ${{ steps.parse-report.outputs.critical }}
+          TOTAL_VULNS: ${{ steps.parse-report.outputs.total-vulnerabilities }}
+          TOTAL_DEPS: ${{ steps.parse-report.outputs.total-dependencies }}
+          SUPPRESSED: ${{ steps.parse-report.outputs.suppressed }}
+          GITHUB_SHA_SHORT: ${{ github.sha }}
         run: |
           {
             echo '## OWASP Dependency-Check Scan'
             echo ''
-            echo 'Scan completed successfully. No HIGH/CRITICAL vulnerabilities.'
+            echo "**Scanned SHA:** \`$GITHUB_SHA_SHORT\`"
+            echo "**Run ID:** ${{ github.run_id }}"
             echo ''
-            echo "- Scanned at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-            echo '- Report artifact: owasp-dependency-check-report-${{ github.run_id }}'
+
+            if [ "$SCAN_RESULT" = "execution-error" ]; then
+              echo '### ⛔ OWASP DEPENDENCY-CHECK: EXECUTION ERROR'
+              echo ''
+              echo 'No security conclusion may be inferred.'
+              echo 'The scanner failed to produce a valid report.'
+              echo '**Gate status:** BLOCKED — investigate scanner failure.'
+            elif [ -z "$HIGH" ] || [ -z "$CRITICAL" ]; then
+              echo '### ⚠️ OWASP DEPENDENCY-CHECK: INCOMPLETE'
+              echo ''
+              echo 'HIGH and CRITICAL counts remain unknown.'
+              echo 'The scan was cancelled, timed out, or the report could not be parsed.'
+              echo '**Gate status:** BLOCKED — rerun the scan.'
+            elif [ "$HIGH" -gt 0 ] || [ "$CRITICAL" -gt 0 ]; then
+              echo '### ❌ OWASP DEPENDENCY-CHECK: FAILED'
+              echo ''
+              echo "| Metric | Count |"
+              echo "|--------|-------|"
+              echo "| HIGH | $HIGH |"
+              echo "| CRITICAL | $CRITICAL |"
+              echo "| Total vulnerabilities | $TOTAL_VULNS |"
+              echo "| Total dependencies | $TOTAL_DEPS |"
+              echo "| Suppressed | $SUPPRESSED |"
+              echo ''
+              echo 'Review the private report artifact for details.'
+              echo '**Gate status:** BLOCKED — remediate HIGH/CRITICAL findings.'
+            else
+              echo '### ✅ OWASP DEPENDENCY-CHECK: PASS'
+              echo ''
+              echo "| Metric | Count |"
+              echo "|--------|-------|"
+              echo "| HIGH | 0 |"
+              echo "| CRITICAL | 0 |"
+              echo "| Total vulnerabilities | $TOTAL_VULNS |"
+              echo "| Total dependencies | $TOTAL_DEPS |"
+              echo "| Suppressed | $SUPPRESSED |"
+              echo ''
+              echo "Report artifact: \`owasp-dependency-check-report-${{ github.run_id }}\`"
+              echo '**Gate status:** PASSED.'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail job if HIGH or CRITICAL findings exist
+        if: steps.parse-report.outputs.high != '' && steps.parse-report.outputs.critical != ''
+        shell: bash
+        env:
+          HIGH: ${{ steps.parse-report.outputs.high }}
+          CRITICAL: ${{ steps.parse-report.outputs.critical }}
+        run: |
+          if [ "$HIGH" -gt 0 ] || [ "$CRITICAL" -gt 0 ]; then
+            echo "::error::OWASP scan found HIGH=$HIGH CRITICAL=$CRITICAL vulnerabilities."
+            exit 1
+          fi
+          echo "✅ No HIGH or CRITICAL vulnerabilities found."
