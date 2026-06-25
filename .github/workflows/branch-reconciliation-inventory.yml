@@ -1,0 +1,73 @@
+# ============================================================
+# SANAD — Branch Reconciliation Inventory
+# ============================================================
+# Non-destructive inventory. This workflow never deletes branches.
+# ============================================================
+
+name: Branch Reconciliation Inventory
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 5 * * 1'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/generate_branch_inventory.py'
+      - '.github/workflows/branch-reconciliation-inventory.yml'
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: branch-reconciliation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  inventory:
+    name: Generate Branch Inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate branch inventory
+        id: inventory
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DEFAULT_BRANCH: main
+          OUTPUT_DIR: branch-audit
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/generate_branch_inventory.py
+
+          test -s branch-audit/branch-inventory.csv
+          test -s branch-audit/branch-inventory.md
+
+          branch_count=$(awk 'END { print NR - 1 }' branch-audit/branch-inventory.csv)
+          echo "branch_count=$branch_count" >> "$GITHUB_OUTPUT"
+
+      - name: Upload branch inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: branch-reconciliation-${{ github.run_id }}
+          path: branch-audit/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Write branch inventory summary
+        run: |
+          set -euo pipefail
+          cat branch-audit/branch-inventory.md >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo "Run ID: ${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tested SHA: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
