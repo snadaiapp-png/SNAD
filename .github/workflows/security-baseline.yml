@@ -145,6 +145,27 @@ jobs:
           env_json=$(docker inspect --format '{{json .Config.Env}}' sanad-backend:security-ci)
           ! printf '%s' "$env_json" | grep -Eiq '(password|secret|token|private[_-]?key)='
 
+  workflow-security-policy:
+    name: Workflow Security Policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        run: pip install pyyaml pytest -q
+
+      - name: Run workflow security scanner tests
+        run: python3 -m pytest tests/ci/test_workflow_security_policy.py -q
+
+      - name: Run workflow security scanner
+        run: python3 scripts/ci/check_workflow_security.py
+
   security-gate-summary:
     name: Security Gate Summary
     runs-on: ubuntu-latest
@@ -152,6 +173,7 @@ jobs:
       - secret-scan
       - frontend-production-audit
       - backend-container-hardening
+      - workflow-security-policy
     steps:
       - name: Publish result
         run: |
@@ -164,6 +186,7 @@ jobs:
             echo '- Backend non-root runtime: PASSED'
             echo '- Backend health-check configuration: PASSED'
             echo '- Sensitive default environment check: PASSED'
+            echo '- Workflow security policy: PASSED'
             echo '- Scope: deterministic repository security gate'
             echo '- Production SAST, DAST, container CVE scan and penetration testing remain required before commercial GO'
           } >> "$GITHUB_STEP_SUMMARY"

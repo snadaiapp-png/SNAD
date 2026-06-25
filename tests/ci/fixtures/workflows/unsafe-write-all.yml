@@ -1,0 +1,8 @@
+name: Unsafe Write All
+on: [push]
+permissions: write-all
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "build"
