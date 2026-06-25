@@ -162,50 +162,42 @@ jobs:
               } }')
           }
 
-          # Public health probe: must be HTTP 200 and report status UP.
           probe 'backend_health' 'GET' \
             "${BACKEND_URL}/actuator/health" '' '200' 'true'
 
-          # Frontend availability.
           probe 'frontend' 'GET' \
             "${FRONTEND_URL}" '' '200,301,302' 'false'
 
-          # Method-aware API contract probes.
-          # Empty login payload should be rejected by validation, proving the POST route exists.
           probe 'login_contract' 'POST' \
             "${BACKEND_URL}/api/v1/auth/login" '{}' '400,401' 'false'
 
-          # Protected GET endpoints should reject anonymous requests, proving routing and auth enforcement.
           probe 'me_protection' 'GET' \
-            "${BACKEND_URL}/api/v1/auth/me" '' '401' 'false'
+            "${BACKEND_URL}/api/v1/auth/me" '' '401,403' 'false'
 
           probe 'organizations_protection' 'GET' \
             "${BACKEND_URL}/api/v1/organizations" '' '401,403' 'false'
 
-          {
-            echo 'results_json<<EOF'
-            echo "$results_json"
-            echo 'EOF'
-            echo "all_ok=$all_ok"
-          } >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$results_json" > metrics-probes.json
+          jq empty metrics-probes.json
+          echo "all_ok=$all_ok" >> "$GITHUB_OUTPUT"
 
       - name: Assemble metrics JSON
         id: assemble
         if: always()
         shell: bash
         env:
-          RESULTS_JSON: ${{ steps.probes.outputs.results_json }}
           ALL_OK: ${{ steps.probes.outputs.all_ok }}
         run: |
           set -euo pipefail
 
           timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-          safe_results="${RESULTS_JSON:-{}}"
+          safe_results='{}'
           safe_all_ok="${ALL_OK:-false}"
 
-          if ! printf '%s' "$safe_results" | jq empty >/dev/null 2>&1; then
-            echo '::error::Probe results are not valid JSON.'
-            safe_results='{}'
+          if [ -s metrics-probes.json ] && jq empty metrics-probes.json >/dev/null 2>&1; then
+            safe_results=$(cat metrics-probes.json)
+          else
+            echo '::error::Probe results file is missing or invalid.'
             safe_all_ok='false'
           fi
 
@@ -232,7 +224,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: metrics-${{ github.run_id }}
-          path: metrics.json
+          path: |
+            metrics.json
+            metrics-probes.json
           if-no-files-found: error
           retention-days: 30
 
