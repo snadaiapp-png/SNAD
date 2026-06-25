@@ -1,0 +1,12 @@
+name: Uptime Monitor
+on: [schedule, workflow_dispatch]
+permissions:
+  contents: read
+  issues: write
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "https://example.com/health")
+          echo "status=$STATUS"

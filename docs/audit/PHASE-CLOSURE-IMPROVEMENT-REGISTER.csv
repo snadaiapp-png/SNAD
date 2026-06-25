@@ -1,0 +1,23 @@
+improvement_id,category,title,current_state,target_state,business_value,security_value,priority,development_gate_required,commercial_gate_required,dependency,estimate,owner_role,target_phase,status
+IMP-001,SECURITY,Structural workflow security scanner,Regex-only scanner,YAML structural parser + shell inspection,Prevents unsafe workflows,High,P1,Yes,No,None,3,Security Engineer,PR A,Pending
+IMP-002,SECURITY,Pin GitHub Actions to commit SHAs,Mutable tags,Commit SHA pinning,Supply chain security,High,P1,No,Yes,None,2,DevOps Engineer,Sprint 0,Pending
+IMP-003,SECURITY,SAST/CodeQL integration,No SAST,CodeQL workflow,Automated vulnerability detection,Medium,P2,No,No,None,3,Security Engineer,Post-Sprint 0,Pending
+IMP-004,SECURITY,Container vulnerability scanning,No container scanning,Trivy workflow,Runtime security,Medium,P2,No,No,None,2,DevOps Engineer,Post-Sprint 0,Pending
+IMP-005,SECURITY,SBOM generation,No SBOM,CycloneDX SBOM,Compliance + transparency,Medium,P2,No,Yes,None,2,Security Engineer,Commercial Gate,Pending
+IMP-006,SECURITY,Dependency update automation,Manual updates,Dependabot/Renovate,Reduces technical debt,Low,P2,No,No,None,1,DevOps Engineer,Sprint 0,Pending
+IMP-007,SECURITY,DAST for staging,No DAST,OWASP ZAP workflow,Runtime vulnerability detection,Medium,P2,No,Yes,None,3,Security Engineer,Commercial Gate,Pending
+IMP-008,SECURITY,Security headers validation,No automated check,CSP/HSTS validation workflow,Defense in depth,Medium,P2,No,No,None,1,Security Engineer,Post-Sprint 0,Pending
+IMP-009,SECURITY,CORS regression testing,No automated test,CORS test workflow,Prevents misconfiguration,Medium,P2,No,No,None,1,Backend Engineer,Post-Sprint 0,Pending
+IMP-010,SECURITY,Rate-limit testing,No testing,Automated rate-limit test,Verifies brute-force protection,Medium,P2,No,No,None,2,Security Engineer,Post-Sprint 0,Pending
+IMP-011,SECURITY,Audit-log integrity validation,Text logs only,Structured JSON + tamper detection,Compliance + forensics,Medium,P2,No,Yes,None,3,Backend Engineer,Commercial Gate,Pending
+IMP-012,MONITORING,Centralized alert delivery,GitHub Issues only,Slack/PagerDuty integration,Faster incident response,High,P2,No,Yes,None,2,DevOps Engineer,Commercial Gate,Pending
+IMP-013,MONITORING,Incident response runbook,No formal runbook,IR runbook with roles,Operational readiness,High,P2,No,Yes,None,2,Operations,Commercial Gate,Pending
+IMP-014,SECURITY,Break-glass access procedure,No formal procedure,Documented break-glass with 2-person approval,Emergency access control,High,P1,No,Yes,None,2,Security Engineer,PR B,Pending
+IMP-015,OPERATIONS,Provider outage simulation,No simulation,Chaos engineering,Resilience validation,Medium,P2,No,Yes,None,3,DevOps Engineer,Commercial Gate,Pending
+IMP-016,OPERATIONS,Backup and restore drill,No drill,Quarterly restore test,Data protection,High,P2,No,Yes,None,2,DevOps Engineer,Commercial Gate,Pending
+IMP-017,OPERATIONS,Load testing,No load test,k6 staging load test,Capacity validation,High,P2,No,Yes,None,3,DevOps Engineer,Commercial Gate,Pending
+IMP-018,OPERATIONS,Rollback drill,No drill,Staging rollback test,Deployment safety,High,P2,No,Yes,None,2,DevOps Engineer,Commercial Gate,Pending
+IMP-019,COMPLIANCE,Data residency assessment,No assessment,GDPR assessment,Legal compliance,High,P2,No,Yes,None,3,Legal,Commercial Gate,Pending
+IMP-020,COMPLIANCE,Compliance evidence,No evidence,SOC2/ISO evidence,Audit readiness,Medium,P2,No,Yes,None,3,Compliance,Commercial Gate,Pending
+IMP-021,OPERATIONS,SLO/SLA definition,No SLO/SLA,Documented SLO/SLA,Operational commitment,Medium,P2,No,Yes,None,2,Operations,Commercial Gate,Pending
+IMP-022,INFRASTRUCTURE,Paid production infrastructure assessment,Free tier,Paid tier assessment,Production readiness,High,P2,No,Yes,None,1,Owner,Commercial Gate,Pending

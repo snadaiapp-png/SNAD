@@ -1,0 +1,15 @@
+name: Unsafe Multiline
+on: [workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    environment: Production
+    steps:
+      - run: |
+          psql -c "UPDATE users
+                   SET password_hash = 'newhash'
+                   WHERE id = 'admin-id'"
+          psql -c "DELETE FROM refresh_tokens
+                   WHERE user_id = 'admin-id'"
