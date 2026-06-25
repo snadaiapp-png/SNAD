@@ -129,6 +129,8 @@ jobs:
             -DnvdMaxRetryCount=3 \
             -DhostedSuppressionsEnabled=false \
             -DhostedSuppressionsForceupdate=false \
+            -DnvdApiDataFeedUrl="https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-modified.json.gz" \
+            -DfailOnError=false \
             --batch-mode \
             --no-transfer-progress || SCAN_EXIT_CODE=$?
 
