@@ -1,0 +1,20 @@
+pr_number,title,state,draft,base,head,head_sha,mergeable,checks_status,review_status,security_impact,database_impact,deployment_impact,decision,blocker
+102,ci: add backend acceptance workflow,MERGED,false,main,test/DEVELOPMENT-GATE-01-security-acceptance,aa1abeacdf01,True,9/9 success,Approved,None,None,None,MERGED,
+95,fix(security): make OWASP evidence gate fail closed,MERGED,false,main,fix/EXEC-PROMPT-010R4-authoritative-owasp-gate,c39cd74,True,8/8 success,Approved,High (OWASP parser fail-closed),None,None,MERGED,
+96,test(security): execute PostgreSQL refresh acceptance,MERGED,false,main,test/EXEC-PROMPT-010R4-postgres-acceptance,67a934a,True,9/9 success,Approved,High (Testcontainers execution),None,None,MERGED,
+97,fix(ops): make monitoring reliable,MERGED,false,main,fix/EXEC-PROMPT-010R4-monitoring-reliability,e4f0f06,True,8/8 success,Approved,Medium (monitoring retry),None,None,MERGED,
+98,docs(audit): EXEC-PROMPT-010R4 final evidence,MERGED,false,main,docs/EXEC-PROMPT-010R4-final-evidence,4f34861,True,8/8 success,Approved,None,None,None,MERGED,
+91,fix(security): correct OWASP runtime evidence gate,MERGED,false,main,fix/EXEC-PROMPT-010R3-runtime-evidence-correction,de9dc09,True,8/8 success,Approved,High (OWASP correction),None,None,MERGED,
+92,test(docs): staging load test + rollback drill plans,MERGED,false,main,test/EXEC-PROMPT-010R2-staging-load-validation,c96652a,True,8/8 success,Approved,None,None,None,MERGED,
+93,docs(audit): EXEC-PROMPT-010R2 final evidence,MERGED,false,main,docs/EXEC-PROMPT-010R2-final-evidence,9aa57c7,True,8/8 success,Approved,None,None,None,MERGED,
+82,fix(test): DEFECT-030 — delete organizations before tenants,MERGED,false,main,fix/DEFECT-030-token-revocation-test-fk-order,7c2d57f,True,12/12 success,Approved,None,None,None,MERGED,
+83,fix(security): DEFECT-021 — tenant isolation via JWT,MERGED,false,main,fix/DEFECT-021-user-membership-capability,6e734fb,True,12/12 success,Approved,High (tenant isolation),None,None,MERGED,
+84,fix(security): DEFECT-020 — remove PostgreSQL port mapping,MERGED,false,main,fix/DEFECT-020-postgres-port-exposure,1174d56,True,12/12 success,Approved,Medium (security hardening),None,None,MERGED,
+88,docs: PR #86A — Constitution and developer bootstrap,MERGED,false,main,docs/EXEC-PROMPT-010R-constitution-and-bootstrap,957eeff,True,8/8 success,Approved,None,None,None,MERGED,
+89,docs(adr): ADR-039 — frontend auth session boundary,MERGED,false,main,docs/EXEC-PROMPT-010R-adr-039-auth-boundary,c1319a0,True,8/8 success,Approved,None,None,None,MERGED,
+90,docs(audit): EXEC-PROMPT-010R final audit,MERGED,false,main,docs/EXEC-PROMPT-010R-final-audit,7f6d2dc,True,8/8 success,Approved,None,None,None,MERGED,
+99,Metrics Collector remediation,MERGED,false,main,fix/metrics-collector-v2,N/A,True,N/A success,Approved,Medium (monitoring),None,None,MERGED,
+100,Branch Reconciliation Inventory,MERGED,false,main,feat/branch-reconciliation,N/A,True,N/A success,Approved,None,None,None,MERGED,
+85,fix(security): DEFECT-019+027 — frontend middleware,CLOSED,false,main,fix/DEFECT-019-027-frontend-hardening,705bcbc,False,N/A,N/A,High (cookie boundary issue),None,None,CLOSED AS SUPERSEDED,Cookie architecture issue (ADR-039)
+86,fix: DEFECT-029 + empty files,CLOSED,false,main,fix/DEFECT-029-cookie-samesite-default,4df9577,False,N/A,N/A,None,None,None,CLOSED AS SUPERSEDED,Split into #88 + #86B
+87,docs(audit): EXEC-PROMPT-010 stage closure,CLOSED,false,main,audit/EXEC-PROMPT-010-stage-closure,72f0aeb,False,N/A,N/A,None,None,None,CLOSED AS SUPERSEDED,Overlapping code changes
