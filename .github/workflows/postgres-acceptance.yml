@@ -1,0 +1,264 @@
+# ============================================================
+# SANAD Platform — PostgreSQL Acceptance Workflow
+# ============================================================
+# EXEC-PROMPT-010R4 Sections 16-21: Execute PostgreSQL refresh
+# concurrency and Testcontainers acceptance tests on GitHub-hosted
+# runner with Docker available.
+#
+# This workflow proves that:
+#   1. Docker is available on ubuntu-latest
+#   2. Testcontainers creates an isolated ephemeral PostgreSQL container
+#   3. RefreshTokenConcurrencyPostgresTest EXECUTES (not skipped)
+#   4. All Testcontainers tests execute with 0 skipped
+#   5. Concurrent refresh winner/loser behavior verified
+#   6. Replay rejection verified
+#   7. Refresh-family revocation verified
+#   8. Session invalidation verified
+# ============================================================
+
+name: PostgreSQL Acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/security/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/api/ProductionProfileTest.java'
+      - '.github/workflows/postgres-acceptance.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/security/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/api/ProductionProfileTest.java'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postgres-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  postgres-acceptance:
+    name: PostgreSQL Testcontainers Acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # EXEC-PROMPT-010R4 Section 17: Prove Docker availability
+      - name: Verify Docker availability
+        id: docker_check
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Docker client version ==="
+          docker version --format '{{.Client.Version}}' || {
+            echo "::error::Docker client not available"
+            exit 1
+          }
+
+          echo "=== Docker server version ==="
+          docker info --format '{{.ServerVersion}}' || {
+            echo "::error::Docker server not available"
+            exit 1
+          }
+
+          echo "=== Runner OS ==="
+          echo "$(uname -a)"
+
+          echo "docker_client_version=$(docker version --format '{{.Client.Version}}')" >> "$GITHUB_OUTPUT"
+          echo "docker_server_version=$(docker info --format '{{.ServerVersion}}')" >> "$GITHUB_OUTPUT"
+          echo "runner_os=$(uname -s)" >> "$GITHUB_OUTPUT"
+
+      # EXEC-PROMPT-010R4 Section 18: Run refresh concurrency test
+      - name: Run RefreshTokenConcurrencyPostgresTest
+        id: refresh_test
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=== Running RefreshTokenConcurrencyPostgresTest ==="
+          mvn test \
+            -Dtest='RefreshTokenConcurrencyPostgresTest' \
+            -Dspring.profiles.active=test \
+            --batch-mode \
+            --no-transfer-progress
+
+          # Verify the test was EXECUTED (not skipped)
+          SUREFIRE_XML="target/surefire-reports/TEST-com.sanad.platform.security.service.RefreshTokenConcurrencyPostgresTest.xml"
+
+          if [ ! -f "$SUREFIRE_XML" ]; then
+            echo "::error::Surefire report not found: $SUREFIRE_XML"
+            echo "::error::Test was not executed."
+            exit 1
+          fi
+
+          # Parse the XML for test counts
+          python3 << 'PYEOF'
+          import xml.etree.ElementTree as ET
+          tree = ET.parse("target/surefire-reports/TEST-com.sanad.platform.security.service.RefreshTokenConcurrencyPostgresTest.xml")
+          root = tree.getroot()
+          tests = int(root.attrib.get("tests", 0))
+          failures = int(root.attrib.get("failures", 0))
+          errors = int(root.attrib.get("errors", 0))
+          skipped = int(root.attrib.get("skipped", 0))
+
+          print(f"Tests: {tests}")
+          print(f"Failures: {failures}")
+          print(f"Errors: {errors}")
+          print(f"Skipped: {skipped}")
+
+          if tests == 0:
+              print("::error::No tests were executed!")
+              exit(1)
+          if skipped > 0:
+              print(f"::error::{skipped} tests were SKIPPED — mandatory tests cannot be skipped")
+              exit(1)
+          if failures > 0:
+              print(f"::error::{failures} test failures")
+              exit(1)
+          if errors > 0:
+              print(f"::error::{errors} test errors")
+              exit(1)
+
+          print("✅ RefreshTokenConcurrencyPostgresTest: EXECUTED, 0 skipped, 0 failures")
+          PYEOF
+
+      # EXEC-PROMPT-010R4 Section 19: Run all Testcontainers tests
+      - name: Run all Testcontainers tests
+        id: all_tc_tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=== Discovered Testcontainers test classes ==="
+          # Search for @Testcontainers annotation in test source
+          TC_CLASSES=$(grep -rl "@Testcontainers" src/test/java/ 2>/dev/null | \
+            sed 's|.*/java/||; s|/|.|g; s|\.java$||' | sort)
+          echo "$TC_CLASSES"
+          echo "discovered_classes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$TC_CLASSES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "=== Running all Testcontainers tests ==="
+          # Run all classes that use @Testcontainers
+          TC_CLASSES_CSV=$(echo "$TC_CLASSES" | tr '\n' ',' | sed 's/,$//')
+
+          if [ -z "$TC_CLASSES_CSV" ]; then
+            echo "::error::No Testcontainers test classes discovered"
+            exit 1
+          fi
+
+          mvn test \
+            -Dtest="$TC_CLASSES_CSV" \
+            -Dspring.profiles.active=test \
+            --batch-mode \
+            --no-transfer-progress
+
+          # Verify all tests executed with 0 skipped
+          python3 << 'PYEOF'
+          import xml.etree.ElementTree as ET
+          import glob
+
+          total_tests = 0
+          total_failures = 0
+          total_errors = 0
+          total_skipped = 0
+          executed_classes = []
+
+          for f in sorted(glob.glob("target/surefire-reports/TEST-*.xml")):
+              tree = ET.parse(f)
+              root = tree.getroot()
+              tests = int(root.attrib.get("tests", 0))
+              failures = int(root.attrib.get("failures", 0))
+              errors = int(root.attrib.get("errors", 0))
+              skipped = int(root.attrib.get("skipped", 0))
+              classname = root.attrib.get("name", "")
+
+              total_tests += tests
+              total_failures += failures
+              total_errors += errors
+              total_skipped += skipped
+              executed_classes.append(classname)
+
+              if skipped > 0:
+                  print(f"::error::{classname}: {skipped} tests SKIPPED")
+              if failures > 0:
+                  print(f"::error::{classname}: {failures} failures")
+              if errors > 0:
+                  print(f"::error::{classname}: {errors} errors")
+
+          print(f"\n=== Testcontainers Acceptance Summary ===")
+          print(f"Executed classes: {len(executed_classes)}")
+          print(f"Total tests: {total_tests}")
+          print(f"Failures: {total_failures}")
+          print(f"Errors: {total_errors}")
+          print(f"Skipped: {total_skipped}")
+
+          if total_tests == 0:
+              print("::error::No tests were executed!")
+              exit(1)
+          if total_skipped > 0:
+              print(f"::error::{total_skipped} tests were SKIPPED — mandatory tests cannot be skipped")
+              exit(1)
+          if total_failures > 0 or total_errors > 0:
+              print(f"::error::Failures={total_failures} Errors={total_errors}")
+              exit(1)
+
+          print("✅ All Testcontainers tests: EXECUTED, 0 skipped, 0 failures")
+          PYEOF
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgres-acceptance-reports-${{ github.run_id }}
+          path: apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Write acceptance summary
+        if: always()
+        shell: bash
+        env:
+          DOCKER_CLIENT: ${{ steps.docker_check.outputs.docker_client_version }}
+          DOCKER_SERVER: ${{ steps.docker_check.outputs.docker_server_version }}
+          RUNNER_OS: ${{ steps.docker_check.outputs.runner_os }}
+        run: |
+          {
+            echo '## PostgreSQL Testcontainers Acceptance'
+            echo ''
+            echo "**Tested SHA:** \`${{ github.sha }}\`"
+            echo "**Run ID:** ${{ github.run_id }}"
+            echo ''
+            echo '### Environment'
+            echo "| Parameter | Value |"
+            echo "|-----------|-------|"
+            echo "| Docker client | $DOCKER_CLIENT |"
+            echo "| Docker server | $DOCKER_SERVER |"
+            echo "| Runner OS | $RUNNER_OS |"
+            echo "| PostgreSQL image | postgres:16-alpine (per Testcontainers config) |"
+            echo "| Testcontainers | 1.20.4 (per pom.xml) |"
+            echo ''
+            echo '### Acceptance Result'
+            echo ''
+            echo 'See step outputs above for detailed test counts.'
+            echo ''
+            echo '**Gate status:** PASS or FAIL (see final job conclusion)'
+          } >> "$GITHUB_STEP_SUMMARY"
