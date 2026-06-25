@@ -1,0 +1,36 @@
+{
+  "projectInfo": {"name": "test", "reportDate": "2026-06-25T00:00:00Z"},
+  "dependencies": [
+    {
+      "fileName": "lib-with-suppressed.jar",
+      "isVirtual": false,
+      "vulnerabilities": [
+        {
+          "name": "CVE-2024-0002",
+          "severity": "HIGH",
+          "cvssv3": {"baseScore": 7.2}
+        }
+      ],
+      "suppressedVulnerabilities": [
+        {
+          "name": "CVE-2023-OLD1",
+          "severity": "MEDIUM"
+        }
+      ]
+    },
+    {
+      "fileName": "lib-with-null-vulns.jar",
+      "isVirtual": false,
+      "vulnerabilities": null
+    },
+    {
+      "fileName": "lib-missing-vulns-key.jar",
+      "isVirtual": false
+    },
+    {
+      "fileName": "lib-with-exception.jar",
+      "isVirtual": false,
+      "analysisExceptions": ["Exception analyzing dependency"]
+    }
+  ]
+}

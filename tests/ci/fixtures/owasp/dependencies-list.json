@@ -1,0 +1,7 @@
+{
+  "projectInfo": {"name": "test", "reportDate": "2026-06-25T00:00:00Z"},
+  "dependencies": [
+    {"fileName": "lib1.jar", "isVirtual": false},
+    {"fileName": "lib2.jar", "isVirtual": false}
+  ]
+}

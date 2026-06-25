@@ -1,0 +1,16 @@
+{
+  "projectInfo": {"name": "test", "reportDate": "2026-06-25T00:00:00Z"},
+  "dependencies": [
+    {
+      "fileName": "vulnerable-lib.jar",
+      "isVirtual": false,
+      "vulnerabilities": [
+        {
+          "name": "CVE-2024-0001",
+          "severity": "HIGH",
+          "cvssv3": {"baseScore": 7.5, "baseSeverity": "HIGH"}
+        }
+      ]
+    }
+  ]
+}

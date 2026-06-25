@@ -308,7 +308,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          set -euo pipefail
+          set +euo pipefail
+
+          # EXEC-PROMPT-010R3: Create labels if they don't exist (graceful handling)
+          gh label create "metrics" --description "Metrics tracking issue" --color "0075ca" 2>/dev/null || true
+          gh label create "degraded" --description "Service degradation detected" --color "fbca04" 2>/dev/null || true
 
           # Find the most recent open metrics-tracking issue
           issue_number=$(gh issue list \
@@ -319,15 +323,18 @@ jobs:
             --jq '.[0].number' 2>/dev/null || echo "")
 
           if [ -z "$issue_number" ]; then
-            # No open metrics issue — create one
+            # No open metrics issue — create one (without labels first, then add)
             timestamp=$(date -u +"%Y-%m-%d %H:%M UTC")
             issue_number=$(gh issue create \
               --title "Metrics Tracking — Service Degradation Detected" \
               --body "## Automated Metrics Alert\n\nDegradation detected at **$timestamp**.\n\nThis issue is automatically managed by the metrics-collector workflow.\nWhen all checks recover, the \`degraded\` label will be removed.\n\n*Auto-created by metrics-collector workflow.*" \
-              --label "metrics" \
-              --label "degraded" \
               2>/dev/null | grep -oE '[0-9]+' || echo "")
-            echo "Created metrics issue #$issue_number"
+
+            if [ -n "$issue_number" ]; then
+              # Add labels separately (graceful — won't fail if label creation was blocked)
+              gh issue edit "$issue_number" --add-label "metrics,degraded" 2>/dev/null || true
+              echo "Created metrics issue #$issue_number"
+            fi
           else
             # Add degraded label if not already present
             gh issue edit "$issue_number" --add-label "degraded" 2>/dev/null || true
