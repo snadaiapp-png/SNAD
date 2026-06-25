@@ -1,0 +1,120 @@
+name: Development Security Acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/security/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/user/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/organization/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/security/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/user/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/organization/**'
+      - '.github/workflows/development-security-acceptance.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/security/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/user/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/organization/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/security/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/user/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/organization/**'
+      - '.github/workflows/development-security-acceptance.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: development-security-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    name: Development Security Acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Verify Docker
+        run: |
+          set -euo pipefail
+          docker version
+          docker info
+
+      - name: Run acceptance tests
+        run: |
+          set -euo pipefail
+          rm -rf target/surefire-reports
+          mvn test \
+            -Dtest='AuthApiIntegrationTest,OrganizationTenantIsolationTest,UserMembershipControllerTest,RefreshTokenConcurrencyPostgresTest' \
+            -Dspring.profiles.active=test \
+            --batch-mode \
+            --no-transfer-progress
+
+      - name: Verify test reports
+        run: |
+          set -euo pipefail
+
+          required=(
+            AuthApiIntegrationTest
+            OrganizationTenantIsolationTest
+            UserMembershipControllerTest
+            RefreshTokenConcurrencyPostgresTest
+          )
+
+          for test_class in "${required[@]}"; do
+            report=$(find target/surefire-reports -name "TEST-*${test_class}.xml" -print -quit)
+            if [ -z "$report" ]; then
+              echo "::error::Missing report for $test_class"
+              exit 1
+            fi
+
+            python3 - "$report" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse(sys.argv[1]).getroot()
+          tests = int(root.attrib.get('tests', 0))
+          failures = int(root.attrib.get('failures', 0))
+          errors = int(root.attrib.get('errors', 0))
+          skipped = int(root.attrib.get('skipped', 0))
+          print(f"{root.attrib.get('name')}: tests={tests} failures={failures} errors={errors} skipped={skipped}")
+          if tests <= 0 or failures > 0 or errors > 0 or skipped > 0:
+              raise SystemExit(1)
+          PY
+          done
+
+      - name: Upload acceptance reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: development-security-acceptance-${{ github.run_id }}
+          path: apps/sanad-platform/target/surefire-reports/TEST-*.xml
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Write summary
+        if: always()
+        run: |
+          {
+            echo '## Development Security Acceptance'
+            echo ''
+            echo "Tested SHA: ${{ github.sha }}"
+            echo "Run ID: ${{ github.run_id }}"
+            echo ''
+            echo 'Scope: authentication API, tenant isolation, membership authorization, and PostgreSQL refresh concurrency.'
+            echo 'This is a development baseline gate and does not authorize commercial production.'
+          } >> "$GITHUB_STEP_SUMMARY"
