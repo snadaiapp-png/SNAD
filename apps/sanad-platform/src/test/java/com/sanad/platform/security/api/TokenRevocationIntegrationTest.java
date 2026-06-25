@@ -10,10 +10,12 @@ import com.sanad.platform.access.role.RoleCapability;
 import com.sanad.platform.access.role.RoleCapabilityRepository;
 import com.sanad.platform.access.role.RoleRepository;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
+import com.sanad.platform.organization.repository.OrganizationRepository;
 import com.sanad.platform.security.dto.AuthResponse;
 import com.sanad.platform.security.dto.ChangeCredentialRequest;
 import com.sanad.platform.security.dto.LoginRequest;
 import com.sanad.platform.security.dto.RefreshRequest;
+import com.sanad.platform.security.domain.PasswordResetTokenRepository;
 import com.sanad.platform.security.domain.RefreshTokenRepository;
 import com.sanad.platform.tenant.domain.Tenant;
 import com.sanad.platform.tenant.domain.TenantStatus;
@@ -62,7 +64,9 @@ class TokenRevocationIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private OrganizationMembershipRepository membershipRepository;
+    @Autowired private OrganizationRepository organizationRepository;
     @Autowired private RefreshTokenRepository refreshTokenRepository;
+    @Autowired private PasswordResetTokenRepository passwordResetTokenRepository;
     @Autowired private RoleRepository roleRepository;
     @Autowired private UserRoleGrantRepository userRoleGrantRepository;
     @Autowired private AccessCapabilityRepository accessCapabilityRepository;
@@ -77,8 +81,10 @@ class TokenRevocationIntegrationTest {
     void setUp() {
         roleCapabilityRepository.deleteAll();
         userRoleGrantRepository.deleteAll();
+        passwordResetTokenRepository.deleteAll();
         refreshTokenRepository.deleteAll();
         membershipRepository.deleteAll();
+        organizationRepository.deleteAll();
         roleRepository.deleteAll();
         userRepository.deleteAll();
         tenantRepository.deleteAll();
