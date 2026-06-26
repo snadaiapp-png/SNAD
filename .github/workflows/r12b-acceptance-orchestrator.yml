@@ -41,7 +41,10 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       contains(github.event.head_commit.message, '[EXEC-PROMPT-010R12D-ORCHESTRATION]')
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    # R12C: aligned to 355 minutes. The orchestrator polls NVD for up to
+    # 345 minutes (--max-poll-minutes 345), leaving a 10-minute margin
+    # for OWASP dispatch + attestation posting before the job timeout.
+    timeout-minutes: 355
 
     steps:
       - name: Checkout immutable candidate SHA
@@ -145,7 +148,8 @@ jobs:
             --pr-number "${corrective_pr_number}" \
             --issue 101 \
             --poll-interval-seconds 60 \
-            --max-poll-minutes 180 &
+            --max-poll-minutes 345 \
+            --pending-timeout-minutes 15 &
           orchestrator_pid=$!
 
           (
