@@ -192,23 +192,135 @@ def poll_until_terminal(
     poll_interval: int,
     max_poll_minutes: int,
     label: str,
+    pending_timeout_minutes: int = 15,
 ) -> dict:
     """Poll a workflow run until it reaches a terminal state.
-    Terminal states: completed (with conclusion success/failure/cancelled)."""
-    print(f"\n[{label}] Polling run {run_id} until terminal (max {max_poll_minutes} min)...")
-    deadline = time.time() + max_poll_minutes * 60
-    last_status = None
-    while time.time() < deadline:
+
+    Two independent timeouts (R12C Section 10):
+      - pending_timeout_minutes: max time the run may stay in
+        queued / pending / waiting before the orchestrator declares
+        a runner/concurrency blockage. Default 15 minutes.
+      - max_poll_minutes: max total time the run may stay in
+        in_progress. The orchestrator declares a run timeout if
+        the run has not reached 'completed' within this window
+        after it first entered in_progress.
+
+    On timeout, prints Run ID, Run URL, status, conclusion,
+    queued duration, running duration, and last observed timestamp.
+    """
+    print(
+        f"\n[{label}] Polling run {run_id} until terminal "
+        f"(pending_max={pending_timeout_minutes} min, running_max={max_poll_minutes} min)..."
+    )
+
+    pending_deadline = time.time() + pending_timeout_minutes * 60
+    running_deadline: float | None = None  # set when in_progress first observed
+    started_at_epoch: float | None = None
+    last_status: str | None = None
+    last_observed_at = ""
+    queued_duration_s = 0
+    running_duration_s = 0
+    run_url = ""
+    last_conclusion = None
+
+    while True:
         run = client.get_run(run_id)
         status = run.get("status")
         conclusion = run.get("conclusion")
+        run_url = run.get("html_url", run_url)
+        last_observed_at = run.get("updated_at", last_observed_at)
+        last_conclusion = conclusion
+
         if status != last_status:
             print(f"  [{label}] status={status} conclusion={conclusion}")
             last_status = status
+
+        now = time.time()
+
+        if status in ("queued", "pending", "waiting"):
+            if now >= pending_deadline:
+                queued_duration_s = int(now - (pending_deadline - pending_timeout_minutes * 60))
+                print(
+                    f"\n[{label}] FATAL: run did not start within "
+                    f"{pending_timeout_minutes} minutes."
+                )
+                print(f"  Possible concurrency or runner allocation blockage.")
+                _print_timeout_report(
+                    run_id, run_url, status, conclusion,
+                    queued_duration_s, 0, last_observed_at
+                )
+                raise TimeoutError(
+                    f"[{label}] Run {run_id} did not start within "
+                    f"{pending_timeout_minutes} minutes."
+                )
+            time.sleep(poll_interval)
+            continue
+
+        if status == "in_progress":
+            if started_at_epoch is None:
+                started_at_epoch = now
+                running_deadline = now + max_poll_minutes * 60
+                print(f"  [{label}] run entered in_progress; running timer started")
+            running_duration_s = int(now - started_at_epoch)
+            if running_deadline is not None and now >= running_deadline:
+                queued_duration_s = int(started_at_epoch - (pending_deadline - pending_timeout_minutes * 60))
+                if queued_duration_s < 0:
+                    queued_duration_s = 0
+                print(f"\n[{label}] FATAL: run exceeded {max_poll_minutes} minutes in_progress.")
+                _print_timeout_report(
+                    run_id, run_url, status, conclusion,
+                    queued_duration_s, running_duration_s, last_observed_at
+                )
+                raise TimeoutError(
+                    f"[{label}] Run {run_id} did not reach terminal state "
+                    f"within {max_poll_minutes} minutes of in_progress."
+                )
+            time.sleep(poll_interval)
+            continue
+
         if status == "completed":
+            if started_at_epoch is not None:
+                running_duration_s = int(now - started_at_epoch)
+            print(f"  [{label}] run completed; conclusion={conclusion}")
             return run
+
+        # Unknown status — log and continue polling until any deadline fires.
         time.sleep(poll_interval)
-    raise TimeoutError(f"[{label}] Run {run_id} did not reach terminal state within {max_poll_minutes} min")
+
+
+def _print_timeout_report(
+    run_id: int,
+    run_url: str,
+    status: str | None,
+    conclusion: str | None,
+    queued_duration_s: int,
+    running_duration_s: int,
+    last_observed_at: str,
+) -> None:
+    print(f"  Run ID:                   {run_id}")
+    print(f"  Run URL:                  {run_url}")
+    print(f"  Current status:           {status}")
+    print(f"  Last observed conclusion: {conclusion}")
+    print(f"  Queued duration:          {queued_duration_s}s")
+    print(f"  Running duration:         {running_duration_s}s")
+    print(f"  Last observed timestamp:  {last_observed_at}")
+
+
+def detect_active_nvd_run(client: GitHubClient, nvd_workflow_id: int) -> dict | None:
+    """R12C Section 11 — detect an active NVD writer before dispatching.
+
+    Returns the active run dict if one is in_progress / queued / pending,
+    or None if no active run exists.
+    """
+    payload = client._request(
+        "GET",
+        f"actions/workflows/{nvd_workflow_id}/runs?per_page=10",
+    )
+    for r in payload.get("workflow_runs", []):
+        status = r.get("status")
+        if status in ("queued", "in_progress", "waiting", "pending"):
+            return r
+    return None
 
 
 def extract_job_outputs(client: GitHubClient, run_id: int) -> dict:
@@ -355,8 +467,15 @@ def run_nvd_maintenance(
     merge_sha: str,
     poll_interval: int,
     max_poll_minutes: int,
+    pending_timeout_minutes: int = 15,
 ) -> dict:
-    """Dispatch and wait for NVD Maintenance. Returns dict of results."""
+    """Dispatch and wait for NVD Maintenance. Returns dict of results.
+
+    R12C Section 11 — before dispatch, check for an active NVD writer.
+    If one exists, fail closed with a duplicate-dispatch error rather
+    than triggering a second run that would be blocked by the
+    single-writer concurrency group.
+    """
     print("\n=== Step 1: Verify main SHA ===")
     main_sha = client.get_branch_sha("main")
     main_sha_verified = main_sha == merge_sha
@@ -368,6 +487,22 @@ def run_nvd_maintenance(
             f"main SHA ({main_sha}) does not match expected merge SHA ({merge_sha}). "
             "Aborting before dispatch."
         )
+
+    print("\n=== Step 1b: Detect active NVD writer (R12C Section 11) ===")
+    nvd_wf_id = client.get_workflow_id(NVD_WORKFLOW)
+    active = detect_active_nvd_run(client, nvd_wf_id)
+    if active is not None:
+        print("  FATAL: An active NVD writer already exists.")
+        print("  Duplicate dispatch is prohibited.")
+        print(f"  Active Run ID:     {active.get('id')}")
+        print(f"  Active Run URL:    {active.get('html_url')}")
+        print(f"  Active Run SHA:    {active.get('head_sha')}")
+        print(f"  Active Run status: {active.get('status')}")
+        raise RuntimeError(
+            f"An active NVD writer already exists (Run {active.get('id')}, "
+            f"status={active.get('status')}). Duplicate dispatch is prohibited."
+        )
+    print("  No active NVD writer detected. Proceeding with dispatch.")
 
     print("\n=== Step 2: Dispatch NVD Database Maintenance ===")
     client.dispatch_workflow(NVD_WORKFLOW, ref="main")
@@ -385,7 +520,8 @@ def run_nvd_maintenance(
 
     print("\n=== Step 4: Poll NVD Maintenance until terminal ===")
     final_run = poll_until_terminal(
-        client, nvd_run_id, poll_interval, max_poll_minutes, "NVD-Maintenance"
+        client, nvd_run_id, poll_interval, max_poll_minutes, "NVD-Maintenance",
+        pending_timeout_minutes=pending_timeout_minutes,
     )
     nvd_conclusion = final_run.get("conclusion")
     print(f"  Final conclusion: {nvd_conclusion}")
@@ -458,6 +594,7 @@ def run_owasp_scan(
     client: GitHubClient,
     poll_interval: int,
     max_poll_minutes: int,
+    pending_timeout_minutes: int = 15,
 ) -> dict:
     """Dispatch and wait for OWASP Offline Scan."""
     print("\n=== Step 13: Dispatch OWASP Offline Scan ===")
@@ -474,7 +611,8 @@ def run_owasp_scan(
 
     print("\n=== Step 14: Poll OWASP scan until terminal ===")
     final_run = poll_until_terminal(
-        client, owasp_run_id, poll_interval, max_poll_minutes, "OWASP-Scan"
+        client, owasp_run_id, poll_interval, max_poll_minutes, "OWASP-Scan",
+        pending_timeout_minutes=pending_timeout_minutes,
     )
     owasp_conclusion = final_run.get("conclusion")
     print(f"  Final conclusion: {owasp_conclusion}")
@@ -517,6 +655,7 @@ def run_baseline_workflows(
     client: GitHubClient,
     poll_interval: int,
     max_poll_minutes: int,
+    pending_timeout_minutes: int = 15,
 ) -> dict:
     """Dispatch the remaining baseline workflows in parallel and capture results."""
     print("\n=== Step 16: Dispatch remaining baseline workflows ===")
@@ -545,7 +684,8 @@ def run_baseline_workflows(
             run = runs[0]
             run_id = run["id"]
             final_run = poll_until_terminal(
-                client, run_id, poll_interval, max_poll_minutes, wf_file
+                client, run_id, poll_interval, max_poll_minutes, wf_file,
+                pending_timeout_minutes=pending_timeout_minutes,
             )
             results[wf_file] = {
                 "run_id": run_id,
@@ -575,7 +715,12 @@ def main() -> int:
         "--poll-interval-seconds", type=int, default=DEFAULT_POLL_INTERVAL
     )
     parser.add_argument(
-        "--max-poll-minutes", type=int, default=DEFAULT_MAX_POLL_MINUTES
+        "--max-poll-minutes", type=int, default=DEFAULT_MAX_POLL_MINUTES,
+        help="Maximum minutes a run may stay in_progress before the orchestrator times out.",
+    )
+    parser.add_argument(
+        "--pending-timeout-minutes", type=int, default=15,
+        help="Maximum minutes a run may stay queued/pending/waiting before the orchestrator declares a runner/concurrency blockage.",
     )
     parser.add_argument(
         "--pr-number", default="121", help="PR number for attestation references"
@@ -611,7 +756,8 @@ def main() -> int:
     try:
         # === NVD Maintenance ===
         nvd_results = run_nvd_maintenance(
-            client, args.merge_sha, args.poll_interval_seconds, args.max_poll_minutes
+            client, args.merge_sha, args.poll_interval_seconds, args.max_poll_minutes,
+            pending_timeout_minutes=args.pending_timeout_minutes,
         )
 
         # === Post interim attestation ===
@@ -643,14 +789,16 @@ def main() -> int:
 
         # === OWASP Offline Scan ===
         owasp_results = run_owasp_scan(
-            client, args.poll_interval_seconds, args.max_poll_minutes
+            client, args.poll_interval_seconds, args.max_poll_minutes,
+            pending_timeout_minutes=args.pending_timeout_minutes,
         )
 
         # === Baseline workflows ===
         baseline_results = {}
         if not args.skip_baseline:
             baseline_results = run_baseline_workflows(
-                client, args.poll_interval_seconds, args.max_poll_minutes
+                client, args.poll_interval_seconds, args.max_poll_minutes,
+                pending_timeout_minutes=args.pending_timeout_minutes,
             )
 
         # === Final attestation ===

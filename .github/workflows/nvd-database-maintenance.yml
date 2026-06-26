@@ -60,11 +60,11 @@ jobs:
   build-nvd-database:
     name: Build NVD Database
     runs-on: ubuntu-latest
-    # R12B: raised from 360 to 480 to accommodate the longer backoff
-    # (0/300/900s) and higher nvdApiDelay (12000ms) when NVD API is
-    # returning 524/503. Each attempt can take up to ~120 minutes on
-    # a cold cache, plus 5+15 minutes backoff between attempts.
-    timeout-minutes: 480
+    # R12C: aligned to 340 minutes to leave headroom for the R12B
+    # orchestrator (355-minute job timeout, 345-minute poll window)
+    # within the GitHub-hosted runner 6-hour hard cap.
+    # Bounded by: 3 attempts * 100 min + 2 backoffs (300s + 600s) = ~340 min.
+    timeout-minutes: 340
     outputs:
       update_result: ${{ steps.update_nvd.outputs.update_result }}
       successful_attempt: ${{ steps.update_nvd.outputs.successful_attempt }}
@@ -82,17 +82,17 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -130,7 +130,7 @@ jobs:
       # falls back to the most recent matching prefix.
       - name: Restore last verified NVD database (canonical path)
         id: restore_cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ${{ env.NVD_CANONICAL_DIR }}
           key: ${{ steps.cache_keys.outputs.cache_key }}
@@ -182,13 +182,13 @@ jobs:
 
           for ATTEMPT in 1 2 3; do
             case "$ATTEMPT" in
-              # R12B: NVD API has been returning 524 (Cloudflare gateway
-              # timeout) and 503 (Service Unavailable) for sustained periods.
-              # Backoff schedule 0 / 300s / 900s gives NVD infrastructure
-              # time to recover between attempts.
+              # R12C: backoff reduced to 0 / 300s / 600s to stay within
+              # the 340-minute job timeout. The previous 900s third-attempt
+              # backoff combined with 100-minute per-attempt cap would exceed
+              # the budget.
               1) DELAY=0 ;;
               2) DELAY=300 ;;
-              3) DELAY=900 ;;
+              3) DELAY=600 ;;
             esac
 
             if [ "$DELAY" -gt 0 ]; then
@@ -196,14 +196,24 @@ jobs:
               sleep "$DELAY"
             fi
 
+            ATTEMPT_STARTED_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+            ATTEMPT_START_EPOCH=$(date +%s)
+
             echo "--- Attempt ${ATTEMPT} of 3 ---"
+            echo "attempt_${ATTEMPT}_started_at=${ATTEMPT_STARTED_AT}"
+
+            # R12C: bound each Maven attempt to 100 minutes via timeout(1).
+            # Exit code 124 = timeout killed the process (TERM signal).
+            # This is treated as an attempt failure, not a success.
             set +e
-            mvn --batch-mode --no-transfer-progress \
+            timeout --signal=TERM --kill-after=30s 100m \
+              mvn --batch-mode --no-transfer-progress \
               org.owasp:dependency-check-maven:${{ env.DEPENDENCY_CHECK_VERSION }}:update-only \
               -DdataDirectory="${{ env.nvd_work_dir }}" \
               -DnvdApiKeyEnvironmentVariable=NVD_API_KEY \
+              -DnvdApiResultsPerPage=1000 \
               -DnvdApiDelay=12000 \
-              -DnvdMaxRetryCount=10 \
+              -DnvdMaxRetryCount=5 \
               -DfailOnError=true \
               -DhostedSuppressionsEnabled=false \
               -DversionCheckEnabled=false \
@@ -211,8 +221,21 @@ jobs:
             EXIT_CODE=$?
             set -e
 
+            ATTEMPT_FINISHED_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+            ATTEMPT_END_EPOCH=$(date +%s)
+            ATTEMPT_DURATION=$((ATTEMPT_END_EPOCH - ATTEMPT_START_EPOCH))
+
+            if [ "$EXIT_CODE" -eq 124 ]; then
+              echo "::warning::NVD attempt ${ATTEMPT} exceeded 100-minute execution limit (timeout)"
+              echo "NVD attempt ${ATTEMPT} exceeded 100-minute execution limit"
+            fi
+
+            echo "attempt_${ATTEMPT}_finished_at=${ATTEMPT_FINISHED_AT}"
+            echo "attempt_${ATTEMPT}_duration_seconds=${ATTEMPT_DURATION}"
+            echo "attempt_${ATTEMPT}_exit_code=${EXIT_CODE}"
+
             record_attempt_result "$ATTEMPT" "$EXIT_CODE"
-            echo "Attempt ${ATTEMPT} exit code: ${EXIT_CODE}"
+            echo "Attempt ${ATTEMPT} exit code: ${EXIT_CODE} (duration: ${ATTEMPT_DURATION}s)"
 
             if [ "$EXIT_CODE" -eq 0 ]; then
               SUCCESS=true
@@ -333,7 +356,7 @@ jobs:
       - name: Save verified NVD database cache (canonical path)
         id: save_cache
         if: steps.validate_db.outputs.validation_result == 'valid'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ${{ env.NVD_CANONICAL_DIR }}
           key: ${{ steps.cache_keys.outputs.cache_key }}
@@ -380,7 +403,7 @@ jobs:
 
       - name: Upload build evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nvd-database-build-evidence-${{ github.run_id }}
           path: ${{ runner.temp }}/evidence/
@@ -436,13 +459,49 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Final enforcement
-        if: always()
+      - name: Write cancellation summary
+        if: cancelled()
         shell: bash
         run: |
-          VALIDATION="${{ steps.validate_db.outputs.validation_result }}"
-          if [ "$VALIDATION" != "valid" ]; then
-            echo "::error::NVD database validation failed ($VALIDATION)"
+          {
+            echo "## NVD Database Build: CANCELLED"
+            echo ""
+            echo "The workflow was cancelled before database validation completed."
+            echo ""
+            echo "| Stage | Result |"
+            echo "|---|---|"
+            echo "| NVD update | Cancelled |"
+            echo "| Database validation | Not executed |"
+            echo "| Canonical promotion | Not executed |"
+            echo "| Cache save | Prohibited |"
+            echo "| Independent restore verification | Not executed |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Final enforcement
+        if: always() && !cancelled()
+        shell: bash
+        env:
+          UPDATE_RESULT: ${{ steps.update_nvd.outputs.update_result }}
+          VALIDATION_RESULT: ${{ steps.validate_db.outputs.validation_result }}
+        run: |
+          # R12C: distinguish update failure, validation not executed,
+          # and validation failure. The previous logic produced a
+          # misleading "validation failed ()" message when the run was
+          # cancelled before the validator step executed.
+          if [ -z "${UPDATE_RESULT}" ]; then
+            echo "::error::NVD update did not produce a result (step skipped or cancelled)."
+            exit 1
+          fi
+          if [ "${UPDATE_RESULT}" != "success" ]; then
+            echo "::error::NVD update did not complete successfully (update_result=${UPDATE_RESULT})."
+            exit 1
+          fi
+          if [ -z "${VALIDATION_RESULT}" ]; then
+            echo "::error::NVD validation was not executed or produced no result."
+            exit 1
+          fi
+          if [ "${VALIDATION_RESULT}" != "valid" ]; then
+            echo "::error::NVD database validation failed (${VALIDATION_RESULT})."
             exit 1
           fi
           echo "NVD database build complete and validated."
@@ -470,20 +529,20 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
         with:
           ref: ${{ github.sha }}
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -493,7 +552,7 @@ jobs:
 
       - name: Restore exact cache key
         id: restore_exact
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ${{ env.NVD_CANONICAL_DIR }}
           key: ${{ needs.build-nvd-database.outputs.cache_key }}
@@ -642,7 +701,7 @@ jobs:
 
       - name: Upload restore verification evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nvd-cache-restore-verification-${{ github.run_id }}
           path: ${{ runner.temp }}/restore-evidence/
@@ -662,11 +721,32 @@ jobs:
             echo "**Smoke result:** ${{ steps.smoke_test.outputs.smoke_result }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Write cancellation summary
+        if: cancelled()
+        shell: bash
+        run: |
+          {
+            echo "## NVD Restore Verification: CANCELLED"
+            echo ""
+            echo "The verify-nvd-cache-restore job was cancelled before completion."
+            echo ""
+            echo "| Stage | Result |"
+            echo "|---|---|"
+            echo "| Cache restore | Cancelled |"
+            echo "| Database revalidation | Not executed |"
+            echo "| SHA-256 cross-check | Not executed |"
+            echo "| Offline smoke test | Not executed |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Final enforcement
-        if: always()
+        if: always() && !cancelled()
         shell: bash
         run: |
           SMOKE="${{ steps.smoke_test.outputs.smoke_result }}"
+          if [ -z "${SMOKE}" ]; then
+            echo "::error::Restore verification smoke test was not executed or produced no result."
+            exit 1
+          fi
           if [ "$SMOKE" != "success" ]; then
             echo "::error::Restore verification failed (smoke: $SMOKE)"
             exit 1
