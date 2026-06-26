@@ -544,7 +544,7 @@ jobs:
             echo ''
 
             # PR Mode without cache → success with NOT EXECUTED notice
-            if [ "$CLASSIFICATION" = "NVD_DATABASE_MISSING_PR_MODE" ]; then
+            if [ "$CLASSIFICATION" = "NVD_DATABASE_MISSING_PR_MODE" ] || [ "$CLASSIFICATION" = "SNAPSHOT_BACKEND_MISSING_PR_MODE" ] || [ "$CLASSIFICATION" = "NO_SNAPSHOT_PR_MODE" ]; then
               echo '### PR MODE — OWASP acceptance NOT EXECUTED'
               echo ''
               echo 'PR preflight gates:'
