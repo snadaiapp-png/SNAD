@@ -422,6 +422,26 @@ def test_temp_file_present(tmp_path: Path):
     assert "validation_result=temp_files_present" in stdout
 
 
+def test_odc_trace_db_is_accepted(tmp_path: Path):
+    """R12B correction: odc.trace.db is a legitimate H2 trace file left
+    behind by Dependency-Check after a successful update. It is NOT an
+    incomplete-shutdown indicator and must not cause validation to fail.
+
+    Regression: NVD Run 28230080443 failed with `temp_files_present`
+    because of odc.trace.db, even though the database itself was valid
+    (241 MB, SHA-256 verified). This test prevents that regression.
+    """
+    db_dir = tmp_path / "canonical"
+    db_dir.mkdir()
+    write_db_file(db_dir)
+    write_manifest(db_dir)
+    (db_dir / "odc.trace.db").write_text("trace data", encoding="utf-8")
+    rc, stdout, _ = run_validator(db_dir)
+    assert rc == 0, f"odc.trace.db should not fail validation; got rc={rc}\n{stdout}"
+    assert "RESULT=valid" in stdout
+    assert "temp_files_present" not in stdout
+
+
 # ---------- CLI / env overrides ----------
 
 def test_min_size_override_via_cli(tmp_path: Path):
