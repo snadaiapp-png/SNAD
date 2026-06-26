@@ -1,25 +1,24 @@
 # ============================================================
-# SANAD — NVD Snapshot Publisher (Incremental)
+# SANAD — NVD Snapshot Bootstrap (Initial Cold Build)
 # ============================================================
-# EXEC-PROMPT-010R12F Section 18.2 — incremental publisher that
-# runs on a 6-hour schedule. Uses the shared
-# scripts/security/publish_nvd_snapshot.py with --mode incremental.
+# EXEC-PROMPT-010R12F Section 18.1 — one-time initial bootstrap
+# of the NVD database. Runs ONLY on the self-hosted publisher
+# runner with a 24-hour timeout (cold download of ~360K records).
 #
-# R12F: MUST NOT cold bootstrap. If no canonical or remote LKG
-# exists, the publisher fails with:
-#   "No verified canonical or remote snapshot exists.
-#    Run NVD Snapshot Bootstrap before enabling incremental publishing."
+# R12F: separated from the incremental publisher because:
+#   - Bootstrap needs a long timeout (1440 min)
+#   - Bootstrap may start from empty (no LKG)
+#   - Incremental must NOT cold bootstrap
 #
-# Shares the same concurrency group as the Bootstrap workflow
-# (snad-nvd-snapshot-single-writer) to enforce single-writer.
+# This workflow shares the same concurrency group as the
+# incremental publisher to enforce single-writer.
 # ============================================================
 
-name: NVD Snapshot Publisher
+name: NVD Snapshot Bootstrap
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '17 */6 * * *'
+  # R12F: NO schedule — bootstrap is one-time, manual only.
 
 permissions:
   contents: read
@@ -39,15 +38,15 @@ env:
   LKG_DIR: /var/lib/snad/dependency-check-data/lkg
 
 jobs:
-  publish:
-    name: Publish Incremental NVD Snapshot
+  bootstrap:
+    name: Initial NVD Database Bootstrap
     runs-on:
       - self-hosted
       - linux
       - x64
       - snad-nvd-publisher
-    # R12F: 4-hour timeout for incremental updates.
-    timeout-minutes: 240
+    # R12F: 24-hour timeout for initial cold download.
+    timeout-minutes: 1440
     environment: nvd-publisher
 
     steps:
@@ -76,13 +75,6 @@ jobs:
               exit 1
             }
           done
-          # R12F: check ORAS if GHCR backend
-          if [ "${{ vars.NVD_SNAPSHOT_BACKEND }}" = "ghcr" ]; then
-            command -v oras >/dev/null 2>&1 || {
-              echo "::error::ORAS required for GHCR backend but not found."
-              exit 1
-            }
-          fi
 
       - name: Verify NVD_API_KEY present
         shell: bash
@@ -113,7 +105,7 @@ jobs:
             python3 -m pip install --quiet boto3
           fi
 
-      - name: Run Incremental Publisher
+      - name: Run Bootstrap
         shell: bash
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
@@ -125,7 +117,7 @@ jobs:
           mkdir -p "$WORK_DIR"
 
           python3 scripts/security/publish_nvd_snapshot.py \
-            --mode incremental \
+            --mode bootstrap \
             --work-dir "$WORK_DIR" \
             --canonical-dir "${{ env.CANONICAL_DIR }}" \
             --lkg-dir "${{ env.LKG_DIR }}" \
@@ -137,10 +129,13 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## NVD Snapshot Publisher — R12F (Incremental)"
+            echo "## NVD Snapshot Bootstrap — R12F"
             echo ""
             echo "**Run ID:** ${{ github.run_id }}"
             echo "**SHA:** \`${{ github.sha }}\`"
-            echo "**Mode:** Incremental"
-            echo "**Backend:** ${{ vars.NVD_SNAPSHOT_BACKEND }}"
+            echo "**Mode:** Bootstrap (initial cold build)"
+            echo "**Timeout:** 1440 minutes (24 hours)"
+            echo ""
+            echo "Bootstrap performs a one-time full NVD database download."
+            echo "Subsequent updates use the incremental publisher (6-hour schedule)."
           } >> "$GITHUB_STEP_SUMMARY"
