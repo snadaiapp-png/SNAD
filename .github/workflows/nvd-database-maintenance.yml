@@ -40,7 +40,11 @@ permissions:
 
 concurrency:
   group: sanad-nvd-database-writer
-  cancel-in-progress: false
+  # R12B: allow manual acceptance dispatches to cancel stale runs that may
+  # be stuck on NVD API outages (524 / 503). Scheduled and push-triggered
+  # runs never cancel an in-flight writer because cancel-in-progress is
+  # only true for workflow_dispatch.
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
 
 env:
   DEPENDENCY_CHECK_VERSION: "12.1.0"
@@ -56,7 +60,11 @@ jobs:
   build-nvd-database:
     name: Build NVD Database
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    # R12B: raised from 360 to 480 to accommodate the longer backoff
+    # (0/300/900s) and higher nvdApiDelay (12000ms) when NVD API is
+    # returning 524/503. Each attempt can take up to ~120 minutes on
+    # a cold cache, plus 5+15 minutes backoff between attempts.
+    timeout-minutes: 480
     outputs:
       update_result: ${{ steps.update_nvd.outputs.update_result }}
       successful_attempt: ${{ steps.update_nvd.outputs.successful_attempt }}
@@ -174,9 +182,13 @@ jobs:
 
           for ATTEMPT in 1 2 3; do
             case "$ATTEMPT" in
+              # R12B: NVD API has been returning 524 (Cloudflare gateway
+              # timeout) and 503 (Service Unavailable) for sustained periods.
+              # Backoff schedule 0 / 300s / 900s gives NVD infrastructure
+              # time to recover between attempts.
               1) DELAY=0 ;;
-              2) DELAY=60 ;;
-              3) DELAY=300 ;;
+              2) DELAY=300 ;;
+              3) DELAY=900 ;;
             esac
 
             if [ "$DELAY" -gt 0 ]; then
@@ -190,8 +202,8 @@ jobs:
               org.owasp:dependency-check-maven:${{ env.DEPENDENCY_CHECK_VERSION }}:update-only \
               -DdataDirectory="${{ env.nvd_work_dir }}" \
               -DnvdApiKeyEnvironmentVariable=NVD_API_KEY \
-              -DnvdApiDelay=6000 \
-              -DnvdMaxRetryCount=5 \
+              -DnvdApiDelay=12000 \
+              -DnvdMaxRetryCount=10 \
               -DfailOnError=true \
               -DhostedSuppressionsEnabled=false \
               -DversionCheckEnabled=false \
