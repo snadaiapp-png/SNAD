@@ -1,0 +1,75 @@
+name: SNAD Identity Governance
+
+on:
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "docs/brand/**"
+      - "scripts/quality/check_snad_identity.py"
+      - ".github/workflows/snad-identity-governance.yml"
+      - ".github/CODEOWNERS"
+      - ".github/pull_request_template.md"
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "docs/brand/**"
+      - "scripts/quality/check_snad_identity.py"
+      - ".github/workflows/snad-identity-governance.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  identity-governance:
+    name: Tokens, naming and visual policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout governed source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Validate SNAD identity contract
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git fetch --no-tags origin "${{ github.base_ref }}"
+            python3 scripts/quality/check_snad_identity.py --diff-base "origin/${{ github.base_ref }}"
+          else
+            python3 scripts/quality/check_snad_identity.py
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: Test frontend
+        working-directory: apps/web
+        run: npm test
+
+      - name: Build frontend with governed tokens
+        working-directory: apps/web
+        run: npm run build
