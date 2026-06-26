@@ -280,9 +280,14 @@ def test_nvd_publisher_workflow_requires_self_hosted_runner():
 
 
 def test_nvd_publisher_uses_single_update_pass():
-    """R12E: publisher runs one update-only pass, not a retry loop."""
-    wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-snapshot-publisher.yml"
-    content = wf_path.read_text(encoding="utf-8")
+    """R12E/R12F: publisher runs one update-only pass, not a retry loop.
+    
+    R12F: the publisher workflow delegates to publish_nvd_snapshot.py,
+    so we check the script for the update-only call and absence of
+    a retry loop.
+    """
+    script_path = REPO_ROOT / "scripts" / "security" / "publish_nvd_snapshot.py"
+    content = script_path.read_text(encoding="utf-8")
     assert "update-only" in content
     # No retry loop (no `for ATTEMPT in 1 2 3`)
     assert "for ATTEMPT in 1 2 3" not in content

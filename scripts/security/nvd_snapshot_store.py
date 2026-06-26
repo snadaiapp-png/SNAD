@@ -58,7 +58,7 @@ class SnapshotError(Exception):
 
 
 class SnapshotNotFoundError(SnapshotError):
-    """Raised when a requested snapshot does not exist."""
+    """Raised when a requested snapshot does not exist (404/NoSuchKey)."""
 
 
 class SnapshotVerificationError(SnapshotError):
@@ -67,6 +67,22 @@ class SnapshotVerificationError(SnapshotError):
 
 class StorageBackendError(SnapshotError):
     """Raised when a storage backend is misconfigured or unavailable."""
+
+
+class StorageAuthenticationError(StorageBackendError):
+    """Raised when storage authentication fails (401/ExpiredToken)."""
+
+
+class StorageAuthorizationError(StorageBackendError):
+    """Raised when storage authorization fails (403/AccessDenied)."""
+
+
+class StorageUnavailableError(StorageBackendError):
+    """Raised when storage is unreachable (network/EndpointConnectionError)."""
+
+
+class StorageIntegrityError(StorageBackendError):
+    """Raised when stored content is corrupt or digest mismatch."""
 
 
 # ---------- Helpers ----------
@@ -213,22 +229,30 @@ def validate_manifest(manifest: dict) -> None:
 # ---------- Backend abstraction ----------
 
 class SnapshotBackend(abc.ABC):
-    """Abstract base for snapshot storage backends."""
+    """Abstract base for snapshot storage backends.
+
+    R12F: backends implement publish_immutable_snapshot (single push)
+    and promote_latest_pointer (takes a pointer dict, not snapshot_id).
+    """
 
     backend_name: str = "abstract"
 
     @abc.abstractmethod
-    def publish_snapshot(
+    def publish_immutable_snapshot(
         self,
         snapshot_id: str,
         archive_path: Path,
-        manifest: dict,
-    ) -> str:
-        """Upload the archive + manifest under snapshots/<snapshot_id>/.
+        manifest_path: Path,
+        checksums_path: Path,
+    ) -> dict:
+        """R12F: upload archive + manifest + SHA256SUMS as immutable
+        objects in a SINGLE push operation.
 
-        Returns the immutable storage version or digest (e.g. S3 ETag,
-        OCI digest) that consumers can use to verify they got the
-        exact bytes that were published.
+        Returns a dict with:
+          - storage_version_or_digest (immutable identifier)
+          - archive_object (backend-specific object key/path)
+          - manifest_object
+          - checksums_object
         """
 
     @abc.abstractmethod
@@ -238,21 +262,24 @@ class SnapshotBackend(abc.ABC):
 
     @abc.abstractmethod
     def download_manifest(self, snapshot_id: str) -> dict:
-        """Download the manifest for a specific snapshot."""
+        """Download the manifest sidecar for a specific snapshot."""
 
     @abc.abstractmethod
     def download_snapshot(self, snapshot_id: str, dest_dir: Path) -> Path:
-        """Download the archive for a specific snapshot into dest_dir.
-
-        Returns the local path of the downloaded archive."""
+        """Download the archive for a specific snapshot into dest_dir."""
 
     @abc.abstractmethod
     def verify_storage_digest(self, snapshot_id: str, expected_digest: str) -> bool:
         """Verify that the stored object still matches the expected digest."""
 
     @abc.abstractmethod
-    def promote_latest_pointer(self, snapshot_id: str, manifest: dict) -> None:
-        """Atomically update channels/verified/latest.json to point at snapshot_id."""
+    def promote_latest_pointer(self, pointer: dict) -> None:
+        """R12F: atomically update channels/verified/latest.json.
+
+        Takes a pointer dict (not snapshot_id) so the caller can
+        populate storage_version_or_digest which is only known after
+        the immutable publish.
+        """
 
     @abc.abstractmethod
     def list_verified_snapshots(self) -> list[str]:
@@ -288,36 +315,41 @@ class FilesystemBackend(SnapshotBackend):
     def _snapshot_dir(self, snapshot_id: str) -> Path:
         return self.snapshots_dir / snapshot_id
 
-    def publish_snapshot(self, snapshot_id, archive_path, manifest):
-        validate_manifest(manifest)
+    def publish_immutable_snapshot(
+        self,
+        snapshot_id: str,
+        archive_path: Path,
+        manifest_path: Path,
+        checksums_path: Path,
+    ) -> dict:
+        """R12F: single-push publish. Uploads all three files at once."""
         dest = self._snapshot_dir(snapshot_id)
         dest.mkdir(parents=True, exist_ok=True)
-        archive_dest = dest / manifest["archive_filename"]
-        manifest_dest = dest / "manifest.json"
-        sha256sums_dest = dest / "SHA256SUMS"
-
-        # Copy archive
         import shutil
-        shutil.copy2(archive_path, archive_dest)
 
-        # Verify copy
-        actual_sha = sha256_file(archive_dest)
-        if actual_sha != manifest["archive_sha256"]:
+        archive_dest = dest / archive_path.name
+        manifest_dest = dest / "manifest.json"
+        checksums_dest = dest / "SHA256SUMS"
+
+        shutil.copy2(archive_path, archive_dest)
+        shutil.copy2(manifest_path, manifest_dest)
+        shutil.copy2(checksums_path, checksums_dest)
+
+        # Verify copies
+        actual_archive_sha = sha256_file(archive_dest)
+        archive_expected = sha256_file(archive_path)
+        if actual_archive_sha != archive_expected:
             raise SnapshotVerificationError(
-                f"archive SHA-256 mismatch after copy: expected {manifest['archive_sha256']}, got {actual_sha}"
+                f"archive SHA-256 mismatch after copy: expected {archive_expected}, got {actual_archive_sha}"
             )
 
-        # Write manifest
-        manifest_dest.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-
-        # Write SHA256SUMS
-        lines = [
-            f"{manifest['archive_sha256']}  {manifest['archive_filename']}",
-            f"{sha256_bytes(json.dumps(manifest, sort_keys=True).encode())}  manifest.json",
-        ]
-        sha256sums_dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-        return f"filesystem:{snapshot_id}"
+        storage_version = f"filesystem:{snapshot_id}"
+        return {
+            "storage_version_or_digest": storage_version,
+            "archive_object": str(archive_dest),
+            "manifest_object": str(manifest_dest),
+            "checksums_object": str(checksums_dest),
+        }
 
     def resolve_latest_verified(self):
         latest = self.channels_dir / "latest.json"
@@ -351,17 +383,9 @@ class FilesystemBackend(SnapshotBackend):
         actual = sha256_file(archive)
         return actual == manifest["archive_sha256"]
 
-    def promote_latest_pointer(self, snapshot_id, manifest):
+    def promote_latest_pointer(self, pointer: dict):
+        """R12F: takes a pointer dict (not snapshot_id + manifest)."""
         latest = self.channels_dir / "latest.json"
-        pointer = {
-            "snapshot_id": snapshot_id,
-            "promoted_at": utc_now_iso(),
-            "archive_sha256": manifest["archive_sha256"],
-            "database_sha256": manifest["database_sha256"],
-            "created_at": manifest["created_at"],
-            "storage_backend": manifest["storage_backend"],
-            "storage_version_or_digest": manifest["storage_version_or_digest"],
-        }
         # Atomic write via temp + rename
         tmp = latest.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(pointer, indent=2), encoding="utf-8")
@@ -442,36 +466,80 @@ class S3Backend(SnapshotBackend):
     def _latest_key(self):
         return f"{self.prefix}/channels/verified/latest.json"
 
-    def publish_snapshot(self, snapshot_id, archive_path, manifest):
-        validate_manifest(manifest)
+    def publish_immutable_snapshot(
+        self,
+        snapshot_id: str,
+        archive_path: Path,
+        manifest_path: Path,
+        checksums_path: Path,
+    ) -> dict:
+        """R12F: single-push S3 publish. Uploads all three objects."""
         client = self._client()
 
-        # Upload archive
-        archive_key = self._key(snapshot_id, manifest["archive_filename"])
-        client.upload_file(str(archive_path), self.bucket, archive_key)
+        archive_key = self._key(snapshot_id, archive_path.name)
+        manifest_key = self._key(snapshot_id, "manifest.json")
+        checksums_key = self._key(snapshot_id, "SHA256SUMS")
 
+        # Upload archive with metadata
+        import hashlib as _hashlib
+        archive_sha = sha256_file(archive_path)
+        client.upload_file(
+            str(archive_path), self.bucket, archive_key,
+            ExtraArgs={
+                "Metadata": {
+                    "sha256": archive_sha,
+                    "snapshot-id": snapshot_id,
+                    "contract-version": "snad-nvd-snapshot-v2",
+                },
+            },
+        )
         # Verify upload via HEAD
         head = client.head_object(Bucket=self.bucket, Key=archive_key)
         etag = head.get("ETag", "").strip('"')
+        version_id = head.get("VersionId", "null")
 
         # Upload manifest
-        manifest_key = self._key(snapshot_id, "manifest.json")
+        manifest_bytes = manifest_path.read_bytes()
         client.put_object(
-            Bucket=self.bucket,
-            Key=manifest_key,
-            Body=json.dumps(manifest, indent=2).encode("utf-8"),
+            Bucket=self.bucket, Key=manifest_key, Body=manifest_bytes,
             ContentType="application/json",
+            Metadata={"snapshot-id": snapshot_id, "contract-version": "snad-nvd-snapshot-v2"},
         )
 
-        return f"s3:{self.bucket}/{archive_key}:{etag}"
+        # Upload SHA256SUMS
+        checksums_bytes = checksums_path.read_bytes()
+        client.put_object(
+            Bucket=self.bucket, Key=checksums_key, Body=checksums_bytes,
+            ContentType="text/plain",
+            Metadata={"snapshot-id": snapshot_id},
+        )
+
+        storage_version = f"s3:{self.bucket}/{archive_key}:v{version_id}:etag-{etag}"
+        return {
+            "storage_version_or_digest": storage_version,
+            "archive_object": archive_key,
+            "manifest_object": manifest_key,
+            "checksums_object": checksums_key,
+        }
 
     def resolve_latest_verified(self):
         client = self._client()
         try:
             resp = client.get_object(Bucket=self.bucket, Key=self._latest_key())
             return json.loads(resp["Body"].read().decode("utf-8"))
-        except Exception:
+        except client.exceptions.NoSuchKey:
             return None
+        except client.exceptions.ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code in ("NoSuchKey", "404"):
+                return None
+            if code in ("AccessDenied", "403"):
+                raise StorageAuthorizationError(f"S3 access denied: {e}") from e
+            if code in ("ExpiredToken", "InvalidToken"):
+                raise StorageAuthenticationError(f"S3 token expired: {e}") from e
+            raise StorageBackendError(f"S3 error: {e}") from e
+        except Exception as e:
+            raise StorageUnavailableError(f"S3 unavailable: {e}") from e
 
     def download_manifest(self, snapshot_id):
         client = self._client()
@@ -479,8 +547,15 @@ class S3Backend(SnapshotBackend):
         try:
             resp = client.get_object(Bucket=self.bucket, Key=manifest_key)
             return json.loads(resp["Body"].read().decode("utf-8"))
-        except Exception as e:
-            raise SnapshotNotFoundError(f"snapshot {snapshot_id} not found: {e}") from e
+        except client.exceptions.NoSuchKey as e:
+            raise SnapshotNotFoundError(f"snapshot {snapshot_id} not found") from e
+        except client.exceptions.ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code in ("NoSuchKey", "404"):
+                raise SnapshotNotFoundError(f"snapshot {snapshot_id} not found") from e
+            if code in ("AccessDenied", "403"):
+                raise StorageAuthorizationError(f"S3 access denied: {e}") from e
+            raise StorageBackendError(f"S3 error: {e}") from e
 
     def download_snapshot(self, snapshot_id, dest_dir):
         manifest = self.download_manifest(snapshot_id)
@@ -489,41 +564,53 @@ class S3Backend(SnapshotBackend):
         dest_dir = Path(dest_dir)
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / manifest["archive_filename"]
-        client.download_file(self.bucket, archive_key, str(dest))
+        try:
+            client.download_file(self.bucket, archive_key, str(dest))
+        except client.exceptions.ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code in ("NoSuchKey", "404"):
+                raise SnapshotNotFoundError(f"archive not found: {e}") from e
+            if code in ("AccessDenied", "403"):
+                raise StorageAuthorizationError(f"S3 access denied: {e}") from e
+            raise StorageBackendError(f"S3 download error: {e}") from e
         return dest
 
     def verify_storage_digest(self, snapshot_id, expected_digest):
-        # For S3, we verify by re-downloading and hashing, or by checking
-        # that the stored object's ETag/version matches. SHA-256 isn't
-        # directly exposed via S3 HEAD, so we re-download and verify.
+        """R12F: stream-hash the remote object (not load into RAM)."""
         manifest = self.download_manifest(snapshot_id)
         client = self._client()
         archive_key = self._key(snapshot_id, manifest["archive_filename"])
         try:
             resp = client.get_object(Bucket=self.bucket, Key=archive_key)
-            data = resp["Body"].read()
-            actual = sha256_bytes(data)
+            body = resp["Body"]
+            h = hashlib.sha256()
+            for chunk in body.iter_chunks(chunk_size=1024 * 1024):
+                h.update(chunk)
+            actual = h.hexdigest()
             return actual == manifest["archive_sha256"]
-        except Exception:
+        except client.exceptions.NoSuchKey:
+            return False
+        except client.exceptions.ClientError as e:
             return False
 
-    def promote_latest_pointer(self, snapshot_id, manifest):
+    def promote_latest_pointer(self, pointer: dict):
+        """R12F: takes a pointer dict."""
         client = self._client()
-        pointer = {
-            "snapshot_id": snapshot_id,
-            "promoted_at": utc_now_iso(),
-            "archive_sha256": manifest["archive_sha256"],
-            "database_sha256": manifest["database_sha256"],
-            "created_at": manifest["created_at"],
-            "storage_backend": manifest["storage_backend"],
-            "storage_version_or_digest": manifest["storage_version_or_digest"],
-        }
         client.put_object(
             Bucket=self.bucket,
             Key=self._latest_key(),
             Body=json.dumps(pointer, indent=2).encode("utf-8"),
             ContentType="application/json",
         )
+
+    def verify_bucket_versioning(self) -> bool:
+        """R12F Section 16.2: verify bucket versioning is enabled."""
+        client = self._client()
+        try:
+            resp = client.get_bucket_versioning(Bucket=self.bucket)
+            return resp.get("Status") == "Enabled"
+        except Exception:
+            return False
 
     def list_verified_snapshots(self):
         client = self._client()
@@ -567,20 +654,34 @@ class S3Backend(SnapshotBackend):
 class GHCRBackend(SnapshotBackend):
     """GHCR OCI artifact backend via ORAS CLI.
 
-    Each snapshot is published as an OCI artifact with two layers:
+    R12F: BEHIND EXPERIMENTAL GATE. Default is disabled until a real
+    registry E2E test passes. Set NVD_ENABLE_EXPERIMENTAL_GHCR=true
+    to enable.
+
+    Each snapshot is published as an OCI artifact with three layers:
       - the archive (tar.zst)
       - the manifest.json (application/vnd.oci.image.config.v1+json)
+      - the SHA256SUMS (text/plain)
 
     The OCI digest (sha256:...) is the immutable storage version.
 
     Configuration:
       NVD_SNAPSHOT_GHCR_OWNER  — e.g. 'snadaiapp-png'
       NVD_SNAPSHOT_GHCR_REPO   — e.g. 'snad-nvd-data'
+      NVD_ENABLE_EXPERIMENTAL_GHCR — 'true' to enable (default: false)
     """
 
     backend_name = "ghcr"
 
-    def __init__(self, owner=None, repo=None):
+    def __init__(self, owner=None, repo=None, enable_experimental=None):
+        # R12F: experimental gate
+        enable = enable_experimental if enable_experimental is not None else os.environ.get("NVD_ENABLE_EXPERIMENTAL_GHCR", "false")
+        if str(enable).lower() != "true":
+            raise StorageBackendError(
+                "GHCR backend is EXPERIMENTAL and disabled by default. "
+                "Set NVD_ENABLE_EXPERIMENTAL_GHCR=true to enable after "
+                "completing a registry E2E test."
+            )
         self.owner = owner or os.environ.get("NVD_SNAPSHOT_GHCR_OWNER") or os.environ.get("GITHUB_REPOSITORY_OWNER")
         self.repo = repo or os.environ.get("NVD_SNAPSHOT_GHCR_REPO", "snad-nvd-data")
         if not self.owner:
@@ -588,7 +689,6 @@ class GHCRBackend(SnapshotBackend):
         self.fqdn = f"ghcr.io/{self.owner}/{self.repo}"
 
     def _oras(self, *args, check=True):
-        """Run oras CLI. Returns CompletedProcess."""
         cmd = ["oras"] + list(args)
         return subprocess.run(cmd, capture_output=True, text=True, check=check)
 
@@ -598,17 +698,21 @@ class GHCRBackend(SnapshotBackend):
     def _latest_tag(self):
         return f"{self.fqdn}:latest-verified"
 
-    def publish_snapshot(self, snapshot_id, archive_path, manifest):
-        validate_manifest(manifest)
-        manifest_tmp = Path(tempfile.mkdtemp()) / "manifest.json"
-        manifest_tmp.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-
+    def publish_immutable_snapshot(
+        self,
+        snapshot_id: str,
+        archive_path: Path,
+        manifest_path: Path,
+        checksums_path: Path,
+    ) -> dict:
+        """R12F: single ORAS push with all three files as layers."""
         tag = self._snapshot_tag(snapshot_id)
-        # Push archive as a layer, manifest as config
+        # Single push: archive as layer, manifest as config, checksums as layer
         result = self._oras(
             "push", tag,
             f"{archive_path}:application/vnd.oci.image.layer.v1.tar+zstd",
-            f"--config", f"{manifest_tmp}:application/vnd.oci.image.config.v1+json",
+            f"{checksums_path}:text/plain",
+            "--config", f"{manifest_path}:application/vnd.oci.image.config.v1+json",
             "--annotation", f"org.opencontainers.image.title=sanad-nvd-snapshot-{snapshot_id}",
         )
         if result.returncode != 0:
@@ -618,7 +722,12 @@ class GHCRBackend(SnapshotBackend):
         if digest_result.returncode != 0:
             raise StorageBackendError(f"oras resolve failed: {digest_result.stderr}")
         digest = digest_result.stdout.strip()
-        return f"ghcr:{digest}"
+        return {
+            "storage_version_or_digest": f"ghcr:{digest}",
+            "archive_object": tag,
+            "manifest_object": tag,
+            "checksums_object": tag,
+        }
 
     def resolve_latest_verified(self):
         result = self._oras("manifest", "fetch", self._latest_tag(), check=False)
@@ -640,7 +749,6 @@ class GHCRBackend(SnapshotBackend):
         config_blob = manifest.get("config", {}).get("digest")
         if not config_blob:
             raise SnapshotNotFoundError(f"snapshot {snapshot_id} has no config blob")
-        # Fetch config blob
         cfg_result = self._oras("blob", "fetch", f"{tag}@{config_blob}")
         return json.loads(cfg_result.stdout)
 
@@ -651,12 +759,10 @@ class GHCRBackend(SnapshotBackend):
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / manifest["archive_filename"]
         result = self._oras(
-            "blob", "fetch",
-            f"{tag}",
-            "--output", str(dest),
+            "blob", "fetch", tag, "--output", str(dest),
         )
         if result.returncode != 0:
-            raise SnapshotNotFoundError(f"archive for snapshot {snapshot_id} not found: {result.stderr}")
+            raise SnapshotNotFoundError(f"archive not found: {result.stderr}")
         return dest
 
     def verify_storage_digest(self, snapshot_id, expected_digest):
@@ -668,9 +774,9 @@ class GHCRBackend(SnapshotBackend):
         expected = expected_digest.split("ghcr:")[-1] if expected_digest.startswith("ghcr:") else expected_digest
         return actual == expected
 
-    def promote_latest_pointer(self, snapshot_id, manifest):
-        # Tag the snapshot as latest-verified
-        tag = self._snapshot_tag(snapshot_id)
+    def promote_latest_pointer(self, pointer: dict):
+        """R12F: tag the snapshot as latest-verified."""
+        tag = self._snapshot_tag(pointer["snapshot_id"])
         latest = self._latest_tag()
         result = self._oras("tag", tag, latest, check=False)
         if result.returncode != 0:
@@ -681,12 +787,9 @@ class GHCRBackend(SnapshotBackend):
         if result.returncode != 0:
             return []
         tags = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-        # Exclude the latest-verified tag
         return sorted(t for t in tags if t != "latest-verified")
 
     def apply_retention_policy(self, keep=DEFAULT_RETENTION_COUNT):
-        # GHCR doesn't support bulk deletion via oras easily; this is a no-op
-        # placeholder. In production, use GHCR UI or API to prune old tags.
         return []
 
 
@@ -715,132 +818,17 @@ def get_backend(backend_name: str | None = None, **kwargs) -> SnapshotBackend:
 
 # ---------- High-level publish flow ----------
 
-def publish_snapshot(
-    backend: SnapshotBackend,
-    *,
-    data_dir: Path,
-    publisher_commit_sha: str,
-    publisher_run_id: int | str,
-    previous_snapshot_id: str,
-    last_successful_update_at: str,
-    database_sha256: str,
-    database_size_bytes: int,
-    validation_result: str,
-    offline_smoke_result: str,
-    freshness_hours_at_publish: int,
-    work_dir: Path | None = None,
-) -> dict:
-    """Full publish sequence:
+def publish_snapshot(*args, **kwargs):
+    """DEPRECATED — R12F removed the double-push publish flow.
 
-    1. Archive the data_dir into a tar.zst.
-    2. Compute archive SHA-256.
-    3. Build manifest.
-    4. Upload archive + manifest via backend.
-    5. Verify storage digest.
-    6. Atomically promote latest.json pointer.
-
-    On ANY failure, latest.json is NOT changed — the previous
-    Last-Known-Good snapshot remains active for consumers.
+    Use scripts/security/publish_nvd_snapshot.py → publish_snapshot_v2()
+    instead, which performs a single immutable push and stores the
+    storage_version_or_digest in latest.json (not in the manifest).
     """
-    import tarfile
-    import shutil
-
-    data_dir = Path(data_dir).resolve()
-    if not data_dir.is_dir():
-        raise SnapshotError(f"data_dir does not exist: {data_dir}")
-
-    work_dir = Path(work_dir) if work_dir else Path(tempfile.mkdtemp(prefix="nvd-snapshot-"))
-    work_dir.mkdir(parents=True, exist_ok=True)
-
-    created_at = utc_now_iso()
-    snapshot_id = snapshot_id_for(created_at, publisher_commit_sha, database_sha256)
-    archive_filename = f"snad-nvd-data-{snapshot_id}.tar.zst"
-    archive_path = work_dir / archive_filename
-
-    # Create tar.zst preserving mtimes, perms, layout.
-    # Filter out forbidden files (lock/temp).
-    # Uses `tar --zstd` via subprocess for broad compatibility
-    # (Python 3.12's tarfile module does not support w:zst natively).
-    import subprocess as _sp
-    import fnmatch as _fnmatch
-
-    # Build the tar file list, excluding forbidden patterns
-    file_list_path = work_dir / "file-list.txt"
-    with file_list_path.open("w") as fl:
-        for root, dirs, files in os.walk(data_dir):
-            for fname in files:
-                fpath = Path(root) / fname
-                rel = fpath.relative_to(data_dir)
-                skip = False
-                for pat in FORBIDDEN_LOCK_PATTERNS + FORBIDDEN_TEMP_PATTERNS:
-                    if _fnmatch.fnmatch(fname, pat):
-                        skip = True
-                        break
-                if not skip:
-                    fl.write(str(rel) + "\n")
-
-    # Try zstd first, fall back to gz
-    try:
-        _sp.run(
-            ["tar", "--zstd", "-cf", str(archive_path),
-             "-C", str(data_dir), "-T", str(file_list_path)],
-            check=True, capture_output=True,
-        )
-        actual_archive_filename = archive_filename
-    except (_sp.CalledProcessError, FileNotFoundError):
-        # Fall back to gzip if zstd unavailable
-        gz_path = work_dir / f"snad-nvd-data-{snapshot_id}.tar.gz"
-        _sp.run(
-            ["tar", "-czf", str(gz_path),
-             "-C", str(data_dir), "-T", str(file_list_path)],
-            check=True, capture_output=True,
-        )
-        archive_path = gz_path
-        actual_archive_filename = f"snad-nvd-data-{snapshot_id}.tar.gz"
-
-    # Clean up temp file list
-    file_list_path.unlink(missing_ok=True)
-
-    archive_sha256 = sha256_file(archive_path)
-    archive_size_bytes = archive_path.stat().st_size
-
-    manifest = build_manifest(
-        snapshot_id=snapshot_id,
-        created_at=created_at,
-        last_successful_update_at=last_successful_update_at,
-        publisher_commit_sha=publisher_commit_sha,
-        publisher_run_id=publisher_run_id,
-        archive_filename=actual_archive_filename,
-        archive_sha256=archive_sha256,
-        archive_size_bytes=archive_size_bytes,
-        database_filename="odc.mv.db",
-        database_sha256=database_sha256,
-        database_size_bytes=database_size_bytes,
-        validation_result=validation_result,
-        offline_smoke_result=offline_smoke_result,
-        storage_backend=backend.backend_name,
-        storage_version_or_digest="",  # filled after upload
-        previous_snapshot_id=previous_snapshot_id,
-        freshness_hours_at_publish=freshness_hours_at_publish,
+    raise NotImplementedError(
+        "publish_snapshot() is removed in R12F. Use "
+        "scripts/security/publish_nvd_snapshot.py:publish_snapshot_v2() instead."
     )
-
-    # Upload
-    storage_version = backend.publish_snapshot(snapshot_id, archive_path, manifest)
-    manifest["storage_version_or_digest"] = storage_version
-
-    # Re-publish manifest with the storage version filled in
-    backend.publish_snapshot(snapshot_id, archive_path, manifest)
-
-    # Verify
-    if not backend.verify_storage_digest(snapshot_id, storage_version):
-        raise SnapshotVerificationError(
-            f"storage digest verification failed for snapshot {snapshot_id}"
-        )
-
-    # Promote pointer
-    backend.promote_latest_pointer(snapshot_id, manifest)
-
-    return manifest
 
 
 # ---------- Main (CLI for testing) ----------
