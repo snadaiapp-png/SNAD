@@ -1,0 +1,73 @@
+# ============================================================
+# SANAD — EXEC-PROMPT-010R12B Acceptance Orchestrator
+# ============================================================
+# Executes the reviewed in-repository orchestrator with the
+# automatic GitHub token. It has no production environment and
+# no access to application, database, Render, or admin secrets.
+#
+# Bootstrap behavior:
+# - The push trigger runs the job only when the merge commit
+#   contains [EXEC-PROMPT-010R12B-ORCHESTRATION].
+# - Subsequent edits do not rerun the job unless explicitly
+#   dispatched or merged with the same marker.
+# ============================================================
+
+name: R12B Acceptance Orchestrator
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/r12b-acceptance-orchestrator.yml'
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+concurrency:
+  group: sanad-r12b-acceptance-orchestrator
+  cancel-in-progress: false
+
+jobs:
+  orchestrate:
+    name: NVD, OWASP, Baseline and Attestation
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, '[EXEC-PROMPT-010R12B-ORCHESTRATION]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout immutable candidate SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify orchestrator syntax and merge SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/ops/r12a_dispatch_and_attest.py
+          test "${#GITHUB_SHA}" -eq 40
+          echo "Baseline candidate SHA: ${GITHUB_SHA}"
+
+      - name: Execute R12B acceptance chain
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ops/r12a_dispatch_and_attest.py \
+            --merge-sha "${GITHUB_SHA}" \
+            --pr-number 121 \
+            --issue 101 \
+            --poll-interval-seconds 60 \
+            --max-poll-minutes 180
