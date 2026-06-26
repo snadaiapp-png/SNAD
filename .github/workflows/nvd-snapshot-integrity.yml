@@ -95,37 +95,61 @@ jobs:
         env:
           NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
 
-      - name: Download snapshot
+      - name: Configure AWS credentials via OIDC
+        if: vars.NVD_SNAPSHOT_BACKEND == 's3'
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b
+        with:
+          role-to-assume: ${{ vars.NVD_SNAPSHOT_READER_ROLE }}
+          aws-region: ${{ vars.NVD_SNAPSHOT_REGION }}
+          role-session-name: snad-nvd-integrity-${{ github.run_id }}
+
+      - name: Download snapshot bundle
         id: download
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "${{ runner.temp }}/snapshot-download"
           python3 - <<'PY'
-          import os, sys, pathlib
+          import os, sys, pathlib, json
           sys.path.insert(0, '.')
           from scripts.security.nvd_snapshot_store import get_backend
           backend = get_backend(os.environ['NVD_SNAPSHOT_BACKEND'])
-          archive = backend.download_snapshot(
-              os.environ['SNAPSHOT_ID'],
+          latest = backend.resolve_latest_verified()
+          if not latest:
+              print("::error::No verified snapshot available")
+              raise SystemExit(1)
+          bundle = backend.download_snapshot_bundle(
+              latest,
               pathlib.Path(os.environ['RUNNER_TEMP']) / 'snapshot-download',
           )
-          print(f"archive_path={archive}")
+          print(f"archive_path={bundle['archive_path']}")
+          print(f"manifest_path={bundle['manifest_path']}")
+          print(f"checksums_path={bundle['checksums_path']}")
+          print(f"snapshot_id={bundle['snapshot_id']}")
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"archive_path={archive}\n")
+              f.write(f"archive_path={bundle['archive_path']}\n")
+              f.write(f"manifest_path={bundle['manifest_path']}\n")
+              f.write(f"checksums_path={bundle['checksums_path']}\n")
+              f.write(f"snapshot_id={bundle['snapshot_id']}\n")
           PY
         env:
           NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
-          SNAPSHOT_ID: ${{ steps.resolve.outputs.snapshot_id }}
+          NVD_SNAPSHOT_BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
+          NVD_SNAPSHOT_PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
+          NVD_SNAPSHOT_REGION: ${{ vars.NVD_SNAPSHOT_REGION }}
+          NVD_SNAPSHOT_ENDPOINT: ${{ vars.NVD_SNAPSHOT_ENDPOINT }}
 
-      - name: Verify snapshot
+      - name: Verify snapshot (v2 contract)
         id: verify
         shell: bash
         run: |
           set -uo pipefail
           python3 scripts/security/verify_nvd_snapshot.py \
-            "${{ steps.download.outputs.archive_path }}" \
-            --expected-snapshot-id "${{ steps.resolve.outputs.snapshot_id }}" \
+            --archive "${{ steps.download.outputs.archive_path }}" \
+            --manifest "${{ steps.download.outputs.manifest_path }}" \
+            --checksums "${{ steps.download.outputs.checksums_path }}" \
+            --expected-snapshot-id "${{ steps.download.outputs.snapshot_id }}" \
+            --expected-dc-version "${{ env.DEPENDENCY_CHECK_VERSION }}" \
             --min-size 52428800 \
             --max-age-hours 48 \
             --run-smoke \

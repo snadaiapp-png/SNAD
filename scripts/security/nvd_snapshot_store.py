@@ -282,6 +282,23 @@ class SnapshotBackend(abc.ABC):
         """
 
     @abc.abstractmethod
+    def download_snapshot_bundle(
+        self,
+        pointer: dict,
+        destination: Path,
+    ) -> dict:
+        """R12G Section 10.2 — download the full snapshot bundle (archive +
+        manifest + SHA256SUMS) using exact versions from the latest.json
+        pointer.
+
+        Returns a dict with:
+          - archive_path (local Path)
+          - manifest_path (local Path)
+          - checksums_path (local Path)
+          - snapshot_id
+        """
+
+    @abc.abstractmethod
     def list_verified_snapshots(self) -> list[str]:
         """Return a list of snapshot_ids that have been published."""
 
@@ -382,6 +399,41 @@ class FilesystemBackend(SnapshotBackend):
             return False
         actual = sha256_file(archive)
         return actual == manifest["archive_sha256"]
+
+    def download_snapshot_bundle(self, pointer: dict, destination: Path) -> dict:
+        """R12G: download all three bundle files using exact versions from pointer."""
+        import shutil
+        destination = Path(destination)
+        destination.mkdir(parents=True, exist_ok=True)
+        snapshot_id = pointer["snapshot_id"]
+        snap_dir = self._snapshot_dir(snapshot_id)
+
+        # Archive
+        archive_filename = pointer.get("archive_filename", "")
+        if not archive_filename:
+            # Fallback: read from manifest
+            manifest = self.download_manifest(snapshot_id)
+            archive_filename = manifest["archive_filename"]
+        archive_src = snap_dir / archive_filename
+        archive_dest = destination / archive_filename
+        shutil.copy2(archive_src, archive_dest)
+
+        # Manifest
+        manifest_src = snap_dir / "manifest.json"
+        manifest_dest = destination / "manifest.json"
+        shutil.copy2(manifest_src, manifest_dest)
+
+        # SHA256SUMS
+        checksums_src = snap_dir / "SHA256SUMS"
+        checksums_dest = destination / "SHA256SUMS"
+        shutil.copy2(checksums_src, checksums_dest)
+
+        return {
+            "archive_path": archive_dest,
+            "manifest_path": manifest_dest,
+            "checksums_path": checksums_dest,
+            "snapshot_id": snapshot_id,
+        }
 
     def promote_latest_pointer(self, pointer: dict):
         """R12F: takes a pointer dict (not snapshot_id + manifest)."""
@@ -603,6 +655,73 @@ class S3Backend(SnapshotBackend):
             ContentType="application/json",
         )
 
+    def download_snapshot_bundle(self, pointer: dict, destination: Path) -> dict:
+        """R12G: download all three bundle files using exact S3 VersionIds
+        from the latest-v2 pointer.
+        """
+        destination = Path(destination)
+        destination.mkdir(parents=True, exist_ok=True)
+        snapshot_id = pointer["snapshot_id"]
+        client = self._client()
+
+        # Archive — use exact VersionId if available
+        archive_filename = pointer.get("archive", {}).get("filename", "")
+        archive_version = pointer.get("archive", {}).get("version_id", "")
+        if not archive_filename:
+            manifest = self.download_manifest(snapshot_id)
+            archive_filename = manifest["archive_filename"]
+        archive_key = self._key(snapshot_id, archive_filename)
+        archive_dest = destination / archive_filename
+        get_kwargs = {"Bucket": self.bucket, "Key": archive_key}
+        if archive_version and archive_version != "null":
+            get_kwargs["VersionId"] = archive_version
+        try:
+            resp = client.get_object(**get_kwargs)
+            body = resp["Body"]
+            with archive_dest.open("wb") as f:
+                for chunk in body.iter_chunks(chunk_size=1024 * 1024):
+                    f.write(chunk)
+        except client.exceptions.ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code in ("NoSuchKey", "404"):
+                raise SnapshotNotFoundError(f"archive not found: {e}") from e
+            if code in ("AccessDenied", "403"):
+                raise StorageAuthorizationError(f"S3 access denied: {e}") from e
+            raise
+
+        # Manifest
+        manifest_key = self._key(snapshot_id, "manifest.json")
+        manifest_version = pointer.get("manifest", {}).get("version_id", "")
+        manifest_dest = destination / "manifest.json"
+        get_kwargs = {"Bucket": self.bucket, "Key": manifest_key}
+        if manifest_version and manifest_version != "null":
+            get_kwargs["VersionId"] = manifest_version
+        try:
+            resp = client.get_object(**get_kwargs)
+            manifest_dest.write_bytes(resp["Body"].read())
+        except client.exceptions.ClientError as e:
+            raise SnapshotNotFoundError(f"manifest not found: {e}") from e
+
+        # SHA256SUMS
+        checksums_key = self._key(snapshot_id, "SHA256SUMS")
+        checksums_version = pointer.get("checksums", {}).get("version_id", "")
+        checksums_dest = destination / "SHA256SUMS"
+        get_kwargs = {"Bucket": self.bucket, "Key": checksums_key}
+        if checksums_version and checksums_version != "null":
+            get_kwargs["VersionId"] = checksums_version
+        try:
+            resp = client.get_object(**get_kwargs)
+            checksums_dest.write_bytes(resp["Body"].read())
+        except client.exceptions.ClientError as e:
+            raise SnapshotNotFoundError(f"SHA256SUMS not found: {e}") from e
+
+        return {
+            "archive_path": archive_dest,
+            "manifest_path": manifest_dest,
+            "checksums_path": checksums_dest,
+            "snapshot_id": snapshot_id,
+        }
+
     def verify_bucket_versioning(self) -> bool:
         """R12F Section 16.2: verify bucket versioning is enabled."""
         client = self._client()
@@ -773,6 +892,26 @@ class GHCRBackend(SnapshotBackend):
         actual = result.stdout.strip()
         expected = expected_digest.split("ghcr:")[-1] if expected_digest.startswith("ghcr:") else expected_digest
         return actual == expected
+
+    def download_snapshot_bundle(self, pointer: dict, destination: Path) -> dict:
+        """R12G: download bundle via oras pull at exact digest."""
+        destination = Path(destination)
+        destination.mkdir(parents=True, exist_ok=True)
+        snapshot_id = pointer["snapshot_id"]
+        tag = self._snapshot_tag(snapshot_id)
+        # oras pull downloads all layers to the destination
+        result = self._oras("pull", tag, "-o", str(destination), "--keep-old-files")
+        if result.returncode != 0:
+            raise SnapshotNotFoundError(f"oras pull failed: {result.stderr}")
+        # Find the downloaded files
+        manifest = self.download_manifest(snapshot_id)
+        archive_filename = manifest["archive_filename"]
+        return {
+            "archive_path": destination / archive_filename,
+            "manifest_path": destination / "manifest.json",
+            "checksums_path": destination / "SHA256SUMS",
+            "snapshot_id": snapshot_id,
+        }
 
     def promote_latest_pointer(self, pointer: dict):
         """R12F: tag the snapshot as latest-verified."""

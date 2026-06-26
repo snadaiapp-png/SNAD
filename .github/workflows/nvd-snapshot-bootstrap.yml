@@ -105,11 +105,36 @@ jobs:
             python3 -m pip install --quiet boto3
           fi
 
+      - name: Configure AWS credentials via OIDC
+        if: vars.NVD_SNAPSHOT_BACKEND == 's3'
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b
+        with:
+          role-to-assume: ${{ vars.NVD_SNAPSHOT_WRITER_ROLE }}
+          aws-region: ${{ vars.NVD_SNAPSHOT_REGION }}
+          role-session-name: snad-nvd-bootstrap-${{ github.run_id }}
+
+      - name: Verify storage readiness
+        shell: bash
+        env:
+          NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
+          NVD_SNAPSHOT_BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
+          NVD_SNAPSHOT_PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
+          NVD_SNAPSHOT_REGION: ${{ vars.NVD_SNAPSHOT_REGION }}
+          NVD_SNAPSHOT_ENDPOINT: ${{ vars.NVD_SNAPSHOT_ENDPOINT }}
+        run: |
+          python3 scripts/security/verify_nvd_storage_readiness.py
+          echo "Storage readiness: VERIFIED"
+
       - name: Run Bootstrap
         shell: bash
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
           NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
+          NVD_SNAPSHOT_BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
+          NVD_SNAPSHOT_PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
+          NVD_SNAPSHOT_REGION: ${{ vars.NVD_SNAPSHOT_REGION }}
+          NVD_SNAPSHOT_ROLE: ${{ vars.NVD_SNAPSHOT_WRITER_ROLE }}
+          NVD_SNAPSHOT_ENDPOINT: ${{ vars.NVD_SNAPSHOT_ENDPOINT }}
         run: |
           set -euo pipefail
           WORK_DIR="${{ env.WORK_DIR_BASE }}/${{ github.run_id }}"
@@ -118,6 +143,7 @@ jobs:
 
           python3 scripts/security/publish_nvd_snapshot.py \
             --mode bootstrap \
+            --update-timeout-minutes 1320 \
             --work-dir "$WORK_DIR" \
             --canonical-dir "${{ env.CANONICAL_DIR }}" \
             --lkg-dir "${{ env.LKG_DIR }}" \
@@ -129,12 +155,17 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## NVD Snapshot Bootstrap — R12F"
+            echo "## NVD Snapshot Bootstrap — R12G"
             echo ""
             echo "**Run ID:** ${{ github.run_id }}"
             echo "**SHA:** \`${{ github.sha }}\`"
             echo "**Mode:** Bootstrap (initial cold build)"
-            echo "**Timeout:** 1440 minutes (24 hours)"
+            echo ""
+            echo "| Timeout | Value |"
+            echo "|---------|-------|"
+            echo "| Workflow timeout | 1440 minutes |"
+            echo "| Maven update timeout | 1320 minutes |"
+            echo "| Reserved post-update budget | 120 minutes |"
             echo ""
             echo "Bootstrap performs a one-time full NVD database download."
             echo "Subsequent updates use the incremental publisher (6-hour schedule)."

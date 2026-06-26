@@ -223,31 +223,118 @@ def list_snapshot_archive(archive_path: Path) -> list[str]:
 
 # ---------- Path validation ----------
 
-def validate_archive_paths(archive_path: Path) -> list[str]:
-    """Validate that all paths in the archive are safe.
+def _inspect_member(member) -> None:
+    """R12G Section 17: inspect a single tar member for unsafe paths and types.
 
-    Rejects:
+    Raises ArchivePathTraversalError on any violation.
+    """
+    name = member.name
+    # Path checks
+    if name.startswith("/"):
+        raise ArchivePathTraversalError(f"absolute path in archive: {name}")
+    if "../" in name or name == ".." or name.startswith("../"):
+        raise ArchivePathTraversalError(f"parent traversal in archive: {name}")
+    if "\x00" in name:
+        raise ArchivePathTraversalError(f"NUL byte in path: {name}")
+    # Windows drive path
+    if len(name) >= 2 and name[1] == ":":
+        raise ArchivePathTraversalError(f"Windows drive path: {name}")
+    # Backslash traversal
+    if "..\\" in name:
+        raise ArchivePathTraversalError(f"backslash traversal: {name}")
+
+    # Type checks — R12G Section 17.2
+    if member.issym():
+        raise ArchivePathTraversalError(f"symlink in archive: {name} -> {member.linkname}")
+    if member.islnk():
+        raise ArchivePathTraversalError(f"hard link in archive: {name} -> {member.linkname}")
+    if member.isdev():
+        raise ArchivePathTraversalError(f"device file in archive: {name}")
+    if member.ischr():
+        raise ArchivePathTraversalError(f"character device in archive: {name}")
+    if member.isblk():
+        raise ArchivePathTraversalError(f"block device in archive: {name}")
+    if member.isfifo():
+        raise ArchivePathTraversalError(f"FIFO in archive: {name}")
+    # Only allow regular files and directories
+    if not (member.isreg() or member.isdir()):
+        raise ArchivePathTraversalError(f"unsupported entry type in archive: {name} (type={member.type})")
+
+
+def validate_archive_paths(archive_path: Path) -> list[str]:
+    """Validate that all paths in the archive are safe AND that no
+    unsafe entry types (symlinks, hardlinks, devices, FIFOs) exist.
+
+    R12G Section 17: rejects:
       - Absolute paths
       - Paths containing ../
-      - Symlinks escaping extraction root
-      - Hard links escaping extraction root
-      - Device files
-      - FIFO files
+      - Symlinks (typeflag '2' or '1')
+      - Hard links (typeflag '1')
+      - Character devices (typeflag '3')
+      - Block devices (typeflag '4')
+      - FIFOs (typeflag '6')
+      - Sockets/unknown (typeflag other regular)
+
+    Only allows: regular files (typeflag '0' or '\0') and directories ('5').
+
+    For .tar.zst, decompresses to a temp .tar first via `zstd -d`, then
+    inspects with Python tarfile.
 
     Returns the list of safe member paths.
     """
-    members = list_snapshot_archive(archive_path)
+    import tarfile
+    import tempfile
+
+    fmt = _archive_format(archive_path)
+
+    # For zst, decompress to a temp tar file first
+    if fmt == "zst":
+        # Check if zstd is available
+        try:
+            subprocess.run(["zstd", "--version"], capture_output=True, check=True)
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            # zstd not available — fall back to name-based validation only
+            members = list_snapshot_archive(archive_path)
+            safe = []
+            for m in members:
+                if m.startswith("/"):
+                    raise ArchivePathTraversalError(f"absolute path in archive: {m}")
+                if "../" in m or m == ".." or m.startswith("../"):
+                    raise ArchivePathTraversalError(f"parent traversal in archive: {m}")
+                safe.append(m)
+            return safe
+
+        # Decompress zst to tar
+        with tempfile.NamedTemporaryFile(suffix=".tar", delete=False) as tmp:
+            tmp_tar = Path(tmp.name)
+        try:
+            with tmp_tar.open("wb") as out:
+                subprocess.run(["zstd", "-d", "--stdout", str(archive_path)],
+                               stdout=out, check=True, capture_output=True)
+            tar_to_inspect = tmp_tar
+        except subprocess.CalledProcessError as e:
+            tmp_tar.unlink(missing_ok=True)
+            raise ArchiveError(f"zstd decompression failed: {e.stderr}") from e
+    else:
+        tar_to_inspect = archive_path
+
     safe = []
-    for m in members:
-        # Reject absolute paths
-        if m.startswith("/"):
-            raise ArchivePathTraversalError(f"absolute path in archive: {m}")
-        # Reject parent traversal
-        if "../" in m or m == ".." or m.startswith("../"):
-            raise ArchivePathTraversalError(f"parent traversal in archive: {m}")
-        # Reject device/special files (tar type flag is in the verbose listing)
-        # We rely on tar's own safeguards + the extract command's --no-same-owner
-        safe.append(m)
+    try:
+        # Open with auto-detection of compression (r:* for gz, r: for plain)
+        if str(tar_to_inspect).endswith(".tar.gz") or str(tar_to_inspect).endswith(".tgz"):
+            with tarfile.open(tar_to_inspect, "r:gz") as tar:
+                for member in tar.getmembers():
+                    _inspect_member(member)
+                    safe.append(member.name)
+        else:
+            with tarfile.open(tar_to_inspect, "r:") as tar:
+                for member in tar.getmembers():
+                    _inspect_member(member)
+                    safe.append(member.name)
+    finally:
+        if fmt == "zst" and tmp_tar.exists():
+            tmp_tar.unlink(missing_ok=True)
+
     return safe
 
 

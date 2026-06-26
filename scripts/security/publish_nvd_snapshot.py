@@ -251,9 +251,15 @@ def run_maven_update_only(
     work_dir: Path,
     dc_version: str,
     env: dict | None = None,
-    timeout_minutes: int = 100,
+    timeout_minutes: int | None = None,
 ) -> tuple[int, str, str]:
-    """Run a single update-only pass. Returns (exit_code, stdout, stderr)."""
+    """Run a single update-only pass. Returns (exit_code, stdout, stderr).
+
+    R12G: no default 100-minute timeout. Callers must pass an explicit
+    timeout_minutes value. Bootstrap uses 1320; incremental uses 180.
+    """
+    if timeout_minutes is None:
+        raise ValueError("timeout_minutes must be explicitly set (R12G: no default)")
     cmd = [
         "mvn", "--batch-mode", "--no-transfer-progress",
         f"org.owasp:dependency-check-maven:{dc_version}:update-only",
@@ -428,19 +434,31 @@ def main():
     parser.add_argument("--publisher-commit-sha", required=True)
     parser.add_argument("--publisher-run-id", required=True)
     parser.add_argument("--dependency-check-version", default=DEFAULT_DEPENDENCY_CHECK_VERSION)
+    parser.add_argument("--update-timeout-minutes", type=int, default=None,
+                        help="Explicit Maven update timeout. R12G: no default 100. Bootstrap=1320, Incremental=180.")
     parser.add_argument("--skip-maven", action="store_true", help="Skip Maven update (for testing)")
     args = parser.parse_args()
+
+    # R12G: mode-specific timeouts (no default 100)
+    if args.update_timeout_minutes is not None:
+        update_timeout = args.update_timeout_minutes
+    elif args.mode == "bootstrap":
+        update_timeout = 1320
+    else:  # incremental
+        update_timeout = 180
 
     work_dir = Path(args.work_dir)
     canonical_dir = Path(args.canonical_dir)
     lkg_dir = Path(args.lkg_dir)
 
     print(f"=== NVD Snapshot Publisher ({args.mode} mode) ===")
-    print(f"  Work dir:      {work_dir}")
-    print(f"  Canonical dir: {canonical_dir}")
-    print(f"  LKG dir:       {lkg_dir}")
-    print(f"  Publisher SHA: {args.publisher_commit_sha}")
-    print(f"  Run ID:        {args.publisher_run_id}")
+    print(f"  Work dir:              {work_dir}")
+    print(f"  Canonical dir:         {canonical_dir}")
+    print(f"  LKG dir:               {lkg_dir}")
+    print(f"  Publisher SHA:         {args.publisher_commit_sha}")
+    print(f"  Run ID:                {args.publisher_run_id}")
+    print(f"  Update timeout:        {update_timeout} minutes")
+    print(f"  Update mode:           {args.mode}")
 
     # Resolve previous snapshot
     backend = get_backend(os.environ.get("NVD_SNAPSHOT_BACKEND", "filesystem"))
@@ -479,8 +497,25 @@ def main():
 
     # Run Maven update
     if not args.skip_maven:
+        import datetime as _dt
         print("Running NVD update-only...")
-        exit_code, stdout, stderr = run_maven_update_only(work_dir, args.dependency_check_version)
+        update_started_at = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        update_start_epoch = _dt.datetime.now(_dt.timezone.utc).timestamp()
+        print(f"update_started_at={update_started_at}")
+        print(f"update_timeout_minutes={update_timeout}")
+        exit_code, stdout, stderr = run_maven_update_only(
+            work_dir, args.dependency_check_version, timeout_minutes=update_timeout,
+        )
+        update_finished_at = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        update_duration = int(_dt.datetime.now(_dt.timezone.utc).timestamp() - update_start_epoch)
+        print(f"update_finished_at={update_finished_at}")
+        print(f"update_duration_seconds={update_duration}")
+        print(f"update_exit_code={exit_code}")
+        print(f"update_mode={args.mode}")
+        if exit_code == 124:
+            print("::error::NVD update timed out")
+            print("classification=UPDATE_TIMEOUT")
+            return 1
         if exit_code != 0:
             print(f"::error::NVD update-only failed (exit: {exit_code})")
             print(stderr[-2000:] if stderr else "")
