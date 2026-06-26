@@ -65,7 +65,11 @@ EXPECTED_DC_VERSION = "12.1.0"
 DEFAULT_MIN_SIZE_BYTES = 50 * 1024 * 1024  # 50 MiB — see "Realistic minimum" below
 DEFAULT_MAX_AGE_HOURS = 48  # R12A Section 13 — freshness policy
 LOCK_FILE_PATTERNS = ("*.lock.db", "*.lock")
-TEMP_FILE_PATTERNS = ("*.tmp.db", "*.temp.db", "odc.mv.db.temp", "odc.trace.db")
+# Temporary file patterns that indicate an INCOMPLETE shutdown (H2 did not
+# close cleanly). Note: `odc.trace.db` is a legitimate H2 trace file that
+# Dependency-Check leaves behind after a successful update — it is NOT a
+# corruption indicator and is intentionally excluded from this list.
+TEMP_FILE_PATTERNS = ("*.tmp.db", "*.temp.db", "odc.mv.db.temp")
 
 SHA256_HEX_RE = re.compile(r"^[a-f0-9]{64}$")  # SHA-256 = 64 hex chars
 GIT_SHA_RE = re.compile(r"^[a-f0-9]{40}$")      # git commit SHA = 40 hex chars
