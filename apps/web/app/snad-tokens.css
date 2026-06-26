@@ -1,0 +1,188 @@
+/*
+ * SNAD Design Tokens v1.0
+ * Source of truth: SNAD Visual Identity Plan v1.0 (SNAD-BRAND-001)
+ * Do not place raw brand values in feature components. Consume semantic tokens.
+ */
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* Brand primitives */
+  --snad-petroleum-950: #021f1e;
+  --snad-petroleum-900: #002b29;
+  --snad-petroleum-800: #003330;
+  --snad-petroleum-700: #003b39;
+  --snad-petroleum-600: #00514e;
+  --snad-petroleum-500: #006a66;
+  --snad-petroleum-400: #168e87;
+  --snad-petroleum-300: #66c7c0;
+  --snad-petroleum-200: #a6dfda;
+  --snad-petroleum-100: #d8f0ed;
+  --snad-petroleum-50: #f0f8f7;
+
+  --snad-gold-950: #4a3608;
+  --snad-gold-900: #6b4e0e;
+  --snad-gold-800: #8c6a17;
+  --snad-gold-700: #a98220;
+  --snad-gold-600: #be982a;
+  --snad-gold-500: #d4af37;
+  --snad-gold-400: #e2c25b;
+  --snad-gold-300: #f1d98a;
+  --snad-gold-200: #f7e7b1;
+  --snad-gold-100: #fbf2d6;
+  --snad-gold-50: #fefaf0;
+
+  /* Neutral primitives */
+  --snad-neutral-950: #102322;
+  --snad-neutral-900: #1b302f;
+  --snad-neutral-800: #2d4341;
+  --snad-neutral-700: #405653;
+  --snad-neutral-600: #526563;
+  --snad-neutral-500: #71817f;
+  --snad-neutral-400: #93a19f;
+  --snad-neutral-300: #aebdba;
+  --snad-neutral-200: #d8e1df;
+  --snad-neutral-100: #e8efed;
+  --snad-neutral-50: #f0f4f2;
+  --snad-ivory: #f7f8f5;
+  --snad-white: #ffffff;
+
+  /* Semantic brand */
+  --snad-brand-primary: var(--snad-petroleum-700);
+  --snad-brand-primary-hover: var(--snad-petroleum-800);
+  --snad-brand-primary-active: var(--snad-petroleum-900);
+  --snad-brand-secondary: var(--snad-petroleum-600);
+  --snad-brand-gold: var(--snad-gold-500);
+  --snad-brand-gold-soft: var(--snad-gold-300);
+  --snad-brand-gold-deep: var(--snad-gold-800);
+
+  /* Surfaces and text */
+  --snad-surface-canvas: var(--snad-ivory);
+  --snad-surface-primary: var(--snad-white);
+  --snad-surface-secondary: var(--snad-neutral-50);
+  --snad-surface-tertiary: var(--snad-neutral-100);
+  --snad-surface-raised: var(--snad-white);
+  --snad-surface-inverse: var(--snad-petroleum-950);
+  --snad-text-primary: var(--snad-neutral-950);
+  --snad-text-secondary: var(--snad-neutral-600);
+  --snad-text-muted: #637572;
+  --snad-text-inverse: #f5faf9;
+  --snad-text-brand: var(--snad-petroleum-700);
+  --snad-text-gold: var(--snad-gold-900);
+
+  /* Borders and focus */
+  --snad-border-subtle: var(--snad-neutral-100);
+  --snad-border-default: var(--snad-neutral-200);
+  --snad-border-strong: var(--snad-neutral-300);
+  --snad-focus-ring: var(--snad-petroleum-400);
+
+  /* Status */
+  --snad-success: #16835b;
+  --snad-success-soft: #e8f7f0;
+  --snad-warning: #9b5b0c;
+  --snad-warning-soft: #fff5e6;
+  --snad-error: #b52f3e;
+  --snad-error-soft: #fff0f2;
+  --snad-info: #176b94;
+  --snad-info-soft: #eaf6fc;
+  --snad-ai: var(--snad-gold-800);
+  --snad-ai-soft: var(--snad-gold-100);
+  --snad-automation: var(--snad-petroleum-400);
+
+  /* Effects, typography, motion */
+  --snad-shadow-sm: 0 1px 2px rgb(16 35 34 / 0.08);
+  --snad-shadow-md: 0 12px 30px rgb(0 59 57 / 0.12);
+  --snad-shadow-lg: 0 24px 60px rgb(0 43 41 / 0.2);
+  --snad-radius-sm: 0.5rem;
+  --snad-radius-md: 0.75rem;
+  --snad-radius-lg: 1rem;
+  --snad-radius-xl: 1.25rem;
+  --snad-font-sans: "IBM Plex Sans Arabic", "IBM Plex Sans", "Noto Sans Arabic", Arial, sans-serif;
+  --snad-motion-fast: 140ms;
+  --snad-motion-standard: 220ms;
+  --snad-motion-slow: 360ms;
+  --snad-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Metallic gold is reserved for premium marketing and logo production. */
+  --snad-gold-metallic: linear-gradient(135deg, #8c6a17 0%, #d4af37 42%, #f4df91 66%, #a98220 100%);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --snad-surface-canvas: #071c1b;
+  --snad-surface-primary: #0e2927;
+  --snad-surface-secondary: #123532;
+  --snad-surface-tertiary: #183e3b;
+  --snad-surface-raised: #183e3b;
+  --snad-surface-inverse: #f5faf9;
+  --snad-text-primary: #f5faf9;
+  --snad-text-secondary: #bdd0cd;
+  --snad-text-muted: #9db1ae;
+  --snad-text-inverse: #102322;
+  --snad-text-brand: #66c7c0;
+  --snad-text-gold: #f1d98a;
+  --snad-border-subtle: #1f403d;
+  --snad-border-default: #294744;
+  --snad-border-strong: #3d625e;
+  --snad-focus-ring: #66c7c0;
+  --snad-brand-primary: #20a89f;
+  --snad-brand-primary-hover: #36b8b0;
+  --snad-brand-primary-active: #66c7c0;
+  --snad-brand-secondary: #168e87;
+  --snad-brand-gold: #e2c25b;
+  --snad-brand-gold-soft: #f1d98a;
+  --snad-success: #4bc38e;
+  --snad-success-soft: #12382c;
+  --snad-warning: #f2b555;
+  --snad-warning-soft: #3b2a12;
+  --snad-error: #f07782;
+  --snad-error-soft: #3e1d22;
+  --snad-info: #58add5;
+  --snad-info-soft: #102f3d;
+  --snad-ai: #e2c25b;
+  --snad-ai-soft: #352d16;
+  --snad-automation: #4cc8c0;
+  --snad-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.25);
+  --snad-shadow-md: 0 12px 30px rgb(0 0 0 / 0.3);
+  --snad-shadow-lg: 0 24px 60px rgb(0 0 0 / 0.4);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --snad-surface-canvas: #071c1b;
+    --snad-surface-primary: #0e2927;
+    --snad-surface-secondary: #123532;
+    --snad-surface-tertiary: #183e3b;
+    --snad-surface-raised: #183e3b;
+    --snad-surface-inverse: #f5faf9;
+    --snad-text-primary: #f5faf9;
+    --snad-text-secondary: #bdd0cd;
+    --snad-text-muted: #9db1ae;
+    --snad-text-inverse: #102322;
+    --snad-text-brand: #66c7c0;
+    --snad-text-gold: #f1d98a;
+    --snad-border-subtle: #1f403d;
+    --snad-border-default: #294744;
+    --snad-border-strong: #3d625e;
+    --snad-focus-ring: #66c7c0;
+    --snad-brand-primary: #20a89f;
+    --snad-brand-primary-hover: #36b8b0;
+    --snad-brand-primary-active: #66c7c0;
+    --snad-brand-secondary: #168e87;
+    --snad-brand-gold: #e2c25b;
+    --snad-brand-gold-soft: #f1d98a;
+    --snad-success: #4bc38e;
+    --snad-success-soft: #12382c;
+    --snad-warning: #f2b555;
+    --snad-warning-soft: #3b2a12;
+    --snad-error: #f07782;
+    --snad-error-soft: #3e1d22;
+    --snad-info: #58add5;
+    --snad-info-soft: #102f3d;
+    --snad-ai: #e2c25b;
+    --snad-ai-soft: #352d16;
+    --snad-automation: #4cc8c0;
+  }
+}
