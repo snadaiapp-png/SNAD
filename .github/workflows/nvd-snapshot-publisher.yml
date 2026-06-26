@@ -1,17 +1,9 @@
 # ============================================================
-# SANAD — NVD Snapshot Publisher (Incremental)
+# SANAD — NVD Snapshot Publisher (Incremental, GitHub Releases)
 # ============================================================
-# EXEC-PROMPT-010R12F Section 18.2 — incremental publisher that
-# runs on a 6-hour schedule. Uses the shared
-# scripts/security/publish_nvd_snapshot.py with --mode incremental.
-#
-# R12F: MUST NOT cold bootstrap. If no canonical or remote LKG
-# exists, the publisher fails with:
-#   "No verified canonical or remote snapshot exists.
-#    Run NVD Snapshot Bootstrap before enabling incremental publishing."
-#
-# Shares the same concurrency group as the Bootstrap workflow
-# (snad-nvd-snapshot-single-writer) to enforce single-writer.
+# R12H: Uses GitHub-hosted runner with GitHub Releases as storage.
+# Runs every 6 hours. Downloads previous snapshot from GitHub
+# Releases, applies incremental update, publishes new snapshot.
 # ============================================================
 
 name: NVD Snapshot Publisher
@@ -22,10 +14,8 @@ on:
     - cron: '17 */6 * * *'
 
 permissions:
-  contents: read
+  contents: write
   actions: read
-  id-token: write
-  packages: write
 
 concurrency:
   group: snad-nvd-snapshot-single-writer
@@ -34,19 +24,12 @@ concurrency:
 env:
   DEPENDENCY_CHECK_VERSION: "12.1.0"
   PYTHONUNBUFFERED: "1"
-  CANONICAL_DIR: /var/lib/snad/dependency-check-data/canonical
-  WORK_DIR_BASE: /var/lib/snad/dependency-check-data/work
-  LKG_DIR: /var/lib/snad/dependency-check-data/lkg
+  NVD_SNAPSHOT_BACKEND: github-releases
 
 jobs:
   publish:
     name: Publish Incremental NVD Snapshot
-    runs-on:
-      - self-hosted
-      - linux
-      - x64
-      - snad-nvd-publisher
-    # R12F: 4-hour timeout for incremental updates.
+    runs-on: ubuntu-latest
     timeout-minutes: 240
     environment: nvd-publisher
 
@@ -54,35 +37,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
-      - name: Verify runner environment
+      - name: Install dependencies
         shell: bash
         run: |
-          set -euo pipefail
-          echo "Runner OS: ${{ runner.os }}"
-          echo "Runner name: ${{ runner.name }}"
-          test -d /var/lib/snad/dependency-check-data || {
-            echo "::error::Persistent directory /var/lib/snad/dependency-check-data does not exist."
-            exit 1
-          }
-          mkdir -p "${{ env.CANONICAL_DIR }}" "${{ env.WORK_DIR_BASE }}" "${{ env.LKG_DIR }}"
-          for cmd in java mvn python3 tar zstd; do
-            command -v "$cmd" >/dev/null 2>&1 || {
-              echo "::error::Required command '$cmd' not found."
-              exit 1
-            }
-          done
-          # R12F: check ORAS if GHCR backend
-          if [ "${{ vars.NVD_SNAPSHOT_BACKEND }}" = "ghcr" ]; then
-            command -v oras >/dev/null 2>&1 || {
-              echo "::error::ORAS required for GHCR backend but not found."
-              exit 1
-            }
-          fi
+          python3 -m pip install --quiet pyyaml pytest
+          sudo apt-get install -y zstd || true
 
       - name: Verify NVD_API_KEY present
         shell: bash
@@ -95,66 +66,27 @@ jobs:
           fi
           echo "NVD_API_KEY is configured."
 
-      - name: Verify storage backend configured
-        shell: bash
-        run: |
-          BACKEND="${{ vars.NVD_SNAPSHOT_BACKEND }}"
-          if [ -z "$BACKEND" ]; then
-            echo "::error::NVD_SNAPSHOT_BACKEND is not set."
-            exit 1
-          fi
-          echo "Storage backend: $BACKEND"
-
-      - name: Install Python dependencies
-        shell: bash
-        run: |
-          python3 -m pip install --quiet pyyaml pytest
-          if [ "${{ vars.NVD_SNAPSHOT_BACKEND }}" = "s3" ]; then
-            python3 -m pip install --quiet boto3
-          fi
-
-      - name: Configure AWS credentials via OIDC
-        if: vars.NVD_SNAPSHOT_BACKEND == 's3'
-        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b
-        with:
-          role-to-assume: ${{ vars.NVD_SNAPSHOT_WRITER_ROLE }}
-          aws-region: ${{ vars.NVD_SNAPSHOT_REGION }}
-          role-session-name: snad-nvd-publisher-${{ github.run_id }}
-
-      - name: Verify storage readiness
-        shell: bash
-        env:
-          NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
-          NVD_SNAPSHOT_BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
-          NVD_SNAPSHOT_PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
-          NVD_SNAPSHOT_REGION: ${{ vars.NVD_SNAPSHOT_REGION }}
-          NVD_SNAPSHOT_ENDPOINT: ${{ vars.NVD_SNAPSHOT_ENDPOINT }}
-        run: |
-          python3 scripts/security/verify_nvd_storage_readiness.py
-          echo "Storage readiness: VERIFIED"
-
       - name: Run Incremental Publisher
         shell: bash
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-          NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
-          NVD_SNAPSHOT_BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
-          NVD_SNAPSHOT_PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
-          NVD_SNAPSHOT_REGION: ${{ vars.NVD_SNAPSHOT_REGION }}
-          NVD_SNAPSHOT_ROLE: ${{ vars.NVD_SNAPSHOT_WRITER_ROLE }}
-          NVD_SNAPSHOT_ENDPOINT: ${{ vars.NVD_SNAPSHOT_ENDPOINT }}
+          NVD_SNAPSHOT_BACKEND: github-releases
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          WORK_DIR="${{ env.WORK_DIR_BASE }}/${{ github.run_id }}"
-          rm -rf "$WORK_DIR"
-          mkdir -p "$WORK_DIR"
+          WORK_DIR="${{ runner.temp }}/nvd-work"
+          CANONICAL_DIR="${{ runner.temp }}/nvd-canonical"
+          LKG_DIR="${{ runner.temp }}/nvd-lkg"
+          rm -rf "$WORK_DIR" "$CANONICAL_DIR" "$LKG_DIR"
+          mkdir -p "$WORK_DIR" "$CANONICAL_DIR" "$LKG_DIR"
 
           python3 scripts/security/publish_nvd_snapshot.py \
             --mode incremental \
             --update-timeout-minutes 180 \
             --work-dir "$WORK_DIR" \
-            --canonical-dir "${{ env.CANONICAL_DIR }}" \
-            --lkg-dir "${{ env.LKG_DIR }}" \
+            --canonical-dir "$CANONICAL_DIR" \
+            --lkg-dir "$LKG_DIR" \
             --publisher-commit-sha "${{ github.sha }}" \
             --publisher-run-id "${{ github.run_id }}"
 
@@ -163,10 +95,10 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## NVD Snapshot Publisher — R12F (Incremental)"
+            echo "## NVD Snapshot Publisher — GitHub Releases Backend"
             echo ""
             echo "**Run ID:** ${{ github.run_id }}"
             echo "**SHA:** \`${{ github.sha }}\`"
             echo "**Mode:** Incremental"
-            echo "**Backend:** ${{ vars.NVD_SNAPSHOT_BACKEND }}"
+            echo "**Backend:** GitHub Releases"
           } >> "$GITHUB_STEP_SUMMARY"

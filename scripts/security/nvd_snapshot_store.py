@@ -48,7 +48,7 @@ FORBIDDEN_TEMP_PATTERNS = ("*.tmp.db", "*.temp.db", "odc.mv.db.temp")
 FORBIDDEN_LOCK_PATTERNS = ("*.lock.db", "*.lock")
 # odc.trace.db is a legitimate H2 byproduct and is accepted.
 
-SUPPORTED_BACKENDS = ("s3", "ghcr", "filesystem")
+SUPPORTED_BACKENDS = ("s3", "ghcr", "github-releases", "filesystem")
 
 
 # ---------- Errors ----------
@@ -932,6 +932,330 @@ class GHCRBackend(SnapshotBackend):
         return []
 
 
+# ---------- GitHub Releases backend ----------
+
+class GitHubReleasesBackend(SnapshotBackend):
+    """GitHub Releases snapshot backend.
+
+    Each snapshot is stored as a GitHub Release with:
+      - tag: nvd-snapshot-<snapshot_id>
+      - name: NVD Snapshot <snapshot_id>
+      - assets: archive, manifest.json, SHA256SUMS
+
+    The latest.json pointer is stored as a release asset on a special
+    tag: nvd-snapshot-latest
+
+    This backend works on GitHub-hosted runners (no self-hosted required)
+    and uses the automatic GITHUB_TOKEN for authentication.
+
+    Configuration:
+      GITHUB_TOKEN (env) — automatic in GitHub Actions
+      GITHUB_REPOSITORY (env) — e.g. snadaiapp-png/SNAD
+    """
+
+    backend_name = "github-releases"
+
+    LATEST_TAG = "nvd-snapshot-latest"
+    SNAPSHOT_TAG_PREFIX = "nvd-snapshot-"
+
+    def __init__(self, token=None, repo=None):
+        self.token = token or os.environ.get("GITHUB_TOKEN")
+        if not self.token:
+            raise StorageBackendError("GITHUB_TOKEN is required for github-releases backend")
+        self.repo = repo or os.environ.get("GITHUB_REPOSITORY")
+        if not self.repo:
+            raise StorageBackendError("GITHUB_REPOSITORY is required for github-releases backend")
+        self._api_base = f"https://api.github.com/repos/{self.repo}"
+
+    def _headers(self, content_type="application/json"):
+        return {
+            "Authorization": f"Bearer {self.token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type": content_type,
+        }
+
+    def _request(self, method, path, body=None, expected=(200, 201, 204)):
+        url = f"{self._api_base}/{path.lstrip('/')}"
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(url, method=method, data=data, headers=self._headers())
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                if resp.status not in expected:
+                    raise StorageBackendError(f"Unexpected status {resp.status} on {method} {path}")
+                body = resp.read().decode()
+                return json.loads(body) if body and resp.status != 204 else {}
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace")
+            if e.code == 404:
+                raise SnapshotNotFoundError(f"not found: {method} {path}") from e
+            if e.code == 401:
+                raise StorageAuthenticationError(f"auth failed: {err_body[:200]}") from e
+            if e.code == 403:
+                raise StorageAuthorizationError(f"forbidden: {err_body[:200]}") from e
+            raise StorageBackendError(f"HTTP {e.code} on {method} {path}: {err_body[:200]}") from e
+
+    def _upload_asset(self, upload_url_template, asset_name, asset_path):
+        """Upload a release asset. upload_url_template is from the release creation response."""
+        # upload_url_template looks like: https://uploads.github.com/.../assets{?name,label}
+        upload_url = upload_url_template.replace("{?name,label}", f"?name={asset_name}")
+        with open(asset_path, "rb") as f:
+            asset_data = f.read()
+        req = urllib.request.Request(
+            upload_url,
+            method="POST",
+            data=asset_data,
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "Content-Type": "application/octet-stream",
+                "Content-Length": str(len(asset_data)),
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                return json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace")
+            raise StorageBackendError(f"asset upload failed ({e.code}): {err_body[:200]}") from e
+
+    def _download_asset(self, asset_url, dest_path):
+        """Download a release asset to dest_path."""
+        req = urllib.request.Request(
+            asset_url,
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/octet-stream",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=600) as resp:
+                with open(dest_path, "wb") as f:
+                    while True:
+                        chunk = resp.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                raise SnapshotNotFoundError(f"asset not found: {asset_url}") from e
+            raise StorageBackendError(f"asset download failed ({e.code})") from e
+
+    def publish_immutable_snapshot(self, snapshot_id, archive_path, manifest_path, checksums_path):
+        """R12G: single-push publish via GitHub Releases."""
+        tag = f"{self.SNAPSHOT_TAG_PREFIX}{snapshot_id}"
+
+        # Create release
+        release = self._request("POST", "releases", body={
+            "tag_name": tag,
+            "name": f"NVD Snapshot {snapshot_id}",
+            "body": f"NVD Dependency-Check data snapshot {snapshot_id}",
+            "draft": False,
+            "prerelease": False,
+        })
+
+        upload_url = release.get("upload_url", "")
+        release_id = release.get("id")
+
+        # Upload all three assets
+        self._upload_asset(upload_url, archive_path.name, archive_path)
+        self._upload_asset(upload_url, "manifest.json", manifest_path)
+        self._upload_asset(upload_url, "SHA256SUMS", checksums_path)
+
+        # Get the release with assets to get download URLs
+        release = self._request("GET", f"releases/{release_id}")
+        assets = {a["name"]: a for a in release.get("assets", [])}
+
+        storage_version = f"github-releases:tag={tag}:release={release_id}"
+        return {
+            "storage_version_or_digest": storage_version,
+            "archive_object": f"release/{release_id}/asset/{archive_path.name}",
+            "manifest_object": f"release/{release_id}/asset/manifest.json",
+            "checksums_object": f"release/{release_id}/asset/SHA256SUMS",
+        }
+
+    def resolve_latest_verified(self):
+        """Resolve latest.json from the nvd-snapshot-latest tag."""
+        try:
+            release = self._request("GET", f"releases/tags/{self.LATEST_TAG}")
+        except SnapshotNotFoundError:
+            return None
+
+        # Find the latest.json asset
+        for asset in release.get("assets", []):
+            if asset["name"] == "latest.json":
+                # Download it
+                import tempfile
+                tmp = Path(tempfile.mktemp(suffix=".json"))
+                self._download_asset(asset["url"], tmp)
+                pointer = json.loads(tmp.read_text(encoding="utf-8"))
+                tmp.unlink(missing_ok=True)
+                return pointer
+        return None
+
+    def download_manifest(self, snapshot_id):
+        tag = f"{self.SNAPSHOT_TAG_PREFIX}{snapshot_id}"
+        release = self._request("GET", f"releases/tags/{tag}")
+        for asset in release.get("assets", []):
+            if asset["name"] == "manifest.json":
+                import tempfile
+                tmp = Path(tempfile.mktemp(suffix=".json"))
+                self._download_asset(asset["url"], tmp)
+                manifest = json.loads(tmp.read_text(encoding="utf-8"))
+                tmp.unlink(missing_ok=True)
+                return manifest
+        raise SnapshotNotFoundError(f"manifest not found for snapshot {snapshot_id}")
+
+    def download_snapshot(self, snapshot_id, dest_dir):
+        manifest = self.download_manifest(snapshot_id)
+        tag = f"{self.SNAPSHOT_TAG_PREFIX}{snapshot_id}"
+        release = self._request("GET", f"releases/tags/{tag}")
+        dest_dir = Path(dest_dir)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / manifest["archive_filename"]
+        for asset in release.get("assets", []):
+            if asset["name"] == manifest["archive_filename"]:
+                self._download_asset(asset["url"], dest)
+                return dest
+        raise SnapshotNotFoundError(f"archive not found for snapshot {snapshot_id}")
+
+    def verify_storage_digest(self, snapshot_id, expected_digest):
+        """For GitHub Releases, verify by checking the release exists."""
+        tag = f"{self.SNAPSHOT_TAG_PREFIX}{snapshot_id}"
+        try:
+            self._request("GET", f"releases/tags/{tag}")
+            return True
+        except SnapshotNotFoundError:
+            return False
+
+    def download_snapshot_bundle(self, pointer, destination):
+        """R12G: download all three bundle files from the release."""
+        destination = Path(destination)
+        destination.mkdir(parents=True, exist_ok=True)
+        snapshot_id = pointer["snapshot_id"]
+        tag = f"{self.SNAPSHOT_TAG_PREFIX}{snapshot_id}"
+        release = self._request("GET", f"releases/tags/{tag}")
+
+        assets = {a["name"]: a for a in release.get("assets", [])}
+        archive_filename = pointer.get("archive_filename", "")
+        if not archive_filename:
+            # Download manifest first to get archive filename
+            manifest_asset = assets.get("manifest.json")
+            if not manifest_asset:
+                raise SnapshotNotFoundError("manifest.json asset not found")
+            tmp_manifest = destination / "manifest.json"
+            self._download_asset(manifest_asset["url"], tmp_manifest)
+            manifest = json.loads(tmp_manifest.read_text(encoding="utf-8"))
+            archive_filename = manifest["archive_filename"]
+
+        # Download archive
+        archive_asset = assets.get(archive_filename)
+        if not archive_asset:
+            raise SnapshotNotFoundError(f"archive asset {archive_filename} not found")
+        archive_dest = destination / archive_filename
+        self._download_asset(archive_asset["url"], archive_dest)
+
+        # Download manifest (if not already downloaded)
+        manifest_dest = destination / "manifest.json"
+        if not manifest_dest.exists():
+            manifest_asset = assets.get("manifest.json")
+            if manifest_asset:
+                self._download_asset(manifest_asset["url"], manifest_dest)
+
+        # Download SHA256SUMS
+        checksums_dest = destination / "SHA256SUMS"
+        checksums_asset = assets.get("SHA256SUMS")
+        if checksums_asset:
+            self._download_asset(checksums_asset["url"], checksums_dest)
+
+        return {
+            "archive_path": archive_dest,
+            "manifest_path": manifest_dest,
+            "checksums_path": checksums_dest,
+            "snapshot_id": snapshot_id,
+        }
+
+    def promote_latest_pointer(self, pointer):
+        """R12G: update the nvd-snapshot-latest release with latest.json."""
+        import tempfile
+
+        # Check if the latest release exists
+        try:
+            release = self._request("GET", f"releases/tags/{self.LATEST_TAG}")
+            release_id = release.get("id")
+            # Delete existing latest.json asset
+            for asset in release.get("assets", []):
+                if asset["name"] == "latest.json":
+                    self._request("DELETE", f"releases/{release_id}/assets/{asset['id']}")
+        except SnapshotNotFoundError:
+            # Create the release
+            release = self._request("POST", "releases", body={
+                "tag_name": self.LATEST_TAG,
+                "name": "NVD Snapshot Latest Pointer",
+                "body": "Auto-updated pointer to the latest verified NVD snapshot",
+                "draft": False,
+                "prerelease": False,
+            })
+            release_id = release.get("id")
+
+        # Upload new latest.json
+        tmp = Path(tempfile.mktemp(suffix=".json"))
+        tmp.write_text(json.dumps(pointer, indent=2), encoding="utf-8")
+        upload_url = release.get("upload_url", "").replace("{?name,label}", "?name=latest.json")
+        self._upload_asset(upload_url, "latest.json", tmp)
+        tmp.unlink(missing_ok=True)
+
+        # Re-read to verify
+        re_release = self._request("GET", f"releases/{release_id}")
+        found = any(a["name"] == "latest.json" for a in re_release.get("assets", []))
+        if not found:
+            raise StorageBackendError("latest.json not found after upload — pointer verification failed")
+
+    def list_verified_snapshots(self):
+        """List all snapshot release tags."""
+        result = []
+        page = 1
+        while True:
+            try:
+                releases = self._request("GET", f"releases?per_page=100&page={page}")
+            except Exception:
+                break
+            if not releases:
+                break
+            for r in releases:
+                tag = r.get("tag_name", "")
+                if tag.startswith(self.SNAPSHOT_TAG_PREFIX) and tag != self.LATEST_TAG:
+                    result.append(tag[len(self.SNAPSHOT_TAG_PREFIX):])
+            page += 1
+            if len(releases) < 100:
+                break
+        return sorted(result)
+
+    def apply_retention_policy(self, keep=DEFAULT_RETENTION_COUNT):
+        """Delete old snapshot releases, keeping the most recent `keep`."""
+        latest = self.resolve_latest_verified()
+        latest_id = latest["snapshot_id"] if latest else None
+
+        all_ids = self.list_verified_snapshots()
+        all_ids.sort(reverse=True)
+
+        others = [sid for sid in all_ids if sid != latest_id]
+        to_keep = set(others[:keep - 1]) | ({latest_id} if latest_id else set())
+        to_delete = [sid for sid in all_ids if sid not in to_keep]
+
+        for sid in to_delete:
+            tag = f"{self.SNAPSHOT_TAG_PREFIX}{sid}"
+            try:
+                self._request("DELETE", f"releases/tags/{tag}")
+                # Also delete the tag
+                self._request("DELETE", f"git/refs/tags/{tag}")
+            except Exception:
+                pass  # best-effort deletion
+        return to_delete
+
+
 # ---------- Backend factory ----------
 
 def get_backend(backend_name: str | None = None, **kwargs) -> SnapshotBackend:
@@ -945,6 +1269,8 @@ def get_backend(backend_name: str | None = None, **kwargs) -> SnapshotBackend:
         return S3Backend(**kwargs)
     if name == "ghcr":
         return GHCRBackend(**kwargs)
+    if name == "github-releases":
+        return GitHubReleasesBackend(**kwargs)
     if name == "filesystem":
         root = kwargs.pop("root_dir", None)
         if not root:

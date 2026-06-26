@@ -262,21 +262,18 @@ def test_github_client_requires_token():
 # R12E: The old NVD database maintenance workflow is DEPRECATED.
 # These tests now check the NVD Snapshot Publisher instead.
 
-def test_nvd_publisher_workflow_requires_self_hosted_runner():
-    """R12E: the publisher must run on self-hosted runner, not ubuntu-latest."""
+def test_nvd_publisher_workflow_uses_github_hosted_runner():
+    """R12H: the publisher runs on GitHub-hosted runner with GitHub Releases backend."""
     import yaml
     wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-snapshot-publisher.yml"
     with wf_path.open() as f:
         d = yaml.safe_load(f)
     for jn, jd in d["jobs"].items():
         runs_on = jd.get("runs-on", "")
-        if isinstance(runs_on, list):
-            assert "self-hosted" in runs_on, f"{jn} must run on self-hosted"
-            assert "snad-nvd-publisher" in runs_on, f"{jn} must have snad-nvd-publisher label"
-        elif isinstance(runs_on, str):
-            assert "self-hosted" in runs_on, f"{jn} must run on self-hosted"
-        else:
-            assert False, f"{jn} runs-on is not a list or string: {runs_on}"
+        assert runs_on == "ubuntu-latest", f"{jn} must run on ubuntu-latest (R12H: GitHub-hosted)"
+    # Verify backend is github-releases
+    content = wf_path.read_text(encoding="utf-8")
+    assert "github-releases" in content
 
 
 def test_nvd_publisher_uses_single_update_pass():
