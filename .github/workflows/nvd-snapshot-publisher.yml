@@ -1,0 +1,443 @@
+# ============================================================
+# SANAD — NVD Snapshot Publisher (Persistent Single Writer)
+# ============================================================
+# EXEC-PROMPT-010R12E Section 10 — publishes immutable, digest-
+# verified NVD Dependency-Check data snapshots to a persistent
+# storage backend (S3-compatible or GHCR).
+#
+# CRITICAL CONSTRAINTS:
+#   - Runs ONLY on a self-hosted runner labeled
+#     [self-hosted, linux, x64, snad-nvd-publisher].
+#   - The persistent canonical directory
+#     /var/lib/snad/dependency-check-data/canonical survives
+#     across runs.
+#   - R12B and OWASP are READ-ONLY consumers of the published
+#     snapshots; they never invoke the NVD API.
+#   - On ANY failure, the canonical directory, the Last-Known-Good
+#     snapshot, and the latest.json pointer remain unchanged.
+#   - NVD_API_KEY is available ONLY in the nvd-publisher environment.
+#
+# INFRASTRUCTURE REQUIREMENTS (owner must provide):
+#   1. Self-hosted runner registered with labels:
+#        self-hosted, linux, x64, snad-nvd-publisher
+#   2. Persistent directory /var/lib/snad/dependency-check-data/
+#      writable by the runner user, with enough space (~1 GB).
+#   3. Java 21, Python 3.12, Maven, tar, zstd installed on runner.
+#   4. Storage backend configured via repository variables:
+#        NVD_SNAPSHOT_BACKEND = s3 | ghcr
+#      Plus backend-specific variables (see
+#      scripts/security/nvd_snapshot_store.py).
+#   5. GitHub environment 'nvd-publisher' protecting this workflow.
+#   6. NVD_API_KEY secret available to the nvd-publisher environment.
+#
+# Until ALL of the above are in place, this workflow will fail at
+# the runner-allocation step. That is the intended fail-closed
+# behavior — do not bypass by changing runs-on to ubuntu-latest.
+# ============================================================
+
+name: NVD Snapshot Publisher
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every 6 hours at :17 — staggered to avoid top-of-hour GitHub load.
+    - cron: '17 */6 * * *'
+
+permissions:
+  contents: read
+  actions: read
+  # id-token: write is required for OIDC-based S3/GHCR auth.
+  id-token: write
+  # packages: write is required only for the GHCR backend.
+  # It is harmless when using S3.
+  packages: write
+
+concurrency:
+  # R12E Section 10.2 — single-writer. Scheduled and manual runs
+  # never cancel an in-flight publisher (cancel-in-progress: false).
+  # This preserves the canonical directory's integrity.
+  group: snad-nvd-snapshot-single-writer
+  cancel-in-progress: false
+
+env:
+  DEPENDENCY_CHECK_VERSION: "12.1.0"
+  NVD_CACHE_SCHEMA: "v1"
+  PYTHONUNBUFFERED: "1"
+  CANONICAL_DIR: /var/lib/snad/dependency-check-data/canonical
+  WORK_DIR_BASE: /var/lib/snad/dependency-check-data/work
+  LKG_DIR: /var/lib/snad/dependency-check-data/lkg
+
+jobs:
+  publish:
+    name: Publish NVD Snapshot
+    runs-on:
+      # R12E Section 10.3 — self-hosted persistent runner only.
+      # If no runner matches these labels, the job stays queued
+      # until the runner registers or the job times out.
+      - self-hosted
+      - linux
+      - x64
+      - snad-nvd-publisher
+    timeout-minutes: 240
+    environment: nvd-publisher
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Verify runner environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Runner labels: ${{ join(runner.os, ',') }}"
+          test -d /var/lib/snad/dependency-check-data || {
+            echo "::error::Persistent directory /var/lib/snad/dependency-check-data does not exist on this runner."
+            echo "Owner must provision the persistent directory on the self-hosted runner."
+            exit 1
+          }
+          mkdir -p "${{ env.CANONICAL_DIR }}" "${{ env.WORK_DIR_BASE }}" "${{ env.LKG_DIR }}"
+          echo "Persistent directories OK."
+          for cmd in java mvn python3 tar zstd; do
+            command -v "$cmd" >/dev/null 2>&1 || {
+              echo "::error::Required command '$cmd' not found on runner."
+              exit 1
+            }
+          done
+          echo "Required tools OK."
+
+      - name: Verify NVD_API_KEY present (publisher only)
+        shell: bash
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          if [ -z "$NVD_API_KEY" ]; then
+            echo "::error::NVD_API_KEY is required in the nvd-publisher environment."
+            exit 1
+          fi
+          echo "NVD_API_KEY is configured."
+
+      - name: Verify storage backend configured
+        shell: bash
+        run: |
+          BACKEND="${{ vars.NVD_SNAPSHOT_BACKEND }}"
+          if [ -z "$BACKEND" ]; then
+            echo "::error::Repository variable NVD_SNAPSHOT_BACKEND is not set."
+            echo "Owner must set NVD_SNAPSHOT_BACKEND to 's3' or 'ghcr'."
+            exit 1
+          fi
+          if [ "$BACKEND" != "s3" ] && [ "$BACKEND" != "ghcr" ]; then
+            echo "::error::NVD_SNAPSHOT_BACKEND must be 's3' or 'ghcr', got: $BACKEND"
+            exit 1
+          fi
+          echo "Storage backend: $BACKEND"
+
+      - name: Install Python dependencies
+        shell: bash
+        run: |
+          python3 -m pip install --quiet pytest pyyaml
+          # Install boto3 only if S3 backend is selected
+          if [ "${{ vars.NVD_SNAPSHOT_BACKEND }}" = "s3" ]; then
+            python3 -m pip install --quiet boto3
+          fi
+
+      - name: Resolve previous snapshot
+        id: prev_snapshot
+        shell: bash
+        run: |
+          set -uo pipefail
+          PREV_ID="$(python3 scripts/security/nvd_snapshot_store.py latest --backend '${{ vars.NVD_SNAPSHOT_BACKEND }}' 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("snapshot_id",""))' 2>/dev/null || echo "")"
+          echo "previous_snapshot_id=${PREV_ID}" >> "$GITHUB_OUTPUT"
+          echo "Previous verified snapshot: ${PREV_ID:-<none>}"
+
+      - name: Prepare work directory (Copy-on-Write)
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORK_DIR="${{ env.WORK_DIR_BASE }}/${{ github.run_id }}"
+          rm -rf "$WORK_DIR"
+          mkdir -p "$WORK_DIR"
+
+          if [ -d "${{ env.CANONICAL_DIR }}" ] && [ -n "$(ls -A '${{ env.CANONICAL_DIR }}' 2>/dev/null)" ]; then
+            cp -a "${{ env.CANONICAL_DIR }}/." "$WORK_DIR/"
+            echo "Copied canonical database into work directory."
+            echo "restore_source=canonical" >> "$GITHUB_ENV"
+          else
+            echo "Canonical directory empty — attempting restore from storage."
+            python3 - <<'PY' || true
+          import json, os, sys, tempfile, pathlib
+          sys.path.insert(0, '.')
+          from scripts.security.nvd_snapshot_store import get_backend, SnapshotNotFoundError
+          try:
+              backend = get_backend('${{ vars.NVD_SNAPSHOT_BACKEND }}')
+              latest = backend.resolve_latest_verified()
+              if latest:
+                  dest = pathlib.Path(tempfile.mkdtemp())
+                  archive = backend.download_snapshot(latest['snapshot_id'], dest)
+                  import tarfile
+                  with tarfile.open(archive, 'r:*') as t:
+                      t.extractall(dest)
+                  data = dest / 'data'
+                  if data.is_dir():
+                      import shutil
+                      shutil.copytree(data, '${{ env.WORK_DIR_BASE }}/${{ github.run_id }}', dirs_exist_ok=True)
+                      print(f"Restored from snapshot {latest['snapshot_id']}")
+                  else:
+                      print("WARN: restored archive has no data/ dir — starting fresh")
+              else:
+                  print("No previous snapshot — starting bootstrap")
+          except Exception as e:
+              print(f"WARN: restore failed ({e}) — starting fresh")
+          PY
+            echo "restore_source=storage_or_bootstrap" >> "$GITHUB_ENV"
+          fi
+          echo "nvd_work_dir=$WORK_DIR" >> "$GITHUB_ENV"
+
+      - name: Backup current canonical to LKG
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d "${{ env.CANONICAL_DIR }}" ] && [ -n "$(ls -A '${{ env.CANONICAL_DIR }}' 2>/dev/null)" ]; then
+            rm -rf "${{ env.LKG_DIR }}"
+            mkdir -p "${{ env.LKG_DIR }}"
+            cp -a "${{ env.CANONICAL_DIR }}/." "${{ env.LKG_DIR }}/"
+            echo "Backed up canonical to LKG."
+          else
+            echo "No canonical to back up — first run."
+          fi
+
+      - name: Run NVD update-only
+        id: update_nvd
+        shell: bash
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          set -uo pipefail
+          UPDATE_STARTED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          UPDATE_START_EPOCH="$(date +%s)"
+          echo "update_started_at=${UPDATE_STARTED_AT}" >> "$GITHUB_OUTPUT"
+
+          # R12E Section 10.9 — single update pass, no inner retry loop.
+          # The publisher runs on a schedule (every 6h), so a failed
+          # run simply retries on the next schedule rather than
+          # looping for hours inside one run.
+          mvn --batch-mode --no-transfer-progress \
+            org.owasp:dependency-check-maven:${{ env.DEPENDENCY_CHECK_VERSION }}:update-only \
+            -DdataDirectory="${{ env.nvd_work_dir }}" \
+            -DnvdApiKeyEnvironmentVariable=NVD_API_KEY \
+            -DnvdApiDelay=6000 \
+            -DnvdMaxRetryCount=5 \
+            -DfailOnError=true \
+            -DhostedSuppressionsEnabled=false \
+            -DversionCheckEnabled=false \
+            -DossIndexAnalyzerEnabled=false
+          EXIT_CODE=$?
+
+          UPDATE_FINISHED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          UPDATE_END_EPOCH="$(date +%s)"
+          UPDATE_DURATION=$((UPDATE_END_EPOCH - UPDATE_START_EPOCH))
+          echo "update_finished_at=${UPDATE_FINISHED_AT}" >> "$GITHUB_OUTPUT"
+          echo "update_duration_seconds=${UPDATE_DURATION}" >> "$GITHUB_OUTPUT"
+          echo "update_exit_code=${EXIT_CODE}" >> "$GITHUB_OUTPUT"
+
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            echo "::error::NVD update-only failed (exit: $EXIT_CODE). Canonical and LKG preserved."
+            exit "$EXIT_CODE"
+          fi
+
+      - name: Validate database
+        id: validate_db
+        shell: bash
+        run: |
+          set -uo pipefail
+          VALIDATOR_OUTPUT=$(python3 scripts/ci/validate_nvd_database.py "${{ env.nvd_work_dir }}" \
+            --min-size 52428800 \
+            --max-age-hours 48 \
+            --expected-dc-version "${{ env.DEPENDENCY_CHECK_VERSION }}" \
+            --expected-schema "${{ env.NVD_CACHE_SCHEMA }}" 2>&1)
+          VALIDATOR_EXIT=$?
+          echo "$VALIDATOR_OUTPUT"
+          if [ "$VALIDATOR_EXIT" -ne 0 ]; then
+            echo "::error::Database validation failed (exit: $VALIDATOR_EXIT)"
+            echo "validation_result=failed" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          for key in validation_result database_sha256 database_size_bytes update_completed_at age_hours builder_run_id builder_sha; do
+            val=$(echo "$VALIDATOR_OUTPUT" | grep "^${key}=" | head -1 | cut -d= -f2-)
+            [ -n "$val" ] && echo "${key}=${val}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Offline smoke test
+        id: smoke_test
+        shell: bash
+        run: |
+          set -uo pipefail
+          SMOKE_LOG="${{ runner.temp }}/publisher-smoke-test.log"
+          set +e
+          mvn --batch-mode --no-transfer-progress \
+            org.owasp:dependency-check-maven:${{ env.DEPENDENCY_CHECK_VERSION }}:check \
+            -DdataDirectory="${{ env.nvd_work_dir }}" \
+            -DautoUpdate=false \
+            -DfailOnError=true \
+            -DfailBuildOnCVSS=11 \
+            -DossIndexAnalyzerEnabled=false \
+            -DhostedSuppressionsEnabled=false \
+            -DversionCheckEnabled=false \
+            -DoutputDirectory="${{ runner.temp }}/smoke-output" \
+            > "$SMOKE_LOG" 2>&1
+          SMOKE_EXIT=$?
+          set -e
+          echo "smoke_exit_code=$SMOKE_EXIT" >> "$GITHUB_OUTPUT"
+          tail -50 "$SMOKE_LOG" || true
+
+          if [ "$SMOKE_EXIT" -ne 0 ]; then
+            echo "::error::Offline smoke test failed (exit: $SMOKE_EXIT)"
+            echo "smoke_result=execution_failure" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          FORBIDDEN_HITS=$(grep -E -c 'services\.nvd\.nist\.gov|nvd\.nist\.gov/developers|ossindex\.sonatype\.org|Sonatype OSS Index API' "$SMOKE_LOG" || true)
+          if [ "$FORBIDDEN_HITS" -gt 0 ]; then
+            echo "::error::Smoke test contacted forbidden hosts"
+            echo "smoke_result=offline_violation" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "smoke_result=success" >> "$GITHUB_OUTPUT"
+
+      - name: Promote work to canonical
+        if: steps.validate_db.outputs.validation_result == 'valid' && steps.smoke_test.outputs.smoke_result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "${{ env.CANONICAL_DIR }}"
+          mkdir -p "${{ env.CANONICAL_DIR }}"
+          cp -a "${{ env.nvd_work_dir }}/." "${{ env.CANONICAL_DIR }}/"
+          echo "Canonical promoted from validated work directory."
+
+      - name: Publish snapshot to storage
+        id: publish
+        if: steps.validate_db.outputs.validation_result == 'valid' && steps.smoke_test.outputs.smoke_result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, sys, json, pathlib
+          sys.path.insert(0, '.')
+          from scripts.security.nvd_snapshot_store import get_backend, publish_snapshot, utc_now_iso
+
+          backend = get_backend(os.environ['NVD_SNAPSHOT_BACKEND'])
+          manifest = publish_snapshot(
+              backend=backend,
+              data_dir=pathlib.Path(os.environ['CANONICAL_DIR']),
+              publisher_commit_sha=os.environ['GITHUB_SHA'],
+              publisher_run_id=os.environ['GITHUB_RUN_ID'],
+              previous_snapshot_id=os.environ.get('PREVIOUS_SNAPSHOT_ID', ''),
+              last_successful_update_at=os.environ.get('UPDATE_COMPLETED_AT', utc_now_iso()),
+              database_sha256=os.environ['DB_SHA256'],
+              database_size_bytes=int(os.environ['DB_SIZE_BYTES']),
+              validation_result='valid',
+              offline_smoke_result='success',
+              freshness_hours_at_publish=int(os.environ.get('AGE_HOURS', '0')),
+          )
+          print(f"snapshot_id={manifest['snapshot_id']}")
+          print(f"archive_sha256={manifest['archive_sha256']}")
+          print(f"storage_version_or_digest={manifest['storage_version_or_digest']}")
+          # Save for next step
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write(f"snapshot_id={manifest['snapshot_id']}\n")
+              f.write(f"archive_sha256={manifest['archive_sha256']}\n")
+              f.write(f"storage_version={manifest['storage_version_or_digest']}\n")
+          PY
+        env:
+          NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
+          PREVIOUS_SNAPSHOT_ID: ${{ steps.prev_snapshot.outputs.previous_snapshot_id }}
+          UPDATE_COMPLETED_AT: ${{ steps.validate_db.outputs.update_completed_at }}
+          DB_SHA256: ${{ steps.validate_db.outputs.database_sha256 }}
+          DB_SIZE_BYTES: ${{ steps.validate_db.outputs.database_size_bytes }}
+          AGE_HOURS: ${{ steps.validate_db.outputs.age_hours }}
+
+      - name: Write cancellation summary
+        if: cancelled()
+        shell: bash
+        run: |
+          {
+            echo "## NVD Snapshot Publisher: CANCELLED"
+            echo ""
+            echo "The publisher was cancelled. Canonical directory and latest.json pointer are unchanged."
+            echo ""
+            echo "| Stage | Result |"
+            echo "|---|---|"
+            echo "| NVD update | ${{ steps.update_nvd.outputs.update_exit_code == '0' && 'Completed' || 'Cancelled' }} |"
+            echo "| Database validation | ${{ steps.validate_db.outputs.validation_result == 'valid' && 'Valid' || 'Not executed' }} |"
+            echo "| Smoke test | ${{ steps.smoke_test.outputs.smoke_result == 'success' && 'Success' || 'Not executed' }} |"
+            echo "| Canonical promotion | Not executed |"
+            echo "| Snapshot publish | Not executed |"
+            echo "| latest.json pointer | Unchanged |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Write summary
+        if: always() && !cancelled()
+        shell: bash
+        env:
+          UPDATE_RESULT: ${{ steps.update_nvd.outputs.update_exit_code }}
+          VALIDATION_RESULT: ${{ steps.validate_db.outputs.validation_result }}
+          SMOKE_RESULT: ${{ steps.smoke_test.outputs.smoke_result }}
+          SNAPSHOT_ID: ${{ env.snapshot_id }}
+        run: |
+          {
+            echo "## NVD Snapshot Publisher — R12E"
+            echo ""
+            echo "**Run ID:** ${{ github.run_id }}"
+            echo "**SHA:** \`${{ github.sha }}\`"
+            echo "**Backend:** ${{ vars.NVD_SNAPSHOT_BACKEND }}"
+            echo "**Canonical:** \`${{ env.CANONICAL_DIR }}\`"
+            echo ""
+            echo "| Stage | Result |"
+            echo "|---|---|"
+            echo "| Previous snapshot | \`${{ steps.prev_snapshot.outputs.previous_snapshot_id || '<none>' }}\` |"
+            echo "| Update exit | $UPDATE_RESULT |"
+            echo "| Update duration | ${{ steps.update_nvd.outputs.update_duration_seconds }}s |"
+            echo "| Validation | $VALIDATION_RESULT |"
+            echo "| Smoke | $SMOKE_RESULT |"
+            echo "| Published snapshot | \`${SNAPSHOT_ID:-<not published>}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Final enforcement
+        if: always() && !cancelled()
+        shell: bash
+        env:
+          UPDATE_RESULT: ${{ steps.update_nvd.outputs.update_exit_code }}
+          VALIDATION_RESULT: ${{ steps.validate_db.outputs.validation_result }}
+          SMOKE_RESULT: ${{ steps.smoke_test.outputs.smoke_result }}
+          SNAPSHOT_ID: ${{ env.snapshot_id }}
+        run: |
+          if [ -z "$UPDATE_RESULT" ]; then
+            echo "::error::NVD update did not produce a result."
+            exit 1
+          fi
+          if [ "$UPDATE_RESULT" != "0" ]; then
+            echo "::error::NVD update failed (exit: $UPDATE_RESULT). Canonical preserved."
+            exit 1
+          fi
+          if [ "$VALIDATION_RESULT" != "valid" ]; then
+            echo "::error::Database validation did not pass ($VALIDATION_RESULT). Canonical preserved."
+            exit 1
+          fi
+          if [ "$SMOKE_RESULT" != "success" ]; then
+            echo "::error::Offline smoke test did not pass ($SMOKE_RESULT). Canonical preserved."
+            exit 1
+          fi
+          if [ -z "$SNAPSHOT_ID" ]; then
+            echo "::error::Snapshot was not published."
+            exit 1
+          fi
+          echo "NVD snapshot published: $SNAPSHOT_ID"
+
+      - name: Cleanup work directory
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "${{ env.WORK_DIR_BASE }}/${{ github.run_id }}" || true

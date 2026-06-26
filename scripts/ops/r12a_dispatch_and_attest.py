@@ -462,19 +462,20 @@ Issue #101 remains OPEN until all owner actions close.
 
 # ---------- Orchestration ----------
 
-def run_nvd_maintenance(
+def resolve_nvd_snapshot(
     client: GitHubClient,
     merge_sha: str,
-    poll_interval: int,
-    max_poll_minutes: int,
-    pending_timeout_minutes: int = 15,
+    max_age_hours: int = 48,
+    min_size_bytes: int = 50 * 1024 * 1024,
 ) -> dict:
-    """Dispatch and wait for NVD Maintenance. Returns dict of results.
+    """R12E Section 15.2 — resolve the latest verified NVD snapshot
+    from persistent storage. Does NOT dispatch NVD build, does NOT
+    contact the NVD API.
 
-    R12C Section 11 — before dispatch, check for an active NVD writer.
-    If one exists, fail closed with a duplicate-dispatch error rather
-    than triggering a second run that would be blocked by the
-    single-writer concurrency group.
+    Returns a dict with snapshot_id, archive_sha256, created_at,
+    age_hours, and database_sha256.
+
+    Fails fast (within ~1 minute) if no snapshot is available.
     """
     print("\n=== Step 1: Verify main SHA ===")
     main_sha = client.get_branch_sha("main")
@@ -485,108 +486,82 @@ def run_nvd_maintenance(
     if not main_sha_verified:
         raise RuntimeError(
             f"main SHA ({main_sha}) does not match expected merge SHA ({merge_sha}). "
-            "Aborting before dispatch."
+            "Aborting before snapshot resolution."
         )
 
-    print("\n=== Step 1b: Detect active NVD writer (R12C Section 11) ===")
-    nvd_wf_id = client.get_workflow_id(NVD_WORKFLOW)
-    active = detect_active_nvd_run(client, nvd_wf_id)
-    if active is not None:
-        print("  FATAL: An active NVD writer already exists.")
-        print("  Duplicate dispatch is prohibited.")
-        print(f"  Active Run ID:     {active.get('id')}")
-        print(f"  Active Run URL:    {active.get('html_url')}")
-        print(f"  Active Run SHA:    {active.get('head_sha')}")
-        print(f"  Active Run status: {active.get('status')}")
+    print("\n=== Step 2: Resolve latest verified NVD snapshot (R12E) ===")
+    # Import the snapshot store module
+    import sys as _sys
+    _repo_root = _sys.path[0] if _sys.path else "."
+    import os as _os
+    _repo_root = _os.environ.get("GITHUB_WORKSPACE", _repo_root)
+    if _repo_root not in _sys.path:
+        _sys.path.insert(0, _repo_root)
+    from scripts.security.nvd_snapshot_store import get_backend, SnapshotNotFoundError
+
+    backend_name = _os.environ.get("NVD_SNAPSHOT_BACKEND", "")
+    if not backend_name:
         raise RuntimeError(
-            f"An active NVD writer already exists (Run {active.get('id')}, "
-            f"status={active.get('status')}). Duplicate dispatch is prohibited."
+            "NVD_SNAPSHOT_BACKEND is not configured. "
+            "R12B is an offline consumer and will not build NVD data. "
+            "Run or repair NVD Snapshot Publisher, then retry R12B."
         )
-    print("  No active NVD writer detected. Proceeding with dispatch.")
 
-    print("\n=== Step 2: Dispatch NVD Database Maintenance ===")
-    client.dispatch_workflow(NVD_WORKFLOW, ref="main")
-    time.sleep(8)  # allow GitHub to register the run
+    backend = get_backend(backend_name)
+    latest = backend.resolve_latest_verified()
+    if not latest:
+        raise RuntimeError(
+            "No valid NVD snapshot is available. "
+            "R12B is an offline consumer and will not build NVD data. "
+            "Run or repair NVD Snapshot Publisher, then retry R12B."
+        )
 
-    print("\n=== Step 3: Capture NVD Maintenance Run ID ===")
-    runs = client.list_workflow_runs(NVD_WORKFLOW, branch="main", per_page=1)
-    if not runs:
-        raise RuntimeError("No NVD Maintenance runs found after dispatch")
-    nvd_run = runs[0]
-    nvd_run_id = nvd_run["id"]
-    nvd_run_url = nvd_run["html_url"]
-    print(f"  Run ID: {nvd_run_id}")
-    print(f"  URL:   {nvd_run_url}")
+    snapshot_id = latest["snapshot_id"]
+    archive_sha256 = latest.get("archive_sha256", "")
+    created_at = latest.get("created_at", "")
 
-    print("\n=== Step 4: Poll NVD Maintenance until terminal ===")
-    final_run = poll_until_terminal(
-        client, nvd_run_id, poll_interval, max_poll_minutes, "NVD-Maintenance",
-        pending_timeout_minutes=pending_timeout_minutes,
-    )
-    nvd_conclusion = final_run.get("conclusion")
-    print(f"  Final conclusion: {nvd_conclusion}")
+    # Compute age
+    import datetime as _dt
+    try:
+        created_dt = _dt.datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=_dt.timezone.utc
+        )
+        age_hours = int((_dt.datetime.now(_dt.timezone.utc) - created_dt).total_seconds() // 3600)
+    except (ValueError, TypeError):
+        raise RuntimeError(f"snapshot created_at is not a valid UTC timestamp: {created_at!r}")
 
-    print("\n=== Step 5-7: Capture job IDs and require success ===")
-    jobs_info = extract_job_outputs(client, nvd_run_id)
-    builder_job = next(
-        (j for j in jobs_info["jobs"] if "build" in j["name"].lower()), None
-    )
-    restore_job = next(
-        (j for j in jobs_info["jobs"] if "restore" in j["name"].lower()), None
-    )
-    builder_job_id = builder_job["id"] if builder_job else "N/A"
-    builder_conclusion = builder_job["conclusion"] if builder_job else "N/A"
-    restore_job_id = restore_job["id"] if restore_job else "N/A"
-    restore_conclusion = restore_job["conclusion"] if restore_job else "N/A"
-    print(f"  Builder job: {builder_job_id} ({builder_conclusion})")
-    print(f"  Restore job: {restore_job_id} ({restore_conclusion})")
+    if age_hours > max_age_hours:
+        raise RuntimeError(
+            f"NVD snapshot is stale — age {age_hours}h exceeds max {max_age_hours}h. "
+            "Run NVD Snapshot Publisher to publish a fresh snapshot, then retry R12B."
+        )
 
-    if builder_conclusion != "success":
-        raise RuntimeError(f"Builder job did not succeed: {builder_conclusion}")
-    if restore_conclusion != "success":
-        raise RuntimeError(f"Restore verification job did not succeed: {restore_conclusion}")
+    print(f"  Snapshot ID:     {snapshot_id}")
+    print(f"  Created at:      {created_at}")
+    print(f"  Age:             {age_hours}h")
+    print(f"  Archive SHA-256: {archive_sha256}")
 
-    print("\n=== Step 8-11: Capture cache key, SHA-256, size, artifact IDs ===")
-    artifacts = extract_artifacts(client, nvd_run_id)
-    builder_artifact = next(
-        (a for a in artifacts if "build-evidence" in a["name"]), None
-    )
-    restore_artifact = next(
-        (a for a in artifacts if "restore-verification" in a["name"]), None
-    )
-    builder_artifact_id = builder_artifact["id"] if builder_artifact else "N/A"
-    builder_artifact_digest = (
-        builder_artifact["digest"] if builder_artifact else "N/A"
-    )
-    restore_artifact_id = restore_artifact["id"] if restore_artifact else "N/A"
-    restore_artifact_digest = (
-        restore_artifact["digest"] if restore_artifact else "N/A"
-    )
-    print(f"  Builder artifact: {builder_artifact_id}")
-    print(f"  Restore artifact: {restore_artifact_id}")
+    # Download the manifest for full details
+    manifest = backend.download_manifest(snapshot_id)
+    database_sha256 = manifest.get("database_sha256", "")
+    database_size_bytes = manifest.get("database_size_bytes", 0)
 
-    # Note: cache_key, db_sha256, db_size are recorded in the run's
-    # step outputs and artifacts. They can be extracted from the
-    # downloaded manifest artifact. For this orchestrator we record
-    # the artifact references; the actual values are visible in the
-    # GitHub Actions run summary and the uploaded manifest JSON.
+    if database_size_bytes < min_size_bytes:
+        raise RuntimeError(
+            f"NVD snapshot database size {database_size_bytes} below minimum {min_size_bytes}. "
+            "Snapshot may be corrupt. Run NVD Snapshot Publisher to republish."
+        )
+
     return {
-        "nvd_run_id": nvd_run_id,
-        "nvd_run_url": nvd_run_url,
-        "nvd_conclusion": nvd_conclusion,
-        "builder_job_id": builder_job_id,
-        "builder_conclusion": builder_conclusion,
-        "restore_job_id": restore_job_id,
-        "restore_conclusion": restore_conclusion,
-        "builder_artifact_id": builder_artifact_id,
-        "builder_artifact_digest": builder_artifact_digest,
-        "restore_artifact_id": restore_artifact_id,
-        "restore_artifact_digest": restore_artifact_digest,
-        "cache_key": "see-artifact-nvd-cache-evidence-json",
-        "db_sha256": "see-artifact-sanad-nvd-manifest-json",
-        "db_size": "see-artifact-sanad-nvd-manifest-json",
-        "successful_attempt": "see-artifact-nvd-build-attempts-json",
+        "snapshot_id": snapshot_id,
+        "archive_sha256": archive_sha256,
+        "created_at": created_at,
+        "age_hours": age_hours,
+        "database_sha256": database_sha256,
+        "database_size_bytes": database_size_bytes,
+        "storage_backend": backend_name,
         "main_sha_verified": main_sha_verified,
+        "nvd_conclusion": "SUCCESS (snapshot resolved)",
     }
 
 
@@ -754,10 +729,9 @@ def main() -> int:
     client = GitHubClient(token, args.repo)
 
     try:
-        # === NVD Maintenance ===
-        nvd_results = run_nvd_maintenance(
-            client, args.merge_sha, args.poll_interval_seconds, args.max_poll_minutes,
-            pending_timeout_minutes=args.pending_timeout_minutes,
+        # === NVD Snapshot Resolution (R12E — no NVD dispatch) ===
+        nvd_results = resolve_nvd_snapshot(
+            client, args.merge_sha,
         )
 
         # === Post interim attestation ===

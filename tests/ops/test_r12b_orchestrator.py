@@ -259,101 +259,97 @@ def test_github_client_requires_token():
 
 # ---------- Tests: NVD workflow YAML structure ----------
 
-def test_nvd_workflow_uses_bounded_attempt_timeout():
-    """The NVD workflow must wrap mvn in `timeout --signal=TERM --kill-after=30s 100m`."""
-    wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-database-maintenance.yml"
+# R12E: The old NVD database maintenance workflow is DEPRECATED.
+# These tests now check the NVD Snapshot Publisher instead.
+
+def test_nvd_publisher_workflow_requires_self_hosted_runner():
+    """R12E: the publisher must run on self-hosted runner, not ubuntu-latest."""
+    import yaml
+    wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-snapshot-publisher.yml"
+    with wf_path.open() as f:
+        d = yaml.safe_load(f)
+    for jn, jd in d["jobs"].items():
+        runs_on = jd.get("runs-on", "")
+        if isinstance(runs_on, list):
+            assert "self-hosted" in runs_on, f"{jn} must run on self-hosted"
+            assert "snad-nvd-publisher" in runs_on, f"{jn} must have snad-nvd-publisher label"
+        elif isinstance(runs_on, str):
+            assert "self-hosted" in runs_on, f"{jn} must run on self-hosted"
+        else:
+            assert False, f"{jn} runs-on is not a list or string: {runs_on}"
+
+
+def test_nvd_publisher_uses_single_update_pass():
+    """R12E: publisher runs one update-only pass, not a retry loop."""
+    wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-snapshot-publisher.yml"
     content = wf_path.read_text(encoding="utf-8")
-    assert "timeout --signal=TERM --kill-after=30s 100m" in content, (
-        "NVD workflow must bound each Maven attempt to 100 minutes via timeout(1)"
-    )
+    assert "update-only" in content
+    # No retry loop (no `for ATTEMPT in 1 2 3`)
+    assert "for ATTEMPT in 1 2 3" not in content
 
 
-def test_nvd_workflow_uses_1000_results_per_page():
-    wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-database-maintenance.yml"
+def test_nvd_publisher_does_not_force_results_per_page():
+    """R12E: do not force nvdApiResultsPerPage; use NVD default."""
+    wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-snapshot-publisher.yml"
     content = wf_path.read_text(encoding="utf-8")
-    assert "-DnvdApiResultsPerPage=1000" in content
+    assert "nvdApiResultsPerPage" not in content
 
 
-def test_nvd_workflow_uses_max_retry_count_5():
-    wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-database-maintenance.yml"
-    content = wf_path.read_text(encoding="utf-8")
-    assert "-DnvdMaxRetryCount=5" in content
-    # Ensure the old value of 10 is not present
-    assert "-DnvdMaxRetryCount=10" not in content
+def test_nvd_publisher_job_timeout_is_240():
+    import yaml
+    wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-snapshot-publisher.yml"
+    with wf_path.open() as f:
+        d = yaml.safe_load(f)
+    for jn, jd in d["jobs"].items():
+        assert jd["timeout-minutes"] == 240, f"{jn} timeout should be 240"
 
 
-def test_nvd_workflow_backoff_0_300_600():
-    wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-database-maintenance.yml"
-    content = wf_path.read_text(encoding="utf-8")
-    assert "1) DELAY=0 ;;" in content
-    assert "2) DELAY=300 ;;" in content
-    assert "3) DELAY=600 ;;" in content
-    # Ensure the old 900s backoff is not present
-    assert "3) DELAY=900 ;;" not in content
-
-
-def test_nvd_workflow_job_timeout_is_340():
+def test_nvd_database_maintenance_is_deprecated():
+    """R12E: old NVD workflow must have no triggers."""
     import yaml
     wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-database-maintenance.yml"
     with wf_path.open() as f:
         d = yaml.safe_load(f)
-    assert d["jobs"]["build-nvd-database"]["timeout-minutes"] == 340
+    on_key = d.get("on", d.get(True, {}))
+    # on: {} means no triggers
+    assert on_key == {} or on_key is None, f"NVD database maintenance must have no triggers, got: {on_key}"
 
 
-def test_nvd_workflow_final_enforcement_skipped_on_cancel():
+def test_nvd_database_maintenance_name_includes_deprecated():
     wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-database-maintenance.yml"
     content = wf_path.read_text(encoding="utf-8")
-    # The Final enforcement step must use `always() && !cancelled()`
-    assert "if: always() && !cancelled()" in content
+    assert "DEPRECATED" in content
 
 
-def test_nvd_workflow_has_cancellation_summary():
-    wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-database-maintenance.yml"
-    content = wf_path.read_text(encoding="utf-8")
-    assert "Write cancellation summary" in content
-    assert "if: cancelled()" in content
-
-
-def test_nvd_workflow_distinguishes_empty_validation():
-    """The Final enforcement must check for empty VALIDATION_RESULT separately."""
-    wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-database-maintenance.yml"
-    content = wf_path.read_text(encoding="utf-8")
-    assert 'validation was not executed or produced no result' in content
-
-
-def test_nvd_workflow_does_not_print_api_key_length():
-    """Secret metadata (key length) must not be logged."""
-    wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-database-maintenance.yml"
-    content = wf_path.read_text(encoding="utf-8")
-    assert "length: ${#NVD_API_KEY}" not in content
-    assert "NVD_API_KEY is configured." in content
-
-
-def test_nvd_workflow_accepts_odc_trace_db():
+def test_validator_accepts_odc_trace_db():
     """The validator must not flag odc.trace.db as a temp file."""
     validator_path = REPO_ROOT / "scripts" / "ci" / "validate_nvd_database.py"
     content = validator_path.read_text(encoding="utf-8")
-    # odc.trace.db must NOT be in TEMP_FILE_PATTERNS
     assert '"odc.trace.db"' not in content
 
 
 # ---------- Tests: R12B orchestrator YAML ----------
 
-def test_r12b_orchestrator_job_timeout_is_355():
+def test_r12b_orchestrator_job_timeout_is_120():
+    """R12E: R12B timeout reduced to 120 minutes (no NVD build)."""
     import yaml
     wf_path = REPO_ROOT / ".github" / "workflows" / "r12b-acceptance-orchestrator.yml"
     with wf_path.open() as f:
         d = yaml.safe_load(f)
-    assert d["jobs"]["orchestrate"]["timeout-minutes"] == 355
+    assert d["jobs"]["orchestrate"]["timeout-minutes"] == 120
 
 
-def test_r12b_orchestrator_uses_345_poll_minutes():
+def test_r12b_orchestrator_does_not_dispatch_nvd():
+    """R12E: R12B must not dispatch NVD build."""
     wf_path = REPO_ROOT / ".github" / "workflows" / "r12b-acceptance-orchestrator.yml"
     content = wf_path.read_text(encoding="utf-8")
-    assert "--max-poll-minutes 345" in content
+    # The orchestrator should not reference NVD_WORKFLOW dispatch
+    assert "nvd-database-maintenance" not in content
 
 
-def test_r12b_orchestrator_uses_15_pending_timeout():
+def test_r12b_orchestrator_installs_storage_deps():
+    """R12E: R12B must install storage backend dependencies."""
     wf_path = REPO_ROOT / ".github" / "workflows" / "r12b-acceptance-orchestrator.yml"
     content = wf_path.read_text(encoding="utf-8")
-    assert "--pending-timeout-minutes 15" in content
+    assert "NVD_SNAPSHOT_BACKEND" in content
+    assert "Install storage backend dependencies" in content

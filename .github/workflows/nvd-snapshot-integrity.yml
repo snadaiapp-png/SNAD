@@ -1,0 +1,172 @@
+# ============================================================
+# SANAD — NVD Snapshot Integrity (Read-Only Verification)
+# ============================================================
+# EXEC-PROMPT-010R12E Section 13 — downloads the latest verified
+# snapshot from storage and independently verifies it on a
+# GitHub-hosted runner. This proves the snapshot is consumable
+# without the publisher's self-hosted environment.
+#
+# This workflow never touches NVD_API_KEY and never calls the NVD API.
+# ============================================================
+
+name: NVD Snapshot Integrity
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Daily at 02:43 UTC — after the 02:17 publisher run.
+    - cron: '43 2 * * *'
+
+permissions:
+  contents: read
+  actions: read
+  # id-token: write is required for OIDC-based storage auth.
+  id-token: write
+
+concurrency:
+  group: nvd-snapshot-integrity
+  cancel-in-progress: false
+
+env:
+  DEPENDENCY_CHECK_VERSION: "12.1.0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  verify:
+    name: Verify Latest Snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Verify storage backend configured
+        shell: bash
+        run: |
+          BACKEND="${{ vars.NVD_SNAPSHOT_BACKEND }}"
+          if [ -z "$BACKEND" ]; then
+            echo "::error::Repository variable NVD_SNAPSHOT_BACKEND is not set."
+            echo "Cannot verify snapshots without a configured storage backend."
+            exit 1
+          fi
+          echo "Storage backend: $BACKEND"
+
+      - name: Install Python dependencies
+        shell: bash
+        run: |
+          python3 -m pip install --quiet pytest pyyaml
+          if [ "${{ vars.NVD_SNAPSHOT_BACKEND }}" = "s3" ]; then
+            python3 -m pip install --quiet boto3
+          fi
+
+      - name: Resolve latest verified snapshot
+        id: resolve
+        shell: bash
+        run: |
+          set -uo pipefail
+          python3 - <<'PY'
+          import json, os, sys
+          sys.path.insert(0, '.')
+          from scripts.security.nvd_snapshot_store import get_backend, SnapshotNotFoundError
+          backend = get_backend(os.environ.get('NVD_SNAPSHOT_BACKEND', ''))
+          latest = backend.resolve_latest_verified()
+          if not latest:
+              print("::error::No verified snapshot available. Run NVD Snapshot Publisher first.")
+              raise SystemExit(1)
+          print(f"snapshot_id={latest['snapshot_id']}")
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"snapshot_id={latest['snapshot_id']}\n")
+              f.write(f"archive_sha256={latest.get('archive_sha256','')}\n")
+              f.write(f"created_at={latest.get('created_at','')}\n")
+          PY
+        env:
+          NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
+
+      - name: Download snapshot
+        id: download
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ runner.temp }}/snapshot-download"
+          python3 - <<'PY'
+          import os, sys, pathlib
+          sys.path.insert(0, '.')
+          from scripts.security.nvd_snapshot_store import get_backend
+          backend = get_backend(os.environ['NVD_SNAPSHOT_BACKEND'])
+          archive = backend.download_snapshot(
+              os.environ['SNAPSHOT_ID'],
+              pathlib.Path(os.environ['RUNNER_TEMP']) / 'snapshot-download',
+          )
+          print(f"archive_path={archive}")
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"archive_path={archive}\n")
+          PY
+        env:
+          NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
+          SNAPSHOT_ID: ${{ steps.resolve.outputs.snapshot_id }}
+
+      - name: Verify snapshot
+        id: verify
+        shell: bash
+        run: |
+          set -uo pipefail
+          python3 scripts/security/verify_nvd_snapshot.py \
+            "${{ steps.download.outputs.archive_path }}" \
+            --expected-snapshot-id "${{ steps.resolve.outputs.snapshot_id }}" \
+            --min-size 52428800 \
+            --max-age-hours 48 \
+            --run-smoke \
+            --smoke-extract-dir "${{ runner.temp }}/smoke-extract"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nvd-snapshot-integrity-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/snapshot-download/
+            ${{ runner.temp }}/smoke-extract/offline-smoke-test.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Write summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## NVD Snapshot Integrity — R12E"
+            echo ""
+            echo "**Run ID:** ${{ github.run_id }}"
+            echo "**Snapshot ID:** \`${{ steps.resolve.outputs.snapshot_id || '<none>' }}\`"
+            echo "**Snapshot created:** ${{ steps.resolve.outputs.created_at }}"
+            echo "**Archive SHA-256:** \`${{ steps.resolve.outputs.archive_sha256 }}\`"
+            echo ""
+            echo "Read-only verification on GitHub-hosted runner. No NVD_API_KEY used."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Final enforcement
+        if: always()
+        shell: bash
+        run: |
+          if [ -z "${{ steps.resolve.outputs.snapshot_id }}" ]; then
+            echo "::error::No snapshot resolved"
+            exit 1
+          fi
+          if [ ! -f "${{ steps.download.outputs.archive_path }}" ]; then
+            echo "::error::Archive not downloaded"
+            exit 1
+          fi
+          echo "Snapshot integrity verification PASSED."
