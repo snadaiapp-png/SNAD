@@ -185,84 +185,115 @@ jobs:
         run: |
           echo "cache_prefix=nvd-db-${{ runner.os }}-dc-${{ env.DEPENDENCY_CHECK_VERSION }}-${{ env.NVD_CACHE_SCHEMA }}" >> "$GITHUB_OUTPUT"
 
-      # Restore verified NVD database (read-only — scanner never writes).
-      - name: Restore verified NVD database (canonical path)
-        id: restore_cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.NVD_CANONICAL_DIR }}
-          key: ${{ steps.cache_keys.outputs.cache_prefix }}-not-exact-${{ github.run_id }}
-          restore-keys: |
-            ${{ steps.cache_keys.outputs.cache_prefix }}-
-
-      - name: Require cache restored (Acceptance Mode only)
-        id: require_cache
+      # R12E: Resolve latest verified snapshot from persistent storage.
+      # The scanner is a READ-ONLY consumer. It does NOT use GitHub
+      # Actions Cache as the source of truth, and it does NOT contact
+      # the NVD API.
+      - name: Resolve latest verified NVD snapshot
+        id: resolve_snapshot
         shell: bash
+        working-directory: ${{ github.workspace }}
         run: |
-          set -euo pipefail
-          HIT="${{ steps.restore_cache.outputs.cache-hit }}"
-          MATCHED="${{ steps.restore_cache.outputs.cache-matched-key }}"
-          echo "cache_hit=${HIT}" >> "$GITHUB_OUTPUT"
-          echo "cache_matched_key=${MATCHED}" >> "$GITHUB_OUTPUT"
-
-          MODE="${{ steps.mode.outputs.execution_mode }}"
-
-          if [ -z "${MATCHED}" ] || [ "${MATCHED}" = "false" ] || [ "${MATCHED}" = "null" ] || [ ! -d "${{ env.NVD_CANONICAL_DIR }}" ]; then
+          set -uo pipefail
+          BACKEND="${{ vars.NVD_SNAPSHOT_BACKEND }}"
+          if [ -z "$BACKEND" ]; then
+            MODE="${{ steps.mode.outputs.execution_mode }}"
             if [ "$MODE" = "acceptance" ]; then
-              echo "::error::NVD database cache could not be restored in ACCEPTANCE mode — run nvd-database-maintenance first"
-              echo "classification=NVD_DATABASE_MISSING" >> "$GITHUB_OUTPUT"
+              echo "::error::NVD_SNAPSHOT_BACKEND is not configured. Cannot resolve snapshot in acceptance mode."
+              echo "classification=SNAPSHOT_BACKEND_MISSING" >> "$GITHUB_OUTPUT"
               echo "scan_status=not_started" >> "$GITHUB_OUTPUT"
               exit 1
             else
-              # PR Mode — cache absence is tolerated. Skip OWASP acceptance.
-              echo "::notice::NVD database cache not available in PR mode — OWASP acceptance NOT EXECUTED"
-              echo "classification=NVD_DATABASE_MISSING_PR_MODE" >> "$GITHUB_OUTPUT"
+              echo "::notice::NVD_SNAPSHOT_BACKEND not configured in PR mode — OWASP acceptance NOT EXECUTED"
+              echo "classification=SNAPSHOT_BACKEND_MISSING_PR_MODE" >> "$GITHUB_OUTPUT"
               echo "scan_status=not_executed_pr_mode" >> "$GITHUB_OUTPUT"
               exit 0
             fi
           fi
 
-          echo "Cache restored (matched key: ${MATCHED})"
-          echo "classification=CACHE_RESTORED" >> "$GITHUB_OUTPUT"
+          python3 - <<'PY'
+          import os, sys, json
+          sys.path.insert(0, '.')
+          from scripts.security.nvd_snapshot_store import get_backend
+          backend = get_backend(os.environ['NVD_SNAPSHOT_BACKEND'])
+          latest = backend.resolve_latest_verified()
+          if not latest:
+              mode = os.environ.get('EXEC_MODE', '')
+              if mode == 'acceptance':
+                  print("::error::No verified NVD snapshot available. Run NVD Snapshot Publisher first.")
+                  raise SystemExit(1)
+              else:
+                  print("::notice::No verified snapshot in PR mode — OWASP acceptance NOT EXECUTED")
+                  with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                      f.write("classification=NO_SNAPSHOT_PR_MODE\n")
+                      f.write("scan_status=not_executed_pr_mode\n")
+                  raise SystemExit(0)
+          print(f"snapshot_id={latest['snapshot_id']}")
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"snapshot_id={latest['snapshot_id']}\n")
+              f.write(f"archive_sha256={latest.get('archive_sha256','')}\n")
+              f.write(f"snapshot_created_at={latest.get('created_at','')}\n")
+              f.write("classification=SNAPSHOT_RESOLVED\n")
+          PY
+        env:
+          NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
+          EXEC_MODE: ${{ steps.mode.outputs.execution_mode }}
 
-      - name: Validate NVD database (strengthened validator)
-        id: db_validation
-        if: steps.require_cache.outputs.classification != 'NVD_DATABASE_MISSING_PR_MODE'
+      - name: Download and verify NVD snapshot
+        id: download_snapshot
+        if: steps.resolve_snapshot.outputs.classification == 'SNAPSHOT_RESOLVED'
         shell: bash
         working-directory: ${{ github.workspace }}
         run: |
           set -uo pipefail
+          mkdir -p "${{ runner.temp }}/nvd-snapshot"
+          python3 - <<'PY'
+          import os, sys, pathlib
+          sys.path.insert(0, '.')
+          from scripts.security.nvd_snapshot_store import get_backend
+          backend = get_backend(os.environ['NVD_SNAPSHOT_BACKEND'])
+          archive = backend.download_snapshot(
+              os.environ['SNAPSHOT_ID'],
+              pathlib.Path(os.environ['RUNNER_TEMP']) / 'nvd-snapshot',
+          )
+          print(f"archive_path={archive}")
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"archive_path={archive}\n")
+          PY
 
-          VALIDATOR_OUTPUT=$(python3 scripts/ci/validate_nvd_database.py "${{ env.NVD_CANONICAL_DIR }}" \
+          # Verify the snapshot archive
+          python3 scripts/security/verify_nvd_snapshot.py \
+            "${{ steps.download_snapshot.outputs.archive_path }}" \
+            --expected-snapshot-id "${{ steps.resolve_snapshot.outputs.snapshot_id }}" \
             --min-size "${{ env.NVD_MIN_SIZE_BYTES }}" \
-            --max-age-hours "${{ env.NVD_MAX_AGE_HOURS }}" \
-            --expected-dc-version "${{ env.DEPENDENCY_CHECK_VERSION }}" \
-            --expected-schema "${{ env.NVD_CACHE_SCHEMA }}" 2>&1)
-          VALIDATOR_EXIT=$?
-
-          echo "$VALIDATOR_OUTPUT"
-
-          if [ "$VALIDATOR_EXIT" -ne 0 ]; then
-            echo "::error::NVD database validation failed (validator exit: $VALIDATOR_EXIT)"
-            RESULT_LINE=$(echo "$VALIDATOR_OUTPUT" | grep '^validation_result=' | head -1 | cut -d= -f2)
-            echo "db_status=${RESULT_LINE:-validator_error}" >> "$GITHUB_OUTPUT"
-            echo "classification=NVD_DATABASE_INVALID" >> "$GITHUB_OUTPUT"
+            --max-age-hours "${{ env.NVD_MAX_AGE_HOURS }}" 2>&1 | tee "${{ runner.temp }}/verify-output.txt"
+          VERIFY_EXIT=${PIPESTATUS[0]}
+          if [ "$VERIFY_EXIT" -ne 0 ]; then
+            echo "::error::NVD snapshot verification failed (exit: $VERIFY_EXIT)"
+            echo "classification=SNAPSHOT_INVALID" >> "$GITHUB_OUTPUT"
             echo "scan_status=not_started" >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
-          for key in validation_result database_sha256 database_size_bytes \
-                     update_completed_at age_hours builder_run_id builder_sha; do
-            val=$(echo "$VALIDATOR_OUTPUT" | grep "^${key}=" | head -1 | cut -d= -f2-)
+          # Extract snapshot to data directory
+          mkdir -p "${{ env.NVD_CANONICAL_DIR }}"
+          tar -xf "${{ steps.download_snapshot.outputs.archive_path }}" -C "${{ runner.temp }}/nvd-extract"
+          cp -a "${{ runner.temp }}/nvd-extract/data/." "${{ env.NVD_CANONICAL_DIR }}/"
+
+          # Capture verification outputs
+          for key in validation_result database_sha256 database_size_bytes age_hours snapshot_id; do
+            val=$(grep "^${key}=" "${{ runner.temp }}/verify-output.txt" | head -1 | cut -d= -f2-)
             [ -n "$val" ] && echo "${key}=${val}" >> "$GITHUB_OUTPUT"
           done
-
           echo "db_status=valid" >> "$GITHUB_OUTPUT"
           echo "classification=DB_VALID" >> "$GITHUB_OUTPUT"
+        env:
+          NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
+          SNAPSHOT_ID: ${{ steps.resolve_snapshot.outputs.snapshot_id }}
 
       - name: Run OWASP dependency-check (offline, multi-format)
         id: owasp_scan
-        if: steps.require_cache.outputs.classification != 'NVD_DATABASE_MISSING_PR_MODE' && steps.db_validation.outputs.db_status == 'valid'
+        if: steps.resolve_snapshot.outputs.classification == 'SNAPSHOT_RESOLVED' && steps.download_snapshot.outputs.db_status == 'valid'
         shell: bash
         run: |
           set -uo pipefail
@@ -430,10 +461,11 @@ jobs:
           {
             "run_id": ${{ github.run_id }},
             "tested_sha": "${{ github.sha }}",
-            "cache_matched_key": "${{ steps.require_cache.outputs.cache_matched_key }}",
-            "database_sha256": "${{ steps.db_validation.outputs.database_sha256 }}",
-            "database_size_bytes": "${{ steps.db_validation.outputs.database_size_bytes }}",
-            "database_age_hours": "${{ steps.db_validation.outputs.age_hours }}",
+            "snapshot_id": "${{ steps.resolve_snapshot.outputs.snapshot_id }}",
+            "cache_matched_key": "snapshot:${{ steps.resolve_snapshot.outputs.snapshot_id }}",
+            "database_sha256": "${{ steps.download_snapshot.outputs.database_sha256 }}",
+            "database_size_bytes": "${{ steps.download_snapshot.outputs.database_size_bytes }}",
+            "database_age_hours": "${{ steps.download_snapshot.outputs.age_hours }}",
             "scanner_exit_code": "${{ steps.owasp_scan.outputs.scan_exit_code }}",
             "json_present": "${{ steps.preflight_reports.outputs.json_present }}",
             "html_present": "${{ steps.preflight_reports.outputs.html_present }}",
@@ -476,8 +508,8 @@ jobs:
           YAML_CHECK: ${{ steps.yaml_check.outputs.yaml_check_passed }}
           POM_CHECK: ${{ steps.pom_check.outputs.pom_check_passed }}
           EXECUTION_MODE: ${{ steps.mode.outputs.execution_mode }}
-          CLASSIFICATION: ${{ steps.require_cache.outputs.classification }}
-          DB_STATUS: ${{ steps.db_validation.outputs.db_status }}
+          CLASSIFICATION: ${{ steps.resolve_snapshot.outputs.classification }}
+          DB_STATUS: ${{ steps.download_snapshot.outputs.db_status }}
           SCAN_EXIT_CODE: ${{ steps.owasp_scan.outputs.scan_exit_code }}
           SCAN_RESULT: ${{ steps.owasp_scan.outputs.scan_result }}
           PREFLIGHT: ${{ steps.preflight_reports.outputs.preflight_result }}
@@ -500,9 +532,10 @@ jobs:
             echo "**Execution mode:** $EXECUTION_MODE"
             echo "**Mode:** OFFLINE (autoUpdate=false)"
             echo "**Canonical DB path:** \`${{ env.NVD_CANONICAL_DIR }}\`"
-            echo "**Cache matched key:** \`${{ steps.require_cache.outputs.cache_matched_key }}\`"
-            echo "**Database SHA-256:** \`${{ steps.db_validation.outputs.database_sha256 }}\`"
-            echo "**Database age:** ${{ steps.db_validation.outputs.age_hours }}h"
+            echo "**Snapshot ID:** \`${{ steps.resolve_snapshot.outputs.snapshot_id || '<none>' }}\`"
+            echo "**Snapshot created:** ${{ steps.resolve_snapshot.outputs.snapshot_created_at }}"
+            echo "**Database SHA-256:** \`${{ steps.download_snapshot.outputs.database_sha256 }}\`"
+            echo "**Database age:** ${{ steps.download_snapshot.outputs.age_hours }}h"
             echo "**Database status:** $DB_STATUS"
             echo "**Scanner exit:** $SCAN_EXIT_CODE"
             echo "**Preflight:** $PREFLIGHT"
@@ -511,7 +544,7 @@ jobs:
             echo ''
 
             # PR Mode without cache → success with NOT EXECUTED notice
-            if [ "$CLASSIFICATION" = "NVD_DATABASE_MISSING_PR_MODE" ]; then
+            if [ "$CLASSIFICATION" = "NVD_DATABASE_MISSING_PR_MODE" ] || [ "$CLASSIFICATION" = "SNAPSHOT_BACKEND_MISSING_PR_MODE" ] || [ "$CLASSIFICATION" = "NO_SNAPSHOT_PR_MODE" ]; then
               echo '### PR MODE — OWASP acceptance NOT EXECUTED'
               echo ''
               echo 'PR preflight gates:'
@@ -569,8 +602,8 @@ jobs:
           YAML_CHECK: ${{ steps.yaml_check.outputs.yaml_check_passed }}
           POM_CHECK: ${{ steps.pom_check.outputs.pom_check_passed }}
           EXECUTION_MODE: ${{ steps.mode.outputs.execution_mode }}
-          CLASSIFICATION: ${{ steps.require_cache.outputs.classification }}
-          DB_STATUS: ${{ steps.db_validation.outputs.db_status }}
+          CLASSIFICATION: ${{ steps.resolve_snapshot.outputs.classification }}
+          DB_STATUS: ${{ steps.download_snapshot.outputs.db_status }}
           SCAN_RESULT: ${{ steps.owasp_scan.outputs.scan_result }}
           SCAN_EXIT_CODE: ${{ steps.owasp_scan.outputs.scan_exit_code }}
           PREFLIGHT: ${{ steps.preflight_reports.outputs.preflight_result }}
