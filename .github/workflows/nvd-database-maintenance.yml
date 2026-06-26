@@ -101,7 +101,7 @@ jobs:
             echo "::error::NVD_API_KEY is required for NVD database maintenance."
             exit 1
           fi
-          echo "NVD_API_KEY configured (length: ${#NVD_API_KEY})"
+          echo "NVD_API_KEY is configured."
 
       - name: Calculate cache keys
         id: cache_keys
@@ -539,13 +539,13 @@ jobs:
         id: smoke_test
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
 
           # Run Dependency-Check in pure offline mode against the restored DB.
           # autoUpdate=false → no NVD API calls.
           # ossIndexAnalyzerEnabled=false → no Sonatype OSS Index calls.
-          # We DO NOT scan real project deps here; we just open the database.
-          # The goal is to prove the database file is usable by DC.
+          # failBuildOnCVSS=11 → no vuln can trigger build failure (max CVSS is 10),
+          # so any non-zero exit indicates a real execution error.
           SMOKE_LOG="${{ runner.temp }}/offline-smoke-test.log"
 
           set +e
@@ -564,12 +564,17 @@ jobs:
           SMOKE_EXIT=$?
           set -e
 
-          # Dependency-Check exits non-zero when vulnerabilities are found at or
-          # above failBuildOnCVSS. For a smoke test on the SANAD backend, the
-          # exit code is not the acceptance signal — the absence of NVD/OSS
-          # network calls and absence of H2 corruption IS the signal.
           echo "Smoke test mvn exit: $SMOKE_EXIT"
           cat "$SMOKE_LOG" | tail -80
+
+          # R12B Section 6 — Maven exit code MUST be 0.
+          # failBuildOnCVSS=11 means no vulnerability can fail the build
+          # (CVSS max is 10), so any non-zero exit is an execution failure.
+          if [ "$SMOKE_EXIT" -ne 0 ]; then
+            echo "::error::Offline smoke test execution failed with exit code $SMOKE_EXIT"
+            echo "smoke_result=execution_failure" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
 
           # Forbidden-hosts check (R12A Section 16)
           FORBIDDEN_HITS=$(grep -E -c 'services\.nvd\.nist\.gov|nvd\.nist\.gov/developers|ossindex\.sonatype\.org|Sonatype OSS Index API' "$SMOKE_LOG" || true)
@@ -580,7 +585,7 @@ jobs:
             exit 1
           fi
 
-          # H2 corruption check
+          # H2 corruption / lock check
           H2_ERRORS=$(grep -E -c 'H2.*corrupt|H2.*lock|H2.*error|DatabaseException|IllegalStateException.*H2' "$SMOKE_LOG" || true)
           if [ "$H2_ERRORS" -gt 0 ]; then
             echo "::error::H2 corruption or lock errors detected in smoke test"
@@ -589,7 +594,7 @@ jobs:
           fi
 
           echo "smoke_result=success" >> "$GITHUB_OUTPUT"
-          echo "Offline smoke test PASSED — no NVD/OSS Index contact, no H2 errors."
+          echo "Offline smoke test PASSED — exit 0, no NVD/OSS Index contact, no H2 errors."
 
       - name: Write restore verification evidence
         if: always()

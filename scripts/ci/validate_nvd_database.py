@@ -234,7 +234,7 @@ def validate_manifest_consistency(
     recorded_sha = manifest.get("database_sha256")
     if not isinstance(recorded_sha, str) or not SHA256_HEX_RE.match(recorded_sha):
         eprint(
-            f"ERROR: manifest database_sha256 is not a 40-char hex string: '{recorded_sha}'"
+            f"ERROR: manifest database_sha256 is not a 64-character hexadecimal SHA-256 value: '{recorded_sha}'"
         )
         out("validation_result", "manifest_sha_invalid")
         return 3, None, None
