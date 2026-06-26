@@ -36,6 +36,8 @@
 
         <springdoc-openapi-starter-webmvc-ui.version>2.6.0</springdoc-openapi-starter-webmvc-ui.version>
         <testcontainers.version>1.20.4</testcontainers.version>
+        <!-- OWASP Dependency-Check version (used by -Powasp-offline-gate) -->
+        <dependency-check.version>12.1.0</dependency-check.version>
     </properties>
 
     <dependencies>
@@ -184,5 +186,47 @@
             </plugin>
         </plugins>
     </build>
+
+    <!-- ============================================================ -->
+    <!-- OWASP Dependency-Check offline-gate profile                  -->
+    <!-- EXEC-PROMPT-010R12A Section 11 — preferred multi-format      -->
+    <!-- model: explicit <formats> element in plugin configuration.   -->
+    <!-- Activated by -Powasp-offline-gate in security-scan.yml.      -->
+    <!--                                                              -->
+    <!-- Properties enforced:                                         -->
+    <!--   autoUpdate              = false  (no NVD API calls)        -->
+    <!--   failOnError             = true                             -->
+    <!--   failBuildOnCVSS         = 11     (HIGH/CRITICAL gate)      -->
+    <!--   ossIndexAnalyzerEnabled = false  (no Sonatype OSS Index)   -->
+    <!--   hostedSuppressionsEnabled = false                          -->
+    <!--   versionCheckEnabled     = false                            -->
+    <!--   formats                 = [HTML, JSON]                     -->
+    <!-- ============================================================ -->
+    <profiles>
+        <profile>
+            <id>owasp-offline-gate</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.owasp</groupId>
+                        <artifactId>dependency-check-maven</artifactId>
+                        <version>${dependency-check.version}</version>
+                        <configuration>
+                            <formats>
+                                <format>HTML</format>
+                                <format>JSON</format>
+                            </formats>
+                            <autoUpdate>false</autoUpdate>
+                            <failOnError>true</failOnError>
+                            <failBuildOnCVSS>11</failBuildOnCVSS>
+                            <ossIndexAnalyzerEnabled>false</ossIndexAnalyzerEnabled>
+                            <hostedSuppressionsEnabled>false</hostedSuppressionsEnabled>
+                            <versionCheckEnabled>false</versionCheckEnabled>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>
