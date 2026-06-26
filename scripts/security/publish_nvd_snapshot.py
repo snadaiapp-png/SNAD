@@ -518,7 +518,11 @@ def main():
             return 1
         if exit_code != 0:
             print(f"::error::NVD update-only failed (exit: {exit_code})")
-            print(stderr[-2000:] if stderr else "")
+            # R12H: print BOTH stdout and stderr for debugging
+            print("=== Maven stdout (last 3000 chars) ===")
+            print(stdout[-3000:] if stdout else "(empty)")
+            print("=== Maven stderr (last 3000 chars) ===")
+            print(stderr[-3000:] if stderr else "(empty)")
             return 1
 
     # Validate
