@@ -261,7 +261,7 @@ def run_maven_update_only(
     if timeout_minutes is None:
         raise ValueError("timeout_minutes must be explicitly set (R12G: no default)")
     cmd = [
-        "mvn", "--batch-mode", "--no-transfer-progress",
+        "mvn", "--batch-mode", "--no-transfer-progress", "-e",
         f"org.owasp:dependency-check-maven:{dc_version}:update-only",
         f"-DdataDirectory={work_dir}",
         "-DnvdApiKeyEnvironmentVariable=NVD_API_KEY",
@@ -519,10 +519,10 @@ def main():
         if exit_code != 0:
             print(f"::error::NVD update-only failed (exit: {exit_code})")
             # R12H: print BOTH stdout and stderr for debugging
-            print("=== Maven stdout (last 3000 chars) ===")
-            print(stdout[-3000:] if stdout else "(empty)")
-            print("=== Maven stderr (last 3000 chars) ===")
-            print(stderr[-3000:] if stderr else "(empty)")
+            print("=== Maven stdout (last 10000 chars) ===")
+            print(stdout[-10000:] if stdout else "(empty)")
+            print("=== Maven stderr (last 5000 chars) ===")
+            print(stderr[-5000:] if stderr else "(empty)")
             return 1
 
     # Validate
