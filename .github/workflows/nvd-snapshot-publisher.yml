@@ -113,11 +113,36 @@ jobs:
             python3 -m pip install --quiet boto3
           fi
 
+      - name: Configure AWS credentials via OIDC
+        if: vars.NVD_SNAPSHOT_BACKEND == 's3'
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b
+        with:
+          role-to-assume: ${{ vars.NVD_SNAPSHOT_WRITER_ROLE }}
+          aws-region: ${{ vars.NVD_SNAPSHOT_REGION }}
+          role-session-name: snad-nvd-publisher-${{ github.run_id }}
+
+      - name: Verify storage readiness
+        shell: bash
+        env:
+          NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
+          NVD_SNAPSHOT_BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
+          NVD_SNAPSHOT_PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
+          NVD_SNAPSHOT_REGION: ${{ vars.NVD_SNAPSHOT_REGION }}
+          NVD_SNAPSHOT_ENDPOINT: ${{ vars.NVD_SNAPSHOT_ENDPOINT }}
+        run: |
+          python3 scripts/security/verify_nvd_storage_readiness.py
+          echo "Storage readiness: VERIFIED"
+
       - name: Run Incremental Publisher
         shell: bash
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
           NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
+          NVD_SNAPSHOT_BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
+          NVD_SNAPSHOT_PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
+          NVD_SNAPSHOT_REGION: ${{ vars.NVD_SNAPSHOT_REGION }}
+          NVD_SNAPSHOT_ROLE: ${{ vars.NVD_SNAPSHOT_WRITER_ROLE }}
+          NVD_SNAPSHOT_ENDPOINT: ${{ vars.NVD_SNAPSHOT_ENDPOINT }}
         run: |
           set -euo pipefail
           WORK_DIR="${{ env.WORK_DIR_BASE }}/${{ github.run_id }}"
@@ -126,6 +151,7 @@ jobs:
 
           python3 scripts/security/publish_nvd_snapshot.py \
             --mode incremental \
+            --update-timeout-minutes 180 \
             --work-dir "$WORK_DIR" \
             --canonical-dir "${{ env.CANONICAL_DIR }}" \
             --lkg-dir "${{ env.LKG_DIR }}" \

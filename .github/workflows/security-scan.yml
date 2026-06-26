@@ -239,11 +239,25 @@ jobs:
           NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
           EXEC_MODE: ${{ steps.mode.outputs.execution_mode }}
 
-      - name: Download and verify NVD snapshot
+      - name: Configure AWS credentials via OIDC (reader role)
+        if: steps.resolve_snapshot.outputs.classification == 'SNAPSHOT_RESOLVED' && vars.NVD_SNAPSHOT_BACKEND == 's3'
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b
+        with:
+          role-to-assume: ${{ vars.NVD_SNAPSHOT_READER_ROLE }}
+          aws-region: ${{ vars.NVD_SNAPSHOT_REGION }}
+          role-session-name: snad-nvd-owasp-${{ github.run_id }}
+
+      - name: Download and verify NVD snapshot bundle (v2)
         id: download_snapshot
         if: steps.resolve_snapshot.outputs.classification == 'SNAPSHOT_RESOLVED'
         shell: bash
         working-directory: ${{ github.workspace }}
+        env:
+          NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
+          NVD_SNAPSHOT_BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
+          NVD_SNAPSHOT_PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
+          NVD_SNAPSHOT_REGION: ${{ vars.NVD_SNAPSHOT_REGION }}
+          NVD_SNAPSHOT_ENDPOINT: ${{ vars.NVD_SNAPSHOT_ENDPOINT }}
         run: |
           set -uo pipefail
           mkdir -p "${{ runner.temp }}/nvd-snapshot"
@@ -252,19 +266,32 @@ jobs:
           sys.path.insert(0, '.')
           from scripts.security.nvd_snapshot_store import get_backend
           backend = get_backend(os.environ['NVD_SNAPSHOT_BACKEND'])
-          archive = backend.download_snapshot(
-              os.environ['SNAPSHOT_ID'],
+          latest = backend.resolve_latest_verified()
+          if not latest:
+              print("::error::No verified snapshot available for OWASP")
+              raise SystemExit(1)
+          bundle = backend.download_snapshot_bundle(
+              latest,
               pathlib.Path(os.environ['RUNNER_TEMP']) / 'nvd-snapshot',
           )
-          print(f"archive_path={archive}")
+          print(f"archive_path={bundle['archive_path']}")
+          print(f"manifest_path={bundle['manifest_path']}")
+          print(f"checksums_path={bundle['checksums_path']}")
+          print(f"snapshot_id={bundle['snapshot_id']}")
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"archive_path={archive}\n")
+              f.write(f"archive_path={bundle['archive_path']}\n")
+              f.write(f"manifest_path={bundle['manifest_path']}\n")
+              f.write(f"checksums_path={bundle['checksums_path']}\n")
+              f.write(f"snapshot_id={bundle['snapshot_id']}\n")
           PY
 
-          # Verify the snapshot archive
+          # Verify the snapshot bundle (v2 contract)
           python3 scripts/security/verify_nvd_snapshot.py \
-            "${{ steps.download_snapshot.outputs.archive_path }}" \
-            --expected-snapshot-id "${{ steps.resolve_snapshot.outputs.snapshot_id }}" \
+            --archive "${{ steps.download_snapshot.outputs.archive_path }}" \
+            --manifest "${{ steps.download_snapshot.outputs.manifest_path }}" \
+            --checksums "${{ steps.download_snapshot.outputs.checksums_path }}" \
+            --expected-snapshot-id "${{ steps.download_snapshot.outputs.snapshot_id }}" \
+            --expected-dc-version "${{ env.DEPENDENCY_CHECK_VERSION }}" \
             --min-size "${{ env.NVD_MIN_SIZE_BYTES }}" \
             --max-age-hours "${{ env.NVD_MAX_AGE_HOURS }}" 2>&1 | tee "${{ runner.temp }}/verify-output.txt"
           VERIFY_EXIT=${PIPESTATUS[0]}
@@ -275,9 +302,11 @@ jobs:
             exit 1
           fi
 
-          # Extract snapshot to data directory
+          # Extract snapshot to data directory (safe extraction)
           mkdir -p "${{ env.NVD_CANONICAL_DIR }}"
-          tar -xf "${{ steps.download_snapshot.outputs.archive_path }}" -C "${{ runner.temp }}/nvd-extract"
+          python3 scripts/security/nvd_archive.py extract \
+            --archive "${{ steps.download_snapshot.outputs.archive_path }}" \
+            --destination "${{ runner.temp }}/nvd-extract"
           cp -a "${{ runner.temp }}/nvd-extract/data/." "${{ env.NVD_CANONICAL_DIR }}/"
 
           # Capture verification outputs
@@ -287,9 +316,6 @@ jobs:
           done
           echo "db_status=valid" >> "$GITHUB_OUTPUT"
           echo "classification=DB_VALID" >> "$GITHUB_OUTPUT"
-        env:
-          NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
-          SNAPSHOT_ID: ${{ steps.resolve_snapshot.outputs.snapshot_id }}
 
       - name: Run OWASP dependency-check (offline, multi-format)
         id: owasp_scan
