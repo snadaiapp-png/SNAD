@@ -1,15 +1,16 @@
 # ============================================================
-# SANAD — EXEC-PROMPT-010R12B Acceptance Orchestrator
+# SANAD — EXEC-PROMPT-010R12C Acceptance Orchestrator
 # ============================================================
 # Executes the reviewed in-repository orchestrator with the
 # automatic GitHub token. It has no production environment and
 # no access to application, database, Render, or admin secrets.
 #
-# Bootstrap behavior:
+# Safety behavior:
 # - The push trigger runs the job only when the merge commit
-#   contains [EXEC-PROMPT-010R12B-ORCHESTRATION].
-# - Subsequent edits do not rerun the job unless explicitly
-#   dispatched or merged with the same marker.
+#   contains [EXEC-PROMPT-010R12C-ORCHESTRATION].
+# - The job continuously verifies that main still points to the
+#   immutable candidate SHA. Any drift terminates the chain.
+# - New orchestrator runs cancel older runs in the same group.
 # ============================================================
 
 name: R12B Acceptance Orchestrator
@@ -29,14 +30,14 @@ permissions:
 
 concurrency:
   group: sanad-r12b-acceptance-orchestrator
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   orchestrate:
     name: NVD, OWASP, Baseline and Attestation
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      contains(github.event.head_commit.message, '[EXEC-PROMPT-010R12B-ORCHESTRATION]')
+      contains(github.event.head_commit.message, '[EXEC-PROMPT-010R12C-ORCHESTRATION]')
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
@@ -51,7 +52,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Verify orchestrator syntax and merge SHA
+      - name: Verify orchestrator syntax and candidate SHA
         shell: bash
         run: |
           set -euo pipefail
@@ -59,15 +60,78 @@ jobs:
           test "${#GITHUB_SHA}" -eq 40
           echo "Baseline candidate SHA: ${GITHUB_SHA}"
 
-      - name: Execute R12B acceptance chain
+      - name: Execute R12B acceptance chain with SHA drift guard
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+
+          read_main_sha() {
+            python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GITHUB_TOKEN"]
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/branches/main",
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              payload = json.load(response)
+          print(payload["commit"]["sha"])
+          PY
+          }
+
+          expected_sha="${GITHUB_SHA}"
+          initial_main_sha="$(read_main_sha)"
+          if [[ "${initial_main_sha}" != "${expected_sha}" ]]; then
+            echo "::error::main SHA drift before execution: expected=${expected_sha} actual=${initial_main_sha}"
+            exit 42
+          fi
+
+          guard_status_file="$(mktemp)"
           python3 scripts/ops/r12a_dispatch_and_attest.py \
-            --merge-sha "${GITHUB_SHA}" \
+            --merge-sha "${expected_sha}" \
             --pr-number 121 \
             --issue 101 \
             --poll-interval-seconds 60 \
-            --max-poll-minutes 180
+            --max-poll-minutes 180 &
+          orchestrator_pid=$!
+
+          (
+            while kill -0 "${orchestrator_pid}" 2>/dev/null; do
+              current_main_sha="$(read_main_sha)"
+              if [[ "${current_main_sha}" != "${expected_sha}" ]]; then
+                echo "::error::main SHA drift detected: expected=${expected_sha} actual=${current_main_sha}"
+                kill -TERM "${orchestrator_pid}" 2>/dev/null || true
+                echo 42 > "${guard_status_file}"
+                exit 42
+              fi
+              sleep 5
+            done
+            echo 0 > "${guard_status_file}"
+          ) &
+          guard_pid=$!
+
+          set +e
+          wait "${orchestrator_pid}"
+          orchestrator_status=$?
+          wait "${guard_pid}"
+          guard_wait_status=$?
+          set -e
+
+          guard_status="$(cat "${guard_status_file}" 2>/dev/null || echo "${guard_wait_status}")"
+          rm -f "${guard_status_file}"
+
+          if [[ "${guard_status}" != "0" ]]; then
+            echo "::error::R12B terminated by SHA drift guard"
+            exit "${guard_status}"
+          fi
+          exit "${orchestrator_status}"
