@@ -328,10 +328,12 @@ def run_offline_smoke_test(
 # ---------- Local Feed Server (R12J Section 8) ----------
 
 class LocalFeedServer:
-    """R12J: localhost-only HTTP server serving NVD feed files.
+    """R12J/R12K: localhost-only HTTP server serving NVD feed files.
 
     Binds to 127.0.0.1 only (never 0.0.0.0). Picks a dynamic port.
     Serves files from the feed directory. Prevents path traversal.
+    R12K: verifies a specific file (nvdcve-modified.json.gz) is accessible
+    before declaring the server ready.
     """
 
     def __init__(self, feed_dir: Path):
@@ -353,6 +355,11 @@ class LocalFeedServer:
             def log_message(self, format, *args):
                 pass  # suppress logging
 
+            def list_directory(self, path):
+                # R12K: reject directory listing
+                self.send_error(403, "Directory listing not allowed")
+                return None
+
         # Find available port on 127.0.0.1
         import socket
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -364,14 +371,20 @@ class LocalFeedServer:
         thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         thread.start()
 
-        # Verify server is ready
+        # R12K: verify a specific file is accessible (not just root)
         import urllib.request as _urllib
         try:
-            _urllib.urlopen(f"http://127.0.0.1:{self.port}/", timeout=5)
-        except Exception:
-            pass  # 404 is fine — just checking the server responds
+            resp = _urllib.urlopen(f"http://127.0.0.1:{self.port}/nvdcve-modified.json.gz", timeout=5)
+            if resp.status != 200:
+                raise RuntimeError(f"Feed server ready check failed: HTTP {resp.status}")
+            content_length = resp.headers.get("Content-Length", "0")
+            if int(content_length) <= 0:
+                raise RuntimeError("Feed server ready check failed: Content-Length <= 0")
+        except Exception as e:
+            raise RuntimeError(f"Feed server readiness check failed: {e}") from e
 
         print(f"Local feed server started on http://127.0.0.1:{self.port}")
+        print(f"  Readiness: GET /nvdcve-modified.json.gz → HTTP 200 (Content-Length: {content_length})")
         return self.port
 
     def stop(self):
@@ -607,8 +620,8 @@ def main():
             bundle = download_feed_bundle(feed_backend, feed_pointer, work_dir.parent / "nvd-feed-download")
 
             # Extract feed archive
-            from scripts.security.nvd_archive import extract_snapshot_archive
-            extract_snapshot_archive(bundle["archive_path"], feed_dir)
+            from scripts.security.nvd_feed_archive import extract_feed_archive
+            extract_feed_archive(bundle["archive_path"], feed_dir)
 
             # Start local server
             feed_server = LocalFeedServer(feed_dir)
@@ -678,21 +691,46 @@ def main():
     update_ts = utc_now_iso()
 
     # Create manifest (the validator expects it to exist)
-    manifest_data = {
-        "schema_version": "v1",
-        "dependency_check_version": args.dependency_check_version,
-        "update_mode": "update-only",
-        "update_completed_at": update_ts,
-        "builder_run_id": int(args.publisher_run_id) if args.publisher_run_id.isdigit() else args.publisher_run_id,
-        "builder_sha": args.publisher_commit_sha,
-        "nvd_source": "NVD API",
-        "nvd_api_key_used": True,
-        "update_exit_code": 0,
-        "database_filename": "odc.mv.db",
-        "database_size_bytes": db_size,
-        "database_sha256": db_sha256,
-        "validation_result": "valid",
-    }
+    # R12K: correct provenance based on source_mode
+    if source_mode == "datafeed":
+        manifest_data = {
+            "schema_version": "v1",
+            "dependency_check_version": args.dependency_check_version,
+            "update_mode": "update-only",
+            "update_completed_at": update_ts,
+            "builder_run_id": int(args.publisher_run_id) if args.publisher_run_id.isdigit() else args.publisher_run_id,
+            "builder_sha": args.publisher_commit_sha,
+            "nvd_source": "SNAD_NVD_DATA_FEED",
+            "nvd_api_key_used": False,
+            "datafeed_mode": True,
+            "direct_nvd_api_access": False,
+            "feed_id": feed_info.get("feed_id", ""),
+            "feed_release_tag": feed_info.get("feed_release_tag", ""),
+            "feed_archive_sha256": feed_info.get("feed_archive_sha256", ""),
+            "update_exit_code": 0,
+            "database_filename": "odc.mv.db",
+            "database_size_bytes": db_size,
+            "database_sha256": db_sha256,
+            "validation_result": "valid",
+        }
+    else:
+        manifest_data = {
+            "schema_version": "v1",
+            "dependency_check_version": args.dependency_check_version,
+            "update_mode": "update-only",
+            "update_completed_at": update_ts,
+            "builder_run_id": int(args.publisher_run_id) if args.publisher_run_id.isdigit() else args.publisher_run_id,
+            "builder_sha": args.publisher_commit_sha,
+            "nvd_source": "NVD_API",
+            "nvd_api_key_used": True,
+            "datafeed_mode": False,
+            "direct_nvd_api_access": False,
+            "update_exit_code": 0,
+            "database_filename": "odc.mv.db",
+            "database_size_bytes": db_size,
+            "database_sha256": db_sha256,
+            "validation_result": "valid",
+        }
     manifest_path = work_dir / "sanad-nvd-manifest.json"
     manifest_path.write_text(json.dumps(manifest_data, indent=2), encoding="utf-8")
 

@@ -34,9 +34,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
+from scripts.security.nvd_feed_archive import (
+    create_feed_archive,
+    list_feed_archive,
+    validate_feed_archive,
+    extract_feed_archive,
+)
 from scripts.security.nvd_archive import (
-    create_snapshot_archive,
-    list_snapshot_archive,
     stream_hash_file,
     validate_archive_paths,
 )
@@ -244,8 +248,12 @@ def validate_feed_manifest(manifest: dict) -> None:
 # ---------- Feed archive ----------
 
 def build_feed_archive(feed_dir: Path, archive_path: Path, work_dir: Path) -> str:
-    """Archive the feed directory into a tar.zst (or .tar.gz fallback)."""
-    actual = create_snapshot_archive(archive_path, feed_dir, work_dir)
+    """Archive the feed directory into a tar.zst (or .tar.gz fallback).
+
+    R12K: uses create_feed_archive() which stores files at ROOT
+    (no data/ prefix), unlike create_snapshot_archive().
+    """
+    actual = create_feed_archive(archive_path, feed_dir, work_dir)
     return actual.name
 
 
@@ -292,8 +300,8 @@ def publish_feed_release(
     archive_sha256 = sha256_file(archive_path)
     archive_size = archive_path.stat().st_size
 
-    # Validate archive paths
-    validate_archive_paths(archive_path)
+    # Validate feed archive (R12K: use feed-specific validation)
+    validate_feed_archive(archive_path)
 
     # Build manifest
     modified_feed_sha256 = sha256_file(feed_dir / "nvdcve-modified.json.gz")
@@ -357,13 +365,16 @@ def publish_feed_release(
     # Verify SHA-256 by downloading and checking
     for name in (archive_filename, "manifest.json", "SHA256SUMS"):
         asset = assets[name]
-        tmp = Path(tempfile.mktemp())
-        backend._download_asset(asset["url"], tmp)
-        if name == archive_filename:
-            actual = sha256_file(tmp)
-            if actual != archive_sha256:
-                raise SnapshotError(f"Archive SHA mismatch after download: expected={archive_sha256} actual={actual}")
-        tmp.unlink(missing_ok=True)
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tmp = Path(tf.name)
+        try:
+            backend._download_asset(asset["url"], tmp)
+            if name == archive_filename:
+                actual = sha256_file(tmp)
+                if actual != archive_sha256:
+                    raise SnapshotError(f"Archive SHA mismatch after download: expected={archive_sha256} actual={actual}")
+        finally:
+            tmp.unlink(missing_ok=True)
 
     # Publish release (remove draft)
     backend._request("PATCH", f"releases/{release_id}", body={
@@ -419,11 +430,14 @@ def promote_feed_latest_pointer(backend: GitHubReleasesBackend, pointer: dict) -
         })
         release_id = release.get("id")
 
-    tmp = Path(tempfile.mktemp(suffix=".json"))
-    tmp.write_text(json.dumps(pointer, indent=2), encoding="utf-8")
-    upload_url = release.get("upload_url", "").replace("{?name,label}", "?name=latest.json")
-    backend._upload_asset(upload_url, "latest.json", tmp)
-    tmp.unlink(missing_ok=True)
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+        tf.write(json.dumps(pointer, indent=2).encode("utf-8"))
+        tmp = Path(tf.name)
+    try:
+        upload_url = release.get("upload_url", "").replace("{?name,label}", "?name=latest.json")
+        backend._upload_asset(upload_url, "latest.json", tmp)
+    finally:
+        tmp.unlink(missing_ok=True)
 
     # Re-read to verify
     re_release = backend._request("GET", f"releases/{release_id}")
@@ -443,10 +457,13 @@ def resolve_latest_valid_feed_release(backend: GitHubReleasesBackend) -> dict | 
 
     for asset in release.get("assets", []):
         if asset["name"] == "latest.json":
-            tmp = Path(tempfile.mktemp(suffix=".json"))
-            backend._download_asset(asset["url"], tmp)
-            pointer = json.loads(tmp.read_text(encoding="utf-8"))
-            tmp.unlink(missing_ok=True)
+            with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+                tmp = Path(tf.name)
+            try:
+                backend._download_asset(asset["url"], tmp)
+                pointer = json.loads(tmp.read_text(encoding="utf-8"))
+            finally:
+                tmp.unlink(missing_ok=True)
             return pointer
     return None
 
