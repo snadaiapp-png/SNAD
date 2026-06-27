@@ -411,9 +411,12 @@ class LocalFeedServer:
         """Synthesize a minimal cache.properties file from the most recent .meta.
 
         Format (Java properties):
-            lastModifiedDate=YYYY-MM-DDTHH:MM:SS
+            lastModifiedDate=YYYY-MM-DDTHH:MM:SS.SSSZ
 
-        dependency-check uses this to decide whether to re-download the feed.
+        dependency-check uses Jackson to parse this as an ISO-8601 instant.
+        The format MUST include milliseconds and the Z (UTC) suffix, otherwise
+        Jackson throws `NullPointerException: temporal` during parsing.
+
         We use the latest lastModifiedDate across all .meta files (or now()
         if no .meta files exist).
         """
@@ -431,7 +434,14 @@ class LocalFeedServer:
             except Exception:
                 continue
         if not latest:
-            latest = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+            # ISO-8601 with milliseconds and Z suffix (Jackson-compatible)
+            latest = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        elif not latest.endswith("Z") and "+00:00" not in latest:
+            # Normalize: if meta had a date without Z, append Z (assume UTC)
+            # and ensure milliseconds
+            if "." not in latest:
+                latest = latest + ".000"
+            latest = latest + "Z"
         cache_props.write_text(f"lastModifiedDate={latest}\n", encoding="utf-8")
         print(f"  Synthesized cache.properties (lastModifiedDate={latest})")
 
