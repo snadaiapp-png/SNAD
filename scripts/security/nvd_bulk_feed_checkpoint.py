@@ -260,16 +260,46 @@ def download_checkpoint(backend: GitHubReleasesBackend, seed_release: dict) -> C
 
 
 def upload_feed_asset(backend: GitHubReleasesBackend, seed_release_id: int, feed_name: str, feed_path: Path) -> int:
-    """Upload a verified feed file to the seed release. Returns asset ID."""
+    """Upload a verified feed file to the seed release. Returns asset ID.
+
+    R12L fix: non-fatal deletion of existing assets (404 is OK —
+    asset may have been deleted by a concurrent operation or
+    simply doesn't exist yet). Retry on 422 upload conflict.
+    """
+    import time as _time
+
     release = backend._request("GET", f"releases/{seed_release_id}")
-    # Delete existing asset with same name
+    # Delete existing asset with same name (non-fatal if 404)
     for asset in release.get("assets", []):
         if asset["name"] == feed_name:
-            backend._request("DELETE", f"releases/{seed_release_id}/assets/{asset['id']}")
+            try:
+                backend._request("DELETE", f"releases/{seed_release_id}/assets/{asset['id']}")
+            except Exception as e:
+                print(f"  ⚠️ Non-fatal: could not delete old asset {feed_name}: {e}")
             break
 
+    _time.sleep(1)  # Let GitHub API propagate the deletion
+
     upload_url = release.get("upload_url", "").replace("{?name,label}", f"?name={feed_name}")
-    backend._upload_asset(upload_url, feed_name, feed_path)
+    try:
+        backend._upload_asset(upload_url, feed_name, feed_path)
+    except Exception as e:
+        if "422" in str(e):
+            print(f"  ⚠️ Upload 422 — retrying after 3s delay...")
+            _time.sleep(3)
+            release = backend._request("GET", f"releases/{seed_release_id}")
+            for asset in release.get("assets", []):
+                if asset["name"] == feed_name:
+                    try:
+                        backend._request("DELETE", f"releases/{seed_release_id}/assets/{asset['id']}")
+                    except Exception:
+                        pass
+                    break
+            _time.sleep(2)
+            upload_url = release.get("upload_url", "").replace("{?name,label}", f"?name={feed_name}")
+            backend._upload_asset(upload_url, feed_name, feed_path)
+        else:
+            raise
 
     # Re-read to get asset ID
     release = backend._request("GET", f"releases/{seed_release_id}")
