@@ -210,7 +210,7 @@ def create_seed_release(backend: GitHubReleasesBackend, generation_id: str) -> d
         "body": f"Resumable checkpoint for NVD bulk feed generation {generation_id}",
         "draft": True,
         "prerelease": True,
-        "make_latest": False,
+        "make_latest": "false",
     })
     return release
 

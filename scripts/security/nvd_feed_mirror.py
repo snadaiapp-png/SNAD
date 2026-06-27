@@ -341,7 +341,7 @@ def publish_feed_release(
         "body": f"NVD CVE data feed mirror {feed_id}",
         "draft": True,
         "prerelease": True,
-        "make_latest": False,
+        "make_latest": "false",
     }).encode()
     req = _urllib.request.Request(url, method="POST", data=body, headers=headers)
     with _urllib.request.urlopen(req, timeout=30) as resp:
@@ -380,7 +380,7 @@ def publish_feed_release(
     backend._request("PATCH", f"releases/{release_id}", body={
         "draft": False,
         "prerelease": False,
-        "make_latest": False,
+        "make_latest": "false",
     })
 
     # Build latest pointer
@@ -426,7 +426,7 @@ def promote_feed_latest_pointer(backend: GitHubReleasesBackend, pointer: dict) -
             "body": "Auto-updated pointer to the latest verified NVD feed",
             "draft": False,
             "prerelease": False,
-            "make_latest": False,
+            "make_latest": "false",
         })
         release_id = release.get("id")
 
