@@ -1088,10 +1088,13 @@ class GitHubReleasesBackend(SnapshotBackend):
             if asset["name"] == "latest.json":
                 # Download it
                 import tempfile
-                tmp = Path(tempfile.mktemp(suffix=".json"))
-                self._download_asset(asset["url"], tmp)
-                pointer = json.loads(tmp.read_text(encoding="utf-8"))
-                tmp.unlink(missing_ok=True)
+                with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+                    tmp = Path(tf.name)
+                try:
+                    self._download_asset(asset["url"], tmp)
+                    pointer = json.loads(tmp.read_text(encoding="utf-8"))
+                finally:
+                    tmp.unlink(missing_ok=True)
                 return pointer
         return None
 
@@ -1101,10 +1104,13 @@ class GitHubReleasesBackend(SnapshotBackend):
         for asset in release.get("assets", []):
             if asset["name"] == "manifest.json":
                 import tempfile
-                tmp = Path(tempfile.mktemp(suffix=".json"))
-                self._download_asset(asset["url"], tmp)
-                manifest = json.loads(tmp.read_text(encoding="utf-8"))
-                tmp.unlink(missing_ok=True)
+                with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+                    tmp = Path(tf.name)
+                try:
+                    self._download_asset(asset["url"], tmp)
+                    manifest = json.loads(tmp.read_text(encoding="utf-8"))
+                finally:
+                    tmp.unlink(missing_ok=True)
                 return manifest
         raise SnapshotNotFoundError(f"manifest not found for snapshot {snapshot_id}")
 
@@ -1201,11 +1207,14 @@ class GitHubReleasesBackend(SnapshotBackend):
             release_id = release.get("id")
 
         # Upload new latest.json
-        tmp = Path(tempfile.mktemp(suffix=".json"))
-        tmp.write_text(json.dumps(pointer, indent=2), encoding="utf-8")
-        upload_url = release.get("upload_url", "").replace("{?name,label}", "?name=latest.json")
-        self._upload_asset(upload_url, "latest.json", tmp)
-        tmp.unlink(missing_ok=True)
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+            tf.write(json.dumps(pointer, indent=2).encode("utf-8"))
+            tmp = Path(tf.name)
+        try:
+            upload_url = release.get("upload_url", "").replace("{?name,label}", "?name=latest.json")
+            self._upload_asset(upload_url, "latest.json", tmp)
+        finally:
+            tmp.unlink(missing_ok=True)
 
         # Re-read to verify
         re_release = self._request("GET", f"releases/{release_id}")
