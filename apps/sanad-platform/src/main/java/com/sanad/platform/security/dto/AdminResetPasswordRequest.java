@@ -1,29 +1,35 @@
 package com.sanad.platform.security.dto;
 
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
+import com.fasterxml.jackson.annotation.JsonAnySetter;
+import jakarta.validation.constraints.Pattern;
 
-/** Request body for {@code POST /api/v1/auth/admin-reset-password} (WS5). */
+/** Request for an administrator-issued, single-use set-password link. */
 public class AdminResetPasswordRequest {
 
-    @NotBlank
-    @Size(min = 8, max = 256)
-    private String newPassword;
-
-    /** Whether to force the user to change their password on next login. */
-    private boolean forceChange = true;
+    @Pattern(regexp = "(?i)ar|en", message = "locale must be ar or en")
+    private String locale = "ar";
 
     public AdminResetPasswordRequest() {
     }
 
-    public AdminResetPasswordRequest(String newPassword, boolean forceChange) {
-        this.newPassword = newPassword;
-        this.forceChange = forceChange;
+    public AdminResetPasswordRequest(String locale) {
+        this.locale = locale;
     }
 
-    public String getNewPassword() { return newPassword; }
-    public void setNewPassword(String newPassword) { this.newPassword = newPassword; }
+    public String getLocale() { return locale; }
+    public void setLocale(String locale) { this.locale = locale; }
 
-    public boolean isForceChange() { return forceChange; }
-    public void setForceChange(boolean forceChange) { this.forceChange = forceChange; }
+    @JsonAnySetter
+    public void rejectUnsupportedField(String field, Object value) {
+        throw new IllegalArgumentException("Unsupported administrative recovery field: " + field);
+    }
+
+    /** Legacy service compatibility guard. Direct password payloads are disabled. */
+    @Deprecated
+    public String getNewPassword() {
+        throw new UnsupportedOperationException("Direct administrative password reset is disabled");
+    }
+
+    @Deprecated
+    public boolean isForceChange() { return true; }
 }

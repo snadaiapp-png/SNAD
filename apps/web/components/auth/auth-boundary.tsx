@@ -1,148 +1,97 @@
 "use client";
 
-import { type ReactNode, FormEvent, useState, useEffect } from "react";
 import Link from "next/link";
-import { useAuth } from "@/lib/auth/auth-provider";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { authApi } from "@/lib/api/auth";
-import { toUserFacingError, type UserFacingError } from "@/lib/api/user-facing-errors";
+import { useAuth } from "@/lib/auth/auth-provider";
 
-/**
- * Auth Boundary — shows login when anonymous, shows children when authenticated.
- * Also handles:
- * - INITIALIZING (session verification)
- * - AMBIGUOUS_TENANT (tenant picker)
- * - CREDENTIAL_ROTATION_REQUIRED (forced password change)
- * - Forgot password flow
- * - Reset password flow
- *
- * The login form is rendered inline (not imported from /app/login) to avoid
- * SSR issues with useAuth.
- *
- * Login is email+password only — no Tenant UUID required.
- * Tenant context is derived automatically from the authenticated session.
- * If the same email exists in multiple tenants, a 409 is returned and
- * the user is prompted to select the tenant they want to log into.
- */
-export function AuthBoundary({ children }: { children: ReactNode }) {
-  const { state, error, login, loginWithTenant, dismissAmbiguousTenant, ambiguousTenantIds } = useAuth();
-
-  if (state === "AUTHENTICATED") {
-    return <>{children}</>;
-  }
-
-  if (state === "INITIALIZING" || state === "REFRESHING") {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0f2d2a]" dir="rtl">
-        <p className="text-sm font-bold text-teal-200">جارٍ التحقق من الجلسة…</p>
-      </div>
-    );
-  }
-
-  if (state === "AMBIGUOUS_TENANT") {
-    return (
-      <TenantPicker
-        tenantIds={ambiguousTenantIds}
-        loginWithTenant={loginWithTenant}
-        onBack={dismissAmbiguousTenant}
-      />
-    );
-  }
-
-  if (state === "CREDENTIAL_ROTATION_REQUIRED") {
-    return <ForcedPasswordChange />;
-  }
-
-  // ANONYMOUS, AUTHENTICATING, ERROR, EXPIRED, LOGGING_OUT → show login form
-  return <LoginForm login={login} state={state} error={error} />;
-}
-
-/**
- * Tenant picker — shown when the same email exists in multiple tenants (409).
- * The user selects which tenant to log into, then login is retried with tenantId.
- */
-function TenantPicker({
-  tenantIds,
-  loginWithTenant,
-  onBack,
-}: {
-  tenantIds: string[];
-  loginWithTenant: (tenantId: string) => Promise<void>;
-  onBack: () => void;
-}) {
-  const [selectedTenant, setSelectedTenant] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!selectedTenant) return;
-    setBusy(true);
-    await loginWithTenant(selectedTenant);
-    setBusy(false);
-  }
-
+function BrandHeader({ title, description }: { title: string; description: string }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0f2d2a] px-4" dir="rtl">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
-        <div className="mb-6 text-center">
-          <p className="text-xs font-black tracking-[0.18em] text-teal-700">SANAD BUSINESS OPERATING SYSTEM</p>
-          <h1 className="mt-2 text-2xl font-black text-slate-900">اختيار المستأجر</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            بريدك الإلكتروني مرتبط بأكثر من مستأجر. اختر المستأجر الذي تريد تسجيل الدخول إليه.
-          </p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            {tenantIds.map((tid) => (
-              <label
-                key={tid}
-                className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${
-                  selectedTenant === tid
-                    ? "border-teal-600 bg-teal-50 ring-1 ring-teal-600"
-                    : "border-slate-200 hover:border-teal-400"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="tenantId"
-                  value={tid}
-                  checked={selectedTenant === tid}
-                  onChange={() => setSelectedTenant(tid)}
-                  className="accent-teal-700"
-                />
-                <span dir="ltr" className="font-mono text-sm text-slate-700">
-                  {tid}
-                </span>
-              </label>
-            ))}
-          </div>
-
-          <button
-            type="submit"
-            disabled={!selectedTenant || busy}
-            className="w-full rounded-xl bg-teal-800 px-4 py-3 font-black text-white disabled:opacity-50"
-          >
-            {busy ? "جارٍ تسجيل الدخول…" : "تسجيل الدخول إلى المستأجر المحدد"}
-          </button>
-
-          <button
-            type="button"
-            onClick={onBack}
-            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50"
-          >
-            العودة لتسجيل الدخول
-          </button>
-        </form>
-      </div>
-    </div>
+    <header className="mb-7 text-center">
+      <div className="mx-auto mb-4 grid size-16 place-items-center rounded-2xl bg-brand-primary text-2xl font-black text-brand-gold shadow-lg">س</div>
+      <p className="text-xs font-black tracking-[0.22em] text-teal-700" lang="en">SNAD</p>
+      <h1 className="mt-2 text-2xl font-black text-slate-900">{title}</h1>
+      <p className="mt-2 text-sm leading-7 text-slate-500">{description}</p>
+    </header>
   );
 }
 
-/**
- * Forced password change — shown when credentialRotationRequired=true.
- * The user must change their password before accessing the platform.
- * The JWT filter blocks all API calls except /auth/me, /auth/change-credential, /auth/logout.
- */
+function AuthShell({ children }: { children: ReactNode }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-brand-primary px-4 py-10" dir="rtl">
+      <section className="w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl sm:p-9">{children}</section>
+    </main>
+  );
+}
+
+export function AuthBoundary({ children }: { children: ReactNode }) {
+  const auth = useAuth();
+  if (auth.state === "AUTHENTICATED") return <>{children}</>;
+  if (auth.state === "INITIALIZING" || auth.state === "REFRESHING" || auth.state === "LOGGING_OUT") {
+    return <AuthShell><BrandHeader title="جارٍ تجهيز مساحة العمل" description="يتم التحقق من الجلسة الآمنة وتحميل بيانات الحساب." /><div className="mx-auto size-9 animate-spin rounded-full border-4 border-teal-100 border-t-teal-700" aria-label="جارٍ التحميل" /></AuthShell>;
+  }
+  if (auth.state === "AMBIGUOUS_TENANT") return <TenantPicker />;
+  if (auth.state === "CREDENTIAL_ROTATION_REQUIRED") return <ForcedPasswordChange />;
+  return <LoginPanel />;
+}
+
+function LoginPanel() {
+  const { state, error, login, clearError } = useAuth();
+  const [mode, setMode] = useState<"login" | "forgot">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  async function submitLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    clearError();
+    await login({ email: email.trim(), password });
+  }
+
+  async function submitRecovery(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setNotice(null);
+    try {
+      const response = await authApi.forgotPassword({ email: email.trim() });
+      setNotice(response.message);
+    } catch {
+      setNotice("إذا كان البريد الإلكتروني مسجلاً لدينا، فستصلك رسالة الاسترداد.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <AuthShell>
+      <BrandHeader title={mode === "login" ? "تسجيل الدخول" : "استعادة كلمة المرور"} description={mode === "login" ? "ادخل إلى مساحة عمل سند المؤسسية." : "سنرسل رابطًا آمنًا وأحادي الاستخدام إلى بريدك."} />
+      {error && mode === "login" && <div className="mb-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-700" role="alert"><strong>{error.title}</strong><p className="mt-1">{error.message}</p></div>}
+      {notice && <div className="mb-4 rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700" role="status">{notice}</div>}
+      <form onSubmit={mode === "login" ? submitLogin : submitRecovery} className="space-y-4">
+        <label className="grid gap-1 text-sm font-bold text-slate-700">البريد الإلكتروني<input dir="ltr" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-left outline-none focus:border-teal-600" /></label>
+        {mode === "login" && <label className="grid gap-1 text-sm font-bold text-slate-700">كلمة المرور<input dir="ltr" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-left outline-none focus:border-teal-600" /></label>}
+        <button disabled={busy || state === "AUTHENTICATING"} className="w-full rounded-xl bg-brand-primary px-4 py-3 font-black text-white hover:bg-brand-primary-hover disabled:opacity-50">{mode === "login" ? (state === "AUTHENTICATING" ? "جارٍ تسجيل الدخول…" : "تسجيل الدخول") : (busy ? "جارٍ الإرسال…" : "إرسال رابط الاسترداد")}</button>
+      </form>
+      <button type="button" onClick={() => { setMode(mode === "login" ? "forgot" : "login"); setNotice(null); clearError(); }} className="mt-4 w-full text-sm font-bold text-teal-700 hover:underline">{mode === "login" ? "نسيت كلمة المرور؟" : "العودة إلى تسجيل الدخول"}</button>
+      <p className="mt-6 text-center text-xs text-slate-500">لن تُرسل كلمة المرور نفسها عبر البريد؛ يُرسل رابط آمن صالح لمرة واحدة.</p>
+    </AuthShell>
+  );
+}
+
+function TenantPicker() {
+  const { ambiguousTenantIds, loginWithTenant, dismissAmbiguousTenant } = useAuth();
+  const [selected, setSelected] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected) return;
+    setBusy(true);
+    try { await loginWithTenant(selected); } finally { setBusy(false); }
+  }
+  return <AuthShell><BrandHeader title="اختيار مساحة العمل" description="البريد مرتبط بأكثر من مستأجر. اختر المساحة المطلوبة." /><form onSubmit={submit} className="space-y-3">{ambiguousTenantIds.map((tenantId) => <label key={tenantId} className={`flex items-center gap-3 rounded-xl border p-3 ${selected === tenantId ? "border-teal-600 bg-teal-50" : "border-slate-200"}`}><input type="radio" name="tenant" value={tenantId} checked={selected === tenantId} onChange={() => setSelected(tenantId)} /><span dir="ltr" className="font-mono text-xs">{tenantId}</span></label>)}<button disabled={!selected || busy} className="w-full rounded-xl bg-brand-primary px-4 py-3 font-black text-white disabled:opacity-50">{busy ? "جارٍ الدخول…" : "المتابعة"}</button><button type="button" onClick={dismissAmbiguousTenant} className="w-full rounded-xl border border-slate-200 px-4 py-3 font-bold text-slate-600">رجوع</button></form></AuthShell>;
+}
+
 function ForcedPasswordChange() {
   const { changeCredential, logout, error, clearError } = useAuth();
   const [currentPassword, setCurrentPassword] = useState("");
@@ -150,531 +99,39 @@ function ForcedPasswordChange() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setLocalError(null);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     clearError();
-
-    // Client-side validation: minimum length
-    if (newPassword.length < 8) {
-      setLocalError("يجب أن تكون كلمة المرور الجديدة 8 أحرف على الأقل.");
-      return;
-    }
-
-    // Client-side validation: confirm password match
-    if (newPassword !== confirmPassword) {
-      setLocalError("كلمة المرور الجديدة وتأكيدها غير متطابقين.");
-      return;
-    }
-
-    // Client-side validation: must differ from current password
-    if (newPassword === currentPassword) {
-      setLocalError("يجب أن تختلف كلمة المرور الجديدة عن الحالية.");
-      return;
-    }
-
+    if (newPassword.length < 8) return setLocalError("يجب أن تكون كلمة المرور 8 أحرف على الأقل.");
+    if (newPassword !== confirmPassword) return setLocalError("كلمتا المرور غير متطابقتين.");
+    if (newPassword === currentPassword) return setLocalError("يجب أن تختلف كلمة المرور الجديدة عن الحالية.");
+    setLocalError(null);
     setBusy(true);
-    try {
-      await changeCredential(currentPassword, newPassword);
-      setSuccess(true);
-    } catch {
-      // Error is handled by auth provider — displayed via error prop
-    } finally {
-      setBusy(false);
-    }
+    try { await changeCredential(currentPassword, newPassword); } finally { setBusy(false); }
   }
-
-  // Password strength indicator
-  const passwordStrength = (() => {
-    if (!newPassword) return { level: 0, label: "", color: "" };
-    let score = 0;
-    if (newPassword.length >= 8) score++;
-    if (newPassword.length >= 12) score++;
-    if (/[A-Z]/.test(newPassword)) score++;
-    if (/[0-9]/.test(newPassword)) score++;
-    if (/[^A-Za-z0-9]/.test(newPassword)) score++;
-    if (score <= 2) return { level: 1, label: "ضعيفة", color: "bg-rose-400" };
-    if (score <= 3) return { level: 2, label: "متوسطة", color: "bg-amber-400" };
-    return { level: 3, label: "قوية", color: "bg-emerald-400" };
-  })();
-
-  if (success) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0f2d2a] px-4" dir="rtl">
-        <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
-          <div className="text-center">
-            <div className="mx-auto mb-4 grid size-16 place-items-center rounded-full bg-emerald-50 ring-4 ring-emerald-100">
-              <span className="text-2xl text-emerald-600">✓</span>
-            </div>
-            <p className="text-xs font-black tracking-[0.18em] text-teal-700">SANAD BUSINESS OPERATING SYSTEM</p>
-            <h1 className="mt-2 text-2xl font-black text-slate-900">تم تغيير كلمة المرور بنجاح</h1>
-            <p className="mt-2 text-sm text-slate-500">
-              تم تحديث كلمة المرور الخاصة بك. يمكنك الآن الوصول إلى المنصة.
-            </p>
-          </div>
-          <div className="mt-6">
-            <Link
-              href="/"
-              className="block w-full rounded-xl bg-teal-800 px-4 py-3 text-center font-black text-white hover:bg-teal-900"
-            >
-              المتابعة إلى المنصة
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0f2d2a] px-4" dir="rtl">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
-        <div className="mb-6 text-center">
-          <p className="text-xs font-black tracking-[0.18em] text-teal-700">SANAD BUSINESS OPERATING SYSTEM</p>
-          <h1 className="mt-2 text-2xl font-black text-slate-900">تغيير كلمة المرور مطلوب</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            يجب تغيير كلمة المرور الخاصة بك قبل الاستمرار في استخدام المنصة.
-          </p>
-        </div>
-
-        {(localError || error) && (
-          <div className="mb-4 rounded-xl bg-rose-50 p-3 ring-1 ring-rose-600/20" role="alert">
-            <p className="text-sm font-black text-rose-700">
-              {localError || error?.title || "حدث خطأ"}
-            </p>
-            {(error?.message && !localError) && (
-              <p className="mt-1 text-sm text-rose-600">{error.message}</p>
-            )}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <label className="grid gap-1 text-sm font-bold text-slate-700">
-            كلمة المرور الحالية
-            <input
-              dir="ltr"
-              type="password"
-              required
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-teal-600"
-            />
-          </label>
-          <label className="grid gap-1 text-sm font-bold text-slate-700">
-            كلمة المرور الجديدة
-            <input
-              dir="ltr"
-              type="password"
-              required
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              minLength={8}
-              className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-teal-600"
-            />
-          </label>
-          {/* Password strength indicator */}
-          {newPassword.length > 0 && (
-            <div className="flex items-center gap-2 px-1">
-              <div className="flex flex-1 gap-1">
-                {[1, 2, 3].map((level) => (
-                  <div
-                    key={level}
-                    className={`h-1.5 flex-1 rounded-full transition-colors ${
-                      passwordStrength.level >= level ? passwordStrength.color : "bg-slate-200"
-                    }`}
-                  />
-                ))}
-              </div>
-              <span className="text-xs font-bold text-slate-500">{passwordStrength.label}</span>
-            </div>
-          )}
-          {/* Password policy hint */}
-          <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500" dir="rtl">
-            <p className="font-bold text-slate-600">متطلبات كلمة المرور:</p>
-            <ul className="mt-1 space-y-0.5 pr-3">
-              <li className={newPassword.length >= 8 ? "text-emerald-600" : ""}>
-                {newPassword.length >= 8 ? "✓" : "○"} 8 أحرف على الأقل
-              </li>
-              <li className={/[A-Z]/.test(newPassword) ? "text-emerald-600" : ""}>
-                {/[A-Z]/.test(newPassword) ? "✓" : "○"} حرف كبير واحد على الأقل
-              </li>
-              <li className={/[0-9]/.test(newPassword) ? "text-emerald-600" : ""}>
-                {/[0-9]/.test(newPassword) ? "✓" : "○"} رقم واحد على الأقل
-              </li>
-            </ul>
-          </div>
-          <label className="grid gap-1 text-sm font-bold text-slate-700">
-            تأكيد كلمة المرور الجديدة
-            <input
-              dir="ltr"
-              type="password"
-              required
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              minLength={8}
-              className={`rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-teal-600 ${
-                confirmPassword && newPassword !== confirmPassword
-                  ? "border-rose-300 ring-1 ring-rose-200"
-                  : "border-slate-200"
-              }`}
-            />
-            {confirmPassword && newPassword !== confirmPassword && (
-              <p className="text-xs font-bold text-rose-500">كلمة المرور غير متطابقة</p>
-            )}
-          </label>
-          <button
-            type="submit"
-            disabled={busy || (confirmPassword.length > 0 && newPassword !== confirmPassword)}
-            className="w-full rounded-xl bg-teal-800 px-4 py-3 font-black text-white disabled:opacity-50"
-          >
-            {busy ? "جارٍ تغيير كلمة المرور…" : "تغيير كلمة المرور"}
-          </button>
-          <button
-            type="button"
-            onClick={() => logout()}
-            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50"
-          >
-            تسجيل الخروج
-          </button>
-        </form>
-      </div>
-    </div>
-  );
+  return <AuthShell><BrandHeader title="تغيير كلمة المرور مطلوب" description="لحماية الحساب، أنشئ كلمة مرور جديدة قبل المتابعة." />{(localError || error) && <div className="mb-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-700" role="alert">{localError || error?.message}</div>}<form onSubmit={submit} className="space-y-4"><input dir="ltr" type="password" autoComplete="current-password" placeholder="كلمة المرور الحالية" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-left" /><input dir="ltr" type="password" autoComplete="new-password" placeholder="كلمة المرور الجديدة" required minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-left" /><input dir="ltr" type="password" autoComplete="new-password" placeholder="تأكيد كلمة المرور" required minLength={8} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-left" /><button disabled={busy} className="w-full rounded-xl bg-brand-primary px-4 py-3 font-black text-white disabled:opacity-50">{busy ? "جارٍ الحفظ…" : "حفظ كلمة المرور"}</button><button type="button" onClick={logout} className="w-full text-sm font-bold text-slate-500">تسجيل الخروج</button></form></AuthShell>;
 }
 
-function LoginForm({
-  login,
-  state,
-  error,
-}: {
-  login: (req: { email: string; password: string }) => Promise<void>;
-  state: string;
-  error: { title: string; message: string } | null;
-}) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showForgotPassword, setShowForgotPassword] = useState(false);
-  const busy = state === "AUTHENTICATING";
-
-  if (showForgotPassword) {
-    return (
-      <ForgotPasswordForm
-        onBack={() => setShowForgotPassword(false)}
-        initialEmail={email}
-      />
-    );
-  }
-
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    await login({ email: email.trim(), password });
-  }
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0f2d2a] px-4" dir="rtl">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
-        <div className="mb-6 text-center">
-          <p className="text-xs font-black tracking-[0.18em] text-teal-700">SANAD BUSINESS OPERATING SYSTEM</p>
-          <h1 className="mt-2 text-2xl font-black text-slate-900">تسجيل الدخول</h1>
-          <p className="mt-1 text-sm text-slate-500">أدخل بريدك الإلكتروني وكلمة المرور</p>
-        </div>
-
-        {error && (
-          <div className="mb-4 rounded-xl bg-rose-50 p-3 ring-1 ring-rose-600/20" role="alert">
-            <p className="text-sm font-black text-rose-700">{error.title}</p>
-            <p className="mt-1 text-sm text-rose-600">{error.message}</p>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <label className="grid gap-1 text-sm font-bold text-slate-700">
-            البريد الإلكتروني
-            <input
-              dir="ltr"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@example.invalid"
-              className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-teal-600"
-            />
-          </label>
-          <label className="grid gap-1 text-sm font-bold text-slate-700">
-            كلمة المرور
-            <input
-              dir="ltr"
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-teal-600"
-            />
-          </label>
-          <button
-            type="submit"
-            disabled={busy}
-            className="w-full rounded-xl bg-teal-800 px-4 py-3 font-black text-white disabled:opacity-50"
-          >
-            {busy ? "جارٍ تسجيل الدخول…" : "تسجيل الدخول"}
-          </button>
-        </form>
-        <div className="mt-4 text-center">
-          <button
-            type="button"
-            onClick={() => setShowForgotPassword(true)}
-            className="text-sm font-bold text-teal-700 hover:text-teal-900 hover:underline"
-          >
-            نسيت كلمة المرور؟
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Forgot Password form — sends a reset link to the user's email.
- * Always shows success message (no account enumeration).
- */
-function ForgotPasswordForm({
-  onBack,
-  initialEmail,
-}: {
-  onBack: () => void;
-  initialEmail: string;
-}) {
-  const [email, setEmail] = useState(initialEmail);
-  const [busy, setBusy] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [error, setError] = useState<UserFacingError | null>(null);
-
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await authApi.forgotPassword({ email: email.trim() });
-      setSent(true);
-    } catch (err) {
-      setError(toUserFacingError(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0f2d2a] px-4" dir="rtl">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
-        <div className="mb-6 text-center">
-          <p className="text-xs font-black tracking-[0.18em] text-teal-700">SANAD BUSINESS OPERATING SYSTEM</p>
-          <h1 className="mt-2 text-2xl font-black text-slate-900">نسيت كلمة المرور؟</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            أدخل بريدك الإلكتروني وسنرسل لك رابط إعادة تعيين كلمة المرور.
-          </p>
-        </div>
-
-        {sent ? (
-          <div className="space-y-4">
-            <div className="rounded-xl bg-emerald-50 p-4 ring-1 ring-emerald-600/20" role="alert">
-              <p className="text-sm font-black text-emerald-700">تم إرسال رابط إعادة التعيين</p>
-              <p className="mt-1 text-sm text-emerald-600">
-                إذا كان البريد الإلكتروني مسجلاً لدينا، فستتلقى رابط إعادة تعيين كلمة المرور على بريدك الإلكتروني.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onBack}
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50"
-            >
-              العودة لتسجيل الدخول
-            </button>
-          </div>
-        ) : (
-          <>
-            {error && (
-              <div className="mb-4 rounded-xl bg-rose-50 p-3 ring-1 ring-rose-600/20" role="alert">
-                <p className="text-sm font-black text-rose-700">{error.title}</p>
-                <p className="mt-1 text-sm text-rose-600">{error.message}</p>
-              </div>
-            )}
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <label className="grid gap-1 text-sm font-bold text-slate-700">
-                البريد الإلكتروني
-                <input
-                  dir="ltr"
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@example.invalid"
-                  className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-teal-600"
-                />
-              </label>
-              <button
-                type="submit"
-                disabled={busy}
-                className="w-full rounded-xl bg-teal-800 px-4 py-3 font-black text-white disabled:opacity-50"
-              >
-                {busy ? "جارٍ الإرسال…" : "إرسال رابط إعادة التعيين"}
-              </button>
-              <button
-                type="button"
-                onClick={onBack}
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50"
-              >
-                العودة لتسجيل الدخول
-              </button>
-            </form>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Reset Password page — handles the token from the email reset link.
- * URL: /reset-password?token=<token>
- * This is a standalone component that can be used in a Next.js page.
- */
 export function ResetPasswordPage() {
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [token, setToken] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [error, setError] = useState<UserFacingError | null>(null);
-  const [localError, setLocalError] = useState<string | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    // Extract token from URL query parameters
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const t = params.get("token");
-      if (t) {
-        queueMicrotask(() => setToken(t));
-      }
-    }
+    const value = new URLSearchParams(window.location.search).get("token") ?? "";
+    queueMicrotask(() => setToken(value));
   }, []);
-
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setLocalError(null);
-    setError(null);
-
-    if (!token) {
-      setLocalError("رمز إعادة التعيين غير موجود في الرابط.");
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      setLocalError("كلمة المرور الجديدة وتأكيدها غير متطابقين.");
-      return;
-    }
-
-    if (newPassword.length < 8) {
-      setLocalError("يجب أن تكون كلمة المرور الجديدة 8 أحرف على الأقل.");
-      return;
-    }
-
-    setBusy(true);
-    try {
-      await authApi.resetPassword({ token, newPassword });
-      setSuccess(true);
-    } catch (err) {
-      setError(toUserFacingError(err));
-    } finally {
-      setBusy(false);
-    }
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token) return setError("رابط الاسترداد غير صالح.");
+    if (password.length < 8) return setError("يجب أن تكون كلمة المرور 8 أحرف على الأقل.");
+    if (password !== confirmation) return setError("كلمتا المرور غير متطابقتين.");
+    setBusy(true); setError(null);
+    try { await authApi.resetPassword({ token, newPassword: password }); setSuccess(true); }
+    catch { setError("تعذر استخدام الرابط. قد يكون منتهي الصلاحية أو مستخدمًا مسبقًا."); }
+    finally { setBusy(false); }
   }
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0f2d2a] px-4" dir="rtl">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
-        <div className="mb-6 text-center">
-          <p className="text-xs font-black tracking-[0.18em] text-teal-700">SANAD BUSINESS OPERATING SYSTEM</p>
-          <h1 className="mt-2 text-2xl font-black text-slate-900">إعادة تعيين كلمة المرور</h1>
-        </div>
-
-        {success ? (
-          <div className="space-y-4">
-            <div className="rounded-xl bg-emerald-50 p-4 ring-1 ring-emerald-600/20" role="alert">
-              <p className="text-sm font-black text-emerald-700">تم إعادة تعيين كلمة المرور بنجاح</p>
-              <p className="mt-1 text-sm text-emerald-600">
-                يمكنك الآن تسجيل الدخول باستخدام كلمة المرور الجديدة.
-              </p>
-            </div>
-            <Link
-              href="/"
-              className="block w-full rounded-xl bg-teal-800 px-4 py-3 text-center font-black text-white hover:bg-teal-900"
-            >
-              تسجيل الدخول
-            </Link>
-          </div>
-        ) : !token ? (
-          <div className="space-y-4">
-            <div className="rounded-xl bg-rose-50 p-4 ring-1 ring-rose-600/20" role="alert">
-              <p className="text-sm font-black text-rose-700">رمز إعادة التعيين غير صالح</p>
-              <p className="mt-1 text-sm text-rose-600">
-                الرابط المستخدم غير صالح أو منتهي الصلاحية. يرجى طلب رابط جديد.
-              </p>
-            </div>
-            <Link
-              href="/"
-              className="block w-full rounded-xl border border-slate-200 px-4 py-3 text-center text-sm font-bold text-slate-600 hover:bg-slate-50"
-            >
-              العودة لتسجيل الدخول
-            </Link>
-          </div>
-        ) : (
-          <>
-            {(localError || error) && (
-              <div className="mb-4 rounded-xl bg-rose-50 p-3 ring-1 ring-rose-600/20" role="alert">
-                <p className="text-sm font-black text-rose-700">
-                  {localError || error?.title || "حدث خطأ"}
-                </p>
-                {(error?.message && !localError) && (
-                  <p className="mt-1 text-sm text-rose-600">{error.message}</p>
-                )}
-              </div>
-            )}
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <label className="grid gap-1 text-sm font-bold text-slate-700">
-                كلمة المرور الجديدة
-                <input
-                  dir="ltr"
-                  type="password"
-                  required
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  minLength={8}
-                  className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-teal-600"
-                />
-              </label>
-              <label className="grid gap-1 text-sm font-bold text-slate-700">
-                تأكيد كلمة المرور الجديدة
-                <input
-                  dir="ltr"
-                  type="password"
-                  required
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  minLength={8}
-                  className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-teal-600"
-                />
-              </label>
-              <button
-                type="submit"
-                disabled={busy}
-                className="w-full rounded-xl bg-teal-800 px-4 py-3 font-black text-white disabled:opacity-50"
-              >
-                {busy ? "جارٍ إعادة التعيين…" : "إعادة تعيين كلمة المرور"}
-              </button>
-            </form>
-          </>
-        )}
-      </div>
-    </div>
-  );
+  return <AuthShell><BrandHeader title={success ? "تم تحديث كلمة المرور" : "إعداد كلمة مرور جديدة"} description={success ? "يمكنك الآن تسجيل الدخول باستخدام كلمة المرور الجديدة." : "استخدم الرابط أحادي الاستخدام لإكمال استرداد الحساب."} />{success ? <Link href="/" className="block w-full rounded-xl bg-brand-primary px-4 py-3 text-center font-black text-white">العودة إلى تسجيل الدخول</Link> : <form onSubmit={submit} className="space-y-4">{error && <div className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700" role="alert">{error}</div>}<input dir="ltr" type="password" autoComplete="new-password" placeholder="كلمة المرور الجديدة" required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-left" /><input dir="ltr" type="password" autoComplete="new-password" placeholder="تأكيد كلمة المرور" required minLength={8} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-left" /><button disabled={busy || !token} className="w-full rounded-xl bg-brand-primary px-4 py-3 font-black text-white disabled:opacity-50">{busy ? "جارٍ الحفظ…" : "تحديث كلمة المرور"}</button></form>}</AuthShell>;
 }
