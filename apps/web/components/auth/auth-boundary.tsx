@@ -119,7 +119,10 @@ export function ResetPasswordPage() {
   const [busy, setBusy] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { setToken(new URLSearchParams(window.location.search).get("token") ?? ""); }, []);
+  useEffect(() => {
+    const value = new URLSearchParams(window.location.search).get("token") ?? "";
+    queueMicrotask(() => setToken(value));
+  }, []);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token) return setError("رابط الاسترداد غير صالح.");
