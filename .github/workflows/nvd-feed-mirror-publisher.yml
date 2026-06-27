@@ -1,0 +1,101 @@
+# ============================================================
+# SANAD — NVD Feed Mirror Publisher
+# ============================================================
+# EXEC-PROMPT-010R12J — Downloads NVD CVE data via vulnz
+# (open-vulnerability-cli) and publishes a verified immutable
+# feed release to GitHub Releases.
+#
+# NVD_API_KEY is used ONLY in this workflow.
+# Snapshot Builder, Integrity, OWASP, and R12B do NOT have
+# NVD_API_KEY.
+# ============================================================
+
+name: NVD Feed Mirror Publisher
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Daily at 03:17 UTC
+    - cron: '17 3 * * *'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: snad-nvd-feed-single-writer
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  publish-feed:
+    name: Publish NVD Feed Mirror
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python3 -m pip install --quiet pyyaml pytest
+          sudo apt-get install -y zstd || true
+
+      - name: Verify NVD_API_KEY present
+        shell: bash
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          if [ -z "$NVD_API_KEY" ]; then
+            echo "::error::NVD_API_KEY is required."
+            exit 1
+          fi
+          echo "NVD_API_KEY is configured."
+
+      - name: Run Feed Mirror Publisher
+        shell: bash
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          FEED_DIR="${{ runner.temp }}/nvd-feed"
+          rm -rf "$FEED_DIR"
+          mkdir -p "$FEED_DIR"
+
+          python3 scripts/security/nvd_feed_mirror.py \
+            --feed-dir "$FEED_DIR" \
+            --publisher-sha "${{ github.sha }}" \
+            --publisher-run-id "${{ github.run_id }}" \
+            --download-timeout 120
+
+      - name: Write summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## NVD Feed Mirror Publisher — R12J"
+            echo ""
+            echo "**Run ID:** ${{ github.run_id }}"
+            echo "**SHA:** \`${{ github.sha }}\`"
+            echo "**Mode:** Feed Mirror (vulnz download → GitHub Releases)"
+            echo ""
+            echo "NVD_API_KEY is used ONLY in this workflow."
+            echo "Snapshot Builder, OWASP, and R12B do NOT access NVD API directly."
+          } >> "$GITHUB_STEP_SUMMARY"

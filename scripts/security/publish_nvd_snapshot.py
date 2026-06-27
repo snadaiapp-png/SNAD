@@ -252,11 +252,15 @@ def run_maven_update_only(
     dc_version: str,
     env: dict | None = None,
     timeout_minutes: int | None = None,
+    datafeed_url: str | None = None,
 ) -> tuple[int, str, str]:
     """Run a single update-only pass. Returns (exit_code, stdout, stderr).
 
     R12G: no default 100-minute timeout. Callers must pass an explicit
     timeout_minutes value. Bootstrap uses 1320; incremental uses 180.
+
+    R12J: if datafeed_url is provided, uses -DnvdDatafeedUrl instead of
+    direct NVD API access. No NVD_API_KEY is used in datafeed mode.
     """
     if timeout_minutes is None:
         raise ValueError("timeout_minutes must be explicitly set (R12G: no default)")
@@ -264,14 +268,20 @@ def run_maven_update_only(
         "mvn", "--batch-mode", "--no-transfer-progress", "-e",
         f"org.owasp:dependency-check-maven:{dc_version}:update-only",
         f"-DdataDirectory={work_dir}",
-        "-DnvdApiKeyEnvironmentVariable=NVD_API_KEY",
-        "-DnvdApiDelay=6000",
-        "-DnvdMaxRetryCount=5",
         "-DfailOnError=true",
         "-DhostedSuppressionsEnabled=false",
         "-DversionCheckEnabled=false",
         "-DossIndexAnalyzerEnabled=false",
     ]
+    if datafeed_url:
+        # R12J: datafeed mode — no NVD API key, use local feed server
+        cmd.append(f"-DnvdDatafeedUrl={datafeed_url}")
+        cmd.append("-DnvdValidForHours=24")
+    else:
+        # Direct NVD API mode (deprecated for Snapshot Builder in R12J)
+        cmd.append("-DnvdApiKeyEnvironmentVariable=NVD_API_KEY")
+        cmd.append("-DnvdApiDelay=6000")
+        cmd.append("-DnvdMaxRetryCount=5")
     full_env = os.environ.copy()
     if env:
         full_env.update(env)
@@ -294,7 +304,7 @@ def run_offline_smoke_test(
     log_path = output_dir / "offline-smoke-test.log"
     output_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
-        "mvn", "--batch-mode", "--no-transfer-progress",
+        "mvn", "--batch-mode", "--no-transfer-progress", "-e",
         f"org.owasp:dependency-check-maven:{dc_version}:check",
         f"-DdataDirectory={work_dir}",
         "-DautoUpdate=false",
@@ -313,6 +323,73 @@ def run_offline_smoke_test(
         return result.returncode, str(log_path)
     except subprocess.TimeoutExpired:
         return 124, str(log_path)
+
+
+# ---------- Local Feed Server (R12J Section 8) ----------
+
+class LocalFeedServer:
+    """R12J: localhost-only HTTP server serving NVD feed files.
+
+    Binds to 127.0.0.1 only (never 0.0.0.0). Picks a dynamic port.
+    Serves files from the feed directory. Prevents path traversal.
+    """
+
+    def __init__(self, feed_dir: Path):
+        self.feed_dir = Path(feed_dir).resolve()
+        self.server = None
+        self.port = 0
+
+    def start(self) -> int:
+        import http.server
+        import socketserver
+        import threading
+
+        feed_dir = self.feed_dir
+
+        class FeedHandler(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, directory=str(feed_dir), **kwargs)
+
+            def log_message(self, format, *args):
+                pass  # suppress logging
+
+        # Find available port on 127.0.0.1
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            self.port = s.getsockname()[1]
+
+        self.server = socketserver.TCPServer(("127.0.0.1", self.port), FeedHandler, bind_and_activate=True)
+        self.server.allow_reuse_address = True
+        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        thread.start()
+
+        # Verify server is ready
+        import urllib.request as _urllib
+        try:
+            _urllib.urlopen(f"http://127.0.0.1:{self.port}/", timeout=5)
+        except Exception:
+            pass  # 404 is fine — just checking the server responds
+
+        print(f"Local feed server started on http://127.0.0.1:{self.port}")
+        return self.port
+
+    def stop(self):
+        if self.server:
+            self.server.shutdown()
+            self.server.server_close()
+            print("Local feed server stopped")
+
+    def get_datafeed_url(self) -> str:
+        """Return the URL pattern for Dependency-Check nvdDatafeedUrl."""
+        return f"http://127.0.0.1:{self.port}/nvdcve-{{0}}.json.gz"
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, *args):
+        self.stop()
 
 
 def publish_snapshot_v2(
@@ -437,7 +514,14 @@ def main():
     parser.add_argument("--update-timeout-minutes", type=int, default=None,
                         help="Explicit Maven update timeout. R12G: no default 100. Bootstrap=1320, Incremental=180.")
     parser.add_argument("--skip-maven", action="store_true", help="Skip Maven update (for testing)")
+    parser.add_argument("--source-mode", choices=["api", "datafeed"], default=None,
+                        help="R12J: 'datafeed' uses local feed server, 'api' uses direct NVD API. "
+                             "Defaults to env NVD_SOURCE_MODE or 'api'.")
     args = parser.parse_args()
+
+    # R12J: determine source mode
+    source_mode = args.source_mode or os.environ.get("NVD_SOURCE_MODE", "api")
+    print(f"  Source mode: {source_mode}")
 
     # R12G: mode-specific timeouts (no default 100)
     if args.update_timeout_minutes is not None:
@@ -451,7 +535,7 @@ def main():
     canonical_dir = Path(args.canonical_dir)
     lkg_dir = Path(args.lkg_dir)
 
-    print(f"=== NVD Snapshot Publisher ({args.mode} mode) ===")
+    print(f"=== NVD Snapshot Publisher ({args.mode} mode, {source_mode} source) ===")
     print(f"  Work dir:              {work_dir}")
     print(f"  Canonical dir:         {canonical_dir}")
     print(f"  LKG dir:               {lkg_dir}")
@@ -459,6 +543,7 @@ def main():
     print(f"  Run ID:                {args.publisher_run_id}")
     print(f"  Update timeout:        {update_timeout} minutes")
     print(f"  Update mode:           {args.mode}")
+    print(f"  Source mode:           {source_mode}")
 
     # Resolve previous snapshot
     backend = get_backend(os.environ.get("NVD_SNAPSHOT_BACKEND", "filesystem"))
@@ -499,31 +584,87 @@ def main():
     if not args.skip_maven:
         import datetime as _dt
         print("Running NVD update-only...")
-        update_started_at = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        update_start_epoch = _dt.datetime.now(_dt.timezone.utc).timestamp()
-        print(f"update_started_at={update_started_at}")
-        print(f"update_timeout_minutes={update_timeout}")
-        exit_code, stdout, stderr = run_maven_update_only(
-            work_dir, args.dependency_check_version, timeout_minutes=update_timeout,
-        )
-        update_finished_at = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        update_duration = int(_dt.datetime.now(_dt.timezone.utc).timestamp() - update_start_epoch)
-        print(f"update_finished_at={update_finished_at}")
-        print(f"update_duration_seconds={update_duration}")
-        print(f"update_exit_code={exit_code}")
-        print(f"update_mode={args.mode}")
-        if exit_code == 124:
-            print("::error::NVD update timed out")
-            print("classification=UPDATE_TIMEOUT")
-            return 1
-        if exit_code != 0:
-            print(f"::error::NVD update-only failed (exit: {exit_code})")
-            # R12H: print BOTH stdout and stderr for debugging
-            print("=== Maven stdout (last 10000 chars) ===")
-            print(stdout[-10000:] if stdout else "(empty)")
-            print("=== Maven stderr (last 5000 chars) ===")
-            print(stderr[-5000:] if stderr else "(empty)")
-            return 1
+
+        # R12J: datafeed mode — resolve feed, download, start local server
+        datafeed_url = None
+        feed_server = None
+        feed_info = {}
+        if source_mode == "datafeed":
+            from scripts.security.nvd_feed_mirror import (
+                resolve_latest_valid_feed_release,
+                download_feed_bundle,
+            )
+            feed_backend = GitHubReleasesBackend()
+            feed_pointer = resolve_latest_valid_feed_release(feed_backend)
+            if not feed_pointer:
+                print("::error::No verified NVD feed release available.")
+                print("Run NVD Feed Mirror Publisher first.")
+                return 1
+
+            print(f"  Feed release: {feed_pointer.get('release_tag', '?')}")
+            feed_dir = work_dir.parent / "nvd-feed-extract"
+            feed_dir.mkdir(parents=True, exist_ok=True)
+            bundle = download_feed_bundle(feed_backend, feed_pointer, work_dir.parent / "nvd-feed-download")
+
+            # Extract feed archive
+            from scripts.security.nvd_archive import extract_snapshot_archive
+            extract_snapshot_archive(bundle["archive_path"], feed_dir)
+
+            # Start local server
+            feed_server = LocalFeedServer(feed_dir)
+            feed_server.start()
+            datafeed_url = feed_server.get_datafeed_url()
+            feed_info = {
+                "feed_id": feed_pointer.get("feed_id", ""),
+                "feed_release_tag": feed_pointer.get("release_tag", ""),
+                "feed_archive_sha256": feed_pointer.get("archive_sha256", ""),
+                "datafeed_mode": "true",
+                "direct_nvd_api_access": "false",
+            }
+            print(f"  datafeed_url={datafeed_url}")
+            print(f"  datafeed_mode=true")
+            print(f"  direct_nvd_api_access=false")
+
+        try:
+            update_started_at = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            update_start_epoch = _dt.datetime.now(_dt.timezone.utc).timestamp()
+            print(f"update_started_at={update_started_at}")
+            print(f"update_timeout_minutes={update_timeout}")
+            exit_code, stdout, stderr = run_maven_update_only(
+                work_dir, args.dependency_check_version,
+                timeout_minutes=update_timeout,
+                datafeed_url=datafeed_url,
+            )
+            update_finished_at = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            update_duration = int(_dt.datetime.now(_dt.timezone.utc).timestamp() - update_start_epoch)
+            print(f"update_finished_at={update_finished_at}")
+            print(f"update_duration_seconds={update_duration}")
+            print(f"update_exit_code={exit_code}")
+            print(f"update_mode={args.mode}")
+
+            # R12J: verify no direct NVD API access in datafeed mode
+            if source_mode == "datafeed":
+                combined_output = (stdout or "") + (stderr or "")
+                if "services.nvd.nist.gov" in combined_output or "nvd.nist.gov/developers" in combined_output:
+                    print("::error::DIRECT_NVD_API_ACCESS_DETECTED — Maven contacted NVD API directly!")
+                    print("classification=NETWORK_VIOLATION")
+                    return 1
+                print("  Network enforcement: PASS (no direct NVD API access)")
+
+            if exit_code == 124:
+                print("::error::NVD update timed out")
+                print("classification=UPDATE_TIMEOUT")
+                return 1
+            if exit_code != 0:
+                print(f"::error::NVD update-only failed (exit: {exit_code})")
+                print("=== Maven stdout (last 10000 chars) ===")
+                print(stdout[-10000:] if stdout else "(empty)")
+                print("=== Maven stderr (last 5000 chars) ===")
+                print(stderr[-5000:] if stderr else "(empty)")
+                return 1
+        finally:
+            if feed_server:
+                feed_server.stop()
 
     # Validate — first create a manifest so the validator can check it
     print("Validating database...")

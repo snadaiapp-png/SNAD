@@ -1,9 +1,9 @@
 # ============================================================
-# SANAD — NVD Snapshot Publisher (Incremental, GitHub Releases)
+# SANAD — NVD Snapshot Publisher (Incremental, Datafeed)
 # ============================================================
-# R12H: Uses GitHub-hosted runner with GitHub Releases as storage.
-# Runs every 6 hours. Downloads previous snapshot from GitHub
-# Releases, applies incremental update, publishes new snapshot.
+# R12J: Uses GitHub-hosted runner with GitHub Releases as storage.
+# Consumes verified NVD Data Feed from the Feed Mirror Publisher.
+# Does NOT have NVD_API_KEY. Does NOT contact NVD API directly.
 # ============================================================
 
 name: NVD Snapshot Publisher
@@ -25,10 +25,11 @@ env:
   DEPENDENCY_CHECK_VERSION: "12.1.0"
   PYTHONUNBUFFERED: "1"
   NVD_SNAPSHOT_BACKEND: github-releases
+  NVD_SOURCE_MODE: datafeed
 
 jobs:
   publish:
-    name: Publish Incremental NVD Snapshot
+    name: Publish Incremental NVD Snapshot (Datafeed)
     runs-on: ubuntu-latest
     timeout-minutes: 240
     environment: nvd-publisher
@@ -55,22 +56,11 @@ jobs:
           python3 -m pip install --quiet pyyaml pytest
           sudo apt-get install -y zstd || true
 
-      - name: Verify NVD_API_KEY present
+      - name: Run Incremental Publisher (Datafeed Mode)
         shell: bash
         env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: |
-          if [ -z "$NVD_API_KEY" ]; then
-            echo "::error::NVD_API_KEY is required in nvd-publisher environment."
-            exit 1
-          fi
-          echo "NVD_API_KEY is configured."
-
-      - name: Run Incremental Publisher
-        shell: bash
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
           NVD_SNAPSHOT_BACKEND: github-releases
+          NVD_SOURCE_MODE: datafeed
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
@@ -83,6 +73,7 @@ jobs:
 
           python3 scripts/security/publish_nvd_snapshot.py \
             --mode incremental \
+            --source-mode datafeed \
             --update-timeout-minutes 180 \
             --work-dir "$WORK_DIR" \
             --canonical-dir "$CANONICAL_DIR" \
@@ -95,10 +86,11 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## NVD Snapshot Publisher — GitHub Releases Backend"
+            echo "## NVD Snapshot Publisher — R12J (Datafeed Mode)"
             echo ""
             echo "**Run ID:** ${{ github.run_id }}"
             echo "**SHA:** \`${{ github.sha }}\`"
-            echo "**Mode:** Incremental"
+            echo "**Mode:** Incremental (datafeed source)"
             echo "**Backend:** GitHub Releases"
+            echo "**NVD_API_KEY:** NOT USED"
           } >> "$GITHUB_STEP_SUMMARY"

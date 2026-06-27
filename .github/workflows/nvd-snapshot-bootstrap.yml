@@ -1,18 +1,16 @@
 # ============================================================
-# SANAD — NVD Snapshot Bootstrap (GitHub-hosted, GitHub Releases)
+# SANAD — NVD Snapshot Bootstrap (GitHub-hosted, Datafeed)
 # ============================================================
-# R12H: Uses GitHub-hosted runner with GitHub Releases as storage.
-# No self-hosted runner required. No S3/OIDC required.
+# R12J: Uses GitHub-hosted runner with GitHub Releases as storage.
+# Consumes a verified NVD Data Feed from the Feed Mirror Publisher.
+# Does NOT have NVD_API_KEY. Does NOT contact NVD API directly.
 #
-# Bootstrap downloads the full NVD database (~360K records, 60-90 min),
-# validates it, runs an offline smoke test, then publishes an immutable
-# snapshot to GitHub Releases.
-#
-# The snapshot is stored as a GitHub Release with:
-#   - tag: nvd-snapshot-<snapshot_id>
-#   - assets: archive.tar.zst, manifest.json, SHA256SUMS
-# The latest.json pointer is stored on a special release:
-#   - tag: nvd-snapshot-latest
+# Architecture:
+#   Feed Mirror Publisher → GitHub Releases (feed)
+#   → Bootstrap downloads feed
+#   → Local HTTP server serves feed to Dependency-Check
+#   → odc.mv.db built without direct NVD API access
+#   → Published to GitHub Releases (snapshot)
 # ============================================================
 
 name: NVD Snapshot Bootstrap
@@ -32,12 +30,13 @@ env:
   DEPENDENCY_CHECK_VERSION: "12.1.0"
   PYTHONUNBUFFERED: "1"
   NVD_SNAPSHOT_BACKEND: github-releases
+  NVD_SOURCE_MODE: datafeed
 
 jobs:
   bootstrap:
-    name: Initial NVD Database Bootstrap
+    name: Initial NVD Database Bootstrap (Datafeed)
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 300
     environment: nvd-publisher
 
     steps:
@@ -62,22 +61,11 @@ jobs:
           python3 -m pip install --quiet pyyaml pytest
           sudo apt-get install -y zstd || true
 
-      - name: Verify NVD_API_KEY present
+      - name: Run Bootstrap (Datafeed Mode)
         shell: bash
         env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: |
-          if [ -z "$NVD_API_KEY" ]; then
-            echo "::error::NVD_API_KEY is required in nvd-publisher environment."
-            exit 1
-          fi
-          echo "NVD_API_KEY is configured."
-
-      - name: Run Bootstrap
-        shell: bash
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
           NVD_SNAPSHOT_BACKEND: github-releases
+          NVD_SOURCE_MODE: datafeed
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
@@ -90,7 +78,8 @@ jobs:
 
           python3 scripts/security/publish_nvd_snapshot.py \
             --mode bootstrap \
-            --update-timeout-minutes 300 \
+            --source-mode datafeed \
+            --update-timeout-minutes 240 \
             --work-dir "$WORK_DIR" \
             --canonical-dir "$CANONICAL_DIR" \
             --lkg-dir "$LKG_DIR" \
@@ -102,17 +91,12 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## NVD Snapshot Bootstrap — GitHub Releases Backend"
+            echo "## NVD Snapshot Bootstrap — R12J (Datafeed Mode)"
             echo ""
             echo "**Run ID:** ${{ github.run_id }}"
             echo "**SHA:** \`${{ github.sha }}\`"
-            echo "**Mode:** Bootstrap (initial cold build)"
+            echo "**Mode:** Bootstrap (datafeed source)"
             echo "**Backend:** GitHub Releases"
-            echo "**Runner:** GitHub-hosted (ubuntu-latest)"
-            echo ""
-            echo "| Timeout | Value |"
-            echo "|---------|-------|"
-            echo "| Workflow timeout | 360 minutes |"
-            echo "| Maven update timeout | 300 minutes |"
-            echo "| Reserved post-update budget | 60 minutes |"
+            echo "**NVD_API_KEY:** NOT USED (datafeed mode)"
+            echo "**Direct NVD API:** PROHIBITED"
           } >> "$GITHUB_STEP_SUMMARY"
