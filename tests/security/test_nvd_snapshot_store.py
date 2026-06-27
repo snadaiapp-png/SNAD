@@ -28,6 +28,7 @@ from scripts.security.nvd_snapshot_store import (
     SCHEMA_VERSION,
     DEFAULT_RETENTION_COUNT,
     FilesystemBackend,
+    GitHubReleasesBackend,
     SnapshotError,
     SnapshotNotFoundError,
     SnapshotVerificationError,
@@ -567,3 +568,238 @@ def test_snapshot_id_for_changes_with_db():
     sid1 = snapshot_id_for(ts, sha, "a" * 64)
     sid2 = snapshot_id_for(ts, sha, "b" * 64)
     assert sid1 != sid2
+
+
+# ---------- GitHub Releases _upload_asset: streaming + retry tests ----------
+# R12L post-PR#166: the original _upload_asset read the entire file into
+# memory and POSTed it with a flat 300s timeout. For large NVD bulk feed
+# archives this caused OOM and timeout failures. The new implementation
+# streams the file from disk and retries transient errors.
+
+import io as _io  # noqa: E402
+import socket as _socket  # noqa: E402
+import urllib.error as _urlerr  # noqa: E402
+import urllib.request as _urlreq  # noqa: E402
+
+import scripts.security.nvd_snapshot_store as _store_mod  # noqa: E402
+
+
+class _FakeResp:
+    """Minimal response object compatible with urllib's context manager use."""
+
+    def __init__(self, body=b"{}", status=201):
+        self._body = body
+        self.status = status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self):
+        return self._body
+
+
+class _FakeBackend(GitHubReleasesBackend):
+    """Subclass that bypasses __init__ (no token / repo env required)."""
+
+    def __init__(self):
+        self.token = "fake-token"
+        self.repo = "owner/repo"
+        self._api_base = "https://api.github.com/repos/owner/repo"
+
+
+@pytest.fixture
+def patched_upload(monkeypatch):
+    """Patch urlopen + sleep so upload tests are fast and deterministic.
+
+    Yields a dict with mutable state that test cases can inspect.
+    """
+    state = {"calls": 0, "responses": [], "timeouts": [], "expect_header": []}
+
+    def fake_urlopen(req, timeout=None):
+        state["calls"] += 1
+        state["timeouts"].append(timeout)
+        state["expect_header"].append("Expect" in req.headers)
+        # Drain the body if it's a file-like so we don't leak fds
+        if hasattr(req.data, "read"):
+            while req.data.read(8192):
+                pass
+        response = state["responses"].pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return response
+
+    monkeypatch.setattr(_store_mod.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(_store_mod.time, "sleep", lambda _s: None)
+    yield state
+
+
+def test_upload_streams_file_not_full_read(patched_upload, tmp_path):
+    """The asset file is passed to urllib as a file-like object, not read
+    into memory as a single bytes blob."""
+    asset = tmp_path / "big.bin"
+    asset.write_bytes(b"x" * (5 * 1024 * 1024))  # 5 MB
+
+    patched_upload["responses"] = [
+        _FakeResp(body=b'{"id":1,"name":"big.bin"}', status=201)
+    ]
+
+    backend = _FakeBackend()
+    result = backend._upload_asset(
+        "https://uploads.github.com/repos/o/r/releases/1/assets{?name,label}",
+        "big.bin",
+        asset,
+        max_attempts=1,
+    )
+    assert result == {"id": 1, "name": "big.bin"}
+    assert patched_upload["calls"] == 1
+    # Timeout must scale with size: 5MB → 300 + 1.25 ≈ 301s (>= floor)
+    assert patched_upload["timeouts"][0] >= 300
+    assert patched_upload["expect_header"][0] is True
+
+
+def test_upload_retries_on_http_503(patched_upload, tmp_path):
+    """A transient HTTP 503 should be retried and succeed on a later attempt."""
+    asset = tmp_path / "tiny.txt"
+    asset.write_bytes(b"hello")
+
+    patched_upload["responses"] = [
+        _urlerr.HTTPError("u", 503, "Service Unavailable", {},
+                          _io.BytesIO(b"{}")),
+        _urlerr.HTTPError("u", 503, "Service Unavailable", {},
+                          _io.BytesIO(b"{}")),
+        _FakeResp(body=b'{"id":7,"name":"tiny.txt"}', status=201),
+    ]
+
+    backend = _FakeBackend()
+    result = backend._upload_asset(
+        "https://uploads.github.com/repos/o/r/releases/1/assets{?name,label}",
+        "tiny.txt",
+        asset,
+        max_attempts=4,
+    )
+    assert result == {"id": 7, "name": "tiny.txt"}
+    assert patched_upload["calls"] == 3  # 2 failures + 1 success
+
+
+def test_upload_retries_on_socket_timeout(patched_upload, tmp_path):
+    """A socket.timeout is transient and should be retried."""
+    asset = tmp_path / "tiny.txt"
+    asset.write_bytes(b"hello")
+
+    patched_upload["responses"] = [
+        _socket.timeout("connection timed out"),
+        _FakeResp(body=b'{"id":9,"name":"tiny.txt"}', status=201),
+    ]
+
+    backend = _FakeBackend()
+    result = backend._upload_asset(
+        "https://uploads.github.com/repos/o/r/releases/1/assets{?name,label}",
+        "tiny.txt",
+        asset,
+        max_attempts=3,
+    )
+    assert result == {"id": 9, "name": "tiny.txt"}
+    assert patched_upload["calls"] == 2
+
+
+def test_upload_does_not_retry_http_422(patched_upload, tmp_path):
+    """HTTP 422 (asset name already exists) is NOT transient and should
+    raise immediately without retry."""
+    asset = tmp_path / "tiny.txt"
+    asset.write_bytes(b"hello")
+
+    patched_upload["responses"] = [
+        _urlerr.HTTPError("u", 422, "Unprocessable", {},
+                          _io.BytesIO(b'{"message":"already_exists"}')),
+    ]
+
+    backend = _FakeBackend()
+    with pytest.raises(StorageBackendError, match="422"):
+        backend._upload_asset(
+            "https://uploads.github.com/repos/o/r/releases/1/assets{?name,label}",
+            "tiny.txt",
+            asset,
+            max_attempts=4,
+        )
+    assert patched_upload["calls"] == 1  # no retries
+
+
+def test_upload_does_not_retry_http_404(patched_upload, tmp_path):
+    """HTTP 404 (release not found) is NOT transient and should raise."""
+    asset = tmp_path / "tiny.txt"
+    asset.write_bytes(b"hello")
+
+    patched_upload["responses"] = [
+        _urlerr.HTTPError("u", 404, "Not Found", {},
+                          _io.BytesIO(b'{"message":"not found"}')),
+    ]
+
+    backend = _FakeBackend()
+    with pytest.raises(StorageBackendError, match="404"):
+        backend._upload_asset(
+            "https://uploads.github.com/repos/o/r/releases/1/assets{?name,label}",
+            "tiny.txt",
+            asset,
+            max_attempts=4,
+        )
+    assert patched_upload["calls"] == 1
+
+
+def test_upload_exhausts_retries_and_raises(patched_upload, tmp_path):
+    """All retries exhausted on persistent 503 → raise StorageBackendError."""
+    asset = tmp_path / "tiny.txt"
+    asset.write_bytes(b"hello")
+
+    patched_upload["responses"] = [
+        _urlerr.HTTPError("u", 503, "Service Unavailable", {},
+                          _io.BytesIO(b"{}")),
+    ] * 5  # more than max_attempts
+
+    backend = _FakeBackend()
+    with pytest.raises(StorageBackendError, match="503"):
+        backend._upload_asset(
+            "https://uploads.github.com/repos/o/r/releases/1/assets{?name,label}",
+            "tiny.txt",
+            asset,
+            max_attempts=3,
+        )
+    assert patched_upload["calls"] == 3  # exactly max_attempts
+
+
+@pytest.mark.parametrize("size_bytes,expected_min_timeout", [
+    (1024, 300),                       # tiny → floor
+    (50 * 1024 * 1024, 312),           # 50 MB → 300 + 12.5
+    (1024 * 1024 * 1024, 556),         # 1 GB → 300 + 256
+    (2 * 1024 * 1024 * 1024, 812),     # 2 GB → 300 + 512
+])
+def test_upload_timeout_scales_with_size(size_bytes, expected_min_timeout):
+    """Timeout should be the 300s floor plus 0.25s per MB."""
+    backend = _FakeBackend()
+    t = backend._upload_timeout_for_size(size_bytes)
+    assert t >= expected_min_timeout
+
+
+def test_is_transient_upload_error_classification():
+    """Classifier should match the documented retry policy."""
+    backend = _FakeBackend()
+    # Retryable
+    for code in (500, 502, 503, 504):
+        err = _urlerr.HTTPError("u", code, "x", {}, None)
+        assert backend._is_transient_upload_error(err) is True, code
+    for code in (408, 429):
+        err = _urlerr.HTTPError("u", code, "x", {}, None)
+        assert backend._is_transient_upload_error(err) is True, code
+    # Network-level
+    assert backend._is_transient_upload_error(_socket.timeout("t")) is True
+    assert backend._is_transient_upload_error(_urlerr.URLError("e")) is True
+    assert backend._is_transient_upload_error(TimeoutError("t")) is True
+    assert backend._is_transient_upload_error(ConnectionError("c")) is True
+    # NOT retryable
+    for code in (400, 401, 403, 404, 422):
+        err = _urlerr.HTTPError("u", code, "x", {}, None)
+        assert backend._is_transient_upload_error(err) is False, code
+    # Non-network
+    assert backend._is_transient_upload_error(ValueError("v")) is False
