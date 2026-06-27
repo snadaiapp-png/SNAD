@@ -549,12 +549,13 @@ def download_nvd_feed(
 
     # Run vulnz to download NVD data
     # vulnz 9.x CLI syntax:
-    #   java -jar vulnz.jar cve --prefix <dir>/nvdcve- --cache --directory <dir>
+    #   java -jar vulnz.jar cve --prefix nvdcve- --cache --directory <dir>
+    # Note: --prefix is relative to --directory, so just use "nvdcve-"
     # NVD_API_KEY is passed via environment variable (recommended by vulnz)
     cmd = [
         "java", "-jar", str(vulnz_jar_path),
         "cve",
-        "--prefix", str(feed_dir / "nvdcve-"),
+        "--prefix", "nvdcve-",
         "--cache",
         "--directory", str(feed_dir),
         "--requestCount", "5",
