@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "brand:check": "python3 ../../scripts/quality/check_snad_identity.py"
   },
   "dependencies": {
     "next": "16.2.9",
