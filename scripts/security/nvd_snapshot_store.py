@@ -27,9 +27,12 @@ import datetime as dt
 import hashlib
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -995,30 +998,141 @@ class GitHubReleasesBackend(SnapshotBackend):
                 raise StorageAuthorizationError(f"forbidden: {err_body[:200]}") from e
             raise StorageBackendError(f"HTTP {e.code} on {method} {path}: {err_body[:200]}") from e
 
-    def _upload_asset(self, upload_url_template, asset_name, asset_path):
-        """Upload a release asset. upload_url_template is from the release creation response."""
-        # upload_url_template looks like: https://uploads.github.com/.../assets{?name,label}
-        upload_url = upload_url_template.replace("{?name,label}", f"?name={asset_name}")
-        with open(asset_path, "rb") as f:
-            asset_data = f.read()
-        req = urllib.request.Request(
-            upload_url,
-            method="POST",
-            data=asset_data,
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "Content-Type": "application/octet-stream",
-                "Content-Length": str(len(asset_data)),
-            },
+    # ---------- Asset upload helpers ----------
+
+    # R12L post-PR#166 fix: streaming + retry. The original implementation
+    # read the entire asset into memory and POSTed it in a single shot with
+    # a flat 300s timeout. For the NVD bulk feed archive (which can reach
+    # 1-2 GB across 25 years of CVE data) this caused:
+    #   1. OOM on the GitHub-hosted runner (~7 GB RAM, but Python + tar + zstd
+    #      already consume several GB; doubling the archive size in memory is
+    #      fatal).
+    #   2. HTTP timeout — uploading 1-2 GB in 300s requires a sustained
+    #      5-7 MB/s, which the uploads.github.com endpoint does not guarantee.
+    #   3. Zero resiliency — a single transient 5xx or socket reset on a
+    #      multi-minute upload threw away the entire run.
+    #
+    # The new implementation:
+    #   - Streams the file from disk via a file-like object (no full read).
+    #   - Computes Content-Length up front (urllib will not chunk-encode
+    #     when an explicit length is supplied, which GitHub requires).
+    #   - Scales timeout with asset size: 300s floor + 1s per 4 MB.
+    #   - Retries transient failures (5xx, socket.timeout, URLError) up to
+    #     MAX_UPLOAD_ATTEMPTS times with exponential backoff.
+
+    MAX_UPLOAD_ATTEMPTS = 4
+    UPLOAD_BACKOFF_BASE_SECONDS = 5
+    UPLOAD_SIZE_TIMEOUT_SECONDS_PER_MB = 0.25  # 4 MB/s floor
+    UPLOAD_TIMEOUT_FLOOR_SECONDS = 300
+
+    def _upload_timeout_for_size(self, size_bytes: int) -> int:
+        """Scale the upload timeout based on asset size."""
+        size_mb = max(size_bytes, 1) / (1024 * 1024)
+        return int(self.UPLOAD_TIMEOUT_FLOOR_SECONDS
+                   + size_mb * self.UPLOAD_SIZE_TIMEOUT_SECONDS_PER_MB)
+
+    def _is_transient_upload_error(self, exc: BaseException) -> bool:
+        """Return True if the error is worth retrying."""
+        # HTTPError is a subclass of URLError/OSError, so we MUST handle
+        # it first and return False for non-retryable HTTP codes.
+        if isinstance(exc, urllib.error.HTTPError):
+            if 500 <= exc.code < 600:
+                return True
+            if exc.code in (408, 429):
+                return True
+            return False
+        # Network-level: socket timeout, connection reset, DNS, etc.
+        # (HTTPError already filtered out above, so this branch only
+        # catches plain URLError / OSError / socket.timeout / etc.)
+        if isinstance(exc, (socket.timeout, TimeoutError,
+                            urllib.error.URLError, ConnectionError,
+                            OSError)):
+            return True
+        return False
+
+    def _upload_asset(self, upload_url_template, asset_name, asset_path,
+                      max_attempts: int | None = None) -> dict:
+        """Upload a release asset to GitHub Releases.
+
+        Streams the file from disk (no full in-memory read) and retries on
+        transient errors with exponential backoff.
+
+        upload_url_template is the value of ``upload_url`` from the GitHub
+        "create release" response and looks like::
+
+            https://uploads.github.com/repos/OWNER/REPO/releases/123/assets{?name,label}
+        """
+        upload_url = upload_url_template.replace(
+            "{?name,label}", f"?name={asset_name}"
         )
-        try:
-            with urllib.request.urlopen(req, timeout=300) as resp:
-                return json.loads(resp.read().decode())
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode("utf-8", errors="replace")
-            raise StorageBackendError(f"asset upload failed ({e.code}): {err_body[:200]}") from e
+
+        asset_path = Path(asset_path)
+        size_bytes = asset_path.stat().st_size
+        timeout = self._upload_timeout_for_size(size_bytes)
+        attempts = max_attempts or self.MAX_UPLOAD_ATTEMPTS
+
+        last_exc: BaseException | None = None
+        for attempt in range(1, attempts + 1):
+            # Re-open the file for each attempt so we can re-stream on retry.
+            try:
+                with open(asset_path, "rb") as fh:
+                    req = urllib.request.Request(
+                        upload_url,
+                        method="POST",
+                        data=fh,  # file-like object → streamed
+                        headers={
+                            "Authorization": f"Bearer {self.token}",
+                            "Accept": "application/vnd.github+json",
+                            "X-GitHub-Api-Version": "2022-11-28",
+                            "Content-Type": "application/octet-stream",
+                            "Content-Length": str(size_bytes),
+                            # Fail fast if GitHub would reject the upload
+                            # (auth, permissions, release-state) instead of
+                            # streaming the whole body first.
+                            "Expect": "100-continue",
+                        },
+                    )
+                    try:
+                        with urllib.request.urlopen(req, timeout=timeout) as resp:
+                            body = resp.read().decode()
+                            return json.loads(body) if body else {}
+                    except urllib.error.HTTPError as e:
+                        err_body = e.read().decode("utf-8", errors="replace")
+                        if attempt < attempts and self._is_transient_upload_error(e):
+                            wait = self.UPLOAD_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+                            print(
+                                f"  ⚠️ upload of {asset_name} got HTTP {e.code} "
+                                f"(attempt {attempt}/{attempts}); retrying in {wait}s"
+                            )
+                            last_exc = e
+                            time.sleep(wait)
+                            continue
+                        raise StorageBackendError(
+                            f"asset upload failed ({e.code}) for {asset_name}: "
+                            f"{err_body[:300]}"
+                        ) from e
+            except (socket.timeout, TimeoutError, ConnectionError,
+                    urllib.error.URLError, OSError) as e:
+                if attempt < attempts:
+                    wait = self.UPLOAD_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+                    print(
+                        f"  ⚠️ upload of {asset_name} hit network error "
+                        f"({type(e).__name__}: {e}); "
+                        f"attempt {attempt}/{attempts}, retrying in {wait}s"
+                    )
+                    last_exc = e
+                    time.sleep(wait)
+                    continue
+                raise StorageBackendError(
+                    f"asset upload of {asset_name} failed after {attempts} attempts: "
+                    f"{type(e).__name__}: {e}"
+                ) from e
+
+        # Should not reach here, but be defensive.
+        raise StorageBackendError(
+            f"asset upload of {asset_name} exhausted retries: "
+            f"{type(last_exc).__name__ if last_exc else 'unknown'}: {last_exc}"
+        )
 
     def _download_asset(self, asset_url, dest_path):
         """Download a release asset to dest_path."""
