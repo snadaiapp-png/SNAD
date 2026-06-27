@@ -216,12 +216,20 @@ def create_seed_release(backend: GitHubReleasesBackend, generation_id: str) -> d
 
 
 def upload_checkpoint(backend: GitHubReleasesBackend, seed_release_id: int, checkpoint: Checkpoint) -> None:
-    """Upload or update checkpoint.json on the seed release."""
-    # Delete existing checkpoint.json asset if present
+    """Upload or update checkpoint.json on the seed release.
+
+    R12L fix: non-fatal error handling for asset deletion (404 is OK —
+    asset may have already been deleted or never existed).
+    """
+    # Delete existing checkpoint.json asset if present (non-fatal if 404)
     release = backend._request("GET", f"releases/{seed_release_id}")
     for asset in release.get("assets", []):
         if asset["name"] == "checkpoint.json":
-            backend._request("DELETE", f"releases/{seed_release_id}/assets/{asset['id']}")
+            try:
+                backend._request("DELETE", f"releases/{seed_release_id}/assets/{asset['id']}")
+            except Exception as e:
+                # Non-fatal: asset may already be deleted or in an inconsistent state
+                print(f"  ⚠️ Non-fatal: could not delete old checkpoint.json asset: {e}")
             break
 
     # Upload new checkpoint
