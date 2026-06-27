@@ -548,20 +548,22 @@ def download_nvd_feed(
         urllib.request.urlretrieve(VULNZ_JAR_URL, vulnz_jar_path)
 
     # Run vulnz to download NVD data
-    # vulnz 9.x CLI: java -jar vulnz.jar cve --prefix <dir>/nvdcve- --apikey <key>
-    # Note: vulnz writes nvdcve-YYYY.json.gz and nvdcve-YYYY.meta files
+    # vulnz 9.x CLI: java -jar vulnz.jar cve --prefix <dir>/nvdcve-
+    # NVD_API_KEY is passed via environment variable (recommended by vulnz)
     cmd = [
         "java", "-jar", str(vulnz_jar_path),
         "cve",
         "--prefix", str(feed_dir / "nvdcve-"),
-        "--apikey", nvd_api_key,
         "--requestCount", "5",
         "--maxRetry", "5",
     ]
+    # Set NVD_API_KEY in the subprocess environment
+    env = os.environ.copy()
+    env["NVD_API_KEY"] = nvd_api_key
     print(f"Running vulnz: {' '.join(cmd[:6])}...")
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout_minutes * 60,
+            cmd, capture_output=True, text=True, timeout=timeout_minutes * 60, env=env,
         )
         if result.returncode != 0:
             print(f"vulnz failed (exit: {result.returncode})")
