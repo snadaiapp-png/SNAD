@@ -46,6 +46,7 @@ from scripts.security.nvd_bulk_feed_checkpoint import (
     download_checkpoint,
     upload_feed_asset,
     verify_seed_asset,
+    restore_feed_from_seed,
     close_seed_release,
     SEED_TAG_PREFIX,
 )
@@ -61,9 +62,10 @@ NVD_YEAR_START = 2002
 NVD_BULK_BASE = "https://nvd.nist.gov/feeds/json/cve/2.0"
 
 # Retry policy
-MAX_ATTEMPTS = 4
+MAX_ATTEMPTS = 6
 INITIAL_DELAY = 30
 MAX_DELAY = 600  # 10 minutes
+DOWNLOAD_TIMEOUT_SECONDS = 600  # 10 min per attempt — NVD can be slow for large yearly feeds
 
 
 def current_year() -> int:
@@ -146,7 +148,7 @@ def download_with_retry(
             req = urllib.request.Request(url, headers={
                 "User-Agent": "SANAD-NVD-Bulk-Feed-Mirror/1.0",
             })
-            with urllib.request.urlopen(req, timeout=300) as resp:
+            with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT_SECONDS) as resp:
                 with part_path.open("wb") as f:
                     while True:
                         chunk = resp.read(1024 * 1024)
@@ -287,7 +289,13 @@ def download_feed_file(
 
 
 def should_skip_feed(feed_name: str, checkpoint: Checkpoint, feed_dir: Path) -> bool:
-    """Check if a feed can be skipped (already verified and unchanged)."""
+    """Check if a feed can be skipped (already verified AND present locally).
+
+    Note: This returns False if the local file is missing — even if the
+    checkpoint says VERIFIED. In that case, ``run_bulk_feed_mirror`` will
+    attempt to restore the file from the seed release (GitHub CDN) before
+    falling back to a fresh NVD download.
+    """
     if feed_name not in checkpoint.feed_records:
         return False
     record = checkpoint.feed_records[feed_name]
@@ -302,6 +310,56 @@ def should_skip_feed(feed_name: str, checkpoint: Checkpoint, feed_dir: Path) -> 
     if actual != record.actual_sha256:
         return False
     return True
+
+
+def try_restore_verified_feed(
+    backend: GitHubReleasesBackend,
+    seed_release_id: int,
+    feed_name: str,
+    checkpoint: Checkpoint,
+    feed_dir: Path,
+) -> bool:
+    """Restore a VERIFIED feed from the seed release if possible.
+
+    Returns True if the feed was successfully restored from the seed
+    release AND the local SHA-256 now matches the checkpoint record.
+    Returns False if:
+      - The feed is not VERIFIED in the checkpoint
+      - The seed release does not have the asset
+      - The restored SHA-256 does not match the checkpoint record
+
+    When this returns True, the caller can skip the NVD download entirely.
+    When this returns False, the caller should proceed with a fresh NVD
+    download (the standard ``download_feed_file`` path).
+    """
+    if feed_name not in checkpoint.feed_records:
+        return False
+    record = checkpoint.feed_records[feed_name]
+    if record.status != "VERIFIED":
+        return False
+    if not record.actual_sha256:
+        return False
+
+    dest_path = feed_dir / feed_name
+    if dest_path.exists():
+        # Already present locally; verify SHA
+        actual = sha256_file(dest_path)
+        if actual == record.actual_sha256:
+            return True
+        # SHA mismatch — fall through and try restore
+        dest_path.unlink(missing_ok=True)
+
+    print(f"  ↩️  Attempting to restore {feed_name} from seed release (GitHub CDN)...")
+    restored = restore_feed_from_seed(
+        backend=backend,
+        seed_release_id=seed_release_id,
+        feed_name=feed_name,
+        expected_sha256=record.actual_sha256,
+        dest_path=dest_path,
+    )
+    if restored:
+        print(f"  ✅ Restored from seed: {feed_name}")
+    return restored
 
 
 def run_bulk_feed_mirror(
@@ -362,13 +420,28 @@ def run_bulk_feed_mirror(
     checkpoint.publisher_run_ids.append(publisher_run_id)
     checkpoint.updated_at = utc_now_iso()
 
+    restored_count = 0
+    skipped_count = 0
+    downloaded_count = 0
+    failed_count = 0
+
     # Process each feed
     for feed_name in required:
+        # 1) Already present locally and VERIFIED → skip entirely
         if should_skip_feed(feed_name, checkpoint, feed_dir):
-            print(f"SKIP (verified): {feed_name}")
+            print(f"SKIP (local verified): {feed_name}")
+            skipped_count += 1
             continue
 
-        print(f"\nProcessing: {feed_name}")
+        # 2) VERIFIED in checkpoint but missing locally (e.g. workflow did `rm -rf`)
+        #    → try to restore from seed release (GitHub CDN, fast & reliable)
+        if try_restore_verified_feed(backend, seed_release_id, feed_name, checkpoint, feed_dir):
+            print(f"SKIP (restored from seed): {feed_name}")
+            restored_count += 1
+            continue
+
+        # 3) Need fresh NVD download
+        print(f"\nProcessing (NVD download): {feed_name}")
         checkpoint.mark_pending(feed_name)
 
         try:
@@ -383,6 +456,7 @@ def run_bulk_feed_mirror(
             # Persist checkpoint after each successful file
             upload_checkpoint(backend, seed_release_id, checkpoint)
             print(f"  ✅ Verified and persisted: {feed_name} (SHA: {record.actual_sha256[:12]}...)")
+            downloaded_count += 1
 
         except Exception as e:
             print(f"  ❌ FAILED: {feed_name}: {e}")
@@ -392,6 +466,7 @@ def run_bulk_feed_mirror(
                 upload_checkpoint(backend, seed_release_id, checkpoint)
             except Exception as ce:
                 print(f"  ⚠️ Non-fatal: checkpoint upload after failure failed: {ce}")
+            failed_count += 1
             # Continue to next feed — don't abort entire run
 
     # Final checkpoint update
@@ -406,5 +481,7 @@ def run_bulk_feed_mirror(
     print(f"  Completed: {len(checkpoint.completed_feeds)}/{len(checkpoint.required_feeds)}")
     print(f"  Pending: {len(checkpoint.pending_feeds)}")
     print(f"  Failed: {len(checkpoint.failed_feeds)}")
+    print(f"  This run: skipped_local={skipped_count}, restored_from_seed={restored_count}, "
+          f"downloaded={downloaded_count}, failed={failed_count}")
 
     return checkpoint

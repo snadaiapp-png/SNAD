@@ -325,6 +325,49 @@ def verify_seed_asset(backend: GitHubReleasesBackend, seed_release_id: int, asse
     return False
 
 
+def restore_feed_from_seed(
+    backend: GitHubReleasesBackend,
+    seed_release_id: int,
+    feed_name: str,
+    expected_sha256: str,
+    dest_path: Path,
+) -> bool:
+    """Restore a verified feed file from the seed release (GitHub CDN).
+
+    Returns True if the file was successfully restored and SHA-256 matches.
+    Returns False if the asset is not present on the seed release.
+
+    This is the key to true resumability: when the workflow's `rm -rf`
+    destroys the local feed_dir, we can restore already-verified files
+    from the seed release instead of re-downloading them from NVD (which
+    is slow and frequently returns 5xx/timeout).
+    """
+    release = backend._request("GET", f"releases/{seed_release_id}")
+    for asset in release.get("assets", []):
+        if asset["name"] != feed_name:
+            continue
+        # Download to .part first, verify SHA, then atomic rename
+        part_path = dest_path.with_suffix(dest_path.suffix + ".restored")
+        try:
+            backend._download_asset(asset["url"], part_path)
+            actual_sha = sha256_file(part_path)
+            if actual_sha != expected_sha256:
+                print(f"  ⚠️ Seed asset {feed_name} SHA mismatch "
+                      f"(expected={expected_sha256[:12]}..., actual={actual_sha[:12]}...); "
+                      f"will re-download from NVD")
+                part_path.unlink(missing_ok=True)
+                return False
+            # Atomic rename
+            part_path.rename(dest_path)
+            return True
+        except Exception as e:
+            print(f"  ⚠️ Seed restore for {feed_name} failed: {e}; will re-download from NVD")
+            part_path.unlink(missing_ok=True)
+            return False
+    # Asset not present on seed
+    return False
+
+
 def close_seed_release(backend: GitHubReleasesBackend, seed_release_id: int) -> None:
     """Delete a completed seed release after final feed is published."""
     try:
