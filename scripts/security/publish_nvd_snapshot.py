@@ -349,6 +349,15 @@ class LocalFeedServer:
 
         feed_dir = self.feed_dir
 
+        # Ensure cache.properties exists — dependency-check fetches it from
+        # the datafeed URL to decide if the feed needs updating. Without it,
+        # the update fails with:
+        #   ResourceNotFoundException: http://127.0.0.1:PORT/cache.properties
+        #   - Server status: 404 - Server reason: File not found
+        cache_props = feed_dir / "cache.properties"
+        if not cache_props.exists():
+            self._synthesize_cache_properties(feed_dir, cache_props)
+
         class FeedHandler(http.server.SimpleHTTPRequestHandler):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, directory=str(feed_dir), **kwargs)
@@ -384,9 +393,47 @@ class LocalFeedServer:
         except Exception as e:
             raise RuntimeError(f"Feed server readiness check failed: {e}") from e
 
+        # Also verify cache.properties is accessible (dependency-check fetches it)
+        try:
+            resp = _urllib.urlopen(f"http://127.0.0.1:{self.port}/cache.properties", timeout=5)
+            if resp.status != 200:
+                raise RuntimeError(f"cache.properties ready check failed: HTTP {resp.status}")
+        except Exception as e:
+            raise RuntimeError(f"cache.properties readiness check failed: {e}") from e
+
         print(f"Local feed server started on http://127.0.0.1:{self.port}")
         print(f"  Readiness: GET /nvdcve-modified.json.gz → HTTP 200 (Content-Length: {content_length})")
+        print(f"  Readiness: GET /cache.properties → HTTP 200")
         return self.port
+
+    @staticmethod
+    def _synthesize_cache_properties(feed_dir: Path, cache_props: Path) -> None:
+        """Synthesize a minimal cache.properties file from the most recent .meta.
+
+        Format (Java properties):
+            lastModifiedDate=YYYY-MM-DDTHH:MM:SS
+
+        dependency-check uses this to decide whether to re-download the feed.
+        We use the latest lastModifiedDate across all .meta files (or now()
+        if no .meta files exist).
+        """
+        import datetime as _dt
+        latest = ""
+        for meta_file in feed_dir.glob("*.meta"):
+            try:
+                content = meta_file.read_text(encoding="utf-8")
+                for line in content.splitlines():
+                    if line.startswith("lastModifiedDate="):
+                        val = line.split("=", 1)[1].strip()
+                        if val and val > latest:
+                            latest = val
+                        break
+            except Exception:
+                continue
+        if not latest:
+            latest = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        cache_props.write_text(f"lastModifiedDate={latest}\n", encoding="utf-8")
+        print(f"  Synthesized cache.properties (lastModifiedDate={latest})")
 
     def stop(self):
         if self.server:
