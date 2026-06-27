@@ -125,7 +125,7 @@ def publish_final_feed_release(
     )
 
     manifest_path = work_dir / "manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    manifest_path.write_text(json.dumps(manifest, indent=2, default=str), encoding="utf-8")
     manifest_sha256 = sha256_file(manifest_path)
 
     # Build SHA256SUMS
