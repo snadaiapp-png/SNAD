@@ -55,8 +55,8 @@ from scripts.security.nvd_snapshot_store import (
 FEED_SCHEMA = "snad-nvd-feed-v1"
 FEED_RELEASE_TAG_PREFIX = "nvd-feed-"
 FEED_LATEST_TAG = "nvd-feed-latest"
-VULNZ_VERSION = "7.3.2"
-VULNZ_JAR_URL = f"https://github.com/jeremylong/OpenVulnerabilityProject/releases/download/v{VULNZ_VERSION}/open-vulnerability-cli-{VULNZ_VERSION}.jar"
+VULNZ_VERSION = "9.0.4"
+VULNZ_JAR_URL = f"https://github.com/jeremylong/open-vulnerability-cli/releases/download/v{VULNZ_VERSION}/vulnz-{VULNZ_VERSION}.jar"
 
 # NVD CVE data starts from 2002
 NVD_YEAR_START = 2002
@@ -548,13 +548,15 @@ def download_nvd_feed(
         urllib.request.urlretrieve(VULNZ_JAR_URL, vulnz_jar_path)
 
     # Run vulnz to download NVD data
+    # vulnz 9.x CLI: java -jar vulnz.jar --nvd --directory <dir> --apikey <key>
     cmd = [
         "java", "-jar", str(vulnz_jar_path),
-        "--nvd", "download",
+        "--nvd",
         "--directory", str(feed_dir),
         "--apikey", nvd_api_key,
         "--delay", "6000",
         "--retry-count", "5",
+        "--format", "json",
     ]
     print(f"Running vulnz: {' '.join(cmd[:6])}...")
     try:
