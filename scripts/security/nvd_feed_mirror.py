@@ -570,8 +570,10 @@ def download_nvd_feed(
         )
         if result.returncode != 0:
             print(f"vulnz failed (exit: {result.returncode})")
-            print(result.stdout[-3000:] if result.stdout else "")
-            print(result.stderr[-3000:] if result.stderr else "")
+            print("=== vulnz stdout (full) ===")
+            print(result.stdout if result.stdout else "(empty)")
+            print("=== vulnz stderr (full) ===")
+            print(result.stderr if result.stderr else "(empty)")
             raise RuntimeError(f"vulnz download failed (exit: {result.returncode})")
         print("vulnz download completed successfully")
     except subprocess.TimeoutExpired:
