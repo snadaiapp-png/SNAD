@@ -27,6 +27,7 @@ from scripts.security.nvd_bulk_feed_checkpoint import (
     close_seed_release,
 )
 from scripts.security.nvd_feed_archive import create_feed_archive, validate_feed_archive
+from scripts.security.nvd_feed_mirror import promote_feed_latest_pointer
 from scripts.security.nvd_snapshot_store import (
     GitHubReleasesBackend,
     SnapshotError,
@@ -212,6 +213,26 @@ def publish_final_feed_release(
 
     # 7. Close seed
     close_seed_release(backend, seed_release_id)
+
+    # 8. Update nvd-feed-latest pointer (so consumers using
+    #    resolve_latest_valid_feed_release can find this release)
+    print(f"  Updating nvd-feed-latest pointer...")
+    pointer = {
+        "feed_id": feed_id,
+        "release_tag": release_tag,
+        "release_id": release_id,
+        "archive_filename": archive_filename,
+        "archive_sha256": archive_sha256,
+        "manifest_sha256": manifest_sha256,
+        "published_at": utc_now_iso(),
+    }
+    try:
+        promote_feed_latest_pointer(backend, pointer)
+        print(f"  ✅ nvd-feed-latest pointer updated")
+    except Exception as e:
+        # Non-fatal: the feed release itself is published; consumers can
+        # still find it via resolve_latest_verified_feed (pagination-based).
+        print(f"  ⚠️ Non-fatal: could not update nvd-feed-latest pointer: {e}")
 
     return {
         "release_tag": release_tag,
