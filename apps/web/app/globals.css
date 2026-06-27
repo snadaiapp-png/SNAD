@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "./snad-tokens.css";
 @import "./snad-tailwind.css";
+@import "./snad-auth-scene.css";
 
 * {
   box-sizing: border-box;
