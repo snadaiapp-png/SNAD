@@ -1,0 +1,146 @@
+# ============================================================
+# SANAD — NVD Bulk Feed Mirror Publisher (Resumable)
+# ============================================================
+# EXEC-PROMPT-010R12L — Downloads NVD JSON 2.0 bulk feeds per year,
+# verifies each against META SHA-256, persists progress to a durable
+# checkpoint (GitHub Draft Release), and publishes a verified
+# immutable feed release when all files are complete.
+#
+# Key properties:
+#   - No NVD API calls (uses bulk feed files directly)
+#   - No NVD_API_KEY required
+#   - No vulnz dependency
+#   - Resumable: completed files survive workflow interruption
+#   - Per-file META SHA-256 verification
+#   - Draft → upload → verify → publish transaction
+# ============================================================
+
+name: NVD Bulk Feed Mirror Publisher
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Daily at 03:17 UTC
+    - cron: '17 3 * * *'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: snad-nvd-bulk-feed-single-writer
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  publish-bulk-feed:
+    name: Publish NVD Bulk Feed (Resumable)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python3 -m pip install --quiet pyyaml pytest
+          sudo apt-get install -y zstd || true
+
+      - name: Run Bulk Feed Mirror (Resumable)
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          FEED_DIR="${{ runner.temp }}/nvd-feed"
+          WORK_DIR="${{ runner.temp }}/nvd-feed-work"
+          rm -rf "$FEED_DIR" "$WORK_DIR"
+          mkdir -p "$FEED_DIR" "$WORK_DIR"
+
+          python3 - <<'PYTHON'
+          import os, sys
+          sys.path.insert(0, '.')
+          from scripts.security.nvd_bulk_feed_mirror import run_bulk_feed_mirror
+          from scripts.security.nvd_bulk_feed_release import publish_final_feed_release
+          from scripts.security.nvd_bulk_feed_checkpoint import find_active_seed
+          from scripts.security.nvd_snapshot_store import GitHubReleasesBackend
+          from scripts.security.verify_nvd_bulk_feed import verify_feed_content
+          from pathlib import Path
+
+          backend = GitHubReleasesBackend()
+          feed_dir = Path(os.environ.get("FEED_DIR", "/tmp/nvd-feed"))
+          work_dir = Path(os.environ.get("WORK_DIR", "/tmp/nvd-feed-work"))
+
+          # Run the resumable mirror
+          checkpoint = run_bulk_feed_mirror(
+              feed_dir=feed_dir,
+              work_dir=work_dir,
+              publisher_sha=os.environ.get("GITHUB_SHA", "unknown"),
+              publisher_run_id=str(os.environ.get("GITHUB_RUN_ID", "local")),
+              backend=backend,
+          )
+
+          # Check if complete
+          if not checkpoint.is_complete():
+              print(f"\n=== INCOMPLETE: {len(checkpoint.completed_feeds)}/{len(checkpoint.required_feeds)} feeds ===")
+              print("Progress persisted to seed checkpoint. Next run will resume.")
+              print("FAILED_FEEDS:", checkpoint.failed_feeds)
+              print("PENDING_FEEDS:", checkpoint.pending_feeds)
+              sys.exit(1)
+
+          print(f"\n=== ALL FEEDS VERIFIED: {len(checkpoint.completed_feeds)}/{len(checkpoint.required_feeds)} ===")
+
+          # Verify content
+          verification = verify_feed_content(feed_dir)
+          if not verification["valid"]:
+              print("::error::Feed content verification failed")
+              print("Errors:", verification["errors"])
+              sys.exit(1)
+          print(f"Content verification: PASS ({verification['feed_count']} feeds)")
+
+          # Find seed release
+          seed = find_active_seed(backend)
+          if not seed:
+              print("::error::No active seed release found for final publish")
+              sys.exit(1)
+
+          # Publish final release
+          result = publish_final_feed_release(
+              backend=backend,
+              checkpoint=checkpoint,
+              feed_dir=feed_dir,
+              work_dir=work_dir,
+              seed_release_id=seed["id"],
+          )
+
+          print(f"\n=== FINAL FEED RELEASE PUBLISHED ===")
+          print(f"  release_tag: {result['release_tag']}")
+          print(f"  release_id: {result['release_id']}")
+          print(f"  archive_sha256: {result['archive_sha256']}")
+          print(f"  feed_id: {result['feed_id']}")
+          PYTHON
+
+      - name: Write summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## NVD Bulk Feed Mirror Publisher — R12L"
+            echo ""
+            echo "**Run ID:** ${{ github.run_id }}"
+            echo "**SHA:** \`${{ github.sha }}\`"
+            echo "**Mode:** Resumable Bulk Feed (per-year, META-verified)"
+            echo ""
+            echo "No NVD_API_KEY used. No vulnz. No direct NVD API."
+            echo "Progress persisted to GitHub Draft Release checkpoint."
+          } >> "$GITHUB_STEP_SUMMARY"
