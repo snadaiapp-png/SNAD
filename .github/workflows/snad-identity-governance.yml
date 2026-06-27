@@ -1,0 +1,52 @@
+name: SNAD Identity Governance
+
+on:
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "docs/brand/**"
+      - "scripts/quality/check_snad_identity.py"
+      - ".github/workflows/snad-identity-governance.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "docs/brand/**"
+      - "scripts/quality/check_snad_identity.py"
+      - ".github/workflows/snad-identity-governance.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  identity-governance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Validate identity and fonts
+        run: python3 scripts/quality/check_snad_identity.py
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+      - name: Lint
+        working-directory: apps/web
+        run: npm run lint
+      - name: Test
+        working-directory: apps/web
+        run: npm test
+      - name: Build
+        working-directory: apps/web
+        run: npm run build
