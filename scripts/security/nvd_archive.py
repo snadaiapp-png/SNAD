@@ -310,11 +310,11 @@ def validate_archive_paths(archive_path: Path) -> list[str]:
         try:
             with tmp_tar.open("wb") as out:
                 subprocess.run(["zstd", "-d", "--stdout", str(archive_path)],
-                               stdout=out, check=True, capture_output=True)
+                               stdout=out, check=True, stderr=subprocess.PIPE)
             tar_to_inspect = tmp_tar
         except subprocess.CalledProcessError as e:
             tmp_tar.unlink(missing_ok=True)
-            raise ArchiveError(f"zstd decompression failed: {e.stderr}") from e
+            raise ArchiveError(f"zstd decompression failed: {e.stderr.decode('utf-8', errors='replace') if e.stderr else ''}") from e
     else:
         tar_to_inspect = archive_path
 
