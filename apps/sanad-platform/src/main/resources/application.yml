@@ -1,14 +1,12 @@
 # ============================================================
-# SANAD Platform — Base application configuration
+# SNAD Platform — Base application configuration
 # ============================================================
 
 spring:
   application:
     name: sanad-platform
-
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}
-
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/sanad}
     username: ${SPRING_DATASOURCE_USERNAME:sanad}
@@ -21,7 +19,6 @@ spring:
       connection-timeout: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
-
   jpa:
     open-in-view: false
     hibernate:
@@ -33,14 +30,12 @@ spring:
           time_zone: UTC
         format_sql: false
     show-sql: false
-
   flyway:
     enabled: ${FLYWAY_ENABLED:true}
     locations: classpath:db/migration
     baseline-on-migrate: true
     baseline-version: 0
     validate-on-migrate: true
-
   lifecycle:
     timeout-per-shutdown-phase: 30s
 
@@ -81,8 +76,6 @@ springdoc:
 
 sanad:
   cors:
-    # Single source of truth: SANAD_CORS_ALLOWED_ORIGINS environment variable.
-    # The legacy CORS_ALLOWED_ORIGINS key is no longer supported.
     allowed-origins: ${SANAD_CORS_ALLOWED_ORIGINS:https://snad-app.vercel.app}
   security:
     jwt:
@@ -106,8 +99,17 @@ sanad:
       tenant-subdomain: ${BOOTSTRAP_TENANT_SUBDOMAIN:}
       admin-email: ${BOOTSTRAP_ADMIN_EMAIL:}
       admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:}
-      admin-display-name: ${BOOTSTRAP_ADMIN_DISPLAY_NAME:SANAD Admin}
+      admin-display-name: ${BOOTSTRAP_ADMIN_DISPLAY_NAME:SNAD Admin}
       audit-actor: ${BOOTSTRAP_AUDIT_ACTOR:credential-bootstrap}
+
+snad:
+  security:
+    notifications:
+      provider: ${SECURITY_NOTIFICATION_PROVIDER:disabled}
+      application-base-url: ${APPLICATION_BASE_URL:https://snad-app.vercel.app}
+      from-address: ${SECURITY_NOTIFICATION_FROM:}
+      endpoint: ${SECURITY_NOTIFICATION_ENDPOINT:}
+      bearer-token: ${SECURITY_NOTIFICATION_BEARER_TOKEN:}
 
 logging:
   level:
