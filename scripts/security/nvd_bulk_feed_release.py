@@ -145,7 +145,7 @@ def publish_final_feed_release(
         "body": f"Verified NVD JSON 2.0 bulk feed release {feed_id}",
         "draft": True,
         "prerelease": True,
-        "make_latest": False,
+        "make_latest": "false",
     })
     release_id = release["id"]
     upload_url = release.get("upload_url", "")
@@ -181,7 +181,7 @@ def publish_final_feed_release(
     backend._request("PATCH", f"releases/{release_id}", body={
         "draft": False,
         "prerelease": False,
-        "make_latest": False,
+        "make_latest": "false",
     })
 
     # 7. Close seed
