@@ -548,14 +548,15 @@ def download_nvd_feed(
         urllib.request.urlretrieve(VULNZ_JAR_URL, vulnz_jar_path)
 
     # Run vulnz to download NVD data
-    # vulnz 9.x CLI: java -jar vulnz.jar cve --directory <dir> --apikey <key>
+    # vulnz 9.x CLI: java -jar vulnz.jar cve --prefix <dir>/nvdcve- --apikey <key>
+    # Note: vulnz writes nvdcve-YYYY.json.gz and nvdcve-YYYY.meta files
     cmd = [
         "java", "-jar", str(vulnz_jar_path),
         "cve",
-        "--directory", str(feed_dir),
+        "--prefix", str(feed_dir / "nvdcve-"),
         "--apikey", nvd_api_key,
-        "--delay", "6000",
-        "--retry-count", "5",
+        "--requestCount", "5",
+        "--maxRetry", "5",
     ]
     print(f"Running vulnz: {' '.join(cmd[:6])}...")
     try:
