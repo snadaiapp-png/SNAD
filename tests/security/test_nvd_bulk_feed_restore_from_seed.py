@@ -47,6 +47,7 @@ from scripts.security.nvd_bulk_feed_checkpoint import (
 from scripts.security.nvd_bulk_feed_mirror import (
     should_skip_feed,
     try_restore_verified_feed,
+    try_recover_orphaned_seed_asset,
     run_bulk_feed_mirror,
     MAX_ATTEMPTS,
     DOWNLOAD_TIMEOUT_SECONDS,
@@ -584,4 +585,202 @@ def test_download_timeout_increased_from_300_to_600():
     """NVD download timeout is now 600s (was 300s) — NVD can be very slow for large yearly feeds."""
     assert DOWNLOAD_TIMEOUT_SECONDS == 600, (
         f"DOWNLOAD_TIMEOUT_SECONDS should be 600 (was 300), got {DOWNLOAD_TIMEOUT_SECONDS}"
+    )
+
+
+# ---------- Tests: orphan recovery (R12L post-167 hardening) ----------
+
+def test_try_recover_orphaned_seed_asset_succeeds(mock_backend, tmp_path):
+    """An asset on the seed with NO checkpoint record gets recovered + VERIFIED."""
+    # Upload an asset to seed release WITHOUT a checkpoint record for it
+    release = mock_backend._request("POST", "releases", body={"tag_name": "seed", "draft": True})
+    orphan_data = _make_fake_gzip_feed(2024, "orphan-content")
+    src = tmp_path / "src.json.gz"
+    src.write_bytes(orphan_data)
+    mock_backend._upload_asset(release["upload_url"], "nvdcve-2024.json.gz", src)
+
+    # Empty checkpoint (no record for this feed)
+    checkpoint = Checkpoint(
+        generation_id="RECOVER001",
+        created_at="2026-06-27T00:00:00Z",
+        updated_at="2026-06-27T00:00:00Z",
+        publisher_sha="abc",
+        publisher_run_ids=["1"],
+        required_feeds=["nvdcve-2024.json.gz"],
+        completed_feeds=[],
+        pending_feeds=[],
+        failed_feeds=[],
+        feed_records={},
+    )
+    feed_dir = tmp_path / "feed"
+    feed_dir.mkdir()
+
+    ok = try_recover_orphaned_seed_asset(
+        mock_backend, release["id"], "nvdcve-2024.json.gz", checkpoint, feed_dir
+    )
+    assert ok is True
+    # Checkpoint now has a VERIFIED record
+    assert "nvdcve-2024.json.gz" in checkpoint.completed_feeds
+    record = checkpoint.feed_records["nvdcve-2024.json.gz"]
+    assert record.status == "VERIFIED"
+    assert record.actual_sha256  # SHA was computed
+    # Local file exists with the right content
+    assert (feed_dir / "nvdcve-2024.json.gz").read_bytes() == orphan_data
+
+
+def test_try_recover_orphaned_seed_asset_returns_false_when_missing(mock_backend, tmp_path):
+    """If the seed has no asset for this feed, recovery returns False."""
+    release = mock_backend._request("POST", "releases", body={"tag_name": "seed", "draft": True})
+    # No asset uploaded
+    checkpoint = Checkpoint(
+        generation_id="RECOVER002",
+        created_at="2026-06-27T00:00:00Z",
+        updated_at="2026-06-27T00:00:00Z",
+        publisher_sha="abc",
+        publisher_run_ids=["1"],
+        required_feeds=["nvdcve-2024.json.gz"],
+        completed_feeds=[],
+        pending_feeds=[],
+        failed_feeds=[],
+        feed_records={},
+    )
+    feed_dir = tmp_path / "feed"
+    feed_dir.mkdir()
+    ok = try_recover_orphaned_seed_asset(
+        mock_backend, release["id"], "nvdcve-2024.json.gz", checkpoint, feed_dir
+    )
+    assert ok is False
+    assert "nvdcve-2024.json.gz" not in checkpoint.completed_feeds
+
+
+def test_try_recover_orphaned_seed_asset_skips_when_already_verified(
+    mock_backend, fake_feed_record, tmp_path,
+):
+    """If the checkpoint already has a VERIFIED record, recovery yields to restore."""
+    record, data = fake_feed_record
+    release = mock_backend._request("POST", "releases", body={"tag_name": "seed", "draft": True})
+    checkpoint = Checkpoint(
+        generation_id="RECOVER003",
+        created_at="2026-06-27T00:00:00Z",
+        updated_at="2026-06-27T00:00:00Z",
+        publisher_sha="abc",
+        publisher_run_ids=["1"],
+        required_feeds=["nvdcve-2024.json.gz"],
+        completed_feeds=["nvdcve-2024.json.gz"],
+        pending_feeds=[],
+        failed_feeds=[],
+        feed_records={"nvdcve-2024.json.gz": record},
+    )
+    feed_dir = tmp_path / "feed"
+    feed_dir.mkdir()
+    ok = try_recover_orphaned_seed_asset(
+        mock_backend, release["id"], "nvdcve-2024.json.gz", checkpoint, feed_dir
+    )
+    assert ok is False  # let try_restore_verified_feed handle it
+
+
+def test_try_recover_orphaned_seed_asset_returns_false_on_invalid_gzip(mock_backend, tmp_path):
+    """If the seed asset is not valid gzip+JSON, recovery fails."""
+    release = mock_backend._request("POST", "releases", body={"tag_name": "seed", "draft": True})
+    # Upload garbage as the asset
+    src = tmp_path / "garbage.json.gz"
+    src.write_bytes(b"not valid gzip content")
+    mock_backend._upload_asset(release["upload_url"], "nvdcve-2024.json.gz", src)
+
+    checkpoint = Checkpoint(
+        generation_id="RECOVER004",
+        created_at="2026-06-27T00:00:00Z",
+        updated_at="2026-06-27T00:00:00Z",
+        publisher_sha="abc",
+        publisher_run_ids=["1"],
+        required_feeds=["nvdcve-2024.json.gz"],
+        completed_feeds=[],
+        pending_feeds=[],
+        failed_feeds=[],
+        feed_records={},
+    )
+    feed_dir = tmp_path / "feed"
+    feed_dir.mkdir()
+    ok = try_recover_orphaned_seed_asset(
+        mock_backend, release["id"], "nvdcve-2024.json.gz", checkpoint, feed_dir
+    )
+    assert ok is False
+    assert "nvdcve-2024.json.gz" not in checkpoint.completed_feeds
+
+
+# ---------- Tests: _delete_existing_asset (idempotent delete) ----------
+
+def test_delete_existing_asset_handles_orphaned_list_entries(mock_backend, tmp_path):
+    """_delete_existing_asset tolerates 404 on DELETE (orphaned list entry)."""
+    release = mock_backend._request("POST", "releases", body={"tag_name": "seed", "draft": True})
+    src = tmp_path / "src.json.gz"
+    src.write_bytes(b"some data")
+    mock_backend._upload_asset(release["upload_url"], "nvdcve-2024.json.gz", src)
+
+    # Make DELETE raise a 404-style error (simulating orphaned list entry)
+    original_request = mock_backend._request
+    delete_call_count = [0]
+    def wrapped_request(method, path, body=None, expected=(200, 201, 204)):
+        if method == "DELETE":
+            delete_call_count[0] += 1
+            # First DELETE raises "not found" — simulating orphaned entry
+            # Subsequent calls go through normally
+            if delete_call_count[0] == 1:
+                raise RuntimeError("not found: DELETE releases/123/assets/456")
+        return original_request(method, path, body, expected)
+    mock_backend._request = wrapped_request
+
+    # Should not raise — orphaned-list-entry case is handled
+    from scripts.security.nvd_bulk_feed_checkpoint import _delete_existing_asset
+    _delete_existing_asset(mock_backend, release["id"], "nvdcve-2024.json.gz")
+    # No exception raised — test passes
+
+
+# ---------- Tests: upload_feed_asset 422 retry ----------
+
+def test_upload_feed_asset_retries_on_422_already_exists(mock_backend, tmp_path):
+    """upload_feed_asset retries on 422 already_exists by re-deleting and re-uploading."""
+    from scripts.security.nvd_bulk_feed_checkpoint import upload_feed_asset
+    release = mock_backend._request("POST", "releases", body={"tag_name": "seed", "draft": True})
+
+    # Pre-upload an asset with the same name (simulates leftover from prior run)
+    src_existing = tmp_path / "existing.json.gz"
+    src_existing.write_bytes(b"old content")
+    mock_backend._upload_asset(release["upload_url"], "nvdcve-2024.json.gz", src_existing)
+
+    # Now upload a new version — _upload_asset will hit 422 because asset exists,
+    # but our hardened upload_feed_asset should delete + retry
+    src_new = tmp_path / "new.json.gz"
+    src_new.write_bytes(b"new content")
+    asset_id = upload_feed_asset(mock_backend, release["id"], "nvdcve-2024.json.gz", src_new)
+    assert asset_id  # got an asset ID back
+    # The asset should now have the new content
+    release = mock_backend._request("GET", f"releases/{release['id']}")
+    asset = next(a for a in release["assets"] if a["name"] == "nvdcve-2024.json.gz")
+    import tempfile
+    with tempfile.NamedTemporaryFile(delete=False) as tf:
+        tmp = Path(tf.name)
+    try:
+        mock_backend._download_asset(asset["url"], tmp)
+        assert tmp.read_bytes() == b"new content"
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+# ---------- Tests: upload retry policy constants ----------
+
+def test_upload_max_attempts_increased_from_4_to_8():
+    """GitHub upload now retries up to 8 times (was 4) — gives more tolerance for SSL EOF on uploads.github.com."""
+    from scripts.security.nvd_snapshot_store import GitHubReleasesBackend
+    assert GitHubReleasesBackend.MAX_UPLOAD_ATTEMPTS == 8, (
+        f"MAX_UPLOAD_ATTEMPTS should be 8 (was 4), got {GitHubReleasesBackend.MAX_UPLOAD_ATTEMPTS}"
+    )
+
+
+def test_upload_timeout_floor_increased_from_300_to_600():
+    """Upload timeout floor is now 600s (was 300s) — uploads.github.com can be slow for large assets."""
+    from scripts.security.nvd_snapshot_store import GitHubReleasesBackend
+    assert GitHubReleasesBackend.UPLOAD_TIMEOUT_FLOOR_SECONDS == 600, (
+        f"UPLOAD_TIMEOUT_FLOOR_SECONDS should be 600 (was 300), "
+        f"got {GitHubReleasesBackend.UPLOAD_TIMEOUT_FLOOR_SECONDS}"
     )

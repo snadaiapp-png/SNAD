@@ -362,6 +362,115 @@ def try_restore_verified_feed(
     return restored
 
 
+def try_recover_orphaned_seed_asset(
+    backend: GitHubReleasesBackend,
+    seed_release_id: int,
+    feed_name: str,
+    checkpoint: Checkpoint,
+    feed_dir: Path,
+) -> bool:
+    """Recover an orphaned seed asset whose checkpoint record was lost.
+
+    This handles the situation where a prior run uploaded an asset to the
+    seed release but never persisted a VERIFIED checkpoint record (e.g. the
+    run failed mid-transaction due to a checkpoint upload conflict).
+
+    Strategy:
+      1. The checkpoint has NO VERIFIED record for this feed.
+      2. Check the seed release for an asset with this name.
+      3. If present, download it (no expected SHA — skip SHA check),
+         then verify gzip integrity + JSON validity.
+      4. If valid, build a new VERIFIED FeedRecord and mark it in the checkpoint.
+      5. The caller then skips the NVD download.
+
+    Returns True if the feed was successfully recovered and the checkpoint
+    was updated with a VERIFIED record. Returns False if the asset is
+    missing on the seed or fails validation.
+    """
+    # Skip if checkpoint already has a VERIFIED record (let try_restore_verified_feed handle it)
+    if feed_name in checkpoint.feed_records:
+        record = checkpoint.feed_records[feed_name]
+        if record.status == "VERIFIED" and record.actual_sha256:
+            return False
+
+    dest_path = feed_dir / feed_name
+
+    # If the file is already present locally (from a prior partial run),
+    # validate it and recover.
+    if dest_path.exists():
+        try:
+            with gzip.open(dest_path, "rt", encoding="utf-8") as f:
+                data = json.load(f)
+                if not isinstance(data, dict):
+                    raise ValueError("root is not JSON object")
+        except Exception:
+            dest_path.unlink(missing_ok=True)
+        else:
+            actual_sha = sha256_file(dest_path)
+            record = FeedRecord(
+                name=feed_name,
+                meta_name=feed_name.replace(".json.gz", ".meta"),
+                source_url=source_feed_url(feed_name),
+                meta_url=source_meta_url(feed_name),
+                last_modified="",
+                compressed_size=dest_path.stat().st_size,
+                uncompressed_size=0,
+                expected_sha256="",
+                actual_sha256=actual_sha,
+                status="VERIFIED",
+                verified_at=utc_now_iso(),
+            )
+            checkpoint.mark_verified(feed_name, record)
+            print(f"  ♻️  Recovered orphaned local file: {feed_name}")
+            return True
+
+    # Try to download from seed release with empty expected_sha (skip SHA check)
+    print(f"  ♻️  Attempting to recover orphaned seed asset: {feed_name}...")
+    try:
+        restored = restore_feed_from_seed(
+            backend=backend,
+            seed_release_id=seed_release_id,
+            feed_name=feed_name,
+            expected_sha256="",  # no checkpoint record → no expected SHA
+            dest_path=dest_path,
+        )
+    except Exception as e:
+        print(f"  ⚠️ Orphan recovery download failed for {feed_name}: {e}")
+        return False
+
+    if not restored:
+        return False  # asset missing on seed
+
+    # Validate gzip + JSON integrity (no SHA expected, so just structural check)
+    try:
+        with gzip.open(dest_path, "rt", encoding="utf-8") as f:
+            data = json.load(f)
+            if not isinstance(data, dict):
+                raise ValueError("root is not JSON object")
+    except Exception as e:
+        print(f"  ⚠️ Orphan recovery validation failed for {feed_name}: {e}")
+        dest_path.unlink(missing_ok=True)
+        return False
+
+    actual_sha = sha256_file(dest_path)
+    record = FeedRecord(
+        name=feed_name,
+        meta_name=feed_name.replace(".json.gz", ".meta"),
+        source_url=source_feed_url(feed_name),
+        meta_url=source_meta_url(feed_name),
+        last_modified="",
+        compressed_size=dest_path.stat().st_size,
+        uncompressed_size=0,
+        expected_sha256="",
+        actual_sha256=actual_sha,
+        status="VERIFIED",
+        verified_at=utc_now_iso(),
+    )
+    checkpoint.mark_verified(feed_name, record)
+    print(f"  ♻️  Recovered orphaned seed asset: {feed_name}")
+    return True
+
+
 def run_bulk_feed_mirror(
     feed_dir: Path,
     work_dir: Path,
@@ -424,6 +533,7 @@ def run_bulk_feed_mirror(
     skipped_count = 0
     downloaded_count = 0
     failed_count = 0
+    recovered_count = 0
 
     # Process each feed
     for feed_name in required:
@@ -440,7 +550,21 @@ def run_bulk_feed_mirror(
             restored_count += 1
             continue
 
-        # 3) Need fresh NVD download
+        # 3) NOT verified in checkpoint, but a prior run may have uploaded
+        #    the asset to the seed release before crashing (orphaned asset).
+        #    → try to recover it (validate gzip+JSON, build VERIFIED record).
+        #    This is the key fix for the R12L post-167 failure: 27 assets
+        #    existed on the seed but only 1 had a checkpoint record.
+        if try_recover_orphaned_seed_asset(backend, seed_release_id, feed_name, checkpoint, feed_dir):
+            # Persist the recovered record to the checkpoint immediately
+            try:
+                upload_checkpoint(backend, seed_release_id, checkpoint)
+            except Exception as ce:
+                print(f"  ⚠️ Non-fatal: checkpoint upload after recovery failed: {ce}")
+            recovered_count += 1
+            continue
+
+        # 4) Need fresh NVD download
         print(f"\nProcessing (NVD download): {feed_name}")
         checkpoint.mark_pending(feed_name)
 
@@ -482,6 +606,6 @@ def run_bulk_feed_mirror(
     print(f"  Pending: {len(checkpoint.pending_feeds)}")
     print(f"  Failed: {len(checkpoint.failed_feeds)}")
     print(f"  This run: skipped_local={skipped_count}, restored_from_seed={restored_count}, "
-          f"downloaded={downloaded_count}, failed={failed_count}")
+          f"recovered_orphan={recovered_count}, downloaded={downloaded_count}, failed={failed_count}")
 
     return checkpoint

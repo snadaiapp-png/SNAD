@@ -1020,10 +1020,10 @@ class GitHubReleasesBackend(SnapshotBackend):
     #   - Retries transient failures (5xx, socket.timeout, URLError) up to
     #     MAX_UPLOAD_ATTEMPTS times with exponential backoff.
 
-    MAX_UPLOAD_ATTEMPTS = 4
-    UPLOAD_BACKOFF_BASE_SECONDS = 5
-    UPLOAD_SIZE_TIMEOUT_SECONDS_PER_MB = 0.25  # 4 MB/s floor
-    UPLOAD_TIMEOUT_FLOOR_SECONDS = 300
+    MAX_UPLOAD_ATTEMPTS = 8
+    UPLOAD_BACKOFF_BASE_SECONDS = 10
+    UPLOAD_SIZE_TIMEOUT_SECONDS_PER_MB = 0.5  # 2 MB/s floor (more conservative)
+    UPLOAD_TIMEOUT_FLOOR_SECONDS = 600
 
     def _upload_timeout_for_size(self, size_bytes: int) -> int:
         """Scale the upload timeout based on asset size."""
