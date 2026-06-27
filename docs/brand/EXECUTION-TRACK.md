@@ -2,4 +2,4 @@
 
 Refs #127, #128, #130, #150.
 
-This branch remains isolated from main until the active R12B gate closes.
+Implementation is active for development integration. Production authorization remains governed separately.
