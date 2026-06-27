@@ -214,22 +214,40 @@ def download_feed_file(
 ) -> tuple[FeedRecord, Path]:
     """Download a single feed file with META verification.
 
+    R12L fix: if SHA-256 mismatch occurs, re-download META once
+    (NVD may have updated the file) and retry with new expected hash.
+
     Returns (FeedRecord, path_to_verified_file).
     """
     source_url = source_feed_url(feed_name)
     meta_url = source_meta_url(feed_name)
 
-    print(f"  Downloading META: {meta_url}")
-    meta = download_meta(meta_url)
-
     dest_path = feed_dir / feed_name
 
-    print(f"  Downloading feed: {source_url}")
-    actual_sha = download_with_retry(
-        url=source_url,
-        dest_path=dest_path,
-        expected_sha256=meta.sha256,
-    )
+    max_meta_retries = 2  # Download META up to 2 times (original + 1 re-fetch)
+    last_error = None
+
+    for meta_attempt in range(max_meta_retries):
+        print(f"  Downloading META (attempt {meta_attempt + 1}/{max_meta_retries}): {meta_url}")
+        meta = download_meta(meta_url)
+
+        print(f"  Downloading feed: {source_url}")
+        try:
+            actual_sha = download_with_retry(
+                url=source_url,
+                dest_path=dest_path,
+                expected_sha256=meta.sha256,
+            )
+            break  # Success
+        except RuntimeError as e:
+            if "SHA-256 mismatch" in str(e) and meta_attempt < max_meta_retries - 1:
+                print(f"  ⚠️ SHA-256 mismatch — NVD may have updated the file. Re-fetching META...")
+                dest_path.unlink(missing_ok=True)
+                last_error = e
+                continue
+            raise  # Re-raise if not SHA mismatch or out of retries
+    else:
+        raise last_error or RuntimeError("Failed after META retries")
 
     # Verify gzip integrity
     try:
@@ -360,12 +378,18 @@ def run_bulk_feed_mirror(
             print(f"  ❌ FAILED: {feed_name}: {e}")
             record = checkpoint.feed_records.get(feed_name, FeedRecord(name=feed_name))
             checkpoint.mark_failed(feed_name, record)
-            upload_checkpoint(backend, seed_release_id, checkpoint)
+            try:
+                upload_checkpoint(backend, seed_release_id, checkpoint)
+            except Exception as ce:
+                print(f"  ⚠️ Non-fatal: checkpoint upload after failure failed: {ce}")
             # Continue to next feed — don't abort entire run
 
     # Final checkpoint update
     checkpoint.updated_at = utc_now_iso()
-    upload_checkpoint(backend, seed_release_id, checkpoint)
+    try:
+        upload_checkpoint(backend, seed_release_id, checkpoint)
+    except Exception as e:
+        print(f"  ⚠️ Non-fatal: final checkpoint upload failed: {e}")
 
     print(f"\n=== Checkpoint Summary ===")
     print(f"  Generation: {checkpoint.generation_id}")
