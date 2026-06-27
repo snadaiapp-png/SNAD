@@ -1,7 +1,7 @@
 # ============================================================
 # SANAD — NVD Feed Mirror Publisher
 # ============================================================
-# EXEC-PROMPT-010R12J — Downloads NVD CVE data via vulnz
+# EXEC-PROMPT-010R12K — Downloads NVD CVE data via vulnz
 # (open-vulnerability-cli) and publishes a verified immutable
 # feed release to GitHub Releases.
 #
@@ -90,7 +90,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## NVD Feed Mirror Publisher — R12J"
+            echo "## NVD Feed Mirror Publisher — R12K"
             echo ""
             echo "**Run ID:** ${{ github.run_id }}"
             echo "**SHA:** \`${{ github.sha }}\`"
