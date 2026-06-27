@@ -60,6 +60,7 @@ from scripts.security.nvd_snapshot_store import (
     DEFAULT_DEPENDENCY_CHECK_VERSION,
     DEFAULT_RETENTION_COUNT,
     FilesystemBackend,
+    GitHubReleasesBackend,
     SnapshotError,
     SnapshotNotFoundError,
     StorageBackendError,
