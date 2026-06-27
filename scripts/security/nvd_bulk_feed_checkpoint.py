@@ -259,47 +259,74 @@ def download_checkpoint(backend: GitHubReleasesBackend, seed_release: dict) -> C
     return None
 
 
-def upload_feed_asset(backend: GitHubReleasesBackend, seed_release_id: int, feed_name: str, feed_path: Path) -> int:
-    """Upload a verified feed file to the seed release. Returns asset ID.
+def _delete_existing_asset(backend: GitHubReleasesBackend, seed_release_id: int, feed_name: str) -> None:
+    """Delete any existing asset with the given name on the seed release.
 
-    R12L fix: non-fatal deletion of existing assets (404 is OK —
-    asset may have been deleted by a concurrent operation or
-    simply doesn't exist yet). Retry on 422 upload conflict.
+    Handles the GitHub Releases API's eventual consistency:
+      - The asset list may show an asset that DELETE returns 404 for
+        (orphaned/stale entry from a prior failed run).
+      - We retry the list+delete cycle up to 3 times with a delay to
+        give GitHub's API time to converge.
     """
     import time as _time
 
-    release = backend._request("GET", f"releases/{seed_release_id}")
-    # Delete existing asset with same name (non-fatal if 404)
-    for asset in release.get("assets", []):
-        if asset["name"] == feed_name:
+    for round_n in range(1, 4):
+        release = backend._request("GET", f"releases/{seed_release_id}")
+        asset_ids = [a["id"] for a in release.get("assets", []) if a["name"] == feed_name]
+        if not asset_ids:
+            return  # nothing to delete
+        for aid in asset_ids:
             try:
-                backend._request("DELETE", f"releases/{seed_release_id}/assets/{asset['id']}")
+                backend._request("DELETE", f"releases/{seed_release_id}/assets/{aid}")
             except Exception as e:
-                print(f"  ⚠️ Non-fatal: could not delete old asset {feed_name}: {e}")
-            break
+                # 404 is OK — asset already gone (orphaned list entry)
+                if "404" not in str(e) and "not found" not in str(e).lower():
+                    print(f"  ⚠️ Non-fatal: could not delete old asset {feed_name} (id={aid}): {e}")
+        _time.sleep(2 * round_n)  # 2s, 4s, 6s — let API converge
 
-    _time.sleep(1)  # Let GitHub API propagate the deletion
 
-    upload_url = release.get("upload_url", "").replace("{?name,label}", f"?name={feed_name}")
-    try:
-        backend._upload_asset(upload_url, feed_name, feed_path)
-    except Exception as e:
-        if "422" in str(e):
-            print(f"  ⚠️ Upload 422 — retrying after 3s delay...")
-            _time.sleep(3)
-            release = backend._request("GET", f"releases/{seed_release_id}")
-            for asset in release.get("assets", []):
-                if asset["name"] == feed_name:
-                    try:
-                        backend._request("DELETE", f"releases/{seed_release_id}/assets/{asset['id']}")
-                    except Exception:
-                        pass
-                    break
-            _time.sleep(2)
-            upload_url = release.get("upload_url", "").replace("{?name,label}", f"?name={feed_name}")
+def upload_feed_asset(backend: GitHubReleasesBackend, seed_release_id: int, feed_name: str, feed_path: Path) -> int:
+    """Upload a verified feed file to the seed release. Returns asset ID.
+
+    R12L post-167 hardening:
+      - Pre-deletes any existing asset with the same name (handles stale
+        orphaned list entries from prior failed runs).
+      - On 422 `already_exists`, retries up to 3 times with re-delete +
+        longer backoff (5s, 10s, 20s) before giving up.
+      - On transient SSL/network errors, _upload_asset already retries
+        internally (MAX_UPLOAD_ATTEMPTS=8).
+    """
+    import time as _time
+
+    # Pre-clean: delete any existing asset with the same name
+    _delete_existing_asset(backend, seed_release_id, feed_name)
+
+    upload_url_template = None
+    max_422_retries = 3
+
+    for attempt_422 in range(1, max_422_retries + 1):
+        # Fetch fresh upload_url each iteration (release state may have changed)
+        release = backend._request("GET", f"releases/{seed_release_id}")
+        upload_url_template = release.get("upload_url", "")
+        upload_url = upload_url_template.replace("{?name,label}", f"?name={feed_name}")
+
+        try:
             backend._upload_asset(upload_url, feed_name, feed_path)
-        else:
-            raise
+            break  # success
+        except Exception as e:
+            err_msg = str(e)
+            if "422" in err_msg and "already_exists" in err_msg:
+                if attempt_422 < max_422_retries:
+                    wait = 5 * (2 ** (attempt_422 - 1))  # 5s, 10s, 20s
+                    print(f"  ⚠️ Upload 422 already_exists (attempt {attempt_422}/{max_422_retries}) — "
+                          f"re-deleting asset and retrying in {wait}s...")
+                    _time.sleep(wait)
+                    _delete_existing_asset(backend, seed_release_id, feed_name)
+                    continue
+                else:
+                    raise
+            else:
+                raise
 
     # Re-read to get asset ID
     release = backend._request("GET", f"releases/{seed_release_id}")
@@ -334,13 +361,18 @@ def restore_feed_from_seed(
 ) -> bool:
     """Restore a verified feed file from the seed release (GitHub CDN).
 
-    Returns True if the file was successfully restored and SHA-256 matches.
-    Returns False if the asset is not present on the seed release.
+    Returns True if the file was successfully restored and SHA-256 matches
+    (or expected_sha256 is empty, in which case SHA check is skipped).
+    Returns False if the asset is not present on the seed release or if
+    the SHA-256 does not match.
 
     This is the key to true resumability: when the workflow's `rm -rf`
     destroys the local feed_dir, we can restore already-verified files
     from the seed release instead of re-downloading them from NVD (which
     is slow and frequently returns 5xx/timeout).
+
+    When expected_sha256 is empty (orphan recovery case), the SHA check
+    is skipped — the caller is responsible for gzip+JSON validation.
     """
     release = backend._request("GET", f"releases/{seed_release_id}")
     for asset in release.get("assets", []):
@@ -351,7 +383,7 @@ def restore_feed_from_seed(
         try:
             backend._download_asset(asset["url"], part_path)
             actual_sha = sha256_file(part_path)
-            if actual_sha != expected_sha256:
+            if expected_sha256 and actual_sha != expected_sha256:
                 print(f"  ⚠️ Seed asset {feed_name} SHA mismatch "
                       f"(expected={expected_sha256[:12]}..., actual={actual_sha[:12]}...); "
                       f"will re-download from NVD")
