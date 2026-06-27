@@ -103,13 +103,18 @@ def publish_final_feed_release(
     # 1. Build archive
     archive_filename = f"snad-nvd-feed-{feed_id}.tar.zst"
     archive_path = work_dir / archive_filename
-    actual_archive_name = create_feed_archive(archive_path, feed_dir, work_dir)
-    if actual_archive_name != archive_filename:
-        archive_filename = actual_archive_name
-        archive_path = work_dir / archive_filename
+    actual_archive_path = create_feed_archive(archive_path, feed_dir, work_dir)
+    # create_feed_archive may return a different path (e.g. .tar.gz fallback
+    # when zstd is unavailable), and the return type is Path. We must use
+    # .name to get the basename string — passing a Path object as the asset
+    # name causes the upload to use the full path, which GitHub either
+    # strips (creating a name mismatch on verification) or rejects outright.
+    archive_path = Path(actual_archive_path)
+    archive_filename = archive_path.name
 
     archive_sha256 = sha256_file(archive_path)
     archive_size = archive_path.stat().st_size
+    print(f"  Archive built: {archive_filename} ({archive_size} bytes, sha256={archive_sha256[:12]}...)")
 
     # Validate archive
     validate_feed_archive(archive_path)
@@ -139,6 +144,7 @@ def publish_final_feed_release(
     checksums_path.write_text(checksums_content, encoding="utf-8")
 
     # 3. Create draft final release
+    print(f"  Creating draft release: tag={release_tag}")
     release = backend._request("POST", "releases", body={
         "tag_name": release_tag,
         "name": f"NVD Bulk Feed {feed_id}",
@@ -149,18 +155,38 @@ def publish_final_feed_release(
     })
     release_id = release["id"]
     upload_url = release.get("upload_url", "")
+    print(f"  Draft release created: id={release_id}, upload_url={upload_url[:80]}...")
 
     # 4. Upload 3 assets
+    print(f"  Uploading archive ({archive_size} bytes)...")
     backend._upload_asset(upload_url, archive_filename, archive_path)
+    print(f"  Uploading manifest.json...")
     backend._upload_asset(upload_url, "manifest.json", manifest_path)
+    print(f"  Uploading SHA256SUMS...")
     backend._upload_asset(upload_url, "SHA256SUMS", checksums_path)
+    print(f"  All 3 assets uploaded.")
 
     # 5. Verify all 3 assets
-    release = backend._request("GET", f"releases/{release_id}")
-    assets = {a["name"]: a for a in release.get("assets", [])}
+    # GitHub's asset list API is eventually consistent — retry up to 3 times
+    # with a short delay if an asset isn't visible yet.
+    import time as _time
+    assets = {}
+    for verify_attempt in range(1, 4):
+        release = backend._request("GET", f"releases/{release_id}")
+        assets = {a["name"]: a for a in release.get("assets", [])}
+        missing = [n for n in (archive_filename, "manifest.json", "SHA256SUMS") if n not in assets]
+        if not missing:
+            break
+        print(f"  ⏳ Asset list not yet consistent (attempt {verify_attempt}/3, missing={missing}); waiting 3s...")
+        _time.sleep(3)
+
+    print(f"  Assets on release: {sorted(assets.keys())}")
     for name in (archive_filename, "manifest.json", "SHA256SUMS"):
         if name not in assets:
-            raise SnapshotError(f"Asset {name} not found after upload")
+            raise SnapshotError(
+                f"Asset {name!r} not found after upload. "
+                f"Available assets: {sorted(assets.keys())}"
+            )
 
     # Download and verify each asset
     for name, expected_sha in [
