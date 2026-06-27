@@ -1,0 +1,86 @@
+/* SNAD Design Tokens v1.1 — source of truth for active UI work. */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --snad-brand-primary: #003b39;
+  --snad-brand-primary-hover: #002b29;
+  --snad-brand-gold: #d4af37;
+  --snad-brand-gold-soft: #f7e7b1;
+  --snad-surface-canvas: #f7f8f5;
+  --snad-surface-primary: #ffffff;
+  --snad-surface-secondary: #f0f4f2;
+  --snad-surface-inverse: #021f1e;
+  --snad-text-primary: #102322;
+  --snad-text-secondary: #526563;
+  --snad-text-muted: #71817f;
+  --snad-text-inverse: #ffffff;
+  --snad-text-brand: #003b39;
+  --snad-border-subtle: #e8efed;
+  --snad-border-default: #d8e1df;
+  --snad-focus-ring: #168e87;
+  --snad-success: #16835b;
+  --snad-success-soft: #e8f7f0;
+  --snad-warning: #9b5b0c;
+  --snad-warning-soft: #fff5e6;
+  --snad-error: #b52f3e;
+  --snad-error-soft: #fff0f2;
+  --snad-info: #176b94;
+  --snad-info-soft: #eaf6fc;
+  --snad-font-arabic: var(--font-snad-arabic), "Noto Sans Arabic", Tahoma, Arial, sans-serif;
+  --snad-font-latin: var(--font-snad-latin), "Noto Sans", Arial, sans-serif;
+  --snad-font-body: var(--snad-font-arabic);
+  --snad-font-display: var(--snad-font-arabic);
+  --snad-font-label: var(--snad-font-arabic);
+  --snad-font-numeric: var(--snad-font-latin);
+  --snad-leading-body: 1.75;
+  --snad-leading-heading: 1.3;
+  --snad-radius-sm: 0.5rem;
+  --snad-radius-md: 0.75rem;
+  --snad-radius-lg: 1rem;
+  --snad-shadow-sm: 0 1px 2px rgb(16 35 34 / 0.08);
+  --snad-shadow-md: 0 12px 30px rgb(0 59 57 / 0.12);
+  --snad-motion-fast: 140ms;
+  --snad-motion-standard: 220ms;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --snad-brand-primary: #20a89f;
+  --snad-brand-primary-hover: #36b8b0;
+  --snad-brand-gold: #e2c25b;
+  --snad-brand-gold-soft: #3b3217;
+  --snad-surface-canvas: #071c1b;
+  --snad-surface-primary: #0e2927;
+  --snad-surface-secondary: #123532;
+  --snad-surface-inverse: #f5faf9;
+  --snad-text-primary: #f5faf9;
+  --snad-text-secondary: #bdd0cd;
+  --snad-text-muted: #9db1ae;
+  --snad-text-inverse: #102322;
+  --snad-text-brand: #66c7c0;
+  --snad-border-subtle: #1f403d;
+  --snad-border-default: #294744;
+  --snad-focus-ring: #66c7c0;
+  --snad-success: #4bc38e;
+  --snad-success-soft: #12382c;
+  --snad-warning: #f2b555;
+  --snad-warning-soft: #3b2a12;
+  --snad-error: #f07782;
+  --snad-error-soft: #3e1d22;
+  --snad-info: #58add5;
+  --snad-info-soft: #102f3d;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --snad-surface-canvas: #071c1b;
+    --snad-surface-primary: #0e2927;
+    --snad-surface-secondary: #123532;
+    --snad-text-primary: #f5faf9;
+    --snad-text-secondary: #bdd0cd;
+    --snad-text-muted: #9db1ae;
+    --snad-border-default: #294744;
+    --snad-focus-ring: #66c7c0;
+  }
+}
