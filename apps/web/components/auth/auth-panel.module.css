@@ -1,8 +1,14 @@
 .panel {
   width: min(92vw, 390px) !important;
   max-height: calc(100svh - 1.5rem) !important;
-  overflow: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
   padding: 1.2rem !important;
+  scrollbar-width: none;
+}
+
+.panel::-webkit-scrollbar {
+  display: none;
 }
 
 .registrationPanel {
@@ -37,6 +43,11 @@
   background: transparent;
   font-size: 0.76rem;
   font-weight: 850;
+  transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.tab:hover {
+  color: #f7fbfb;
 }
 
 .tabActive {
@@ -128,5 +139,24 @@
     width: min(92vw, 390px) !important;
     max-height: calc(100svh - 1rem) !important;
     padding: 1rem !important;
+  }
+}
+
+@media (max-height: 720px) {
+  .panel :global(.snad-auth-brand) {
+    margin-bottom: 0.45rem;
+  }
+
+  .tabs,
+  .intro {
+    margin-bottom: 0.5rem;
+  }
+
+  .form {
+    gap: 0.48rem;
+  }
+
+  .footer {
+    margin-top: 0.45rem;
   }
 }
