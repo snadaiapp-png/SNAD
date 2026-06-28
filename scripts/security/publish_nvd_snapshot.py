@@ -339,6 +339,7 @@ def run_offline_smoke_test(
 
     cmd = [
         "mvn", "--batch-mode", "--no-transfer-progress", "-e",
+        "-o",  # offline mode — no network access allowed
         f"org.owasp:dependency-check-maven:{dc_version}:check",
         f"-DdataDirectory={work_dir}",
         "-DautoUpdate=false",
@@ -349,6 +350,17 @@ def run_offline_smoke_test(
         "-DversionCheckEnabled=false",
         f"-DoutputDirectory={output_dir / 'smoke-output'}",
     ]
+    # If using the SNAD backend POM, activate the owasp-offline-gate profile
+    # which properly disables OSS Index, hosted suppressions, and version checks.
+    if str(pom_dir).endswith("sanad-platform") or (pom_dir / "pom.xml").exists():
+        # Check if the POM has the owasp-offline-gate profile
+        try:
+            pom_content = (pom_dir / "pom.xml").read_text(encoding="utf-8")
+            if "owasp-offline-gate" in pom_content:
+                cmd.append("-Powasp-offline-gate")
+                print(f"  Activated Maven profile: owasp-offline-gate")
+        except Exception:
+            pass
     try:
         with log_path.open("w") as log:
             result = subprocess.run(
