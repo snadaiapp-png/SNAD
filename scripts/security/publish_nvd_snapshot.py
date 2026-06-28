@@ -339,7 +339,6 @@ def run_offline_smoke_test(
 
     cmd = [
         "mvn", "--batch-mode", "--no-transfer-progress", "-e",
-        "-o",  # offline mode — no network access allowed
         f"org.owasp:dependency-check-maven:{dc_version}:check",
         f"-DdataDirectory={work_dir}",
         "-DautoUpdate=false",
