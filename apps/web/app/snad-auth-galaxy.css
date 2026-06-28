@@ -1,4 +1,4 @@
-.snad-auth-scene {
+﻿.snad-auth-scene {
   width: 100vw;
   height: 100svh;
   min-height: 100svh;
@@ -177,7 +177,7 @@ body {
 }
 
 .snad-auth-card .snad-auth-note::after {
-  content: "أنشئ حسابًا";
+  content: "ط£ظ†ط´ط¦ ط­ط³ط§ط¨ظ‹ط§";
   display: inline-block;
   color: #f2a51a;
   font-size: 0.74rem;
@@ -241,4 +241,5 @@ body {
     animation: none !important;
   }
 }
+
 
