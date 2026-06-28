@@ -33,8 +33,10 @@ export function ModernAuthPanel() {
   useEffect(() => {
     const rememberedEmail = window.localStorage.getItem("snad.rememberedEmail");
     if (rememberedEmail) {
-      setEmail(rememberedEmail);
-      setRemember(true);
+      queueMicrotask(() => {
+        setEmail(rememberedEmail);
+        setRemember(true);
+      });
     }
   }, []);
 
