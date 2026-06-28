@@ -889,6 +889,16 @@ def main():
     smoke_exit, smoke_log = run_offline_smoke_test(work_dir, args.dependency_check_version, smoke_dir)
     if smoke_exit != 0:
         print(f"::error::Smoke test failed (exit: {smoke_exit})")
+        # Print smoke test log for debugging
+        try:
+            smoke_log_path = Path(smoke_log)
+            if smoke_log_path.exists():
+                print("=== Smoke test log (last 5000 chars) ===")
+                content = smoke_log_path.read_text(encoding="utf-8", errors="replace")
+                print(content[-5000:] if len(content) > 5000 else content)
+                print("=== End smoke test log ===")
+        except Exception as e:
+            print(f"  ⚠️ Could not read smoke test log: {e}")
         return 1
 
     # Backup current canonical to LKG (before publish)
