@@ -417,43 +417,45 @@ class LocalFeedServer:
 
     @staticmethod
     def _synthesize_cache_properties(feed_dir: Path, cache_props: Path) -> None:
-        """Synthesize a minimal cache.properties file from the most recent .meta.
+        """Synthesize a cache.properties file with per-feed lastModifiedDate.
+
+        dependency-check's DatabaseProperties.save (line 195) writes keys in
+        the format `lastModifiedDate.<key>` where <key> is the data source
+        name: "2002", "2003", ..., "modified", "recent". When it reads
+        cache.properties back, it expects these per-source keys.
+
+        If only a single `lastModifiedDate` key is present (no per-source
+        keys), dependency-check's storeLastModifiedDates ends up with null
+        Instant values → NullPointerException: temporal when formatting.
 
         Format (NVD cache.properties):
             lastModifiedDate=YYYY-MM-DDTHH:MM:SS.SSS
+            lastModifiedDate.2002=YYYY-MM-DDTHH:MM:SS.SSS
+            lastModifiedDate.2003=YYYY-MM-DDTHH:MM:SS.SSS
+            ...
+            lastModifiedDate.modified=YYYY-MM-DDTHH:MM:SS.SSS
+            lastModifiedDate.recent=YYYY-MM-DDTHH:MM:SS.SSS
 
-        NVD's actual cache.properties uses milliseconds WITHOUT a Z suffix.
-        dependency-check parses this with a Jackson ISO-8601 parser that
-        accepts the no-timezone format (treating it as UTC). Adding a Z
-        suffix caused NullPointerException: temporal in some Jackson paths.
-
-        We use the latest lastModifiedDate across all .meta files (or now()
-        if no .meta files exist).
+        NVD uses milliseconds WITHOUT a Z suffix.
         """
         import datetime as _dt
-        latest = ""
-        for meta_file in feed_dir.glob("*.meta"):
-            try:
-                content = meta_file.read_text(encoding="utf-8")
-                for line in content.splitlines():
-                    if line.startswith("lastModifiedDate="):
-                        val = line.split("=", 1)[1].strip()
-                        if val and val > latest:
-                            latest = val
-                        break
-            except Exception:
-                continue
-        if not latest:
-            # NVD format: YYYY-MM-DDTHH:MM:SS.SSS (no Z suffix)
-            latest = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000")
-        else:
-            # Normalize: strip Z if present, ensure milliseconds
-            if latest.endswith("Z"):
-                latest = latest[:-1]
-            if "." not in latest:
-                latest = latest + ".000"
-        cache_props.write_text(f"lastModifiedDate={latest}\n", encoding="utf-8")
-        print(f"  Synthesized cache.properties (lastModifiedDate={latest})")
+
+        # Use a fixed recent timestamp for all entries
+        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000")
+
+        lines = [f"lastModifiedDate={ts}"]
+
+        # Add per-feed lastModifiedDate.<key> for each .json.gz file
+        for json_gz in sorted(feed_dir.glob("nvdcve-*.json.gz")):
+            # nvdcve-YYYY.json.gz → key=YYYY
+            # nvdcve-modified.json.gz → key=modified
+            # nvdcve-recent.json.gz → key=recent
+            stem = json_gz.name[len("nvdcve-"):-len(".json.gz")]
+            lines.append(f"lastModifiedDate.{stem}={ts}")
+
+        content = "\n".join(lines) + "\n"
+        cache_props.write_text(content, encoding="utf-8")
+        print(f"  Synthesized cache.properties ({len(lines)} entries, lastModifiedDate={ts})")
 
     @staticmethod
     def _synthesize_meta_files(feed_dir: Path) -> None:
