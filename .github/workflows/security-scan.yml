@@ -238,6 +238,8 @@ jobs:
         env:
           NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
           EXEC_MODE: ${{ steps.mode.outputs.execution_mode }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Configure AWS credentials via OIDC (reader role)
         if: steps.resolve_snapshot.outputs.classification == 'SNAPSHOT_RESOLVED' && vars.NVD_SNAPSHOT_BACKEND == 's3'
@@ -258,6 +260,8 @@ jobs:
           NVD_SNAPSHOT_PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
           NVD_SNAPSHOT_REGION: ${{ vars.NVD_SNAPSHOT_REGION }}
           NVD_SNAPSHOT_ENDPOINT: ${{ vars.NVD_SNAPSHOT_ENDPOINT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -uo pipefail
           mkdir -p "${{ runner.temp }}/nvd-snapshot"
