@@ -358,6 +358,13 @@ class LocalFeedServer:
         if not cache_props.exists():
             self._synthesize_cache_properties(feed_dir, cache_props)
 
+        # Ensure .meta files exist for each .json.gz feed file — dependency-check
+        # fetches nvdcve-2.0-YYYY.meta (and modified.meta, recent.meta) to
+        # determine the lastModifiedDate for each feed. Without these, it
+        # fails with NullPointerException: temporal in DatabaseProperties.save
+        # because the parsed lastModifiedDate is null.
+        self._synthesize_meta_files(feed_dir)
+
         class FeedHandler(http.server.SimpleHTTPRequestHandler):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, directory=str(feed_dir), **kwargs)
@@ -444,6 +451,66 @@ class LocalFeedServer:
             latest = latest + "Z"
         cache_props.write_text(f"lastModifiedDate={latest}\n", encoding="utf-8")
         print(f"  Synthesized cache.properties (lastModifiedDate={latest})")
+
+    @staticmethod
+    def _synthesize_meta_files(feed_dir: Path) -> None:
+        """Synthesize .meta files for each .json.gz feed file if missing.
+
+        dependency-check fetches `nvdcve-2.0-YYYY.meta` (and modified.meta,
+        recent.meta) for each feed to determine the lastModifiedDate.
+
+        The datafeed URL pattern is `nvdcve-{0}.json.gz` where {0} is
+        "2.0-YYYY", "2.0-modified", or "2.0-recent". So the corresponding
+        .meta files are `nvdcve-2.0-YYYY.meta`, etc.
+
+        Our NVD Bulk Feed Mirror saves files as `nvdcve-YYYY.json.gz`
+        (without the "2.0-" infix), so we need to provide the .meta files
+        in the format dependency-check expects.
+
+        Format (NVD META):
+            lastModifiedDate=YYYY-MM-DDTHH:MM:SS.SSSZ
+            size=NNNN
+            gzSize=NNNN
+            sha256=HEXHEX...
+
+        We synthesize a minimal META with lastModifiedDate (the field
+        dependency-check parses for the temporal value) plus size and
+        sha256 for completeness.
+        """
+        import datetime as _dt
+        import hashlib
+
+        # Use a fixed recent timestamp for all synthesized .meta files
+        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        count = 0
+
+        # Map: nvdcve-YYYY.json.gz → nvdcve-2.0-YYYY.meta
+        #      nvdcve-modified.json.gz → nvdcve-2.0-modified.meta
+        #      nvdcve-recent.json.gz → nvdcve-2.0-recent.meta
+        for json_gz in feed_dir.glob("nvdcve-*.json.gz"):
+            # Convert name: nvdcve-YYYY.json.gz → nvdcve-2.0-YYYY.meta
+            stem = json_gz.name[len("nvdcve-"):-len(".json.gz")]
+            meta_name = f"nvdcve-2.0-{stem}.meta"
+            meta_path = feed_dir / meta_name
+            if meta_path.exists():
+                continue  # Don't overwrite real .meta files
+            # Compute size and sha256 from the .json.gz
+            try:
+                size = json_gz.stat().st_size
+                sha = hashlib.sha256(json_gz.read_bytes()).hexdigest()
+            except Exception:
+                size = 0
+                sha = ""
+            meta_content = (
+                f"lastModifiedDate={ts}\n"
+                f"size={size}\n"
+                f"gzSize={size}\n"
+                f"sha256={sha}\n"
+            )
+            meta_path.write_text(meta_content, encoding="utf-8")
+            count += 1
+        if count:
+            print(f"  Synthesized {count} .meta files (lastModifiedDate={ts})")
 
     def stop(self):
         if self.server:
