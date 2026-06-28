@@ -255,9 +255,7 @@
                                  range has no upper version bound (false positives
                                  for our latest patched versions). See:
                                  src/main/resources/dependency-check-suppressions.xml -->
-                            <suppressionsFiles>
-                                <suppressionsFile>${project.basedir}/src/main/resources/dependency-check-suppressions.xml</suppressionsFile>
-                            </suppressionsFiles>
+                            <suppressionFile>${project.basedir}/src/main/resources/dependency-check-suppressions.xml</suppressionFile>
                         </configuration>
                     </plugin>
                 </plugins>
