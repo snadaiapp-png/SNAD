@@ -139,13 +139,12 @@ jobs:
               # (e.g. direct merge to main). Use PR number 0 to indicate
               # "no associated PR" — the orchestrator handles this gracefully.
               print("0")
-              return
-
-          merged_pull_requests.sort(
-              key=lambda pull_request: pull_request["merged_at"],
-              reverse=True,
-          )
-          print(merged_pull_requests[0]["number"])
+          else:
+              merged_pull_requests.sort(
+                  key=lambda pull_request: pull_request["merged_at"],
+                  reverse=True,
+              )
+              print(merged_pull_requests[0]["number"])
           PY
           }
 
