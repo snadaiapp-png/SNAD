@@ -370,7 +370,9 @@ class LocalFeedServer:
                 super().__init__(*args, directory=str(feed_dir), **kwargs)
 
             def log_message(self, format, *args):
-                pass  # suppress logging
+                # Log requests to stdout for debugging dependency-check's
+                # datafeed URL pattern (which files it requests).
+                print(f"  [feed-server] {self.command} {self.path} - {format % args}")
 
             def list_directory(self, path):
                 # R12K: reject directory listing
