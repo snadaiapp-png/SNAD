@@ -538,7 +538,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          JSON_REPORT="target/dependency-check-report/dependency-check-report.json"
+          # dependency-check may write to either location (see preflight step)
+          if [ -f "target/dependency-check-report/dependency-check-report.json" ]; then
+            JSON_REPORT="target/dependency-check-report/dependency-check-report.json"
+          elif [ -f "target/dependency-check-report.json" ]; then
+            JSON_REPORT="target/dependency-check-report.json"
+          else
+            echo "::error::JSON report not found in either location"
+            echo "parse_result=report_not_found" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "Using JSON report: $JSON_REPORT"
           PARSER="../../scripts/ci/parse_owasp_report.py"
 
           PARSE_OUTPUT=$(python3 "$PARSER" "$JSON_REPORT" 2>&1) || {
