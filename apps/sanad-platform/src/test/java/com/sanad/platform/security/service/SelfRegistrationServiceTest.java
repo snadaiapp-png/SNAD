@@ -1,7 +1,12 @@
 package com.sanad.platform.security.service;
 
+import com.sanad.platform.access.capability.AccessCapability;
+import com.sanad.platform.access.capability.AccessCapabilityRepository;
+import com.sanad.platform.access.capability.CapabilityStatus;
 import com.sanad.platform.access.grant.UserRoleGrantRepository;
 import com.sanad.platform.access.role.Role;
+import com.sanad.platform.access.role.RoleCapability;
+import com.sanad.platform.access.role.RoleCapabilityRepository;
 import com.sanad.platform.access.role.RoleRepository;
 import com.sanad.platform.organization.domain.Organization;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
@@ -19,6 +24,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -39,17 +45,21 @@ class SelfRegistrationServiceTest {
     @Mock OrganizationMembershipRepository membershipRepository;
     @Mock RoleRepository roleRepository;
     @Mock UserRoleGrantRepository roleGrantRepository;
+    @Mock AccessCapabilityRepository capabilityRepository;
+    @Mock RoleCapabilityRepository roleCapabilityRepository;
     @Mock PasswordRecoveryNotificationCoordinator recoveryCoordinator;
     @Mock Organization savedOrganization;
     @Mock User savedUser;
     @Mock Role savedRole;
+    @Mock AccessCapability activeCapability;
 
     @Test
-    void createsWorkspaceAdministratorAndPasswordSetupLink() {
+    void createsWorkspaceAdministratorCapabilitiesAndPasswordSetupLink() {
         UUID tenantId = UUID.randomUUID();
         UUID organizationId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         UUID roleId = UUID.randomUUID();
+        UUID capabilityId = UUID.randomUUID();
 
         when(tenantRepository.existsBySubdomain("acme")).thenReturn(false);
         when(tenantRepository.save(any(Tenant.class))).thenAnswer(invocation -> {
@@ -64,23 +74,26 @@ class SelfRegistrationServiceTest {
         when(userRepository.save(any(User.class))).thenReturn(savedUser);
         when(savedRole.getId()).thenReturn(roleId);
         when(roleRepository.save(any(Role.class))).thenReturn(savedRole);
+        when(activeCapability.getId()).thenReturn(capabilityId);
+        when(capabilityRepository.findByStatusOrderByCodeAsc(CapabilityStatus.ACTIVE))
+                .thenReturn(List.of(activeCapability));
 
-        SelfRegistrationService service = service();
-        SelfRegistrationResponse response = service.register(request("acme"), "127.0.0.1", "ar");
+        SelfRegistrationResponse response = service().register(
+                request("acme"), "127.0.0.1", "ar");
 
         assertEquals("acme", response.getSubdomain());
         assertTrue(response.isPasswordSetupRequired());
         verify(membershipRepository).save(any());
         verify(roleGrantRepository).save(any());
+        verify(roleCapabilityRepository).save(any(RoleCapability.class));
         verify(recoveryCoordinator).createAdministrativeResetLink(
                 eq(tenantId), eq(userId), eq("ar"), eq("127.0.0.1"));
     }
 
     @Test
     void rejectsReservedWorkspaceIdentifierBeforePersistence() {
-        SelfRegistrationService service = service();
         assertThrows(RegistrationConflictException.class,
-                () -> service.register(request("admin"), "127.0.0.1", "ar"));
+                () -> service().register(request("admin"), "127.0.0.1", "ar"));
         verify(tenantRepository, never()).save(any());
     }
 
@@ -92,6 +105,8 @@ class SelfRegistrationServiceTest {
                 membershipRepository,
                 roleRepository,
                 roleGrantRepository,
+                capabilityRepository,
+                roleCapabilityRepository,
                 recoveryCoordinator);
     }
 
