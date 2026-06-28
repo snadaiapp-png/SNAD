@@ -313,29 +313,28 @@ def run_offline_smoke_test(
 
     # Find a usable POM directory
     pom_dir = None
-    # 1. Try apps/sanad-platform/pom.xml (relative to CWD = repo root)
-    candidate = Path("apps/sanad-platform/pom.xml")
-    if candidate.exists():
-        pom_dir = candidate.parent
-    # 2. Try pom.xml in CWD
-    if pom_dir is None and Path("pom.xml").exists():
-        pom_dir = Path(".")
-    # 3. Create a minimal standalone POM
-    if pom_dir is None:
-        pom_dir = output_dir / "smoke-pom"
-        pom_dir.mkdir(parents=True, exist_ok=True)
-        (pom_dir / "pom.xml").write_text(
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<project xmlns="http://maven.apache.org/POM/4.0.0">\n'
-            '  <modelVersion>4.0.0</modelVersion>\n'
-            '  <groupId>com.snad.smoke</groupId>\n'
-            '  <artifactId>smoke-test</artifactId>\n'
-            '  <version>1.0.0</version>\n'
-            '  <packaging>jar</packaging>\n'
-            '</project>\n',
-            encoding="utf-8",
-        )
-        print(f"  Created standalone smoke POM at {pom_dir}")
+    # For the smoke test, we always create a minimal standalone POM with NO
+    # dependencies. This avoids:
+    #   - Spring Boot parent POM resolution (requires network)
+    #   - OSS Index queries on actual project dependencies (401 Unauthorized
+    #     due to a dependency-check 12.1.0 bug where ossIndexAnalyzerEnabled=false
+    #     is ignored in some code paths)
+    # The smoke test's purpose is to verify the NVD database is usable, not to
+    # scan the actual project — that's done by the OWASP Offline Scan workflow.
+    pom_dir = output_dir / "smoke-pom"
+    pom_dir.mkdir(parents=True, exist_ok=True)
+    (pom_dir / "pom.xml").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<project xmlns="http://maven.apache.org/POM/4.0.0">\n'
+        '  <modelVersion>4.0.0</modelVersion>\n'
+        '  <groupId>com.snad.smoke</groupId>\n'
+        '  <artifactId>smoke-test</artifactId>\n'
+        '  <version>1.0.0</version>\n'
+        '  <packaging>jar</packaging>\n'
+        '</project>\n',
+        encoding="utf-8",
+    )
+    print(f"  Created standalone smoke POM at {pom_dir} (no dependencies to analyze)")
 
     cmd = [
         "mvn", "--batch-mode", "--no-transfer-progress", "-e",
@@ -349,18 +348,6 @@ def run_offline_smoke_test(
         "-DversionCheckEnabled=false",
         f"-DoutputDirectory={output_dir / 'smoke-output'}",
     ]
-    # If using the SNAD backend POM, activate the owasp-offline-gate profile
-    # which properly disables OSS Index, hosted suppressions, and version checks.
-    print(f"  Smoke test POM dir: {pom_dir}")
-    try:
-        pom_content = (pom_dir / "pom.xml").read_text(encoding="utf-8")
-        has_profile = "owasp-offline-gate" in pom_content
-        print(f"  POM has owasp-offline-gate profile: {has_profile}")
-        if has_profile:
-            cmd.append("-Powasp-offline-gate")
-            print(f"  Activated Maven profile: owasp-offline-gate")
-    except Exception as e:
-        print(f"  ⚠️ Could not read POM to check for profile: {e}")
     try:
         with log_path.open("w") as log:
             result = subprocess.run(
