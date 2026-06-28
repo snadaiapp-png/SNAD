@@ -1,23 +1,22 @@
 .snad-auth-scene {
   background-color: #02090d;
   background-image: url('/brand/snad-solar-system-login.png');
-  background-position: right center;
+  background-position: center;
   background-repeat: no-repeat;
-  /* Zoom and right-anchor the approved artwork so its embedded mock login panel stays outside the visible application canvas. */
-  background-size: auto 170%;
+  background-size: contain;
 }
 
 .snad-auth-scene::before {
   z-index: 0;
   opacity: 1;
-  background: linear-gradient(90deg, rgb(0 0 0 / 18%), transparent 26%, transparent 86%, rgb(0 0 0 / 10%));
+  background: linear-gradient(90deg, rgb(0 0 0 / 14%), transparent 24%, transparent 86%, rgb(0 0 0 / 10%));
   mask-image: none;
 }
 
 .snad-auth-scene::after {
   z-index: 0;
   opacity: 1;
-  background: radial-gradient(circle at 72% 50%, transparent 58%, rgb(0 0 0 / 22%) 100%);
+  background: radial-gradient(circle at 70% 50%, transparent 60%, rgb(0 0 0 / 20%) 100%);
   background-size: auto;
 }
 
@@ -45,12 +44,14 @@
 
 .snad-auth-card {
   position: absolute;
-  left: clamp(2rem, 6vw, 7rem);
+  left: clamp(1.25rem, 3.5vw, 4rem);
   top: 50%;
-  z-index: 3;
-  width: min(29vw, 430px);
+  z-index: 4;
+  width: min(25vw, 360px);
+  max-height: calc(100vh - 3rem);
+  overflow: auto;
   translate: 0 -50%;
-  background: linear-gradient(145deg, rgb(4 25 31 / 96%), rgb(2 14 19 / 97%));
+  background: linear-gradient(145deg, rgb(4 25 31 / 97%), rgb(2 14 19 / 98%));
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
@@ -61,30 +62,31 @@
 
 @media (max-width: 1100px) {
   .snad-auth-scene {
-    background-size: auto 155%;
-    background-position: 78% center;
+    background-size: contain;
+    background-position: 58% center;
   }
 
   .snad-auth-card {
-    left: clamp(1rem, 4vw, 3rem);
-    width: min(38vw, 430px);
+    left: 1.25rem;
+    width: min(34vw, 350px);
   }
 }
 
 @media (max-width: 760px) {
   .snad-auth-scene {
     background-image:
-      linear-gradient(rgb(2 9 13 / 58%), rgb(2 9 13 / 58%)),
+      linear-gradient(rgb(2 9 13 / 62%), rgb(2 9 13 / 62%)),
       url('/brand/snad-solar-system-login.png');
-    background-size: auto 135%;
-    background-position: 72% center;
+    background-size: cover;
+    background-position: 66% center;
   }
 
   .snad-auth-card {
     position: relative;
     left: auto;
     top: auto;
-    width: min(94vw, 500px);
+    width: min(92vw, 360px);
+    max-height: none;
     translate: none;
   }
 }
