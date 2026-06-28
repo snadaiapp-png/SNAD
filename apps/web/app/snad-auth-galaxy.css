@@ -41,15 +41,15 @@
 .snad-auth-card {
   position: absolute;
   top: 50%;
-  left: clamp(1.25rem, 3.2vw, 3.75rem);
+  left: clamp(1rem, 2.6vw, 3rem);
   z-index: 4;
-  width: min(26vw, 360px);
-  max-height: calc(100svh - 2.5rem);
+  width: min(22vw, 310px);
+  max-height: calc(100svh - 2rem);
   overflow-y: auto;
   translate: 0 -50%;
-  border: 1px solid rgb(212 175 55 / 32%);
-  border-radius: 20px;
-  padding: clamp(1.05rem, 1.8vw, 1.55rem);
+  border: 1px solid rgb(212 175 55 / 28%);
+  border-radius: 17px;
+  padding: clamp(0.8rem, 1.25vw, 1.1rem);
   background:
     linear-gradient(
       145deg,
@@ -57,53 +57,89 @@
       rgb(2 14 19 / 97%)
     );
   box-shadow:
-    0 26px 70px rgb(0 0 0 / 48%),
-    inset 0 1px rgb(255 255 255 / 6%),
-    0 0 24px rgb(0 187 196 / 6%);
-  backdrop-filter: blur(5px);
-  -webkit-backdrop-filter: blur(5px);
+    0 22px 54px rgb(0 0 0 / 44%),
+    inset 0 1px rgb(255 255 255 / 5%),
+    0 0 18px rgb(0 187 196 / 5%);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .snad-auth-card .snad-auth-brand {
-  margin-bottom: 1.15rem;
+  margin-bottom: 0.78rem;
 }
 
 .snad-auth-card .snad-auth-logo {
-  min-width: 130px;
-  min-height: 58px;
-  font-size: clamp(2.7rem, 5vw, 4rem);
+  min-width: 108px;
+  min-height: 46px;
+  margin-bottom: 0;
+  font-size: clamp(2.2rem, 4vw, 3.2rem);
+}
+
+.snad-auth-card .snad-auth-logo::after {
+  width: 14px;
+}
+
+.snad-auth-card .snad-auth-subtitle {
+  font-size: 0.72rem;
 }
 
 .snad-auth-card .snad-auth-title {
-  margin-top: 0.8rem;
-  font-size: clamp(1.15rem, 2vw, 1.4rem);
+  margin-top: 0.55rem;
+  font-size: clamp(1rem, 1.6vw, 1.2rem);
+}
+
+.snad-auth-card .snad-auth-title::after {
+  width: 34px;
+  margin-top: 0.5rem;
 }
 
 .snad-auth-card .snad-auth-description {
-  margin-top: 0.6rem;
-  font-size: 0.75rem;
-  line-height: 1.65;
+  margin-top: 0.42rem;
+  font-size: 0.68rem;
+  line-height: 1.45;
 }
 
 .snad-auth-card .snad-auth-form {
-  gap: 0.78rem;
+  gap: 0.62rem;
+}
+
+.snad-auth-card .snad-auth-label {
+  gap: 0.32rem;
+  font-size: 0.74rem;
 }
 
 .snad-auth-card .snad-auth-input {
-  min-height: 44px;
+  min-height: 40px;
+  border-radius: 10px;
+  padding-block: 0.55rem;
+  font-size: 0.8rem;
+}
+
+.snad-auth-card .snad-auth-input-icon,
+.snad-auth-card .snad-auth-input-action {
+  width: 30px;
+  height: 30px;
+}
+
+.snad-auth-card .snad-auth-row {
+  gap: 0.65rem;
+  font-size: 0.72rem;
 }
 
 .snad-auth-card .snad-auth-submit {
-  min-height: 46px;
+  min-height: 42px;
+  border-radius: 10px;
+  font-size: 0.82rem;
 }
 
 .snad-auth-card .snad-auth-modules-line {
-  margin-top: 1rem;
-  padding-top: 0.75rem;
+  margin-top: 0.72rem;
+  padding-top: 0.55rem;
+  font-size: 0.56rem;
 }
 
 .snad-auth-card .snad-auth-note {
-  margin-top: 0.7rem;
+  margin-top: 0.45rem;
   font-size: 0;
   color: transparent;
 }
@@ -112,7 +148,7 @@
   content: "أنشئ حسابًا";
   display: inline-block;
   color: #f2a51a;
-  font-size: 0.8rem;
+  font-size: 0.74rem;
   font-weight: 800;
   letter-spacing: 0;
   cursor: pointer;
@@ -135,8 +171,8 @@
   }
 
   .snad-auth-card {
-    left: 1rem;
-    width: min(34vw, 350px);
+    left: 0.85rem;
+    width: min(30vw, 300px);
   }
 }
 
@@ -153,7 +189,7 @@
     position: relative;
     top: auto;
     left: auto;
-    width: min(88vw, 340px);
+    width: min(84vw, 310px);
     max-height: none;
     margin-inline: auto;
     translate: none;
