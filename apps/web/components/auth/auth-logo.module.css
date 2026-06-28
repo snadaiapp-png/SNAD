@@ -6,6 +6,7 @@
   height: 78px;
   margin: 0 auto 0.3rem;
   place-items: center;
+  transform: translateY(-8px);
 }
 
 .glow {
@@ -34,5 +35,6 @@
     width: 168px;
     height: 70px;
     margin-bottom: 0.2rem;
+    transform: translateY(-6px);
   }
 }
