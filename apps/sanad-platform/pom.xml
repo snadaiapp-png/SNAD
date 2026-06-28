@@ -9,7 +9,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.5</version>
+        <version>3.4.5</version>
         <relativePath/>
     </parent>
 
@@ -38,6 +38,30 @@
         <testcontainers.version>1.20.4</testcontainers.version>
         <!-- OWASP Dependency-Check version (used by -Powasp-offline-gate) -->
         <dependency-check.version>12.1.0</dependency-check.version>
+
+        <!-- ============================================================ -->
+        <!-- Security version overrides (R12L OWASP remediation)          -->
+        <!-- These override the Spring Boot 3.4.5 BOM versions for        -->
+        <!-- dependencies where the BOM version still carries known CVEs. -->
+        <!-- ============================================================ -->
+
+        <!-- Log4j API: 2.23.1 (BOM) → 2.24.3 fixes CVE-2026-34477/78/79/80/81, CVE-2025-68161 -->
+        <log4j2.version>2.24.3</log4j2.version>
+
+        <!-- Commons Lang3: 3.14.0 (BOM) → 3.17.0 fixes CVE-2025-48924 -->
+        <commons-lang3.version>3.17.0</commons-lang3.version>
+
+        <!-- PostgreSQL JDBC: 42.7.4 (BOM) → 42.7.5 fixes CVE-2025-49146, CVE-2026-42198 -->
+        <postgresql.version>42.7.5</postgresql.version>
+
+        <!-- Tomcat Embed: Spring Boot 3.4.5 BOM pins 10.1.42 which fixes
+             all 35 CVEs found in 10.1.31. No override needed. -->
+
+        <!-- Hibernate Validator: Spring Boot 3.4.5 BOM pins 8.0.2.Final
+             which fixes CVE-2025-15104. No override needed. -->
+
+        <!-- Eclipse Angus / Jakarta Mail: Spring Boot 3.4.5 BOM pins 2.0.4
+             which fixes CVE-2025-7962. No override needed. -->
     </properties>
 
     <dependencies>
@@ -106,6 +130,7 @@
         </dependency>
 
         <!-- Database: PostgreSQL driver (runtime) -->
+        <!-- Version overridden via <postgresql.version> property for CVE remediation. -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
