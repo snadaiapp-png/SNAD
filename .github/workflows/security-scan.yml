@@ -263,7 +263,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          set -uo pipefail
+          set +e  # disable errexit for this step — we handle errors explicitly
           mkdir -p "${{ runner.temp }}/nvd-snapshot"
           python3 - <<'PY'
           import os, sys, pathlib
