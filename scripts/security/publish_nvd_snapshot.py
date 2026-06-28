@@ -456,16 +456,16 @@ class LocalFeedServer:
     def _synthesize_meta_files(feed_dir: Path) -> None:
         """Synthesize .meta files for each .json.gz feed file if missing.
 
-        dependency-check fetches `nvdcve-2.0-YYYY.meta` (and modified.meta,
+        dependency-check fetches `nvdcve-YYYY.meta` (and modified.meta,
         recent.meta) for each feed to determine the lastModifiedDate.
 
         The datafeed URL pattern is `nvdcve-{0}.json.gz` where {0} is
-        "2.0-YYYY", "2.0-modified", or "2.0-recent". So the corresponding
-        .meta files are `nvdcve-2.0-YYYY.meta`, etc.
+        "YYYY", "modified", or "recent" (NO "2.0-" infix in v12.1.0).
+        So the corresponding .meta files are `nvdcve-YYYY.meta`, etc.
 
         Our NVD Bulk Feed Mirror saves files as `nvdcve-YYYY.json.gz`
-        (without the "2.0-" infix), so we need to provide the .meta files
-        in the format dependency-check expects.
+        (without the "2.0-" infix), which matches what dependency-check
+        requests. So the .meta files should also use the same naming.
 
         Format (NVD META):
             lastModifiedDate=YYYY-MM-DDTHH:MM:SS.SSSZ
@@ -484,13 +484,13 @@ class LocalFeedServer:
         ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         count = 0
 
-        # Map: nvdcve-YYYY.json.gz → nvdcve-2.0-YYYY.meta
-        #      nvdcve-modified.json.gz → nvdcve-2.0-modified.meta
-        #      nvdcve-recent.json.gz → nvdcve-2.0-recent.meta
+        # Map: nvdcve-YYYY.json.gz → nvdcve-YYYY.meta
+        #      nvdcve-modified.json.gz → nvdcve-modified.meta
+        #      nvdcve-recent.json.gz → nvdcve-recent.meta
         for json_gz in feed_dir.glob("nvdcve-*.json.gz"):
-            # Convert name: nvdcve-YYYY.json.gz → nvdcve-2.0-YYYY.meta
+            # Convert name: nvdcve-YYYY.json.gz → nvdcve-YYYY.meta
             stem = json_gz.name[len("nvdcve-"):-len(".json.gz")]
-            meta_name = f"nvdcve-2.0-{stem}.meta"
+            meta_name = f"nvdcve-{stem}.meta"
             meta_path = feed_dir / meta_name
             if meta_path.exists():
                 continue  # Don't overwrite real .meta files
