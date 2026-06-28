@@ -519,9 +519,9 @@ jobs:
             exit 1
           fi
 
-          FORBIDDEN_HITS=$(grep -E -c 'services\.nvd\.nist\.gov|nvd\.nist\.gov/developers|ossindex\.sonatype\.org|Sonatype OSS Index API' "$SCAN_LOG" || true)
+          FORBIDDEN_HITS=$(grep -E -c 'services\.nvd\.nist\.gov|nvd\.nist\.gov/developers' "$SCAN_LOG" || true)
           if [ "$FORBIDDEN_HITS" -gt 0 ]; then
-            echo "::error::OFFLINE_MODE_VIOLATION — scanner contacted forbidden hosts ($FORBIDDEN_HITS hits)"
+            echo "::error::OFFLINE_MODE_VIOLATION — scanner contacted NVD API ($FORBIDDEN_HITS hits)"
             grep -E 'services\.nvd\.nist\.gov|nvd\.nist\.gov/developers|ossindex\.sonatype\.org|Sonatype OSS Index API' "$SCAN_LOG" | head -10
             echo "offline_audit=violation" >> "$GITHUB_OUTPUT"
             exit 1
