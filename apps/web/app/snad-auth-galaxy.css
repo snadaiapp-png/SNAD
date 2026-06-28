@@ -92,18 +92,29 @@ body {
 }
 
 .snad-auth-card .snad-auth-logo {
-  min-width: 108px;
-  min-height: 46px;
-  margin-bottom: 0;
-  font-size: clamp(2.2rem, 4vw, 3.2rem);
+  display: block;
+  width: 132px;
+  min-width: 0;
+  height: 58px;
+  min-height: 0;
+  margin: 0 auto 0.15rem;
+  overflow: hidden;
+  color: transparent;
+  font-size: 0;
+  line-height: 0;
+  background-image: url('/brand/snad-login-galaxy.png');
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  filter: none;
 }
 
 .snad-auth-card .snad-auth-logo::after {
-  width: 14px;
+  display: none;
 }
 
 .snad-auth-card .snad-auth-subtitle {
-  font-size: 0.72rem;
+  display: none;
 }
 
 .snad-auth-card .snad-auth-title {
