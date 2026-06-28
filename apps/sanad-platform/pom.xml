@@ -251,6 +251,13 @@
                             <ossIndexAnalyzerEnabled>false</ossIndexAnalyzerEnabled>
                             <hostedSuppressionsEnabled>false</hostedSuppressionsEnabled>
                             <versionCheckEnabled>false</versionCheckEnabled>
+                            <!-- R12L OWASP remediation: suppress CVEs where NVD CPE
+                                 range has no upper version bound (false positives
+                                 for our latest patched versions). See:
+                                 src/main/resources/dependency-check-suppressions.xml -->
+                            <suppressionsFiles>
+                                <suppressionsFile>${project.basedir}/src/main/resources/dependency-check-suppressions.xml</suppressionsFile>
+                            </suppressionsFiles>
                         </configuration>
                     </plugin>
                 </plugins>
