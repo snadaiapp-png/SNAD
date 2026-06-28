@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import styles from "./auth-logo.module.css";
 import { authApi } from "@/lib/api/auth";
 import { useAuth } from "@/lib/auth/auth-provider";
 
@@ -106,7 +107,8 @@ function ModuleOrbit() {
 function BrandHeader({ title, description }: { title: string; description: string }) {
   return (
     <header className="snad-auth-brand">
-      <div className="snad-auth-logo-frame">
+      <div className={styles.frame}>
+        <span className={styles.glow} aria-hidden="true" />
         <Image
           src="/brand/snad-logo-original.png"
           alt="شعار منصة سند"
@@ -114,7 +116,7 @@ function BrandHeader({ title, description }: { title: string; description: strin
           height={1086}
           sizes="(max-width: 760px) 168px, 190px"
           priority
-          className="snad-auth-logo"
+          className={styles.image}
         />
       </div>
       <p className="snad-auth-subtitle">منظومة الأعمال الرقمية</p>
