@@ -346,7 +346,7 @@ jobs:
             cp -a "${{ runner.temp }}/nvd-extract/." "${{ env.NVD_CANONICAL_DIR }}/"
           fi
           echo "Canonical dir contents:"
-          ls -la "${{ env.NVD_CANONICAL_DIR }}/" | head -20
+          ls -la "${{ env.NVD_CANONICAL_DIR }}/" | head -20 || true
 
           # Capture verification outputs
           for key in validation_result database_sha256 database_size_bytes age_hours snapshot_id; do
