@@ -351,15 +351,16 @@ def run_offline_smoke_test(
     ]
     # If using the SNAD backend POM, activate the owasp-offline-gate profile
     # which properly disables OSS Index, hosted suppressions, and version checks.
-    if str(pom_dir).endswith("sanad-platform") or (pom_dir / "pom.xml").exists():
-        # Check if the POM has the owasp-offline-gate profile
-        try:
-            pom_content = (pom_dir / "pom.xml").read_text(encoding="utf-8")
-            if "owasp-offline-gate" in pom_content:
-                cmd.append("-Powasp-offline-gate")
-                print(f"  Activated Maven profile: owasp-offline-gate")
-        except Exception:
-            pass
+    print(f"  Smoke test POM dir: {pom_dir}")
+    try:
+        pom_content = (pom_dir / "pom.xml").read_text(encoding="utf-8")
+        has_profile = "owasp-offline-gate" in pom_content
+        print(f"  POM has owasp-offline-gate profile: {has_profile}")
+        if has_profile:
+            cmd.append("-Powasp-offline-gate")
+            print(f"  Activated Maven profile: owasp-offline-gate")
+    except Exception as e:
+        print(f"  ⚠️ Could not read POM to check for profile: {e}")
     try:
         with log_path.open("w") as log:
             result = subprocess.run(
