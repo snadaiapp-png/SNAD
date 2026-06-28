@@ -1,0 +1,71 @@
+.snad-auth-scene {
+  background-color: #02090d;
+  background-image: url('/brand/snad-login-galaxy.png');
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.snad-auth-scene::before {
+  z-index: 0;
+  opacity: 1;
+  background: linear-gradient(90deg, rgb(0 0 0 / 8%), transparent 28%, transparent 72%, rgb(0 0 0 / 8%));
+  mask-image: none;
+}
+
+.snad-auth-scene::after {
+  z-index: 0;
+  opacity: 1;
+  background: radial-gradient(circle at center, transparent 48%, rgb(0 0 0 / 18%) 100%);
+  background-size: auto;
+}
+
+.snad-auth-data-flow {
+  z-index: 1;
+  mix-blend-mode: screen;
+  opacity: 0.92;
+}
+
+.snad-auth-flow-track {
+  stroke: rgb(0 190 182 / 10%);
+  stroke-width: 1.5;
+}
+
+.snad-auth-flow-pulse {
+  stroke-width: 2.2;
+  stroke-dasharray: 4 22;
+  opacity: 0.9;
+  animation-duration: 4.8s;
+}
+
+.snad-auth-particle {
+  opacity: 0.9;
+}
+
+.snad-auth-card {
+  z-index: 3;
+  background: linear-gradient(145deg, rgb(4 25 31 / 92%), rgb(2 14 19 / 94%));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.snad-auth-orbit {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .snad-auth-scene {
+    background-position: 58% center;
+  }
+
+  .snad-auth-card {
+    width: min(94vw, 500px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .snad-auth-flow-pulse,
+  .snad-auth-particle {
+    animation: none !important;
+  }
+}
