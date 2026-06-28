@@ -301,11 +301,45 @@ def run_offline_smoke_test(
     output_dir: Path,
     timeout_minutes: int = 30,
 ) -> tuple[int, str]:
-    """Run offline smoke test. Returns (exit_code, log_path)."""
+    """Run offline smoke test. Returns (exit_code, log_path).
+
+    The smoke test runs `mvn dependency-check:check` which requires a POM.
+    We look for the SNAD backend POM at apps/sanad-platform/pom.xml (relative
+    to the current working directory). If not found, fall back to creating
+    a minimal standalone POM in the output directory.
+    """
     log_path = output_dir / "offline-smoke-test.log"
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Find a usable POM directory
+    pom_dir = None
+    # 1. Try apps/sanad-platform/pom.xml (relative to CWD = repo root)
+    candidate = Path("apps/sanad-platform/pom.xml")
+    if candidate.exists():
+        pom_dir = candidate.parent
+    # 2. Try pom.xml in CWD
+    if pom_dir is None and Path("pom.xml").exists():
+        pom_dir = Path(".")
+    # 3. Create a minimal standalone POM
+    if pom_dir is None:
+        pom_dir = output_dir / "smoke-pom"
+        pom_dir.mkdir(parents=True, exist_ok=True)
+        (pom_dir / "pom.xml").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<project xmlns="http://maven.apache.org/POM/4.0.0">\n'
+            '  <modelVersion>4.0.0</modelVersion>\n'
+            '  <groupId>com.snad.smoke</groupId>\n'
+            '  <artifactId>smoke-test</artifactId>\n'
+            '  <version>1.0.0</version>\n'
+            '  <packaging>jar</packaging>\n'
+            '</project>\n',
+            encoding="utf-8",
+        )
+        print(f"  Created standalone smoke POM at {pom_dir}")
+
     cmd = [
         "mvn", "--batch-mode", "--no-transfer-progress", "-e",
+        "-f", str(pom_dir / "pom.xml"),
         f"org.owasp:dependency-check-maven:{dc_version}:check",
         f"-DdataDirectory={work_dir}",
         "-DautoUpdate=false",
@@ -320,6 +354,7 @@ def run_offline_smoke_test(
         with log_path.open("w") as log:
             result = subprocess.run(
                 cmd, stdout=log, stderr=subprocess.STDOUT, timeout=timeout_minutes * 60,
+                cwd=str(pom_dir),
             )
         return result.returncode, str(log_path)
     except subprocess.TimeoutExpired:
