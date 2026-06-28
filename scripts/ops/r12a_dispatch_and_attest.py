@@ -140,10 +140,19 @@ class GitHubClient:
         return payload["commit"]["sha"]
 
     def get_workflow_id(self, file_name: str) -> int:
-        payload = self._request("GET", "actions/workflows")
-        for wf in payload.get("workflows", []):
-            if wf.get("path", "").endswith(file_name):
-                return wf["id"]
+        # R12L: paginate to find the workflow (default per_page=10 may miss it)
+        page = 1
+        while True:
+            payload = self._request("GET", f"actions/workflows?per_page=100&page={page}")
+            workflows = payload.get("workflows", [])
+            if not workflows:
+                break
+            for wf in workflows:
+                if wf.get("path", "").endswith(file_name):
+                    return wf["id"]
+            if len(workflows) < 100:
+                break
+            page += 1
         raise KeyError(f"workflow {file_name} not found in {self.repo}")
 
     def dispatch_workflow(self, file_name: str, ref: str = "main") -> None:
