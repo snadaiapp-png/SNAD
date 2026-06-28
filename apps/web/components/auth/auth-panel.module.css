@@ -1,0 +1,132 @@
+.panel {
+  width: min(92vw, 390px) !important;
+  max-height: calc(100svh - 1.5rem) !important;
+  overflow: auto !important;
+  padding: 1.2rem !important;
+}
+
+.registrationPanel {
+  width: min(94vw, 430px) !important;
+}
+
+.panel :global(.snad-auth-brand) {
+  margin-bottom: 0.7rem;
+}
+
+.panel :global(.snad-auth-title) {
+  margin-top: 0.15rem;
+  font-size: clamp(1.08rem, 1.8vw, 1.35rem);
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.3rem;
+  margin-bottom: 0.8rem;
+  border: 1px solid rgb(118 183 181 / 16%);
+  border-radius: 13px;
+  padding: 0.25rem;
+  background: rgb(0 12 17 / 48%);
+}
+
+.tab {
+  min-height: 38px;
+  border: 0;
+  border-radius: 9px;
+  color: rgb(220 239 237 / 62%);
+  background: transparent;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.tabActive {
+  color: #fff;
+  background: linear-gradient(115deg, rgb(0 139 133 / 90%), rgb(0 78 76 / 94%));
+  box-shadow: 0 7px 18px rgb(0 0 0 / 24%);
+}
+
+.intro {
+  margin: -0.1rem 0 0.7rem;
+  text-align: center;
+  color: rgb(215 235 233 / 58%);
+  font-size: 0.72rem;
+  line-height: 1.65;
+}
+
+.form {
+  display: grid;
+  gap: 0.62rem;
+}
+
+.fieldHint {
+  margin-top: 0.2rem;
+  color: rgb(190 219 216 / 45%);
+  font-size: 0.62rem;
+  font-weight: 500;
+}
+
+.secureRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: rgb(210 232 230 / 58%);
+  font-size: 0.68rem;
+}
+
+.secureBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.secureDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #35d0a3;
+  box-shadow: 0 0 10px rgb(53 208 163 / 60%);
+}
+
+.terms {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  color: rgb(219 237 235 / 70%);
+  font-size: 0.68rem;
+  line-height: 1.65;
+  cursor: pointer;
+}
+
+.terms input {
+  margin-top: 0.2rem;
+  accent-color: #00a7a0;
+}
+
+.footer {
+  margin: 0.7rem 0 0;
+  text-align: center;
+  color: rgb(201 224 222 / 48%);
+  font-size: 0.64rem;
+  line-height: 1.65;
+}
+
+.successBox {
+  margin-bottom: 0.7rem;
+  border: 1px solid rgb(52 211 153 / 25%);
+  border-radius: 12px;
+  padding: 0.75rem;
+  color: #b7f7da;
+  background: rgb(6 78 59 / 25%);
+  font-size: 0.73rem;
+  line-height: 1.65;
+}
+
+@media (max-width: 760px) {
+  .panel,
+  .registrationPanel {
+    width: min(92vw, 390px) !important;
+    max-height: calc(100svh - 1rem) !important;
+    padding: 1rem !important;
+  }
+}
