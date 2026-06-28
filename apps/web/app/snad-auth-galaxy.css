@@ -1,11 +1,29 @@
 .snad-auth-scene {
+  width: 100vw;
+  height: 100svh;
+  min-height: 100svh;
+  overflow: hidden;
+  padding: 0;
   background-color: #02090d;
   background-image:
+    radial-gradient(circle at 44.6% 6.8%, rgb(255 255 255 / 96%) 0 1px, rgb(135 210 255 / 72%) 2px, transparent 4px),
+    radial-gradient(circle at 48.1% 10.1%, rgb(255 255 255 / 94%) 0 1px, rgb(135 210 255 / 66%) 2px, transparent 4px),
+    radial-gradient(circle at 50.9% 14.5%, rgb(255 255 255 / 92%) 0 1px, rgb(135 210 255 / 62%) 2px, transparent 4px),
+    radial-gradient(circle at 47.1% 17.1%, rgb(255 255 255 / 92%) 0 1px, rgb(135 210 255 / 62%) 2px, transparent 4px),
+    radial-gradient(circle at 42.7% 13.8%, rgb(255 255 255 / 92%) 0 1px, rgb(135 210 255 / 62%) 2px, transparent 4px),
+    radial-gradient(circle at 39.8% 15.4%, rgb(255 255 255 / 90%) 0 1px, rgb(135 210 255 / 58%) 2px, transparent 4px),
+    radial-gradient(circle at 37.1% 18.2%, rgb(255 255 255 / 88%) 0 1px, rgb(135 210 255 / 56%) 2px, transparent 4px),
+    radial-gradient(ellipse 18% 13% at 44.5% 12%, rgb(2 9 13 / 98%) 0 72%, transparent 100%),
     radial-gradient(circle at 74% 50%, transparent 38%, rgb(1 8 12 / 16%) 100%),
     url('/brand/snad-solar-system-clean.png');
-  background-position: center, right center;
+  background-position: center;
   background-repeat: no-repeat;
-  background-size: cover, contain;
+  background-size: cover, cover, cover, cover, cover, cover, cover, cover, cover, contain;
+}
+
+html,
+body {
+  overflow: hidden;
 }
 
 .snad-auth-scene::before {
@@ -44,8 +62,9 @@
   left: clamp(1rem, 2.6vw, 3rem);
   z-index: 4;
   width: min(22vw, 310px);
+  min-width: 0;
   max-height: calc(100svh - 2rem);
-  overflow-y: auto;
+  overflow: hidden;
   translate: 0 -50%;
   border: 1px solid rgb(212 175 55 / 28%);
   border-radius: 17px;
@@ -62,6 +81,10 @@
     0 0 18px rgb(0 187 196 / 5%);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+}
+
+.snad-auth-card * {
+  min-width: 0;
 }
 
 .snad-auth-card .snad-auth-brand {
@@ -136,6 +159,8 @@
   margin-top: 0.72rem;
   padding-top: 0.55rem;
   font-size: 0.56rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .snad-auth-card .snad-auth-note {
@@ -166,8 +191,7 @@
 
 @media (max-width: 1100px) {
   .snad-auth-scene {
-    background-position: center, 68% center;
-    background-size: cover, auto 92%;
+    background-size: cover, cover, cover, cover, cover, cover, cover, cover, cover, auto 92%;
   }
 
   .snad-auth-card {
@@ -190,9 +214,10 @@
     top: auto;
     left: auto;
     width: min(84vw, 310px);
-    max-height: none;
+    max-height: calc(100svh - 1.5rem);
     margin-inline: auto;
     translate: none;
+    overflow: hidden;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
