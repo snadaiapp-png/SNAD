@@ -428,20 +428,23 @@ class LocalFeedServer:
         keys), dependency-check's storeLastModifiedDates ends up with null
         Instant values → NullPointerException: temporal when formatting.
 
-        Format (NVD cache.properties):
-            lastModifiedDate=YYYY-MM-DDTHH:MM:SS.SSS
-            lastModifiedDate.2002=YYYY-MM-DDTHH:MM:SS.SSS
-            lastModifiedDate.2003=YYYY-MM-DDTHH:MM:SS.SSS
+        Format (dependency-check expects ISO-8601 with Z suffix):
+            lastModifiedDate=YYYY-MM-DDTHH:MM:SS.SSSZ
+            lastModifiedDate.2002=YYYY-MM-DDTHH:MM:SS.SSSZ
+            lastModifiedDate.2003=YYYY-MM-DDTHH:MM:SS.SSSZ
             ...
-            lastModifiedDate.modified=YYYY-MM-DDTHH:MM:SS.SSS
-            lastModifiedDate.recent=YYYY-MM-DDTHH:MM:SS.SSS
+            lastModifiedDate.modified=YYYY-MM-DDTHH:MM:SS.SSSZ
+            lastModifiedDate.recent=YYYY-MM-DDTHH:MM:SS.SSSZ
 
-        NVD uses milliseconds WITHOUT a Z suffix.
+        Note: NVD's actual cache.properties does NOT have the Z suffix, but
+        dependency-check's parser (when reading from a custom nvdDatafeedUrl)
+        requires it. The DateTimeParseException "could not be parsed at index 19"
+        occurs at the position where Z is expected.
         """
         import datetime as _dt
 
-        # Use a fixed recent timestamp for all entries
-        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000")
+        # Use a fixed recent timestamp for all entries — WITH Z suffix
+        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
         lines = [f"lastModifiedDate={ts}"]
 
@@ -485,8 +488,8 @@ class LocalFeedServer:
         import datetime as _dt
         import hashlib
 
-        # NVD META format: YYYY-MM-DDTHH:MM:SS.SSS (no Z suffix)
-        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000")
+        # dependency-check expects ISO-8601 with Z suffix
+        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         count = 0
 
         # Map: nvdcve-YYYY.json.gz → nvdcve-YYYY.meta
