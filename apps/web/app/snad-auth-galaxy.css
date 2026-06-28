@@ -117,9 +117,7 @@ body {
 }
 
 .snad-auth-card .snad-auth-description {
-  margin-top: 0.42rem;
-  font-size: 0.68rem;
-  line-height: 1.45;
+  display: none;
 }
 
 .snad-auth-card .snad-auth-form {
@@ -156,11 +154,7 @@ body {
 }
 
 .snad-auth-card .snad-auth-modules-line {
-  margin-top: 0.72rem;
-  padding-top: 0.55rem;
-  font-size: 0.56rem;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  display: none;
 }
 
 .snad-auth-card .snad-auth-note {
