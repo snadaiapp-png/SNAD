@@ -339,7 +339,6 @@ def run_offline_smoke_test(
 
     cmd = [
         "mvn", "--batch-mode", "--no-transfer-progress", "-e",
-        "-f", str(pom_dir / "pom.xml"),
         f"org.owasp:dependency-check-maven:{dc_version}:check",
         f"-DdataDirectory={work_dir}",
         "-DautoUpdate=false",
