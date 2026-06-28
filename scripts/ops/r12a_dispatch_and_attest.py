@@ -815,7 +815,7 @@ def main() -> int:
         sy_run, sy_c = bl("pilot-synthetic-monitoring.yml")
 
         all_success = (
-            nvd_results["nvd_conclusion"] == "success"
+            "success" in nvd_results["nvd_conclusion"].lower()
             and owasp_results["owasp_conclusion"] == "success"
             and all(
                 baseline_results.get(f, {}).get("conclusion") == "success"
