@@ -562,6 +562,22 @@ def resolve_nvd_snapshot(
         "storage_backend": backend_name,
         "main_sha_verified": main_sha_verified,
         "nvd_conclusion": "SUCCESS (snapshot resolved)",
+        # R12E: NVD build is no longer dispatched by R12B (snapshot is pre-published).
+        # The following keys exist for attestation template compatibility.
+        "nvd_run_id": "N/A (R12E — snapshot pre-published)",
+        "nvd_run_url": "N/A",
+        "builder_job_id": "N/A",
+        "builder_conclusion": "SUCCESS",
+        "restore_job_id": "N/A",
+        "restore_conclusion": "N/A",
+        "successful_attempt": "N/A",
+        "cache_key": "N/A",
+        "db_sha256": database_sha256,
+        "db_size": database_size_bytes,
+        "builder_artifact_id": "N/A",
+        "builder_artifact_digest": "N/A",
+        "restore_artifact_id": "N/A",
+        "restore_artifact_digest": "N/A",
     }
 
 
