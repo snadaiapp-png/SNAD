@@ -1,4 +1,4 @@
-﻿.snad-auth-scene {
+.snad-auth-scene {
   background-color: #02090d;
   background-image:
     radial-gradient(circle at 74% 50%, transparent 38%, rgb(1 8 12 / 16%) 100%),
@@ -41,15 +41,15 @@
 .snad-auth-card {
   position: absolute;
   top: 50%;
-  left: clamp(1.5rem, 4vw, 4.5rem);
+  left: clamp(1.25rem, 3.2vw, 3.75rem);
   z-index: 4;
-  width: min(30vw, 430px);
-  max-height: calc(100svh - 3rem);
+  width: min(26vw, 360px);
+  max-height: calc(100svh - 2.5rem);
   overflow-y: auto;
   translate: 0 -50%;
-  border: 1px solid rgb(212 175 55 / 36%);
-  border-radius: 24px;
-  padding: clamp(1.4rem, 2.4vw, 2.2rem);
+  border: 1px solid rgb(212 175 55 / 32%);
+  border-radius: 20px;
+  padding: clamp(1.05rem, 1.8vw, 1.55rem);
   background:
     linear-gradient(
       145deg,
@@ -57,11 +57,71 @@
       rgb(2 14 19 / 97%)
     );
   box-shadow:
-    0 32px 90px rgb(0 0 0 / 52%),
+    0 26px 70px rgb(0 0 0 / 48%),
     inset 0 1px rgb(255 255 255 / 6%),
-    0 0 30px rgb(0 187 196 / 7%);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+    0 0 24px rgb(0 187 196 / 6%);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+.snad-auth-card .snad-auth-brand {
+  margin-bottom: 1.15rem;
+}
+
+.snad-auth-card .snad-auth-logo {
+  min-width: 130px;
+  min-height: 58px;
+  font-size: clamp(2.7rem, 5vw, 4rem);
+}
+
+.snad-auth-card .snad-auth-title {
+  margin-top: 0.8rem;
+  font-size: clamp(1.15rem, 2vw, 1.4rem);
+}
+
+.snad-auth-card .snad-auth-description {
+  margin-top: 0.6rem;
+  font-size: 0.75rem;
+  line-height: 1.65;
+}
+
+.snad-auth-card .snad-auth-form {
+  gap: 0.78rem;
+}
+
+.snad-auth-card .snad-auth-input {
+  min-height: 44px;
+}
+
+.snad-auth-card .snad-auth-submit {
+  min-height: 46px;
+}
+
+.snad-auth-card .snad-auth-modules-line {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+}
+
+.snad-auth-card .snad-auth-note {
+  margin-top: 0.7rem;
+  font-size: 0;
+  color: transparent;
+}
+
+.snad-auth-card .snad-auth-note::after {
+  content: "أنشئ حسابًا";
+  display: inline-block;
+  color: #f2a51a;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: color 160ms ease, text-shadow 160ms ease;
+}
+
+.snad-auth-card .snad-auth-note:hover::after {
+  color: #ffd76a;
+  text-shadow: 0 0 12px rgb(255 215 106 / 28%);
 }
 
 .snad-auth-orbit {
@@ -75,8 +135,8 @@
   }
 
   .snad-auth-card {
-    left: 1.25rem;
-    width: min(38vw, 400px);
+    left: 1rem;
+    width: min(34vw, 350px);
   }
 }
 
@@ -93,7 +153,7 @@
     position: relative;
     top: auto;
     left: auto;
-    width: min(92vw, 390px);
+    width: min(88vw, 340px);
     max-height: none;
     margin-inline: auto;
     translate: none;
