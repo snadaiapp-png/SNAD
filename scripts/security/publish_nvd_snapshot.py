@@ -443,8 +443,10 @@ class LocalFeedServer:
         """
         import datetime as _dt
 
-        # Use a fixed recent timestamp for all entries — WITH Z suffix
-        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        # Use a fixed recent timestamp for all entries.
+        # dependency-check's parser expects: YYYY-MM-DDTHH:MM:SSZ (NO milliseconds, WITH Z).
+        # DateTimeParseException at index 19 occurs if milliseconds are included.
+        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         lines = [f"lastModifiedDate={ts}"]
 
@@ -488,8 +490,8 @@ class LocalFeedServer:
         import datetime as _dt
         import hashlib
 
-        # dependency-check expects ISO-8601 with Z suffix
-        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        # dependency-check's parser expects: YYYY-MM-DDTHH:MM:SSZ (NO milliseconds, WITH Z)
+        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         count = 0
 
         # Map: nvdcve-YYYY.json.gz → nvdcve-YYYY.meta
