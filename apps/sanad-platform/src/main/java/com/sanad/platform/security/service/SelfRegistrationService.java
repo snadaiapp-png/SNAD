@@ -138,7 +138,7 @@ public class SelfRegistrationService {
                     null));
 
             recoveryCoordinator.createAdministrativeResetLink(
-                    tenant.getId(),
+                    administrator.getTenantId(),
                     administrator.getId(),
                     normalizeLocale(locale),
                     clientIp);
