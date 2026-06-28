@@ -287,27 +287,40 @@ jobs:
               if not p.exists():
                   print(f"::error::{label} not found after download: {p}")
                   raise SystemExit(1)
-          print(f"archive_path={archive_path}")
-          print(f"manifest_path={manifest_path}")
-          print(f"checksums_path={checksums_path}")
-          print(f"snapshot_id={bundle['snapshot_id']}")
+          # Write to a temp file for bash to read (step outputs are NOT
+          # available within the same step — only to subsequent steps).
+          import json
+          bundle_info = {
+              "archive_path": str(archive_path),
+              "manifest_path": str(manifest_path),
+              "checksums_path": str(checksums_path),
+              "snapshot_id": bundle['snapshot_id'],
+          }
+          with open(os.environ['RUNNER_TEMP'] + '/bundle-info.json', 'w') as f:
+              json.dump(bundle_info, f)
+          # Also write to GITHUB_OUTPUT for subsequent steps.
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"archive_path={archive_path}\n")
-              f.write(f"manifest_path={manifest_path}\n")
-              f.write(f"checksums_path={checksums_path}\n")
-              f.write(f"snapshot_id={bundle['snapshot_id']}\n")
+              for k, v in bundle_info.items():
+                  f.write(f"{k}={v}\n")
+          print(json.dumps(bundle_info, indent=2))
           PY
-          # Debug: show what GITHUB_OUTPUT contains
-          echo "=== GITHUB_OUTPUT contents ==="
-          cat "$GITHUB_OUTPUT"
-          echo "=== End GITHUB_OUTPUT ==="
+
+          # Read bundle info from temp file (step outputs not available in-step)
+          ARCHIVE_PATH=$(python3 -c "import json; print(json.load(open('${{ runner.temp }}/bundle-info.json'))['archive_path'])")
+          MANIFEST_PATH=$(python3 -c "import json; print(json.load(open('${{ runner.temp }}/bundle-info.json'))['manifest_path'])")
+          CHECKSUMS_PATH=$(python3 -c "import json; print(json.load(open('${{ runner.temp }}/bundle-info.json'))['checksums_path'])")
+          SNAPSHOT_ID=$(python3 -c "import json; print(json.load(open('${{ runner.temp }}/bundle-info.json'))['snapshot_id'])")
+          echo "ARCHIVE_PATH=$ARCHIVE_PATH"
+          echo "MANIFEST_PATH=$MANIFEST_PATH"
+          echo "CHECKSUMS_PATH=$CHECKSUMS_PATH"
+          echo "SNAPSHOT_ID=$SNAPSHOT_ID"
 
           # Verify the snapshot bundle (v2 contract)
           python3 scripts/security/verify_nvd_snapshot.py \
-            --archive "${{ steps.download_snapshot.outputs.archive_path }}" \
-            --manifest "${{ steps.download_snapshot.outputs.manifest_path }}" \
-            --checksums "${{ steps.download_snapshot.outputs.checksums_path }}" \
-            --expected-snapshot-id "${{ steps.download_snapshot.outputs.snapshot_id }}" \
+            --archive "$ARCHIVE_PATH" \
+            --manifest "$MANIFEST_PATH" \
+            --checksums "$CHECKSUMS_PATH" \
+            --expected-snapshot-id "$SNAPSHOT_ID" \
             --expected-dc-version "${{ env.DEPENDENCY_CHECK_VERSION }}" \
             --min-size "${{ env.NVD_MIN_SIZE_BYTES }}" \
             --max-age-hours "${{ env.NVD_MAX_AGE_HOURS }}" 2>&1 | tee "${{ runner.temp }}/verify-output.txt"
@@ -322,7 +335,7 @@ jobs:
           # Extract snapshot to data directory (safe extraction)
           mkdir -p "${{ env.NVD_CANONICAL_DIR }}"
           python3 scripts/security/nvd_archive.py extract \
-            --archive "${{ steps.download_snapshot.outputs.archive_path }}" \
+            --archive "$ARCHIVE_PATH" \
             --destination "${{ runner.temp }}/nvd-extract"
           cp -a "${{ runner.temp }}/nvd-extract/data/." "${{ env.NVD_CANONICAL_DIR }}/"
 
