@@ -415,21 +415,49 @@ jobs:
         run: |
           set -euo pipefail
 
+          # dependency-check may write reports to either:
+          #   target/dependency-check-report/dependency-check-report.json  (with -DoutputDirectory)
+          #   target/dependency-check-report.json  (without trailing slash in outputDirectory)
+          # Check both locations.
           REPORT_DIR="target/dependency-check-report"
           JSON_REPORT="$REPORT_DIR/dependency-check-report.json"
           HTML_REPORT="$REPORT_DIR/dependency-check-report.html"
+          # Fallback: files directly in target/
+          JSON_REPORT_ALT="target/dependency-check-report.json"
+          HTML_REPORT_ALT="target/dependency-check-report.html"
 
           ERRORS=()
 
-          # Debug: show what's in the report directory
+          # Debug: show what's in the report directory and target/
           echo "=== Report directory contents ==="
-          ls -la "$REPORT_DIR/" 2>/dev/null || echo "  (directory does not exist)"
+          ls -la "$REPORT_DIR/" 2>/dev/null || echo "  (directory does not exist: $REPORT_DIR)"
+          echo "=== target/ contents (dependency-check files) ==="
+          ls -la target/dependency-check-report* 2>/dev/null || echo "  (no dependency-check files in target/)"
           echo "=== Current directory ==="
           pwd
           echo "=== End debug ==="
 
-          [ -f "$JSON_REPORT" ] || ERRORS+=("json_missing")
-          [ -f "$HTML_REPORT" ] || ERRORS+=("html_missing")
+          # Resolve to whichever location has the files
+          if [ -f "$JSON_REPORT" ]; then
+            JSON_FOUND="$JSON_REPORT"
+          elif [ -f "$JSON_REPORT_ALT" ]; then
+            JSON_FOUND="$JSON_REPORT_ALT"
+          else
+            ERRORS+=("json_missing")
+            JSON_FOUND=""
+          fi
+
+          if [ -f "$HTML_REPORT" ]; then
+            HTML_FOUND="$HTML_REPORT"
+          elif [ -f "$HTML_REPORT_ALT" ]; then
+            HTML_FOUND="$HTML_REPORT_ALT"
+          else
+            ERRORS+=("html_missing")
+            HTML_FOUND=""
+          fi
+
+          JSON_REPORT="$JSON_FOUND"
+          HTML_REPORT="$HTML_FOUND"
 
           JSON_SIZE=0
           HTML_SIZE=0
