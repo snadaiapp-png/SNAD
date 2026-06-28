@@ -2,9 +2,13 @@ package com.sanad.platform.security.service;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.sanad.platform.access.capability.AccessCapabilityRepository;
+import com.sanad.platform.access.capability.CapabilityStatus;
 import com.sanad.platform.access.grant.UserRoleGrant;
 import com.sanad.platform.access.grant.UserRoleGrantRepository;
 import com.sanad.platform.access.role.Role;
+import com.sanad.platform.access.role.RoleCapability;
+import com.sanad.platform.access.role.RoleCapabilityRepository;
 import com.sanad.platform.access.role.RoleRepository;
 import com.sanad.platform.organization.domain.Organization;
 import com.sanad.platform.organization.domain.OrganizationStatus;
@@ -50,6 +54,8 @@ public class SelfRegistrationService {
     private final OrganizationMembershipRepository membershipRepository;
     private final RoleRepository roleRepository;
     private final UserRoleGrantRepository roleGrantRepository;
+    private final AccessCapabilityRepository capabilityRepository;
+    private final RoleCapabilityRepository roleCapabilityRepository;
     private final PasswordRecoveryNotificationCoordinator recoveryCoordinator;
     private final Cache<String, Integer> registrationAttempts;
 
@@ -60,6 +66,8 @@ public class SelfRegistrationService {
             OrganizationMembershipRepository membershipRepository,
             RoleRepository roleRepository,
             UserRoleGrantRepository roleGrantRepository,
+            AccessCapabilityRepository capabilityRepository,
+            RoleCapabilityRepository roleCapabilityRepository,
             PasswordRecoveryNotificationCoordinator recoveryCoordinator
     ) {
         this.tenantRepository = tenantRepository;
@@ -68,6 +76,8 @@ public class SelfRegistrationService {
         this.membershipRepository = membershipRepository;
         this.roleRepository = roleRepository;
         this.roleGrantRepository = roleGrantRepository;
+        this.capabilityRepository = capabilityRepository;
+        this.roleCapabilityRepository = roleCapabilityRepository;
         this.recoveryCoordinator = recoveryCoordinator;
         this.registrationAttempts = Caffeine.newBuilder()
                 .maximumSize(20_000)
@@ -136,6 +146,12 @@ public class SelfRegistrationService {
                     administrator.getId(),
                     adminRole.getId(),
                     null));
+
+            capabilityRepository.findByStatusOrderByCodeAsc(CapabilityStatus.ACTIVE)
+                    .forEach(capability -> roleCapabilityRepository.save(new RoleCapability(
+                            tenant.getId(),
+                            adminRole.getId(),
+                            capability.getId())));
 
             recoveryCoordinator.createAdministrativeResetLink(
                     administrator.getTenantId(),
