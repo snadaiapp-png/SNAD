@@ -418,6 +418,13 @@ jobs:
 
           ERRORS=()
 
+          # Debug: show what's in the report directory
+          echo "=== Report directory contents ==="
+          ls -la "$REPORT_DIR/" 2>/dev/null || echo "  (directory does not exist)"
+          echo "=== Current directory ==="
+          pwd
+          echo "=== End debug ==="
+
           [ -f "$JSON_REPORT" ] || ERRORS+=("json_missing")
           [ -f "$HTML_REPORT" ] || ERRORS+=("html_missing")
 
