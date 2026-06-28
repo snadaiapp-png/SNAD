@@ -8,6 +8,8 @@ import com.sanad.platform.security.exception.InvalidResetTokenException;
 import com.sanad.platform.security.exception.LoginRateLimitException;
 import com.sanad.platform.security.exception.PasswordResetRateLimitException;
 import com.sanad.platform.security.exception.RefreshTokenReplayException;
+import com.sanad.platform.security.exception.RegistrationConflictException;
+import com.sanad.platform.security.exception.SelfRegistrationRateLimitException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,10 +18,10 @@ import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-import org.springframework.web.bind.MissingServletRequestParameterException;
 
 import java.time.Instant;
 
@@ -61,7 +63,7 @@ public class AuthApiExceptionHandler {
                 .map(java.util.UUID::toString)
                 .collect(java.util.stream.Collectors.toList());
         ApiErrorResponse response = new ApiErrorResponse(
-                java.time.Instant.now(),
+                Instant.now(),
                 409,
                 "Conflict",
                 ex.getMessage(),
@@ -75,15 +77,7 @@ public class AuthApiExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleRateLimit(
             LoginRateLimitException ex, HttpServletRequest request) {
         log.warn("Auth rate limited: path={} message={}", request.getRequestURI(), ex.getMessage());
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                .header("Retry-After", "300")
-                .body(new ApiErrorResponse(
-                        Instant.now(),
-                        HttpStatus.TOO_MANY_REQUESTS.value(),
-                        HttpStatus.TOO_MANY_REQUESTS.getReasonPhrase(),
-                        ex.getMessage(),
-                        request.getRequestURI()
-                ));
+        return rateLimit(ex.getMessage(), request, "300");
     }
 
     @ExceptionHandler(InvalidResetTokenException.class)
@@ -96,15 +90,20 @@ public class AuthApiExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handlePasswordResetRateLimit(
             PasswordResetRateLimitException ex, HttpServletRequest request) {
         log.warn("Password reset rate limited: path={} message={}", request.getRequestURI(), ex.getMessage());
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                .header("Retry-After", "3600")
-                .body(new ApiErrorResponse(
-                        Instant.now(),
-                        HttpStatus.TOO_MANY_REQUESTS.value(),
-                        HttpStatus.TOO_MANY_REQUESTS.getReasonPhrase(),
-                        ex.getMessage(),
-                        request.getRequestURI()
-                ));
+        return rateLimit(ex.getMessage(), request, "3600");
+    }
+
+    @ExceptionHandler(RegistrationConflictException.class)
+    public ResponseEntity<ApiErrorResponse> handleRegistrationConflict(
+            RegistrationConflictException ex, HttpServletRequest request) {
+        return error(HttpStatus.CONFLICT, ex.getMessage(), request, ex);
+    }
+
+    @ExceptionHandler(SelfRegistrationRateLimitException.class)
+    public ResponseEntity<ApiErrorResponse> handleRegistrationRateLimit(
+            SelfRegistrationRateLimitException ex, HttpServletRequest request) {
+        log.warn("Registration rate limited: path={} message={}", request.getRequestURI(), ex.getMessage());
+        return rateLimit(ex.getMessage(), request, "3600");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -137,6 +136,19 @@ public class AuthApiExceptionHandler {
         String message = (ex.getMessage() != null && !ex.getMessage().isBlank())
                 ? ex.getMessage() : "Invalid request";
         return error(HttpStatus.BAD_REQUEST, message, request, ex);
+    }
+
+    private ResponseEntity<ApiErrorResponse> rateLimit(
+            String message, HttpServletRequest request, String retryAfter) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", retryAfter)
+                .body(new ApiErrorResponse(
+                        Instant.now(),
+                        HttpStatus.TOO_MANY_REQUESTS.value(),
+                        HttpStatus.TOO_MANY_REQUESTS.getReasonPhrase(),
+                        message,
+                        request.getRequestURI()
+                ));
     }
 
     private ResponseEntity<ApiErrorResponse> error(
