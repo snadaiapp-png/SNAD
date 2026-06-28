@@ -84,6 +84,7 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND || 'github-releases' }}
         run: |
           set -euo pipefail
 
