@@ -104,7 +104,7 @@ body {
   color: transparent;
   font-size: 0;
   line-height: 0;
-  background-image: url('/brand/snad-login-galaxy.png');
+  background-image: url('/brand/snad-logo-original.png');
   background-position: center;
   background-repeat: no-repeat;
   background-size: contain;
@@ -241,3 +241,4 @@ body {
     animation: none !important;
   }
 }
+
