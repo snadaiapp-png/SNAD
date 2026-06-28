@@ -80,7 +80,6 @@
   animation-duration: 4.2s;
 }
 
-/* The SNAD lunar mark behaves as an active network endpoint. */
 .snad-auth-logo {
   animation: snad-lunar-logo-heartbeat 4.2s ease-in-out infinite;
 }
@@ -91,6 +90,7 @@
 
 .snad-auth-card {
   box-shadow:
+    -42vw 0 0 42vw #021116,
     0 34px 110px rgb(0 0 0 / 58%),
     inset 0 1px rgb(255 255 255 / 7%),
     0 0 34px rgb(212 175 55 / 8%),
@@ -108,20 +108,11 @@
 }
 
 @keyframes snad-photonic-packets {
-  0% {
-    background-position: 38% 48%, 64% 36%, 64% 61%;
-    opacity: .18;
-  }
+  0% { background-position: 38% 48%, 64% 36%, 64% 61%; opacity: .18; }
   18% { opacity: .98; }
-  48% {
-    background-position: 58% 48%, 76% 27%, 78% 73%;
-    opacity: .76;
-  }
+  48% { background-position: 58% 48%, 76% 27%, 78% 73%; opacity: .76; }
   72% { opacity: 1; }
-  100% {
-    background-position: 78% 48%, 91% 18%, 92% 84%;
-    opacity: .14;
-  }
+  100% { background-position: 78% 48%, 91% 18%, 92% 84%; opacity: .14; }
 }
 
 @keyframes snad-lunar-logo-heartbeat {
@@ -135,15 +126,9 @@
 }
 
 @media (max-width: 760px) {
-  .snad-auth-scene::before {
-    opacity: .54;
-    animation-duration: 4.8s;
-  }
-
-  .snad-auth-scene::after {
-    opacity: .58;
-    background-size: 34% 2px, 26% 2px, 26% 2px;
-  }
+  .snad-auth-scene::before { opacity: .54; animation-duration: 4.8s; }
+  .snad-auth-scene::after { opacity: .58; background-size: 34% 2px, 26% 2px, 26% 2px; }
+  .snad-auth-card { box-shadow: 0 24px 70px rgb(0 0 0 / 58%), inset 0 1px rgb(255 255 255 / 7%); }
 }
 
 @media (prefers-reduced-motion: reduce) {
