@@ -4,8 +4,6 @@
 @import "./snad-auth-scene.css";
 @import "./snad-auth-galaxy.css";
 @import "./snad-auth-photonic.css";
-@import "./snad-auth-image-form.css";
-
 * {
   box-sizing: border-box;
 }
@@ -56,4 +54,5 @@ button {
   background: var(--snad-brand-gold-soft);
   color: var(--snad-text-primary);
 }
+
 
