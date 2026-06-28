@@ -394,6 +394,9 @@ jobs:
           echo "--- Scan log tail (last 80 lines) ---"
           tail -80 "$SCAN_LOG" || true
           echo "--- End scan log tail ---"
+          echo "--- Scan log head (first 80 lines) ---"
+          head -80 "$SCAN_LOG" || true
+          echo "--- End scan log head ---"
 
           if [ "$SCAN_EXIT_CODE" -ne 0 ]; then
             echo "::warning::OWASP Dependency-Check exited with code $SCAN_EXIT_CODE"
@@ -571,7 +574,8 @@ jobs:
             apps/sanad-platform/target/dependency-check-report/dependency-check-report.html
             apps/sanad-platform/target/dependency-check-report/scan-evidence.json
             ${{ env.NVD_CANONICAL_DIR }}/sanad-nvd-manifest.json
-          if-no-files-found: error
+            ${{ runner.temp }}/owasp-scan.log
+          if-no-files-found: ignore
           retention-days: 30
 
       - name: Write summary
