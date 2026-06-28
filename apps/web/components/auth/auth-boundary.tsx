@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { authApi } from "@/lib/api/auth";
@@ -105,7 +106,17 @@ function ModuleOrbit() {
 function BrandHeader({ title, description }: { title: string; description: string }) {
   return (
     <header className="snad-auth-brand">
-      <div className="snad-auth-logo" aria-label="سند">سند</div>
+      <div className="snad-auth-logo-frame">
+        <Image
+          src="/brand/snad-logo-original.png"
+          alt="شعار منصة سند"
+          width={1448}
+          height={1086}
+          sizes="(max-width: 760px) 168px, 190px"
+          priority
+          className="snad-auth-logo"
+        />
+      </div>
       <p className="snad-auth-subtitle">منظومة الأعمال الرقمية</p>
       <h1 className="snad-auth-title">{title}</h1>
       <p className="snad-auth-description">{description}</p>
