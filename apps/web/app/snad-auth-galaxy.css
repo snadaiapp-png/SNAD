@@ -88,16 +88,18 @@ body {
 }
 
 .snad-auth-card .snad-auth-brand {
-  margin-bottom: 0.78rem;
+  display: grid;
+  justify-items: center;
+  margin: -0.15rem 0 0.78rem;
 }
 
 .snad-auth-card .snad-auth-logo {
   display: block;
-  width: 132px;
+  width: min(168px, 78%);
   min-width: 0;
-  height: 58px;
+  height: 72px;
   min-height: 0;
-  margin: 0 auto 0.15rem;
+  margin: 0 auto 0.25rem;
   overflow: hidden;
   color: transparent;
   font-size: 0;
@@ -106,7 +108,7 @@ body {
   background-position: center;
   background-repeat: no-repeat;
   background-size: contain;
-  filter: none;
+  filter: drop-shadow(0 0 10px rgb(0 210 205 / 16%));
 }
 
 .snad-auth-card .snad-auth-logo::after {
@@ -118,7 +120,7 @@ body {
 }
 
 .snad-auth-card .snad-auth-title {
-  margin-top: 0.55rem;
+  margin-top: 0.35rem;
   font-size: clamp(1rem, 1.6vw, 1.2rem);
 }
 
@@ -225,6 +227,11 @@ body {
     overflow: hidden;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
+  }
+
+  .snad-auth-card .snad-auth-logo {
+    width: 150px;
+    height: 64px;
   }
 }
 
