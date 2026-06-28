@@ -1,7 +1,7 @@
 /*
- * Functional form overlay for the login panel that already exists inside
- * the approved solar-system artwork. The artwork remains visual-only;
- * these controls provide the actual accessible authentication behavior.
+ * Functional form overlay for the login panel embedded in the approved
+ * solar-system artwork. The artwork supplies the frame; these controls
+ * provide the actual accessible authentication behavior.
  */
 
 .snad-auth-card:has(.snad-auth-modules-line) {
@@ -23,13 +23,13 @@
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  filter: none;
 }
 
 .snad-auth-card:has(.snad-auth-modules-line)::before {
   display: none;
 }
 
-/* All visual headings already exist in the approved artwork. */
 .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-brand,
 .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-modules-line,
 .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-note {
@@ -47,7 +47,9 @@
   inset-inline: 0;
   bottom: calc(100% + 0.5rem);
   margin: 0;
-  backdrop-filter: blur(10px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgb(63 14 20 / 96%);
 }
 
 .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-form {
@@ -55,7 +57,6 @@
   gap: 1.35vh;
 }
 
-/* Labels are painted in the artwork; keep them for screen readers only. */
 .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-label {
   display: block;
   color: transparent;
@@ -70,26 +71,28 @@
 .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-input {
   height: 100%;
   min-height: 0;
-  border-color: transparent;
+  border: 1px solid rgb(92 187 194 / 34%);
   border-radius: 10px;
   padding: 0.55rem 2.6rem 0.55rem 0.9rem;
   color: #f7fbfb;
-  background: rgb(1 14 19 / 18%);
-  box-shadow: none;
+  background: rgb(1 14 19 / 92%);
+  box-shadow: inset 0 1px rgb(255 255 255 / 4%);
   font-size: clamp(0.72rem, 1.5vh, 0.9rem);
+  filter: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-input::placeholder {
-  color: rgb(220 238 237 / 34%);
+  color: rgb(220 238 237 / 48%);
 }
 
 .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-input:focus {
-  border-color: rgb(56 248 255 / 55%);
-  background: rgb(1 18 24 / 46%);
-  box-shadow: inset 0 0 0 1px rgb(56 248 255 / 18%), 0 0 18px rgb(56 248 255 / 12%);
+  border-color: rgb(56 248 255 / 74%);
+  background: rgb(1 18 24 / 98%);
+  box-shadow: inset 0 0 0 1px rgb(56 248 255 / 22%), 0 0 0 3px rgb(56 248 255 / 10%);
 }
 
-/* The artwork already contains input icons. */
 .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-input-icon {
   opacity: 0;
   pointer-events: none;
@@ -97,7 +100,8 @@
 
 .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-input-action {
   left: 0.25rem;
-  opacity: 0.75;
+  opacity: 0.9;
+  filter: none;
 }
 
 .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-row {
@@ -115,26 +119,30 @@
   opacity: 0;
 }
 
+/* Replace the blurred button painted in the artwork with a crisp real button. */
 .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-submit {
   min-height: 6.6vh;
-  border-color: transparent;
+  border: 1px solid rgb(255 206 83 / 52%);
   border-radius: 11px;
-  color: transparent;
-  background: transparent;
-  box-shadow: none;
+  color: #fff8dc;
+  background: linear-gradient(100deg, #007f8a 0%, #087e7a 38%, #b67a0f 72%, #e2a72c 100%);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 28%), inset 0 1px rgb(255 255 255 / 18%);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 55%);
+  filter: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-submit::before {
-  opacity: 0.25;
+  display: none;
 }
 
 .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-submit:hover:not(:disabled),
 .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-submit:focus-visible {
-  background: rgb(56 248 255 / 8%);
-  box-shadow: inset 0 0 0 1px rgb(56 248 255 / 24%), 0 0 22px rgb(56 248 255 / 12%);
+  filter: brightness(1.08);
+  box-shadow: 0 10px 26px rgb(0 0 0 / 32%), 0 0 0 3px rgb(56 248 255 / 10%);
 }
 
-/* Password recovery reuses the same painted panel without introducing a second card. */
 .snad-auth-card:has(.snad-auth-modules-line) > .snad-auth-link.mt-4 {
   display: block;
   margin-top: 0.65rem;
@@ -162,9 +170,9 @@
     border: 1px solid rgb(212 175 55 / 30%);
     border-radius: 20px;
     padding: 1.25rem;
-    background: rgb(2 18 23 / 88%);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    background: rgb(2 18 23 / 96%);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-brand {
@@ -186,14 +194,5 @@
   .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-link,
   .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-submit {
     color: inherit;
-  }
-
-  .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-input {
-    border-color: rgb(107 184 181 / 22%);
-    background: rgb(2 18 23 / 62%);
-  }
-
-  .snad-auth-card:has(.snad-auth-modules-line) .snad-auth-submit {
-    background: linear-gradient(100deg, #007f7a 0%, #006460 48%, #003b39 100%);
   }
 }
