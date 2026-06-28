@@ -4,34 +4,32 @@
   --photon-gold: #ffd76a;
 }
 
-/* Animated optical-energy layer aligned with the solar-system artwork. */
+/* Optical-energy endpoints aligned with the solar-system artwork. */
 .snad-auth-scene::before {
   z-index: 1;
-  opacity: 0.92;
+  opacity: 0.88;
   background:
-    radial-gradient(circle at 66% 48%, rgb(255 215 106 / 80%) 0 2px, transparent 9px),
-    radial-gradient(circle at 50% 48%, rgb(56 248 255 / 78%) 0 2px, transparent 10px),
-    radial-gradient(circle at 76% 17%, rgb(56 248 255 / 72%) 0 2px, transparent 9px),
-    radial-gradient(circle at 88% 29%, rgb(255 215 106 / 72%) 0 2px, transparent 9px),
-    radial-gradient(circle at 92% 52%, rgb(56 248 255 / 72%) 0 2px, transparent 9px),
-    radial-gradient(circle at 84% 78%, rgb(255 215 106 / 68%) 0 2px, transparent 9px),
-    radial-gradient(circle at 68% 84%, rgb(56 248 255 / 68%) 0 2px, transparent 9px),
-    repeating-radial-gradient(ellipse at 66% 48%, transparent 0 34px, rgb(56 248 255 / 11%) 35px 36px, transparent 37px 58px),
-    conic-gradient(from 0deg at 66% 48%, transparent 0 8%, rgb(56 248 255 / 8%) 9% 10%, transparent 11% 24%, rgb(255 215 106 / 8%) 25% 26%, transparent 27% 100%);
-  background-size:
-    14% 14%, 16% 16%, 13% 13%, 13% 13%, 13% 13%, 13% 13%, 13% 13%,
-    100% 100%, 100% 100%;
+    radial-gradient(circle at 66% 48%, rgb(255 255 255 / 95%) 0 1px, rgb(255 215 106 / 78%) 2px 4px, transparent 12px),
+    radial-gradient(circle at 50% 48%, rgb(255 255 255 / 94%) 0 1px, rgb(56 248 255 / 76%) 2px 4px, transparent 13px),
+    radial-gradient(circle at 76% 17%, rgb(255 255 255 / 90%) 0 1px, rgb(56 248 255 / 68%) 2px 4px, transparent 11px),
+    radial-gradient(circle at 88% 29%, rgb(255 255 255 / 90%) 0 1px, rgb(255 215 106 / 68%) 2px 4px, transparent 11px),
+    radial-gradient(circle at 92% 52%, rgb(255 255 255 / 90%) 0 1px, rgb(56 248 255 / 68%) 2px 4px, transparent 11px),
+    radial-gradient(circle at 84% 78%, rgb(255 255 255 / 88%) 0 1px, rgb(255 215 106 / 64%) 2px 4px, transparent 11px),
+    radial-gradient(circle at 68% 84%, rgb(255 255 255 / 88%) 0 1px, rgb(56 248 255 / 64%) 2px 4px, transparent 11px),
+    repeating-radial-gradient(ellipse at 66% 48%, transparent 0 34px, rgb(56 248 255 / 9%) 35px 36px, transparent 37px 58px),
+    conic-gradient(from 0deg at 66% 48%, transparent 0 8%, rgb(56 248 255 / 7%) 9% 10%, transparent 11% 24%, rgb(255 215 106 / 7%) 25% 26%, transparent 27% 100%);
+  background-size: 100% 100%;
   background-repeat: no-repeat;
   mix-blend-mode: screen;
-  filter: saturate(1.18);
-  animation: snad-photonic-node-pulse 3.6s ease-in-out infinite, snad-photonic-network-breathe 8s linear infinite;
+  filter: saturate(1.16);
+  animation: snad-photonic-node-pulse 3.6s ease-in-out infinite;
   mask-image: none;
 }
 
-/* Travelling light packets across the optical fibres. */
+/* Travelling electromagnetic light packets across the optical fibres. */
 .snad-auth-scene::after {
   z-index: 2;
-  opacity: 0.88;
+  opacity: 0.86;
   background:
     linear-gradient(90deg, transparent 0 42%, rgb(56 248 255 / 0%) 44%, rgb(56 248 255 / 92%) 48%, rgb(255 255 255 / 96%) 49%, rgb(255 215 106 / 88%) 50%, transparent 54% 100%),
     linear-gradient(18deg, transparent 0 45%, rgb(56 248 255 / 78%) 48%, rgb(255 215 106 / 90%) 50%, transparent 53% 100%),
@@ -104,19 +102,15 @@
 }
 
 @keyframes snad-photonic-node-pulse {
-  0%, 100% { filter: brightness(.86) saturate(1.05); }
-  45% { filter: brightness(1.35) saturate(1.35) drop-shadow(0 0 9px rgb(56 248 255 / 28%)); }
-  62% { filter: brightness(1.05) saturate(1.12); }
-}
-
-@keyframes snad-photonic-network-breathe {
-  to { rotate: 360deg; }
+  0%, 100% { opacity: .62; filter: brightness(.86) saturate(1.05); }
+  42% { opacity: 1; filter: brightness(1.38) saturate(1.35) drop-shadow(0 0 9px rgb(56 248 255 / 30%)); }
+  62% { opacity: .82; filter: brightness(1.06) saturate(1.12); }
 }
 
 @keyframes snad-photonic-packets {
   0% {
     background-position: 38% 48%, 64% 36%, 64% 61%;
-    opacity: .22;
+    opacity: .18;
   }
   18% { opacity: .98; }
   48% {
@@ -126,7 +120,7 @@
   72% { opacity: 1; }
   100% {
     background-position: 78% 48%, 91% 18%, 92% 84%;
-    opacity: .18;
+    opacity: .14;
   }
 }
 
@@ -142,12 +136,12 @@
 
 @media (max-width: 760px) {
   .snad-auth-scene::before {
-    opacity: .58;
-    animation-duration: 4.8s, 12s;
+    opacity: .54;
+    animation-duration: 4.8s;
   }
 
   .snad-auth-scene::after {
-    opacity: .62;
+    opacity: .58;
     background-size: 34% 2px, 26% 2px, 26% 2px;
   }
 }
