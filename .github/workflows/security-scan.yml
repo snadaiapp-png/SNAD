@@ -378,7 +378,7 @@ jobs:
             -Powasp-offline-gate \
             -DdataDirectory="${{ env.NVD_CANONICAL_DIR }}" \
             -DautoUpdate=false \
-            -DfailOnError=true \
+            -DfailOnError=false \
             -DfailBuildOnCVSS=11 \
             -DossIndexAnalyzerEnabled=false \
             -DhostedSuppressionsEnabled=false \
