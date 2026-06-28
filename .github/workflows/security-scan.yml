@@ -278,11 +278,15 @@ jobs:
               latest,
               pathlib.Path(os.environ['RUNNER_TEMP']) / 'nvd-snapshot',
           )
-          # Use absolute paths for GITHUB_OUTPUT (workflow later references
-          # these from a different working directory).
-          archive_path = str(pathlib.Path(bundle['archive_path']).resolve())
-          manifest_path = str(pathlib.Path(bundle['manifest_path']).resolve())
-          checksums_path = str(pathlib.Path(bundle['checksums_path']).resolve())
+          # Verify files exist and get absolute paths.
+          archive_path = pathlib.Path(bundle['archive_path']).resolve()
+          manifest_path = pathlib.Path(bundle['manifest_path']).resolve()
+          checksums_path = pathlib.Path(bundle['checksums_path']).resolve()
+          # Sanity check — these files must exist.
+          for p, label in [(archive_path, "archive"), (manifest_path, "manifest"), (checksums_path, "checksums")]:
+              if not p.exists():
+                  print(f"::error::{label} not found after download: {p}")
+                  raise SystemExit(1)
           print(f"archive_path={archive_path}")
           print(f"manifest_path={manifest_path}")
           print(f"checksums_path={checksums_path}")
@@ -293,6 +297,10 @@ jobs:
               f.write(f"checksums_path={checksums_path}\n")
               f.write(f"snapshot_id={bundle['snapshot_id']}\n")
           PY
+          # Debug: show what GITHUB_OUTPUT contains
+          echo "=== GITHUB_OUTPUT contents ==="
+          cat "$GITHUB_OUTPUT"
+          echo "=== End GITHUB_OUTPUT ==="
 
           # Verify the snapshot bundle (v2 contract)
           python3 scripts/security/verify_nvd_snapshot.py \
