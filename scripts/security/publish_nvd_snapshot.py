@@ -417,12 +417,13 @@ class LocalFeedServer:
     def _synthesize_cache_properties(feed_dir: Path, cache_props: Path) -> None:
         """Synthesize a minimal cache.properties file from the most recent .meta.
 
-        Format (Java properties):
-            lastModifiedDate=YYYY-MM-DDTHH:MM:SS.SSSZ
+        Format (NVD cache.properties):
+            lastModifiedDate=YYYY-MM-DDTHH:MM:SS.SSS
 
-        dependency-check uses Jackson to parse this as an ISO-8601 instant.
-        The format MUST include milliseconds and the Z (UTC) suffix, otherwise
-        Jackson throws `NullPointerException: temporal` during parsing.
+        NVD's actual cache.properties uses milliseconds WITHOUT a Z suffix.
+        dependency-check parses this with a Jackson ISO-8601 parser that
+        accepts the no-timezone format (treating it as UTC). Adding a Z
+        suffix caused NullPointerException: temporal in some Jackson paths.
 
         We use the latest lastModifiedDate across all .meta files (or now()
         if no .meta files exist).
@@ -441,14 +442,14 @@ class LocalFeedServer:
             except Exception:
                 continue
         if not latest:
-            # ISO-8601 with milliseconds and Z suffix (Jackson-compatible)
-            latest = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-        elif not latest.endswith("Z") and "+00:00" not in latest:
-            # Normalize: if meta had a date without Z, append Z (assume UTC)
-            # and ensure milliseconds
+            # NVD format: YYYY-MM-DDTHH:MM:SS.SSS (no Z suffix)
+            latest = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000")
+        else:
+            # Normalize: strip Z if present, ensure milliseconds
+            if latest.endswith("Z"):
+                latest = latest[:-1]
             if "." not in latest:
                 latest = latest + ".000"
-            latest = latest + "Z"
         cache_props.write_text(f"lastModifiedDate={latest}\n", encoding="utf-8")
         print(f"  Synthesized cache.properties (lastModifiedDate={latest})")
 
@@ -467,21 +468,21 @@ class LocalFeedServer:
         (without the "2.0-" infix), which matches what dependency-check
         requests. So the .meta files should also use the same naming.
 
-        Format (NVD META):
-            lastModifiedDate=YYYY-MM-DDTHH:MM:SS.SSSZ
+        Format (NVD META) — note: NO Z suffix, milliseconds ARE required:
+            lastModifiedDate=YYYY-MM-DDTHH:MM:SS.SSS
             size=NNNN
             gzSize=NNNN
             sha256=HEXHEX...
 
-        We synthesize a minimal META with lastModifiedDate (the field
-        dependency-check parses for the temporal value) plus size and
-        sha256 for completeness.
+        dependency-check parses this with a Jackson ISO-8601 parser that
+        accepts the no-timezone format (treating it as UTC). Adding a Z
+        suffix causes a different parse path that can fail.
         """
         import datetime as _dt
         import hashlib
 
-        # Use a fixed recent timestamp for all synthesized .meta files
-        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        # NVD META format: YYYY-MM-DDTHH:MM:SS.SSS (no Z suffix)
+        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000")
         count = 0
 
         # Map: nvdcve-YYYY.json.gz → nvdcve-YYYY.meta
