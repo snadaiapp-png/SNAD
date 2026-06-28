@@ -278,14 +278,19 @@ jobs:
               latest,
               pathlib.Path(os.environ['RUNNER_TEMP']) / 'nvd-snapshot',
           )
-          print(f"archive_path={bundle['archive_path']}")
-          print(f"manifest_path={bundle['manifest_path']}")
-          print(f"checksums_path={bundle['checksums_path']}")
+          # Use absolute paths for GITHUB_OUTPUT (workflow later references
+          # these from a different working directory).
+          archive_path = str(pathlib.Path(bundle['archive_path']).resolve())
+          manifest_path = str(pathlib.Path(bundle['manifest_path']).resolve())
+          checksums_path = str(pathlib.Path(bundle['checksums_path']).resolve())
+          print(f"archive_path={archive_path}")
+          print(f"manifest_path={manifest_path}")
+          print(f"checksums_path={checksums_path}")
           print(f"snapshot_id={bundle['snapshot_id']}")
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"archive_path={bundle['archive_path']}\n")
-              f.write(f"manifest_path={bundle['manifest_path']}\n")
-              f.write(f"checksums_path={bundle['checksums_path']}\n")
+              f.write(f"archive_path={archive_path}\n")
+              f.write(f"manifest_path={manifest_path}\n")
+              f.write(f"checksums_path={checksums_path}\n")
               f.write(f"snapshot_id={bundle['snapshot_id']}\n")
           PY
 
