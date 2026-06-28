@@ -351,10 +351,11 @@ jobs:
           # Capture verification outputs
           for key in validation_result database_sha256 database_size_bytes age_hours snapshot_id; do
             val=$(grep "^${key}=" "${{ runner.temp }}/verify-output.txt" | head -1 | cut -d= -f2-)
-            [ -n "$val" ] && echo "${key}=${val}" >> "$GITHUB_OUTPUT"
+            [ -n "$val" ] && echo "${key}=${val}" >> "$GITHUB_OUTPUT" || true
           done
           echo "db_status=valid" >> "$GITHUB_OUTPUT"
           echo "classification=DB_VALID" >> "$GITHUB_OUTPUT"
+          echo "=== Step 14 completed successfully ==="
 
       - name: Run OWASP dependency-check (offline, multi-format)
         id: owasp_scan
