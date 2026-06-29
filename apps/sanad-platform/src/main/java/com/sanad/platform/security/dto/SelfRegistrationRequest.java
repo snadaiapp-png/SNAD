@@ -22,13 +22,17 @@ public class SelfRegistrationRequest {
     @Size(max = 200, message = "organizationName must be at most 200 characters")
     private String organizationName;
 
-    @NotBlank(message = "subdomain must not be blank")
-    @Size(min = 3, max = 63, message = "subdomain must be between 3 and 63 characters")
-    @Pattern(
-            regexp = "^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$",
-            message = "subdomain must contain lowercase letters, numbers, and internal hyphens only"
-    )
-    private String subdomain;
+    @NotBlank(message = "regionCode must not be blank")
+    @Pattern(regexp = "^[A-Z]{2}$", message = "regionCode must be an ISO 3166-1 alpha-2 code")
+    private String regionCode;
+
+    @NotBlank(message = "countryCode must not be blank")
+    @Pattern(regexp = "^\\+[1-9][0-9]{0,3}$", message = "countryCode must be a valid international calling code")
+    private String countryCode;
+
+    @NotBlank(message = "mobileNumber must not be blank")
+    @Pattern(regexp = "^[0-9]{7,15}$", message = "mobileNumber must contain 7 to 15 digits")
+    private String mobileNumber;
 
     @AssertTrue(message = "terms must be accepted")
     private boolean acceptTerms;
@@ -48,9 +52,19 @@ public class SelfRegistrationRequest {
         this.organizationName = organizationName == null ? null : organizationName.trim();
     }
 
-    public String getSubdomain() { return subdomain; }
-    public void setSubdomain(String subdomain) {
-        this.subdomain = subdomain == null ? null : subdomain.trim().toLowerCase();
+    public String getRegionCode() { return regionCode; }
+    public void setRegionCode(String regionCode) {
+        this.regionCode = regionCode == null ? null : regionCode.trim().toUpperCase();
+    }
+
+    public String getCountryCode() { return countryCode; }
+    public void setCountryCode(String countryCode) {
+        this.countryCode = countryCode == null ? null : countryCode.trim();
+    }
+
+    public String getMobileNumber() { return mobileNumber; }
+    public void setMobileNumber(String mobileNumber) {
+        this.mobileNumber = mobileNumber == null ? null : mobileNumber.trim();
     }
 
     public boolean isAcceptTerms() { return acceptTerms; }
