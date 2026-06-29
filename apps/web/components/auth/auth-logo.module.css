@@ -39,6 +39,8 @@
   background-size:
     clamp(74px, 7.2vw, 118px) auto,
     clamp(88px, 8.4vw, 138px) clamp(88px, 8.4vw, 138px);
+  opacity: 1;
+  filter: none;
   mix-blend-mode: normal;
 }
 
