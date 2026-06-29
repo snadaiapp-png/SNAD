@@ -54,7 +54,7 @@ export function BrandHeader({ title, description }: { title: string; description
         <Image src="/brand/snad-logo-original.png" alt="شعار منصة سند" width={1448} height={1086} sizes="(max-width: 760px) 168px, 190px" priority className={logoStyles.image}/>
       </div>
       <p className="snad-auth-subtitle">منظومة الأعمال الرقمية</p>
-      <h1 className="snad-auth-title">{title}</h1>
+      {title && <h1 className="snad-auth-title">{title}</h1>}
       <p className="snad-auth-description">{description}</p>
     </header>
   );
