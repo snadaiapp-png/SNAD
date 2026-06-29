@@ -7,9 +7,9 @@
 # This file is retained for historical reference only. Direct
 # ephemeral NVD builds on GitHub-hosted runners are PROHIBITED.
 #
-# This workflow has been disabled by removing all triggers AND
-# all jobs. Do NOT re-add workflow_dispatch, schedule triggers,
-# or jobs — use the NVD Snapshot Publisher instead.
+# This workflow has been disabled by removing all triggers. Do NOT
+# re-add workflow_dispatch or schedule triggers — use the NVD
+# Snapshot Publisher instead.
 #
 # To build NVD data:
 #   1. Provision a self-hosted runner with labels:
@@ -27,9 +27,14 @@ on: {}
 permissions:
   contents: read
 
-# No jobs defined. This workflow is fully deprecated and retained
-# only for historical reference. Defining no jobs (instead of a
-# job that exits 1) prevents GitHub Actions from registering a
-# false "failure" check_suite on every push event that touches
-# this file.
-jobs: {}
+jobs:
+  deprecated:
+    name: Deprecated — use NVD Snapshot Publisher
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deprecation notice
+        run: |
+          echo "This workflow has been superseded by NVD Snapshot Publisher."
+          echo "Direct ephemeral NVD builds on GitHub-hosted runners are prohibited."
+          echo "See: .github/workflows/nvd-snapshot-publisher.yml"
+          exit 1
