@@ -10,6 +10,24 @@
 [extend]
   useDefault = true
 
-# No global path exclusions.
+# ---------------------------------------------------------------------------
+# Path exclusions (narrow, justified, build-artifact only)
+# ---------------------------------------------------------------------------
+# These paths are gitignored build outputs. They contain auto-generated
+# development-only credentials (Spring Boot security password, Next.js
+# build-time encryption keys) that are regenerated on every build and
+# are NOT real credentials. Excluding them prevents false positives in
+# local scans and in any CI step that builds before scanning.
+#
+# These exclusions do NOT cover source files, test files, or documentation.
+# Real secrets in source files are still detected by the default rules.
+
+[allowlist]
+description = "Gitignored build artifacts only (Maven target/ and Next.js .next/) — contain dev-only generated credentials that are regenerated every build and are not real secrets"
+paths = [
+  '''^apps/sanad-platform/target/''',
+  '''^apps/web/\.next/''',
+]
+
 # No global regex exclusions.
-# Default detection rules are fully active.
+# Default detection rules are fully active for all source files.
