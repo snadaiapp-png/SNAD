@@ -4,7 +4,9 @@ export interface SelfRegistrationRequest {
   displayName: string;
   email: string;
   organizationName: string;
-  subdomain: string;
+  regionCode: string;
+  countryCode: string;
+  mobileNumber: string;
   acceptTerms: boolean;
 }
 
