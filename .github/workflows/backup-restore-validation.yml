@@ -43,11 +43,68 @@ jobs:
         uses: actions/checkout@v4
       - name: Resolve expected Flyway version
         run: |
-          expected_version=$(find apps/sanad-platform/src/main/resources/db/migration \
-            -maxdepth 1 -type f -name 'V*__*.sql' -printf '%f\n' \
-            | sed -E 's/^V([^_]+)__.*/\1/' | sort -V | tail -1)
+          expected_version=$(
+            find apps/sanad-platform/src/main/resources/db/migration \
+              -maxdepth 1 \
+              -type f \
+              -name 'V*__*.sql' \
+              -printf '%f\n' \
+            | awk -F'__' '
+                NF >= 2 {
+                  version = $1
+                  sub(/^V/, "", version)
+                  print version
+                }
+              ' \
+            | sort -V \
+            | tail -n 1
+          )
+
           test -n "$expected_version"
-          echo "EXPECTED_FLYWAY_VERSION=$expected_version" >> "$GITHUB_ENV"
+
+          if [[ "$expected_version" == V* || "$expected_version" == *.sql ]]; then
+            echo "::error::Invalid Flyway version resolution: filename was not normalized"
+            exit 1
+          fi
+
+          if ! [[ "$expected_version" =~ ^[0-9]+([._][0-9]+)*$ ]]; then
+            echo "::error::Unexpected Flyway version format"
+            exit 1
+          fi
+
+          # Flyway normalizes '_' to '.' in its internal version representation
+          # (e.g. V20260629_2 is stored as 20260629.2 in flyway_schema_history.version).
+          # Normalize the expected version the same way so the comparison below succeeds.
+          normalized_expected="${expected_version//_/.}"
+          echo "EXPECTED_FLYWAY_VERSION=$normalized_expected" >> "$GITHUB_ENV"
+          echo "Resolved expected Flyway version (raw): $expected_version"
+          echo "Resolved expected Flyway version (normalized): $normalized_expected"
+      - name: Verify Flyway version resolver regression cases
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          resolved=$(
+            printf '%s\n' \
+              'V1__initial.sql' \
+              'V15__previous.sql' \
+              'V20260629_2__add_user_mobile_contact.sql' \
+            | awk -F'__' '
+                NF >= 2 {
+                  version = $1
+                  sub(/^V/, "", version)
+                  print version
+                }
+              ' \
+            | sort -V \
+            | tail -n 1
+          )
+
+          test "$resolved" = "20260629_2"
+
+          # Verify Flyway-style normalization (underscore -> dot).
+          normalized="${resolved//_/.}"
+          test "$normalized" = "20260629.2"
       - name: Build backend image
         working-directory: apps/sanad-platform
         run: docker build -t sanad-backend:recovery-ci .
