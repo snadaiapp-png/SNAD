@@ -147,3 +147,6 @@ vite.config.ts.timestamp-*
 apps/sanad-platform/target/
 apps/web/.next/
 .env*
+*.pyc
+__pycache__/
+scripts/security/__pycache__/
