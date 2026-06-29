@@ -34,9 +34,6 @@ public class SelfRegistrationRequest {
     @Pattern(regexp = "^[0-9]{7,15}$", message = "mobileNumber must contain 7 to 15 digits")
     private String mobileNumber;
 
-    /** Temporary internal compatibility field; public clients do not provide it. */
-    private String subdomain;
-
     @AssertTrue(message = "terms must be accepted")
     private boolean acceptTerms;
 
@@ -68,11 +65,6 @@ public class SelfRegistrationRequest {
     public String getMobileNumber() { return mobileNumber; }
     public void setMobileNumber(String mobileNumber) {
         this.mobileNumber = mobileNumber == null ? null : mobileNumber.trim();
-    }
-
-    public String getSubdomain() { return subdomain; }
-    public void setSubdomain(String subdomain) {
-        this.subdomain = subdomain == null ? null : subdomain.trim().toLowerCase();
     }
 
     public boolean isAcceptTerms() { return acceptTerms; }
