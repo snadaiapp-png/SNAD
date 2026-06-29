@@ -146,7 +146,7 @@ vite.config.ts.timestamp-*
 # Build artifacts (security: contain test tokens)
 apps/sanad-platform/target/
 apps/web/.next/
-.env*
-*.pyc
+
+# Python build artifacts
+*.py[cod]
 __pycache__/
-scripts/security/__pycache__/
