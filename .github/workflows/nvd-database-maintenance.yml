@@ -37,4 +37,8 @@ jobs:
           echo "This workflow has been superseded by NVD Snapshot Publisher."
           echo "Direct ephemeral NVD builds on GitHub-hosted runners are prohibited."
           echo "See: .github/workflows/nvd-snapshot-publisher.yml"
-          exit 1
+          # Exit 0 (not 1) so this deprecated workflow does not register a
+          # failed check_suite on every push event. The workflow has no
+          # triggers (on: {}) so it never actually runs; this notice only
+          # executes if manually dispatched for diagnostic purposes.
+          exit 0
