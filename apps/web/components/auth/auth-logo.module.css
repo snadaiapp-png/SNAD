@@ -30,11 +30,30 @@
     drop-shadow(0 0 10px rgb(0 210 205 / 14%));
 }
 
+:global(.snad-auth-data-flow) {
+  background-image:
+    url('/brand/snad-logo-original.png'),
+    radial-gradient(circle at center, rgb(22 43 49 / 96%) 0 56%, rgb(2 13 18 / 98%) 78%, transparent 79%);
+  background-position: 50% 48%, 50% 48%;
+  background-repeat: no-repeat;
+  background-size:
+    clamp(74px, 7.2vw, 118px) auto,
+    clamp(88px, 8.4vw, 138px) clamp(88px, 8.4vw, 138px);
+  mix-blend-mode: normal;
+}
+
 @media (max-width: 760px) {
   .frame {
     width: 168px;
     height: 70px;
     margin-bottom: 0.2rem;
     transform: translateY(-6px);
+  }
+
+  :global(.snad-auth-data-flow) {
+    background-position: 67% 48%, 67% 48%;
+    background-size:
+      clamp(58px, 18vw, 82px) auto,
+      clamp(70px, 21vw, 96px) clamp(70px, 21vw, 96px);
   }
 }
