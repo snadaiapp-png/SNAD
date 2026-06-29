@@ -1,23 +1,6 @@
 .snad-auth-scene {
-  --auth-teal: #006b68;
-  --auth-teal-bright: #00a7a0;
-  --auth-teal-soft: #32d6cf;
-  --auth-gold: #d4af37;
-  --auth-gold-soft: #f4d36f;
-  --auth-ink: #020b10;
-  --auth-panel: rgb(3 24 30 / 91%);
-  position: relative;
-  min-height: 100svh;
-  overflow: hidden;
-  display: grid;
-  place-items: center;
-  isolation: isolate;
-  padding: clamp(1rem, 3vw, 2.5rem);
-  color: #effafa;
-  background:
-    radial-gradient(circle at 82% 72%, rgb(0 167 160 / 13%), transparent 25%),
-    radial-gradient(circle at 15% 28%, rgb(212 175 55 / 8%), transparent 22%),
-    linear-gradient(135deg, #02090d 0%, #031820 52%, #02090d 100%);
+  background-color: #02090d;
+  background-image: none;
 }
 
 .snad-auth-scene::before,
@@ -451,7 +434,10 @@
 }
 
 @media (max-width: 760px) {
-  .snad-auth-scene { align-items: start; padding-top: 1rem; }
+  .snad-auth-scene {
+  background-color: #02090d;
+  background-image: none;
+}
   .snad-auth-card { width: 100%; padding: 1.3rem; border-radius: 22px; }
   .snad-auth-orbit { right: -72px; bottom: -72px; opacity: 0.2; scale: 0.72; }
   .snad-auth-data-flow { opacity: 0.45; }

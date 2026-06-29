@@ -1,24 +1,6 @@
-﻿.snad-auth-scene {
-  width: 100vw;
-  height: 100svh;
-  min-height: 100svh;
-  overflow: hidden;
-  padding: 0;
+.snad-auth-scene {
   background-color: #02090d;
-  background-image:
-    radial-gradient(circle at 44.6% 6.8%, rgb(255 255 255 / 96%) 0 1px, rgb(135 210 255 / 72%) 2px, transparent 4px),
-    radial-gradient(circle at 48.1% 10.1%, rgb(255 255 255 / 94%) 0 1px, rgb(135 210 255 / 66%) 2px, transparent 4px),
-    radial-gradient(circle at 50.9% 14.5%, rgb(255 255 255 / 92%) 0 1px, rgb(135 210 255 / 62%) 2px, transparent 4px),
-    radial-gradient(circle at 47.1% 17.1%, rgb(255 255 255 / 92%) 0 1px, rgb(135 210 255 / 62%) 2px, transparent 4px),
-    radial-gradient(circle at 42.7% 13.8%, rgb(255 255 255 / 92%) 0 1px, rgb(135 210 255 / 62%) 2px, transparent 4px),
-    radial-gradient(circle at 39.8% 15.4%, rgb(255 255 255 / 90%) 0 1px, rgb(135 210 255 / 58%) 2px, transparent 4px),
-    radial-gradient(circle at 37.1% 18.2%, rgb(255 255 255 / 88%) 0 1px, rgb(135 210 255 / 56%) 2px, transparent 4px),
-    radial-gradient(ellipse 18% 13% at 44.5% 12%, rgb(2 9 13 / 98%) 0 72%, transparent 100%),
-    radial-gradient(circle at 74% 50%, transparent 38%, rgb(1 8 12 / 16%) 100%),
-    url('/brand/snad-solar-system-clean.png');
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: cover, cover, cover, cover, cover, cover, cover, cover, cover, contain;
+  background-image: none;
 }
 
 html,
@@ -198,8 +180,9 @@ body {
 
 @media (max-width: 1100px) {
   .snad-auth-scene {
-    background-size: cover, cover, cover, cover, cover, cover, cover, cover, cover, auto 92%;
-  }
+  background-color: #02090d;
+  background-image: none;
+}
 
   .snad-auth-card {
     left: 0.85rem;
@@ -209,12 +192,9 @@ body {
 
 @media (max-width: 760px) {
   .snad-auth-scene {
-    background-image:
-      linear-gradient(rgb(2 9 13 / 62%), rgb(2 9 13 / 62%)),
-      url('/brand/snad-solar-system-clean.png');
-    background-position: center, 67% center;
-    background-size: cover, auto 88%;
-  }
+  background-color: #02090d;
+  background-image: none;
+}
 
   .snad-auth-card {
     position: relative;
