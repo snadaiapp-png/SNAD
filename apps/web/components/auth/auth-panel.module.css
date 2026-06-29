@@ -32,7 +32,7 @@
 }
 
 .registrationPanel {
-  width: min(94vw, 430px) !important;
+  width: min(94vw, 450px) !important;
 }
 
 .panel :global(.snad-auth-brand) {
@@ -96,6 +96,41 @@
   font-weight: 500;
 }
 
+.mobileGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 0.55rem;
+  align-items: end;
+}
+
+.regionSelect {
+  appearance: none;
+  cursor: pointer;
+  padding-inline-end: 2.75rem !important;
+  padding-inline-start: 1.8rem !important;
+}
+
+.regionSelect option {
+  color: #102225;
+  background: #f8fbfb;
+}
+
+.mobileInput {
+  padding-inline-start: 4.25rem !important;
+}
+
+.dialCode {
+  position: absolute;
+  top: 50%;
+  left: 0.75rem;
+  translate: 0 -50%;
+  color: rgb(191 229 226 / 78%);
+  font-family: var(--snad-font-numeric);
+  font-size: 0.72rem;
+  font-weight: 800;
+  pointer-events: none;
+}
+
 .secureRow {
   display: flex;
   align-items: center;
@@ -156,10 +191,16 @@
 @media (max-width: 760px) {
   .panel,
   .registrationPanel {
-    width: min(92vw, 390px) !important;
+    width: min(92vw, 410px) !important;
     max-width: calc(100vw - 0.75rem) !important;
     max-height: calc(100svh - 0.75rem) !important;
     padding: 1rem !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .mobileGrid {
+    grid-template-columns: 1fr;
   }
 }
 
