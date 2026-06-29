@@ -469,3 +469,44 @@
     animation: none !important;
   }
 }
+
+/* ============================================================
+   Hero Background Image — AI Cosmic Login Scene
+   ============================================================ */
+.snad-auth-scene-hero {
+  background: #02090d;
+}
+
+.snad-auth-hero-bg {
+  position: absolute !important;
+  inset: 0;
+  z-index: -5;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  opacity: 0.55;
+  filter: saturate(0.85) brightness(0.7);
+}
+
+.snad-auth-hero-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 50%, transparent 0%, rgb(2 9 13 / 40%) 70%, rgb(2 9 13 / 75%) 100%),
+    linear-gradient(135deg, rgb(2 9 13 / 30%) 0%, transparent 50%, rgb(2 9 13 / 30%) 100%);
+}
+
+/* On smaller screens, darken more for readability */
+@media (max-width: 768px) {
+  .snad-auth-hero-bg {
+    opacity: 0.35;
+    filter: saturate(0.7) brightness(0.5);
+  }
+  .snad-auth-hero-overlay {
+    background:
+      radial-gradient(ellipse at 50% 50%, transparent 0%, rgb(2 9 13 / 55%) 60%, rgb(2 9 13 / 85%) 100%);
+  }
+}

@@ -62,7 +62,16 @@ export function BrandHeader({ title, description }: { title: string; description
 
 export function AuthShell({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return (
-    <main className="snad-auth-scene" dir="rtl">
+    <main className="snad-auth-scene snad-auth-scene-hero" dir="rtl">
+      <div className="snad-auth-hero-overlay" aria-hidden="true"/>
+      <Image
+        src="/brand/snad-login-hero-ai.png"
+        alt=""
+        fill
+        priority
+        sizes="100vw"
+        className="snad-auth-hero-bg"
+      />
       <DataFlow/>
       <section className={`snad-auth-card ${panelStyles.panel} ${wide ? panelStyles.registrationPanel : ""}`}>{children}</section>
     </main>
