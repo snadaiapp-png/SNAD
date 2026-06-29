@@ -28,43 +28,44 @@ Classifies repository-wide Gitleaks findings produced by local scans using Gitle
 | Current tree | default | 62 |
 | Current tree | repo `.gitleaks.toml` (before this triage) | 62 |
 | Current tree | repo `.gitleaks.toml` (after this triage) | **0** |
-| Git history | default | 7 |
-| Git history | repo `.gitleaks.toml` | 7 |
+| Git history | default | 8 |
+| Git history | repo `.gitleaks.toml` | 8 |
 
 The 62 current-tree findings were all in gitignored build artifacts (`apps/sanad-platform/target/` and `apps/web/.next/`). After adding a narrow path allowlist for those two build-output directories, the current-tree scan reports 0 findings.
 
-The 7 history findings are in 4 distinct source files across 7 commits. They are classified below.
+The history scan produced 8 raw detections across 5 repository paths. Repeated detections across multiple commits were consolidated into 6 unique findings, classified below.
 
 ## Classification Table
 
 | Finding ID | File | Line(s) | Rule | Scope | Classification | Action | Evidence |
 | ---------- | ---- | ------: | ---- | ----- | -------------- | ------ | -------- |
-| HF-01 | `.github/workflows/set-admin-password.yml` | 51 | generic-api-key | History (commit `f766e429`, deleted in `6dfd05e`) | REVOKED_HISTORICAL_SECRET | BLOCKED — OWNER ACCESS REQUIRED: verify the production admin password set by this deleted one-time workflow has been rotated and the historical value is rejected by the live authentication system. | File deleted from current tree; value not present in any git-tracked file; workflow was a one-time password-set operation that was deleted after use. |
+| HF-01 | `.github/workflows/set-admin-password.yml` | 51 | generic-api-key | GIT HISTORY ONLY — file deleted from current tree | CONFIRMED_SECRET | BLOCKED — OWNER ACCESS REQUIRED: rotation status is NOT VERIFIED and old-value rejection is NOT VERIFIED. The owner must rotate the corresponding administrative credential if necessary and verify that the historical value is rejected. | The credential is absent from the current tracked tree, but no evidence currently proves rotation or rejection. Verification status: NEEDS_OWNER_VERIFICATION. |
 | HF-02 | `apps/web/lib/api/auth-flow.test.ts` | 72 | generic-api-key | History (commits `28264cb9`, `d100caac`) and current tree | TEST_FIXTURE | No action required. | Value is the literal string `test-access-token-not-a-jwt`, explicitly labeled as a non-secret test token in a comment. Not a real credential format, not used to authenticate, only used to verify `Bearer` header formatting. |
 | HF-03 | `docs/runbooks/backend-auth-rollback.md` | 9 | generic-api-key | History (commit `a4bedb10`) and current tree | FALSE_POSITIVE | No action required. | Gitleaks matched a backtick-quoted prose identifier in a markdown runbook. The matched text is a short reference tag, not a credential. Manual review confirmed no secret value. |
 | HF-04 | `docs/runbooks/backend-auth-rollback.md` | 10 | generic-api-key | History (commit `a4bedb10`) and current tree | FALSE_POSITIVE | No action required. | Same as HF-03 — backtick-quoted prose identifier in markdown runbook. Manual review confirmed no secret value. |
 | HF-05 | `docs/execution/EXEC-PROMPT-029-frontend-backend-integration-foundation.md` | 54 | generic-api-key | History (commits `8b45421c`, `15043d07`) and current tree | FALSE_POSITIVE | No action required. | Gitleaks matched the prose phrase `session-token lifecycle:` in a markdown execution log. The matched text is descriptive prose, not a credential. Manual review confirmed no secret value. |
+| HF-06 | `apps/web/app/api/email-proxy/route.ts` | 18 | generic-api-key | History (commit `a6b11112`) — removed from current tree by PR #172 | DOCUMENTATION_PLACEHOLDER | No action required. | The matched value was a short placeholder string used as a fallback default in `process.env.RESEND_API_KEY \|\| '<placeholder>'`. The value is 8 characters, does not match the Resend API key format (`re_` prefix), and was removed from the current tree by PR #172's security hardening. Not a real credential. |
 
 ## Summary by Classification
 
 | Classification | Count | Notes |
 |----------------|------:|-------|
-| CONFIRMED_SECRET | 0 | No active confirmed secrets found in current source. |
-| REVOKED_HISTORICAL_SECRET | 1 | HF-01 — one-time admin password in deleted workflow. Owner must verify rejection. |
+| CONFIRMED_SECRET | 1 | HF-01 — confirmed credential in Git history only; absent from current tracked source. |
+| REVOKED_HISTORICAL_SECRET | 0 | No revocation claim is accepted until rotation and rejection evidence exists. |
 | TEST_FIXTURE | 1 | HF-02 — explicitly labeled non-secret test token. |
-| DOCUMENTATION_PLACEHOLDER | 0 | — |
+| DOCUMENTATION_PLACEHOLDER | 1 | HF-06 — short placeholder string in deleted fallback default. |
 | PUBLIC_IDENTIFIER | 0 | — |
 | FALSE_POSITIVE | 3 | HF-03, HF-04, HF-05 — prose text in markdown files matched by `generic-api-key` rule. |
-| NEEDS_OWNER_VERIFICATION | 1 | HF-01 (also classified as REVOKED_HISTORICAL_SECRET) — owner must verify the historical admin password has been rotated and rejected. |
+| NEEDS_OWNER_VERIFICATION | 1 | Verification status attached to HF-01; this is not an additional finding. |
 
-## Build-Artifact Findings (62 current-tree, all FALSE_POSITIVE)
+## Build-Artifact Detections (62 untracked generated-file detections)
 
-All 62 current-tree findings were in gitignored build outputs:
+All 62 detections were located in untracked, gitignored generated build outputs. They are outside the tracked-source scanning scope, but values inside generated artifacts may still be sensitive in a live local or build environment and must not be committed, published, or logged:
 
-- **`apps/sanad-platform/target/surefire-reports/*.xml`** (54 findings) — Spring Boot auto-generated development security password (`Using generated security password: <uuid>`). Regenerated on every application startup. Dev-only, not a real credential. Files are gitignored and not present in CI fresh checkouts.
-- **`apps/web/.next/**/*.json`** (8 findings) — Next.js build-time generated encryption keys (`NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`, `__NEXT_PREVIEW_MODE_ENCRYPTION_KEY`, etc.). Regenerated on every `next build`. Build artifacts, not real credentials. Files are gitignored and not present in CI fresh checkouts.
+- **`apps/sanad-platform/target/surefire-reports/*.xml`** (54 findings) — Spring Boot auto-generated development security password (`Using generated security password: <uuid>`). Regenerated on every application startup. Transient generated value in an untracked build artifact. The files are gitignored and absent from fresh CI checkouts.
+- **`apps/web/.next/**/*.json`** (8 findings) — Next.js build-time generated encryption keys (`NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`, `__NEXT_PREVIEW_MODE_ENCRYPTION_KEY`, etc.). Regenerated on every `next build`. Transient generated values in untracked build artifacts. The files are gitignored and absent from fresh CI checkouts.
 
-These findings are all classified as FALSE_POSITIVE. The `.gitleaks.toml` allowlist (added in this triage) excludes these two paths so future local scans and any CI step that builds before scanning will not produce these false positives.
+For tracked-source policy, these detections are classified as OUT-OF-SCOPE GENERATED BUILD ARTIFACTS. The `.gitleaks.toml` allowlist excludes only these two gitignored output directories. This exclusion does not mean their generated values are safe to publish or commit.
 
 ## `.gitleaks.toml` Changes
 
@@ -81,7 +82,7 @@ paths = [
 
 Justification:
 - Both paths are already in `.gitignore` and are not tracked by git.
-- The credentials in these paths are auto-generated development-only values that are regenerated on every build.
+- The values in these paths are generated transient values inside gitignored output directories and are excluded from tracked-source scanning.
 - No source files, test files, or documentation are covered by this allowlist.
 - No regex-based or rule-based allowlists were added.
 - The default detection rules remain fully active for all source files.
@@ -114,7 +115,7 @@ The only finding that requires owner action is HF-01:
 | Scan | Findings | Status |
 |------|---------:|--------|
 | Current tree (repo config, after triage) | 0 | PASS |
-| Git history (repo config) | 7 | All classified (1 REVOKED_HISTORICAL_SECRET, 1 TEST_FIXTURE, 3 FALSE_POSITIVE — noting HF-01 is counted once in the table above) |
+| Git history (repo config) | 8 raw detections | Consolidated into 6 unique findings: 1 CONFIRMED_SECRET, 1 TEST_FIXTURE, 1 DOCUMENTATION_PLACEHOLDER, and 3 FALSE_POSITIVE findings. HF-01 requires owner verification. |
 
 ## Issue #173 Impact
 
@@ -122,6 +123,6 @@ The only finding that requires owner action is HF-01:
   - Current-tree scan: 0 findings. PASS.
   - All findings classified.
   - No confirmed active secret remains in current source.
-  - One revoked historical secret (HF-01) requires owner verification of rejection.
-- The criterion can be marked COMPLETE only after the owner verifies the historical admin password has been rotated and rejected.
+  - One confirmed historical secret (HF-01) has rotation status NOT VERIFIED and old-value rejection NOT VERIFIED.
+- The criterion can be marked COMPLETE only after the owner records safe evidence that the corresponding credential was rotated and that the historical value is rejected. No secret values may be recorded.
 - Issue #173 remains OPEN. Confirmed exit criteria: 0/17.

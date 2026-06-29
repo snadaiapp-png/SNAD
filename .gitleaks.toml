@@ -14,16 +14,15 @@
 # Path exclusions (narrow, justified, build-artifact only)
 # ---------------------------------------------------------------------------
 # These paths are gitignored build outputs. They contain auto-generated
-# development-only credentials (Spring Boot security password, Next.js
-# build-time encryption keys) that are regenerated on every build and
-# are NOT real credentials. Excluding them prevents false positives in
-# local scans and in any CI step that builds before scanning.
+# generated transient values in gitignored build outputs. These directories
+# are excluded from tracked-source scanning, but their generated values
+# must never be committed, published, or included in logs.
 #
 # These exclusions do NOT cover source files, test files, or documentation.
 # Real secrets in source files are still detected by the default rules.
 
 [allowlist]
-description = "Gitignored build artifacts only (Maven target/ and Next.js .next/) — contain dev-only generated credentials that are regenerated every build and are not real secrets"
+description = "Gitignored generated build outputs excluded from tracked-source scanning; values in these directories must never be committed or published"
 paths = [
   '''^apps/sanad-platform/target/''',
   '''^apps/web/\.next/''',

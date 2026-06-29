@@ -159,7 +159,7 @@ No claim of complete historical secret absence is made unless all findings are c
 [ ] Render validation passed
 [ ] Password recovery email delivered
 [ ] Invalid bearer token rejected
-[~] No secrets found in source — PENDING TRIAGE (repository-wide findings triaged in SNAD-Repository-Secret-Findings-Triage.md; one revoked historical secret requires owner verification of rejection)
+[~] No secrets found in source — PENDING TRIAGE (repository-wide findings triaged in SNAD-Repository-Secret-Findings-Triage.md; one confirmed historical secret requires owner verification; rotation and old-value rejection are not yet verified)
 [ ] No secrets found in logs
 [ ] Incident evidence recorded safely
 ```
