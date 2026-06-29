@@ -2,7 +2,7 @@ package com.sanad.platform.security.api;
 
 import com.sanad.platform.security.dto.SelfRegistrationRequest;
 import com.sanad.platform.security.dto.SelfRegistrationResponse;
-import com.sanad.platform.security.service.SelfRegistrationService;
+import com.sanad.platform.security.service.MobileSelfRegistrationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -21,14 +21,14 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Authentication", description = "Secure account and session management.")
 public class SelfRegistrationController {
 
-    private final SelfRegistrationService registrationService;
+    private final MobileSelfRegistrationService registrationService;
 
-    public SelfRegistrationController(SelfRegistrationService registrationService) {
+    public SelfRegistrationController(MobileSelfRegistrationService registrationService) {
         this.registrationService = registrationService;
     }
 
     @PostMapping("/register")
-    @Operation(summary = "Create a workspace and send a single-use password setup link")
+    @Operation(summary = "Create an account with regional mobile contact and send a password setup link")
     public ResponseEntity<SelfRegistrationResponse> register(
             @Valid @RequestBody SelfRegistrationRequest request,
             HttpServletRequest httpRequest
