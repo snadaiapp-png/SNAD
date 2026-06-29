@@ -6,6 +6,8 @@ on:
     paths:
       - 'apps/sanad-platform/**'
       - '.github/workflows/compile-diagnostics.yml'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/backup-restore-validation.yml'
   workflow_dispatch:
 
 permissions:
