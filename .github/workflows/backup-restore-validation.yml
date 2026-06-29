@@ -72,7 +72,13 @@ jobs:
             exit 1
           fi
 
-          echo "EXPECTED_FLYWAY_VERSION=$expected_version" >> "$GITHUB_ENV"
+          # Flyway normalizes '_' to '.' in its internal version representation
+          # (e.g. V20260629_2 is stored as 20260629.2 in flyway_schema_history.version).
+          # Normalize the expected version the same way so the comparison below succeeds.
+          normalized_expected="${expected_version//_/.}"
+          echo "EXPECTED_FLYWAY_VERSION=$normalized_expected" >> "$GITHUB_ENV"
+          echo "Resolved expected Flyway version (raw): $expected_version"
+          echo "Resolved expected Flyway version (normalized): $normalized_expected"
       - name: Verify Flyway version resolver regression cases
         shell: bash
         run: |
@@ -95,6 +101,10 @@ jobs:
           )
 
           test "$resolved" = "20260629_2"
+
+          # Verify Flyway-style normalization (underscore -> dot).
+          normalized="${resolved//_/.}"
+          test "$normalized" = "20260629.2"
       - name: Build backend image
         working-directory: apps/sanad-platform
         run: docker build -t sanad-backend:recovery-ci .
