@@ -10,9 +10,9 @@
 
 name: NVD Feed Mirror Publisher (DEPRECATED)
 
-on:
-  workflow_dispatch:
-  # R12L: schedule removed — replaced by bulk feed publisher
+# R12L: all triggers removed. This workflow is fully deprecated.
+# The official publisher is nvd-bulk-feed-mirror-publisher.yml.
+on: {}
 
 permissions:
   contents: write
