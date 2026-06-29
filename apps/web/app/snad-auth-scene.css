@@ -1,3 +1,10 @@
+# ============================================================
+# SANAD Platform — Authentication Scene (CSS-only, no images)
+# ============================================================
+# Clean dark gradient background — no planets, no orbits,
+# no galaxy, no space scene, no hero image.
+# ============================================================
+
 .snad-auth-scene {
   --auth-teal: #006b68;
   --auth-teal-bright: #00a7a0;
@@ -15,22 +22,19 @@
   padding: clamp(1rem, 3vw, 2.5rem);
   color: #effafa;
   background:
-    radial-gradient(circle at 82% 72%, rgb(0 167 160 / 13%), transparent 25%),
-    radial-gradient(circle at 15% 28%, rgb(212 175 55 / 8%), transparent 22%),
+    radial-gradient(circle at 82% 72%, rgb(0 167 160 / 10%), transparent 30%),
+    radial-gradient(circle at 15% 28%, rgb(212 175 55 / 6%), transparent 25%),
     linear-gradient(135deg, #02090d 0%, #031820 52%, #02090d 100%);
 }
 
-.snad-auth-scene::before,
-.snad-auth-scene::after {
+/* Subtle grid pattern overlay (CSS-only, no image) */
+.snad-auth-scene::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -4;
   pointer-events: none;
-}
-
-.snad-auth-scene::before {
-  opacity: 0.25;
+  opacity: 0.12;
   background-image:
     linear-gradient(rgb(0 167 160 / 8%) 1px, transparent 1px),
     linear-gradient(90deg, rgb(0 167 160 / 8%) 1px, transparent 1px);
@@ -39,474 +43,159 @@
 }
 
 .snad-auth-scene::after {
-  opacity: 0.4;
-  background:
-    radial-gradient(circle at 18% 48%, rgb(0 167 160 / 10%) 0 1px, transparent 2px),
-    radial-gradient(circle at 76% 30%, rgb(212 175 55 / 12%) 0 1px, transparent 2px);
-  background-size: 18px 18px, 26px 26px;
-}
-
-.snad-auth-data-flow {
-  position: absolute;
-  inset: 0;
-  z-index: -2;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-.snad-auth-flow-track {
-  fill: none;
-  stroke: rgb(0 167 160 / 16%);
-  stroke-width: 2;
-}
-
-.snad-auth-flow-pulse {
-  fill: none;
-  stroke: url(#snad-auth-flow-gradient);
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-dasharray: 9 34;
-  filter: url(#snad-auth-soft-glow);
-  animation: snad-auth-data-transfer 5.7s linear infinite;
-}
-
-.snad-auth-flow-pulse:nth-of-type(2) {
-  opacity: 0.65;
-  animation-delay: -1.9s;
-  animation-duration: 7.1s;
-}
-
-.snad-auth-flow-pulse:nth-of-type(3) {
-  opacity: 0.8;
-  animation-delay: -3.1s;
-  animation-duration: 6.2s;
-}
-
-.snad-auth-particle {
-  fill: var(--auth-gold-soft);
-  filter: url(#snad-auth-soft-glow);
-  offset-path: path("M1530 720 C1340 720 1230 560 1100 510 C1010 475 950 470 850 455");
-  animation: snad-auth-particle-run 6s linear infinite;
-}
-
-.snad-auth-particle:nth-of-type(2) { animation-delay: -2s; }
-.snad-auth-particle:nth-of-type(3) { animation-delay: -4s; }
-
-.snad-auth-card {
-  position: relative;
-  z-index: 4;
-  width: min(94vw, 520px);
-  border: 1px solid rgb(212 175 55 / 42%);
-  border-radius: 28px;
-  padding: clamp(1.4rem, 3vw, 2.4rem);
-  background:
-    linear-gradient(145deg, rgb(5 31 38 / 96%), rgb(2 15 20 / 97%));
-  box-shadow:
-    0 34px 110px rgb(0 0 0 / 58%),
-    inset 0 1px rgb(255 255 255 / 7%),
-    0 0 34px rgb(212 175 55 / 8%);
-  backdrop-filter: blur(18px);
-}
-
-.snad-auth-card::before {
   content: "";
-  position: absolute;
-  inset: -1px;
-  z-index: -1;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(145deg, rgb(212 175 55 / 58%), rgb(0 167 160 / 20%), transparent 65%);
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-}
-
-.snad-auth-brand {
-  margin-bottom: 1.8rem;
-  text-align: center;
-}
-
-.snad-auth-logo {
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-  min-width: 160px;
-  min-height: 72px;
-  margin-bottom: 0.25rem;
-  color: transparent;
-  font-size: clamp(3.2rem, 7vw, 5.4rem);
-  font-weight: 950;
-  line-height: 0.9;
-  letter-spacing: -0.09em;
-  background: linear-gradient(180deg, #27d1ca 0%, #087b78 35%, #004c4a 74%, #022b2b 100%);
-  background-clip: text;
-  -webkit-background-clip: text;
-  filter: drop-shadow(0 8px 12px rgb(0 0 0 / 42%));
-}
-
-.snad-auth-logo::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 46%;
-  width: 18px;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  background: radial-gradient(circle at 30% 25%, #fff6b3 0 8%, #ffd44e 18%, #d89c00 62%, #7f4b00 100%);
-  box-shadow: 0 0 14px rgb(212 175 55 / 60%);
-}
-
-.snad-auth-subtitle {
-  margin: 0;
-  color: rgb(237 249 248 / 78%);
-  font-size: 0.95rem;
-}
-
-.snad-auth-title {
-  margin: 1.1rem 0 0;
-  color: #f7fbfb;
-  font-size: clamp(1.35rem, 3vw, 1.65rem);
-  font-weight: 800;
-}
-
-.snad-auth-title::after {
-  content: "";
-  display: block;
-  width: 42px;
-  height: 2px;
-  margin: 0.75rem auto 0;
-  border-radius: 99px;
-  background: linear-gradient(90deg, transparent, var(--auth-gold), transparent);
-}
-
-.snad-auth-description {
-  margin: 0.85rem 0 0;
-  color: rgb(219 236 235 / 62%);
-  font-size: 0.82rem;
-  line-height: 1.8;
-}
-
-.snad-auth-form {
-  display: grid;
-  gap: 1rem;
-}
-
-.snad-auth-label {
-  display: grid;
-  gap: 0.45rem;
-  color: rgb(239 250 249 / 86%);
-  font-size: 0.82rem;
-  font-weight: 800;
-}
-
-.snad-auth-input-wrap {
-  position: relative;
-}
-
-.snad-auth-input {
-  width: 100%;
-  min-height: 48px;
-  border: 1px solid rgb(107 184 181 / 22%);
-  border-radius: 12px;
-  padding: 0.7rem 2.75rem 0.7rem 0.95rem;
-  color: #f7fbfb;
-  background: rgb(2 18 23 / 62%);
-  box-shadow: inset 0 1px rgb(255 255 255 / 3%);
-  outline: none;
-  transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
-}
-
-.snad-auth-input::placeholder { color: rgb(211 231 230 / 34%); }
-.snad-auth-input:focus {
-  border-color: rgb(0 167 160 / 72%);
-  background: rgb(3 26 32 / 78%);
-  box-shadow: 0 0 0 3px rgb(0 167 160 / 12%), 0 0 24px rgb(0 167 160 / 8%);
-}
-
-.snad-auth-input-icon,
-.snad-auth-input-action {
-  position: absolute;
-  top: 50%;
-  translate: 0 -50%;
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  color: rgb(219 242 240 / 82%);
-}
-
-.snad-auth-input-icon { right: 0.5rem; }
-.snad-auth-input-action { left: 0.45rem; border: 0; background: transparent; }
-.snad-auth-input-action:hover { color: var(--auth-teal-soft); }
-
-.snad-auth-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  font-size: 0.8rem;
-}
-
-.snad-auth-remember {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: rgb(236 248 247 / 80%);
-}
-
-.snad-auth-remember input { accent-color: var(--auth-teal-bright); }
-
-.snad-auth-link {
-  border: 0;
-  padding: 0;
-  color: var(--auth-teal-soft);
-  background: transparent;
-  font-weight: 800;
-}
-.snad-auth-link:hover { text-decoration: underline; }
-
-.snad-auth-submit {
-  position: relative;
-  width: 100%;
-  min-height: 52px;
-  overflow: hidden;
-  border: 1px solid rgb(0 190 182 / 48%);
-  border-radius: 12px;
-  color: #fff;
-  background: linear-gradient(100deg, #007f7a 0%, #006460 48%, #003b39 100%);
-  box-shadow: 0 13px 30px rgb(0 0 0 / 30%), inset 0 1px rgb(255 255 255 / 10%);
-  font-weight: 900;
-  transition: translate 180ms ease, box-shadow 180ms ease, filter 180ms ease;
-}
-
-.snad-auth-submit::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  translate: -120% 0;
-  background: linear-gradient(100deg, transparent, rgb(255 255 255 / 16%), transparent);
-  animation: snad-auth-button-sheen 5.4s ease-in-out infinite;
-}
-
-.snad-auth-submit:hover:not(:disabled) {
-  translate: 0 -1px;
-  filter: brightness(1.08);
-  box-shadow: 0 18px 38px rgb(0 0 0 / 34%), 0 0 22px rgb(0 167 160 / 12%);
-}
-.snad-auth-submit:disabled { cursor: wait; opacity: 0.58; }
-
-.snad-auth-alert {
-  margin-bottom: 1rem;
-  border: 1px solid rgb(251 113 133 / 24%);
-  border-radius: 12px;
-  padding: 0.8rem;
-  color: #fecdd3;
-  background: rgb(127 29 29 / 22%);
-  font-size: 0.82rem;
-}
-.snad-auth-alert[data-kind="success"] {
-  border-color: rgb(52 211 153 / 24%);
-  color: #a7f3d0;
-  background: rgb(6 78 59 / 24%);
-}
-
-.snad-auth-note {
-  margin: 1rem 0 0;
-  text-align: center;
-  color: rgb(213 230 229 / 45%);
-  font-size: 0.7rem;
-  line-height: 1.7;
-}
-
-.snad-auth-modules-line {
-  margin: 1.4rem 0 0;
-  border-top: 1px solid rgb(255 255 255 / 8%);
-  padding-top: 1rem;
-  text-align: center;
-  color: rgb(227 241 240 / 72%);
-  font-family: var(--snad-font-latin);
-  font-size: 0.65rem;
-  letter-spacing: 0.02em;
-}
-.snad-auth-modules-line strong { color: var(--auth-gold-soft); }
-
-.snad-auth-orbit {
-  position: absolute;
-  right: clamp(0.65rem, 3vw, 3.5rem);
-  bottom: clamp(0.65rem, 3vh, 2.8rem);
-  z-index: 2;
-  width: clamp(205px, 22vw, 300px);
-  aspect-ratio: 1;
-  border: 1px solid rgb(212 175 55 / 14%);
-  border-radius: 50%;
-}
-
-.snad-auth-orbit::before,
-.snad-auth-orbit::after {
-  content: "";
-  position: absolute;
-  border-radius: 50%;
-  pointer-events: none;
-}
-.snad-auth-orbit::before {
-  inset: 11%;
-  border: 1px solid rgb(0 167 160 / 18%);
-  animation: snad-auth-orbit-breathe 4.8s ease-in-out infinite;
-}
-.snad-auth-orbit::after {
-  inset: 28%;
-  border: 1px dashed rgb(212 175 55 / 28%);
-  animation: snad-auth-orbit-spin 14s linear infinite;
-}
-
-.snad-auth-ai-core {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  z-index: 2;
-  translate: -50% -50%;
-  display: grid;
-  place-items: center;
-  width: 31%;
-  aspect-ratio: 1;
-  border: 1px solid rgb(212 175 55 / 82%);
-  border-radius: 50%;
-  color: #f5d670;
-  background: radial-gradient(circle at 34% 25%, #0b7b78 0%, #004946 40%, #011619 78%);
-  box-shadow: 0 0 30px rgb(0 167 160 / 20%), 0 0 18px rgb(212 175 55 / 16%);
-  font-family: var(--snad-font-latin);
-  font-size: clamp(1.35rem, 2.8vw, 2.5rem);
-  font-weight: 950;
-}
-
-.snad-auth-node {
-  position: absolute;
-  left: var(--node-x);
-  top: var(--node-y);
-  z-index: 3;
-  translate: -50% -50%;
-  display: grid;
-  place-items: center;
-  width: clamp(48px, 4.7vw, 62px);
-  aspect-ratio: 1;
-  border: 1px solid rgb(212 175 55 / 46%);
-  border-radius: 50%;
-  color: rgb(240 251 250 / 88%);
-  background: rgb(3 30 37 / 94%);
-  box-shadow: 0 9px 28px rgb(0 0 0 / 40%), 0 0 14px rgb(0 167 160 / 8%);
-}
-
-.snad-auth-node::after {
-  content: "";
-  position: absolute;
-  inset: -7px;
-  border: 1px solid rgb(0 167 160 / 12%);
-  border-radius: 50%;
-  animation: snad-auth-node-pulse 3.8s ease-in-out infinite;
-  animation-delay: var(--node-delay);
-}
-
-.snad-auth-node svg { width: 19px; height: 19px; }
-.snad-auth-node span {
-  margin-top: 1px;
-  font-family: var(--snad-font-latin);
-  font-size: 0.5rem;
-  font-weight: 850;
-}
-
-.snad-auth-orbit-lines {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-.snad-auth-orbit-lines line {
-  stroke: rgb(212 175 55 / 35%);
-  stroke-width: 0.6;
-  stroke-dasharray: 3 3;
-  animation: snad-auth-orbit-dash 4.5s linear infinite;
-}
-
-@keyframes snad-auth-data-transfer { to { stroke-dashoffset: -430; } }
-@keyframes snad-auth-particle-run { to { offset-distance: 100%; } }
-@keyframes snad-auth-button-sheen {
-  0%, 68% { translate: -120% 0; }
-  86%, 100% { translate: 120% 0; }
-}
-@keyframes snad-auth-orbit-breathe {
-  0%, 100% { opacity: 0.32; scale: 0.98; }
-  50% { opacity: 0.72; scale: 1.02; }
-}
-@keyframes snad-auth-orbit-spin { to { rotate: 360deg; } }
-@keyframes snad-auth-node-pulse {
-  0%, 100% { opacity: 0.12; scale: 0.92; }
-  50% { opacity: 0.62; scale: 1.08; }
-}
-@keyframes snad-auth-orbit-dash { to { stroke-dashoffset: -42; } }
-
-@media (max-width: 1100px) {
-  .snad-auth-orbit { opacity: 0.48; scale: 0.82; transform-origin: bottom right; }
-  .snad-auth-card { margin-inline: auto; }
-}
-
-@media (max-width: 760px) {
-  .snad-auth-scene { align-items: start; padding-top: 1rem; }
-  .snad-auth-card { width: 100%; padding: 1.3rem; border-radius: 22px; }
-  .snad-auth-orbit { right: -72px; bottom: -72px; opacity: 0.2; scale: 0.72; }
-  .snad-auth-data-flow { opacity: 0.45; }
-  .snad-auth-logo { min-height: 60px; font-size: 3.8rem; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .snad-auth-flow-pulse,
-  .snad-auth-particle,
-  .snad-auth-submit::before,
-  .snad-auth-orbit::before,
-  .snad-auth-orbit::after,
-  .snad-auth-node::after,
-  .snad-auth-orbit-lines line {
-    animation: none !important;
-  }
-}
-
-/* ============================================================
-   Hero Background Image — AI Cosmic Login Scene
-   ============================================================ */
-.snad-auth-scene-hero {
-  background: #02090d;
-}
-
-.snad-auth-hero-bg {
-  position: absolute !important;
-  inset: 0;
-  z-index: -5;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center;
-  opacity: 0.55;
-  filter: saturate(0.85) brightness(0.7);
-}
-
-.snad-auth-hero-overlay {
   position: absolute;
   inset: 0;
   z-index: -3;
   pointer-events: none;
+  opacity: 0.25;
   background:
-    radial-gradient(ellipse at 50% 50%, transparent 0%, rgb(2 9 13 / 40%) 70%, rgb(2 9 13 / 75%) 100%),
-    linear-gradient(135deg, rgb(2 9 13 / 30%) 0%, transparent 50%, rgb(2 9 13 / 30%) 100%);
+    radial-gradient(circle at 18% 48%, rgb(0 167 160 / 8%) 0 1px, transparent 2px),
+    radial-gradient(circle at 76% 30%, rgb(212 175 55 / 10%) 0 1px, transparent 2px);
+  background-size: 18px 18px, 26px 26px;
 }
 
-/* On smaller screens, darken more for readability */
-@media (max-width: 768px) {
-  .snad-auth-hero-bg {
-    opacity: 0.35;
-    filter: saturate(0.7) brightness(0.5);
-  }
-  .snad-auth-hero-overlay {
-    background:
-      radial-gradient(ellipse at 50% 50%, transparent 0%, rgb(2 9 13 / 55%) 60%, rgb(2 9 13 / 85%) 100%);
+/* ============================================================
+   Auth card panel
+   ============================================================ */
+.snad-auth-card {
+  position: relative;
+  z-index: 1;
+  width: min(440px, 100%);
+  border-radius: 24px;
+  padding: clamp(1.5rem, 4vw, 2.5rem);
+  background: var(--auth-panel);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  border: 1px solid rgb(0 167 160 / 18%);
+  box-shadow:
+    0 24px 60px -12px rgb(0 0 0 / 55%),
+    0 0 0 1px rgb(255 255 255 / 4%) inset;
+}
+
+/* ============================================================
+   Brand header
+   ============================================================ */
+.snad-auth-brand {
+  text-align: center;
+  margin-bottom: 1.75rem;
+}
+
+.snad-auth-subtitle {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--auth-teal-bright);
+  margin: 0.75rem 0 0;
+  opacity: 0.85;
+}
+
+.snad-auth-title {
+  font-size: clamp(1.15rem, 3.5vw, 1.5rem);
+  font-weight: 800;
+  margin: 0.5rem 0 0.35rem;
+  color: #fff;
+}
+
+.snad-auth-description {
+  font-size: 0.82rem;
+  color: rgb(255 255 255 / 55%);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ============================================================
+   Form elements
+   ============================================================ */
+.snad-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.snad-auth-input {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+  border: 1px solid rgb(0 167 160 / 20%);
+  background: rgb(0 0 0 / 25%);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.snad-auth-input:focus {
+  outline: none;
+  border-color: var(--auth-teal-bright);
+  box-shadow: 0 0 0 3px rgb(0 167 160 / 15%);
+}
+
+.snad-auth-input::placeholder {
+  color: rgb(255 255 255 / 30%);
+}
+
+.snad-auth-submit {
+  width: 100%;
+  padding: 0.85rem 1.5rem;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(135deg, var(--auth-teal) 0%, var(--auth-teal-bright) 100%);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.2s, opacity 0.2s;
+  box-shadow: 0 6px 20px -4px rgb(0 167 160 / 40%);
+}
+
+.snad-auth-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px -4px rgb(0 167 160 / 50%);
+}
+
+.snad-auth-submit:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.snad-auth-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.snad-auth-link {
+  background: none;
+  border: none;
+  color: var(--auth-teal-soft);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.5rem;
+  transition: color 0.2s;
+}
+
+.snad-auth-link:hover {
+  color: var(--auth-teal-bright);
+  text-decoration: underline;
+}
+
+.snad-auth-alert {
+  background: rgb(239 68 68 / 12%);
+  border: 1px solid rgb(239 68 68 / 25%);
+  color: rgb(252 165 165);
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 480px) {
+  .snad-auth-card {
+    border-radius: 16px;
+    padding: 1.25rem;
   }
 }

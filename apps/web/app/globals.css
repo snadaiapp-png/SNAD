@@ -2,8 +2,6 @@
 @import "./snad-tokens.css";
 @import "./snad-tailwind.css";
 @import "./snad-auth-scene.css";
-@import "./snad-auth-galaxy.css";
-@import "./snad-auth-photonic.css";
 * {
   box-sizing: border-box;
 }

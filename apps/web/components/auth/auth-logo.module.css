@@ -39,55 +39,11 @@
   image-rendering: auto;
 }
 
-/*
- * Official SANAD authentication artwork.
- * The supplied solar-system asset is rendered as the single visual source;
- * legacy generated layers are disabled to prevent duplicated planets,
- * patched logos, colour shifts, or competing lighting effects.
- */
-:global(.snad-auth-scene) {
-  background-color: #02090d !important;
-  background-image:
-    linear-gradient(
-      90deg,
-      rgb(1 11 15 / 96%) 0%,
-      rgb(1 11 15 / 86%) 27%,
-      rgb(1 11 15 / 32%) 46%,
-      transparent 67%
-    ),
-    radial-gradient(
-      ellipse at 80% 50%,
-      transparent 0 48%,
-      rgb(0 3 6 / 20%) 78%,
-      rgb(0 2 4 / 75%) 100%
-    ),
-    url("/brand/snad-solar-system-clean.png") !important;
-  background-position: center !important;
-  background-repeat: no-repeat !important;
-  background-size: cover !important;
-}
-
-:global(.snad-auth-scene)::before,
-:global(.snad-auth-scene)::after,
-:global(.snad-auth-data-flow) {
-  display: none !important;
-  content: none !important;
-}
-
 @media (max-width: 760px) {
   .frame {
     width: 168px;
     height: 70px;
     margin-bottom: 0.3rem;
     transform: translateY(-6px);
-  }
-
-  :global(.snad-auth-scene) {
-    background-image:
-      linear-gradient(rgb(2 9 13 / 68%), rgb(2 9 13 / 72%)),
-      url("/brand/snad-solar-system-clean.png") !important;
-    background-position: center, 54% center !important;
-    background-repeat: no-repeat !important;
-    background-size: cover, auto 100% !important;
   }
 }

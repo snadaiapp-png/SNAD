@@ -29,23 +29,6 @@ export function IconGlobe({ className }: IconProps) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6"/><path d="M3.5 12h17M12 3c2.4 2.5 3.6 5.5 3.6 9S14.4 18.5 12 21M12 3C9.6 5.5 8.4 8.5 8.4 12S9.6 18.5 12 21" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round"/></svg>;
 }
 
-function DataFlow() {
-  return (
-    <svg className="snad-auth-data-flow" viewBox="0 0 1600 900" preserveAspectRatio="none" aria-hidden="true">
-      <defs>
-        <linearGradient id="snad-auth-flow-gradient" x1="0" x2="1"><stop offset="0%" stopColor="#d4af37"/><stop offset="45%" stopColor="#00a7a0"/><stop offset="100%" stopColor="#f4d36f"/></linearGradient>
-        <filter id="snad-auth-soft-glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      </defs>
-      <path className="snad-auth-flow-track" d="M1585 720 C1370 720 1260 560 1110 510 C1010 478 950 470 850 455"/>
-      <path className="snad-auth-flow-pulse" d="M1585 720 C1370 720 1260 560 1110 510 C1010 478 950 470 850 455"/>
-      <path className="snad-auth-flow-pulse" d="M1585 704 C1360 704 1250 550 1090 500 C1000 472 940 465 850 455"/>
-      <path className="snad-auth-flow-track" d="M760 455 C620 455 520 410 390 430 C240 452 150 520 0 520"/>
-      <path className="snad-auth-flow-pulse" d="M760 455 C620 455 520 410 390 430 C240 452 150 520 0 520"/>
-      <circle className="snad-auth-particle" r="4"/><circle className="snad-auth-particle" r="3.5"/><circle className="snad-auth-particle" r="3"/>
-    </svg>
-  );
-}
-
 export function BrandHeader({ title, description }: { title: string; description: string }) {
   return (
     <header className="snad-auth-brand">
@@ -62,17 +45,7 @@ export function BrandHeader({ title, description }: { title: string; description
 
 export function AuthShell({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return (
-    <main className="snad-auth-scene snad-auth-scene-hero" dir="rtl">
-      <div className="snad-auth-hero-overlay" aria-hidden="true"/>
-      <Image
-        src="/brand/snad-login-hero-ai.png"
-        alt=""
-        fill
-        priority
-        sizes="100vw"
-        className="snad-auth-hero-bg"
-      />
-      <DataFlow/>
+    <main className="snad-auth-scene" dir="rtl">
       <section className={`snad-auth-card ${panelStyles.panel} ${wide ? panelStyles.registrationPanel : ""}`}>{children}</section>
     </main>
   );
