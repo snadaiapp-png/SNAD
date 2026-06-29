@@ -32,7 +32,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest(
     properties = {
-        "sanad.cors.allowed-origins=https://snad-app.vercel.app"
+        "sanad.cors.allowed-origins=https://snad-app.vercel.app",
+        "management.health.mail.enabled=false"
     }
 )
 @Import(SecurityPermitAllTestConfig.class)

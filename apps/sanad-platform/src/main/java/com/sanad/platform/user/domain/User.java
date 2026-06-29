@@ -13,12 +13,14 @@ import jakarta.persistence.UniqueConstraint;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -52,6 +54,16 @@ public class User {
     @Size(max = 200)
     @Column(name = "display_name", length = 200)
     private String displayName;
+
+    @Pattern(regexp = "^\\+[1-9][0-9]{7,14}$")
+    @Size(max = 20)
+    @Column(name = "mobile_number", length = 20)
+    private String mobileNumber;
+
+    @Pattern(regexp = "^[A-Z]{2}$")
+    @Size(max = 2)
+    @Column(name = "mobile_region", length = 2)
+    private String mobileRegion;
 
     @NotNull
     @Enumerated(EnumType.STRING)
@@ -114,6 +126,16 @@ public class User {
 
     public String getDisplayName() { return displayName; }
     public void setDisplayName(String displayName) { this.displayName = displayName; }
+
+    public String getMobileNumber() { return mobileNumber; }
+    public void setMobileNumber(String mobileNumber) {
+        this.mobileNumber = mobileNumber == null ? null : mobileNumber.trim();
+    }
+
+    public String getMobileRegion() { return mobileRegion; }
+    public void setMobileRegion(String mobileRegion) {
+        this.mobileRegion = mobileRegion == null ? null : mobileRegion.trim().toUpperCase(Locale.ROOT);
+    }
 
     public UserStatus getStatus() { return status; }
     public void setStatus(UserStatus status) { this.status = status; }
@@ -179,6 +201,6 @@ public class User {
     }
 
     private static String normalizeEmail(String email) {
-        return email == null ? null : email.trim().toLowerCase();
+        return email == null ? null : email.trim().toLowerCase(Locale.ROOT);
     }
 }

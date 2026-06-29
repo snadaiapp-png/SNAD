@@ -1,0 +1,11 @@
+.snad-auth-data-flow {
+  background: url('/brand/snad-logo-original.png') 50% 48% / clamp(74px, 7.2vw, 118px) auto no-repeat;
+  mix-blend-mode: normal;
+}
+
+@media (max-width: 760px) {
+  .snad-auth-data-flow {
+    background-position: 67% 48%;
+    background-size: clamp(58px, 18vw, 82px) auto;
+  }
+}
