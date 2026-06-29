@@ -1,7 +1,6 @@
 .snad-auth-scene {
-  --photon-cyan: #38f8ff;
-  --photon-blue: #00a8ff;
-  --photon-gold: #ffd76a;
+  background-color: #02090d;
+  background-image: none;
 }
 
 /* Optical-energy endpoints aligned with the solar-system artwork. */
