@@ -146,3 +146,4 @@ vite.config.ts.timestamp-*
 # Build artifacts (security: contain test tokens)
 apps/sanad-platform/target/
 apps/web/.next/
+.env*
