@@ -124,6 +124,7 @@ HF-06:
   3. If it was operational, verify that the corresponding provider credential has been rotated and that the historical value is rejected.
   4. Record safe evidence (timestamp, verifier, determination, rejection confirmed — NO secret values).
 - **Status**: BLOCKED — OWNER ACCESS REQUIRED. The executor does not have owner access to perform this correlation or verification.
+- **Owner-readiness assessment status**: UNRESOLVED — OWNER EVIDENCE REQUIRED. The executor readiness assessment could not resolve HF-06 because provider and operational evidence require owner-controlled access. No credential rotation or rejection verification was performed. See `SNAD-Credential-Rotation-and-Email-Activation-Report.md` → "Owner-Controlled Rotation Readiness Assessment — Blocked Evidence Record" for the full status.
 
 ## Final Scan Results
 
