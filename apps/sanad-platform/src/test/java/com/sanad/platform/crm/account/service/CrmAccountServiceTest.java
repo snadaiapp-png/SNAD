@@ -10,6 +10,7 @@ import com.sanad.platform.tenant.domain.Tenant;
 import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
 import com.sanad.platform.user.domain.User;
+import com.sanad.platform.user.domain.UserStatus;
 import com.sanad.platform.user.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,8 +65,9 @@ class CrmAccountServiceTest {
     }
 
     @Test
-    void acceptsOwnerInsideAuthenticatedTenant() {
+    void acceptsActiveOwnerInsideAuthenticatedTenant() {
         User owner = org.mockito.Mockito.mock(User.class);
+        when(owner.getStatus()).thenReturn(UserStatus.ACTIVE);
         when(tenants.findById(tenantId)).thenReturn(Optional.of(activeTenant));
         when(users.findByTenantIdAndId(tenantId, actorId)).thenReturn(Optional.of(owner));
         when(accounts.save(any(CrmAccount.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -73,6 +75,20 @@ class CrmAccountServiceTest {
         service.create(tenantId, actorId, request(actorId));
 
         verify(accounts).save(any(CrmAccount.class));
+    }
+
+    @Test
+    void rejectsSuspendedOwner() {
+        User owner = org.mockito.Mockito.mock(User.class);
+        when(owner.getStatus()).thenReturn(UserStatus.SUSPENDED);
+        when(tenants.findById(tenantId)).thenReturn(Optional.of(activeTenant));
+        when(users.findByTenantIdAndId(tenantId, actorId)).thenReturn(Optional.of(owner));
+
+        assertThatThrownBy(() -> service.create(tenantId, actorId, request(actorId)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("active");
+
+        verify(accounts, never()).save(any(CrmAccount.class));
     }
 
     @Test
