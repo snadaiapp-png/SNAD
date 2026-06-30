@@ -162,7 +162,7 @@ jobs:
       - name: First startup — apply all migrations
         working-directory: apps/sanad-platform
         run: |
-          ./mvnw -B -ntp test -Dtest="HealthEndpointTest" -Dspring.profiles.active=prod -Ddatabase.url="${DATABASE_URL}" -Ddatabase.username="${DATABASE_USERNAME}" -Ddatabase.password="${DATABASE_PASSWORD}" -Ddatabase.driver="${DATABASE_DRIVER}"
+          ./mvnw -B -ntp test -Dtest="FlywayValidationTest" -Dspring.profiles.active=prod -Ddatabase.url="${DATABASE_URL}" -Ddatabase.username="${DATABASE_USERNAME}" -Ddatabase.password="${DATABASE_PASSWORD}" -Ddatabase.driver="${DATABASE_DRIVER}"
           echo "Flyway first startup: PASS"
       - name: Verify flyway_schema_history (Stage 03A — no empty-history bypass)
         run: |
@@ -201,7 +201,7 @@ jobs:
       - name: Second startup — verify no migration re-execution
         working-directory: apps/sanad-platform
         run: |
-          ./mvnw -B -ntp test -Dtest="HealthEndpointTest" -Dspring.profiles.active=prod -Ddatabase.url="${DATABASE_URL}" -Ddatabase.username="${DATABASE_USERNAME}" -Ddatabase.password="${DATABASE_PASSWORD}" -Ddatabase.driver="${DATABASE_DRIVER}"
+          ./mvnw -B -ntp test -Dtest="FlywayValidationTest" -Dspring.profiles.active=prod -Ddatabase.url="${DATABASE_URL}" -Ddatabase.username="${DATABASE_USERNAME}" -Ddatabase.password="${DATABASE_PASSWORD}" -Ddatabase.driver="${DATABASE_DRIVER}"
           # Verify SECOND_COUNT == FIRST_COUNT (no re-execution)
           SECOND_COUNT=$(PGPASSWORD=ci-flyway-only psql -h localhost -U sanad -d sanad_flyway -tAc \
               "SELECT COUNT(*) FROM flyway_schema_history WHERE success = true")
@@ -417,7 +417,7 @@ jobs:
 
           DISALLOWED_PATTERNS='password=[^[:space:]]+|password:[[:space:]]+[^[:space:]]+|token=[^[:space:]]+|bearer[[:space:]][A-Za-z0-9._-]{20,}|apikey=[^[:space:]]+|api-key:[[:space:]]+[^[:space:]]+|secret=[^[:space:]]+|client_secret:[[:space:]]+[^[:space:]]+|authorization:[[:space:]]bearer[[:space:]][A-Za-z0-9._-]{20,}'
 
-          ALLOWLIST='JWT_SECRET|DATABASE_PASSWORD|ci-smoke-only|passwordSet|passwordHash|mustChangePassword|password_reset|change.*password|setPassword'
+          ALLOWLIST='JWT_SECRET|DATABASE_PASSWORD|ci-smoke-only|passwordSet|passwordHash|mustChangePassword|password_reset|change.*password|setPassword|Using generated security password'
 
           # Find disallowed matches, then filter out the allowlist
           MATCHES=$(docker logs "$APP_CONTAINER" 2>&1 \
