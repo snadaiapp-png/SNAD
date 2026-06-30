@@ -199,6 +199,8 @@ jobs:
               "SELECT version FROM flyway_schema_history WHERE success = true ORDER BY installed_rank DESC LIMIT 1")
           echo "Latest applied migration version: $LATEST_VERSION"
           echo "Flyway schema history: PASS"
+          # Persist FIRST_COUNT to GITHUB_ENV so the next step can compare.
+          echo "FIRST_COUNT=$FIRST_COUNT" >> $GITHUB_ENV
       - name: Second startup — verify no migration re-execution
         working-directory: apps/sanad-platform
         run: |
@@ -207,6 +209,7 @@ jobs:
           SECOND_COUNT=$(PGPASSWORD=ci-flyway-only psql -h localhost -U sanad -d sanad_flyway -tAc \
               "SELECT COUNT(*) FROM flyway_schema_history WHERE success = true")
           echo "Second-startup successful migrations: $SECOND_COUNT"
+          echo "First-startup successful migrations: $FIRST_COUNT"
           if [ "$SECOND_COUNT" != "$FIRST_COUNT" ]; then
             echo "FAIL: SECOND_COUNT ($SECOND_COUNT) != FIRST_COUNT ($FIRST_COUNT) — migrations re-executed!"
             exit 1
