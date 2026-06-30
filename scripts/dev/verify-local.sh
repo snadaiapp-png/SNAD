@@ -175,9 +175,13 @@ echo ""
 echo "  PASS: $PASS  FAIL: $FAIL  SKIP: $SKIP"
 echo "=============================================="
 
+# Exit codes: 0=PASS, 1=FAIL, 2=PARTIAL, 3=BLOCKED
 if [ "$FAIL" -gt 0 ]; then
   echo "FINAL: FAIL"
   exit 1
+elif [ "$SKIP" -gt 0 ] && [ "$MODE" = "--full" ]; then
+  echo "FINAL: PARTIAL (mandatory checks skipped in --full mode)"
+  exit 2
 else
   echo "FINAL: PASS"
   exit 0

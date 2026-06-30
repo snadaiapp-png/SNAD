@@ -1,0 +1,51 @@
+{
+  "program": "SANAD Infrastructure Hardening",
+  "stage": "02",
+  "stageName": "CI Quality Gates and Merge Safety",
+  "branch": "infra/02-ci-quality-gates",
+  "baseCommitSha": "2cc8936b07fea5b86c920c77fd143a3cf91732e9",
+  "headCommitSha": "2d78d85",
+  "startedAt": "2026-06-30T16:35:00Z",
+  "completedAt": "2026-06-30T17:00:00Z",
+  "workingTreeCleanAtStart": true,
+  "workingTreeCleanAtEnd": true,
+  "mavenWrapperIntegrity": "PASS",
+  "javaToolchainParity": "PASS",
+  "skipSemanticsCorrected": true,
+  "repositoryPolicy": "PASS",
+  "backendTests": "PASS",
+  "backendPostgresIntegration": "NOT_RUN",
+  "flywayValidation": "NOT_RUN",
+  "migrationImmutability": "PASS",
+  "frontendChecks": "PASS",
+  "pythonTests": "PASS",
+  "secretScan": "PASS",
+  "dependencyScan": "NOT_RUN",
+  "containerSmoke": "NOT_RUN",
+  "securityRegression": "NOT_RUN",
+  "localFastGate": "PASS",
+  "localFullGate": "NOT_RUN",
+  "remoteWorkflowRun": "NOT_RUN",
+  "remoteWorkflowRunId": "",
+  "remoteWorkflowUrl": "",
+  "requiredCheckName": "quality-gate",
+  "filesCreated": [
+    ".github/workflows/quality-gate.yml",
+    "scripts/ci/check-migration-immutability.sh",
+    "scripts/ci/run-quality-gate.sh"
+  ],
+  "filesModified": [
+    "apps/sanad-platform/mvnw",
+    "apps/sanad-platform/mvnw.cmd",
+    "apps/sanad-platform/.mvn/wrapper/maven-wrapper.properties",
+    ".java-version",
+    "scripts/dev/verify-local.sh"
+  ],
+  "blockers": [],
+  "risks": [
+    "Remote CI validation not yet run — branch not pushed",
+    "Backend tests run locally via Maven Wrapper but PostgreSQL/Flyway/Docker checks not run locally",
+    "quality-gate.yml aggregation job uses GitHub Actions expressions that need remote validation"
+  ],
+  "status": "READY_FOR_REMOTE_VALIDATION"
+}

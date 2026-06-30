@@ -1,0 +1,339 @@
+# SNAD Quality Gate — Central CI Workflow
+# ADR-002: This workflow is the single required check for branch protection.
+# Required Check Name: quality-gate (the aggregation job below).
+
+name: Quality Gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repository-policy:
+    name: repository-policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate JSON files
+        run: |
+          python3 -c "
+          import json, pathlib
+          for p in pathlib.Path('.').rglob('*.json'):
+              if 'node_modules' in str(p) or '.git' in str(p) or '.next' in str(p): continue
+              json.loads(p.read_text())
+          print('JSON validation: PASS')
+          "
+      - name: Validate YAML files
+        run: |
+          pip install pyyaml -q
+          python3 -c "
+          import yaml, pathlib
+          for p in pathlib.Path('.').rglob('*.yml'):
+              if 'node_modules' in str(p) or '.git' in str(p): continue
+              yaml.safe_load(p.read_text())
+          print('YAML validation: PASS')
+          "
+      - name: Check no .env tracked
+        run: |
+          if git ls-files | grep -qE '\.env$'; then
+            echo "FAIL: .env files tracked in git"
+            exit 1
+          fi
+      - name: Check no merge conflict markers
+        run: git diff --check
+      - name: Migration immutability
+        run: bash scripts/ci/check-migration-immutability.sh
+
+  backend-tests:
+    name: backend-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run backend tests
+        working-directory: apps/sanad-platform
+        run: ./mvnw -B -ntp clean test
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: apps/sanad-platform/target/surefire-reports/
+          retention-days: 7
+
+  backend-postgres-integration:
+    name: backend-postgres-integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: sanad_test
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: ci-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      JWT_SECRET: ci-only-non-production-key-1234567890
+      DATABASE_URL: jdbc:postgresql://localhost:5432/sanad_test
+      DATABASE_USERNAME: sanad
+      DATABASE_PASSWORD: ci-test-only
+      DATABASE_DRIVER: org.postgresql.Driver
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run integration tests with PostgreSQL
+        working-directory: apps/sanad-platform
+        run: ./mvnw -B -ntp test
+
+  flyway-validation:
+    name: flyway-validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: sanad_flyway
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: ci-flyway-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      JWT_SECRET: ci-only-non-production-key-1234567890
+      DATABASE_URL: jdbc:postgresql://localhost:5432/sanad_flyway
+      DATABASE_USERNAME: sanad
+      DATABASE_PASSWORD: ci-flyway-only
+      DATABASE_DRIVER: org.postgresql.Driver
+      FLYWAY_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Validate Flyway migrations on fresh database
+        working-directory: apps/sanad-platform
+        run: |
+          ./mvnw -B -ntp spring-boot:run -Dspring-boot.run.profiles=prod &
+          APP_PID=$!
+          sleep 30
+          if curl -sf http://localhost:8080/actuator/health | grep -q '"status":"UP"'; then
+            echo "Flyway validation: PASS"
+            kill $APP_PID
+          else
+            echo "Flyway validation: FAIL"
+            kill $APP_PID
+            exit 1
+          fi
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install
+        working-directory: apps/web
+        run: npm ci
+      - name: Lint
+        working-directory: apps/web
+        run: npm run lint
+      - name: Brand check
+        working-directory: apps/web
+        run: npm run brand:check
+      - name: Tests
+        working-directory: apps/web
+        run: npm test
+      - name: Build
+        working-directory: apps/web
+        run: npm run build
+
+  python-tests:
+    name: python-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run Python tests
+        run: python3 -m pytest tests/ -q
+
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Current tree secret scan
+        run: |
+          docker run --rm \
+            -v "$PWD:/repo" \
+            zricethezav/gitleaks:v8.24.3 detect \
+            --source=/repo \
+            --config=/repo/.gitleaks.toml \
+            --no-git \
+            --redact \
+            --exit-code=1
+
+  dependency-scan:
+    name: dependency-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: OWASP Dependency-Check
+        working-directory: apps/sanad-platform
+        run: ./mvnw -B -ntp -Powasp-offline-gate verify
+
+  container-smoke:
+    name: container-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        working-directory: apps/sanad-platform
+        run: docker build -t sanad-backend:smoke .
+      - name: Verify non-root user
+        run: |
+          USER=$(docker inspect sanad-backend:smoke --format '{{.Config.User}}')
+          if [ -z "$USER" ] || [ "$USER" = "root" ]; then
+            echo "FAIL: Container runs as root"
+            exit 1
+          fi
+          echo "PASS: Container runs as $USER"
+      - name: Verify healthcheck
+        run: |
+          HC=$(docker inspect sanad-backend:smoke --format '{{json .Config.Healthcheck}}')
+          if [ "$HC" = "null" ]; then
+            echo "FAIL: No healthcheck"
+            exit 1
+          fi
+          echo "PASS: Healthcheck configured"
+      - name: Cleanup
+        if: always()
+        run: docker rmi -f sanad-backend:smoke 2>/dev/null || true
+
+  security-regression:
+    name: security-regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: sanad_security
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: ci-security-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      JWT_SECRET: ci-only-non-production-key-1234567890
+      DATABASE_URL: jdbc:postgresql://localhost:5432/sanad_security
+      DATABASE_USERNAME: sanad
+      DATABASE_PASSWORD: ci-security-only
+      DATABASE_DRIVER: org.postgresql.Driver
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run security regression tests
+        working-directory: apps/sanad-platform
+        run: |
+          ./mvnw -B -ntp test -Dtest="OrganizationTenantIsolationTest,TenantBindingSecurityIntegrationTest,TokenRevocationIntegrationTest,CredentialRotationIntegrationTest,ApiRegressionSuiteTest"
+
+  quality-gate:
+    name: quality-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - repository-policy
+      - backend-tests
+      - backend-postgres-integration
+      - flyway-validation
+      - frontend
+      - python-tests
+      - secret-scan
+      - dependency-scan
+      - container-smoke
+      - security-regression
+    if: always()
+    steps:
+      - name: Check all jobs
+        run: |
+          echo "Checking all mandatory jobs..."
+          JOBS="repository-policy backend-tests backend-postgres-integration flyway-validation frontend python-tests secret-scan dependency-scan container-smoke security-regression"
+          FAILED=0
+          for job in $JOBS; do
+            RESULT="${{ needs.${{ job }}.result }}"
+            echo "  $job: $RESULT"
+            if [ "$RESULT" != "success" ]; then
+              echo "FAIL: $job did not succeed (result: $RESULT)"
+              FAILED=1
+            fi
+          done
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "QUALITY GATE: FAIL"
+            exit 1
+          fi
+          echo ""
+          echo "QUALITY GATE: PASS"
