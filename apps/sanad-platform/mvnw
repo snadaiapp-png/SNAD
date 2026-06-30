@@ -1,0 +1,86 @@
+#!/bin/sh
+# ----------------------------------------------------------------------------
+# Maven Wrapper for SNAD Platform
+# Downloads and caches Maven 3.9.9 if not already available.
+# Based on Apache Maven Wrapper 3.3.2 behavior.
+# ----------------------------------------------------------------------------
+
+set -e
+
+# Resolve the project base directory
+PRG="$0"
+while [ -h "$PRG" ]; do
+  ls=$(ls -ld "$PRG")
+  link=$(expr "$ls" : '.*-> \(.*\)$')
+  if expr "$link" : '/.*' > /dev/null; then
+    PRG="$link"
+  else
+    PRG=$(dirname "$PRG")"/$link"
+  fi
+done
+SAVED="$(pwd)"
+cd "$(dirname "$PRG")/" >/dev/null
+APP_HOME="$(pwd -P)"
+cd "$SAVED" >/dev/null
+
+# Determine Maven distribution URL from properties
+PROPS_FILE="$APP_HOME/.mvn/wrapper/maven-wrapper.properties"
+if [ ! -f "$PROPS_FILE" ]; then
+  echo "Error: $PROPS_FILE not found" >&2
+  exit 1
+fi
+
+MAVEN_DIST_URL=$(grep "^distributionUrl=" "$PROPS_FILE" | cut -d'=' -f2-)
+if [ -z "$MAVEN_DIST_URL" ]; then
+  echo "Error: distributionUrl not set in $PROPS_FILE" >&2
+  exit 1
+fi
+
+# Determine Maven home directory (cache)
+MAVEN_USER_HOME="${MAVEN_USER_HOME:-${HOME}/.m2}"
+MAVEN_DIST_NAME=$(basename "$MAVEN_DIST_URL" .zip)
+MAVEN_HOME="$MAVEN_USER_HOME/wrapper/dists/$MAVEN_DIST_NAME"
+
+# Download and extract Maven if not cached
+if [ ! -d "$MAVEN_HOME" ] || [ ! -x "$MAVEN_HOME/bin/mvn" ]; then
+  echo "Downloading Maven from $MAVEN_DIST_URL ..." >&2
+  TMP_ZIP=$(mktemp /tmp/maven-XXXXXX.zip)
+  if command -v curl > /dev/null 2>&1; then
+    curl -sSL -o "$TMP_ZIP" "$MAVEN_DIST_URL"
+  elif command -v wget > /dev/null 2>&1; then
+    wget -q -O "$TMP_ZIP" "$MAVEN_DIST_URL"
+  else
+    echo "Error: Neither curl nor wget is available" >&2
+    exit 1
+  fi
+
+  mkdir -p "$MAVEN_HOME"
+  if command -v unzip > /dev/null 2>&1; then
+    unzip -q -d "$MAVEN_HOME" "$TMP_ZIP"
+  else
+    # Use Python as fallback for unzip
+    python3 -c "
+import zipfile, sys
+zipfile.ZipFile('$TMP_ZIP').extractall('$MAVEN_HOME')
+"
+  fi
+  # Move contents up if there's a single nested subdirectory
+  SUBDIRS=$(find "$MAVEN_HOME" -maxdepth 1 -type d ! -path "$MAVEN_HOME" 2>/dev/null)
+  SUBDIR_COUNT=$(echo "$SUBDIRS" | grep -c . 2>/dev/null || echo 0)
+  if [ "$SUBDIR_COUNT" = "1" ] && [ -n "$SUBDIRS" ]; then
+    mv "$SUBDIRS"/* "$MAVEN_HOME"/ 2>/dev/null || true
+    rmdir "$SUBDIRS" 2>/dev/null || true
+  fi
+  rm -f "$TMP_ZIP"
+  echo "Maven installed to $MAVEN_HOME" >&2
+fi
+
+# Find Java
+if [ -n "$JAVA_HOME" ]; then
+  JAVACMD="$JAVA_HOME/bin/java"
+else
+  JAVACMD="java"
+fi
+
+# Run Maven
+exec "$MAVEN_HOME/bin/mvn" "$@"
