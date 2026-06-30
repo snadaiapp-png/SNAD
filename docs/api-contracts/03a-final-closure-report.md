@@ -97,34 +97,49 @@ release remains blocked.
 | Python (pytest) | 27 | ✅ PASS (includes 10 new contract fixture tests) |
 | **Total** | **755** | ✅ |
 
-## 7. Remote CI Validation
+## 7. Remote CI Validation (Stage 03A.1 — Final Commit Parity)
+
+**Stage 03A.1 purpose**: reconcile the final branch SHA and run the complete Quality Gate on the actual final commit.
+
+### Prior run (NOT the final commit)
+
+The first successful Quality Gate run was on commit `d10a1e820bcc7a0583f2f7c4067d44798b1d22a1`:
+- Run ID: `28481968412`
+- All 13 jobs passed
+- This run is the evidence for closing `CD-02-P1-001` (remote quality gate not executed)
+
+However, a subsequent documentation commit (`16b559a`) was pushed after that run. Per Stage 03A.1 §1, the Final Commit Parity condition was NOT satisfied because the QG had not run on the actual branch head.
+
+### Final run (this commit)
+
+This commit (`<populated by git after commit>`) is the Final Commit. The Quality Gate must run on this commit and all 13 jobs must pass before Stage 03A is certified.
 
 ```
-Final Commit SHA:    d10a1e820bcc7a0583f2f7c4067d44798b1d22a1
-Remote Branch SHA:   d10a1e820bcc7a0583f2f7c4067d44798b1d22a1
-Workflow Head SHA:   d10a1e820bcc7a0583f2f7c4067d44798b1d22a1
-Workflow Run ID:     28481968412
-Workflow Run URL:    https://github.com/snadaiapp-png/SNAD/actions/runs/28481968412
+Final Commit SHA:     <populated by git after commit>
+Remote Branch SHA:    <populated by git after push>
+Workflow Head SHA:    <populated by QG run on this commit>
+Workflow Run ID:      <populated externally by GitHub Actions>
+Workflow Run URL:     <populated externally by GitHub Actions>
 ```
 
-All SHAs match. All 13 jobs passed.
+Per Stage 03A.1 §9 (preferred solution), the GitHub Run itself is the source of truth for final certification. This file intentionally does NOT record the run ID inline (which would require another commit post-validation and break SHA parity).
 
-## 8. Final Status
+## 8. Final Status (PENDING CERTIFICATION)
 
 ```
-RUNTIME OPENAPI CONTRACT: PASS
-API COMPATIBILITY GATE: PASS
-UNIFIED ERROR MODEL: PASS
-TENANT-AWARE PAGINATION: PASS
-FRONTEND API CLIENT: PASS
-REMOTE QUALITY GATE: PASS
+RUNTIME OPENAPI CONTRACT: PASS (local)
+API COMPATIBILITY GATE: PASS (local)
+UNIFIED ERROR MODEL: PASS (local)
+TENANT-AWARE PAGINATION: PASS (local)
+FRONTEND API CLIENT: PASS (local)
+REMOTE QUALITY GATE: PENDING (Stage 03A.1 final run)
 TOTAL MANDATORY JOBS: 13
 STAGE-03 OPEN BLOCKING DEBT: 0
 DEFERRED SECURITY DEBT: 2
 PRODUCTION RELEASE: BLOCKED
-DEVELOPMENT PROGRESSION: AUTHORIZED
-FINAL STATUS: PASS_WITH_DEFERRED_SECURITY_DEBT
-NEXT ALLOWED STAGE: 04 — TENANT ISOLATION HARDENING
+DEVELOPMENT PROGRESSION: PENDING CERTIFICATION
+FINAL STATUS: READY_FOR_REMOTE_VALIDATION
+NEXT ALLOWED STAGE: PENDING CERTIFICATION
 ```
 
-## 9. Stage 03A is complete. Stage 04 is NOT started.
+## 9. Stage 03A.1 is in progress. Stage 04 is NOT started.
