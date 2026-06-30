@@ -8,14 +8,17 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches:
+      - main
+      - "infra/**"
+      - "security/**"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: quality-gate-${{ github.ref }}
+  group: quality-gate-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -55,7 +58,16 @@ jobs:
           fi
       - name: Check no merge conflict markers
         run: git diff --check
-      - name: Migration immutability
+
+  migration-immutability:
+    name: migration-immutability
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run migration immutability check
         run: bash scripts/ci/check-migration-immutability.sh
 
   backend-tests:
@@ -69,7 +81,7 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Run backend tests
+      - name: Run backend tests via Maven Wrapper
         working-directory: apps/sanad-platform
         run: ./mvnw -B -ntp clean test
       - name: Upload test reports
@@ -111,7 +123,7 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Run integration tests with PostgreSQL
+      - name: Run integration tests with PostgreSQL 16
         working-directory: apps/sanad-platform
         run: ./mvnw -B -ntp test
 
@@ -147,18 +159,36 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Validate Flyway migrations on fresh database
+      - name: First startup — apply all migrations
         working-directory: apps/sanad-platform
         run: |
-          ./mvnw -B -ntp spring-boot:run -Dspring-boot.run.profiles=prod &
+          ./mvnw -B -ntp spring-boot:run -Dspring-boot.run.profiles=prod -Dspring-boot.run.arguments="--server.port=8080" &
+          APP_PID=$!
+          sleep 40
+          if curl -sf http://localhost:8080/actuator/health | grep -q '"status":"UP"'; then
+            echo "First startup: PASS"
+            kill $APP_PID
+            wait $APP_PID 2>/dev/null || true
+          else
+            echo "First startup: FAIL"
+            kill $APP_PID
+            wait $APP_PID 2>/dev/null || true
+            exit 1
+          fi
+      - name: Second startup — verify no migration re-execution
+        working-directory: apps/sanad-platform
+        run: |
+          ./mvnw -B -ntp spring-boot:run -Dspring-boot.run.profiles=prod -Dspring-boot.run.arguments="--server.port=8081" &
           APP_PID=$!
           sleep 30
-          if curl -sf http://localhost:8080/actuator/health | grep -q '"status":"UP"'; then
-            echo "Flyway validation: PASS"
+          if curl -sf http://localhost:8081/actuator/health | grep -q '"status":"UP"'; then
+            echo "Second startup: PASS"
             kill $APP_PID
+            wait $APP_PID 2>/dev/null || true
           else
-            echo "Flyway validation: FAIL"
+            echo "Second startup: FAIL"
             kill $APP_PID
+            wait $APP_PID 2>/dev/null || true
             exit 1
           fi
 
@@ -306,6 +336,7 @@ jobs:
     timeout-minutes: 5
     needs:
       - repository-policy
+      - migration-immutability
       - backend-tests
       - backend-postgres-integration
       - flyway-validation
@@ -317,19 +348,32 @@ jobs:
       - security-regression
     if: always()
     steps:
-      - name: Check all jobs
+      - name: Check all mandatory jobs
         run: |
           echo "Checking all mandatory jobs..."
-          JOBS="repository-policy backend-tests backend-postgres-integration flyway-validation frontend python-tests secret-scan dependency-scan container-smoke security-regression"
+          declare -A JOBS
+          JOBS["repository-policy"]="${{ needs.repository-policy.result }}"
+          JOBS["migration-immutability"]="${{ needs.migration-immutability.result }}"
+          JOBS["backend-tests"]="${{ needs.backend-tests.result }}"
+          JOBS["backend-postgres-integration"]="${{ needs.backend-postgres-integration.result }}"
+          JOBS["flyway-validation"]="${{ needs.flyway-validation.result }}"
+          JOBS["frontend"]="${{ needs.frontend.result }}"
+          JOBS["python-tests"]="${{ needs.python-tests.result }}"
+          JOBS["secret-scan"]="${{ needs.secret-scan.result }}"
+          JOBS["dependency-scan"]="${{ needs.dependency-scan.result }}"
+          JOBS["container-smoke"]="${{ needs.container-smoke.result }}"
+          JOBS["security-regression"]="${{ needs.security-regression.result }}"
+          
           FAILED=0
-          for job in $JOBS; do
-            RESULT="${{ needs.${{ job }}.result }}"
-            echo "  $job: $RESULT"
-            if [ "$RESULT" != "success" ]; then
-              echo "FAIL: $job did not succeed (result: $RESULT)"
+          for job in "${!JOBS[@]}"; do
+            result="${JOBS[$job]}"
+            echo "  $job: $result"
+            if [ "$result" != "success" ]; then
+              echo "FAIL: $job did not succeed (result: $result)"
               FAILED=1
             fi
           done
+          
           if [ "$FAILED" -eq 1 ]; then
             echo ""
             echo "QUALITY GATE: FAIL"
