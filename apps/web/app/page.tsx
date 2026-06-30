@@ -1,8 +1,7 @@
-export default function HomePage() {
-  return (
-    <main
-      className="snad-clean-canvas"
-      aria-label="SNAD presentation layer reset"
-    />
-  );
+"use client";
+
+import { AuthEntry } from "@/components/auth/auth-entry";
+
+export default function Home() {
+  return <AuthEntry />;
 }
