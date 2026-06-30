@@ -141,12 +141,12 @@
       "id": "CD-02-P1-001",
       "title": "Remote quality gate not executed",
       "severity": "P1",
-      "status": "OPEN",
+      "status": "CLOSED",
       "blocking": true,
       "evidence": "Branch not pushed to remote",
-      "closureEvidence": null,
-      "closureDate": null,
-      "closedCommitSha": null,
+      "closureEvidence": "Remote quality gate executed on Stage 03A branch. Run ID 28481968412, all 13 jobs passed. URL: https://github.com/snadaiapp-png/SNAD/actions/runs/28481968412",
+      "closureDate": "2026-06-30T23:17:32Z",
+      "closedCommitSha": "d10a1e820bcc7a0583f2f7c4067d44798b1d22a1",
       "targetClosureStage": "02C"
     },
     {
@@ -391,26 +391,26 @@
     "inheritedDebtCount": 11,
     "newDebtCount": 15,
     "totalDebtCount": 26,
-    "closedDebtCount": 15,
-    "openDebtCount": 4,
+    "closedDebtCount": 16,
+    "openDebtCount": 3,
     "inProgressDebtCount": 0,
     "blockedDebtCount": 6,
     "readyForVerificationDebtCount": 1,
     "reopenedDebtCount": 0,
     "acceptedRiskDebtCount": 0,
     "openP0DebtCount": 2,
-    "openBlockingP1DebtCount": 1,
+    "openBlockingP1DebtCount": 0,
     "carriedForwardDebtCount": 0,
     "debtGate": "BLOCKED",
     "blockingDebtIds": [
       "CD-00-P0-001",
-      "CD-00-P0-002",
-      "CD-02-P1-001"
+      "CD-00-P0-002"
     ],
     "closedDebtIds": [
       "CD-01-P1-001",
       "CD-01-P1-006",
       "CD-01-P1-007",
+      "CD-02-P1-001",
       "CD-02-P1-002",
       "CD-02-P1-003",
       "CD-02-P1-004",
@@ -426,6 +426,6 @@
     ],
     "carriedForwardDebtIds": [],
     "status": "BLOCKED",
-    "lastUpdated": "2026-06-30T22:59:20Z"
+    "lastUpdated": "2026-06-30T23:17:32Z"
   }
 }
