@@ -230,6 +230,126 @@ The following actions MUST be performed by the account owner on each platform. N
 
 ---
 
+## Owner-Controlled Rotation Cycle — Evidence Record
+
+This section records the status of the owner-controlled credential rotation cycle attempted per the Issue #173 Owner-Controlled Credential Rotation and Rejection Verification Order.
+
+### Executor Capability Statement
+
+The executor does NOT have owner access to:
+- Resend provider dashboard (revoke/create API keys)
+- Vercel dashboard (update environment variables)
+- Render dashboard (update environment variables)
+- The SNAD application's approved identity-management console (admin password reset)
+- Provider logs (Resend activity logs, Vercel function logs, Render application logs)
+
+All owner-action items are marked `BLOCKED — OWNER ACCESS REQUIRED` per the order's Section 25 provision for partial completion.
+
+### HF-01 — Historical Admin Credential
+
+```
+HF-01 rotation: BLOCKED — OWNER ACCESS REQUIRED
+HF-01 old-value rejection: NOT VERIFIED
+Owner evidence: MISSING
+Reason: Executor generated a 32-character replacement password in memory (using Python secrets module) but cannot apply it through the approved identity-management console.
+```
+
+### HF-06 — Historical Email-Proxy Fallback
+
+```
+HF-06 operational-use determination: UNRESOLVED — OWNER EVIDENCE REQUIRED
+HF-06 related credential rotation: NOT APPLICABLE (pending operational-use determination)
+HF-06 old-value rejection: NOT VERIFIED
+Reason: PR #172 documented hardcoded fallback credentials in this route. Value shape alone is insufficient to classify as false positive. Owner must correlate with PR #172 incident record and provider evidence.
+```
+
+### Resend API Key
+
+```
+Resend old key revoked: BLOCKED — OWNER ACCESS REQUIRED
+Replacement Resend key created: BLOCKED
+Replacement permission scope: NOT DETERMINED
+Reason: No Resend dashboard access. Owner must revoke exposed key and create new restricted key with minimum permissions.
+```
+
+### Email Proxy Bearer Token
+
+```
+Bearer token rotated: BLOCKED — OWNER ACCESS REQUIRED
+Old bearer token rejected: NOT VERIFIED
+Reason: Executor generated a 64-character replacement token in memory (using Python secrets.token_urlsafe(48)) but cannot store it in Vercel/Render secret management. Previous bearer token is COMPROMISED — DO NOT REUSE.
+```
+
+### EMAIL_PROXY_FROM
+
+```
+EMAIL_PROXY_FROM verified: BLOCKED — OWNER ACCESS REQUIRED
+Reason: Executor cannot verify domain ownership, SPF/DKIM configuration, or that the sender is not an onboarding/test address.
+```
+
+### Runtime Configuration
+
+```
+Vercel updated: BLOCKED — OWNER ACCESS REQUIRED
+Render updated: BLOCKED — OWNER ACCESS REQUIRED
+Reason: No dashboard access to either platform.
+```
+
+### Deployment
+
+```
+Deployment SHA: c635465084f68ff2493d9cd3a8d1b52aaeb22f86 (latest main, ready for deploy)
+Vercel deployment: NOT REDEPLOYED (secrets not configured)
+Render deployment: NOT REDEPLOYED (secrets not configured)
+Email delivery invoked: NO
+```
+
+### Old-Credential Rejection Verification
+
+```
+Old bearer token rejection: BLOCKED — cannot test without the old token value (compromised, must not be reused)
+Old Resend key rejection: BLOCKED — no provider dashboard access and no non-delivery auth check available
+```
+
+### Provider Log Review
+
+```
+Provider logs reviewed: BLOCKED — OWNER ACCESS REQUIRED
+Unauthorized activity detected: INCONCLUSIVE (logs not reviewed)
+Secrets found in logs: INCONCLUSIVE (logs not reviewed)
+Incident escalation required: INCONCLUSIVE (logs not reviewed)
+```
+
+### Repository Secret Scan (Executor-Performed)
+
+```
+Current-tree scan (gitleaks v8.24.3, repo config): PASS — 0 findings
+History scan (gitleaks v8.24.3, repo config): 8 raw detections (all REDACTED, classified in SNAD-Repository-Secret-Findings-Triage.md)
+Secret values recorded: NO
+```
+
+### Session Hygiene
+
+```
+Shell history: DISABLED for this session
+umask: 077
+Generated credentials: CLEARED from session memory after generation
+Evidence directory: CREATED with mktemp (700 permissions), CLEANED UP after scan
+Secret values entered into evidence: NO
+```
+
+### Exit Criteria Status After This Cycle
+
+```
+Credential rotation criteria: PARTIALLY COMPLETE (mechanism verified, application BLOCKED)
+Production email activation: INCOMPLETE
+Email smoke test: NOT AUTHORIZED
+Issue #173: OPEN
+Confirmed exit criteria: 0/17 (unchanged — no owner verification recorded)
+```
+
+---
+
 ## Final Recommendation
 
 ```

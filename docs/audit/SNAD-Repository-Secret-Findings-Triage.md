@@ -124,6 +124,7 @@ HF-06:
   3. If it was operational, verify that the corresponding provider credential has been rotated and that the historical value is rejected.
   4. Record safe evidence (timestamp, verifier, determination, rejection confirmed — NO secret values).
 - **Status**: BLOCKED — OWNER ACCESS REQUIRED. The executor does not have owner access to perform this correlation or verification.
+- **Owner-rotation cycle status**: UNRESOLVED — OWNER EVIDENCE REQUIRED. The owner-controlled credential rotation cycle (attempted per the Issue #173 Owner-Controlled Credential Rotation and Rejection Verification Order) could not resolve HF-06 because the executor lacks access to provider dashboards, provider logs, and the PR #172 incident record's operational details. See `SNAD-Credential-Rotation-and-Email-Activation-Report.md` → "Owner-Controlled Rotation Cycle — Evidence Record" for the full status.
 
 ## Final Scan Results
 
