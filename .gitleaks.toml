@@ -13,8 +13,8 @@
 # ---------------------------------------------------------------------------
 # Path exclusions (narrow, justified, build-artifact only)
 # ---------------------------------------------------------------------------
-# These paths are gitignored build outputs. They contain auto-generated
-# generated transient values in gitignored build outputs. These directories
+# These paths are gitignored build outputs containing generated transient
+# values. These directories
 # are excluded from tracked-source scanning, but their generated values
 # must never be committed, published, or included in logs.
 #

@@ -44,7 +44,7 @@ The history scan produced 8 raw detections across 5 repository paths. Repeated d
 | HF-03 | `docs/runbooks/backend-auth-rollback.md` | 9 | generic-api-key | History (commit `a4bedb10`) and current tree | FALSE_POSITIVE | No action required. | Gitleaks matched a backtick-quoted prose identifier in a markdown runbook. The matched text is a short reference tag, not a credential. Manual review confirmed no secret value. |
 | HF-04 | `docs/runbooks/backend-auth-rollback.md` | 10 | generic-api-key | History (commit `a4bedb10`) and current tree | FALSE_POSITIVE | No action required. | Same as HF-03 — backtick-quoted prose identifier in markdown runbook. Manual review confirmed no secret value. |
 | HF-05 | `docs/execution/EXEC-PROMPT-029-frontend-backend-integration-foundation.md` | 54 | generic-api-key | History (commits `8b45421c`, `15043d07`) and current tree | FALSE_POSITIVE | No action required. | Gitleaks matched the prose phrase `session-token lifecycle:` in a markdown execution log. The matched text is descriptive prose, not a credential. Manual review confirmed no secret value. |
-| HF-06 | `apps/web/app/api/email-proxy/route.ts` | 18 | generic-api-key | History (commit `a6b11112`) — removed from current tree by PR #172 | DOCUMENTATION_PLACEHOLDER | No action required. | The matched value was a short placeholder string used as a fallback default in `process.env.RESEND_API_KEY \|\| '<placeholder>'`. The value is 8 characters, does not match the Resend API key format (`re_` prefix), and was removed from the current tree by PR #172's security hardening. Not a real credential. |
+| HF-06 | `apps/web/app/api/email-proxy/route.ts` | 18 | generic-api-key | History (commit `a6b11112`) — removed from current tree by PR #172 | FALSE_POSITIVE | No further source action required; the insecure fallback pattern was already removed by PR #172. | The matched historical value was a short non-provider-format placeholder used as an environment-variable fallback. It did not match the Resend credential format and is absent from the current tree. No secret value is recorded in this report. |
 
 ## Summary by Classification
 
@@ -53,9 +53,9 @@ The history scan produced 8 raw detections across 5 repository paths. Repeated d
 | CONFIRMED_SECRET | 1 | HF-01 — confirmed credential in Git history only; absent from current tracked source. |
 | REVOKED_HISTORICAL_SECRET | 0 | No revocation claim is accepted until rotation and rejection evidence exists. |
 | TEST_FIXTURE | 1 | HF-02 — explicitly labeled non-secret test token. |
-| DOCUMENTATION_PLACEHOLDER | 1 | HF-06 — short placeholder string in deleted fallback default. |
+| DOCUMENTATION_PLACEHOLDER | 0 | — |
 | PUBLIC_IDENTIFIER | 0 | — |
-| FALSE_POSITIVE | 3 | HF-03, HF-04, HF-05 — prose text in markdown files matched by `generic-api-key` rule. |
+| FALSE_POSITIVE | 4 | HF-03, HF-04, HF-05 are prose matches; HF-06 is a historical non-provider-format code placeholder already removed from the current tree. |
 | NEEDS_OWNER_VERIFICATION | 1 | Verification status attached to HF-01; this is not an additional finding. |
 
 ## Build-Artifact Detections (62 untracked generated-file detections)
@@ -73,7 +73,7 @@ A single `[allowlist]` block was added with two narrow path patterns:
 
 ```toml
 [allowlist]
-description = "Gitignored build artifacts only (Maven target/ and Next.js .next/) ..."
+description = "Gitignored generated build outputs excluded from tracked-source scanning; values in these directories must never be committed or published"
 paths = [
   '''^apps/sanad-platform/target/''',
   '''^apps/web/\.next/''',
@@ -115,7 +115,7 @@ The only finding that requires owner action is HF-01:
 | Scan | Findings | Status |
 |------|---------:|--------|
 | Current tree (repo config, after triage) | 0 | PASS |
-| Git history (repo config) | 8 raw detections | Consolidated into 6 unique findings: 1 CONFIRMED_SECRET, 1 TEST_FIXTURE, 1 DOCUMENTATION_PLACEHOLDER, and 3 FALSE_POSITIVE findings. HF-01 requires owner verification. |
+| Git history (repo config) | 8 raw detections | Consolidated into 6 unique findings: 1 CONFIRMED_SECRET, 1 TEST_FIXTURE, and 4 FALSE_POSITIVE findings. HF-01 requires owner verification. |
 
 ## Issue #173 Impact
 
