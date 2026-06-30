@@ -112,6 +112,32 @@ describe("createAuthApi", () => {
 
     await expect(api.logout()).resolves.toBeUndefined();
   });
+
+  it("resetPassword posts token and new password to the reset endpoint", async () => {
+    const client = mockClient(200, {
+      message: "password updated",
+    });
+
+    const api = createAuthApi(client);
+
+    const result = await api.resetPassword({
+      token: "recovery-token",
+      newPassword: "Password123!",
+    });
+
+    expect(result.message).toBe("password updated");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.example.com/api/v1/auth/reset-password",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          token: "recovery-token",
+          newPassword: "Password123!",
+        }),
+      }),
+    );
+  });
 });
 
 describe("AmbiguousTenantError", () => {

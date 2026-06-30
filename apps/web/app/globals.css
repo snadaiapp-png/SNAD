@@ -1,60 +1,113 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 @import "./snad-tokens.css";
 @import "./snad-tailwind.css";
-@import "./snad-auth-scene.css";
-@import "./snad-auth-galaxy.css";
-@import "./snad-auth-photonic.css";
+
 * {
   box-sizing: border-box;
 }
 
-html {
-  background: var(--snad-surface-canvas);
-  color: var(--snad-text-primary);
-  font-family: var(--snad-font-body);
-  line-height: var(--snad-leading-body);
-  text-rendering: optimizeLegibility;
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
 }
 
 body {
-  min-height: 100vh;
-  margin: 0;
   background: var(--snad-surface-canvas);
   color: var(--snad-text-primary);
+  font-family: var(--snad-font-body);
 }
 
-:lang(en) {
-  font-family: var(--snad-font-latin);
-}
-
-h1, h2, h3, h4, h5, h6 {
-  font-family: var(--snad-font-display);
-  line-height: var(--snad-leading-heading);
-}
-
-[data-numeric], .tabular-nums {
-  font-family: var(--snad-font-numeric);
-  font-variant-numeric: tabular-nums;
-}
-
-button, input, textarea, select {
+button,
+input,
+textarea,
+select {
   font: inherit;
 }
 
-button {
-  cursor: pointer;
+.snad-clean-canvas {
+  width: 100%;
+  min-height: 100svh;
+  background: var(--snad-surface-canvas);
 }
 
-:focus-visible {
-  outline: 3px solid var(--snad-focus-ring);
-  outline-offset: 3px;
+/* Reset-password route styling (self-contained, no legacy component imports) */
+.snad-reset-root {
+  display: grid;
+  place-items: center;
+  min-height: 100svh;
+  padding: 1.5rem;
+  background: var(--snad-surface-canvas);
 }
 
-::selection {
-  background: var(--snad-brand-gold-soft);
+.snad-reset-card {
+  width: 100%;
+  max-width: 28rem;
+  background: var(--snad-surface-primary);
+  border: 1px solid var(--snad-border-default);
+  border-radius: 1rem;
+  padding: 2rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
+
+.snad-reset-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 800;
   color: var(--snad-text-primary);
 }
 
+.snad-reset-description {
+  margin: 0 0 1.5rem;
+  font-size: 0.9375rem;
+  color: var(--snad-text-secondary);
+}
 
+.snad-reset-form {
+  display: grid;
+  gap: 0.875rem;
+}
 
+.snad-reset-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--snad-border-default);
+  border-radius: 0.625rem;
+  background: var(--snad-surface-secondary);
+  color: var(--snad-text-primary);
+  font-size: 0.9375rem;
+}
 
+.snad-reset-input:focus {
+  outline: 3px solid var(--snad-focus-ring);
+  outline-offset: 2px;
+}
+
+.snad-reset-submit {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: none;
+  border-radius: 0.625rem;
+  background: var(--snad-brand-primary);
+  color: var(--snad-text-inverse);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.snad-reset-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.snad-reset-alert {
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.5rem;
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+  font-size: 0.875rem;
+}
