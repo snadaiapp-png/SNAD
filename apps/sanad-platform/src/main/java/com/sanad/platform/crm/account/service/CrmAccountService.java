@@ -11,17 +11,17 @@ import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
 import com.sanad.platform.user.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
 public class CrmAccountService {
-    private static final int MAX_PAGE_SIZE = 100;
+    private static final int MAX_LIST_SIZE = 100;
 
     private final TenantRepository tenants;
     private final UserRepository users;
@@ -66,16 +66,16 @@ public class CrmAccountService {
     }
 
     @Transactional(readOnly = true)
-    public Page<CrmAccountResponse> list(UUID tenantId, int page, int size) {
-        int safePage = Math.max(page, 0);
-        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+    public List<CrmAccountResponse> list(UUID tenantId) {
         PageRequest request = PageRequest.of(
-                safePage,
-                safeSize,
+                0,
+                MAX_LIST_SIZE,
                 Sort.by(Sort.Direction.ASC, "displayName"));
         return accountQueries
                 .findByTenant_IdAndLifecycleStatusNot(tenantId, CrmAccountStatus.ARCHIVED, request)
-                .map(this::toResponse);
+                .stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     @Transactional
@@ -98,18 +98,11 @@ public class CrmAccountService {
 
     private CrmAccountResponse toResponse(CrmAccount account) {
         return new CrmAccountResponse(
-                account.getId(),
-                account.getVersion(),
-                account.getDisplayName(),
-                account.getAccountType(),
-                account.getLifecycleStatus(),
-                account.getOwnerUserId(),
-                account.getPrimaryCurrencyCode(),
-                account.getPreferredLocale(),
-                account.getTimeZone(),
-                account.getSource(),
-                account.getCreatedAt(),
-                account.getUpdatedAt()
+                account.getId(), account.getVersion(), account.getDisplayName(),
+                account.getAccountType(), account.getLifecycleStatus(),
+                account.getOwnerUserId(), account.getPrimaryCurrencyCode(),
+                account.getPreferredLocale(), account.getTimeZone(),
+                account.getSource(), account.getCreatedAt(), account.getUpdatedAt()
         );
     }
 }
