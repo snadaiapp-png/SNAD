@@ -44,7 +44,7 @@ The history scan produced 8 raw detections across 5 repository paths. Repeated d
 | HF-03 | `docs/runbooks/backend-auth-rollback.md` | 9 | generic-api-key | History (commit `a4bedb10`) and current tree | FALSE_POSITIVE | No action required. | Gitleaks matched a backtick-quoted prose identifier in a markdown runbook. The matched text is a short reference tag, not a credential. Manual review confirmed no secret value. |
 | HF-04 | `docs/runbooks/backend-auth-rollback.md` | 10 | generic-api-key | History (commit `a4bedb10`) and current tree | FALSE_POSITIVE | No action required. | Same as HF-03 — backtick-quoted prose identifier in markdown runbook. Manual review confirmed no secret value. |
 | HF-05 | `docs/execution/EXEC-PROMPT-029-frontend-backend-integration-foundation.md` | 54 | generic-api-key | History (commits `8b45421c`, `15043d07`) and current tree | FALSE_POSITIVE | No action required. | Gitleaks matched the prose phrase `session-token lifecycle:` in a markdown execution log. The matched text is descriptive prose, not a credential. Manual review confirmed no secret value. |
-| HF-06 | `apps/web/app/api/email-proxy/route.ts` | 18 | generic-api-key | History (commit `a6b11112`) — removed from current tree by PR #172 | FALSE_POSITIVE | No further source action required; the insecure fallback pattern was already removed by PR #172. | The matched historical value was a short non-provider-format placeholder used as an environment-variable fallback. It did not match the Resend credential format and is absent from the current tree. No secret value is recorded in this report. |
+| HF-06 | `apps/web/app/api/email-proxy/route.ts` | 18 | generic-api-key | GIT HISTORY ONLY — removed from current tree by PR #172 | NEEDS_OWNER_VERIFICATION | BLOCKED — OWNER ACCESS REQUIRED: determine whether this historical fallback was an operational credential; verify rotation and rejection if applicable. | PR #172 documented hardcoded fallback credentials in this route. Value shape alone is insufficient to prove a false positive. No secret value is recorded. |
 
 ## Summary by Classification
 
@@ -55,8 +55,8 @@ The history scan produced 8 raw detections across 5 repository paths. Repeated d
 | TEST_FIXTURE | 1 | HF-02 — explicitly labeled non-secret test token. |
 | DOCUMENTATION_PLACEHOLDER | 0 | — |
 | PUBLIC_IDENTIFIER | 0 | — |
-| FALSE_POSITIVE | 4 | HF-03, HF-04, HF-05 are prose matches; HF-06 is a historical non-provider-format code placeholder already removed from the current tree. |
-| NEEDS_OWNER_VERIFICATION | 1 | Verification status attached to HF-01; this is not an additional finding. |
+| FALSE_POSITIVE | 3 | HF-03, HF-04, HF-05 — prose text in markdown files matched by `generic-api-key` rule. |
+| NEEDS_OWNER_VERIFICATION | 1 unique finding (HF-06) | HF-06 requires owner-controlled verification. HF-01 carries a NEEDS_OWNER_VERIFICATION verification status as well; primary classifications and verification statuses are tracked separately and are not summed. |
 
 ## Build-Artifact Detections (62 untracked generated-file detections)
 
@@ -99,7 +99,11 @@ No changes to the security workflow were required. The `.gitleaks.toml` allowlis
 
 ## Owner Action Required
 
-The only finding that requires owner action is HF-01:
+Within the Gitleaks finding set, HF-01 and HF-06 require owner-controlled verification.
+
+Separately, Issue #173 retains additional owner-controlled actions for the previously exposed email-provider and proxy credentials, including revocation, replacement, runtime configuration, old-value rejection, provider-log review, redeployment, and the later authorized delivery test.
+
+HF-01:
 
 - **What**: A one-time admin password was set via a deleted GitHub Actions workflow (`set-admin-password.yml`). The workflow set a production admin user's password to a hardcoded value, then the workflow file was deleted in a later commit.
 - **Risk**: The hardcoded password value remains in git history. If the admin user's password was not subsequently rotated through a different mechanism, the historical value may still grant administrative access.
@@ -110,12 +114,23 @@ The only finding that requires owner action is HF-01:
   4. Record safe evidence (timestamp, verifier, rejection confirmed — NO secret values).
 - **Status**: BLOCKED — OWNER ACCESS REQUIRED. The executor does not have owner access to perform this verification or rotation.
 
+HF-06:
+
+- **What**: A hardcoded fallback value was detected in the Git history of `apps/web/app/api/email-proxy/route.ts` (commit `a6b11112`). PR #172 documented that this route contained hardcoded runtime fallback credentials and removed them. The value is absent from the current tree.
+- **Risk**: PR #172's incident record establishes that this route contained hardcoded fallback credentials. Provider-format mismatch or short value length alone is not sufficient to classify the historical value as a false positive. The value's operational use, rotation status, and old-value rejection have not been verified.
+- **Owner action**:
+  1. Correlate this finding with the PR #172 incident record and any owner-controlled provider evidence.
+  2. Determine whether the historical fallback was an operational credential that was used against a live provider.
+  3. If it was operational, verify that the corresponding provider credential has been rotated and that the historical value is rejected.
+  4. Record safe evidence (timestamp, verifier, determination, rejection confirmed — NO secret values).
+- **Status**: BLOCKED — OWNER ACCESS REQUIRED. The executor does not have owner access to perform this correlation or verification.
+
 ## Final Scan Results
 
 | Scan | Findings | Status |
 |------|---------:|--------|
 | Current tree (repo config, after triage) | 0 | PASS |
-| Git history (repo config) | 8 raw detections | Consolidated into 6 unique findings: 1 CONFIRMED_SECRET, 1 TEST_FIXTURE, and 4 FALSE_POSITIVE findings. HF-01 requires owner verification. |
+| Git history (repo config) | 8 raw detections | Consolidated into 6 unique findings: 1 CONFIRMED_SECRET, 1 TEST_FIXTURE, 3 FALSE_POSITIVE, and 1 NEEDS_OWNER_VERIFICATION. HF-01 also carries a NEEDS_OWNER_VERIFICATION verification status. |
 
 ## Issue #173 Impact
 
@@ -123,6 +138,6 @@ The only finding that requires owner action is HF-01:
   - Current-tree scan: 0 findings. PASS.
   - All findings classified.
   - No confirmed active secret remains in current source.
-  - One confirmed historical secret (HF-01) has rotation status NOT VERIFIED and old-value rejection NOT VERIFIED.
+  - HF-01 (CONFIRMED_SECRET) and HF-06 (NEEDS_OWNER_VERIFICATION) both have rotation status NOT VERIFIED and old-value rejection NOT VERIFIED.
 - The criterion can be marked COMPLETE only after the owner records safe evidence that the corresponding credential was rotated and that the historical value is rejected. No secret values may be recorded.
 - Issue #173 remains OPEN. Confirmed exit criteria: 0/17.

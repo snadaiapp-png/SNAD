@@ -14,8 +14,7 @@
 # Path exclusions (narrow, justified, build-artifact only)
 # ---------------------------------------------------------------------------
 # These paths are gitignored build outputs containing generated transient
-# values. These directories
-# are excluded from tracked-source scanning, but their generated values
+# values. They are excluded from tracked-source scanning, but their values
 # must never be committed, published, or included in logs.
 #
 # These exclusions do NOT cover source files, test files, or documentation.
