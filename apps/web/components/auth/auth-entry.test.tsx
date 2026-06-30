@@ -128,4 +128,50 @@ describe("AuthEntry — Session Bootstrap", () => {
       expect(screen.getByPlaceholderText("you@example.com")).toBeInTheDocument();
     });
   });
+
+  it("preserves tenant picker while loginWithTenant is pending", async () => {
+    const { AmbiguousTenantError } = await import("@/lib/api/auth");
+    const userEvent = (await import("@testing-library/user-event")).default;
+
+    // First login: refresh fails → ANONYMOUS
+    authApiMock.refresh.mockRejectedValue(new Error("no cookie"));
+    // Then login: returns ambiguous tenant error
+    authApiMock.login.mockRejectedValueOnce(new AmbiguousTenantError("ambiguous", ["tenant-aaaa-8F21"]));
+
+    render(<AuthProvider><AuthEntry /></AuthProvider>);
+
+    // Wait for ANONYMOUS
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("you@example.com")).toBeInTheDocument();
+    });
+
+    // Trigger login that results in ambiguous tenant
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText("you@example.com"), "test@example.com");
+    await user.type(screen.getByPlaceholderText("••••••••"), "Password123!");
+    await user.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
+
+    // Tenant picker appears
+    await waitFor(() => {
+      expect(screen.getByText("مساحة عمل •••• 8F21")).toBeInTheDocument();
+    });
+
+    // Now make loginWithTenant hang (pending)
+    authApiMock.login.mockImplementation(() => new Promise(() => {}));
+
+    // Select the tenant
+    await user.click(screen.getByText("مساحة عمل •••• 8F21"));
+    await user.click(screen.getByRole("button", { name: "المتابعة" }));
+
+    // Tenant picker remains visible with "جارٍ الدخول…"
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "جارٍ الدخول…" })).toBeDisabled();
+    });
+
+    // Login screen should NOT reappear
+    expect(screen.queryByPlaceholderText("you@example.com")).not.toBeInTheDocument();
+
+    // loginWithTenant should have been called exactly once (total login calls = 2: 1 ambiguous + 1 tenant-specific)
+    expect(authApiMock.login).toHaveBeenCalledTimes(2);
+  });
 });

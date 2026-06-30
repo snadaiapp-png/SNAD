@@ -25,10 +25,15 @@ export function CredentialRotationForm({
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const isProcessing = processing || submitting;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (processing) return;
+
+    if (isProcessing) {
+      return;
+    }
 
     if (!currentPassword) {
       setValidationError("كلمة المرور الحالية مطلوبة.");
@@ -48,7 +53,16 @@ export function CredentialRotationForm({
     }
 
     setValidationError(null);
-    await onChangeCredential(currentPassword, newPassword);
+    setSubmitting(true);
+
+    try {
+      await onChangeCredential(currentPassword, newPassword);
+    } catch {
+      // AuthProvider maps and exposes the safe user-facing error.
+      // Do not rethrow from the browser event handler.
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   const displayError = validationError
@@ -83,7 +97,7 @@ export function CredentialRotationForm({
               onChange={setCurrentPassword}
               show={showCurrent}
               onToggle={() => setShowCurrent(!showCurrent)}
-              disabled={processing}
+              disabled={isProcessing}
             />
 
             <PasswordField
@@ -94,7 +108,7 @@ export function CredentialRotationForm({
               onChange={setNewPassword}
               show={showNew}
               onToggle={() => setShowNew(!showNew)}
-              disabled={processing}
+              disabled={isProcessing}
             />
 
             <PasswordField
@@ -105,16 +119,16 @@ export function CredentialRotationForm({
               onChange={setConfirmation}
               show={showConfirm}
               onToggle={() => setShowConfirm(!showConfirm)}
-              disabled={processing}
+              disabled={isProcessing}
             />
 
             <button
               type="submit"
               className={styles.authSubmit}
-              disabled={processing}
-              aria-busy={processing}
+              disabled={isProcessing}
+              aria-busy={isProcessing}
             >
-              {processing ? "جارٍ التحديث…" : "تحديث كلمة المرور"}
+              {isProcessing ? "جارٍ التحديث…" : "تحديث كلمة المرور"}
             </button>
           </form>
         </div>

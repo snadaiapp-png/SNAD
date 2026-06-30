@@ -71,7 +71,20 @@ function useInMemorySession() {
   const getAccessToken = useCallback(() => accessTokenRef.current, []);
   const getExpiresAt = useCallback(() => expiresAtRef.current, []);
 
-  return { setSession, clearSession, getAccessToken, getExpiresAt };
+  return useMemo(
+    () => ({
+      setSession,
+      clearSession,
+      getAccessToken,
+      getExpiresAt,
+    }),
+    [
+      setSession,
+      clearSession,
+      getAccessToken,
+      getExpiresAt,
+    ],
+  );
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {

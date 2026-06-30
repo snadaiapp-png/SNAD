@@ -32,6 +32,17 @@ export function AuthEntry() {
     return <AuthLoadingState />;
   }
 
+  if (state === "AUTHENTICATING" && ambiguousTenantIds.length > 0) {
+    return (
+      <TenantPicker
+        tenantIds={ambiguousTenantIds}
+        onSelect={loginWithTenant}
+        onDismiss={dismissAmbiguousTenant}
+        authenticating={true}
+      />
+    );
+  }
+
   if (state === "AUTHENTICATING") {
     return (
       <LoginScreen

@@ -10,7 +10,6 @@ interface LoginFormProps {
   authenticating: boolean;
   error: UserFacingError | null;
   sessionExpired?: boolean;
-  helpUrl?: string;
 }
 
 export function LoginForm({
@@ -18,7 +17,6 @@ export function LoginForm({
   authenticating,
   error,
   sessionExpired = false,
-  helpUrl = "/reset-password",
 }: LoginFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -165,12 +163,7 @@ export function LoginForm({
 
       {showHelp && (
         <div className={styles.authHelpPanel}>
-          تواصل مع مسؤول النظام أو فريق الدعم لاستعادة الوصول إلى حسابك.
-          إذا كان لديك رابط استرداد يحتوي على رمز، يمكنك استخدامه من{" "}
-          <a href={helpUrl} className={styles.authHelpPanelLink}>
-            صفحة إعادة ضبط كلمة المرور
-          </a>
-          .
+          تواصل مع مسؤول النظام أو فريق الدعم لاستعادة الوصول إلى حسابك. إذا استلمت رابط استرداد آمنًا، افتح الرابط نفسه لإكمال العملية.
         </div>
       )}
     </div>

@@ -125,4 +125,14 @@ describe("LoginForm", () => {
     expect(alert.textContent).not.toMatch(/stack|trace|at \//i);
     expect(alert.textContent).not.toMatch(/https?:\/\//);
   });
+
+  it("shows help panel without a generic /reset-password link", async () => {
+    const user = userEvent.setup();
+    renderLoginForm();
+    await user.click(screen.getByRole("button", { name: "تحتاج مساعدة في الدخول؟" }));
+    // Help panel appears
+    expect(screen.getByText(/تواصل مع مسؤول النظام/)).toBeInTheDocument();
+    // No generic /reset-password link is rendered
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
 });

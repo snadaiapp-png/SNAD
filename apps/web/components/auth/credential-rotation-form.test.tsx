@@ -76,4 +76,63 @@ describe("CredentialRotationForm", () => {
     expect(getField("كلمة المرور الجديدة")).toBeDisabled();
     expect(getField("تأكيد كلمة المرور الجديدة")).toBeDisabled();
   });
+
+  it("disables the form during the actual credential request and prevents duplicate submission", async () => {
+    const user = userEvent.setup();
+
+    let resolveRequest: (() => void) | undefined;
+
+    onChangeCredentialMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+
+    renderForm();
+
+    await user.type(getField("كلمة المرور الحالية"), "OldPass123!");
+    await user.type(getField("كلمة المرور الجديدة"), "NewPass456!");
+    await user.type(getField("تأكيد كلمة المرور الجديدة"), "NewPass456!");
+
+    await user.click(screen.getByRole("button", { name: "تحديث كلمة المرور" }));
+
+    // Button shows "جارٍ التحديث…" and is disabled
+    expect(screen.getByRole("button", { name: "جارٍ التحديث…" })).toBeDisabled();
+    expect(onChangeCredentialMock).toHaveBeenCalledTimes(1);
+
+    // Try clicking again — should NOT result in a second call
+    await user.click(screen.getByRole("button", { name: "جارٍ التحديث…" }));
+    expect(onChangeCredentialMock).toHaveBeenCalledTimes(1);
+
+    // Resolve the pending request
+    resolveRequest?.();
+
+    // After resolution, button becomes enabled again
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "تحديث كلمة المرور" })).toBeEnabled();
+    });
+  });
+
+  it("handles rejected requests safely without unhandled exceptions", async () => {
+    const user = userEvent.setup();
+    onChangeCredentialMock.mockRejectedValue(new Error("rotation failed"));
+
+    renderForm();
+
+    await user.type(getField("كلمة المرور الحالية"), "OldPass123!");
+    await user.type(getField("كلمة المرور الجديدة"), "NewPass456!");
+    await user.type(getField("تأكيد كلمة المرور الجديدة"), "NewPass456!");
+
+    await user.click(screen.getByRole("button", { name: "تحديث كلمة المرور" }));
+
+    // Button becomes enabled again after rejection
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "تحديث كلمة المرور" })).toBeEnabled();
+    });
+
+    // Provider error can be rendered after rerender
+    renderForm({ error: { title: "خطأ في الخادم", message: "حدث خطأ داخلي.", kind: "server" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("خطأ في الخادم");
+  });
 });

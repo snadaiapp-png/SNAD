@@ -247,4 +247,64 @@ describe("AuthProvider — Password Ref Security", () => {
       expect.objectContaining({ password: "secret123", tenantId: "t1" }),
     );
   });
+
+  it("runs silent refresh only once while profile loading triggers rerenders", async () => {
+    let resolveMe:
+      | ((value: typeof defaultMe) => void)
+      | undefined;
+
+    authApiMock.refresh.mockImplementation(async () => ({
+      accessToken: "test-access-token",
+      expiresAt: "2099-01-01T00:00:00Z",
+      user: {
+        ...defaultUser,
+      },
+    }));
+
+    authApiMock.me.mockImplementation(
+      () =>
+        new Promise<typeof defaultMe>((resolve) => {
+          resolveMe = resolve;
+        }),
+    );
+
+    renderProvider();
+
+    await waitFor(() => {
+      expect(authApiMock.refresh).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      resolveMe?.({
+        ...defaultMe,
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("state")).toHaveTextContent(
+        "AUTHENTICATED",
+      );
+    });
+
+    expect(authApiMock.refresh).toHaveBeenCalledTimes(1);
+    expect(authApiMock.me).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not re-run bootstrap on child rerender after authentication", async () => {
+    authApiMock.refresh.mockResolvedValue({
+      accessToken: "test-access-token",
+      expiresAt: "2099-01-01T00:00:00Z",
+      user: { ...defaultUser },
+    });
+    authApiMock.me.mockResolvedValue({ ...defaultMe });
+
+    renderProvider();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("state")).toHaveTextContent("AUTHENTICATED");
+    });
+
+    // After authenticated, refresh should have been called exactly once
+    expect(authApiMock.refresh).toHaveBeenCalledTimes(1);
+  });
 });
