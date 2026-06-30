@@ -80,8 +80,8 @@ function DataFlow() {
       </g>
 
       <g className="snad-auth-node-status">
-        {nodes.map((node, index) => (
-          <g key={`${node.x}-${node.y}`} transform={`translate(${node.x} ${node.y})`} style={{ "--node-delay": `${index * -0.47}s` } as React.CSSProperties}>
+        {nodes.map((node) => (
+          <g key={`${node.x}-${node.y}`} transform={`translate(${node.x} ${node.y})`}>
             <circle className={`snad-auth-status-ring snad-auth-status-ring--${node.tone}`} r="50"/>
             <circle className={`snad-auth-status-core snad-auth-status-core--${node.tone}`} r="3.4"/>
           </g>
