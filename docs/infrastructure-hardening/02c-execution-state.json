@@ -4,10 +4,10 @@
   "stageName": "Remote CI and Runtime Validation",
   "branch": "infra/02c-remote-ci-validation",
   "baseCommitSha": "2bb49182318deb483381c187412e34e07de3f3ae",
-  "headCommitSha": "",
-  "workflowRunId": "",
-  "workflowRunUrl": "",
-  "workflowConclusion": "NOT_RUN",
+  "headCommitSha": "23ffae8",
+  "workflowRunId": "28472887627",
+  "workflowRunUrl": "https://github.com/snadaiapp-png/SNAD/actions/runs/28472887627",
+  "workflowConclusion": "FAIL",
   "repositoryPolicy": "NOT_RUN",
   "backendTests": "NOT_RUN",
   "backendPostgresIntegration": "NOT_RUN",
@@ -32,9 +32,10 @@
   "ownerDeferredSecurityDebtCount": 2,
   "openProductionBlockingDebtCount": 2,
   "closedStage02CDebtIds": [],
-  "newDebtIds": [],
+  "newDebtIds": ["CD-02C-P1-001"],
   "productionReleaseAuthorized": false,
   "developmentProgressionAuthorized": true,
   "governanceExceptionId": "GOV-EXC-2026-06-30-001",
-  "status": "READY_FOR_REMOTE_VALIDATION"
+  "status": "READY_FOR_REMOTE_VALIDATION",
+  "remoteFailureAnalysis": "All 12 jobs fail with 0 steps and empty logs. This indicates the fine-grained PAT used by the GitHub CLI does not have sufficient Actions permissions to execute workflows. The workflow YAML is valid (verified locally). The token can push branches and create PRs but cannot trigger workflow execution. This is a token permission issue, not a workflow syntax issue."
 }
