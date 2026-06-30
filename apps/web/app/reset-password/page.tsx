@@ -47,7 +47,7 @@ export default function ResetPasswordPage() {
         </p>
         {success ? (
           <Link href="/" className="snad-reset-submit">
-            العودة إلى تسجيل الدخول
+            العودة إلى الصفحة الرئيسية
           </Link>
         ) : (
           <form onSubmit={submit} className="snad-reset-form">
