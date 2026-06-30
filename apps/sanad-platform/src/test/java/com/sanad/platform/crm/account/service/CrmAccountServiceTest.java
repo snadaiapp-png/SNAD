@@ -56,10 +56,7 @@ class CrmAccountServiceTest {
         when(tenants.findById(tenantId)).thenReturn(Optional.of(activeTenant));
         when(users.findByTenantIdAndId(tenantId, foreignOwner)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.create(
-                tenantId,
-                actorId,
-                request(foreignOwner)))
+        assertThatThrownBy(() -> service.create(tenantId, actorId, request(foreignOwner)))
                 .isInstanceOf(EntityNotFoundException.class)
                 .hasMessageContaining("owner");
 
@@ -79,9 +76,9 @@ class CrmAccountServiceTest {
     }
 
     @Test
-    void rejectsInactiveTenant() {
-        Tenant inactive = new Tenant("Inactive", "inactive", TenantStatus.INACTIVE);
-        when(tenants.findById(tenantId)).thenReturn(Optional.of(inactive));
+    void rejectsSuspendedTenant() {
+        Tenant suspended = new Tenant("Suspended", "suspended", TenantStatus.SUSPENDED);
+        when(tenants.findById(tenantId)).thenReturn(Optional.of(suspended));
 
         assertThatThrownBy(() -> service.create(tenantId, actorId, request(null)))
                 .isInstanceOf(EntityNotFoundException.class)
