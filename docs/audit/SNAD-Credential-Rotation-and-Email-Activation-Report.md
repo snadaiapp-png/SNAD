@@ -81,7 +81,12 @@ The following environment variables MUST be set by the owner on each platform. V
 | No response body logging | Code review | PASS | Only logs `{ status: number }` |
 | Cache-Control: no-store | Code review | PASS | Present on all responses via `jsonResponse` |
 
-**SOURCE TREE: CLEAN** ✅
+Current-tree secret scan using the repository-approved Gitleaks configuration: PASS.
+
+Repository-wide default-rule and Git-history findings were separately triaged in:
+`SNAD-Repository-Secret-Findings-Triage.md`.
+
+No claim of complete historical secret absence is made unless all findings are classified and all confirmed credentials are revoked and verified unusable.
 
 ---
 
@@ -154,12 +159,12 @@ The following environment variables MUST be set by the owner on each platform. V
 [ ] Render validation passed
 [ ] Password recovery email delivered
 [ ] Invalid bearer token rejected
-[X] No secrets found in source
+[~] No secrets found in source — PENDING TRIAGE (repository-wide findings triaged in SNAD-Repository-Secret-Findings-Triage.md; one confirmed historical secret requires owner verification; rotation and old-value rejection are not yet verified)
 [ ] No secrets found in logs
 [ ] Incident evidence recorded safely
 ```
 
-Current Issue #173 Exit Criteria Status: 1/17 complete
+Current Issue #173 Exit Criteria Status: 0/17 complete
 
 ---
 

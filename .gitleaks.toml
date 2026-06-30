@@ -10,6 +10,22 @@
 [extend]
   useDefault = true
 
-# No global path exclusions.
+# ---------------------------------------------------------------------------
+# Path exclusions (narrow, justified, build-artifact only)
+# ---------------------------------------------------------------------------
+# These paths are gitignored build outputs containing generated transient
+# values. They are excluded from tracked-source scanning, but their values
+# must never be committed, published, or included in logs.
+#
+# These exclusions do NOT cover source files, test files, or documentation.
+# Real secrets in source files are still detected by the default rules.
+
+[allowlist]
+description = "Gitignored generated build outputs excluded from tracked-source scanning; values in these directories must never be committed or published"
+paths = [
+  '''^apps/sanad-platform/target/''',
+  '''^apps/web/\.next/''',
+]
+
 # No global regex exclusions.
-# Default detection rules are fully active.
+# Default detection rules are fully active for all source files.
