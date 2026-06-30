@@ -1,0 +1,9 @@
+{
+  "generatedFromCommit": "e84f173683b05f8333b6dd89b53b27a3202b6d6f",
+  "generatedAt": "2026-06-30T22:50:04Z",
+  "generator": "OpenApiContractExportTest (SpringBootTest + springdoc-openapi 2.6.0)",
+  "pathCount": 43,
+  "schemaCount": 39,
+  "approvedBy": "infra-03a",
+  "baselineVersion": "v1"
+}

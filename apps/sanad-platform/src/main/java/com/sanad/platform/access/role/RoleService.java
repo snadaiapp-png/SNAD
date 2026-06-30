@@ -40,6 +40,14 @@ public class RoleService {
                 .map(RoleResponse::from).toList();
     }
 
+    /** Stage 03A — Paginated, tenant-scoped role query. */
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<RoleResponse> list(
+            UUID tenantId, org.springframework.data.domain.Pageable pageable) {
+        requireTenant(tenantId);
+        return roleRepository.findByTenantId(tenantId, pageable).map(RoleResponse::from);
+    }
+
     @Transactional(readOnly = true)
     public RoleResponse get(UUID tenantId, UUID roleId) {
         return RoleResponse.from(load(tenantId, roleId));

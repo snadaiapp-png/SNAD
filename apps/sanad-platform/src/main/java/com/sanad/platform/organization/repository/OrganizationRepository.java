@@ -1,6 +1,8 @@
 package com.sanad.platform.organization.repository;
 
 import com.sanad.platform.organization.domain.Organization;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -45,6 +47,16 @@ public interface OrganizationRepository extends JpaRepository<Organization, UUID
      */
     @Query("SELECT o FROM Organization o WHERE o.tenant.id = :tenantId")
     List<Organization> findByTenantId(@Param("tenantId") UUID tenantId);
+
+    /**
+     * Stage 03A — Paginated, tenant-scoped query. The {@code Pageable}
+     * carries sort + offset + limit; tenant isolation is enforced at the
+     * database level via the WHERE clause.
+     */
+    @Query(
+        value = "SELECT o FROM Organization o WHERE o.tenant.id = :tenantId",
+        countQuery = "SELECT COUNT(o) FROM Organization o WHERE o.tenant.id = :tenantId")
+    Page<Organization> findByTenantId(@Param("tenantId") UUID tenantId, Pageable pageable);
 
     /**
      * Look up a single organization within a tenant by ID.

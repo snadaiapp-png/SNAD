@@ -1,6 +1,10 @@
 package com.sanad.platform.user.api;
 
-import com.sanad.platform.organization.api.ApiErrorResponse;
+import com.sanad.platform.shared.api.ApiErrorResponse;
+import com.sanad.platform.shared.api.PageRequestParams;
+import com.sanad.platform.shared.api.PageResponse;
+import com.sanad.platform.shared.api.PageResponseBuilder;
+import com.sanad.platform.shared.api.SortAllowlist;
 import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.user.dto.CreateUserRequest;
 import com.sanad.platform.user.dto.UpdateUserRequest;
@@ -14,6 +18,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -28,6 +34,7 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -57,13 +64,13 @@ public class UserController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = UserResponse.class))),
             @ApiResponse(responseCode = "400", description = "Validation failed",
-                    content = @Content(mediaType = "application/json",
+                    content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "Tenant not found",
-                    content = @Content(mediaType = "application/json",
+                    content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class))),
             @ApiResponse(responseCode = "409", description = "Email already exists in tenant",
-                    content = @Content(mediaType = "application/json",
+                    content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
     @RequireCapability("USER.CREATE")
@@ -81,22 +88,26 @@ public class UserController {
         return ResponseEntity.created(location).body(created);
     }
 
-    @Operation(summary = "List users", description = "Lists users belonging only to the requested tenant.")
+    @Operation(summary = "List users", description = "Lists users belonging only to the requested tenant. Stage 03A: paginated.")
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "User list",
+            @ApiResponse(responseCode = "200", description = "User list (paginated)",
                     content = @Content(mediaType = "application/json",
-                            schema = @Schema(implementation = UserResponse[].class))),
-            @ApiResponse(responseCode = "400", description = "Missing or invalid tenantId",
-                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = PageResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Missing or invalid tenantId / pagination",
+                    content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
     @RequireCapability("USER.READ")
     @GetMapping
-    public ResponseEntity<List<UserResponse>> listUsers(
+    public ResponseEntity<PageResponse<UserResponse>> listUsers(
             @Parameter(description = "Tenant UUID (scope)", required = true)
-            @RequestParam UUID tenantId) {
-
-        return ResponseEntity.ok(userService.listUsers(tenantId));
+            @RequestParam UUID tenantId,
+            @Valid PageRequestParams params) {
+        // Sort allowlist for User
+        Set<String> allowedSortFields = Set.of("id", "email", "displayName", "status", "createdAt", "updatedAt");
+        Pageable pageable = SortAllowlist.toPageable(params, allowedSortFields);
+        Page<UserResponse> page = userService.listUsers(tenantId, pageable);
+        return ResponseEntity.ok(PageResponseBuilder.from(page, page.getContent()));
     }
 
     @Operation(summary = "Get a user", description = "Returns a user only when it belongs to the requested tenant.")
@@ -105,10 +116,10 @@ public class UserController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = UserResponse.class))),
             @ApiResponse(responseCode = "400", description = "Missing or invalid identifier",
-                    content = @Content(mediaType = "application/json",
+                    content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "User not found",
-                    content = @Content(mediaType = "application/json",
+                    content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
     @RequireCapability("USER.READ")
@@ -128,13 +139,13 @@ public class UserController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = UserResponse.class))),
             @ApiResponse(responseCode = "400", description = "Validation failed",
-                    content = @Content(mediaType = "application/json",
+                    content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "User not found",
-                    content = @Content(mediaType = "application/json",
+                    content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class))),
             @ApiResponse(responseCode = "409", description = "Email already exists in tenant",
-                    content = @Content(mediaType = "application/json",
+                    content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
     @RequireCapability("USER.WRITE")
@@ -155,7 +166,7 @@ public class UserController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = UserResponse.class))),
             @ApiResponse(responseCode = "404", description = "User not found",
-                    content = @Content(mediaType = "application/json",
+                    content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
     @RequireCapability("USER.WRITE")
@@ -173,7 +184,7 @@ public class UserController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = UserResponse.class))),
             @ApiResponse(responseCode = "404", description = "User not found",
-                    content = @Content(mediaType = "application/json",
+                    content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
     @RequireCapability("USER.WRITE")
@@ -191,7 +202,7 @@ public class UserController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = UserResponse.class))),
             @ApiResponse(responseCode = "404", description = "User not found",
-                    content = @Content(mediaType = "application/json",
+                    content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
     @RequireCapability("USER.WRITE")
@@ -209,7 +220,7 @@ public class UserController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = UserResponse.class))),
             @ApiResponse(responseCode = "404", description = "User not found",
-                    content = @Content(mediaType = "application/json",
+                    content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)))
     })
     @RequireCapability("USER.DELETE")

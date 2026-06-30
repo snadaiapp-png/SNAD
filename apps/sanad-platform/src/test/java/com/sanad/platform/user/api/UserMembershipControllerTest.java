@@ -86,8 +86,9 @@ class UserMembershipControllerTest {
     @Test
     @DisplayName("DEFECT-021: listMemberships is annotated with @RequireCapability(\"MEMBERSHIP.READ\")")
     void listMemberships_hasRequireCapabilityAnnotation() throws NoSuchMethodException {
+        // Stage 03A: signature is now (UUID userId, PageRequestParams params)
         Method method = UserMembershipController.class.getMethod(
-                "listMemberships", UUID.class);
+                "listMemberships", UUID.class, com.sanad.platform.shared.api.PageRequestParams.class);
 
         RequireCapability annotation = method.getAnnotation(RequireCapability.class);
 
@@ -105,13 +106,17 @@ class UserMembershipControllerTest {
     @Test
     @DisplayName("EXEC-PROMPT-010R: listMemberships signature has no tenantId parameter")
     void listMemberships_signatureHasNoTenantIdParameter() throws NoSuchMethodException {
+        // Stage 03A: signature is now (UUID userId, PageRequestParams params) —
+        // still no tenantId parameter; tenant comes from JWT.
         Method method = UserMembershipController.class.getMethod(
-                "listMemberships", UUID.class);
+                "listMemberships", UUID.class, com.sanad.platform.shared.api.PageRequestParams.class);
 
-        // The method must take exactly one parameter (userId), not two.
-        assertThat(method.getParameterCount())
-                .as("listMemberships must take only userId — tenantId comes from JWT")
-                .isEqualTo(1);
+        // The method takes exactly 2 parameters: userId + PageRequestParams.
+        // Neither parameter is a "tenantId" (the only UUID is the userId).
+        Class<?>[] paramTypes = method.getParameterTypes();
+        assertThat(paramTypes.length).isEqualTo(2);
+        assertThat(paramTypes[0]).isEqualTo(UUID.class);
+        assertThat(paramTypes[1]).isEqualTo(com.sanad.platform.shared.api.PageRequestParams.class);
     }
 
     @Test
@@ -125,15 +130,18 @@ class UserMembershipControllerTest {
                 com.sanad.platform.organization.membership.domain.MembershipStatus.ACTIVE,
                 now, now);
 
-        when(assignmentService.listMembershipsByUser(eq(tenantId), eq(userId)))
-                .thenReturn(List.of(response));
+        when(assignmentService.listMembershipsByUser(
+                org.mockito.ArgumentMatchers.eq(tenantId),
+                org.mockito.ArgumentMatchers.eq(userId),
+                org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(response)));
 
         mockMvc.perform(get("/api/v1/users/{userId}/memberships", userId)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$[0].id").value(membershipId.toString()))
-                .andExpect(jsonPath("$[0].email").value("alice@example.com"));
+                .andExpect(jsonPath("$.content[0].id").value(membershipId.toString()))
+                .andExpect(jsonPath("$.content[0].email").value("alice@example.com"));
     }
 
     @Test
@@ -141,15 +149,18 @@ class UserMembershipControllerTest {
     void listMemberships_empty_returns200Empty() throws Exception {
         authenticateAsTenant(tenantId);
 
-        when(assignmentService.listMembershipsByUser(eq(tenantId), eq(userId)))
-                .thenReturn(List.of());
+        when(assignmentService.listMembershipsByUser(
+                org.mockito.ArgumentMatchers.eq(tenantId),
+                org.mockito.ArgumentMatchers.eq(userId),
+                org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/v1/users/{userId}/memberships", userId)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$").isArray())
-                .andExpect(jsonPath("$.length()").value(0));
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content.length()").value(0));
     }
 
     /**
@@ -167,8 +178,11 @@ class UserMembershipControllerTest {
         UUID foreignTenantId = UUID.fromString("99999999-9999-9999-9999-999999999999");
 
         // The service should be called with the JWT tenant, NOT the foreign one.
-        when(assignmentService.listMembershipsByUser(eq(tenantId), eq(userId)))
-                .thenReturn(List.of());
+        when(assignmentService.listMembershipsByUser(
+                org.mockito.ArgumentMatchers.eq(tenantId),
+                org.mockito.ArgumentMatchers.eq(userId),
+                org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/v1/users/{userId}/memberships", userId)
                         .param("tenantId", foreignTenantId.toString())  // foreign tenant — must be ignored

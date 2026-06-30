@@ -1,6 +1,8 @@
 package com.sanad.platform.organization.membership.repository;
 
 import com.sanad.platform.organization.membership.domain.OrganizationMembership;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -36,6 +38,28 @@ public interface OrganizationMembershipRepository extends JpaRepository<Organiza
     List<OrganizationMembership> findByTenantIdAndUserId(
             @Param("tenantId") UUID tenantId,
             @Param("userId") UUID userId);
+
+    /**
+     * Stage 03A — Paginated, tenant- and user-scoped query.
+     */
+    @Query(
+        value = "SELECT m FROM OrganizationMembership m WHERE m.tenantId = :tenantId AND m.userId = :userId",
+        countQuery = "SELECT COUNT(m) FROM OrganizationMembership m WHERE m.tenantId = :tenantId AND m.userId = :userId")
+    Page<OrganizationMembership> findByTenantIdAndUserId(
+        @Param("tenantId") UUID tenantId,
+        @Param("userId") UUID userId,
+        Pageable pageable);
+
+    /**
+     * Stage 03A — Paginated, tenant- and organization-scoped query.
+     */
+    @Query(
+        value = "SELECT m FROM OrganizationMembership m WHERE m.tenantId = :tenantId AND m.organizationId = :organizationId",
+        countQuery = "SELECT COUNT(m) FROM OrganizationMembership m WHERE m.tenantId = :tenantId AND m.organizationId = :organizationId")
+    Page<OrganizationMembership> findByTenantIdAndOrganizationId(
+        @Param("tenantId") UUID tenantId,
+        @Param("organizationId") UUID organizationId,
+        Pageable pageable);
 
     @Query("SELECT m FROM OrganizationMembership m "
             + "WHERE m.tenantId = :tenantId "

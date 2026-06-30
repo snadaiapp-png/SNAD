@@ -98,6 +98,21 @@ public class OrganizationMembershipUserLinkService {
                 .toList();
     }
 
+    /** Stage 03A — Paginated user-membership query. */
+    @Transactional(readOnly = true, propagation = Propagation.SUPPORTS)
+    public org.springframework.data.domain.Page<OrganizationMembershipResponse> listMembershipsByUser(
+            UUID tenantId, UUID userId, org.springframework.data.domain.Pageable pageable) {
+        Objects.requireNonNull(tenantId, "tenantId must not be null");
+        Objects.requireNonNull(userId, "userId must not be null");
+        Objects.requireNonNull(pageable, "pageable must not be null");
+
+        userRepository.findByTenantIdAndId(tenantId, userId)
+                .orElseThrow(() -> new EntityNotFoundException("User not found"));
+
+        return membershipRepository.findByTenantIdAndUserId(tenantId, userId, pageable)
+                .map(membershipMapper::toResponse);
+    }
+
     private OrganizationMembership loadMembership(
             UUID tenantId, UUID organizationId, UUID membershipId) {
         return membershipRepository.findByTenantIdAndOrganizationIdAndId(

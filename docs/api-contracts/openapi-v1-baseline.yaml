@@ -1,177 +1,1717 @@
 # SNAD OpenAPI v1 Baseline
-# This file is a baseline snapshot of the API contract.
-# It should be regenerated from the running application via SpringDoc.
-# The CI contract compatibility gate compares against this baseline.
-
-openapi: 3.0.1
+# ----------------------------------------------------------------------------
+# This file is the canonical API contract baseline for the SNAD platform.
+# It was generated FROM THE RUNNING APPLICATION (Spring Boot + springdoc)
+# by Stage 03A — NOT hand-written. Any change to the application that
+# breaks this baseline will fail the api-contract CI job.
+#
+# To regenerate after an INTENTIONAL non-breaking change, run:
+#   bash scripts/dev/capture-openapi-baseline.sh
+# and commit the result along with an updated metadata file.
+# ----------------------------------------------------------------------------
+openapi: 3.1.0
 info:
-  title: SNAD Platform API
-  version: v1
-  description: Multi-tenant SaaS platform API for ERP and CRM
+  title: OpenAPI definition
+  version: v0
 servers:
-  - url: /api/v1
+- url: http://localhost
+  description: Generated server url
+tags:
+- name: Authentication
+  description: Secure account and session management.
+- name: Authentication
+  description: Login, logout, refresh, password recovery, and session management.
+- name: Organizations
+  description: Create and manage Organization aggregates belonging to Tenants. An Organization is the operational container for future ERP, CRM, HRM, Accounting, and Commerce modules.
+- name: Users
+  description: Manage tenant-scoped platform users. Every operation requires tenantId.
+- name: Organization Memberships
+  description: Manage memberships (invitations) for an Organization. Every endpoint is tenant-scoped via the required tenantId query parameter.
 paths:
-  /auth/login:
-    post:
-      summary: User login
-      security: []
-  /auth/refresh:
-    post:
-      summary: Refresh access token
-      security: []
-  /auth/logout:
-    post:
-      summary: Logout and revoke tokens
-  /auth/change-credential:
-    post:
-      summary: Change own password
-  /auth/me:
+  /api/v1/users/{userId}:
     get:
-      summary: Get current user profile
-  /auth/forgot-password:
-    post:
-      summary: Request password reset
-      security: []
-  /auth/reset-password:
-    post:
-      summary: Reset password with token
-      security: []
-  /auth/admin-reset-password/{userId}:
-    post:
-      summary: Admin-initiated password reset
-  /auth/register:
-    post:
-      summary: Self-registration
-      security: []
-  /organizations:
-    get:
-      summary: List organizations
-    post:
-      summary: Create organization
-  /organizations/{id}:
-    get:
-      summary: Get organization
+      tags:
+      - Users
+      summary: Get a user
+      description: Returns a user only when it belongs to the requested tenant.
+      operationId: getUser
+      parameters:
+      - name: userId
+        in: path
+        description: User UUID
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        description: Tenant UUID (scope)
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: User found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Missing or invalid identifier
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: User not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
     put:
-      summary: Update organization
-  /organizations/{id}/activate:
-    patch:
-      summary: Activate organization
-  /organizations/{id}/deactivate:
-    patch:
-      summary: Deactivate organization
-  /organizations/{id}/archive:
-    patch:
-      summary: Archive organization
-  /organizations/{orgId}/memberships:
+      tags:
+      - Users
+      summary: Update a user
+      description: Updates email and display name within the tenant scope.
+      operationId: updateUser
+      parameters:
+      - name: userId
+        in: path
+        description: User UUID
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        description: Tenant UUID (scope)
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+        required: true
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Validation failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: User not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: Email already exists in tenant
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /api/v1/organizations/{id}:
     get:
-      summary: List memberships
-    post:
-      summary: Invite member
-  /organizations/{orgId}/memberships/{id}:
+      tags:
+      - Organizations
+      summary: Get an Organization by ID
+      description: Fetch a single Organization scoped to a specific Tenant. The tenantId query parameter is required. If the (tenantId, id) pair does not match any Organization, a 404 is returned.
+      operationId: getOrganization
+      parameters:
+      - name: id
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        description: Tenant UUID (scope)
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Organization found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationResponse'
+        '400':
+          description: Bad Request - missing required tenantId query parameter
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Organization Not Found - no Organization with the given id exists under the given tenant
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+    put:
+      tags:
+      - Organizations
+      summary: Update an Organization's name and description
+      description: Updates the mutable fields of an Organization. The tenant relationship and status are NOT changed. If the new name conflicts with another organization under the same tenant, a 409 Conflict is returned.
+      operationId: updateOrganization
+      parameters:
+      - name: id
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        description: Tenant UUID (scope)
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrganizationRequest'
+        required: true
+      responses:
+        '200':
+          description: Organization updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationResponse'
+        '400':
+          description: Bad Request - request body failed validation or tenantId missing
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Organization Not Found - no Organization with the given id exists under this tenant
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: Organization Already Exists - another organization under the same tenant already uses the new name
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /api/v1/access/roles/{roleId}:
     get:
-      summary: Get membership
-  /organizations/{orgId}/memberships/{id}/activate:
-    patch:
-      summary: Activate membership
-  /organizations/{orgId}/memberships/{id}/deactivate:
-    patch:
-      summary: Deactivate membership
-  /organizations/{orgId}/memberships/{id}/remove:
-    patch:
-      summary: Remove membership
-  /organizations/{orgId}/memberships/{id}/assign/{userId}:
-    patch:
-      summary: Assign user to membership
-  /organizations/{orgId}/memberships/{id}/unassign:
-    patch:
-      summary: Unassign user from membership
-  /users:
+      tags:
+      - role-controller
+      operationId: get
+      parameters:
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: roleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleResponse'
+    put:
+      tags:
+      - role-controller
+      operationId: update
+      parameters:
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: roleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoleRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleResponse'
+  /api/v1/access/capabilities/{capabilityId}:
     get:
+      tags:
+      - capability-controller
+      operationId: get_1
+      parameters:
+      - name: capabilityId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapabilityResponse'
+    put:
+      tags:
+      - capability-controller
+      operationId: update_1
+      parameters:
+      - name: capabilityId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapabilityResponse'
+  /api/v1/users:
+    get:
+      tags:
+      - Users
       summary: List users
+      description: 'Lists users belonging only to the requested tenant. Stage 03A: paginated.'
+      operationId: listUsers
+      parameters:
+      - name: tenantId
+        in: query
+        description: Tenant UUID (scope)
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: params
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/PageRequestParams'
+      responses:
+        '200':
+          description: User list (paginated)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageResponse'
+        '400':
+          description: Missing or invalid tenantId / pagination
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
     post:
-      summary: Create user
-  /users/{userId}:
+      tags:
+      - Users
+      summary: Create a user
+      description: Creates a tenant-scoped user. Default status is INVITED.
+      operationId: createUser
+      parameters:
+      - name: tenantId
+        in: query
+        description: Tenant UUID (scope)
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+        required: true
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Validation failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Tenant not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: Email already exists in tenant
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /api/v1/organizations:
     get:
-      summary: Get user
-    put:
-      summary: Update user
-  /users/{userId}/activate:
-    patch:
-      summary: Activate user
-  /users/{userId}/deactivate:
-    patch:
-      summary: Deactivate user
-  /users/{userId}/suspend:
-    patch:
-      summary: Suspend user
-  /users/{userId}/archive:
-    patch:
-      summary: Archive user
-  /users/{userId}/memberships:
-    get:
-      summary: List user memberships
-  /access/roles:
-    get:
-      summary: List roles
+      tags:
+      - Organizations
+      summary: List Organizations for a Tenant
+      description: Returns all Organizations belonging to the specified Tenant. The tenantId query parameter is required. If the tenant has no organizations, an empty array is returned.
+      operationId: listOrganizations
+      parameters:
+      - name: tenantId
+        in: query
+        description: Tenant UUID (scope)
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: params
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/PageRequestParams'
+      responses:
+        '200':
+          description: Organization list (possibly empty)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrganizationResponse'
+        '400':
+          description: Bad Request - missing required tenantId query parameter
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
     post:
-      summary: Create role
-  /access/roles/{roleId}:
+      tags:
+      - Organizations
+      summary: Create a new Organization
+      description: Registers a new Organization under an existing Tenant. The Organization is created with status ACTIVE. The (tenantId, name) pair must be unique; otherwise a 409 is returned.
+      operationId: createOrganization
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrganizationRequest'
+        required: true
+      responses:
+        '201':
+          description: Organization created successfully
+          headers:
+            Location:
+              description: URI of the newly created Organization resource
+              style: simple
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationResponse'
+        '400':
+          description: Bad Request - request body failed validation (missing tenantId, blank name, name or description too long)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Tenant Not Found - the referenced tenantId does not exist
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: Organization Already Exists - an Organization with the same name already exists under the same Tenant
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /api/v1/organizations/{organizationId}/memberships:
     get:
-      summary: Get role
-    put:
-      summary: Update role
-  /access/roles/{roleId}/activate:
-    patch:
-      summary: Activate role
-  /access/roles/{roleId}/deactivate:
-    patch:
-      summary: Deactivate role
-  /access/roles/{roleId}/archive:
-    patch:
-      summary: Archive role
-  /access/capabilities:
-    get:
-      summary: List capabilities
+      tags:
+      - Organization Memberships
+      summary: List all memberships for an organization
+      operationId: listMemberships
+      parameters:
+      - name: organizationId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        description: Tenant UUID (scope)
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: params
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/PageRequestParams'
+      responses:
+        '200':
+          description: Membership list (possibly empty)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrganizationMembershipResponse'
+        '400':
+          description: Missing tenantId
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Organization not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
     post:
-      summary: Create capability
-  /access/capabilities/{id}:
-    get:
-      summary: Get capability
-    put:
-      summary: Update capability
-  /access/capabilities/{id}/activate:
-    patch:
-      summary: Activate capability
-  /access/capabilities/{id}/deactivate:
-    patch:
-      summary: Deactivate capability
-  /access/roles/{roleId}/access-items:
-    get:
-      summary: List role access items
-  /access/roles/{roleId}/access-items/{capabilityId}:
+      tags:
+      - Organization Memberships
+      summary: Invite a member to an organization
+      description: Creates a new membership with status INVITED. The (tenantId, organizationId, email) tuple must be unique.
+      operationId: inviteMember
+      parameters:
+      - name: organizationId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        description: Tenant UUID (scope)
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteOrganizationMemberRequest'
+        required: true
+      responses:
+        '201':
+          description: Member invited successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationMembershipResponse'
+        '400':
+          description: Bad Request - validation failed or missing tenantId
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Tenant or Organization not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: Membership already exists for this email
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /api/v1/auth/reset-password:
     post:
-      summary: Add capability to role
+      tags:
+      - Authentication
+      summary: Set a new password using a valid single-use reset token
+      operationId: resetPassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+  /api/v1/auth/register:
+    post:
+      tags:
+      - Authentication
+      summary: Create an account with regional mobile contact and send a password setup link
+      operationId: register
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SelfRegistrationRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SelfRegistrationResponse'
+  /api/v1/auth/refresh:
+    post:
+      tags:
+      - Authentication
+      summary: Rotate a BFF-held refresh token
+      operationId: refresh
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+  /api/v1/auth/logout:
+    post:
+      tags:
+      - Authentication
+      summary: Revoke all active refresh tokens for the authenticated user
+      operationId: logout
+      responses:
+        '200':
+          description: OK
+  /api/v1/auth/login:
+    post:
+      tags:
+      - Authentication
+      summary: Authenticate and return access data to the trusted BFF
+      operationId: login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+  /api/v1/auth/forgot-password:
+    post:
+      tags:
+      - Authentication
+      summary: Request a single-use reset link. Always returns 200 to prevent account enumeration.
+      operationId: forgotPassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+  /api/v1/auth/change-credential:
+    post:
+      tags:
+      - Authentication
+      summary: Rotate the authenticated account credential and terminate refresh sessions
+      operationId: changeCredential
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeCredentialRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+  /api/v1/auth/admin-reset-password/{userId}:
+    post:
+      tags:
+      - Authentication
+      summary: Send an administrator-issued, single-use set-password link
+      operationId: adminResetPassword
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminResetPasswordRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+  /api/v1/access/users/{userId}/role-links/{roleId}:
+    post:
+      tags:
+      - user-access-controller
+      operationId: grant
+      parameters:
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: roleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: organizationId
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAccessResponse'
+  /api/v1/access/roles:
+    get:
+      tags:
+      - role-controller
+      operationId: list
+      parameters:
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: params
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/PageRequestParams'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageResponseRoleResponse'
+    post:
+      tags:
+      - role-controller
+      operationId: create
+      parameters:
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoleRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleResponse'
+  /api/v1/access/roles/{roleId}/access-items/{capabilityId}:
+    post:
+      tags:
+      - role-access-controller
+      operationId: attach
+      parameters:
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: roleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: capabilityId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleAccessResponse'
     delete:
-      summary: Remove capability from role
-  /access/users/{userId}/role-links:
+      tags:
+      - role-access-controller
+      operationId: detach
+      parameters:
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: roleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: capabilityId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+  /api/v1/access/capabilities:
     get:
-      summary: List user role grants
-  /access/users/{userId}/role-links/{roleId}:
+      tags:
+      - capability-controller
+      operationId: list_1
+      parameters:
+      - name: params
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/PageRequestParams'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageResponseCapabilityResponse'
     post:
-      summary: Grant role to user
-  /access/users/role-links/{grantId}/revoke:
+      tags:
+      - capability-controller
+      operationId: create_1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapabilityResponse'
+  /api/v1/users/{userId}/suspend:
     patch:
-      summary: Revoke role grant
-  /access/evaluation:
+      tags:
+      - Users
+      summary: Suspend a user
+      description: Sets the user status to SUSPENDED.
+      operationId: suspendUser
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: User suspended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '404':
+          description: User not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /api/v1/users/{userId}/deactivate:
+    patch:
+      tags:
+      - Users
+      summary: Deactivate a user
+      description: Sets the user status to INACTIVE.
+      operationId: deactivateUser
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: User deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '404':
+          description: User not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /api/v1/users/{userId}/archive:
+    patch:
+      tags:
+      - Users
+      summary: Archive a user
+      description: Sets the user status to ARCHIVED.
+      operationId: archiveUser
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: User archived
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '404':
+          description: User not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /api/v1/users/{userId}/activate:
+    patch:
+      tags:
+      - Users
+      summary: Activate a user
+      description: Sets the user status to ACTIVE.
+      operationId: activateUser
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: User activated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '404':
+          description: User not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /api/v1/organizations/{organizationId}/memberships/{membershipId}/unassign:
+    patch:
+      tags:
+      - organization-membership-assignment-controller
+      operationId: unassignUser
+      parameters:
+      - name: organizationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: membershipId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationMembershipResponse'
+  /api/v1/organizations/{organizationId}/memberships/{membershipId}/remove:
+    patch:
+      tags:
+      - Organization Memberships
+      summary: Remove a membership (soft delete, status = REMOVED)
+      operationId: removeMembership
+      parameters:
+      - name: organizationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: membershipId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Membership removed (soft delete)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationMembershipResponse'
+        '400':
+          description: Missing tenantId
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Membership not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /api/v1/organizations/{organizationId}/memberships/{membershipId}/deactivate:
+    patch:
+      tags:
+      - Organization Memberships
+      summary: Deactivate a membership (status = INACTIVE)
+      operationId: deactivateMembership
+      parameters:
+      - name: organizationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: membershipId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Membership deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationMembershipResponse'
+        '400':
+          description: Missing tenantId
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Membership not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /api/v1/organizations/{organizationId}/memberships/{membershipId}/assign/{userId}:
+    patch:
+      tags:
+      - organization-membership-assignment-controller
+      operationId: assignUser
+      parameters:
+      - name: organizationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: membershipId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationMembershipResponse'
+  /api/v1/organizations/{organizationId}/memberships/{membershipId}/activate:
+    patch:
+      tags:
+      - Organization Memberships
+      summary: Activate a membership (status = ACTIVE)
+      operationId: activateMembership
+      parameters:
+      - name: organizationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: membershipId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Membership activated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationMembershipResponse'
+        '400':
+          description: Missing tenantId
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Membership not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /api/v1/organizations/{id}/deactivate:
+    patch:
+      tags:
+      - Organizations
+      summary: Deactivate an Organization
+      description: 'Sets the Organization status to INACTIVE. Idempotent: deactivating an already-INACTIVE organization is a no-op that returns the current state.'
+      operationId: deactivateOrganization
+      parameters:
+      - name: id
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        description: Tenant UUID (scope)
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Organization deactivated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationResponse'
+        '400':
+          description: Bad Request - missing required tenantId query parameter
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Organization Not Found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /api/v1/organizations/{id}/archive:
+    patch:
+      tags:
+      - Organizations
+      summary: Archive an Organization (soft delete)
+      description: 'Marks the Organization as ARCHIVED without removing it from the database. Idempotent: archiving an already-archived organization is a no-op that returns the current state. Use this instead of a DELETE endpoint to preserve audit history.'
+      operationId: archiveOrganization
+      parameters:
+      - name: id
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        description: Tenant UUID (scope)
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Organization archived successfully (or was already archived)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationResponse'
+        '400':
+          description: Bad Request - missing required tenantId query parameter
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Organization Not Found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /api/v1/organizations/{id}/activate:
+    patch:
+      tags:
+      - Organizations
+      summary: Activate an Organization
+      description: 'Sets the Organization status to ACTIVE. Idempotent: activating an already-ACTIVE organization is a no-op that returns the current state.'
+      operationId: activateOrganization
+      parameters:
+      - name: id
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        description: Tenant UUID (scope)
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Organization activated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationResponse'
+        '400':
+          description: Bad Request - missing required tenantId query parameter
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Organization Not Found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /api/v1/access/users/role-links/{grantId}/revoke:
+    patch:
+      tags:
+      - user-access-controller
+      operationId: revoke
+      parameters:
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: grantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAccessResponse'
+  /api/v1/access/roles/{roleId}/deactivate:
+    patch:
+      tags:
+      - role-controller
+      operationId: deactivate
+      parameters:
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: roleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleResponse'
+  /api/v1/access/roles/{roleId}/archive:
+    patch:
+      tags:
+      - role-controller
+      operationId: archive
+      parameters:
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: roleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleResponse'
+  /api/v1/access/roles/{roleId}/activate:
+    patch:
+      tags:
+      - role-controller
+      operationId: activate
+      parameters:
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: roleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleResponse'
+  /api/v1/access/capabilities/{capabilityId}/deactivate:
+    patch:
+      tags:
+      - capability-controller
+      operationId: deactivate_1
+      parameters:
+      - name: capabilityId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapabilityResponse'
+  /api/v1/access/capabilities/{capabilityId}/activate:
+    patch:
+      tags:
+      - capability-controller
+      operationId: activate_1
+      parameters:
+      - name: capabilityId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapabilityResponse'
+  /api/v1/users/{userId}/memberships:
     get:
-      summary: Evaluate user capability
+      tags:
+      - user-membership-controller
+      operationId: listMemberships_1
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: params
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/PageRequestParams'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageResponseOrganizationMembershipResponse'
+  /api/v1/organizations/{organizationId}/memberships/{membershipId}:
+    get:
+      tags:
+      - Organization Memberships
+      summary: Get a membership by ID
+      operationId: getMembership
+      parameters:
+      - name: organizationId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: membershipId
+        in: path
+        description: Membership UUID
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: tenantId
+        in: query
+        description: Tenant UUID (scope)
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Membership found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationMembershipResponse'
+        '400':
+          description: Missing tenantId
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Membership not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /api/v1/auth/me:
+    get:
+      tags:
+      - Authentication
+      summary: Get the authenticated user's identity, memberships, and role grants
+      operationId: me
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+  /api/v1/access/users/{userId}/role-links:
+    get:
+      tags:
+      - user-access-controller
+      operationId: list_2
+      parameters:
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: params
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/PageRequestParams'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageResponseUserAccessResponse'
+  /api/v1/access/roles/{roleId}/access-items:
+    get:
+      tags:
+      - role-access-controller
+      operationId: list_3
+      parameters:
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: roleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: params
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/PageRequestParams'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageResponseRoleAccessResponse'
+  /api/v1/access/evaluation:
+    get:
+      tags:
+      - capability-evaluation-controller
+      operationId: evaluate
+      parameters:
+      - name: tenantId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: userId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: capabilityCode
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: organizationId
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessDecisionResponse'
 components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
   schemas:
+    UpdateUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          minLength: 0
+        displayName:
+          type: string
+          maxLength: 200
+          minLength: 0
+      required:
+      - email
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        email:
+          type: string
+        displayName:
+          type: string
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - INACTIVE
+          - INVITED
+          - SUSPENDED
+          - ARCHIVED
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
     ApiErrorResponse:
       type: object
       properties:
@@ -181,6 +1721,7 @@ components:
           type: string
         status:
           type: integer
+          format: int32
         detail:
           type: string
         instance:
@@ -205,25 +1746,446 @@ components:
           type: string
         message:
           type: string
-    PageResponse:
+    UpdateOrganizationRequest:
       type: object
       properties:
-        content:
-          type: array
-          items: {}
+        name:
+          type: string
+          maxLength: 200
+          minLength: 0
+        description:
+          type: string
+          maxLength: 1000
+          minLength: 0
+      required:
+      - name
+    OrganizationResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - INACTIVE
+          - ARCHIVED
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    UpdateRoleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          minLength: 0
+        description:
+          type: string
+          maxLength: 1000
+          minLength: 0
+      required:
+      - name
+    RoleResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - INACTIVE
+          - ARCHIVED
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CapabilityResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - INACTIVE
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          minLength: 0
+        displayName:
+          type: string
+          maxLength: 200
+          minLength: 0
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - INACTIVE
+          - INVITED
+          - SUSPENDED
+          - ARCHIVED
+      required:
+      - email
+    CreateOrganizationRequest:
+      type: object
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 200
+          minLength: 0
+        description:
+          type: string
+          maxLength: 1000
+          minLength: 0
+      required:
+      - name
+      - tenantId
+    InviteOrganizationMemberRequest:
+      type: object
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          minLength: 0
+        displayName:
+          type: string
+          maxLength: 200
+          minLength: 0
+      required:
+      - email
+      - organizationId
+      - tenantId
+    OrganizationMembershipResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        email:
+          type: string
+        displayName:
+          type: string
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - INACTIVE
+          - INVITED
+          - REMOVED
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ResetPasswordRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          minLength: 1
+        newPassword:
+          type: string
+          maxLength: 256
+          minLength: 8
+      required:
+      - newPassword
+      - token
+    SelfRegistrationRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+          maxLength: 200
+          minLength: 0
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          minLength: 0
+        organizationName:
+          type: string
+          maxLength: 200
+          minLength: 0
+        regionCode:
+          type: string
+          minLength: 1
+          pattern: ^[A-Z]{2}$
+        countryCode:
+          type: string
+          minLength: 1
+          pattern: ^\+[1-9][0-9]{0,3}$
+        mobileNumber:
+          type: string
+          minLength: 1
+          pattern: ^[0-9]{7,15}$
+        acceptTerms:
+          type: boolean
+      required:
+      - countryCode
+      - displayName
+      - email
+      - mobileNumber
+      - organizationName
+      - regionCode
+    SelfRegistrationResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        subdomain:
+          type: string
+        passwordSetupRequired:
+          type: boolean
+    RefreshRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+          minLength: 1
+      required:
+      - refreshToken
+    AuthResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/AuthUser'
+    AuthUser:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        email:
+          type: string
+        displayName:
+          type: string
+        status:
+          type: string
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          minLength: 0
+        password:
+          type: string
+          maxLength: 256
+          minLength: 1
+        tenantId:
+          type: string
+          format: uuid
+      required:
+      - email
+      - password
+    ForgotPasswordRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+      required:
+      - email
+    ChangeCredentialRequest:
+      type: object
+      properties:
+        currentCredential:
+          type: string
+          maxLength: 256
+          minLength: 0
+        newCredential:
+          type: string
+          maxLength: 256
+          minLength: 8
+      required:
+      - currentCredential
+      - newCredential
+    AdminResetPasswordRequest:
+      type: object
+      properties:
+        locale:
+          type: string
+          pattern: (?i)ar|en
+        newPassword:
+          type: string
+          deprecated: true
+        forceChange:
+          type: boolean
+          deprecated: true
+    UserAccessResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        roleId:
+          type: string
+          format: uuid
+        roleCode:
+          type: string
+        organizationId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - REVOKED
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateRoleRequest:
+      type: object
+      properties:
+        code:
+          type: string
+          maxLength: 100
+          minLength: 0
+          pattern: '[A-Za-z0-9._:-]+'
+        name:
+          type: string
+          maxLength: 200
+          minLength: 0
+        description:
+          type: string
+          maxLength: 1000
+          minLength: 0
+      required:
+      - code
+      - name
+    RoleAccessResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        roleId:
+          type: string
+          format: uuid
+        capabilityId:
+          type: string
+          format: uuid
+        capabilityCode:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    PageRequestParams:
+      type: object
+      properties:
         page:
-          $ref: '#/components/schemas/PageMetadata'
+          type: integer
+          format: int32
+          minimum: 0
+        size:
+          type: integer
+          format: int32
+          maximum: 100
+          minimum: 1
+        sort:
+          type: array
+          items:
+            type: string
     PageMetadata:
       type: object
       properties:
         number:
           type: integer
+          format: int32
         size:
           type: integer
+          format: int32
         totalElements:
           type: integer
+          format: int64
         totalPages:
           type: integer
+          format: int32
         first:
           type: boolean
         last:
@@ -236,6 +2198,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SortMetadata'
+    PageResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: {}
+        page:
+          $ref: '#/components/schemas/PageMetadata'
     SortMetadata:
       type: object
       properties:
@@ -243,5 +2213,126 @@ components:
           type: string
         direction:
           type: string
-security:
-  - bearerAuth: []
+    PageResponseOrganizationMembershipResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrganizationMembershipResponse'
+        page:
+          $ref: '#/components/schemas/PageMetadata'
+    MeResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        email:
+          type: string
+        displayName:
+          type: string
+        status:
+          type: string
+        lastLoginAt:
+          type: string
+          format: date-time
+        credentialRotationRequired:
+          type: boolean
+        memberships:
+          type: array
+          items:
+            $ref: '#/components/schemas/MembershipSummary'
+        roleGrants:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoleGrantSummary'
+    MembershipSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        status:
+          type: string
+    RoleGrantSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        roleId:
+          type: string
+          format: uuid
+        roleCode:
+          type: string
+        organizationId:
+          type: string
+          format: uuid
+        status:
+          type: string
+    PageResponseUserAccessResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserAccessResponse'
+        page:
+          $ref: '#/components/schemas/PageMetadata'
+    PageResponseRoleResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoleResponse'
+        page:
+          $ref: '#/components/schemas/PageMetadata'
+    PageResponseRoleAccessResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoleAccessResponse'
+        page:
+          $ref: '#/components/schemas/PageMetadata'
+    AccessDecisionResponse:
+      type: object
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        capabilityCode:
+          type: string
+        allowed:
+          type: boolean
+        reason:
+          type: string
+        matchedRoleId:
+          type: string
+          format: uuid
+        matchedRoleCode:
+          type: string
+    PageResponseCapabilityResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/CapabilityResponse'
+        page:
+          $ref: '#/components/schemas/PageMetadata'

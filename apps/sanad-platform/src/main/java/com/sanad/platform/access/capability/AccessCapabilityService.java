@@ -36,6 +36,13 @@ public class AccessCapabilityService {
                 .map(CapabilityResponse::from).toList();
     }
 
+    /** Stage 03A — Paginated capability query (capabilities are global, no tenant filter). */
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<CapabilityResponse> list(
+            org.springframework.data.domain.Pageable pageable) {
+        return repository.findAll(pageable).map(CapabilityResponse::from);
+    }
+
     @Transactional(readOnly = true)
     public CapabilityResponse get(UUID capabilityId) {
         return CapabilityResponse.from(load(capabilityId));

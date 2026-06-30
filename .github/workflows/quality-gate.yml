@@ -164,25 +164,52 @@ jobs:
         run: |
           ./mvnw -B -ntp test -Dtest="HealthEndpointTest" -Dspring.profiles.active=prod -Ddatabase.url="${DATABASE_URL}" -Ddatabase.username="${DATABASE_USERNAME}" -Ddatabase.password="${DATABASE_PASSWORD}" -Ddatabase.driver="${DATABASE_DRIVER}"
           echo "Flyway first startup: PASS"
-      - name: Verify flyway_schema_history
+      - name: Verify flyway_schema_history (Stage 03A — no empty-history bypass)
         run: |
           sudo apt-get install -y postgresql-client > /dev/null 2>&1 || true
-          FIRST_COUNT=$(PGPASSWORD=ci-flyway-only psql -h localhost -U sanad -d sanad_flyway -tAc 'SELECT COUNT(*) FROM flyway_schema_history WHERE success = true' 2>/dev/null || echo "0")
-          FAILED_COUNT=$(PGPASSWORD=ci-flyway-only psql -h localhost -U sanad -d sanad_flyway -tAc 'SELECT COUNT(*) FROM flyway_schema_history WHERE success = false' 2>/dev/null || echo "0")
+          # Connection failure must FAIL the job (not skip).
+          if ! PGPASSWORD=ci-flyway-only psql -h localhost -U sanad -d sanad_flyway -tAc \
+              "SELECT 1" >/dev/null 2>&1; then
+            echo "FAIL: cannot connect to PostgreSQL for flyway validation"
+            exit 1
+          fi
+          # flyway_schema_history must exist and be non-empty.
+          if ! PGPASSWORD=ci-flyway-only psql -h localhost -U sanad -d sanad_flyway -tAc \
+              "SELECT to_regclass('public.flyway_schema_history')" | grep -q "flyway_schema_history"; then
+            echo "FAIL: flyway_schema_history table does not exist"
+            exit 1
+          fi
+          FIRST_COUNT=$(PGPASSWORD=ci-flyway-only psql -h localhost -U sanad -d sanad_flyway -tAc \
+              "SELECT COUNT(*) FROM flyway_schema_history WHERE success = true")
+          FAILED_COUNT=$(PGPASSWORD=ci-flyway-only psql -h localhost -U sanad -d sanad_flyway -tAc \
+              "SELECT COUNT(*) FROM flyway_schema_history WHERE success = false")
           echo "Successful migrations: $FIRST_COUNT"
           echo "Failed migrations: $FAILED_COUNT"
+          # Stage 03A CD-02C-P1-003: empty history is a FAILURE, not a warning.
           if [ "$FIRST_COUNT" -eq 0 ]; then
-            echo "WARNING: flyway_schema_history empty or not accessible — test may have used H2. Checking via Maven output instead."
-            echo "Flyway validation: PASS (migrations applied via HealthEndpointTest)"
-          else
-            test "$FIRST_COUNT" -gt 0
-            test "$FAILED_COUNT" -eq 0
-            echo "Flyway schema history: PASS"
+            echo "FAIL: flyway_schema_history is empty — no migrations were applied"
+            exit 1
           fi
+          if [ "$FAILED_COUNT" -gt 0 ]; then
+            echo "FAIL: $FAILED_COUNT migrations have success=false"
+            exit 1
+          fi
+          LATEST_VERSION=$(PGPASSWORD=ci-flyway-only psql -h localhost -U sanad -d sanad_flyway -tAc \
+              "SELECT version FROM flyway_schema_history WHERE success = true ORDER BY installed_rank DESC LIMIT 1")
+          echo "Latest applied migration version: $LATEST_VERSION"
+          echo "Flyway schema history: PASS"
       - name: Second startup — verify no migration re-execution
         working-directory: apps/sanad-platform
         run: |
           ./mvnw -B -ntp test -Dtest="HealthEndpointTest" -Dspring.profiles.active=prod -Ddatabase.url="${DATABASE_URL}" -Ddatabase.username="${DATABASE_USERNAME}" -Ddatabase.password="${DATABASE_PASSWORD}" -Ddatabase.driver="${DATABASE_DRIVER}"
+          # Verify SECOND_COUNT == FIRST_COUNT (no re-execution)
+          SECOND_COUNT=$(PGPASSWORD=ci-flyway-only psql -h localhost -U sanad -d sanad_flyway -tAc \
+              "SELECT COUNT(*) FROM flyway_schema_history WHERE success = true")
+          echo "Second-startup successful migrations: $SECOND_COUNT"
+          if [ "$SECOND_COUNT" != "$FIRST_COUNT" ]; then
+            echo "FAIL: SECOND_COUNT ($SECOND_COUNT) != FIRST_COUNT ($FIRST_COUNT) — migrations re-executed!"
+            exit 1
+          fi
           echo "Flyway second startup: PASS — no migration re-execution"
 
   frontend:
@@ -262,12 +289,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-      - name: Frontend npm audit
+      - name: Frontend npm audit (Stage 03A — no || true bypass)
         working-directory: apps/web
         run: |
           npm ci
-          npm audit --audit-level=high || true
-          echo "Frontend audit completed"
+          # Stage 03A CD-02C-P1-002: any High/Critical vulnerability FAILS the job.
+          # Vulnerabilities with no fix are registered as debt (not suppressed here).
+          npm audit --audit-level=high
 
   container-smoke:
     name: container-smoke
@@ -366,12 +394,54 @@ jobs:
           fi
           echo "RUNTIME_UID_NON_ROOT: PASS (uid=$RUNTIME_UID)"
 
-          echo "=== Checking logs for secrets ==="
-          if docker logs "$APP_CONTAINER" 2>&1 | grep -iE 'password|secret|token|apikey' | grep -v 'JWT_SECRET\|DATABASE_PASSWORD\|ci-smoke\|passwordSet\|passwordHash\|change.*password\|mustChangePassword\|password_reset'; then
-            echo "LOG_REDACTION: WARN — potential secret pattern found in logs (review needed)"
-          else
-            echo "LOG_REDACTION: PASS"
+          echo "=== Checking logs for secrets (Stage 03A — fail on any finding) ==="
+          # Stage 03A CD-02C-P1-004: any disallowed secret pattern FAILS the job.
+          # Allowlist is intentionally narrow: only literal constant phrases that
+          # contain no secret values are permitted.
+          #
+          # Patterns we treat as DISALLOWED (case-insensitive):
+          #   - "password=<value>" or "password:<value>" or "password <value>" with a real value
+          #   - "token=<value>" or "bearer <value>"
+          #   - "apikey=<value>" or "api-key:<value>"
+          #   - "secret=<value>" or "client_secret:<value>"
+          #   - "authorization: bearer <jwt>"
+          #
+          # Allowlist (these literal phrases are OK in logs):
+          #   - "JWT_SECRET" (env var NAME, not its value)
+          #   - "DATABASE_PASSWORD" (env var NAME)
+          #   - "ci-smoke-only" (test fixture password literal)
+          #   - "passwordSet", "passwordHash", "mustChangePassword", "password_reset"
+          #     (field/method names, not actual secrets)
+          #
+          # Strategy: search for the disallowed patterns; if any match, print and FAIL.
+
+          DISALLOWED_PATTERNS='password=[^[:space:]]+|password:[[:space:]]+[^[:space:]]+|token=[^[:space:]]+|bearer[[:space:]][A-Za-z0-9._-]{20,}|apikey=[^[:space:]]+|api-key:[[:space:]]+[^[:space:]]+|secret=[^[:space:]]+|client_secret:[[:space:]]+[^[:space:]]+|authorization:[[:space:]]bearer[[:space:]][A-Za-z0-9._-]{20,}'
+
+          ALLOWLIST='JWT_SECRET|DATABASE_PASSWORD|ci-smoke-only|passwordSet|passwordHash|mustChangePassword|password_reset|change.*password|setPassword'
+
+          # Find disallowed matches, then filter out the allowlist
+          MATCHES=$(docker logs "$APP_CONTAINER" 2>&1 \
+                    | grep -iE "$DISALLOWED_PATTERNS" \
+                    | grep -ivE "$ALLOWLIST" \
+                    || true)
+
+          if [ -n "$MATCHES" ]; then
+            echo "FAIL: disallowed secret pattern found in container logs:"
+            echo "$MATCHES"
+            echo "LOG_REDACTION: FAIL"
+            exit 1
           fi
+          echo "LOG_REDACTION: PASS"
+
+          # Also verify no env var VALUES appear in logs (sample the known CI env values)
+          for secret_val in "ci-smoke-only-jwt-secret-not-for-production" "ci-smoke-only"; do
+            if docker logs "$APP_CONTAINER" 2>&1 | grep -F "$secret_val" | grep -v "JWT_SECRET\|DATABASE_PASSWORD\|ci-smoke-only" ; then
+              echo "FAIL: env var value leaked into logs: $secret_val"
+              echo "LOG_REDACTION: FAIL"
+              exit 1
+            fi
+          done
+          echo "ENV_VAR_LEAK_CHECK: PASS"
 
           echo "=== Cleanup ==="
           echo "RESOURCE_CLEANUP: PASS"
@@ -422,6 +492,91 @@ jobs:
         run: |
           ./mvnw -B -ntp test -Dtest="OrganizationTenantIsolationTest,TenantBindingSecurityIntegrationTest,TokenRevocationIntegrationTest,CredentialRotationIntegrationTest,ApiRegressionSuiteTest"
 
+  api-contract:
+    name: api-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: sanad_api_contract
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: ci-api-contract-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      JWT_SECRET: ci-only-non-production-key-1234567890
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: 1. Backend contract tests + runtime OpenAPI generation
+        working-directory: apps/sanad-platform
+        run: |
+          # OpenApiContractExportTest runs the app and writes
+          # build/api-contract/openapi-current.json (Method B: SpringBootTest)
+          ./mvnw -B -ntp test \
+            -Dtest="OpenApiContractExportTest,ErrorModelIntegrationTest,GlobalExceptionHandlerActuatorExclusionTest,TenantAwarePaginationIntegrationTest"
+      - name: 2. Validate generated OpenAPI is non-trivial
+        run: |
+          CURRENT="apps/sanad-platform/build/api-contract/openapi-current.json"
+          if [ ! -f "$CURRENT" ]; then
+            echo "FAIL: runtime OpenAPI not generated at $CURRENT"
+            exit 1
+          fi
+          SIZE=$(wc -c <"$CURRENT")
+          if [ "$SIZE" -lt 5000 ]; then
+            echo "FAIL: runtime OpenAPI is suspiciously small ($SIZE bytes)"
+            exit 1
+          fi
+          echo "Runtime OpenAPI: $CURRENT ($SIZE bytes)"
+      - name: 3. Run oasdiff compatibility check (breaking-change detection + fixtures)
+        run: bash scripts/ci/check-api-contract-compatibility.sh
+      - name: 4. Upload current OpenAPI artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-current
+          path: apps/sanad-platform/build/api-contract/openapi-current.json
+          retention-days: 14
+      - name: 5. Upload diff report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-diff-report
+          path: apps/sanad-platform/build/api-contract/diff-report.txt
+          retention-days: 14
+      - name: 6. API inventory parity check
+        run: |
+          # Verify the committed API inventory (JSON) matches the runtime OpenAPI path count.
+          python3 -c "
+          import json, yaml, pathlib, sys
+          current = json.loads(pathlib.Path('apps/sanad-platform/build/api-contract/openapi-current.json').read_text())
+          inventory = json.loads(pathlib.Path('docs/api-contracts/03-api-inventory.json').read_text())
+          runtime_paths = set(current.get('paths', {}).keys())
+          inventory_endpoints = set()
+          for ep in inventory.get('endpoints', []):
+            p = ep.get('path', '')
+            if p:
+              inventory_endpoints.add(p)
+          missing = inventory_endpoints - runtime_paths
+          extra = runtime_paths - inventory_endpoints
+          # Allow extra runtime paths (new endpoints added) but flag missing ones.
+          if missing:
+            print(f'FAIL: inventory endpoints missing from runtime: {sorted(missing)}')
+            sys.exit(1)
+          print(f'API inventory parity: PASS (inventory={len(inventory_endpoints)}, runtime={len(runtime_paths)})')
+          "
+
   quality-gate:
     name: quality-gate
     runs-on: ubuntu-latest
@@ -438,6 +593,7 @@ jobs:
       - dependency-scan
       - container-smoke
       - security-regression
+      - api-contract
     if: always()
     steps:
       - name: Check repository-policy
@@ -473,5 +629,8 @@ jobs:
       - name: Check security-regression
         if: needs.security-regression.result != 'success'
         run: exit 1
+      - name: Check api-contract
+        if: needs.api-contract.result != 'success'
+        run: exit 1
       - name: All checks passed
-        run: 'echo "QUALITY GATE: PASS"'
+        run: 'echo "QUALITY GATE: PASS — 12 mandatory jobs + 1 aggregation job"'

@@ -184,6 +184,18 @@ public class OrganizationService {
     }
 
     /**
+     * Stage 03A — Paginated, tenant-scoped organization query.
+     */
+    @Transactional(readOnly = true, propagation = Propagation.SUPPORTS)
+    public org.springframework.data.domain.Page<OrganizationResponse> listOrganizations(
+            UUID tenantId, org.springframework.data.domain.Pageable pageable) {
+        Objects.requireNonNull(tenantId, "tenantId must not be null");
+        Objects.requireNonNull(pageable, "pageable must not be null");
+        return organizationRepository.findByTenantId(tenantId, pageable)
+                .map(organizationMapper::toResponse);
+    }
+
+    /**
      * Use Case: Update an Organization's mutable fields (name + description).
      *
      * <p>The tenant relationship and status are NOT changed by this operation.

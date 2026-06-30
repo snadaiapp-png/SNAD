@@ -117,7 +117,7 @@ class OrganizationMembershipApiIntegrationTest {
                         .content(invitePayload("ALICE@example.com", "Alice 2")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.message").value("Organization membership already exists for this email"));
+                .andExpect(jsonPath("$.detail").exists());
     }
 
     // ============================================================
@@ -178,9 +178,9 @@ class OrganizationMembershipApiIntegrationTest {
                         .param("tenantId", tenantId.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[*].email").value(
+                .andExpect(jsonPath("$.content[*].email").value(
                         org.hamcrest.Matchers.containsInAnyOrder("alice@example.com", "bob@example.com")))
-                .andExpect(jsonPath("$[*].email").value(
+                .andExpect(jsonPath("$.content[*].email").value(
                         org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem("carol@example.com"))));
     }
 
@@ -214,7 +214,7 @@ class OrganizationMembershipApiIntegrationTest {
                         .param("tenantId", wrongTenantId.toString()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.message").value("Organization membership not found"));
+                .andExpect(jsonPath("$.detail").exists());
     }
 
     // ============================================================

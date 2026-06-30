@@ -59,11 +59,11 @@ class AccessLinkControllerTest {
 
     @Test
     void listRoleCatalogItemsReturnsList() throws Exception {
-        when(mappingService.list(tenantId, roleId)).thenReturn(List.of(roleAccess()));
+        when(mappingService.list(org.mockito.ArgumentMatchers.eq(tenantId), org.mockito.ArgumentMatchers.eq(roleId), org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class))).thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(roleAccess())));
         mockMvc.perform(get("/api/v1/access/roles/{roleId}/access-items", roleId)
                         .param("tenantId", tenantId.toString()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(jsonPath("$.content.length()").value(1));
     }
 
     @Test
@@ -81,12 +81,16 @@ class AccessLinkControllerTest {
 
     @Test
     void listUserRoleLinksReturnsList() throws Exception {
-        when(grantService.list(tenantId, userId))
-                .thenReturn(List.of(userAccess(UserGrantStatus.ACTIVE)));
+        when(grantService.list(
+                org.mockito.ArgumentMatchers.eq(tenantId),
+                org.mockito.ArgumentMatchers.eq(userId),
+                org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(
+                        List.of(userAccess(UserGrantStatus.ACTIVE))));
         mockMvc.perform(get("/api/v1/access/users/{userId}/role-links", userId)
                         .param("tenantId", tenantId.toString()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(jsonPath("$.content.length()").value(1));
     }
 
     @Test
@@ -102,7 +106,10 @@ class AccessLinkControllerTest {
 
     @Test
     void unknownUserReturns404() throws Exception {
-        when(grantService.list(tenantId, userId))
+        when(grantService.list(
+                org.mockito.ArgumentMatchers.eq(tenantId),
+                org.mockito.ArgumentMatchers.eq(userId),
+                org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class)))
                 .thenThrow(new AccessResourceNotFoundException("User not found"));
         mockMvc.perform(get("/api/v1/access/users/{userId}/role-links", userId)
                         .param("tenantId", tenantId.toString()))

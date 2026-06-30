@@ -1,6 +1,5 @@
 package com.sanad.platform.security.api;
 
-import com.sanad.platform.organization.api.ApiErrorResponse;
 import com.sanad.platform.security.exception.AccountInactiveException;
 import com.sanad.platform.security.exception.AmbiguousTenantException;
 import com.sanad.platform.security.exception.InvalidCredentialsException;
@@ -10,27 +9,29 @@ import com.sanad.platform.security.exception.PasswordResetRateLimitException;
 import com.sanad.platform.security.exception.RefreshTokenReplayException;
 import com.sanad.platform.security.exception.RegistrationConflictException;
 import com.sanad.platform.security.exception.SelfRegistrationRateLimitException;
+import com.sanad.platform.shared.api.ApiErrorResponse;
+import com.sanad.platform.shared.api.ErrorCode;
+import com.sanad.platform.shared.api.RequestIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-
-import java.time.Instant;
 
 /**
- * Exception handler for authentication endpoints.
+ * Stage 03A — Auth domain exception handler.
  *
- * <p>Maps auth-domain exceptions to {@link ApiErrorResponse} bodies
- * with appropriate HTTP status codes. Never exposes passwords, tokens,
- * or internal security details in error messages.</p>
+ * <p>Uses the unified shared {@link ApiErrorResponse} record (not the legacy
+ * POJO) with Content-Type {@code application/problem+json}.
+ * Raw {@code ex.getMessage()} is NEVER returned to the client; only static,
+ * message-catalog style details are used.</p>
  */
 @Order(Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice(basePackages = "com.sanad.platform.security")
@@ -38,130 +39,101 @@ public class AuthApiExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(AuthApiExceptionHandler.class);
 
+    private String requestId() {
+        return MDC.get(RequestIdFilter.MDC_KEY);
+    }
+
     @ExceptionHandler(InvalidCredentialsException.class)
     public ResponseEntity<ApiErrorResponse> handleInvalidCredentials(
             InvalidCredentialsException ex, HttpServletRequest request) {
-        return error(HttpStatus.UNAUTHORIZED, ex.getMessage(), request, ex);
+        log.warn("Invalid credentials: requestId={} path={}", requestId(), request.getRequestURI());
+        return build(ErrorCode.SANAD_AUTH_002, "The provided credentials are invalid.", request);
     }
 
     @ExceptionHandler(AccountInactiveException.class)
     public ResponseEntity<ApiErrorResponse> handleAccountInactive(
             AccountInactiveException ex, HttpServletRequest request) {
-        return error(HttpStatus.UNAUTHORIZED, ex.getMessage(), request, ex);
+        log.warn("Account inactive: requestId={} path={}", requestId(), request.getRequestURI());
+        return build(ErrorCode.SANAD_AUTH_001, "The account is not active.", request);
     }
 
     @ExceptionHandler(RefreshTokenReplayException.class)
     public ResponseEntity<ApiErrorResponse> handleRefreshReplay(
             RefreshTokenReplayException ex, HttpServletRequest request) {
-        return error(HttpStatus.UNAUTHORIZED, ex.getMessage(), request, ex);
+        log.warn("Refresh token replay: requestId={} path={}", requestId(), request.getRequestURI());
+        return build(ErrorCode.SANAD_AUTH_004, "The session has been revoked.", request);
     }
 
     @ExceptionHandler(AmbiguousTenantException.class)
     public ResponseEntity<ApiErrorResponse> handleAmbiguousTenant(
             AmbiguousTenantException ex, HttpServletRequest request) {
-        java.util.List<String> tenantIdStrings = ex.getTenantIds().stream()
-                .map(java.util.UUID::toString)
-                .collect(java.util.stream.Collectors.toList());
-        ApiErrorResponse response = new ApiErrorResponse(
-                Instant.now(),
-                409,
-                "Conflict",
-                ex.getMessage(),
-                request.getRequestURI(),
-                tenantIdStrings
-        );
-        return ResponseEntity.status(409).body(response);
+        // Tenant IDs are UUIDs — safe to log, but the message detail is static.
+        log.warn("Ambiguous tenant: requestId={} path={} count={}",
+                requestId(), request.getRequestURI(),
+                ex.getTenantIds() == null ? 0 : ex.getTenantIds().size());
+        return build(ErrorCode.SANAD_TEN_003,
+                "Multiple tenants match this identity — tenant disambiguation required.",
+                request);
     }
 
     @ExceptionHandler(LoginRateLimitException.class)
     public ResponseEntity<ApiErrorResponse> handleRateLimit(
             LoginRateLimitException ex, HttpServletRequest request) {
-        log.warn("Auth rate limited: path={} message={}", request.getRequestURI(), ex.getMessage());
-        return rateLimit(ex.getMessage(), request, "300");
+        log.warn("Login rate limited: requestId={} path={}", requestId(), request.getRequestURI());
+        return rateLimit(request, "300");
     }
 
     @ExceptionHandler(InvalidResetTokenException.class)
     public ResponseEntity<ApiErrorResponse> handleInvalidResetToken(
             InvalidResetTokenException ex, HttpServletRequest request) {
-        return error(HttpStatus.BAD_REQUEST, ex.getMessage(), request, ex);
+        log.warn("Invalid reset token: requestId={} path={}", requestId(), request.getRequestURI());
+        return build(ErrorCode.SANAD_VAL_001, "The reset token is invalid or expired.", request);
     }
 
     @ExceptionHandler(PasswordResetRateLimitException.class)
     public ResponseEntity<ApiErrorResponse> handlePasswordResetRateLimit(
             PasswordResetRateLimitException ex, HttpServletRequest request) {
-        log.warn("Password reset rate limited: path={} message={}", request.getRequestURI(), ex.getMessage());
-        return rateLimit(ex.getMessage(), request, "3600");
+        log.warn("Password reset rate limited: requestId={} path={}", requestId(), request.getRequestURI());
+        return rateLimit(request, "3600");
     }
 
     @ExceptionHandler(RegistrationConflictException.class)
     public ResponseEntity<ApiErrorResponse> handleRegistrationConflict(
             RegistrationConflictException ex, HttpServletRequest request) {
-        return error(HttpStatus.CONFLICT, ex.getMessage(), request, ex);
+        log.warn("Registration conflict: requestId={} path={}", requestId(), request.getRequestURI());
+        return build(ErrorCode.SANAD_CON_001, "A resource with this identifier already exists.",
+                request);
     }
 
     @ExceptionHandler(SelfRegistrationRateLimitException.class)
     public ResponseEntity<ApiErrorResponse> handleRegistrationRateLimit(
             SelfRegistrationRateLimitException ex, HttpServletRequest request) {
-        log.warn("Registration rate limited: path={} message={}", request.getRequestURI(), ex.getMessage());
-        return rateLimit(ex.getMessage(), request, "3600");
+        log.warn("Self-registration rate limited: requestId={} path={}", requestId(), request.getRequestURI());
+        return rateLimit(request, "3600");
     }
 
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiErrorResponse> handleValidation(
-            MethodArgumentNotValidException ex, HttpServletRequest request) {
-        String message = ex.getBindingResult().getFieldErrors().stream()
-                .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
-                .reduce((a, b) -> a + "; " + b)
-                .orElse("Validation failed");
-        return error(HttpStatus.BAD_REQUEST, message, request, ex);
-    }
-
-    @ExceptionHandler(MissingServletRequestParameterException.class)
-    public ResponseEntity<ApiErrorResponse> handleMissingParam(
-            MissingServletRequestParameterException ex, HttpServletRequest request) {
-        return error(HttpStatus.BAD_REQUEST,
-                "Missing required query parameter: " + ex.getParameterName(), request, ex);
-    }
-
-    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    public ResponseEntity<ApiErrorResponse> handleTypeMismatch(
-            MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
-        return error(HttpStatus.BAD_REQUEST,
-                "Invalid value for parameter: " + ex.getName(), request, ex);
-    }
-
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ApiErrorResponse> handleIllegalArgument(
-            IllegalArgumentException ex, HttpServletRequest request) {
-        String message = (ex.getMessage() != null && !ex.getMessage().isBlank())
-                ? ex.getMessage() : "Invalid request";
-        return error(HttpStatus.BAD_REQUEST, message, request, ex);
-    }
-
-    private ResponseEntity<ApiErrorResponse> rateLimit(
-            String message, HttpServletRequest request, String retryAfter) {
+    private ResponseEntity<ApiErrorResponse> rateLimit(HttpServletRequest request, String retryAfter) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Retry-After", retryAfter);
+        ApiErrorResponse body = new ApiErrorResponse(
+                ErrorCode.SANAD_RATE_001.code(),
+                ErrorCode.SANAD_RATE_001.title(),
+                ErrorCode.SANAD_RATE_001.status(),
+                "Rate limit exceeded. Retry after the indicated delay.",
+                request.getRequestURI(),
+                requestId());
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                .header("Retry-After", retryAfter)
-                .body(new ApiErrorResponse(
-                        Instant.now(),
-                        HttpStatus.TOO_MANY_REQUESTS.value(),
-                        HttpStatus.TOO_MANY_REQUESTS.getReasonPhrase(),
-                        message,
-                        request.getRequestURI()
-                ));
+                .headers(headers)
+                .contentType(MediaType.valueOf("application/problem+json"))
+                .body(body);
     }
 
-    private ResponseEntity<ApiErrorResponse> error(
-            HttpStatus status, String message, HttpServletRequest request, Exception ex) {
-        log.warn("Auth API request failed: method={} path={} status={} exception={}",
-                request.getMethod(), request.getRequestURI(), status.value(),
-                ex.getClass().getSimpleName());
-        return ResponseEntity.status(status).body(new ApiErrorResponse(
-                Instant.now(),
-                status.value(),
-                status.getReasonPhrase(),
-                message,
-                request.getRequestURI()
-        ));
+    private ResponseEntity<ApiErrorResponse> build(ErrorCode ec, String detail, HttpServletRequest req) {
+        ApiErrorResponse body = new ApiErrorResponse(
+                ec.code(), ec.title(), ec.status(),
+                detail, req.getRequestURI(), requestId());
+        return ResponseEntity.status(HttpStatus.valueOf(ec.status()))
+                .contentType(MediaType.valueOf("application/problem+json"))
+                .body(body);
     }
 }

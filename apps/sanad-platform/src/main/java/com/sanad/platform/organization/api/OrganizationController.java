@@ -1,6 +1,11 @@
 package com.sanad.platform.organization.api;
 
 import com.sanad.platform.organization.dto.CreateOrganizationRequest;
+import com.sanad.platform.shared.api.ApiErrorResponse;
+import com.sanad.platform.shared.api.PageRequestParams;
+import com.sanad.platform.shared.api.PageResponse;
+import com.sanad.platform.shared.api.PageResponseBuilder;
+import com.sanad.platform.shared.api.SortAllowlist;
 import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.organization.dto.OrganizationResponse;
 import com.sanad.platform.organization.dto.UpdateOrganizationRequest;
@@ -14,6 +19,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -27,6 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
+import java.util.Set;
 import java.util.List;
 import java.util.UUID;
 
@@ -102,16 +110,16 @@ public class OrganizationController {
                     description = "Bad Request - request body failed validation " +
                             "(missing tenantId, blank name, name or description too long)",
                     content = @Content(
-                            mediaType = "application/json",
-                            schema = @Schema(implementation = com.sanad.platform.organization.api.ApiErrorResponse.class)
+                            mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiErrorResponse.class)
                     )
             ),
             @ApiResponse(
                     responseCode = "404",
                     description = "Tenant Not Found - the referenced tenantId does not exist",
                     content = @Content(
-                            mediaType = "application/json",
-                            schema = @Schema(implementation = com.sanad.platform.organization.api.ApiErrorResponse.class)
+                            mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiErrorResponse.class)
                     )
             ),
             @ApiResponse(
@@ -119,8 +127,8 @@ public class OrganizationController {
                     description = "Organization Already Exists - an Organization with the same " +
                             "name already exists under the same Tenant",
                     content = @Content(
-                            mediaType = "application/json",
-                            schema = @Schema(implementation = com.sanad.platform.organization.api.ApiErrorResponse.class)
+                            mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiErrorResponse.class)
                     )
             )
     })
@@ -175,7 +183,7 @@ public class OrganizationController {
                     responseCode = "400",
                     description = "Bad Request - missing required tenantId query parameter",
                     content = @Content(
-                            mediaType = "application/json",
+                            mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)
                     )
             ),
@@ -184,7 +192,7 @@ public class OrganizationController {
                     description = "Organization Not Found - no Organization with the given id " +
                             "exists under the given tenant",
                     content = @Content(
-                            mediaType = "application/json",
+                            mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)
                     )
             )
@@ -229,18 +237,21 @@ public class OrganizationController {
                     responseCode = "400",
                     description = "Bad Request - missing required tenantId query parameter",
                     content = @Content(
-                            mediaType = "application/json",
+                            mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)
                     )
             )
     })
     @RequireCapability("ORGANIZATION.READ")
     @GetMapping
-    public ResponseEntity<List<OrganizationResponse>> listOrganizations(
+    public ResponseEntity<PageResponse<OrganizationResponse>> listOrganizations(
             @Parameter(description = "Tenant UUID (scope)", required = true)
-            @RequestParam UUID tenantId) {
-
-        return ResponseEntity.ok(organizationService.listOrganizations(tenantId));
+            @RequestParam UUID tenantId,
+            @Valid PageRequestParams params) {
+        Set<String> allowedSortFields = Set.of("id", "name", "status", "createdAt", "updatedAt");
+        Pageable pageable = SortAllowlist.toPageable(params, allowedSortFields);
+        Page<OrganizationResponse> page = organizationService.listOrganizations(tenantId, pageable);
+        return ResponseEntity.ok(PageResponseBuilder.from(page, page.getContent()));
     }
 
     // ============================================================
@@ -270,7 +281,7 @@ public class OrganizationController {
                     responseCode = "400",
                     description = "Bad Request - request body failed validation or tenantId missing",
                     content = @Content(
-                            mediaType = "application/json",
+                            mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)
                     )
             ),
@@ -278,7 +289,7 @@ public class OrganizationController {
                     responseCode = "404",
                     description = "Organization Not Found - no Organization with the given id exists under this tenant",
                     content = @Content(
-                            mediaType = "application/json",
+                            mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)
                     )
             ),
@@ -286,7 +297,7 @@ public class OrganizationController {
                     responseCode = "409",
                     description = "Organization Already Exists - another organization under the same tenant already uses the new name",
                     content = @Content(
-                            mediaType = "application/json",
+                            mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)
                     )
             )
@@ -324,7 +335,7 @@ public class OrganizationController {
                     responseCode = "400",
                     description = "Bad Request - missing required tenantId query parameter",
                     content = @Content(
-                            mediaType = "application/json",
+                            mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)
                     )
             ),
@@ -332,7 +343,7 @@ public class OrganizationController {
                     responseCode = "404",
                     description = "Organization Not Found",
                     content = @Content(
-                            mediaType = "application/json",
+                            mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)
                     )
             )
@@ -369,7 +380,7 @@ public class OrganizationController {
                     responseCode = "400",
                     description = "Bad Request - missing required tenantId query parameter",
                     content = @Content(
-                            mediaType = "application/json",
+                            mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)
                     )
             ),
@@ -377,7 +388,7 @@ public class OrganizationController {
                     responseCode = "404",
                     description = "Organization Not Found",
                     content = @Content(
-                            mediaType = "application/json",
+                            mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)
                     )
             )
@@ -421,7 +432,7 @@ public class OrganizationController {
                     responseCode = "400",
                     description = "Bad Request - missing required tenantId query parameter",
                     content = @Content(
-                            mediaType = "application/json",
+                            mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)
                     )
             ),
@@ -429,7 +440,7 @@ public class OrganizationController {
                     responseCode = "404",
                     description = "Organization Not Found",
                     content = @Content(
-                            mediaType = "application/json",
+                            mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiErrorResponse.class)
                     )
             )

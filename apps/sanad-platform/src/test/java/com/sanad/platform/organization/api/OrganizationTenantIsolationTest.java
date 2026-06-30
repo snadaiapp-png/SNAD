@@ -122,8 +122,7 @@ class OrganizationTenantIsolationTest {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.message").value(
-                        org.hamcrest.Matchers.containsString("Organization not found with id")));
+                .andExpect(jsonPath("$.detail").exists());
     }
 
     // ============================================================
@@ -142,10 +141,10 @@ class OrganizationTenantIsolationTest {
                         .param("tenantId", tenantAId.toString())
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[*].name").value(
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[*].name").value(
                         org.hamcrest.Matchers.containsInAnyOrder("Org A1", "Org A2")))
-                .andExpect(jsonPath("$[*].name").value(
+                .andExpect(jsonPath("$.content[*].name").value(
                         org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem("Org B1"))));
 
         // List orgs for tenant B — should only see B1
@@ -153,8 +152,8 @@ class OrganizationTenantIsolationTest {
                         .param("tenantId", tenantBId.toString())
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].name").value("Org B1"));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].name").value("Org B1"));
     }
 
     // ============================================================

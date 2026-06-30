@@ -3,11 +3,19 @@ package com.sanad.platform.access.api;
 import com.sanad.platform.access.UserAccessResponse;
 import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.access.grant.UserRoleGrantService;
+import com.sanad.platform.shared.api.PageRequestParams;
+import com.sanad.platform.shared.api.PageResponse;
+import com.sanad.platform.shared.api.PageResponseBuilder;
+import com.sanad.platform.shared.api.SortAllowlist;
+import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
@@ -33,10 +41,14 @@ public class UserAccessController {
 
     @RequireCapability("ROLE.READ")
     @GetMapping("/{userId}/role-links")
-    ResponseEntity<List<UserAccessResponse>> list(
+    ResponseEntity<PageResponse<UserAccessResponse>> list(
             @RequestParam UUID tenantId,
-            @PathVariable UUID userId) {
-        return ResponseEntity.ok(grantService.list(tenantId, userId));
+            @PathVariable UUID userId,
+            @Valid PageRequestParams params) {
+        Set<String> allowedSortFields = Set.of("id", "userId", "roleId", "organizationId", "status", "createdAt");
+        Pageable pageable = SortAllowlist.toPageable(params, allowedSortFields);
+        Page<UserAccessResponse> page = grantService.list(tenantId, userId, pageable);
+        return ResponseEntity.ok(PageResponseBuilder.from(page, page.getContent()));
     }
 
     @RequireCapability("USER.REVOKE_ROLE")

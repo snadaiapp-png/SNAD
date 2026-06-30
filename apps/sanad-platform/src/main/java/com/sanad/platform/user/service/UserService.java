@@ -11,6 +11,8 @@ import com.sanad.platform.user.exception.UserNotFoundException;
 import com.sanad.platform.user.mapper.UserMapper;
 import com.sanad.platform.user.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -78,6 +80,19 @@ public class UserService {
         return userRepository.findByTenantId(tenantId).stream()
                 .map(userMapper::toResponse)
                 .toList();
+    }
+
+    /**
+     * Stage 03A — Paginated, tenant-scoped user query.
+     * The {@link Pageable} carries sort + offset + limit; tenant isolation
+     * is enforced at the database level via the JPQL WHERE clause.
+     */
+    @Transactional(readOnly = true, propagation = Propagation.SUPPORTS)
+    public Page<UserResponse> listUsers(UUID tenantId, Pageable pageable) {
+        Objects.requireNonNull(tenantId, "tenantId must not be null");
+        Objects.requireNonNull(pageable, "pageable must not be null");
+        return userRepository.findByTenantId(tenantId, pageable)
+                .map(userMapper::toResponse);
     }
 
     @Transactional(readOnly = true, propagation = Propagation.SUPPORTS)

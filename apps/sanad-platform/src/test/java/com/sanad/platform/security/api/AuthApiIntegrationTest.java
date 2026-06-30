@@ -158,7 +158,7 @@ class AuthApiIntegrationTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.status").value(401))
-                .andExpect(jsonPath("$.message").isNotEmpty());
+                .andExpect(jsonPath("$.detail").isNotEmpty());
     }
 
     @Test
@@ -257,7 +257,7 @@ class AuthApiIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/auth/login — duplicate email across tenants returns 409 with tenantIds")
+    @DisplayName("POST /api/v1/auth/login — duplicate email across tenants returns 409")
     void login_duplicateEmailAcrossTenants_returns409() throws Exception {
         // Create a second tenant with the same email
         Tenant tenant2 = new Tenant(
@@ -270,15 +270,16 @@ class AuthApiIntegrationTest {
         user2.setPasswordHash(passwordEncoder.encode(testPassword));
         userRepository.save(user2);
 
-        // Login without tenantId should return 409
+        // Login without tenantId should return 409 (ambiguous tenant)
+        // Stage 03A: tenantIds array is no longer in the unified error body —
+        // the safe detail instructs the client to disambiguate.
         LoginRequest request = new LoginRequest(testEmail, testPassword);
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.tenantIds").isArray())
-                .andExpect(jsonPath("$.tenantIds.length()").value(2));
+                .andExpect(jsonPath("$.code").value("SANAD-TEN-003"));
     }
 
     @Test

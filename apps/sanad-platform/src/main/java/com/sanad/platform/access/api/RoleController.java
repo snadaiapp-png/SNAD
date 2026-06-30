@@ -2,12 +2,19 @@ package com.sanad.platform.access.api;
 
 import com.sanad.platform.access.role.*;
 import com.sanad.platform.security.authorization.RequireCapability;
+import com.sanad.platform.shared.api.PageRequestParams;
+import com.sanad.platform.shared.api.PageResponse;
+import com.sanad.platform.shared.api.PageResponseBuilder;
+import com.sanad.platform.shared.api.SortAllowlist;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
@@ -31,8 +38,13 @@ public class RoleController {
 
     @RequireCapability("ROLE.READ")
     @GetMapping
-    ResponseEntity<List<RoleResponse>> list(@RequestParam UUID tenantId) {
-        return ResponseEntity.ok(roleService.list(tenantId));
+    ResponseEntity<PageResponse<RoleResponse>> list(
+            @RequestParam UUID tenantId,
+            @Valid PageRequestParams params) {
+        Set<String> allowedSortFields = Set.of("id", "code", "name", "status", "createdAt", "updatedAt");
+        Pageable pageable = SortAllowlist.toPageable(params, allowedSortFields);
+        Page<RoleResponse> page = roleService.list(tenantId, pageable);
+        return ResponseEntity.ok(PageResponseBuilder.from(page, page.getContent()));
     }
 
     @RequireCapability("ROLE.READ")

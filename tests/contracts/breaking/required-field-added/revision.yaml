@@ -1,0 +1,28 @@
+openapi: 3.0.1
+info:
+  title: fixture
+  version: "1.0"
+paths:
+  /api/v1/widgets:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWidget'
+      responses:
+        '201':
+          description: created
+components:
+  schemas:
+    CreateWidget:
+      type: object
+      required:
+        - name
+        - tenantId
+      properties:
+        name:
+          type: string
+        tenantId:
+          type: string

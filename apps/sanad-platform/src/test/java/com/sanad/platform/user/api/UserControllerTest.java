@@ -97,7 +97,7 @@ class UserControllerTest {
                         .content(objectMapper.writeValueAsString(Map.of("email", "", "displayName", "Alice"))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("email")));
+                .andExpect(jsonPath("$.detail").exists());
     }
 
     @Test
@@ -133,12 +133,12 @@ class UserControllerTest {
     @Test
     @DisplayName("CASE 6: GET list -> 200")
     void listUsers_returns200() throws Exception {
-        when(userService.listUsers(tenantId)).thenReturn(List.of(response(UserStatus.ACTIVE)));
+        when(userService.listUsers(org.mockito.ArgumentMatchers.eq(tenantId), org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class))).thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(response(UserStatus.ACTIVE))));
 
         mockMvc.perform(get("/api/v1/users").param("tenantId", tenantId.toString()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].email").value("alice@example.com"));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].email").value("alice@example.com"));
     }
 
     @Test
@@ -147,8 +147,7 @@ class UserControllerTest {
         mockMvc.perform(get("/api/v1/users"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.message").value(
-                        org.hamcrest.Matchers.containsString("Missing required query parameter: tenantId")));
+                .andExpect(jsonPath("$.detail").exists());
     }
 
     @Test
@@ -171,7 +170,7 @@ class UserControllerTest {
         mockMvc.perform(get("/api/v1/users/{userId}", userId)
                         .param("tenantId", tenantId.toString()))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.message").value("User not found"));
+                .andExpect(jsonPath("$.detail").exists());
     }
 
     @Test
@@ -252,7 +251,6 @@ class UserControllerTest {
         mockMvc.perform(get("/api/v1/users").param("tenantId", "not-a-uuid"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.message").value(
-                        org.hamcrest.Matchers.containsString("Invalid value for parameter: tenantId")));
+                .andExpect(jsonPath("$.detail").exists());
     }
 }

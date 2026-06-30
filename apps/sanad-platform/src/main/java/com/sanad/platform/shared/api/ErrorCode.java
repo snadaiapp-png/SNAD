@@ -27,6 +27,7 @@ public enum ErrorCode {
     // Tenant
     SANAD_TEN_001("SANAD-TEN-001", "Tenant context missing", 403),
     SANAD_TEN_002("SANAD-TEN-002", "Tenant access denied", 403),
+    SANAD_TEN_003("SANAD-TEN-003", "Ambiguous tenant — disambiguation required", 409),
 
     // Resource
     SANAD_RES_001("SANAD-RES-001", "Resource not found", 404),

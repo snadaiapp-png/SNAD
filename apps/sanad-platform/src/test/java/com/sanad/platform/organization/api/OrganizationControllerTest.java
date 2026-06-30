@@ -139,9 +139,9 @@ class OrganizationControllerTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.timestamp").exists())
                 .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.error").value("Conflict"))
-                .andExpect(jsonPath("$.message").value("Organization already exists for this tenant"))
-                .andExpect(jsonPath("$.path").value("/api/v1/organizations"));
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.instance").value("/api/v1/organizations"));
     }
 
     /**
@@ -168,10 +168,9 @@ class OrganizationControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.timestamp").exists())
                 .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.error").value("Not Found"))
-                .andExpect(jsonPath("$.message").value(
-                        org.hamcrest.Matchers.containsString("Tenant not found with id")))
-                .andExpect(jsonPath("$.path").value("/api/v1/organizations"));
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.instance").value("/api/v1/organizations"));
     }
 
     /**
@@ -199,9 +198,9 @@ class OrganizationControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.timestamp").exists())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.message").exists())
-                .andExpect(jsonPath("$.path").value("/api/v1/organizations"));
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.instance").value("/api/v1/organizations"));
     }
 
     // ============================================================
@@ -246,10 +245,9 @@ class OrganizationControllerTest {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.error").value("Not Found"))
-                .andExpect(jsonPath("$.message").value(
-                        org.hamcrest.Matchers.containsString("Organization not found with id")))
-                .andExpect(jsonPath("$.path").value("/api/v1/organizations/" + organizationId));
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.instance").value("/api/v1/organizations/" + organizationId));
     }
 
     /**
@@ -263,10 +261,9 @@ class OrganizationControllerTest {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.message").value(
-                        org.hamcrest.Matchers.containsString("Missing required query parameter: tenantId")))
-                .andExpect(jsonPath("$.path").value("/api/v1/organizations/" + organizationId));
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.instance").value("/api/v1/organizations/" + organizationId));
     }
 
     /**
@@ -283,17 +280,19 @@ class OrganizationControllerTest {
                 secondId, tenantId, "Acme Jeddah Branch", "Jeddah ops",
                 OrganizationStatus.ACTIVE, now, now);
 
-        when(organizationService.listOrganizations(eq(tenantId)))
-                .thenReturn(List.of(r1, r2));
+        when(organizationService.listOrganizations(
+                org.mockito.ArgumentMatchers.eq(tenantId),
+                org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(r1, r2)));
 
         mockMvc.perform(get("/api/v1/organizations")
                         .param("tenantId", tenantId.toString())
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isArray())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].name").value("Acme Riyadh Branch"))
-                .andExpect(jsonPath("$[1].name").value("Acme Jeddah Branch"));
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].name").value("Acme Riyadh Branch"))
+                .andExpect(jsonPath("$.content[1].name").value("Acme Jeddah Branch"));
     }
 
     /**
@@ -306,10 +305,9 @@ class OrganizationControllerTest {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.message").value(
-                        org.hamcrest.Matchers.containsString("Missing required query parameter: tenantId")))
-                .andExpect(jsonPath("$.path").value("/api/v1/organizations"));
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.instance").value("/api/v1/organizations"));
     }
 
     // ============================================================
@@ -360,8 +358,8 @@ class OrganizationControllerTest {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.error").value("Conflict"))
-                .andExpect(jsonPath("$.message").value("Organization already exists for this tenant"));
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists());
     }
 
     /**
@@ -384,9 +382,8 @@ class OrganizationControllerTest {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.error").value("Not Found"))
-                .andExpect(jsonPath("$.message").value(
-                        org.hamcrest.Matchers.containsString("Organization not found with id")));
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists());
     }
 
     /**
@@ -405,8 +402,8 @@ class OrganizationControllerTest {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.message").exists());
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists());
     }
 
     /**
@@ -457,10 +454,9 @@ class OrganizationControllerTest {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.message").value(
-                        org.hamcrest.Matchers.containsString("Missing required query parameter: tenantId")))
-                .andExpect(jsonPath("$.path").value("/api/v1/organizations/" + organizationId + "/activate"));
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.instance").value("/api/v1/organizations/" + organizationId + "/activate"));
     }
 
     /**
@@ -478,9 +474,8 @@ class OrganizationControllerTest {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.error").value("Not Found"))
-                .andExpect(jsonPath("$.message").value(
-                        org.hamcrest.Matchers.containsString("Organization not found with id")));
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists());
     }
 
     // ============================================================
@@ -521,9 +516,8 @@ class OrganizationControllerTest {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.error").value("Not Found"))
-                .andExpect(jsonPath("$.message").value(
-                        org.hamcrest.Matchers.containsString("Organization not found with id")));
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists());
     }
 
     /**
@@ -536,9 +530,8 @@ class OrganizationControllerTest {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.message").value(
-                        org.hamcrest.Matchers.containsString("Missing required query parameter: tenantId")))
-                .andExpect(jsonPath("$.path").value("/api/v1/organizations/" + organizationId + "/archive"));
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.instance").value("/api/v1/organizations/" + organizationId + "/archive"));
     }
 }

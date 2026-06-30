@@ -44,21 +44,30 @@ async function extractErrorDetails(response: Response): Promise<ApiErrorDetails>
   let message: string | null = null;
   let bodyPath: string | null = null;
   let bodyRequestId: string | null = null;
+  let bodyCode: string | null = null;
   try {
-    if ((getHeader(response, "content-type") || "").includes("application/json") && typeof response.text === "function") {
+    const contentType = (getHeader(response, "content-type") || "").toLowerCase();
+    // Stage 03A: accept both application/json and application/problem+json
+    if ((contentType.includes("application/json") || contentType.includes("application/problem+json"))
+        && typeof response.text === "function") {
       const text = await response.text();
       if (text) {
         body = JSON.parse(text) as Record<string, unknown>;
-        if (typeof body.message === "string") message = body.message;
+        // Unified ApiProblem shape (Stage 03A): { code, title, detail, instance, requestId, timestamp, errors }
+        if (typeof body.code === "string") bodyCode = body.code;
+        if (typeof body.detail === "string") message = body.detail;
+        else if (typeof body.title === "string") message = body.title;
+        else if (typeof body.message === "string") message = body.message;
         else if (typeof body.error === "string") message = body.error;
-        if (typeof body.path === "string") bodyPath = body.path;
+        if (typeof body.instance === "string") bodyPath = body.instance;
+        else if (typeof body.path === "string") bodyPath = body.path;
         if (typeof body.requestId === "string") bodyRequestId = body.requestId;
       }
     }
   } catch { body = null; }
   return {
     status,
-    error,
+    error: bodyCode ?? error,
     message,
     path: bodyPath || response.url || null,
     requestId: headerRequestId || bodyRequestId,
@@ -175,6 +184,31 @@ export class ApiClient {
   put<TResponse, TBody = undefined>(path: string, body?: TBody, options?: RequestOptions): Promise<TResponse> { return this.request<TResponse, TBody>({ method: "PUT", path, body, ...options }); }
   patch<TResponse, TBody = undefined>(path: string, body?: TBody, options?: RequestOptions): Promise<TResponse> { return this.request<TResponse, TBody>({ method: "PATCH", path, body, ...options }); }
   delete<TResponse>(path: string, options?: RequestOptions): Promise<TResponse> { return this.request<TResponse>({ method: "DELETE", path, ...options }); }
+
+  /**
+   * Stage 03A — Paginated GET helper.
+   *
+   * Returns a PageResponse<T> with { content: T[], page: PageMetadata }.
+   * The `sort` parameter can be a single string ("name,asc") or an array
+   * of such strings (["name,asc", "createdAt,desc"]) which is serialized
+   * as repeated query params (?sort=name,asc&sort=createdAt,desc).
+   */
+  getPage<T>(path: string, options?: { query?: QueryParams; context?: ApiRequestContext; signal?: AbortSignal; timeoutMs?: number; cache?: RequestCache; sort?: string | string[] }): Promise<import("./types").PageResponse<T>> {
+    const opts = options ?? {};
+    const mergedQuery: QueryParams = { ...(opts.query ?? {}) };
+    if (opts.sort !== undefined) {
+      mergedQuery.sort = Array.isArray(opts.sort) ? opts.sort : [opts.sort];
+    }
+    return this.request<import("./types").PageResponse<T>>({
+      method: "GET",
+      path,
+      query: mergedQuery,
+      context: opts.context,
+      signal: opts.signal,
+      timeoutMs: opts.timeoutMs,
+      cache: opts.cache,
+    });
+  }
 }
 
 type RequestOptions = { query?: QueryParams; context?: ApiRequestContext; signal?: AbortSignal; timeoutMs?: number; cache?: RequestCache };

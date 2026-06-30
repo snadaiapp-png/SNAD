@@ -65,6 +65,18 @@ public class RoleCapabilityService {
                 }).toList();
     }
 
+    /** Stage 03A — Paginated role-access query. */
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<RoleAccessResponse> list(
+            UUID tenantId, UUID roleId, org.springframework.data.domain.Pageable pageable) {
+        roleService.load(tenantId, roleId);
+        return mappingRepository.findByTenantIdAndRoleId(tenantId, roleId, pageable)
+                .map(mapping -> {
+                    AccessCapability capability = capabilityService.load(mapping.getCapabilityId());
+                    return response(mapping, capability.getCode());
+                });
+    }
+
     public boolean roleHasCapability(UUID tenantId, UUID roleId, UUID capabilityId) {
         Objects.requireNonNull(tenantId, "tenantId must not be null");
         return mappingRepository.existsByTenantIdAndRoleIdAndCapabilityId(

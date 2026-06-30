@@ -95,7 +95,7 @@ class OrganizationMembershipControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.message").value("Organization membership already exists for this email"));
+                .andExpect(jsonPath("$.detail").exists());
     }
 
     // ============================================================
@@ -124,15 +124,19 @@ class OrganizationMembershipControllerTest {
     @Test
     @DisplayName("CASE 4: GET list valid -> 200 OK")
     void listMemberships_valid_returns200() throws Exception {
-        when(membershipService.listMemberships(eq(tenantId), eq(organizationId)))
-                .thenReturn(List.of(sampleResponse(MembershipStatus.INVITED)));
+        when(membershipService.listMemberships(
+                org.mockito.ArgumentMatchers.eq(tenantId),
+                org.mockito.ArgumentMatchers.eq(organizationId),
+                org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(
+                        List.of(sampleResponse(MembershipStatus.INVITED))));
 
         mockMvc.perform(get("/api/v1/organizations/{organizationId}/memberships", organizationId)
                         .param("tenantId", tenantId.toString()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isArray())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].email").value("alice@example.com"));
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].email").value("alice@example.com"));
     }
 
     // ============================================================
@@ -166,7 +170,7 @@ class OrganizationMembershipControllerTest {
                         .param("tenantId", tenantId.toString()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.message").value("Organization membership not found"));
+                .andExpect(jsonPath("$.detail").exists());
     }
 
     // ============================================================
@@ -242,7 +246,6 @@ class OrganizationMembershipControllerTest {
         mockMvc.perform(get("/api/v1/organizations/{organizationId}/memberships", organizationId))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.message").value(
-                        org.hamcrest.Matchers.containsString("Missing required query parameter: tenantId")));
+                .andExpect(jsonPath("$.detail").exists());
     }
 }

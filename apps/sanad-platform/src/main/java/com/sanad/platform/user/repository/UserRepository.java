@@ -1,6 +1,8 @@
 package com.sanad.platform.user.repository;
 
 import com.sanad.platform.user.domain.User;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -20,10 +22,21 @@ import java.util.UUID;
 public interface UserRepository extends JpaRepository<User, UUID> {
 
     /**
-     * List all users for a tenant.
+     * List all users for a tenant (unpaginated — kept for backwards compatibility).
      */
     @Query("SELECT u FROM User u WHERE u.tenantId = :tenantId")
     List<User> findByTenantId(@Param("tenantId") UUID tenantId);
+
+    /**
+     * Stage 03A — Paginated, tenant-scoped query. The {@code Pageable}
+     * parameter carries sort + offset + limit; the WHERE clause enforces
+     * tenant isolation at the database level so no in-memory filtering
+     * is required.
+     */
+    @Query(
+        value = "SELECT u FROM User u WHERE u.tenantId = :tenantId",
+        countQuery = "SELECT COUNT(u) FROM User u WHERE u.tenantId = :tenantId")
+    Page<User> findByTenantId(@Param("tenantId") UUID tenantId, Pageable pageable);
 
     /**
      * Fetch a single user by id, scoped to a tenant.

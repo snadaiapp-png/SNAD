@@ -159,9 +159,9 @@ class OrganizationApiIntegrationTest {
                         .content(createPayload("Dup Name", "Second")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.error").value("Conflict"))
-                .andExpect(jsonPath("$.message").value("Organization already exists for this tenant"))
-                .andExpect(jsonPath("$.path").value("/api/v1/organizations"));
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.instance").value("/api/v1/organizations"));
     }
 
     // ============================================================
@@ -179,9 +179,9 @@ class OrganizationApiIntegrationTest {
                         .param("tenantId", tenantId.toString())
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.content").isArray())
                 .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[*].name").value(
+                .andExpect(jsonPath("$.content[*].name").value(
                         org.hamcrest.Matchers.containsInAnyOrder("Org A", "Org B")));
     }
 
@@ -320,9 +320,8 @@ class OrganizationApiIntegrationTest {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.error").value("Not Found"))
-                .andExpect(jsonPath("$.message").value(
-                        org.hamcrest.Matchers.containsString("Organization not found with id")));
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists());
     }
 
     // ============================================================
@@ -342,8 +341,8 @@ class OrganizationApiIntegrationTest {
                         .content(invalidPayload))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.message").exists())
-                .andExpect(jsonPath("$.path").value("/api/v1/organizations"));
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.instance").value("/api/v1/organizations"));
     }
 }

@@ -80,6 +80,16 @@ public class UserRoleGrantService {
                 .toList();
     }
 
+    /** Stage 03A — Paginated user role-grant query. */
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<UserAccessResponse> list(
+            UUID tenantId, UUID userId, org.springframework.data.domain.Pageable pageable) {
+        requireUser(tenantId, userId);
+        return grantRepository.findByTenantIdAndUserId(tenantId, userId, pageable)
+                .map(grant -> response(
+                        grant, roleService.load(tenantId, grant.getRoleId()).getCode()));
+    }
+
     public List<UserRoleGrant> activeGrants(UUID tenantId, UUID userId) {
         requireUser(tenantId, userId);
         return grantRepository.findByTenantIdAndUserIdAndStatus(

@@ -59,11 +59,11 @@ class AccessCatalogControllerTest {
 
     @Test
     void listRolesReturnsTenantScopedList() throws Exception {
-        when(roleService.list(tenantId)).thenReturn(List.of(roleResponse(RoleStatus.ACTIVE)));
+        when(roleService.list(org.mockito.ArgumentMatchers.eq(tenantId), org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class))).thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(roleResponse(RoleStatus.ACTIVE))));
         mockMvc.perform(get("/api/v1/access/roles")
                         .param("tenantId", tenantId.toString()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(jsonPath("$.content.length()").value(1));
     }
 
     @Test
