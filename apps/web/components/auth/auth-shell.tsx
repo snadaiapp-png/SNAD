@@ -2,6 +2,7 @@ import Image from "next/image";
 import type { ReactNode } from "react";
 import logoStyles from "./auth-logo.module.css";
 import panelStyles from "./auth-panel.module.css";
+import "./auth-hero-motion.css";
 
 export type IconProps = { className?: string };
 
@@ -30,18 +31,66 @@ export function IconGlobe({ className }: IconProps) {
 }
 
 function DataFlow() {
+  const nodes = [
+    { x: 991, y: 108, tone: "gold" },
+    { x: 1208, y: 121, tone: "gold" },
+    { x: 1335, y: 250, tone: "cyan" },
+    { x: 1376, y: 405, tone: "gold" },
+    { x: 1322, y: 550, tone: "gold" },
+    { x: 1190, y: 676, tone: "gold" },
+    { x: 1019, y: 715, tone: "cyan" },
+    { x: 827, y: 650, tone: "cyan" },
+    { x: 708, y: 416, tone: "cyan" },
+  ] as const;
+
   return (
-    <svg className="snad-auth-data-flow" viewBox="0 0 1600 900" preserveAspectRatio="none" aria-hidden="true">
+    <svg className="snad-auth-data-flow" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
       <defs>
-        <linearGradient id="snad-auth-flow-gradient" x1="0" x2="1"><stop offset="0%" stopColor="#d4af37"/><stop offset="45%" stopColor="#00a7a0"/><stop offset="100%" stopColor="#f4d36f"/></linearGradient>
-        <filter id="snad-auth-soft-glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <linearGradient id="snad-auth-flow-gradient" x1="0" x2="1">
+          <stop offset="0%" stopColor="#38f8ff"/>
+          <stop offset="42%" stopColor="#00a7a0"/>
+          <stop offset="76%" stopColor="#ffd76a"/>
+          <stop offset="100%" stopColor="#d4af37"/>
+        </linearGradient>
+        <filter id="snad-auth-soft-glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="4" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
       </defs>
-      <path className="snad-auth-flow-track" d="M1585 720 C1370 720 1260 560 1110 510 C1010 478 950 470 850 455"/>
-      <path className="snad-auth-flow-pulse" d="M1585 720 C1370 720 1260 560 1110 510 C1010 478 950 470 850 455"/>
-      <path className="snad-auth-flow-pulse" d="M1585 704 C1360 704 1250 550 1090 500 C1000 472 940 465 850 455"/>
-      <path className="snad-auth-flow-track" d="M760 455 C620 455 520 410 390 430 C240 452 150 520 0 520"/>
-      <path className="snad-auth-flow-pulse" d="M760 455 C620 455 520 410 390 430 C240 452 150 520 0 520"/>
-      <circle className="snad-auth-particle" r="4"/><circle className="snad-auth-particle" r="3.5"/><circle className="snad-auth-particle" r="3"/>
+
+      <g className="snad-auth-em-grid">
+        <path className="snad-auth-flow-track" d="M1030 410 C1010 280 1000 205 991 108"/>
+        <path className="snad-auth-flow-pulse" d="M1030 410 C1010 280 1000 205 991 108"/>
+        <path className="snad-auth-flow-track" d="M1050 410 C1130 300 1180 210 1208 121"/>
+        <path className="snad-auth-flow-pulse" d="M1050 410 C1130 300 1180 210 1208 121"/>
+        <path className="snad-auth-flow-track" d="M1080 430 C1200 370 1280 300 1335 250"/>
+        <path className="snad-auth-flow-pulse" d="M1080 430 C1200 370 1280 300 1335 250"/>
+        <path className="snad-auth-flow-track" d="M1090 455 C1225 450 1310 425 1376 405"/>
+        <path className="snad-auth-flow-pulse" d="M1090 455 C1225 450 1310 425 1376 405"/>
+        <path className="snad-auth-flow-track" d="M1080 485 C1210 520 1270 540 1322 550"/>
+        <path className="snad-auth-flow-pulse" d="M1080 485 C1210 520 1270 540 1322 550"/>
+        <path className="snad-auth-flow-track" d="M1060 510 C1120 585 1160 635 1190 676"/>
+        <path className="snad-auth-flow-pulse" d="M1060 510 C1120 585 1160 635 1190 676"/>
+        <path className="snad-auth-flow-track" d="M1030 520 C1025 590 1022 650 1019 715"/>
+        <path className="snad-auth-flow-pulse" d="M1030 520 C1025 590 1022 650 1019 715"/>
+        <path className="snad-auth-flow-track" d="M995 510 C930 580 875 625 827 650"/>
+        <path className="snad-auth-flow-pulse" d="M995 510 C930 580 875 625 827 650"/>
+        <path className="snad-auth-flow-track" d="M970 470 C875 455 790 435 708 416"/>
+        <path className="snad-auth-flow-pulse" d="M970 470 C875 455 790 435 708 416"/>
+      </g>
+
+      <g className="snad-auth-node-status">
+        {nodes.map((node) => (
+          <g key={`${node.x}-${node.y}`} transform={`translate(${node.x} ${node.y})`}>
+            <circle className={`snad-auth-status-ring snad-auth-status-ring--${node.tone}`} r="50"/>
+            <circle className={`snad-auth-status-core snad-auth-status-core--${node.tone}`} r="3.4"/>
+          </g>
+        ))}
+      </g>
+
+      <circle className="snad-auth-particle snad-auth-particle-a" r="4"/>
+      <circle className="snad-auth-particle snad-auth-particle-b" r="3.5"/>
+      <circle className="snad-auth-particle snad-auth-particle-c" r="3"/>
     </svg>
   );
 }
