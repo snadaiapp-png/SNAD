@@ -9,6 +9,8 @@ import com.sanad.platform.crm.account.repository.CrmAccountRepository;
 import com.sanad.platform.tenant.domain.Tenant;
 import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
+import com.sanad.platform.user.domain.User;
+import com.sanad.platform.user.domain.UserStatus;
 import com.sanad.platform.user.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.data.domain.PageRequest;
@@ -86,8 +88,11 @@ public class CrmAccountService {
     }
 
     private void validateOwner(UUID tenantId, UUID ownerUserId) {
-        if (ownerUserId != null && users.findByTenantIdAndId(tenantId, ownerUserId).isEmpty()) {
-            throw new EntityNotFoundException("CRM owner not found in tenant");
+        if (ownerUserId == null) return;
+        User owner = users.findByTenantIdAndId(tenantId, ownerUserId)
+                .orElseThrow(() -> new EntityNotFoundException("CRM owner not found in tenant"));
+        if (owner.getStatus() != UserStatus.ACTIVE) {
+            throw new IllegalArgumentException("CRM owner must be active");
         }
     }
 
