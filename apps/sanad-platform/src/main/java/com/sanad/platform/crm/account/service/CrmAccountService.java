@@ -4,30 +4,48 @@ import com.sanad.platform.crm.account.api.CreateCrmAccountRequest;
 import com.sanad.platform.crm.account.api.CrmAccountResponse;
 import com.sanad.platform.crm.account.domain.CrmAccount;
 import com.sanad.platform.crm.account.domain.CrmAccountStatus;
+import com.sanad.platform.crm.account.repository.CrmAccountQueryRepository;
 import com.sanad.platform.crm.account.repository.CrmAccountRepository;
 import com.sanad.platform.tenant.domain.Tenant;
+import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
+import com.sanad.platform.user.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
 import java.util.UUID;
 
 @Service
 public class CrmAccountService {
-    private final TenantRepository tenants;
-    private final CrmAccountRepository accounts;
+    private static final int MAX_PAGE_SIZE = 100;
 
-    public CrmAccountService(TenantRepository tenants, CrmAccountRepository accounts) {
+    private final TenantRepository tenants;
+    private final UserRepository users;
+    private final CrmAccountRepository accounts;
+    private final CrmAccountQueryRepository accountQueries;
+
+    public CrmAccountService(
+            TenantRepository tenants,
+            UserRepository users,
+            CrmAccountRepository accounts,
+            CrmAccountQueryRepository accountQueries) {
         this.tenants = tenants;
+        this.users = users;
         this.accounts = accounts;
+        this.accountQueries = accountQueries;
     }
 
     @Transactional
     public CrmAccountResponse create(UUID tenantId, UUID actorId, CreateCrmAccountRequest request) {
         Tenant tenant = tenants.findById(tenantId)
-                .orElseThrow(() -> new EntityNotFoundException("Tenant not found"));
+                .filter(value -> value.getStatus() == TenantStatus.ACTIVE)
+                .orElseThrow(() -> new EntityNotFoundException("Active tenant not found"));
+        validateOwner(tenantId, request.ownerUserId());
+
         CrmAccount account = new CrmAccount(
                 tenant,
                 request.displayName(),
@@ -48,13 +66,16 @@ public class CrmAccountService {
     }
 
     @Transactional(readOnly = true)
-    public List<CrmAccountResponse> list(UUID tenantId) {
-        return accounts
-                .findByTenant_IdAndLifecycleStatusNotOrderByDisplayNameAsc(
-                        tenantId, CrmAccountStatus.ARCHIVED)
-                .stream()
-                .map(this::toResponse)
-                .toList();
+    public Page<CrmAccountResponse> list(UUID tenantId, int page, int size) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        PageRequest request = PageRequest.of(
+                safePage,
+                safeSize,
+                Sort.by(Sort.Direction.ASC, "displayName"));
+        return accountQueries
+                .findByTenant_IdAndLifecycleStatusNot(tenantId, CrmAccountStatus.ARCHIVED, request)
+                .map(this::toResponse);
     }
 
     @Transactional
@@ -64,6 +85,12 @@ public class CrmAccountService {
         return toResponse(accounts.save(account));
     }
 
+    private void validateOwner(UUID tenantId, UUID ownerUserId) {
+        if (ownerUserId != null && users.findByTenantIdAndId(tenantId, ownerUserId).isEmpty()) {
+            throw new EntityNotFoundException("CRM owner not found in tenant");
+        }
+    }
+
     private CrmAccount find(UUID tenantId, UUID accountId) {
         return accounts.findByTenant_IdAndId(tenantId, accountId)
                 .orElseThrow(() -> new EntityNotFoundException("CRM account not found"));
@@ -71,11 +98,18 @@ public class CrmAccountService {
 
     private CrmAccountResponse toResponse(CrmAccount account) {
         return new CrmAccountResponse(
-                account.getId(), account.getVersion(), account.getDisplayName(),
-                account.getAccountType(), account.getLifecycleStatus(),
-                account.getOwnerUserId(), account.getPrimaryCurrencyCode(),
-                account.getPreferredLocale(), account.getTimeZone(),
-                account.getSource(), account.getCreatedAt(), account.getUpdatedAt()
+                account.getId(),
+                account.getVersion(),
+                account.getDisplayName(),
+                account.getAccountType(),
+                account.getLifecycleStatus(),
+                account.getOwnerUserId(),
+                account.getPrimaryCurrencyCode(),
+                account.getPreferredLocale(),
+                account.getTimeZone(),
+                account.getSource(),
+                account.getCreatedAt(),
+                account.getUpdatedAt()
         );
     }
 }
