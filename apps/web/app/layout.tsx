@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Noto_Sans, Noto_Sans_Arabic } from "next/font/google";
 import "./globals.css";
+import { Providers } from "./providers";
 
 const arabicFont = Noto_Sans_Arabic({
   subsets: ["arabic"],
@@ -28,7 +29,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
-      <body className={`${arabicFont.variable} ${latinFont.variable}`}>{children}</body>
+      <body className={`${arabicFont.variable} ${latinFont.variable}`}>
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

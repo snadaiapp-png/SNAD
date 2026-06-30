@@ -143,13 +143,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setState("AUTHENTICATED");
       }
+      // Security: clear the in-memory password as soon as login succeeds.
+      lastLoginPasswordRef.current = "";
     } catch (err) {
       if (err instanceof AmbiguousTenantError) {
         setAmbiguousTenantIds(err.tenantIds);
         setState("AMBIGUOUS_TENANT");
+        // Keep lastLoginPasswordRef for loginWithTenant — cleared after tenant selection.
       } else {
         setError(toUserFacingError(err));
         setState("ERROR");
+        // Security: clear the in-memory password on non-ambiguous failure.
+        lastLoginPasswordRef.current = "";
       }
     }
   }, [session]);
@@ -174,6 +179,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setState("AUTHENTICATED");
       }
+      // Security: clear the in-memory password after tenant-specific login succeeds.
+      lastLoginPasswordRef.current = "";
     } catch (err) {
       if (err instanceof AmbiguousTenantError) {
         setAmbiguousTenantIds(err.tenantIds);
@@ -181,6 +188,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setError(toUserFacingError(err));
         setState("ERROR");
+        // Security: clear the in-memory password on non-ambiguous failure.
+        lastLoginPasswordRef.current = "";
       }
     }
   }, [lastLoginEmail, session]);
@@ -189,6 +198,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const dismissAmbiguousTenant = useCallback(() => {
     setAmbiguousTenantIds([]);
     setState("ANONYMOUS");
+    // Security: clear the in-memory password when user dismisses tenant picker.
+    lastLoginPasswordRef.current = "";
   }, []);
 
   const logout = useCallback(async () => {
@@ -203,6 +214,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMe(null);
     setError(null);
     setState("ANONYMOUS");
+    // Security: clear the in-memory password on logout.
+    lastLoginPasswordRef.current = "";
   }, [session]);
 
   const refresh = useCallback(async () => {
