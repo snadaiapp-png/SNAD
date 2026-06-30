@@ -106,3 +106,14 @@ export function isTimeoutAbortError(err: unknown, timeoutMs: number): err is DOM
   void timeoutMs;
   return false;
 }
+
+// Extended error types for unified API contract
+import type { ApiProblem } from "./types";
+
+/** Parse an error response into an ApiProblem */
+export function parseApiProblem(response: unknown): ApiProblem | null {
+  if (typeof response === "object" && response !== null && "code" in response) {
+    return response as ApiProblem;
+  }
+  return null;
+}

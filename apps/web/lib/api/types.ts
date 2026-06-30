@@ -112,3 +112,91 @@ export interface HealthCheckResult {
   /** Internal error message — must NOT be forwarded to end users. */
   error: string | null;
 }
+
+// ============================================================================
+// SNAD Unified API Contract Types (Stage 03)
+// ============================================================================
+
+/** RFC 9457 Problem Details error response */
+export type ApiProblem = {
+  type: string;
+  title: string;
+  status: number;
+  detail: string;
+  instance?: string;
+  code: string;
+  requestId: string;
+  timestamp: string;
+  errors?: FieldValidationError[];
+};
+
+/** Field-level validation error */
+export type FieldValidationError = {
+  field: string;
+  code: string;
+  message: string;
+};
+
+/** Unified paginated response */
+export type PageResponse<T> = {
+  content: T[];
+  page: PageMetadata;
+};
+
+/** Page metadata */
+export type PageMetadata = {
+  number: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  first: boolean;
+  last: boolean;
+  hasNext: boolean;
+  hasPrevious: boolean;
+  sort: SortMetadata[];
+};
+
+/** Sort metadata */
+export type SortMetadata = {
+  field: string;
+  direction: string;
+};
+
+/** Standard pagination request parameters */
+export type PageRequestParams = {
+  page?: number;
+  size?: number;
+  sort?: string;
+};
+
+/** Error codes matching backend ErrorCode enum */
+export const ERROR_CODES = {
+  GEN_001: "SANAD-GEN-001",
+  VAL_001: "SANAD-VAL-001",
+  AUTH_001: "SANAD-AUTH-001",
+  AUTH_002: "SANAD-AUTH-002",
+  SEC_001: "SANAD-SEC-001",
+  TEN_001: "SANAD-TEN-001",
+  RES_001: "SANAD-RES-001",
+  CON_001: "SANAD-CON-001",
+  RATE_001: "SANAD-RATE-001",
+} as const;
+
+/** Check if an error is an ApiProblem */
+export function isApiProblem(error: unknown): error is ApiProblem {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    "status" in error &&
+    "requestId" in error
+  );
+}
+
+/** Extract field errors from ApiProblem */
+export function getFieldErrors(error: unknown): FieldValidationError[] {
+  if (isApiProblem(error) && error.errors) {
+    return error.errors;
+  }
+  return [];
+}

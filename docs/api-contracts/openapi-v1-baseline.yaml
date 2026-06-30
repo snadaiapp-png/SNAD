@@ -1,0 +1,247 @@
+# SNAD OpenAPI v1 Baseline
+# This file is a baseline snapshot of the API contract.
+# It should be regenerated from the running application via SpringDoc.
+# The CI contract compatibility gate compares against this baseline.
+
+openapi: 3.0.1
+info:
+  title: SNAD Platform API
+  version: v1
+  description: Multi-tenant SaaS platform API for ERP and CRM
+servers:
+  - url: /api/v1
+paths:
+  /auth/login:
+    post:
+      summary: User login
+      security: []
+  /auth/refresh:
+    post:
+      summary: Refresh access token
+      security: []
+  /auth/logout:
+    post:
+      summary: Logout and revoke tokens
+  /auth/change-credential:
+    post:
+      summary: Change own password
+  /auth/me:
+    get:
+      summary: Get current user profile
+  /auth/forgot-password:
+    post:
+      summary: Request password reset
+      security: []
+  /auth/reset-password:
+    post:
+      summary: Reset password with token
+      security: []
+  /auth/admin-reset-password/{userId}:
+    post:
+      summary: Admin-initiated password reset
+  /auth/register:
+    post:
+      summary: Self-registration
+      security: []
+  /organizations:
+    get:
+      summary: List organizations
+    post:
+      summary: Create organization
+  /organizations/{id}:
+    get:
+      summary: Get organization
+    put:
+      summary: Update organization
+  /organizations/{id}/activate:
+    patch:
+      summary: Activate organization
+  /organizations/{id}/deactivate:
+    patch:
+      summary: Deactivate organization
+  /organizations/{id}/archive:
+    patch:
+      summary: Archive organization
+  /organizations/{orgId}/memberships:
+    get:
+      summary: List memberships
+    post:
+      summary: Invite member
+  /organizations/{orgId}/memberships/{id}:
+    get:
+      summary: Get membership
+  /organizations/{orgId}/memberships/{id}/activate:
+    patch:
+      summary: Activate membership
+  /organizations/{orgId}/memberships/{id}/deactivate:
+    patch:
+      summary: Deactivate membership
+  /organizations/{orgId}/memberships/{id}/remove:
+    patch:
+      summary: Remove membership
+  /organizations/{orgId}/memberships/{id}/assign/{userId}:
+    patch:
+      summary: Assign user to membership
+  /organizations/{orgId}/memberships/{id}/unassign:
+    patch:
+      summary: Unassign user from membership
+  /users:
+    get:
+      summary: List users
+    post:
+      summary: Create user
+  /users/{userId}:
+    get:
+      summary: Get user
+    put:
+      summary: Update user
+  /users/{userId}/activate:
+    patch:
+      summary: Activate user
+  /users/{userId}/deactivate:
+    patch:
+      summary: Deactivate user
+  /users/{userId}/suspend:
+    patch:
+      summary: Suspend user
+  /users/{userId}/archive:
+    patch:
+      summary: Archive user
+  /users/{userId}/memberships:
+    get:
+      summary: List user memberships
+  /access/roles:
+    get:
+      summary: List roles
+    post:
+      summary: Create role
+  /access/roles/{roleId}:
+    get:
+      summary: Get role
+    put:
+      summary: Update role
+  /access/roles/{roleId}/activate:
+    patch:
+      summary: Activate role
+  /access/roles/{roleId}/deactivate:
+    patch:
+      summary: Deactivate role
+  /access/roles/{roleId}/archive:
+    patch:
+      summary: Archive role
+  /access/capabilities:
+    get:
+      summary: List capabilities
+    post:
+      summary: Create capability
+  /access/capabilities/{id}:
+    get:
+      summary: Get capability
+    put:
+      summary: Update capability
+  /access/capabilities/{id}/activate:
+    patch:
+      summary: Activate capability
+  /access/capabilities/{id}/deactivate:
+    patch:
+      summary: Deactivate capability
+  /access/roles/{roleId}/access-items:
+    get:
+      summary: List role access items
+  /access/roles/{roleId}/access-items/{capabilityId}:
+    post:
+      summary: Add capability to role
+    delete:
+      summary: Remove capability from role
+  /access/users/{userId}/role-links:
+    get:
+      summary: List user role grants
+  /access/users/{userId}/role-links/{roleId}:
+    post:
+      summary: Grant role to user
+  /access/users/role-links/{grantId}/revoke:
+    patch:
+      summary: Revoke role grant
+  /access/evaluation:
+    get:
+      summary: Evaluate user capability
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ApiErrorResponse:
+      type: object
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+        requestId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldValidationError'
+    FieldValidationError:
+      type: object
+      properties:
+        field:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+    PageResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: {}
+        page:
+          $ref: '#/components/schemas/PageMetadata'
+    PageMetadata:
+      type: object
+      properties:
+        number:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+        totalPages:
+          type: integer
+        first:
+          type: boolean
+        last:
+          type: boolean
+        hasNext:
+          type: boolean
+        hasPrevious:
+          type: boolean
+        sort:
+          type: array
+          items:
+            $ref: '#/components/schemas/SortMetadata'
+    SortMetadata:
+      type: object
+      properties:
+        field:
+          type: string
+        direction:
+          type: string
+security:
+  - bearerAuth: []
