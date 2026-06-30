@@ -2,11 +2,11 @@
   "program": "SANAD Infrastructure Hardening",
   "stage": "02",
   "stageName": "CI Quality Gates and Merge Safety",
-  "branch": "infra/02-ci-quality-gates",
+  "branch": "infra/02a-debt-closure",
   "baseCommitSha": "2cc8936b07fea5b86c920c77fd143a3cf91732e9",
-  "headCommitSha": "2d78d85",
+  "headCommitSha": "",
   "startedAt": "2026-06-30T16:35:00Z",
-  "completedAt": "2026-06-30T17:00:00Z",
+  "completedAt": "2026-06-30T17:15:00Z",
   "workingTreeCleanAtStart": true,
   "workingTreeCleanAtEnd": true,
   "mavenWrapperIntegrity": "PASS",
@@ -22,17 +22,38 @@
   "secretScan": "PASS",
   "dependencyScan": "NOT_RUN",
   "containerSmoke": "NOT_RUN",
-  "securityRegression": "NOT_RUN",
+  "securityRegression": "PASS",
   "localFastGate": "PASS",
-  "localFullGate": "NOT_RUN",
+  "localFullGate": "PARTIAL",
   "remoteWorkflowRun": "NOT_RUN",
   "remoteWorkflowRunId": "",
   "remoteWorkflowUrl": "",
   "requiredCheckName": "quality-gate",
+  "inheritedDebtCount": 11,
+  "newDebtCount": 6,
+  "closedDebtCount": 7,
+  "openP0DebtCount": 2,
+  "openBlockingP1DebtCount": 0,
+  "carriedForwardDebtCount": 0,
+  "debtGate": "BLOCKED",
+  "blockingDebtIds": ["CD-00-P0-001", "CD-00-P0-002"],
+  "closedDebtIds": ["CD-01-P1-001", "CD-01-P1-003", "CD-01-P1-006", "CD-01-P1-007", "CD-01-P1-009", "CD-02-P1-003", "CD-02-P1-004"],
+  "carriedForwardDebtIds": [],
   "filesCreated": [
     ".github/workflows/quality-gate.yml",
     "scripts/ci/check-migration-immutability.sh",
-    "scripts/ci/run-quality-gate.sh"
+    "scripts/ci/run-quality-gate.sh",
+    "docs/infrastructure-hardening/closure-debt-register.md",
+    "docs/infrastructure-hardening/closure-debt-register.json",
+    "docs/infrastructure-hardening/02-ci-quality-gate-report.md",
+    "docs/infrastructure-hardening/02-workflow-inventory.md",
+    "docs/infrastructure-hardening/02-required-checks-contract.md",
+    "docs/infrastructure-hardening/02-branch-protection-contract.md",
+    "docs/infrastructure-hardening/02-action-security-review.md",
+    "docs/infrastructure-hardening/02-coverage-baseline.md",
+    "docs/infrastructure-hardening/02-remote-validation-guide.md",
+    "docs/infrastructure-hardening/02-debt-closure-report.md",
+    "docs/infrastructure-hardening/02-debt-carry-forward-report.md"
   ],
   "filesModified": [
     "apps/sanad-platform/mvnw",
@@ -41,11 +62,14 @@
     ".java-version",
     "scripts/dev/verify-local.sh"
   ],
-  "blockers": [],
+  "blockers": [
+    "CD-00-P0-001: Historical admin password — Issue #173 OPEN, owner access required",
+    "CD-00-P0-002: Historical email-proxy fallback — Issue #173 OPEN, owner verification required"
+  ],
   "risks": [
     "Remote CI validation not yet run — branch not pushed",
-    "Backend tests run locally via Maven Wrapper but PostgreSQL/Flyway/Docker checks not run locally",
-    "quality-gate.yml aggregation job uses GitHub Actions expressions that need remote validation"
+    "Docker not available locally — Docker-dependent checks delegated to CI",
+    "Coverage baseline not established — JaCoCo/Vitest not configured"
   ],
-  "status": "READY_FOR_REMOTE_VALIDATION"
+  "status": "BLOCKED"
 }

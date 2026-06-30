@@ -1,0 +1,39 @@
+{
+  "program": "SANAD Infrastructure Hardening",
+  "registerVersion": "1.0",
+  "generatedAt": "2026-06-30T17:10:00Z",
+  "inheritedDebt": [
+    {"id": "CD-00-P0-001", "title": "Historical admin password in git history (HF-01)", "severity": "P0", "status": "BLOCKED", "blocking": true, "evidence": "Issue #173 OPEN, owner access required"},
+    {"id": "CD-00-P0-002", "title": "Historical email-proxy fallback (HF-06)", "severity": "P0", "status": "BLOCKED", "blocking": true, "evidence": "Issue #173 OPEN, owner verification required"},
+    {"id": "CD-01-P1-001", "title": "Maven Wrapper was custom", "severity": "P1", "status": "CLOSED", "blocking": false, "evidence": "Replaced with official Apache Maven Wrapper 3.3.4"},
+    {"id": "CD-01-P1-002", "title": "CI uses system Maven not ./mvnw", "severity": "P1", "status": "OPEN", "blocking": false, "evidence": "Legacy workflows still use mvn; quality-gate.yml uses ./mvnw"},
+    {"id": "CD-01-P1-003", "title": "Backend tests not run locally", "severity": "P1", "status": "CLOSED", "blocking": false, "evidence": "434 passed, 0 failed, 11 skipped"},
+    {"id": "CD-01-P1-004", "title": "Docker not available locally", "severity": "P1", "status": "BLOCKED", "blocking": false, "evidence": "Docker not installed; CI is authority"},
+    {"id": "CD-01-P1-005", "title": "Flyway live validation not run locally", "severity": "P1", "status": "BLOCKED", "blocking": false, "evidence": "Requires Docker; quality-gate.yml has flyway-validation job"},
+    {"id": "CD-01-P1-006", "title": "PASS/SKIP semantics not enforced", "severity": "P1", "status": "CLOSED", "blocking": false, "evidence": "verify-local.sh returns exit 2 for PARTIAL"},
+    {"id": "CD-01-P1-007", "title": "Java selectors contradictory", "severity": "P1", "status": "CLOSED", "blocking": false, "evidence": ".java-version=21, .tool-versions=java temurin-21, pom.xml source/target=17"},
+    {"id": "CD-01-P1-008", "title": "PostgreSQL integration not run locally", "severity": "P1", "status": "BLOCKED", "blocking": false, "evidence": "Requires Docker; quality-gate.yml has backend-postgres-integration job"},
+    {"id": "CD-01-P1-009", "title": "No .nvmrc", "severity": "P1", "status": "CLOSED", "blocking": false, "evidence": ".nvmrc created with 24"}
+  ],
+  "newDebt": [
+    {"id": "CD-02-P1-001", "title": "Remote quality gate not executed", "severity": "P1", "status": "OPEN", "blocking": true, "evidence": "Branch not pushed to remote"},
+    {"id": "CD-02-P1-002", "title": "Stage 02 docs not complete", "severity": "P1", "status": "IN_PROGRESS", "blocking": false, "evidence": "Being created in Stage 02A"},
+    {"id": "CD-02-P1-003", "title": "Migration immutability not proven", "severity": "P1", "status": "CLOSED", "blocking": false, "evidence": "Script exists, passes, integrated into quality-gate.yml"},
+    {"id": "CD-02-P1-004", "title": "Maven Wrapper integrity not recorded", "severity": "P1", "status": "CLOSED", "blocking": false, "evidence": "SHA-256 hashes recorded, official Apache Maven Wrapper 3.3.4"},
+    {"id": "CD-02-P1-005", "title": "Local full quality gate not executed", "severity": "P1", "status": "BLOCKED", "blocking": false, "evidence": "Docker not available locally"},
+    {"id": "CD-02-P2-001", "title": "Coverage baseline not proven", "severity": "P2", "status": "OPEN", "blocking": false, "evidence": "JaCoCo and Vitest coverage not configured"}
+  ],
+  "summary": {
+    "inheritedDebtCount": 11,
+    "newDebtCount": 6,
+    "closedDebtCount": 6,
+    "openP0DebtCount": 2,
+    "openBlockingP1DebtCount": 1,
+    "carriedForwardDebtCount": 0,
+    "debtGate": "BLOCKED",
+    "blockingDebtIds": ["CD-00-P0-001", "CD-00-P0-002"],
+    "closedDebtIds": ["CD-01-P1-001", "CD-01-P1-003", "CD-01-P1-006", "CD-01-P1-007", "CD-01-P1-009", "CD-02-P1-003", "CD-02-P1-004"],
+    "carriedForwardDebtIds": [],
+    "status": "BLOCKED"
+  }
+}
