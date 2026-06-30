@@ -349,30 +349,32 @@ jobs:
     if: always()
     steps:
       - name: Check all mandatory jobs
+        shell: bash
         run: |
           echo "Checking all mandatory jobs..."
-          declare -A JOBS
-          JOBS["repository-policy"]="${{ needs.repository-policy.result }}"
-          JOBS["migration-immutability"]="${{ needs.migration-immutability.result }}"
-          JOBS["backend-tests"]="${{ needs.backend-tests.result }}"
-          JOBS["backend-postgres-integration"]="${{ needs.backend-postgres-integration.result }}"
-          JOBS["flyway-validation"]="${{ needs.flyway-validation.result }}"
-          JOBS["frontend"]="${{ needs.frontend.result }}"
-          JOBS["python-tests"]="${{ needs.python-tests.result }}"
-          JOBS["secret-scan"]="${{ needs.secret-scan.result }}"
-          JOBS["dependency-scan"]="${{ needs.dependency-scan.result }}"
-          JOBS["container-smoke"]="${{ needs.container-smoke.result }}"
-          JOBS["security-regression"]="${{ needs.security-regression.result }}"
-          
           FAILED=0
-          for job in "${!JOBS[@]}"; do
-            result="${JOBS[$job]}"
-            echo "  $job: $result"
+          
+          check() {
+            local name="$1"
+            local result="$2"
+            echo "  $name: $result"
             if [ "$result" != "success" ]; then
-              echo "FAIL: $job did not succeed (result: $result)"
+              echo "FAIL: $name did not succeed (result: $result)"
               FAILED=1
             fi
-          done
+          }
+          
+          check "repository-policy" "${{ needs.repository-policy.result }}"
+          check "migration-immutability" "${{ needs.migration-immutability.result }}"
+          check "backend-tests" "${{ needs.backend-tests.result }}"
+          check "backend-postgres-integration" "${{ needs.backend-postgres-integration.result }}"
+          check "flyway-validation" "${{ needs.flyway-validation.result }}"
+          check "frontend" "${{ needs.frontend.result }}"
+          check "python-tests" "${{ needs.python-tests.result }}"
+          check "secret-scan" "${{ needs.secret-scan.result }}"
+          check "dependency-scan" "${{ needs.dependency-scan.result }}"
+          check "container-smoke" "${{ needs.container-smoke.result }}"
+          check "security-regression" "${{ needs.security-regression.result }}"
           
           if [ "$FAILED" -eq 1 ]; then
             echo ""
