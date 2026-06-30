@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: quality-gate-${{ github.workflow }}-${{ github.ref }}
+  group: quality-gate-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -348,38 +348,38 @@ jobs:
       - security-regression
     if: always()
     steps:
-      - name: Check all mandatory jobs
-        shell: bash
-        run: |
-          echo "Checking all mandatory jobs..."
-          FAILED=0
-          
-          check() {
-            local name="$1"
-            local result="$2"
-            echo "  $name: $result"
-            if [ "$result" != "success" ]; then
-              echo "FAIL: $name did not succeed (result: $result)"
-              FAILED=1
-            fi
-          }
-          
-          check "repository-policy" "${{ needs.repository-policy.result }}"
-          check "migration-immutability" "${{ needs.migration-immutability.result }}"
-          check "backend-tests" "${{ needs.backend-tests.result }}"
-          check "backend-postgres-integration" "${{ needs.backend-postgres-integration.result }}"
-          check "flyway-validation" "${{ needs.flyway-validation.result }}"
-          check "frontend" "${{ needs.frontend.result }}"
-          check "python-tests" "${{ needs.python-tests.result }}"
-          check "secret-scan" "${{ needs.secret-scan.result }}"
-          check "dependency-scan" "${{ needs.dependency-scan.result }}"
-          check "container-smoke" "${{ needs.container-smoke.result }}"
-          check "security-regression" "${{ needs.security-regression.result }}"
-          
-          if [ "$FAILED" -eq 1 ]; then
-            echo ""
-            echo "QUALITY GATE: FAIL"
-            exit 1
-          fi
-          echo ""
-          echo "QUALITY GATE: PASS"
+      - name: Check repository-policy
+        if: needs.repository-policy.result != 'success'
+        run: exit 1
+      - name: Check migration-immutability
+        if: needs.migration-immutability.result != 'success'
+        run: exit 1
+      - name: Check backend-tests
+        if: needs.backend-tests.result != 'success'
+        run: exit 1
+      - name: Check backend-postgres-integration
+        if: needs.backend-postgres-integration.result != 'success'
+        run: exit 1
+      - name: Check flyway-validation
+        if: needs.flyway-validation.result != 'success'
+        run: exit 1
+      - name: Check frontend
+        if: needs.frontend.result != 'success'
+        run: exit 1
+      - name: Check python-tests
+        if: needs.python-tests.result != 'success'
+        run: exit 1
+      - name: Check secret-scan
+        if: needs.secret-scan.result != 'success'
+        run: exit 1
+      - name: Check dependency-scan
+        if: needs.dependency-scan.result != 'success'
+        run: exit 1
+      - name: Check container-smoke
+        if: needs.container-smoke.result != 'success'
+        run: exit 1
+      - name: Check security-regression
+        if: needs.security-regression.result != 'success'
+        run: exit 1
+      - name: All checks passed
+        run: 'echo "QUALITY GATE: PASS"'
