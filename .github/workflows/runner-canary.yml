@@ -1,7 +1,9 @@
 name: Runner Canary
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - infra/02c-remote-ci-validation
 
 permissions:
   contents: read
