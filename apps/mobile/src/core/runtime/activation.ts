@@ -1,7 +1,10 @@
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import * as Updates from "expo-updates";
-import { environmentCapabilities } from "@/core/config/environment";
+import {
+  environment,
+  environmentCapabilities,
+} from "@/core/config/environment";
 
 export async function applyAvailableUpdate(): Promise<boolean> {
   if (!Updates.isEnabled || !environmentCapabilities.easConfigured) return false;
@@ -22,9 +25,7 @@ export async function registerForPushNotifications(): Promise<string | null> {
       : await Notifications.requestPermissionsAsync();
   if (permission.status !== "granted") return null;
 
-  const projectId = environmentCapabilities.easConfigured
-    ? process.env.EAS_PROJECT_ID
-    : undefined;
+  const projectId = environment.eas?.projectId;
   if (!projectId) return null;
 
   const token = await Notifications.getExpoPushTokenAsync({ projectId });
