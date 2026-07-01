@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  SNAD read-only IAM role for GitHub Actions to consume verified NVD
+  Dependency-Check snapshots from S3 using short-lived OIDC credentials.
+
+Parameters:
+  GitHubOidcProviderArn:
+    Type: String
+    Description: ARN of the existing token.actions.githubusercontent.com OIDC provider.
+    AllowedPattern: '^arn:aws:iam::[0-9]{12}:oidc-provider/token\.actions\.githubusercontent\.com$'
+  RepositoryOwner:
+    Type: String
+    Default: snadaiapp-png
+    AllowedPattern: '^[A-Za-z0-9_.-]+$'
+  RepositoryName:
+    Type: String
+    Default: SNAD
+    AllowedPattern: '^[A-Za-z0-9_.-]+$'
+  AcceptanceEnvironment:
+    Type: String
+    Default: nvd-reader
+    AllowedPattern: '^[A-Za-z0-9_.-]+$'
+  SnapshotBucketName:
+    Type: String
+    Description: Existing versioned S3 bucket containing verified snapshots.
+  SnapshotPrefix:
+    Type: String
+    Default: snad-nvd
+    AllowedPattern: '^[A-Za-z0-9!_.*()/-]+$'
+  KmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Optional customer-managed KMS key ARN used by the snapshot bucket.
+  RoleName:
+    Type: String
+    Default: snad-github-nvd-snapshot-reader
+    AllowedPattern: '^[A-Za-z0-9+=,.@_-]{1,64}$'
+
+Conditions:
+  UsesCustomerManagedKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+
+Resources:
+  NvdSnapshotReaderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      Description: Read-only GitHub Actions access to verified SNAD NVD snapshots.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: GitHubActionsOidcOnly
+            Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub:
+                  - !Sub 'repo:${RepositoryOwner}/${RepositoryName}:ref:refs/heads/main'
+                  - !Sub 'repo:${RepositoryOwner}/${RepositoryName}:environment:${AcceptanceEnvironment}'
+      Policies:
+        - PolicyName: ReadVerifiedNvdSnapshots
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadSnapshotObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetObjectAttributes
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:s3:::${SnapshotBucketName}/${SnapshotPrefix}/channels/verified/latest.json'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${SnapshotBucketName}/${SnapshotPrefix}/snapshots/*'
+              - Sid: ListOnlySnapshotPrefix
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                  - s3:GetBucketVersioning
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${SnapshotBucketName}'
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - !Sub '${SnapshotPrefix}/channels/verified/*'
+                      - !Sub '${SnapshotPrefix}/snapshots/*'
+              - !If
+                - UsesCustomerManagedKms
+                - Sid: DecryptSnapshotObjectsOnly
+                  Effect: Allow
+                  Action:
+                    - kms:Decrypt
+                    - kms:DescribeKey
+                  Resource: !Ref KmsKeyArn
+                  Condition:
+                    StringEquals:
+                      kms:ViaService: !Sub 's3.${AWS::Region}.amazonaws.com'
+                - !Ref AWS::NoValue
+      Tags:
+        - Key: Project
+          Value: SNAD
+        - Key: Purpose
+          Value: NVDSnapshotReadOnly
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  ReaderRoleArn:
+    Description: Set this ARN as repository variable NVD_SNAPSHOT_READER_ROLE.
+    Value: !GetAtt NvdSnapshotReaderRole.Arn
+  RequiredGitHubAudience:
+    Value: sts.amazonaws.com
+  MainBranchSubject:
+    Value: !Sub 'repo:${RepositoryOwner}/${RepositoryName}:ref:refs/heads/main'
+  EnvironmentSubject:
+    Value: !Sub 'repo:${RepositoryOwner}/${RepositoryName}:environment:${AcceptanceEnvironment}'
