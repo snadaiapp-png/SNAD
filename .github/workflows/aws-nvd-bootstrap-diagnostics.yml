@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'infra/aws/nvd-platform-bootstrap.yml'
+      - 'scripts/aws/render_nvd_platform_template.py'
       - '.github/workflows/aws-nvd-bootstrap-diagnostics.yml'
 
 permissions:
@@ -18,19 +19,23 @@ jobs:
         with:
           python-version: '3.12'
       - run: python3 -m pip install --quiet cfn-lint
+      - name: Render template
+        run: |
+          mkdir -p artifacts/aws-bootstrap
+          python3 scripts/aws/render_nvd_platform_template.py \
+            --source infra/aws/nvd-platform-bootstrap.yml \
+            --output artifacts/aws-bootstrap/nvd-platform-bootstrap.rendered.yml
       - name: Run cfn-lint
         id: lint
         continue-on-error: true
-        run: |
-          mkdir -p artifacts/aws-bootstrap
-          cfn-lint infra/aws/nvd-platform-bootstrap.yml > artifacts/aws-bootstrap/cfn-lint.txt 2>&1
+        run: cfn-lint artifacts/aws-bootstrap/nvd-platform-bootstrap.rendered.yml > artifacts/aws-bootstrap/cfn-lint.txt 2>&1
       - name: Upload diagnostics
         id: upload
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: aws-nvd-bootstrap-diagnostics-${{ github.run_id }}
-          path: artifacts/aws-bootstrap/cfn-lint.txt
+          path: artifacts/aws-bootstrap/
           if-no-files-found: error
           retention-days: 7
       - name: Enforce lint result
