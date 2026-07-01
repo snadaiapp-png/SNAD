@@ -53,33 +53,39 @@ class TenantAwarePaginationIntegrationTest {
     @Autowired private ObjectMapper objectMapper;
     @Autowired private TenantRepository tenantRepository;
     @Autowired private OrganizationRepository organizationRepository;
+    @jakarta.persistence.PersistenceContext private jakarta.persistence.EntityManager entityManager;
 
     private UUID tenantAId;
     private UUID tenantBId;
 
     @BeforeEach
     void setUp() throws Exception {
-        // Note: @Transactional rollback handles cleanup between test methods.
-        // We don't need deleteAllInBatch here (and it can fail due to FK
-        // constraints from other tests' leftover data).
-        // Create tenants and capture their generated IDs
+        // Create tenants (tenants table has no RLS)
         Tenant tenantA = new Tenant("Tenant A", "slug-a-" + UUID.randomUUID(), TenantStatus.ACTIVE);
         tenantAId = tenantRepository.save(tenantA).getId();
         Tenant tenantB = new Tenant("Tenant B", "slug-b-" + UUID.randomUUID(), TenantStatus.ACTIVE);
         tenantBId = tenantRepository.save(tenantB).getId();
 
-        // Seed 3 orgs for tenant A
+        // Stage 04A.3: RLS is active on organizations table. Set RLS context
+        // before creating organizations via HTTP POST.
+        setRlsTenant(tenantAId);
         createOrg(tenantAId, "Alpha-A1");
         createOrg(tenantAId, "Alpha-A2");
         createOrg(tenantAId, "Alpha-A3");
-        // Seed 2 orgs for tenant B
+        setRlsTenant(tenantBId);
         createOrg(tenantBId, "Bravo-B1");
         createOrg(tenantBId, "Bravo-B2");
     }
 
+    private void setRlsTenant(UUID tenantId) {
+        entityManager.createNativeQuery(
+                "SELECT set_config('app.current_tenant_id', :tenant, true)")
+                .setParameter("tenant", tenantId.toString())
+                .getSingleResult();
+    }
+
     private void createOrg(UUID tenantId, String name) throws Exception {
         String body = objectMapper.writeValueAsString(Map.of(
-                "tenantId", tenantId.toString(),
                 "name", name,
                 "description", "seed"));
         mockMvc.perform(post("/api/v1/organizations")
