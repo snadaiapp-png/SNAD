@@ -4,7 +4,7 @@ import * as Updates from "expo-updates";
 import {
   environment,
   environmentCapabilities,
-} from "@/core/config/environment";
+} from "../config/environment";
 
 export async function applyAvailableUpdate(): Promise<boolean> {
   if (!Updates.isEnabled || !environmentCapabilities.easConfigured) return false;
