@@ -12,10 +12,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '17 */6 * * *'
-  push:
-    branches: [feat/crm-runtime-environment]
-    paths:
-      - '.github/security-requests/nvd-snapshot-refresh.json'
 
 permissions:
   contents: write
