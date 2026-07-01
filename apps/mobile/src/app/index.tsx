@@ -3,12 +3,12 @@ import { useTranslation } from "react-i18next";
 import { StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { apiRequest } from "@/core/api/client";
+import { apiRequest } from "../core/api/client";
 import {
   environment,
   environmentCapabilities,
-} from "@/core/config/environment";
-import { getMobileDatabase } from "@/core/offline/database";
+} from "../core/config/environment";
+import { getMobileDatabase } from "../core/offline/database";
 
 type ApiState = "checking" | "online" | "offline";
 
