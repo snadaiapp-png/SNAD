@@ -60,6 +60,13 @@ jobs:
           python3 -m pip install --quiet pyyaml pytest
           sudo apt-get install -y zstd || true
 
+      - name: Verify latest-pointer regression fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pytest tests/security/test_nvd_latest_pointer_promotion.py -q
+          python3 -m py_compile scripts/security/run_nvd_snapshot_publisher.py
+
       - name: Run Incremental Publisher (Datafeed Mode)
         id: publisher
         continue-on-error: true
@@ -78,7 +85,7 @@ jobs:
           rm -rf "$WORK_DIR" "$CANONICAL_DIR" "$LKG_DIR" "$LOG_DIR"
           mkdir -p "$WORK_DIR" "$CANONICAL_DIR" "$LKG_DIR" "$LOG_DIR"
 
-          python3 scripts/security/publish_nvd_snapshot.py \
+          python3 scripts/security/run_nvd_snapshot_publisher.py \
             --mode incremental \
             --source-mode datafeed \
             --update-timeout-minutes 180 \
