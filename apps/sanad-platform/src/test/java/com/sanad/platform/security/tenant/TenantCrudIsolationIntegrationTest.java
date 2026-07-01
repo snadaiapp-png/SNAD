@@ -102,14 +102,10 @@ class TenantCrudIsolationIntegrationTest {
      * Uses the EntityManager bound to the test's @Transactional context.
      */
     private void setRlsTenant(UUID tenantId) {
-        var session = entityManager.unwrap(org.hibernate.Session.class);
-        session.doWork(connection -> {
-            try (var stmt = connection.prepareStatement(
-                    "SELECT set_config('app.current_tenant_id', ?, true)")) {
-                stmt.setString(1, tenantId.toString());
-                stmt.execute();
-            }
-        });
+        entityManager.createNativeQuery(
+                "SELECT set_config('app.current_tenant_id', :tenant, true)")
+                .setParameter("tenant", tenantId.toString())
+                .getSingleResult();
     }
 
     @Test
