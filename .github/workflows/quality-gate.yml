@@ -280,15 +280,15 @@ jobs:
           rm -rf "$CANARY_DIR"
           mkdir -p "$CANARY_DIR"
 
-          # Synthetic AWS access key ID + secret that gitleaks MUST detect.
-          # The aws-access-token rule matches AKIA + 16 uppercase alphanumeric
-          # chars. We split the prefix and suffix across two variables so the
-          # full canary literal is not present as a single string in the
-          # committed workflow file (and therefore does not trip the policy
-          # gate or the repo scan).
+          # Synthetic AWS access key ID that gitleaks MUST detect.
+          # The aws-access-token rule matches AKIA + exactly 16 uppercase
+          # alphanumeric chars. We split the prefix and suffix across two
+          # variables so the full canary literal is not present as a single
+          # string in the committed workflow file (and therefore does not
+          # trip the policy gate or the repo scan).
           PREFIX='AKIA'
-          SUFFIX='ZSANAD362CANARY01'
-          printf 'aws_access_key_id = %s\naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY362\n' "$PREFIX$SUFFIX" > "$CANARY_DIR/canary.ini"
+          SUFFIX='ZSANAD362CANARY0'
+          printf '%s%s\n' "$PREFIX" "$SUFFIX" > "$CANARY_DIR/canary.txt"
 
           set +e
           docker run --rm \
