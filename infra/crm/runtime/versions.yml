@@ -15,6 +15,9 @@ crm_runtime:
     version: 3.6.0
     image: opensearchproject/opensearch:3.6.0
     dashboards_image: opensearchproject/opensearch-dashboards:3.6.0
+  clamav:
+    version: 1.5.2
+    image: clamav/clamav:1.5.2
   k6:
     version: 2.1.0
     image: grafana/k6:2.1.0
@@ -32,3 +35,4 @@ policies:
   cache_source_of_truth: false
   attachment_local_mode: filesystem_volume
   attachment_production_mode: managed_s3_compatible
+  attachment_scan_required: true
