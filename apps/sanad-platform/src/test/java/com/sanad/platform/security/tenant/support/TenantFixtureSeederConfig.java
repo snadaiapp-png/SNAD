@@ -135,10 +135,15 @@ public class TenantFixtureSeederConfig {
             jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, session_version, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', ?, 0, NOW(), NOW())",
                     archivedTenantUserId, archivedTenantId, "archived@example.com", "Archived", pwHash);
 
-            // User without capability in Tenant A (ACTIVE, no role grant)
+            // User without capability in Tenant A (ACTIVE, no role grant, but has membership)
             UUID userWithoutCapId = UUID.randomUUID();
             jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, session_version, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', ?, 0, NOW(), NOW())",
                     userWithoutCapId, tenantA, "nocap@example.com", "NoCap", pwHash);
+            // Give them an ACTIVE membership so they pass session validation
+            // but no role grant (so capability check denies them)
+            UUID nocapMembershipId = UUID.randomUUID();
+            jdbc.update("INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, email, display_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                    nocapMembershipId, tenantA, orgAId, userWithoutCapId, "nocap@example.com", "NoCap");
 
             return new TenantTestFixture(tenantA, tenantB, userA, userB,
                     pwHash, pwHash, orgAId, orgBId, membershipAId, membershipBId, roleId, capabilityId, roleGrantId,

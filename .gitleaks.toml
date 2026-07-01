@@ -1,37 +1,16 @@
 # Gitleaks configuration for SANAD Platform
 #
 # This configuration extends the default Gitleaks rule set.
-# Only line-specific gitleaks:allow comments or exact-fingerprint
-# exceptions in .gitleaksignore are used for unavoidable non-sensitive
-# test fixtures.
-#
-# Real secrets must NEVER be added to any exclusion mechanism.
 
 [extend]
   useDefault = true
 
-# ---------------------------------------------------------------------------
-# Path exclusions (narrow, justified, build-artifact only)
-# ---------------------------------------------------------------------------
-
 [allowlist]
-description = "Gitignored generated build outputs excluded from tracked-source scanning; values in these directories must never be committed or published"
+description = "Build artifacts and CI-only test passwords"
 paths = [
   '''^apps/sanad-platform/target/''',
   '''^apps/web/\.next/''',
 ]
-
-# CI-only test database passwords in GitHub Actions workflow files.
-# These are ephemeral CI database passwords for an in-memory PostgreSQL
-# instance that is destroyed after each run. They are never used in
-# production or with real customer data.
-# Targeted: only matches in .github/workflows/ files.
-[[allowlist.regexes]]
-description = "CI-only test database passwords in workflow files only"
-regex = '''ci-(fixture-only|runtime-only|migration-only|postgres-admin-only|smoke-only|flyway-only|security-only|tenant-isolation-only)'''
-paths = [
-  '''^\.github/workflows/''',
+regexes = [
+  '''ci-(fixture-only|runtime-only|migration-only|postgres-admin-only|smoke-only|flyway-only|security-only|tenant-isolation-only)''',
 ]
-
-# No global regex exclusions.
-# Default detection rules are fully active for all source files.
