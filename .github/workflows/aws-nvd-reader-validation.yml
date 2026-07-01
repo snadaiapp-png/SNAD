@@ -1,0 +1,100 @@
+name: AWS NVD Reader Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/crm-runtime-environment]
+    paths:
+      - '.github/security-requests/aws-nvd-reader-validation.json'
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  EVIDENCE_DIR: ${{ github.workspace }}/artifacts/security/aws-oidc
+
+jobs:
+  validate-reader:
+    name: Validate AWS OIDC NVD Reader
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: nvd-reader
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Validate configured inputs
+        shell: bash
+        env:
+          ROLE_ARN: ${{ vars.NVD_SNAPSHOT_READER_ROLE }}
+          REGION: ${{ vars.NVD_SNAPSHOT_REGION }}
+          BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
+          PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
+        run: |
+          set -euo pipefail
+          [[ "$ROLE_ARN" =~ ^arn:aws:iam::[0-9]{12}:role/ ]] || { echo '::error::NVD_SNAPSHOT_READER_ROLE is missing or invalid'; exit 1; }
+          [[ -n "$REGION" ]] || { echo '::error::NVD_SNAPSHOT_REGION is missing'; exit 1; }
+          [[ -n "$BUCKET" ]] || { echo '::error::NVD_SNAPSHOT_BUCKET is missing'; exit 1; }
+          [[ -n "$PREFIX" ]] || { echo '::error::NVD_SNAPSHOT_PREFIX is missing'; exit 1; }
+
+      - name: Assume reader role with GitHub OIDC
+        id: credentials
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b
+        with:
+          role-to-assume: ${{ vars.NVD_SNAPSHOT_READER_ROLE }}
+          aws-region: ${{ vars.NVD_SNAPSHOT_REGION }}
+          audience: sts.amazonaws.com
+          role-session-name: snad-nvd-reader-validation-${{ github.run_id }}
+          role-duration-seconds: 900
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Validate identity, versioning, encryption, and read access
+        id: controls
+        shell: bash
+        env:
+          EXPECTED_ACCOUNT: ${{ vars.NVD_SNAPSHOT_AWS_ACCOUNT_ID }}
+          BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
+          PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          aws sts get-caller-identity --output json > "$EVIDENCE_DIR/caller-identity.json"
+          ACCOUNT=$(python3 -c 'import json; print(json.load(open("artifacts/security/aws-oidc/caller-identity.json"))["Account"])')
+          [[ -z "$EXPECTED_ACCOUNT" || "$ACCOUNT" == "$EXPECTED_ACCOUNT" ]] || { echo '::error::Unexpected AWS account'; exit 1; }
+          aws s3api get-bucket-versioning --bucket "$BUCKET" --output json > "$EVIDENCE_DIR/bucket-versioning.json"
+          VERSIONING=$(python3 -c 'import json; print(json.load(open("artifacts/security/aws-oidc/bucket-versioning.json")).get("Status", ""))')
+          [[ "$VERSIONING" == 'Enabled' ]] || { echo '::error::Bucket versioning must be Enabled'; exit 1; }
+          aws s3api get-bucket-encryption --bucket "$BUCKET" --output json > "$EVIDENCE_DIR/bucket-encryption.json"
+          aws s3api head-object \
+            --bucket "$BUCKET" \
+            --key "$PREFIX/channels/verified/latest.json" \
+            --output json > "$EVIDENCE_DIR/latest-object-head.json"
+          aws s3api get-object \
+            --bucket "$BUCKET" \
+            --key "$PREFIX/channels/verified/latest.json" \
+            "$EVIDENCE_DIR/latest.json" >/dev/null
+          python3 -m json.tool "$EVIDENCE_DIR/latest.json" >/dev/null
+          echo 'result=pass' >> "$GITHUB_OUTPUT"
+
+      - name: Upload AWS OIDC evidence
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-nvd-reader-validation-${{ github.run_id }}
+          path: artifacts/security/aws-oidc/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Final enforcement
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ '${{ steps.credentials.outcome }}' == 'success' ]] || { echo '::error::OIDC role assumption failed'; exit 1; }
+          [[ '${{ steps.controls.outputs.result }}' == 'pass' ]] || { echo '::error::AWS reader controls failed'; exit 1; }
+          [[ '${{ steps.upload.outcome }}' == 'success' ]] || { echo '::error::AWS evidence upload failed'; exit 1; }
+          echo 'AWS OIDC NVD reader validation PASSED.'
