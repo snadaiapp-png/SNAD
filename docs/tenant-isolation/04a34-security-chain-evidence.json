@@ -1,96 +1,236 @@
 {
-  "stage": "04A.3.4",
-  "generatedAt": "2026-07-01T00:00:00Z",
+  "stage": "04A.3.6.2",
+  "generatedAt": "2026-07-02T00:00:00Z",
+  "implementationWorkflowRunId": "28537844556",
+  "implementationWorkflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2",
+  "implementationArtifactId": "8018649968",
+  "implementationArtifactName": "tenant-isolation-evidence",
+  "tenantTestCount": 71,
+  "tenantTestFailures": 0,
+  "tenantTestErrors": 0,
+  "tenantTestSkipped": 0,
+  "secretScanResult": "PASS",
+  "canaryDetectionResult": "PASS",
   "criteria": [
     {
       "criterion": "Valid authentication",
       "testClass": "TenantAuthenticationUnderRlsIntegrationTest",
       "testMethod": "validUserA_200",
       "expectedResult": "200",
+      "actualResult": "200",
       "artifact": "tenant-isolation-evidence",
-      "workflowRunId": null,
-      "workflowHeadSha": null
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
     },
     {
-      "criterion": "Invalid authentication",
+      "criterion": "Invalid authentication (malformed JWT)",
       "testClass": "TenantAuthenticationUnderRlsIntegrationTest",
       "testMethod": "malformedJwt_401",
       "expectedResult": "401",
+      "actualResult": "401",
       "artifact": "tenant-isolation-evidence",
-      "workflowRunId": null,
-      "workflowHeadSha": null
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
     },
     {
-      "criterion": "Session revocation",
+      "criterion": "Session revocation (old session version)",
       "testClass": "TenantAuthenticationUnderRlsIntegrationTest",
       "testMethod": "oldSessionVersion_401",
       "expectedResult": "401",
+      "actualResult": "401",
       "artifact": "tenant-isolation-evidence",
-      "workflowRunId": null,
-      "workflowHeadSha": null
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
     },
     {
-      "criterion": "Membership revocation",
-      "testClass": "TenantCapabilityBindingIntegrationTest",
-      "testMethod": "revokeGrant_then403",
-      "expectedResult": "403 SANAD-SEC-001",
-      "artifact": "tenant-isolation-evidence",
-      "workflowRunId": null,
-      "workflowHeadSha": null
-    },
-    {
-      "criterion": "Tenant selector denial",
-      "testClass": "TenantCrudIsolationIntegrationTest",
-      "testMethod": "tokenA_selectorB_403",
-      "expectedResult": "403 SANAD-TEN-002",
-      "artifact": "tenant-isolation-evidence",
-      "workflowRunId": null,
-      "workflowHeadSha": null
-    },
-    {
-      "criterion": "Cross-tenant resource denial",
-      "testClass": "TenantCrudIsolationIntegrationTest",
-      "testMethod": "tokenNoCap_403",
-      "expectedResult": "403 SANAD-SEC-001",
-      "artifact": "tenant-isolation-evidence",
-      "workflowRunId": null,
-      "workflowHeadSha": null
-    },
-    {
-      "criterion": "Capability grant",
-      "testClass": "TenantCapabilityBindingIntegrationTest",
-      "testMethod": "tokenA_tenantA_200",
+      "criterion": "Active membership allows access",
+      "testClass": "TenantAuthenticationUnderRlsIntegrationTest",
+      "testMethod": "activeMembership_200",
       "expectedResult": "200",
+      "actualResult": "200",
       "artifact": "tenant-isolation-evidence",
-      "workflowRunId": null,
-      "workflowHeadSha": null
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
     },
     {
-      "criterion": "Capability revocation",
-      "testClass": "TenantCapabilityBindingIntegrationTest",
-      "testMethod": "revokeGrant_then403",
-      "expectedResult": "403 SANAD-SEC-001",
+      "criterion": "No membership denial",
+      "testClass": "TenantAuthenticationUnderRlsIntegrationTest",
+      "testMethod": "noMembership_401",
+      "expectedResult": "401",
+      "actualResult": "401",
       "artifact": "tenant-isolation-evidence",
-      "workflowRunId": null,
-      "workflowHeadSha": null
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
+    },
+    {
+      "criterion": "Revoked membership denial",
+      "testClass": "TenantAuthenticationUnderRlsIntegrationTest",
+      "testMethod": "revokedMembership_401",
+      "expectedResult": "401",
+      "actualResult": "401",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
+    },
+    {
+      "criterion": "Inactive membership denial",
+      "testClass": "TenantAuthenticationUnderRlsIntegrationTest",
+      "testMethod": "inactiveMembership_401",
+      "expectedResult": "401",
+      "actualResult": "401",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
+    },
+    {
+      "criterion": "Other-tenant membership denial (user in Tenant B, JWT claims Tenant A)",
+      "testClass": "TenantAuthenticationUnderRlsIntegrationTest",
+      "testMethod": "membershipInOtherTenant_denied",
+      "expectedResult": "401",
+      "actualResult": "401",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
     },
     {
       "criterion": "Archived tenant denial",
       "testClass": "TenantAuthenticationUnderRlsIntegrationTest",
-      "testMethod": "nonexistentTenant_401",
+      "testMethod": "archivedTenant_denied",
       "expectedResult": "401",
+      "actualResult": "401",
       "artifact": "tenant-isolation-evidence",
-      "workflowRunId": null,
-      "workflowHeadSha": null
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
+    },
+    {
+      "criterion": "Validly signed expired JWT denial (real signing key, exp in past)",
+      "testClass": "TenantAuthenticationUnderRlsIntegrationTest",
+      "testMethod": "expiredValidlySignedJwt_401",
+      "expectedResult": "401 SANAD-AUTH-001",
+      "actualResult": "401 SANAD-AUTH-001",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
     },
     {
       "criterion": "Suspended user denial",
       "testClass": "TenantAuthenticationUnderRlsIntegrationTest",
       "testMethod": "suspendedUser_401",
       "expectedResult": "401",
+      "actualResult": "401",
       "artifact": "tenant-isolation-evidence",
-      "workflowRunId": null,
-      "workflowHeadSha": null
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
+    },
+    {
+      "criterion": "Capability revocation",
+      "testClass": "TenantCapabilityBindingIntegrationTest",
+      "testMethod": "revokeGrant_then403",
+      "expectedResult": "403 SANAD-SEC-001",
+      "actualResult": "403 SANAD-SEC-001",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
+    },
+    {
+      "criterion": "Tenant selector denial (token A, selector B)",
+      "testClass": "TenantCrudIsolationIntegrationTest",
+      "testMethod": "tokenA_selectorB_403",
+      "expectedResult": "403 SANAD-TEN-002",
+      "actualResult": "403 SANAD-TEN-002",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
+    },
+    {
+      "criterion": "Organization same-tenant GET",
+      "testClass": "TenantCrudIsolationIntegrationTest",
+      "testMethod": "organizationSameTenantGet_200",
+      "expectedResult": "200",
+      "actualResult": "200",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
+    },
+    {
+      "criterion": "Organization cross-tenant GET denied",
+      "testClass": "TenantCrudIsolationIntegrationTest",
+      "testMethod": "organizationCrossTenantGet_404",
+      "expectedResult": "404",
+      "actualResult": "404",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
+    },
+    {
+      "criterion": "Organization same-tenant CREATE",
+      "testClass": "TenantCrudIsolationIntegrationTest",
+      "testMethod": "organizationSameTenantCreate_201",
+      "expectedResult": "201",
+      "actualResult": "201",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
+    },
+    {
+      "criterion": "Mass assignment database verification (body tenantId=B, stored tenant_id=A)",
+      "testClass": "TenantCrudIsolationIntegrationTest",
+      "testMethod": "massAssignment_databaseTenantForcedToA",
+      "expectedResult": "201 + DB row tenant_id = Tenant A (not body-supplied Tenant B)",
+      "actualResult": "201 + DB row tenant_id = Tenant A (verified via Fixture DataSource)",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
+    },
+    {
+      "criterion": "Raw PostgreSQL RLS enforcement",
+      "testClass": "TenantRlsIntegrationTest",
+      "testMethod": "runtimeRoleSeesOnlyOwnTenantRows",
+      "expectedResult": "Tenant A rows visible, Tenant B rows hidden under runtime role",
+      "actualResult": "PASS",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
+    },
+    {
+      "criterion": "Connection pool leakage (no cross-tenant connection bleed)",
+      "testClass": "TenantConnectionPoolLeakageTest",
+      "testMethod": "noConnectionLeakageAcrossTenants",
+      "expectedResult": "0 leaked connections",
+      "actualResult": "0 leaked connections",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
+    },
+    {
+      "criterion": "Migration owner FORCE RLS verification",
+      "testClass": "TenantMigrationOwnerForceRlsIntegrationTest",
+      "testMethod": "migrationOwnerForceRlsVerified",
+      "expectedResult": "FORCE RLS enabled on all tenant-owned tables",
+      "actualResult": "PASS (8/8 tables)",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
+    },
+    {
+      "criterion": "Fixture role isolated to CI (BYPASSRLS, CI-only)",
+      "testClass": "TenantFixtureRoleIntegrationTest",
+      "testMethod": "fixtureRoleIsolatedToCi",
+      "expectedResult": "Fixture role has BYPASSRLS but is not usable in production",
+      "actualResult": "PASS",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
+    },
+    {
+      "criterion": "Runtime role verification (NOSUPERUSER, NOBYPASSRLS)",
+      "testClass": "TenantRuntimeRoleIntegrationTest",
+      "testMethod": "runtimeRoleFlagsVerified",
+      "expectedResult": "sanad_runtime_app has NOSUPERUSER NOBYPASSRLS",
+      "actualResult": "PASS",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": "28537844556",
+      "workflowHeadSha": "81852f2ff5de37a976e1a2921c738201754639a2"
     }
   ]
 }
