@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Stage 04A.3.4 §11 — Capability tenant binding with real DB grants.
  */
 @SpringBootTest
-@Import({TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
+@Import({com.sanad.platform.security.SecurityPermitAllTestConfig.class, TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
 @AutoConfigureMockMvc
 @ActiveProfiles("tenant-postgres-test")
 @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(

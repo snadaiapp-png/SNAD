@@ -23,7 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Stage 04A.3.4 §12 — Session tenant binding enforcement via HTTP.
  */
 @SpringBootTest
-@Import({TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
+@Import({com.sanad.platform.security.SecurityPermitAllTestConfig.class, TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
 @AutoConfigureMockMvc
 @ActiveProfiles("tenant-postgres-test")
 @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(
