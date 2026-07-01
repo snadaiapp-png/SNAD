@@ -9,7 +9,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.6</version>
+        <version>3.5.16</version>
         <relativePath/>
     </parent>
 
@@ -34,32 +34,19 @@
              instead produces equivalent Java 17 bytecode. -->
         <maven.compiler.release></maven.compiler.release>
 
-        <springdoc-openapi-starter-webmvc-ui.version>2.6.0</springdoc-openapi-starter-webmvc-ui.version>
+        <springdoc-openapi-starter-webmvc-ui.version>2.8.17</springdoc-openapi-starter-webmvc-ui.version>
+        <swagger-ui.version>5.32.8</swagger-ui.version>
         <testcontainers.version>1.20.4</testcontainers.version>
         <!-- OWASP Dependency-Check version (used by -Powasp-offline-gate) -->
         <dependency-check.version>12.1.0</dependency-check.version>
 
         <!-- ============================================================ -->
-        <!-- Security version overrides (R12L OWASP remediation — round 2) -->
-        <!-- Upgraded to latest available versions to address 2025-2026   -->
-        <!-- CVEs that remained after the Spring Boot 3.4.5 upgrade.      -->
+        <!-- Security version overrides                                  -->
         <!-- ============================================================ -->
 
-        <!-- Log4j API: 2.24.3 → 2.25.0 fixes CVE-2026-34477/78/79/80/81, CVE-2025-68161 -->
         <log4j2.version>2.25.0</log4j2.version>
-
-        <!-- Commons Lang3: 3.17.0 → 3.18.0 fixes CVE-2025-48924 -->
         <commons-lang3.version>3.18.0</commons-lang3.version>
-
-        <!-- PostgreSQL JDBC: 42.7.5 → 42.7.6 fixes CVE-2025-49146, CVE-2026-42198 -->
         <postgresql.version>42.7.6</postgresql.version>
-
-        <!-- Spring Boot 3.5.6 BOM provides:
-             - Spring Framework 6.2.x (latest patch): fixes CVE-2026-41838/41842/41848/41850/41851/22740/22737/22741/22745/22735
-             - Spring Security 6.5.x: fixes CVE-2026-22732/22746/22748/40988/41003/41694/41706/47838/22751
-             - Tomcat Embed 10.1.42+: fixes remaining 2025-2026 Tomcat CVEs
-             - Hibernate Validator 8.0.2.Final+: fixes CVE-2025-15104
-             - Eclipse Angus 2.0.4+: fixes CVE-2025-7962 -->
     </properties>
 
     <dependencies>
@@ -134,7 +121,6 @@
         </dependency>
 
         <!-- Database: PostgreSQL driver (runtime) -->
-        <!-- Version overridden via <postgresql.version> property for CVE remediation. -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
@@ -164,6 +150,13 @@
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>${springdoc-openapi-starter-webmvc-ui.version}</version>
+        </dependency>
+
+        <!-- Override the transitive WebJar so Swagger UI embeds patched DOMPurify 3.4.11. -->
+        <dependency>
+            <groupId>org.webjars</groupId>
+            <artifactId>swagger-ui</artifactId>
+            <version>${swagger-ui.version}</version>
         </dependency>
 
         <!-- Test scope -->
@@ -203,10 +196,6 @@
                 <configuration>
                     <source>${java.version}</source>
                     <target>${java.version}</target>
-                    <!-- Explicitly unset release. The runtime image in CI
-                         is JRE only and lacks the ct.sym file required by
-                         the release flag. source/target produce the same
-                         Java 17 bytecode without that dependency. -->
                     <release></release>
                 </configuration>
             </plugin>
@@ -224,18 +213,6 @@
 
     <!-- ============================================================ -->
     <!-- OWASP Dependency-Check offline-gate profile                  -->
-    <!-- EXEC-PROMPT-010R12A Section 11 — preferred multi-format      -->
-    <!-- model: explicit <formats> element in plugin configuration.   -->
-    <!-- Activated by -Powasp-offline-gate in security-scan.yml.      -->
-    <!--                                                              -->
-    <!-- Properties enforced:                                         -->
-    <!--   autoUpdate              = false  (no NVD API calls)        -->
-    <!--   failOnError             = true                             -->
-    <!--   failBuildOnCVSS         = 11     (HIGH/CRITICAL gate)      -->
-    <!--   ossIndexAnalyzerEnabled = false  (no Sonatype OSS Index)   -->
-    <!--   hostedSuppressionsEnabled = false                          -->
-    <!--   versionCheckEnabled     = false                            -->
-    <!--   formats                 = [HTML, JSON]                     -->
     <!-- ============================================================ -->
     <profiles>
         <profile>
@@ -254,13 +231,12 @@
                             <autoUpdate>false</autoUpdate>
                             <failOnError>true</failOnError>
                             <failBuildOnCVSS>11</failBuildOnCVSS>
-                            <ossIndexAnalyzerEnabled>false</ossIndexAnalyzerEnabled>
+                            <ossindexAnalyzerEnabled>false</ossindexAnalyzerEnabled>
+                            <centralAnalyzerEnabled>false</centralAnalyzerEnabled>
+                            <retireJsAnalyzerEnabled>false</retireJsAnalyzerEnabled>
+                            <knownExploitedEnabled>false</knownExploitedEnabled>
                             <hostedSuppressionsEnabled>false</hostedSuppressionsEnabled>
                             <versionCheckEnabled>false</versionCheckEnabled>
-                            <!-- R12L OWASP remediation: suppress CVEs where NVD CPE
-                                 range has no upper version bound (false positives
-                                 for our latest patched versions). See:
-                                 src/main/resources/dependency-check-suppressions.xml -->
                             <suppressionFile>${project.basedir}/src/main/resources/dependency-check-suppressions.xml</suppressionFile>
                         </configuration>
                     </plugin>
