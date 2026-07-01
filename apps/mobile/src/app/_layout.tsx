@@ -8,10 +8,10 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import { i18n } from "@/core/i18n";
-import { getMobileDatabase } from "@/core/offline/database";
-import { queryClient } from "@/core/query/query-client";
-import { applyAvailableUpdate } from "@/core/runtime/activation";
+import { i18n } from "../core/i18n";
+import { getMobileDatabase } from "../core/offline/database";
+import { queryClient } from "../core/query/query-client";
+import { applyAvailableUpdate } from "../core/runtime/activation";
 
 export default function RootLayout() {
   useEffect(() => {
