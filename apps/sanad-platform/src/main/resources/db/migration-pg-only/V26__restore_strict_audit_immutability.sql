@@ -46,6 +46,14 @@ $$;
 -- ============================================================
 -- Stage 05A.1 §5 — Revoke UPDATE/DELETE from runtime role.
 -- The runtime role may only INSERT and SELECT on audit_events.
+-- Use DO block to handle environments where sanad_runtime_app
+-- does not exist (e.g. backend-tests job).
 -- ============================================================
-REVOKE ALL ON audit_events FROM sanad_runtime_app;
-GRANT SELECT, INSERT ON audit_events TO sanad_runtime_app;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_runtime_app') THEN
+        REVOKE ALL ON audit_events FROM sanad_runtime_app;
+        GRANT SELECT, INSERT ON audit_events TO sanad_runtime_app;
+    END IF;
+END
+$$;

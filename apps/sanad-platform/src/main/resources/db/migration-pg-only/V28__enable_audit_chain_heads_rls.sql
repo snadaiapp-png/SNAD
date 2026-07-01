@@ -15,8 +15,22 @@ CREATE POLICY tenant_isolation_audit_chain_heads ON audit_chain_heads
     WITH CHECK (tenant_id = current_setting('app.current_tenant_id', true)::uuid);
 
 -- Grant runtime role SELECT + UPDATE on chain heads (needed to lock and update)
-GRANT SELECT, UPDATE ON audit_chain_heads TO sanad_runtime_app;
-GRANT INSERT ON audit_chain_heads TO sanad_runtime_app;
+-- The sanad_runtime_app role may not exist in all environments (e.g. backend-tests
+-- uses a different role). Use DO blocks to grant only if the role exists.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_runtime_app') THEN
+        GRANT SELECT, UPDATE ON audit_chain_heads TO sanad_runtime_app;
+        GRANT INSERT ON audit_chain_heads TO sanad_runtime_app;
+    END IF;
+END
+$$;
 
--- Grant fixture CI role access for test cleanup
-GRANT ALL ON audit_chain_heads TO sanad_fixture_ci;
+-- Grant fixture CI role access for test cleanup (CI-only role)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_fixture_ci') THEN
+        GRANT ALL ON audit_chain_heads TO sanad_fixture_ci;
+    END IF;
+END
+$$;
