@@ -38,6 +38,8 @@ services:
       CRM_CACHE_PORT: 6379
       CRM_SEARCH_URL: http://opensearch:9200
       CRM_SEARCH_INDEX_PREFIX: snad-crm
+      CRM_ANTIVIRUS_HOST: clamav
+      CRM_ANTIVIRUS_PORT: 3310
     volumes:
       - crm-attachments:/var/lib/snad/crm-attachments
 
@@ -67,6 +69,24 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    networks:
+      - data
+
+  clamav:
+    image: clamav/clamav:1.5.2
+    profiles: ["crm-storage"]
+    restart: unless-stopped
+    environment:
+      CLAMD_STARTUP_TIMEOUT: 1800
+      FRESHCLAM_CHECKS: 12
+    volumes:
+      - clamav-data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --ping 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 30
+      start_period: 120s
     networks:
       - data
 
@@ -152,4 +172,5 @@ services:
 volumes:
   crm-attachments:
   valkey-data:
+  clamav-data:
   opensearch-data:
