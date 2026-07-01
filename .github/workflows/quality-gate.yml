@@ -661,7 +661,7 @@ jobs:
             GRANT SELECT, INSERT, UPDATE, DELETE
             ON organizations, organization_memberships, users, roles,
                role_capabilities, user_role_assignments, refresh_tokens,
-               password_reset_tokens, tenants
+               password_reset_tokens, tenants, access_capabilities
             TO sanad_fixture_ci;
             GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sanad_fixture_ci;
           "

@@ -54,14 +54,17 @@ public class TenantFixtureSeederConfig {
             jdbc.update("INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at) VALUES (?, ?, 'ADMIN', 'Admin', 'Admin role', 'ACTIVE', NOW(), NOW())",
                     roleId, tenantA);
 
-            // Insert USER.READ and USER.WRITE capabilities (global reference data)
-            // Check if they already exist from V14 migration
-            Integer capCount = jdbc.queryForObject("SELECT COUNT(*) FROM access_capabilities WHERE code = 'USER.READ'", Integer.class);
-            if (capCount == null || capCount == 0) {
+            // Insert USER.READ capability (global reference data)
+            // V14 migration seeds capabilities, so it should already exist.
+            // Use a try-catch to handle the case where it doesn't.
+            try {
+                capabilityId = jdbc.queryForObject(
+                    "SELECT id FROM access_capabilities WHERE code = 'USER.READ'", UUID.class);
+            } catch (Exception e) {
+                // Capability doesn't exist — create it
+                capabilityId = UUID.randomUUID();
                 jdbc.update("INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at) VALUES (?, 'USER.READ', 'Read Users', 'Read user records', 'ACTIVE', NOW(), NOW())",
                         capabilityId);
-            } else {
-                capabilityId = jdbc.queryForObject("SELECT id FROM access_capabilities WHERE code = 'USER.READ'", UUID.class);
             }
 
             // Link role to USER.READ capability in Tenant A
