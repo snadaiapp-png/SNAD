@@ -21,10 +21,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '17 3 * * *'
-  push:
-    branches: [feat/crm-runtime-environment]
-    paths:
-      - '.github/security-requests/nvd-feed-refresh.json'
 
 permissions:
   contents: write
