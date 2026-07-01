@@ -55,7 +55,7 @@ class TenantCrudIsolationIntegrationTest {
     @Autowired private TenantRepository tenantRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private TenantContextProvider contextProvider;
-    @Autowired private TenantRlsBinder rlsBinder;
+    @jakarta.persistence.PersistenceContext private jakarta.persistence.EntityManager entityManager;
 
     private UUID tenantAId;
     private UUID tenantBId;
@@ -73,13 +73,9 @@ class TenantCrudIsolationIntegrationTest {
                 new Tenant("Tenant B", "tenant-b-" + UUID.randomUUID(), TenantStatus.ACTIVE)
         ).getId();
 
-        // Stage 04A.3: RLS is active on the users table. We must set the
-        // TenantContext and bind RLS before creating users.
-        // Create user A under tenant A context
-        contextProvider.setContext(new TenantContext(
-                tenantAId, UUID.randomUUID(), "setup-A", 0L, java.util.Set.of(),
-                TenantContext.TenantContextSource.TEST_FIXTURE, "setup-A"));
-        rlsBinder.bindTenantToCurrentTransaction();
+        // Stage 04A.3: RLS is active on the users table. Set the tenant context
+        // directly on the transaction's connection via EntityManager.
+        setRlsTenant(tenantAId);
 
         User userA = new User(tenantAId, "alice-a@example.com", "Alice A", UserStatus.ACTIVE);
         userA.setPasswordHash("dummy-hash");
@@ -87,10 +83,7 @@ class TenantCrudIsolationIntegrationTest {
         userAId = userA.getId();
 
         // Switch context to tenant B for user B creation
-        contextProvider.setContext(new TenantContext(
-                tenantBId, UUID.randomUUID(), "setup-B", 0L, java.util.Set.of(),
-                TenantContext.TenantContextSource.TEST_FIXTURE, "setup-B"));
-        rlsBinder.bindTenantToCurrentTransaction();
+        setRlsTenant(tenantBId);
 
         User userB = new User(tenantBId, "bob-b@example.com", "Bob B", UserStatus.ACTIVE);
         userB.setPasswordHash("dummy-hash");
@@ -102,6 +95,21 @@ class TenantCrudIsolationIntegrationTest {
 
         // Mint a JWT for user A in tenant A
         tokenA = jwtTokenProvider.mintAccessToken(userAId, tenantAId, "alice-a@example.com");
+    }
+
+    /**
+     * Sets the RLS tenant on the current transaction's connection.
+     * Uses the EntityManager bound to the test's @Transactional context.
+     */
+    private void setRlsTenant(UUID tenantId) {
+        var session = entityManager.unwrap(org.hibernate.Session.class);
+        session.doWork(connection -> {
+            try (var stmt = connection.prepareStatement(
+                    "SELECT set_config('app.current_tenant_id', ?, true)")) {
+                stmt.setString(1, tenantId.toString());
+                stmt.execute();
+            }
+        });
     }
 
     @Test

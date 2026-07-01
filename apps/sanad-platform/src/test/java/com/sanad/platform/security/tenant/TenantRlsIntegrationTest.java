@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("tenant-postgres-test")
 @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(
     named = "RUN_TENANT_POSTGRES_TESTS", matches = "true")
+@Transactional
 class TenantRlsIntegrationTest {
 
     @Autowired private DataSource dataSource;
@@ -59,8 +60,8 @@ class TenantRlsIntegrationTest {
         PostgresTestUtil.assertPostgreSQL(dataSource);
 
         try (var conn = dataSource.getConnection(); var stmt = conn.createStatement()) {
-            // Clear tenant setting
-            stmt.execute("SET LOCAL app.current_tenant_id = ''");
+            // RESET the tenant setting to ensure it's NULL (not empty string)
+            stmt.execute("RESET app.current_tenant_id");
 
             var rs = stmt.executeQuery("SELECT COUNT(*) FROM users");
             assertThat(rs.next()).isTrue();
