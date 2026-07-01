@@ -12,7 +12,7 @@ services:
     ports:
       - "${SNAD_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sanad} -d ${POSTGRES_DB:-sanad}"]
       interval: 5s
