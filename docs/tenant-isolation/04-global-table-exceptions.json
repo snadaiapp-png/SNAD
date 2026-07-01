@@ -1,0 +1,42 @@
+{
+  "stage": "04",
+  "generatedAt": "2026-07-01T00:00:00Z",
+  "description": "Explicit registry of tables exempt from PostgreSQL Row-Level Security. Per Stage 04 §20, CI fails if a new table appears without classification.",
+  "exceptions": [
+    {
+      "table": "tenants",
+      "classification": "SECURITY_GLOBAL",
+      "reason": "Root table of the multi-tenant model. Cannot have a tenant_id column because it IS the tenant. Access is controlled by membership validation in AuthService (a user can only authenticate against a tenant they have a membership in).",
+      "readAuthorization": "Authenticated user with an active membership in the tenant. AuthService validates membership at login time.",
+      "writeAuthorization": "Platform admin only (no public API for tenant CRUD). Seeded via Flyway migrations or platform admin tooling.",
+      "dataSensitivity": "LOW — tenant name and subdomain are not secret. Status is operational metadata.",
+      "reviewer": "infra-04",
+      "rlsEnabled": false,
+      "justification": "Cannot apply RLS on the tenants table itself — it has no tenant_id column. Defense-in-depth is provided by: (1) AuthService membership validation at login, (2) JwtAuthenticationFilter tenant binding, (3) TenantContextFilter establishing verified context."
+    },
+    {
+      "table": "access_capabilities",
+      "classification": "GLOBAL_REFERENCE",
+      "reason": "Platform-wide catalog of RBAC capabilities (e.g. USER.CREATE, ORGANIZATION.READ). The same set of capabilities is available to all tenants. There is no tenant-specific capability set.",
+      "readAuthorization": "Any authenticated user may read the capability catalog (CAPABILITY.READ).",
+      "writeAuthorization": "CAPABILITY.MANAGE (platform admin). No tenant-scoped write — capabilities are global.",
+      "dataSensitivity": "NONE — capability codes and names are public platform metadata.",
+      "reviewer": "infra-04",
+      "rlsEnabled": false,
+      "justification": "Intentionally global reference data. Applying RLS would require every tenant to maintain its own capability catalog, which contradicts the platform's RBAC model. The catalog is seeded by V14/V15 migrations and is read-only for tenants."
+    }
+  ],
+  "rlsProtectedTables": [
+    "organizations",
+    "organization_memberships",
+    "users",
+    "roles",
+    "role_capabilities",
+    "user_role_assignments",
+    "refresh_tokens",
+    "password_reset_tokens"
+  ],
+  "rlsProtectedCount": 8,
+  "globalExceptionCount": 2,
+  "totalTables": 10
+}

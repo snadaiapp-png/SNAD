@@ -581,6 +581,65 @@ jobs:
           print(f'API inventory parity: PASS (inventory={len(inventory_endpoints)}, runtime={len(runtime_paths)})')
           "
 
+  tenant-isolation:
+    name: tenant-isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: sanad_tenant_isolation
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: ci-tenant-isolation-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      JWT_SECRET: ci-only-non-production-key-1234567890
+      DATABASE_URL: jdbc:postgresql://localhost:5432/sanad_tenant_isolation
+      DATABASE_USERNAME: sanad
+      DATABASE_PASSWORD: ci-tenant-isolation-only
+      DATABASE_DRIVER: org.postgresql.Driver
+      SANAD_CORS_ALLOWED_ORIGINS: https://snad-app.vercel.app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run tenant isolation tests (PostgreSQL 16)
+        working-directory: apps/sanad-platform
+        run: |
+          ./mvnw -B -ntp test \
+            -Dtest="TenantContextLifecycleTest,TenantCrudIsolationIntegrationTest,TenantBindingSecurityIntegrationTest,OrganizationTenantIsolationTest,TenantAwarePaginationIntegrationTest" \
+            -Dspring.profiles.active=prod \
+            -Ddatabase.url="${DATABASE_URL}" \
+            -Ddatabase.username="${DATABASE_USERNAME}" \
+            -Ddatabase.password="${DATABASE_PASSWORD}" \
+            -Ddatabase.driver="${DATABASE_DRIVER}"
+      - name: Run static tenant isolation gate
+        run: bash scripts/ci/check-tenant-isolation.sh
+      - name: Verify tenant domain inventory coverage
+        run: |
+          python3 -c "
+          import json, pathlib, sys
+          inv = json.loads(pathlib.Path('docs/tenant-isolation/04-tenant-domain-inventory.json').read_text())
+          exceptions = json.loads(pathlib.Path('docs/tenant-isolation/04-global-table-exceptions.json').read_text())
+          tenant_owned = [e for e in inv['entities'] if e['classification'] == 'TENANT_OWNED']
+          rls_tables = set(exceptions['rlsProtectedTables'])
+          for e in tenant_owned:
+              if e['table'] not in rls_tables:
+                  print(f'FAIL: TENANT_OWNED table {e[\"table\"]} not in RLS-protected list')
+                  sys.exit(1)
+          print(f'Tenant isolation inventory: PASS ({len(tenant_owned)} tenant-owned tables, all RLS-protected)')
+          "
+
   quality-gate:
     name: quality-gate
     runs-on: ubuntu-latest
@@ -598,6 +657,7 @@ jobs:
       - container-smoke
       - security-regression
       - api-contract
+      - tenant-isolation
     if: always()
     steps:
       - name: Check repository-policy
@@ -636,5 +696,8 @@ jobs:
       - name: Check api-contract
         if: needs.api-contract.result != 'success'
         run: exit 1
+      - name: Check tenant-isolation
+        if: needs.tenant-isolation.result != 'success'
+        run: exit 1
       - name: All checks passed
-        run: 'echo "QUALITY GATE: PASS — 12 mandatory jobs + 1 aggregation job"'
+        run: 'echo "QUALITY GATE: PASS — 13 mandatory jobs + 1 aggregation job"'

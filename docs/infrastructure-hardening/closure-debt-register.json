@@ -385,14 +385,51 @@
         "No environment variable values appear in logs"
       ],
       "verificationCommand": "grep -n 'LOG_REDACTION' .github/workflows/quality-gate.yml"
+    },
+    {
+      "id": "CD-04-P2-001",
+      "title": "Legacy tenantId query parameter retained for API compatibility",
+      "severity": "P2",
+      "status": "OPEN",
+      "blocking": false,
+      "owner": "infra-04",
+      "evidence": "Controllers still accept @RequestParam UUID tenantId for backwards API compatibility. JwtAuthenticationFilter rejects mismatches with 403. Ideal end-state is to remove the parameter and use TenantContext exclusively.",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
+      "targetClosureStage": "05+",
+      "acceptanceCriteria": [
+        "Controllers no longer accept tenantId query parameter",
+        "TenantContext is the sole source of tenant scope",
+        "API versioning handles the breaking change"
+      ],
+      "verificationCommand": "grep -r '@RequestParam UUID tenantId' apps/sanad-platform/src/main/java"
+    },
+    {
+      "id": "CD-04-P2-002",
+      "title": "H2 local profile does not enforce RLS",
+      "severity": "P2",
+      "status": "OPEN",
+      "blocking": false,
+      "owner": "infra-04",
+      "evidence": "RLS migration V17 is PostgreSQL-only (db/migration-pg-only/). Local profile (H2) relies on application-layer scoping only.",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
+      "targetClosureStage": "Future (local Docker PostgreSQL)",
+      "acceptanceCriteria": [
+        "Local development uses PostgreSQL via Docker (not H2)",
+        "RLS enforced in local development"
+      ],
+      "verificationCommand": "grep 'flyway.locations' apps/sanad-platform/src/main/resources/application-local.yml"
     }
   ],
   "summary": {
     "inheritedDebtCount": 11,
-    "newDebtCount": 15,
-    "totalDebtCount": 26,
+    "newDebtCount": 17,
+    "totalDebtCount": 28,
     "closedDebtCount": 16,
-    "openDebtCount": 3,
+    "openDebtCount": 5,
     "inProgressDebtCount": 0,
     "blockedDebtCount": 6,
     "readyForVerificationDebtCount": 1,

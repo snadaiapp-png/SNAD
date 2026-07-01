@@ -3,6 +3,8 @@ package com.sanad.platform.security.config;
 import com.sanad.platform.config.CorsProperties;
 import com.sanad.platform.security.filter.JwtAuthenticationFilter;
 import com.sanad.platform.security.service.JwtTokenProvider;
+import com.sanad.platform.security.tenant.TenantContextFilter;
+import com.sanad.platform.security.tenant.TenantContextProvider;
 import com.sanad.platform.user.repository.UserRepository;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletResponse;
@@ -39,15 +41,18 @@ public class SecurityConfig {
     private final UserRepository userRepository;
     private final CorsProperties corsProperties;
     private final Environment environment;
+    private final TenantContextProvider tenantContextProvider;
 
     public SecurityConfig(JwtTokenProvider jwtTokenProvider,
                           UserRepository userRepository,
                           CorsProperties corsProperties,
-                          Environment environment) {
+                          Environment environment,
+                          TenantContextProvider tenantContextProvider) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.userRepository = userRepository;
         this.corsProperties = corsProperties;
         this.environment = environment;
+        this.tenantContextProvider = tenantContextProvider;
     }
 
     /**
@@ -102,6 +107,12 @@ public class SecurityConfig {
         http.addFilterBefore(
                 new JwtAuthenticationFilter(jwtTokenProvider, userRepository),
                 UsernamePasswordAuthenticationFilter.class
+        );
+        // Stage 04 — TenantContextFilter runs AFTER JwtAuthenticationFilter
+        // to build the TenantContext from verified JWT claims.
+        http.addFilterAfter(
+                new TenantContextFilter(tenantContextProvider),
+                JwtAuthenticationFilter.class
         );
         return http.build();
     }

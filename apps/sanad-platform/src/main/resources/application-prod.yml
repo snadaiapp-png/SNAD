@@ -62,7 +62,9 @@ spring:
 
   flyway:
     enabled: ${FLYWAY_ENABLED:true}
-    locations: classpath:db/migration
+    # Stage 04: PostgreSQL-only migrations (RLS) live in db/migration-pg-only.
+    # The local profile (H2) only loads db/migration; prod (PostgreSQL) loads both.
+    locations: classpath:db/migration,classpath:db/migration-pg-only
     baseline-on-migrate: false
     validate-on-migrate: true
     clean-disabled: true

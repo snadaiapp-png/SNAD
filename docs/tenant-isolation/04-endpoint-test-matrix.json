@@ -1,0 +1,43 @@
+{
+  "stage": "04",
+  "generatedAt": "2026-07-01T00:00:00Z",
+  "description": "Endpoint tenant isolation test matrix. Every tenant-owned endpoint is classified as TESTED, GLOBAL_EXEMPT_WITH_JUSTIFICATION, or NOT_APPLICABLE.",
+  "endpoints": [
+    {"method": "GET", "path": "/api/v1/users", "classification": "TESTED", "testClass": "TenantCrudIsolationIntegrationTest", "testCases": ["cross-tenant 403", "same-tenant accepted", "missing tenantId 400", "invalid format 400"]},
+    {"method": "POST", "path": "/api/v1/users", "classification": "TESTED", "testClass": "TenantCrudIsolationIntegrationTest", "testCases": ["cross-tenant write 403"]},
+    {"method": "GET", "path": "/api/v1/users/{userId}", "classification": "TESTED", "testClass": "TenantCrudIsolationIntegrationTest", "testCases": ["cross-tenant ID enumeration 403/404"]},
+    {"method": "PUT", "path": "/api/v1/users/{userId}", "classification": "TESTED", "testClass": "TenantBindingSecurityIntegrationTest", "testCases": ["mismatched tenant 403"]},
+    {"method": "PATCH", "path": "/api/v1/users/{userId}/activate", "classification": "TESTED", "testClass": "TenantBindingSecurityIntegrationTest", "testCases": ["mismatched tenant 403"]},
+    {"method": "PATCH", "path": "/api/v1/users/{userId}/deactivate", "classification": "TESTED", "testClass": "TenantBindingSecurityIntegrationTest", "testCases": ["mismatched tenant 403"]},
+    {"method": "PATCH", "path": "/api/v1/users/{userId}/suspend", "classification": "TESTED", "testClass": "TenantBindingSecurityIntegrationTest", "testCases": ["mismatched tenant 403"]},
+    {"method": "PATCH", "path": "/api/v1/users/{userId}/archive", "classification": "TESTED", "testClass": "TenantBindingSecurityIntegrationTest", "testCases": ["mismatched tenant 403"]},
+    {"method": "GET", "path": "/api/v1/organizations", "classification": "TESTED", "testClass": "TenantCrudIsolationIntegrationTest,OrganizationTenantIsolationTest,TenantAwarePaginationIntegrationTest", "testCases": ["cross-tenant 403", "tenant A only sees A", "pagination tenant-scoped", "sort tenant-scoped"]},
+    {"method": "POST", "path": "/api/v1/organizations", "classification": "TESTED", "testClass": "OrganizationTenantIsolationTest", "testCases": ["same name in different tenants allowed"]},
+    {"method": "GET", "path": "/api/v1/organizations/{id}", "classification": "TESTED", "testClass": "OrganizationTenantIsolationTest", "testCases": ["cross-tenant 404"]},
+    {"method": "PUT", "path": "/api/v1/organizations/{id}", "classification": "TESTED", "testClass": "OrganizationTenantIsolationTest", "testCases": ["cross-tenant 404"]},
+    {"method": "PATCH", "path": "/api/v1/organizations/{id}/activate", "classification": "TESTED", "testClass": "OrganizationTenantIsolationTest", "testCases": ["cross-tenant 404"]},
+    {"method": "PATCH", "path": "/api/v1/organizations/{id}/deactivate", "classification": "TESTED", "testClass": "OrganizationTenantIsolationTest", "testCases": ["cross-tenant 404"]},
+    {"method": "PATCH", "path": "/api/v1/organizations/{id}/archive", "classification": "TESTED", "testClass": "OrganizationTenantIsolationTest", "testCases": ["cross-tenant 404"]},
+    {"method": "GET", "path": "/api/v1/organizations/{orgId}/memberships", "classification": "TESTED", "testClass": "OrganizationMembershipApiIntegrationTest", "testCases": ["same-org only", "cross-tenant 404"]},
+    {"method": "POST", "path": "/api/v1/organizations/{orgId}/memberships", "classification": "TESTED", "testClass": "OrganizationMembershipApiIntegrationTest", "testCases": ["cross-tenant 404"]},
+    {"method": "GET", "path": "/api/v1/users/{userId}/memberships", "classification": "TESTED", "testClass": "UserMembershipControllerTest", "testCases": ["tenant from JWT not query param"]},
+    {"method": "GET", "path": "/api/v1/access/roles", "classification": "TESTED", "testClass": "TenantBindingSecurityIntegrationTest", "testCases": ["mismatched tenant 403"]},
+    {"method": "POST", "path": "/api/v1/access/roles", "classification": "TESTED", "testClass": "TenantBindingSecurityIntegrationTest", "testCases": ["mismatched tenant 403"]},
+    {"method": "GET", "path": "/api/v1/access/roles/{roleId}", "classification": "TESTED", "testClass": "TenantBindingSecurityIntegrationTest", "testCases": ["mismatched tenant 403"]},
+    {"method": "GET", "path": "/api/v1/access/capabilities", "classification": "GLOBAL_EXEMPT_WITH_JUSTIFICATION", "justification": "GLOBAL_REFERENCE — capabilities are platform-wide, not tenant-scoped"},
+    {"method": "POST", "path": "/api/v1/access/capabilities", "classification": "GLOBAL_EXEMPT_WITH_JUSTIFICATION", "justification": "GLOBAL_REFERENCE — platform admin only (CAPABILITY.MANAGE)"},
+    {"method": "GET", "path": "/api/v1/access/roles/{roleId}/access-items", "classification": "TESTED", "testClass": "TenantBindingSecurityIntegrationTest", "testCases": ["mismatched tenant 403"]},
+    {"method": "GET", "path": "/api/v1/access/users/{userId}/role-links", "classification": "TESTED", "testClass": "TenantBindingSecurityIntegrationTest", "testCases": ["mismatched tenant 403"]},
+    {"method": "POST", "path": "/api/v1/auth/login", "classification": "GLOBAL_EXEMPT_WITH_JUSTIFICATION", "justification": "Authentication endpoint — no tenant context yet; tenant resolved from credentials"},
+    {"method": "POST", "path": "/api/v1/auth/refresh", "classification": "GLOBAL_EXEMPT_WITH_JUSTIFICATION", "justification": "Token refresh — tenant from refresh token, validated against DB"},
+    {"method": "POST", "path": "/api/v1/auth/logout", "classification": "TESTED", "testClass": "TokenRevocationIntegrationTest", "testCases": ["session version increment"]},
+    {"method": "GET", "path": "/api/v1/auth/me", "classification": "TESTED", "testClass": "AuthApiIntegrationTest", "testCases": ["returns authenticated user's tenant"]}
+  ],
+  "summary": {
+    "totalEndpoints": 29,
+    "tested": 23,
+    "globalExempt": 4,
+    "notApplicable": 0,
+    "unclassified": 0
+  }
+}
