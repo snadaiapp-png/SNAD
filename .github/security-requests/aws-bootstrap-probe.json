@@ -1,1 +1,1 @@
-{"requested_at":"2026-07-01T21:00:00+03:00","purpose":"detect-non-secret-aws-bootstrap-capability"}
+{"requested_at":"2026-07-01T21:15:00+03:00","purpose":"enforce-aws-bootstrap-readiness","attempt":2}
