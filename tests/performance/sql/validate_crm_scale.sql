@@ -165,7 +165,7 @@ SELECT
     ('[' || array_to_string(array_fill(0.001::real, ARRAY[1536]), ',') || ']')::vector
 FROM crm_benchmark.account account
 ORDER BY account.tenant_id, account.id
-LIMIT 100;
+LIMIT 100
 ON CONFLICT (tenant_id, entity_type, entity_id, model_id) DO NOTHING;
 
 ANALYZE crm_runtime.event_outbox;
