@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <suppress until="2026-10-01Z">
+        <notes><![CDATA[
+            The advisory applies to Prometheus server behavior. The matched Maven
+            artifact is Micrometer's registry integration and is not the affected
+            server product. This correction is limited to one package and one CVE
+            and expires for mandatory review.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.micrometer/micrometer-registry-prometheus@.*$</packageUrl>
+        <cve>CVE-2026-42154</cve>
+    </suppress>
+</suppressions>
