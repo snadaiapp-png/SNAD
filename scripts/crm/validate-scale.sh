@@ -26,7 +26,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-sed -n '1,175p' tests/performance/sql/validate_crm_scale.sql > "${VALIDATION_BASE}"
+sed -n '1,173p' tests/performance/sql/validate_crm_scale.sql > "${VALIDATION_BASE}"
 : > "${OUTPUT_FILE}"
 
 "${COMPOSE[@]}" cp "${VALIDATION_BASE}" "postgres:${BASE_CONTAINER_FILE}"
