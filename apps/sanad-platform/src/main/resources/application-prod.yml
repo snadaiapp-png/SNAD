@@ -7,6 +7,9 @@ sanad:
     url: ${DATABASE_URL:}
     username: ${DATABASE_USERNAME:}
     password: ${DATABASE_PASSWORD:}
+  tenant:
+    rls:
+      enabled: true
   cors:
     allowed-origins: ${SANAD_CORS_ALLOWED_ORIGINS:}
   security:
@@ -112,3 +115,4 @@ springdoc:
     enabled: false
   swagger-ui:
     enabled: false
+

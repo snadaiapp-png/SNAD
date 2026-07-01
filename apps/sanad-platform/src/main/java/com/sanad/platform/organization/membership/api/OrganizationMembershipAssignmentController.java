@@ -34,8 +34,9 @@ public class OrganizationMembershipAssignmentController {
             @PathVariable UUID membershipId,
             @PathVariable UUID userId,
             @RequestParam UUID tenantId) {
+        UUID verifiedTenantId = tenantResolver.validateClientSelector(tenantId);
         return ResponseEntity.ok(assignmentService.linkUser(
-                tenantId, organizationId, membershipId, userId));
+                verifiedTenantId, organizationId, membershipId, userId));
     }
 
     @RequireCapability("MEMBERSHIP.WRITE")
@@ -44,7 +45,8 @@ public class OrganizationMembershipAssignmentController {
             @PathVariable UUID organizationId,
             @PathVariable UUID membershipId,
             @RequestParam UUID tenantId) {
+        UUID verifiedTenantId = tenantResolver.validateClientSelector(tenantId);
         return ResponseEntity.ok(assignmentService.unlinkUser(
-                tenantId, organizationId, membershipId));
+                verifiedTenantId, organizationId, membershipId));
     }
 }

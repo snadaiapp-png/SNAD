@@ -1,33 +1,19 @@
 package com.sanad.platform.security.tenant;
 
 import jakarta.persistence.EntityManager;
-import org.hibernate.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.UUID;
 
 /**
- * Stage 04A §7 — Automatic transaction-level RLS binding.
+ * Stage 04A.3 §5 — Manual RLS binding for services that need explicit control.
  *
- * <p>This component registers a {@link TransactionSynchronization} that
- * executes {@code SELECT set_config('app.current_tenant_id', ?, true)}
- * on the transaction's connection before any query runs.</p>
- *
- * <p>Usage: services call {@link #bindTenantToCurrentTransaction()} at the
- * start of a @Transactional method. The binding uses the EntityManager
- * that is bound to the current transaction by Spring, so the SET config
- * runs on the SAME connection as the transaction's queries.</p>
- *
- * <p>The {@code true} parameter (is_local) scopes the setting to the
- * transaction — it is automatically cleared when the transaction ends.</p>
- *
- * <p>This replaces the old {@link TenantRlsBinder} which required manual
- * invocation. Services can still call this explicitly, but the
- * {@link TenantContextFilter} also calls it for request-scoped transactions.</p>
+ * <p>Uses {@link TenantRlsProperties#isEnabled()} to determine whether RLS
+ * binding is active (PostgreSQL) or no-op (H2 local). No exception-message
+ * database detection.</p>
  */
 @Component
 public class TenantRlsBinder {
@@ -39,20 +25,22 @@ public class TenantRlsBinder {
 
     private final TenantContextProvider contextProvider;
     private final EntityManager entityManager;
+    private final TenantRlsProperties rlsProperties;
 
     public TenantRlsBinder(TenantContextProvider contextProvider,
-                            EntityManager entityManager) {
+                            EntityManager entityManager,
+                            TenantRlsProperties rlsProperties) {
         this.contextProvider = contextProvider;
         this.entityManager = entityManager;
+        this.rlsProperties = rlsProperties;
     }
 
-    /**
-     * Binds the current TenantContext's tenantId to the PostgreSQL
-     * connection via SET LOCAL. Must be called inside a @Transactional
-     * method — uses the EntityManager that is bound to the current
-     * transaction.
-     */
     public void bindTenantToCurrentTransaction() {
+        if (!rlsProperties.isEnabled()) {
+            // H2 local profile — no-op
+            return;
+        }
+
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
             return;
         }
@@ -65,7 +53,7 @@ public class TenantRlsBinder {
 
         UUID tenantId = context.tenantId();
         try {
-            Session session = entityManager.unwrap(Session.class);
+            var session = entityManager.unwrap(org.hibernate.Session.class);
             session.doWork(connection -> {
                 try (var stmt = connection.prepareStatement(SET_CONFIG_SQL)) {
                     stmt.setString(1, tenantId.toString());
@@ -75,8 +63,8 @@ public class TenantRlsBinder {
             log.debug("RLS tenant bound: requestId={} tenantId={}",
                     context.requestId(), tenantId);
         } catch (Exception e) {
-            // H2 doesn't support set_config — application-layer scoping remains.
-            log.debug("RLS bind skipped (likely non-PostgreSQL): {}", e.getMessage());
+            throw new TenantRlsBindingException(
+                "Failed to bind tenant context to PostgreSQL transaction", e);
         }
     }
 }

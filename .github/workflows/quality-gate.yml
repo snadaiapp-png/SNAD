@@ -657,19 +657,28 @@ jobs:
             GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO sanad_runtime_app;
             GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sanad_runtime_app;
           "
-      - name: Run tenant isolation tests as runtime role (PostgreSQL 16)
+      - name: Run mandatory tenant isolation tests as runtime role (PostgreSQL 16)
         working-directory: apps/sanad-platform
         env:
           DATABASE_USERNAME: sanad_runtime_app
           DATABASE_PASSWORD: ci-runtime-only
+          RUN_TENANT_POSTGRES_TESTS: "true"
         run: |
           ./mvnw -B -ntp test \
-            -Dtest="TenantContextLifecycleTest,TenantCrudIsolationIntegrationTest,TenantBindingSecurityIntegrationTest,OrganizationTenantIsolationTest,TenantAwarePaginationIntegrationTest" \
-            -Dspring.profiles.active=prod \
+            -Dtest="TenantTransactionManagerWiringTest,TenantTransactionConnectionBindingIntegrationTest,TenantRuntimeRoleIntegrationTest,TenantRlsIntegrationTest,TenantConnectionPoolLeakageTest,TenantAuthenticationUnderRlsIntegrationTest,TenantCrudIsolationIntegrationTest,TenantNestedResourceIsolationTest,TenantCapabilityBindingIntegrationTest,TenantSessionBindingIntegrationTest,TenantMassAssignmentTest,TenantEnumerationProtectionTest,TenantAwarePaginationIntegrationTest" \
+            -Dspring.profiles.active=tenant-postgres-test \
             -Ddatabase.url="${DATABASE_URL}" \
             -Ddatabase.username="${DATABASE_USERNAME}" \
             -Ddatabase.password="${DATABASE_PASSWORD}" \
             -Ddatabase.driver="${DATABASE_DRIVER}"
+      - name: Upload tenant isolation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tenant-isolation-evidence
+          path: |
+            apps/sanad-platform/target/surefire-reports/
+          retention-days: 14
       - name: Verify runtime role is non-superuser and non-BYPASSRLS
         run: |
           RESULT=$(psql -h localhost -U postgres -d sanad_tenant_isolation -tAc "

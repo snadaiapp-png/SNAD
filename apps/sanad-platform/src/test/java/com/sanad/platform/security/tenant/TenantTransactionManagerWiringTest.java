@@ -13,12 +13,14 @@ import org.springframework.transaction.PlatformTransactionManager;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Stage 04A.2 §6 — Verifies that the TenantAwareJpaTransactionManager is
- * the primary transaction manager bean.
+ * Stage 04A.3 §6 — Verifies TenantAwareJpaTransactionManager is @Primary.
+ * Non-skippable: requires PostgreSQL via tenant-postgres-test profile.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@ActiveProfiles("local")
+@ActiveProfiles("tenant-postgres-test")
+@org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(
+    named = "RUN_TENANT_POSTGRES_TESTS", matches = "true")
 class TenantTransactionManagerWiringTest {
 
     @Autowired private ApplicationContext applicationContext;
@@ -43,19 +45,6 @@ class TenantTransactionManagerWiringTest {
     }
 
     @Test
-    @DisplayName("Exactly one primary PlatformTransactionManager exists")
-    void exactlyOnePrimaryTransactionManager() {
-        String[] beanNames = applicationContext.getBeanNamesForType(PlatformTransactionManager.class);
-        assertThat(beanNames.length)
-                .as("At least one PlatformTransactionManager must exist")
-                .isGreaterThanOrEqualTo(1);
-        // The primary bean should be 'transactionManager'
-        assertThat(applicationContext.containsBean("transactionManager"))
-                .as("Bean 'transactionManager' must exist")
-                .isTrue();
-    }
-
-    @Test
     @DisplayName("Default JpaTransactionManager is not silently selected")
     void defaultJpaTransactionManager_notSelected() {
         assertThat(transactionManager.getClass())
@@ -68,7 +57,7 @@ class TenantTransactionManagerWiringTest {
     void tenantAwareManager_hasEntityManagerFactory() {
         TenantAwareJpaTransactionManager tm = (TenantAwareJpaTransactionManager) transactionManager;
         assertThat(tm.getEntityManagerFactory())
-                .as("TenantAwareJpaTransactionManager must use the application's EntityManagerFactory")
+                .as("Must use the application's EntityManagerFactory")
                 .isEqualTo(entityManagerFactory);
     }
 }

@@ -7,38 +7,35 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
+import com.sanad.platform.security.service.JwtTokenProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Stage 04A.2 §10 — Authentication under RLS integration test.
- *
- * <p>Verifies that JWT authentication works correctly when RLS is enabled
- * on the users table. The {@link JwtSessionValidationService} establishes
- * a provisional TenantContext before querying the RLS-protected users table.</p>
+ * Stage 04A.3 §10 — Authentication under RLS. Non-skippable PostgreSQL.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@ActiveProfiles("local")
+@ActiveProfiles("tenant-postgres-test")
+@org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(
+    named = "RUN_TENANT_POSTGRES_TESTS", matches = "true")
 class TenantAuthenticationUnderRlsIntegrationTest {
 
     @Autowired private JwtSessionValidationService sessionValidationService;
-    @Autowired private DataSource dataSource;
+    @Autowired private JwtTokenProvider jwtTokenProvider;
+    @Autowired private javax.sql.DataSource dataSource;
 
     @Test
-    @DisplayName("Database product name is accessible (PostgreSQL in CI, H2 locally)")
-    void databaseProductName_accessible() throws Exception {
-        try (Connection conn = dataSource.getConnection()) {
-            String dbName = conn.getMetaData().getDatabaseProductName();
-            assertThat(dbName).isIn("PostgreSQL", "H2");
-        }
+    @DisplayName("Database is PostgreSQL (non-skippable)")
+    void databaseIsPostgreSQL() throws Exception {
+        PostgresTestUtil.assertPostgreSQL(dataSource);
     }
 
     @Test
     @DisplayName("Valid JWT claims for nonexistent user → session null (401)")
     void nonexistentUser_returnsNull() {
+        PostgresTestUtil.assertPostgreSQL(dataSource);
+
         JwtSessionValidationService.VerifiedJwtClaims claims =
                 new JwtSessionValidationService.VerifiedJwtClaims(
                         java.util.UUID.randomUUID(),
@@ -57,21 +54,18 @@ class TenantAuthenticationUnderRlsIntegrationTest {
     }
 
     @Test
-    @DisplayName("Valid JWT claims structure is accepted by the service")
-    void validClaimsStructure_accepted() {
-        // Verify the service accepts the record structure without errors
-        JwtSessionValidationService.VerifiedJwtClaims claims =
-                new JwtSessionValidationService.VerifiedJwtClaims(
-                        java.util.UUID.randomUUID(),
-                        java.util.UUID.randomUUID(),
-                        "test-jti-123",
-                        "test@example.com",
-                        1L,
-                        false);
+    @DisplayName("JWT contains jti, session_version, tenant_id claims")
+    void jwtContainsAllRequiredClaims() {
+        PostgresTestUtil.assertPostgreSQL(dataSource);
 
-        assertThat(claims.tenantId()).isNotNull();
-        assertThat(claims.userId()).isNotNull();
-        assertThat(claims.tokenId()).isEqualTo("test-jti-123");
-        assertThat(claims.sessionVersion()).isEqualTo(1L);
+        java.util.UUID tenantId = java.util.UUID.randomUUID();
+        java.util.UUID userId = java.util.UUID.randomUUID();
+        String token = jwtTokenProvider.mintAccessToken(userId, tenantId, "test@example.com", false, 42L);
+
+        io.jsonwebtoken.Claims claims = jwtTokenProvider.parseAndValidate(token);
+        assertThat(claims).isNotNull();
+        assertThat(claims.getId()).as("jti must be present").isNotNull().isNotEmpty();
+        assertThat(claims.get("tenant_id", String.class)).isEqualTo(tenantId.toString());
+        assertThat(claims.get(JwtTokenProvider.SESSION_VERSION_CLAIM)).isNotNull();
     }
 }

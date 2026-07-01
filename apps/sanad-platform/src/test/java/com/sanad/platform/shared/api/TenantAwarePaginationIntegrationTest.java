@@ -43,7 +43,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @Import(SecurityPermitAllTestConfig.class)
 @AutoConfigureMockMvc
-@ActiveProfiles("local")
+@ActiveProfiles("tenant-postgres-test")
+@org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(
+    named = "RUN_TENANT_POSTGRES_TESTS", matches = "true")
 @Transactional
 class TenantAwarePaginationIntegrationTest {
 

@@ -9,79 +9,81 @@ import org.springframework.test.context.ActiveProfiles;
 
 import com.sanad.platform.security.service.JwtTokenProvider;
 
+import javax.sql.DataSource;
+import java.util.UUID;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Stage 04A.2 §15 — Session tenant binding integration test.
- *
- * <p>Verifies that JWT sessions are correctly bound to tenants and that
- * session version mismatches are detected.</p>
+ * Stage 04A.3 §12 — Session tenant binding. Non-skippable PostgreSQL.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@ActiveProfiles("local")
+@ActiveProfiles("tenant-postgres-test")
+@org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(
+    named = "RUN_TENANT_POSTGRES_TESTS", matches = "true")
 class TenantSessionBindingIntegrationTest {
 
     @Autowired private JwtTokenProvider jwtTokenProvider;
+    @Autowired private DataSource dataSource;
 
     @Test
-    @DisplayName("JWT contains jti (token ID) claim")
-    void jwtContainsJtiClaim() {
-        String token = jwtTokenProvider.mintAccessToken(
-                java.util.UUID.randomUUID(),
-                java.util.UUID.randomUUID(),
-                "test@example.com");
+    @DisplayName("Database is PostgreSQL (non-skippable)")
+    void databaseIsPostgreSQL() throws Exception {
+        PostgresTestUtil.assertPostgreSQL(dataSource);
+    }
 
+    @Test
+    @DisplayName("JWT contains jti (token ID) claim — non-empty")
+    void jwtContainsJtiClaim() {
+        PostgresTestUtil.assertPostgreSQL(dataSource);
+
+        String token = jwtTokenProvider.mintAccessToken(
+                UUID.randomUUID(), UUID.randomUUID(), "test@example.com");
         io.jsonwebtoken.Claims claims = jwtTokenProvider.parseAndValidate(token);
         assertThat(claims).isNotNull();
         assertThat(claims.getId())
-                .as("JWT must contain jti claim (non-empty)")
-                .isNotNull()
-                .isNotEmpty();
+                .as("JWT must contain non-empty jti")
+                .isNotNull().isNotEmpty();
     }
 
     @Test
-    @DisplayName("JWT contains session_version claim")
-    void jwtContainsSessionVersionClaim() {
-        java.util.UUID tenantId = java.util.UUID.randomUUID();
-        java.util.UUID userId = java.util.UUID.randomUUID();
-        String token = jwtTokenProvider.mintAccessToken(
-                userId, tenantId, "test@example.com", false, 42L);
+    @DisplayName("JWT session_version matches minted value")
+    void jwtSessionVersion_matches() {
+        PostgresTestUtil.assertPostgreSQL(dataSource);
 
+        UUID tenantId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        String token = jwtTokenProvider.mintAccessToken(userId, tenantId, "t@e.com", false, 42L);
         io.jsonwebtoken.Claims claims = jwtTokenProvider.parseAndValidate(token);
         assertThat(claims).isNotNull();
         assertThat(claims.get(JwtTokenProvider.SESSION_VERSION_CLAIM))
-                .as("JWT must contain session_version claim")
-                .isNotNull();
+                .as("session_version must be 42").isEqualTo(42);
     }
 
     @Test
-    @DisplayName("JWT tenant_id matches the minted tenant")
-    void jwtTenantId_matchesMintedTenant() {
-        java.util.UUID tenantId = java.util.UUID.randomUUID();
-        String token = jwtTokenProvider.mintAccessToken(
-                java.util.UUID.randomUUID(), tenantId, "test@example.com");
+    @DisplayName("JWT tenant_id matches minted tenant")
+    void jwtTenantId_matches() {
+        PostgresTestUtil.assertPostgreSQL(dataSource);
 
+        UUID tenantId = UUID.randomUUID();
+        String token = jwtTokenProvider.mintAccessToken(UUID.randomUUID(), tenantId, "t@e.com");
         io.jsonwebtoken.Claims claims = jwtTokenProvider.parseAndValidate(token);
         assertThat(claims).isNotNull();
-        assertThat(claims.get("tenant_id", String.class))
-                .isEqualTo(tenantId.toString());
+        assertThat(claims.get("tenant_id", String.class)).isEqualTo(tenantId.toString());
     }
 
     @Test
-    @DisplayName("Different JWTs have different jti values (unique token IDs)")
-    void differentJwts_haveDifferentJti() {
-        java.util.UUID tenantId = java.util.UUID.randomUUID();
-        java.util.UUID userId = java.util.UUID.randomUUID();
+    @DisplayName("Different JWTs have different jti values")
+    void differentJwts_differentJti() {
+        PostgresTestUtil.assertPostgreSQL(dataSource);
 
-        String token1 = jwtTokenProvider.mintAccessToken(userId, tenantId, "a@example.com");
-        String token2 = jwtTokenProvider.mintAccessToken(userId, tenantId, "a@example.com");
-
-        io.jsonwebtoken.Claims claims1 = jwtTokenProvider.parseAndValidate(token1);
-        io.jsonwebtoken.Claims claims2 = jwtTokenProvider.parseAndValidate(token2);
-
-        assertThat(claims1.getId())
-                .as("Each JWT must have a unique jti")
-                .isNotEqualTo(claims2.getId());
+        UUID tenantId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        String t1 = jwtTokenProvider.mintAccessToken(userId, tenantId, "a@e.com");
+        String t2 = jwtTokenProvider.mintAccessToken(userId, tenantId, "a@e.com");
+        io.jsonwebtoken.Claims c1 = jwtTokenProvider.parseAndValidate(t1);
+        io.jsonwebtoken.Claims c2 = jwtTokenProvider.parseAndValidate(t2);
+        assertThat(c1.getId()).isNotEqualTo(c2.getId());
     }
 }

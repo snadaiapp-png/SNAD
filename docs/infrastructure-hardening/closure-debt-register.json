@@ -427,13 +427,13 @@
       "id": "CD-04-P1-001",
       "title": "RLS tenant setting is not automatically bound to application transactions",
       "severity": "P1",
-      "status": "CLOSED",
+      "status": "REOPENED",
       "blocking": true,
       "owner": "infra-04a",
       "evidence": "TenantRlsBinder exists but requires manual invocation from each service. No automatic transaction-level RLS binding via a TenantAwareTransactionManager or equivalent.",
-      "closureEvidence": "Test class: TenantTransactionManagerWiringTest, TenantTransactionConnectionBindingIntegrationTest\nTest method: primaryTransactionManager_isTenantAware, setConfigAndQuery_useSameConnection\nWorkflow Run ID: 28506789371\nWorkflow Head SHA: 0e162a8887e3db3d05ce9c6883614856ed85574b\nDatabase product: PostgreSQL 16 (CI) / H2 (local)\ncurrent_user: sanad_runtime_app (CI)\nRelevant SQL assertion: SELECT set_config('app.current_tenant_id', ?, true) executed on transaction's bound EntityManager connection via TransactionSynchronizationManager.getResource(emf)\nArtifact: surefire-reports",
-      "closureDate": "2026-07-01T09:16:41Z",
-      "closedCommitSha": "0e162a8887e3db3d05ce9c6883614856ed85574b",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
       "targetClosureStage": "04A",
       "acceptanceCriteria": [
         "Automatic RLS binding at transaction start via TenantAwareTransactionManager or equivalent",
@@ -441,19 +441,20 @@
         "No manual binder calls required from services",
         "Connection-pool leakage test passes (0 leaks)"
       ],
-      "verificationCommand": "grep -r 'TenantAwareTransactionManager\\|set_config' apps/sanad-platform/src/main/java"
+      "verificationCommand": "grep -r 'TenantAwareTransactionManager\\|set_config' apps/sanad-platform/src/main/java",
+      "reopenReason": "The Stage 04A.2 tests were not executed by the PostgreSQL tenant-isolation job and several tests returned successfully on H2 without exercising RLS."
     },
     {
       "id": "CD-04-P1-002",
       "title": "JWT session validation queries RLS-protected table before tenant context establishment",
       "severity": "P1",
-      "status": "CLOSED",
+      "status": "REOPENED",
       "blocking": true,
       "owner": "infra-04a",
       "evidence": "JwtAuthenticationFilter queries userRepository (RLS-protected) for session_version before TenantContext is established. Under RLS with missing tenant setting, this query returns 0 rows and authentication fails.",
-      "closureEvidence": "Test class: TenantAuthenticationUnderRlsIntegrationTest\nTest method: nonexistentUser_returnsNull, validClaimsStructure_accepted\nWorkflow Run ID: 28506789371\nWorkflow Head SHA: 0e162a8887e3db3d05ce9c6883614856ed85574b\nDatabase product: PostgreSQL 16 (CI) / H2 (local)\ncurrent_user: sanad_runtime_app (CI)\nRelevant SQL assertion: JwtSessionValidationServiceImpl.validate() runs inside @Transactional(readOnly=true) with provisional TenantContext\nArtifact: surefire-reports",
-      "closureDate": "2026-07-01T09:16:41Z",
-      "closedCommitSha": "0e162a8887e3db3d05ce9c6883614856ed85574b",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
       "targetClosureStage": "04A",
       "acceptanceCriteria": [
         "JwtSessionValidationService established",
@@ -461,76 +462,80 @@
         "Session query runs inside tenant-bound read-only transaction",
         "TenantAuthenticationUnderRlsIntegrationTest passes on PostgreSQL"
       ],
-      "verificationCommand": "grep -r 'JwtSessionValidationService' apps/sanad-platform/src/main/java"
+      "verificationCommand": "grep -r 'JwtSessionValidationService' apps/sanad-platform/src/main/java",
+      "reopenReason": "The Stage 04A.2 tests were not executed by the PostgreSQL tenant-isolation job and several tests returned successfully on H2 without exercising RLS."
     },
     {
       "id": "CD-04-P1-003",
       "title": "Tenant isolation integration tests run with the local H2 profile",
       "severity": "P1",
-      "status": "CLOSED",
+      "status": "REOPENED",
       "blocking": true,
       "owner": "infra-04a",
       "evidence": "TenantCrudIsolationIntegrationTest and TenantContextLifecycleTest use @ActiveProfiles(\"local\") which uses H2, not PostgreSQL. RLS is not enforced in H2.",
-      "closureEvidence": "Test class: TenantRlsIntegrationTest, TenantRuntimeRoleIntegrationTest\nTest method: rlsEnabled_onTenantOwnedTables, runtimeRoleVerification\nWorkflow Run ID: 28506789371\nWorkflow Head SHA: 0e162a8887e3db3d05ce9c6883614856ed85574b\nDatabase product: PostgreSQL 16 (CI)\ncurrent_user: sanad_runtime_app (CI)\nRelevant SQL assertion: SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = ?\nArtifact: surefire-reports",
-      "closureDate": "2026-07-01T09:16:41Z",
-      "closedCommitSha": "0e162a8887e3db3d05ce9c6883614856ed85574b",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
       "targetClosureStage": "04A",
       "acceptanceCriteria": [
         "All tenant isolation tests use @ActiveProfiles(\"prod\") or a dedicated PostgreSQL test profile",
         "Tests assert DatabaseMetaData.getDatabaseProductName() == PostgreSQL",
         "No @ActiveProfiles(\"local\") on any test claiming RLS verification"
       ],
-      "verificationCommand": "grep -r '@ActiveProfiles(\"local\")' apps/sanad-platform/src/test/java/com/sanad/platform/security/tenant/"
+      "verificationCommand": "grep -r '@ActiveProfiles(\"local\")' apps/sanad-platform/src/test/java/com/sanad/platform/security/tenant/",
+      "reopenReason": "The Stage 04A.2 tests were not executed by the PostgreSQL tenant-isolation job and several tests returned successfully on H2 without exercising RLS."
     },
     {
       "id": "CD-04-P1-004",
       "title": "Raw PostgreSQL RLS and connection-pool leakage tests are absent",
       "severity": "P1",
-      "status": "CLOSED",
+      "status": "REOPENED",
       "blocking": true,
       "owner": "infra-04a",
       "evidence": "No TenantRlsIntegrationTest (raw JDBC) or TenantConnectionPoolLeakageTest exists. Existing tests only verify application-layer scoping, not database-level RLS.",
-      "closureEvidence": "Test class: TenantRlsIntegrationTest, TenantConnectionPoolLeakageTest\nTest method: missingTenantSetting_returnsZeroRows, tenantASetting_seesOnlyARows, sequentialTransactions_noLeakage\nWorkflow Run ID: 28506789371\nWorkflow Head SHA: 0e162a8887e3db3d05ce9c6883614856ed85574b\nDatabase product: PostgreSQL 16 (CI)\ncurrent_user: sanad_runtime_app (CI)\nRelevant SQL assertion: Raw JDBC SELECT COUNT(*) FROM users with SET LOCAL app.current_tenant_id\nArtifact: surefire-reports",
-      "closureDate": "2026-07-01T09:16:41Z",
-      "closedCommitSha": "0e162a8887e3db3d05ce9c6883614856ed85574b",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
       "targetClosureStage": "04A",
       "acceptanceCriteria": [
         "TenantRlsIntegrationTest: raw JDBC, verifies RLS policies, tenant A sees A only, missing context = 0 rows, cross-tenant INSERT/UPDATE/DELETE rejected",
         "TenantConnectionPoolLeakageTest: Hikari pool=1, verifies no context leakage between reused connections",
         "Both tests run against PostgreSQL 16 only"
       ],
-      "verificationCommand": "find apps/sanad-platform/src/test -name 'TenantRlsIntegrationTest.java' -o -name 'TenantConnectionPoolLeakageTest.java'"
+      "verificationCommand": "find apps/sanad-platform/src/test -name 'TenantRlsIntegrationTest.java' -o -name 'TenantConnectionPoolLeakageTest.java'",
+      "reopenReason": "The Stage 04A.2 tests were not executed by the PostgreSQL tenant-isolation job and several tests returned successfully on H2 without exercising RLS."
     },
     {
       "id": "CD-04-P1-005",
       "title": "Controllers continue to pass client-supplied tenantId directly to services",
       "severity": "P1",
-      "status": "CLOSED",
+      "status": "REOPENED",
       "blocking": true,
       "owner": "infra-04a",
       "evidence": "8 controllers accept @RequestParam UUID tenantId and pass it directly to services. JwtAuthenticationFilter rejects mismatches, but the service receives the client value, not the verified TenantContext value.",
-      "closureEvidence": "Test class: OrganizationControllerTest, UserControllerTest, AccessCatalogControllerTest, AccessLinkControllerTest, OrganizationMembershipControllerTest, OrganizationMembershipAssignmentControllerTest, CapabilityEvaluationControllerTest\nTest method: All controller tests verify tenantResolver.validateClientSelector() is called\nWorkflow Run ID: 28506789371\nWorkflow Head SHA: 0e162a8887e3db3d05ce9c6883614856ed85574b\nDatabase product: H2 (local slice tests)\ncurrent_user: sa (H2 local)\nRelevant SQL assertion: Python static gate verifies no direct @RequestParam tenantId passthrough\nArtifact: surefire-reports",
-      "closureDate": "2026-07-01T09:16:41Z",
-      "closedCommitSha": "0e162a8887e3db3d05ce9c6883614856ed85574b",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
       "targetClosureStage": "04A",
       "acceptanceCriteria": [
         "All controllers use TenantResolver.validateClientSelector() or tenantResolver.requireTenantId()",
         "Services receive verified tenantId from TenantContext, never raw client value",
         "Static gate fails on direct client tenantId passthrough"
       ],
-      "verificationCommand": "grep -r '@RequestParam.*tenantId' apps/sanad-platform/src/main/java/com/sanad/platform/*/api/"
+      "verificationCommand": "grep -r '@RequestParam.*tenantId' apps/sanad-platform/src/main/java/com/sanad/platform/*/api/",
+      "reopenReason": "Controllers missing TenantResolver: {'CapabilityController.java', 'OrganizationMembershipAssignmentController.java'}"
     },
     {
       "id": "CD-04-P1-006",
       "title": "TenantContext does not contain a real session identifier or verified capabilities",
       "severity": "P1",
-      "status": "CLOSED",
+      "status": "REOPENED",
       "blocking": true,
       "owner": "infra-04a",
       "evidence": "TenantContext stores email in the sessionId slot. Capabilities set is always empty. JWT has no jti claim.",
-      "closureEvidence": "Test class: TenantSessionBindingIntegrationTest, TenantCapabilityBindingIntegrationTest\nTest method: jwtContainsJtiClaim, jwtContainsSessionVersionClaim, emptyCapabilities_notVerified\nWorkflow Run ID: 28506789371\nWorkflow Head SHA: 0e162a8887e3db3d05ce9c6883614856ed85574b\nDatabase product: PostgreSQL 16 (CI) / H2 (local)\ncurrent_user: sanad_runtime_app (CI)\nRelevant SQL assertion: JWT .id(tokenId) for jti; TenantContext.sessionVersion from JWT session_version claim\nArtifact: surefire-reports",
-      "closureDate": "2026-07-01T09:16:41Z",
-      "closedCommitSha": "0e162a8887e3db3d05ce9c6883614856ed85574b",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
       "targetClosureStage": "04A",
       "acceptanceCriteria": [
         "JWT contains jti (token ID) claim",
@@ -538,19 +543,20 @@
         "TenantContext.sessionVersion populated from JWT session_version claim",
         "Capabilities not recorded as verified when empty"
       ],
-      "verificationCommand": "grep -r 'jti\\|sessionId\\|sessionVersion' apps/sanad-platform/src/main/java/com/sanad/platform/security/tenant/"
+      "verificationCommand": "grep -r 'jti\\|sessionId\\|sessionVersion' apps/sanad-platform/src/main/java/com/sanad/platform/security/tenant/",
+      "reopenReason": "The Stage 04A.2 tests were not executed by the PostgreSQL tenant-isolation job and several tests returned successfully on H2 without exercising RLS."
     },
     {
       "id": "CD-04-P1-007",
       "title": "Static tenant isolation gate contains warning and counter bypasses",
       "severity": "P1",
-      "status": "CLOSED",
+      "status": "REOPENED",
       "blocking": true,
       "owner": "infra-04a",
       "evidence": "check-tenant-isolation.sh uses [WARN] instead of [FAIL] for DTO mass assignment, subtracts NATIVE_VIOLATIONS from VIOLATIONS counter, and uses file-name-only RLS validation.",
-      "closureEvidence": "Test class: check_tenant_isolation.py (Python static gate)\nTest method: check_unscoped_repo_methods, check_dto_mass_assignment, check_rls_policies, check_test_profiles, check_table_classification\nWorkflow Run ID: 28506789371\nWorkflow Head SHA: 0e162a8887e3db3d05ce9c6883614856ed85574b\nDatabase product: N/A (static analysis)\ncurrent_user: N/A\nRelevant SQL assertion: No [WARN] bypasses; allows @ActiveProfiles(local) only with DB product check\nArtifact: python-tests",
-      "closureDate": "2026-07-01T09:16:41Z",
-      "closedCommitSha": "0e162a8887e3db3d05ce9c6883614856ed85574b",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
       "targetClosureStage": "04A",
       "acceptanceCriteria": [
         "Static gate rewritten in Python with structured analysis",
@@ -558,7 +564,8 @@
         "No counter subtraction bypasses",
         "RLS validation checks policy content, not just file name"
       ],
-      "verificationCommand": "python3 scripts/ci/check_tenant_isolation.py"
+      "verificationCommand": "python3 scripts/ci/check_tenant_isolation.py",
+      "reopenReason": "The Stage 04A.2 tests were not executed by the PostgreSQL tenant-isolation job and several tests returned successfully on H2 without exercising RLS."
     },
     {
       "id": "CD-04-P1-008",
@@ -583,13 +590,13 @@
       "id": "CD-04-P1-009",
       "title": "Runtime and migration database role separation is not verified",
       "severity": "P1",
-      "status": "CLOSED",
+      "status": "REOPENED",
       "blocking": true,
       "owner": "infra-04a",
       "evidence": "CI uses a single DB role for both Flyway migrations and application runtime. Runtime role may be table owner or superuser, bypassing RLS.",
-      "closureEvidence": "Test class: TenantRuntimeRoleIntegrationTest\nTest method: runtimeRoleVerification\nWorkflow Run ID: 28506789371\nWorkflow Head SHA: 0e162a8887e3db3d05ce9c6883614856ed85574b\nDatabase product: PostgreSQL 16 (CI)\ncurrent_user: sanad_runtime_app (CI)\nRelevant SQL assertion: SELECT rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication FROM pg_roles WHERE rolname = current_user; expected: f,f,f,f,f\nArtifact: surefire-reports",
-      "closureDate": "2026-07-01T09:16:41Z",
-      "closedCommitSha": "0e162a8887e3db3d05ce9c6883614856ed85574b",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
       "targetClosureStage": "04A",
       "acceptanceCriteria": [
         "CI creates sanad_migration_owner and sanad_runtime_app roles",
@@ -597,27 +604,36 @@
         "V18 migration grants runtime role CRUD privileges",
         "SQL verification in CI: SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"
       ],
-      "verificationCommand": "grep -r 'sanad_runtime_app\\|sanad_migration_owner' .github/workflows/ apps/sanad-platform/src/main/resources/db/"
+      "verificationCommand": "grep -r 'sanad_runtime_app\\|sanad_migration_owner' .github/workflows/ apps/sanad-platform/src/main/resources/db/",
+      "reopenReason": "The Stage 04A.2 tests were not executed by the PostgreSQL tenant-isolation job and several tests returned successfully on H2 without exercising RLS."
     }
   ],
   "summary": {
     "inheritedDebtCount": 11,
     "newDebtCount": 26,
     "totalDebtCount": 37,
-    "closedDebtCount": 25,
+    "closedDebtCount": 17,
     "openDebtCount": 5,
     "inProgressDebtCount": 0,
     "blockedDebtCount": 6,
     "readyForVerificationDebtCount": 1,
-    "reopenedDebtCount": 0,
+    "reopenedDebtCount": 8,
     "acceptedRiskDebtCount": 0,
     "openP0DebtCount": 2,
-    "openBlockingP1DebtCount": 0,
+    "openBlockingP1DebtCount": 8,
     "carriedForwardDebtCount": 0,
     "debtGate": "BLOCKED",
     "blockingDebtIds": [
       "CD-00-P0-001",
-      "CD-00-P0-002"
+      "CD-00-P0-002",
+      "CD-04-P1-001",
+      "CD-04-P1-002",
+      "CD-04-P1-003",
+      "CD-04-P1-004",
+      "CD-04-P1-005",
+      "CD-04-P1-006",
+      "CD-04-P1-007",
+      "CD-04-P1-009"
     ],
     "closedDebtIds": [
       "CD-01-P1-001",

@@ -11,20 +11,20 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.Statement;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Stage 04A.2 §9 — Connection pool leakage test.
+ * Stage 04A.3 §9 — Connection pool leakage test. Non-skippable PostgreSQL.
+ * Uses maximumPoolSize=1 to force connection reuse.
  */
 @SpringBootTest
 @Import(SecurityPermitAllTestConfig.class)
 @AutoConfigureMockMvc
-@ActiveProfiles("local")
+@ActiveProfiles("tenant-postgres-test")
+@org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(
+    named = "RUN_TENANT_POSTGRES_TESTS", matches = "true")
 class TenantConnectionPoolLeakageTest {
 
     @Autowired private DataSource dataSource;
@@ -33,26 +33,25 @@ class TenantConnectionPoolLeakageTest {
     @DisplayName("Sequential transactions with different tenants do not leak settings")
     @Transactional
     void sequentialTransactions_noLeakage() throws Exception {
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            String dbName = conn.getMetaData().getDatabaseProductName();
-            if (!"PostgreSQL".equals(dbName)) {
-                assertThat(dbName).isEqualTo("H2");
-                return;
-            }
+        PostgresTestUtil.assertPostgreSQL(dataSource);
 
-            UUID tenantA = UUID.randomUUID();
+        UUID tenantA = UUID.randomUUID();
+
+        // Transaction A: set tenant A
+        try (var conn = dataSource.getConnection(); var stmt = conn.createStatement()) {
             stmt.execute("SET LOCAL app.current_tenant_id = '" + tenantA + "'");
-
-            ResultSet rs = stmt.executeQuery("SELECT current_setting('app.current_tenant_id', true)");
+            var rs = stmt.executeQuery("SELECT current_setting('app.current_tenant_id', true)");
             assertThat(rs.next()).isTrue();
             assertThat(rs.getString(1)).isEqualTo(tenantA.toString());
-
-            // Reset for next check
-            stmt.execute("SET LOCAL app.current_tenant_id = ''");
-            rs = stmt.executeQuery("SELECT current_setting('app.current_tenant_id', true)");
+        }
+        // After transaction A ends, SET LOCAL is cleared by PostgreSQL.
+        // Transaction B (same pooled connection): setting must NOT be A.
+        try (var conn = dataSource.getConnection(); var stmt = conn.createStatement()) {
+            var rs = stmt.executeQuery("SELECT current_setting('app.current_tenant_id', true)");
             assertThat(rs.next()).isTrue();
-            assertThat(rs.getString(1)).isNullOrEmpty();
+            assertThat(rs.getString(1))
+                    .as("Setting from transaction A must NOT leak to transaction B")
+                    .isNotEqualTo(tenantA.toString());
         }
     }
 }

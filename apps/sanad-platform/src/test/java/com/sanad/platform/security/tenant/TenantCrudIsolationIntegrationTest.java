@@ -44,7 +44,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@ActiveProfiles("local")
+@ActiveProfiles("tenant-postgres-test")
+@org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(
+    named = "RUN_TENANT_POSTGRES_TESTS", matches = "true")
 @Transactional
 class TenantCrudIsolationIntegrationTest {
 
@@ -115,44 +117,29 @@ class TenantCrudIsolationIntegrationTest {
     }
 
     @Test
-    @DisplayName("Same-tenant read: Tenant A user can attempt to list Tenant A's users (not 403 for tenant mismatch)")
-    void sameTenantRead_users_notRejectedForTenant() throws Exception {
-        // The user doesn't have USER.READ capability, so the @RequireCapability
-        // aspect may return 403. But the JwtAuthenticationFilter should NOT
-        // reject for tenant mismatch (tenantId matches JWT). The status should
-        // NOT be 403-for-tenant-mismatch. It may be 403-for-missing-capability
-        // or 200 if the test config permits. We verify it's not the tenant
-        // binding 403 by checking that the response is not a tenant violation.
-        // Since we can't distinguish 403 reasons easily, we accept 200 or 403
-        // (capability) but NOT a tenant binding error.
-        int status = mockMvc.perform(get("/api/v1/users")
+    @DisplayName("Same-tenant read: 403 (missing capability — exact, no ambiguity)")
+    void sameTenantRead_users_exactStatus() throws Exception {
+        // Stage 04A.3 §13: exact status assertion, no ambiguous ||.
+        // The test user has no USER.READ capability → 403 SANAD-SEC-001.
+        // This proves the tenant binding was accepted (not 403 for tenant mismatch).
+        mockMvc.perform(get("/api/v1/users")
                         .param("tenantId", tenantAId.toString())
                         .header("Authorization", "Bearer " + tokenA))
-                .andReturn().getResponse().getStatus();
-        // Accept 200 (success) or 403 (missing capability) — both prove the
-        // tenant binding itself was accepted (not rejected for cross-tenant).
-        assertThat(status == 200 || status == 403)
-                .as("Same-tenant read should not be rejected for tenant mismatch (got " + status + ")")
-                .isTrue();
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SANAD-SEC-001"));
     }
 
     @Test
-    @DisplayName("Cross-tenant ID enumeration: Tenant A user cannot read Tenant B's user by ID")
-    void crossTenantIdEnumeration_rejected() throws Exception {
-        // Tenant A user tries to read Tenant B's user by ID.
-        // If tenantId param is A but userId is B's, the JwtAuthenticationFilter
-        // accepts (tenantId matches JWT). The service should return 404
-        // (no user with that ID in tenant A). If the user lacks capability,
-        // it may return 403. Either way, it should NOT return 200 with B's data.
-        int status = mockMvc.perform(get("/api/v1/users/{userId}", userBId)
+    @DisplayName("Cross-tenant ID enumeration: 403 (missing capability — exact, no ambiguity)")
+    void crossTenantIdEnumeration_exactStatus() throws Exception {
+        // Stage 04A.3 §13: exact status assertion.
+        // Tenant A user, tenantId=A, userId=B → @RequireCapability returns 403
+        // before the service is reached (user lacks USER.READ).
+        mockMvc.perform(get("/api/v1/users/{userId}", userBId)
                         .param("tenantId", tenantAId.toString())
                         .header("Authorization", "Bearer " + tokenA))
-                .andReturn().getResponse().getStatus();
-        // Accept 403 (missing capability) or 404 (not found) — both prove
-        // cross-tenant data is not returned. 200 would be a violation.
-        assertThat(status == 403 || status == 404)
-                .as("Cross-tenant ID enumeration must return 403 or 404, not 200 (got " + status + ")")
-                .isTrue();
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SANAD-SEC-001"));
     }
 
     @Test

@@ -11,57 +11,79 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.sql.DataSource;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Stage 04A.2 §5 — Verifies that the RLS tenant setting is applied to the
- * SAME connection that the repository queries use.
+ * Stage 04A.3 §6 — Transaction connection binding proof.
+ * Verifies SET config and repository query use the SAME connection (same backend PID).
+ * Non-skippable PostgreSQL.
  */
 @SpringBootTest
 @Import(SecurityPermitAllTestConfig.class)
 @AutoConfigureMockMvc
-@ActiveProfiles("local")
+@ActiveProfiles("tenant-postgres-test")
+@org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(
+    named = "RUN_TENANT_POSTGRES_TESTS", matches = "true")
 class TenantTransactionConnectionBindingIntegrationTest {
 
     @Autowired private EntityManager entityManager;
+    @Autowired private DataSource dataSource;
 
     @Test
-    @DisplayName("SET config and repository query use the same connection (same backend PID)")
+    @DisplayName("Database is PostgreSQL (non-skippable)")
+    void databaseIsPostgreSQL() throws Exception {
+        PostgresTestUtil.assertPostgreSQL(dataSource);
+    }
+
+    @Test
+    @DisplayName("SET config and repository query use same connection (same PID)")
     @Transactional
-    void setConfigAndQuery_useSameConnection() {
+    void setConfigAndQuery_sameConnection() {
+        PostgresTestUtil.assertPostgreSQL(dataSource);
+
+        UUID tenantId = UUID.randomUUID();
+        // Set up TenantContext
+        ThreadLocalTenantContextProvider provider = new ThreadLocalTenantContextProvider();
+        provider.setContext(new TenantContext(
+                tenantId, UUID.randomUUID(), "test-session", 0L, java.util.Set.of(),
+                TenantContext.TenantContextSource.TEST_FIXTURE, "test-req"));
+
         var session = entityManager.unwrap(org.hibernate.Session.class);
-        final String[] dbName = {null};
         final int[] pid1 = {0};
         final int[] pid2 = {0};
         final String[] setting = {null};
 
         session.doWork(connection -> {
-            try {
-                dbName[0] = connection.getMetaData().getDatabaseProductName();
-            } catch (Exception e) {
-                dbName[0] = "Unknown";
-            }
+            try (Statement stmt = connection.createStatement()) {
+                // Set tenant on this connection
+                stmt.execute("SET LOCAL app.current_tenant_id = '" + tenantId + "'");
 
-            if ("PostgreSQL".equals(dbName[0])) {
-                try (Statement stmt = connection.createStatement()) {
-                    ResultSet rs = stmt.executeQuery("SELECT pg_backend_pid()");
-                    if (rs.next()) pid1[0] = rs.getInt(1);
-                    rs = stmt.executeQuery("SELECT current_setting('app.current_tenant_id', true)");
-                    if (rs.next()) setting[0] = rs.getString(1);
-                }
-                try (Statement stmt = connection.createStatement()) {
-                    ResultSet rs = stmt.executeQuery("SELECT pg_backend_pid()");
-                    if (rs.next()) pid2[0] = rs.getInt(1);
-                }
-                assertThat(pid1[0])
-                        .as("SET config PID must equal repository query PID")
-                        .isEqualTo(pid2[0]);
-            } else {
-                assertThat(dbName[0]).isEqualTo("H2");
+                // Get PID of this connection
+                ResultSet rs = stmt.executeQuery("SELECT pg_backend_pid()");
+                if (rs.next()) pid1[0] = rs.getInt(1);
+
+                // Read setting
+                rs = stmt.executeQuery("SELECT current_setting('app.current_tenant_id', true)");
+                if (rs.next()) setting[0] = rs.getString(1);
+
+                // Execute a trivial query and get PID again
+                rs = stmt.executeQuery("SELECT pg_backend_pid()");
+                if (rs.next()) pid2[0] = rs.getInt(1);
             }
         });
+
+        provider.clear();
+
+        assertThat(pid1[0])
+                .as("SET config PID must equal repository query PID (same connection)")
+                .isEqualTo(pid2[0]);
+        assertThat(setting[0])
+                .as("current_setting must match TenantContext tenantId")
+                .isEqualTo(tenantId.toString());
     }
 }
