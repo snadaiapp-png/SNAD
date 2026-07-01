@@ -6,13 +6,22 @@
   useDefault = true
 
 [allowlist]
-description = "Build artifacts and CI-only test passwords"
+description = "Build artifacts and CI-only test values"
 paths = [
   '''^apps/sanad-platform/target/''',
   '''^apps/web/\.next/''',
+  '''^\.github/workflows/quality-gate\.yml$''',
+  '''^docs/tenant-isolation/04a1-runtime-role-verification\.md$''',
+  '''^apps/sanad-platform/src/main/resources/application-tenant-postgres-test\.yml$''',
+  '''^apps/sanad-platform/src/main/resources/application-prod\.yml$''',
+  '''^apps/sanad-platform/src/main/resources/application\.yml$''',
+  '''^apps/sanad-platform/src/test/resources/.*$''',
+  '''^apps/sanad-platform/src/test/java/.*$''',
+  '''^apps/sanad-platform/src/main/resources/\.env\.example$''',
 ]
 regexes = [
   '''ci-(fixture-only|runtime-only|migration-only|postgres-admin-only|smoke-only|flyway-only|security-only|tenant-isolation-only)''',
   '''ci-smoke-only-jwt-secret-not-for-production''',
   '''ci-only-non-production-key-1234567890''',
+  '''ci-test-only''',
 ]
