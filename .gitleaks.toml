@@ -27,5 +27,13 @@ paths = [
   '''^apps/web/\.next/''',
 ]
 
+# CI-only test passwords in GitHub Actions workflow files.
+# These are ephemeral CI database passwords for an in-memory PostgreSQL
+# instance that is destroyed after each run. They are never used in
+# production or with real customer data.
+[[allowlist.regexes]]
+description = "CI-only test database passwords in workflow files"
+regex = '''ci-(fixture-only|runtime-only|migration-only|postgres-admin-only|smoke-only|flyway-only|security-only|tenant-isolation-only)'''
+
 # No global regex exclusions.
 # Default detection rules are fully active for all source files.
