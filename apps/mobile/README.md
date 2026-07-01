@@ -7,7 +7,7 @@ Universal Android, iPhone, iPad, and web-compatible mobile workspace built with 
 ```bash
 cd apps/mobile
 cp .env.example .env.local
-npm install
+npm ci
 npm run verify:env
 npm start
 ```
@@ -58,7 +58,13 @@ Production store submission additionally requires:
 
 ```text
 MOBILE WORKSPACE: INSTALLED ON FEATURE BRANCH
-LOCAL DEVELOPMENT: READY AFTER npm install
+PACKAGE LOCK: GENERATED AND COMMITTED
+LOCAL DEVELOPMENT: READY AFTER npm ci
+EXPO DOCTOR: PASS
+TYPESCRIPT: PASS
+ESLINT: PASS
+UNIT TEST COMMAND: PASS
+UNIVERSAL EXPORT: PASS IN ISOLATED EVIDENCE JOB
 AUTOMATIC QUALITY: CONFIGURED
 EAS PREVIEW BUILD: WAITS FOR EXPO_TOKEN AND ENABLE VARIABLE
 STORE SUBMISSION: DISABLED BY DEFAULT
