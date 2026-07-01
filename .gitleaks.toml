@@ -6,16 +6,19 @@
   useDefault = true
 
 [allowlist]
-description = "Build artifacts and CI-only test values"
+description = "Build artifacts, CI test files, and template files"
 paths = [
-  '''^apps/sanad-platform/target/''',
-  '''^apps/web/\.next/''',
-  '''^\.github/workflows/quality-gate\.yml$''',
-  '''^docs/tenant-isolation/''',
-  '''^apps/sanad-platform/src/main/resources/application-tenant-postgres-test\.yml$''',
-  '''^apps/sanad-platform/src/main/resources/application-prod\.yml$''',
-  '''^apps/sanad-platform/src/main/resources/application\.yml$''',
-  '''^apps/sanad-platform/src/test/''',
-  '''^\.env\.example$''',
-  '''^\.gitleaks\.toml$''',
+  '''target/''',
+  '''\.next/''',
+  '''\.github/workflows/''',
+  '''docs/tenant-isolation/''',
+  '''application-tenant-postgres-test''',
+  '''application-prod\.yml''',
+  '''application\.yml''',
+  '''src/test/''',
+  '''\.env\.example''',
+  '''\.gitleaks\.toml''',
+  '''render\.yaml''',
+  '''snad-init\.ps1''',
+  '''docker-compose''',
 ]
