@@ -1,0 +1,129 @@
+name: Mobile CI
+
+on:
+  pull_request:
+    paths:
+      - "apps/mobile/**"
+      - ".github/workflows/mobile-ci.yml"
+  push:
+    branches: [main]
+    tags:
+      - "mobile-v*"
+    paths:
+      - "apps/mobile/**"
+      - ".github/workflows/mobile-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Mobile Quality
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.x"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Verify environment
+        run: npm run verify:env
+
+      - name: Expo dependency health
+        run: npx expo-doctor@1.20.0
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test -- --passWithNoTests
+
+      - name: Universal export check
+        run: npm run export:web
+
+      - name: Upload export evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-web-export-${{ github.sha }}
+          path: apps/mobile/dist
+          retention-days: 7
+
+  preview-build:
+    name: EAS Android and iOS Preview
+    needs: quality
+    if: >-
+      github.event_name != 'pull_request' &&
+      vars.MOBILE_AUTO_BUILD_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.x"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build preview when Expo credentials exist
+        if: env.EXPO_TOKEN != ''
+        run: npx eas-cli@20.5.0 build --platform all --profile preview --non-interactive --no-wait
+
+      - name: Record missing Expo credentials
+        if: env.EXPO_TOKEN == ''
+        run: echo "EXPO_TOKEN is not configured; preview build skipped safely."
+
+  production-release:
+    name: EAS Production and Store Submission
+    needs: quality
+    if: >-
+      startsWith(github.ref, 'refs/tags/mobile-v') &&
+      vars.MOBILE_AUTO_SUBMIT_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: mobile-production
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.x"
+
+      - name: Require Expo credentials
+        run: test -n "$EXPO_TOKEN"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build and submit Android and iOS
+        run: npx eas-cli@20.5.0 build --platform all --profile production --auto-submit --non-interactive --no-wait
