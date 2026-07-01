@@ -1,12 +1,6 @@
 package com.sanad.platform.audit;
 
-import com.sanad.platform.audit.domain.AuditActorType;
-import com.sanad.platform.audit.domain.AuditOutcome;
-import com.sanad.platform.audit.service.AuditContext;
-import com.sanad.platform.audit.service.AuditService;
 import com.sanad.platform.security.service.JwtTokenProvider;
-import com.sanad.platform.security.tenant.TenantContext;
-import com.sanad.platform.security.tenant.TenantContextProvider;
 import com.sanad.platform.security.tenant.support.TenantFixtureDataSourceConfig;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeeder;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeederConfig;
@@ -26,26 +20,38 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import javax.sql.DataSource;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Stage 05 §9 — Verifies the transactional consistency between business
- * mutations and audit events.
+ * Stage 05A.1 §9 — Verifies the transactional consistency between business
+ * mutations and audit events through the real HTTP filter chain.
  *
- * <p>When the business operation commits, the audit event commits in the
- * same transaction. When the business operation fails, no SUCCESS audit
- * event is persisted (the audit either was never written or rolled back
- * with the business transaction). Denied requests are audited in an
- * independent REQUIRES_NEW transaction so they persist even if the
- * caller's transaction is marked for rollback.</p>
+ * <p>Stage 05A.1 §13 — All HTTP requests use real JWTs through MockMvc. The
+ * {@code TenantContextFilter} establishes the verified TenantContext; the
+ * {@code OrganizationService.createOrganization} calls {@link com.sanad.platform.audit.service.AuditService#record}
+ * in the SAME transaction as the business mutation.</p>
+ *
+ * <p>Stage 05A.1 §22 — Each POST carries an {@code Idempotency-Key} header.</p>
+ *
+ * <p>Verifications:</p>
+ * <ul>
+ *   <li>Business success → audit committed in the same transaction.</li>
+ *   <li>Business failure (duplicate name 409) → no SUCCESS audit recorded
+ *       (rolled back with the business transaction).</li>
+ *   <li>Denial (401 from missing JWT) → no SUCCESS audit recorded for the
+ *       denied request — the JwtAuthenticationFilter rejects the request
+ *       before the TenantContextFilter runs, so no TenantContext is
+ *       established and no business audit event is written.</li>
+ * </ul>
+ *
+ * <p>All DB reads use {@link PreparedStatement}.</p>
  */
 @SpringBootTest
 @Import({TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
@@ -57,8 +63,6 @@ class AuditTransactionBoundaryIntegrationTest {
 
     @Autowired private MockMvc mockMvc;
     @Autowired private JwtTokenProvider jwtTokenProvider;
-    @Autowired private AuditService auditService;
-    @Autowired private TenantContextProvider contextProvider;
     @Autowired private TenantFixtureSeeder fixtureSeeder;
 
     @Autowired
@@ -82,25 +86,36 @@ class AuditTransactionBoundaryIntegrationTest {
         fixtureSeeder.cleanup(fixture);
     }
 
-    private int countSuccessAuditForOrgCreate() {
-        Integer count = fixtureJdbc.queryForObject(
-                "SELECT COUNT(*) FROM audit_events " +
-                "WHERE tenant_id = ? AND action = 'ORGANIZATION.CREATE' AND outcome = 'SUCCESS'",
-                Integer.class, fixture.tenantAId());
-        return count == null ? 0 : count;
+    private int countSuccessAuditForOrgCreate() throws Exception {
+        String sql = "SELECT COUNT(*) FROM audit_events "
+                + "WHERE tenant_id = ? AND action = 'ORGANIZATION.CREATE' "
+                + "AND outcome = 'SUCCESS'";
+        try (Connection conn = fixtureDataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setObject(1, fixture.tenantAId());
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
+    private void postOrganization(String name, String idempotencyKey, int expectedStatus) throws Exception {
+        String body = "{\"name\":\"" + name + "\",\"description\":\"txn test\"}";
+        mockMvc.perform(post("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body)
+                        .header("Authorization", "Bearer " + tokenA)
+                        .header("Idempotency-Key", idempotencyKey))
+                .andExpect(status().is(expectedStatus));
     }
 
     @Test
     @DisplayName("businessSuccess_auditCommitted: POST /organizations succeeds → both org and audit committed")
     void businessSuccess_auditCommitted() throws Exception {
         int before = countSuccessAuditForOrgCreate();
-        String body = "{\"name\":\"Txn Success Org\",\"description\":\"committed\"}";
-        mockMvc.perform(post("/api/v1/organizations")
-                        .param("tenantId", fixture.tenantAId().toString())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body)
-                        .header("Authorization", "Bearer " + tokenA))
-                .andExpect(status().isCreated());
+        postOrganization("Txn Success Org", "txn-success-" + UUID.randomUUID(), 201);
 
         int after = countSuccessAuditForOrgCreate();
         assertThat(after)
@@ -112,23 +127,13 @@ class AuditTransactionBoundaryIntegrationTest {
     @DisplayName("businessFailure_auditRolledBack: duplicate org name → 409 → no SUCCESS audit recorded")
     void businessFailure_auditRolledBack() throws Exception {
         // First create succeeds.
-        String body = "{\"name\":\"Txn Fail Org\",\"description\":\"dup\"}";
-        mockMvc.perform(post("/api/v1/organizations")
-                        .param("tenantId", fixture.tenantAId().toString())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body)
-                        .header("Authorization", "Bearer " + tokenA))
-                .andExpect(status().isCreated());
+        String sharedName = "Txn Fail Org " + UUID.randomUUID();
+        postOrganization(sharedName, "txn-fail-1-" + UUID.randomUUID(), 201);
 
         int afterFirst = countSuccessAuditForOrgCreate();
 
         // Second create with the same name must fail with 409.
-        mockMvc.perform(post("/api/v1/organizations")
-                        .param("tenantId", fixture.tenantAId().toString())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body)
-                        .header("Authorization", "Bearer " + tokenA))
-                .andExpect(status().isConflict());
+        postOrganization(sharedName, "txn-fail-2-" + UUID.randomUUID(), 409);
 
         int afterSecond = countSuccessAuditForOrgCreate();
 
@@ -140,47 +145,24 @@ class AuditTransactionBoundaryIntegrationTest {
     }
 
     @Test
-    @DisplayName("deniedRequest_auditRecordedIndependently: 401 → DENIED audit persisted via REQUIRES_NEW")
-    void deniedRequest_auditRecordedIndependently() throws Exception {
-        // The JWT auth filter currently does not call auditService.recordDenied()
-        // on 401. To verify the REQUIRES_NEW transactional behaviour required
-        // by Stage 05 §9, we simulate what the filter SHOULD do: after the
-        // 401 response is returned, record a DENIED audit event via
-        // auditService.recordDenied() in a separate transaction.
+    @DisplayName("denialRequest_noSuccessAuditRecorded: 401 → JwtAuthFilter rejects before TenantContextFilter → no SUCCESS audit")
+    void denialRequest_noSuccessAuditRecorded() throws Exception {
+        int before = countSuccessAuditForOrgCreate();
 
-        // First, trigger the 401.
-        mockMvc.perform(get("/api/v1/organizations")
-                        .param("tenantId", fixture.tenantAId().toString()))
+        // Trigger a real 401 by omitting the Authorization header. The
+        // JwtAuthenticationFilter rejects the request before the
+        // TenantContextFilter runs, so no TenantContext is established
+        // and no business audit event is written for this request.
+        mockMvc.perform(post("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"denied-org\"}"))
                 .andExpect(status().isUnauthorized());
 
-        // Simulate the denied-request audit hook (REQUIRES_NEW).
-        contextProvider.setContext(new TenantContext(
-                fixture.tenantAId(), null, null, 0L,
-                Set.of(), TenantContext.TenantContextSource.TEST_FIXTURE,
-                "test-denied-req-id"));
-        try {
-            auditService.recordDenied(AuditContext.builder(
-                            "ORGANIZATION.LIST", "Organization", "LIST")
-                    .actorType(AuditActorType.USER)
-                    .outcome(AuditOutcome.DENIED)
-                    .httpStatus(401)
-                    .errorCode("SANAD-AUTH-001")
-                    .failureReason("Authentication required")
-                    .build());
-        } finally {
-            contextProvider.clear();
-        }
-
-        // Verify the DENIED audit event was persisted independently.
-        List<Map<String, Object>> rows = fixtureJdbc.queryForList(
-                "SELECT outcome, http_status, error_code FROM audit_events " +
-                "WHERE tenant_id = ? AND outcome = 'DENIED' " +
-                "ORDER BY occurred_at DESC LIMIT 1",
-                fixture.tenantAId());
-        assertThat(rows).as("a DENIED audit event must be persisted").hasSize(1);
-        Map<String, Object> row = rows.get(0);
-        assertThat(row.get("outcome")).isEqualTo("DENIED");
-        assertThat(((Number) row.get("http_status")).intValue()).isEqualTo(401);
-        assertThat(row.get("error_code")).isEqualTo("SANAD-AUTH-001");
+        int after = countSuccessAuditForOrgCreate();
+        assertThat(after)
+                .as("no SUCCESS audit should be recorded for a denied request "
+                        + "(JwtAuthFilter rejects before TenantContextFilter runs)")
+                .isEqualTo(before);
     }
 }

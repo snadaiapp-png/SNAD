@@ -1,8 +1,6 @@
 package com.sanad.platform.idempotency;
 
-import com.sanad.platform.idempotency.service.IdempotencyService;
-import com.sanad.platform.security.tenant.TenantContext;
-import com.sanad.platform.security.tenant.TenantContextProvider;
+import com.sanad.platform.security.service.JwtTokenProvider;
 import com.sanad.platform.security.tenant.support.TenantFixtureDataSourceConfig;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeeder;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeederConfig;
@@ -16,23 +14,40 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
 
 import javax.sql.DataSource;
-import java.util.Set;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Stage 05 §16 — Verifies that the same Idempotency-Key is independent
- * across tenants. Tenant A and Tenant B can each use the same key for
- * their own operations without conflict.
+ * Stage 05A.1 §16 — Verifies HTTP-level cross-tenant idempotency isolation
+ * on {@code POST /api/v1/organizations}.
  *
- * <p>The unique constraint on {@code (tenant_id, operation, route,
- * idempotency_key)} includes {@code tenant_id}, so the same key in two
- * different tenants produces two independent records.</p>
+ * <p>Stage 05A.1 §13 — All HTTP requests use real JWTs through MockMvc.
+ * Tenant A and Tenant B each use their own JWT.</p>
+ *
+ * <p>Stage 05A.1 §22 — Each POST carries an {@code Idempotency-Key} header.</p>
+ *
+ * <p>Verification:</p>
+ * <ul>
+ *   <li>Tenant A POSTs with key K → 201.</li>
+ *   <li>Tenant B POSTs with the SAME key K → 201 (independent record,
+ *       not a replay).</li>
+ *   <li>Two independent idempotency records exist in the DB for the same
+ *       key, one per tenant.</li>
+ * </ul>
+ *
+ * <p>All DB reads use {@link PreparedStatement}.</p>
  */
 @SpringBootTest
 @Import({TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
@@ -42,8 +57,8 @@ import static org.assertj.core.api.Assertions.assertThat;
     named = "RUN_TENANT_POSTGRES_TESTS", matches = "true")
 class IdempotencyCrossTenantIsolationIntegrationTest {
 
-    @Autowired private IdempotencyService idempotencyService;
-    @Autowired private TenantContextProvider contextProvider;
+    @Autowired private MockMvc mockMvc;
+    @Autowired private JwtTokenProvider jwtTokenProvider;
     @Autowired private TenantFixtureSeeder fixtureSeeder;
 
     @Autowired
@@ -51,12 +66,16 @@ class IdempotencyCrossTenantIsolationIntegrationTest {
     private DataSource fixtureDataSource;
 
     private TenantTestFixture fixture;
-    private JdbcTemplate fixtureJdbc;
+    private String tokenA;
+    private String tokenB;
 
     @BeforeEach
     void setUp() {
         fixture = fixtureSeeder.seedCrudFixture();
-        fixtureJdbc = new JdbcTemplate(fixtureDataSource);
+        tokenA = jwtTokenProvider.mintAccessToken(
+                fixture.userAId(), fixture.tenantAId(), "alice-a@example.com");
+        tokenB = jwtTokenProvider.mintAccessToken(
+                fixture.userBId(), fixture.tenantBId(), "bob-b@example.com");
     }
 
     @AfterEach
@@ -64,77 +83,59 @@ class IdempotencyCrossTenantIsolationIntegrationTest {
         fixtureSeeder.cleanup(fixture);
     }
 
-    private void setTenantContext(UUID tenantId, UUID userId) {
-        contextProvider.setContext(new TenantContext(
-                tenantId, userId,
-                "test-jti-" + java.util.UUID.randomUUID(), 0L,
-                Set.of(), TenantContext.TenantContextSource.TEST_FIXTURE,
-                "test-req-" + java.util.UUID.randomUUID()));
-    }
-
     @Test
-    @DisplayName("sameKeyDifferentTenants_independent: key K1 in Tenant A and Tenant B → two independent records")
-    void sameKeyDifferentTenants_independent() {
-        String sharedKey = "cross-tenant-key-" + java.util.UUID.randomUUID();
-        String operation = "ORGANIZATION.CREATE";
-        String route = "/api/v1/organizations";
-        String resourceType = "Organization";
-        String method = "POST";
+    @DisplayName("sameKeyDifferentTenants_independent: key K in Tenant A and Tenant B → two independent records")
+    void sameKeyDifferentTenants_independent() throws Exception {
+        String sharedKey = "cross-tenant-key-" + UUID.randomUUID();
+        String bodyA = "{\"name\":\"Cross Tenant A " + UUID.randomUUID() + "\",\"description\":\"a\"}";
+        String bodyB = "{\"name\":\"Cross Tenant B " + UUID.randomUUID() + "\",\"description\":\"b\"}";
 
-        // 1. Tenant A reserves the key → NEW
-        setTenantContext(fixture.tenantAId(), fixture.userAId());
-        IdempotencyService.ReservationResult aFirst;
-        try {
-            aFirst = idempotencyService.reserveOrReplay(
-                    sharedKey, operation, route, resourceType, method,
-                    "{\"name\":\"Org A\"}", null);
-        } finally {
-            contextProvider.clear();
+        // 1. Tenant A POSTs with key K → 201
+        mockMvc.perform(post("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyA)
+                        .header("Authorization", "Bearer " + tokenA)
+                        .header(IdempotencyCommandInterceptor.IDEMPOTENCY_KEY_HEADER, sharedKey))
+                .andExpect(status().isCreated());
+
+        // 2. Tenant B POSTs with the SAME key K → 201 (independent, not replay)
+        mockMvc.perform(post("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantBId().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyB)
+                        .header("Authorization", "Bearer " + tokenB)
+                        .header(IdempotencyCommandInterceptor.IDEMPOTENCY_KEY_HEADER, sharedKey))
+                .andExpect(status().isCreated());
+
+        // 3. Two independent records exist for the same key.
+        String countSql = "SELECT COUNT(*) FROM idempotency_records WHERE idempotency_key = ?";
+        try (Connection conn = fixtureDataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(countSql)) {
+            ps.setString(1, sharedKey);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                int count = rs.getInt(1);
+                assertThat(count)
+                        .as("two independent records must exist for the same key across tenants")
+                        .isEqualTo(2);
+            }
         }
-        assertThat(aFirst.type())
-                .as("Tenant A first reservation must return NEW")
-                .isEqualTo(IdempotencyService.ReservationType.NEW);
 
-        // Complete tenant A's reservation.
-        setTenantContext(fixture.tenantAId(), fixture.userAId());
-        try {
-            idempotencyService.complete(aFirst.record().getId(), 201,
-                    "Content-Type:application/json",
-                    "{\"id\":\"org-a-uuid\",\"name\":\"Org A\"}");
-        } finally {
-            contextProvider.clear();
+        // 4. The two records have different tenant IDs.
+        String tenantSql = "SELECT tenant_id FROM idempotency_records WHERE idempotency_key = ?";
+        try (Connection conn = fixtureDataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(tenantSql)) {
+            ps.setString(1, sharedKey);
+            try (ResultSet rs = ps.executeQuery()) {
+                java.util.Set<UUID> tenantIds = new java.util.HashSet<>();
+                while (rs.next()) {
+                    tenantIds.add((UUID) rs.getObject("tenant_id"));
+                }
+                assertThat(tenantIds)
+                        .as("the two records must belong to different tenants")
+                        .containsExactlyInAnyOrder(fixture.tenantAId(), fixture.tenantBId());
+            }
         }
-
-        // 2. Tenant B reserves the SAME key → must also be NEW (not REPLAY).
-        setTenantContext(fixture.tenantBId(), fixture.userBId());
-        IdempotencyService.ReservationResult bFirst;
-        try {
-            bFirst = idempotencyService.reserveOrReplay(
-                    sharedKey, operation, route, resourceType, method,
-                    "{\"name\":\"Org B\"}", null);
-        } finally {
-            contextProvider.clear();
-        }
-        assertThat(bFirst.type())
-                .as("Tenant B reservation with the same key must return NEW (independent)")
-                .isEqualTo(IdempotencyService.ReservationType.NEW);
-        assertThat(bFirst.record().getTenantId())
-                .as("Tenant B record must belong to Tenant B")
-                .isEqualTo(fixture.tenantBId());
-
-        // 3. Verify: two independent idempotency records exist for the same key.
-        Integer count = fixtureJdbc.queryForObject(
-                "SELECT COUNT(*) FROM idempotency_records WHERE idempotency_key = ?",
-                Integer.class, sharedKey);
-        assertThat(count)
-                .as("two independent records must exist for the same key across tenants")
-                .isEqualTo(2);
-
-        // 4. Verify: the records have different tenant IDs.
-        java.util.List<java.util.UUID> tenantIds = fixtureJdbc.queryForList(
-                "SELECT tenant_id FROM idempotency_records WHERE idempotency_key = ?",
-                java.util.UUID.class, sharedKey);
-        assertThat(tenantIds)
-                .containsExactlyInAnyOrder(fixture.tenantAId(), fixture.tenantBId());
     }
 }

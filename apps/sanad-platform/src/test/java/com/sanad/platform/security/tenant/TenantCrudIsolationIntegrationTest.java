@@ -24,6 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import javax.sql.DataSource;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -86,7 +87,8 @@ class TenantCrudIsolationIntegrationTest {
                         .param("tenantId", fixture.tenantAId().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body)
-                        .header("Authorization", "Bearer " + tokenA))
+                        .header("Authorization", "Bearer " + tokenA)
+                        .header("Idempotency-Key", "test-create-orgA-" + UUID.randomUUID()))
                 .andExpect(status().isCreated());
     }
 
@@ -172,7 +174,8 @@ class TenantCrudIsolationIntegrationTest {
                         .param("tenantId", fixture.tenantAId().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body)
-                        .header("Authorization", "Bearer " + tokenA))
+                        .header("Authorization", "Bearer " + tokenA)
+                        .header("Idempotency-Key", "test-mass-assign-" + UUID.randomUUID()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.tenantId").value(fixture.tenantAId().toString()));
     }
@@ -210,7 +213,8 @@ class TenantCrudIsolationIntegrationTest {
                         .param("tenantId", fixture.tenantAId().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body)
-                        .header("Authorization", "Bearer " + tokenA))
+                        .header("Authorization", "Bearer " + tokenA)
+                        .header("Idempotency-Key", "test-org-same-create-" + UUID.randomUUID()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.tenantId").value(fixture.tenantAId().toString()));
     }
@@ -231,7 +235,8 @@ class TenantCrudIsolationIntegrationTest {
                         .param("tenantId", fixture.tenantAId().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body)
-                        .header("Authorization", "Bearer " + tokenA))
+                        .header("Authorization", "Bearer " + tokenA)
+                        .header("Idempotency-Key", "test-mass-assign-db-" + UUID.randomUUID()))
                 // 2. Verify 201 Created
                 .andExpect(status().isCreated())
                 // 3. Verify response tenantId = Tenant A (not Tenant B)

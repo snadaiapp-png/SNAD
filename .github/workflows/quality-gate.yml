@@ -748,7 +748,7 @@ jobs:
             ON organizations, organization_memberships, users, roles,
                role_capabilities, user_role_assignments, refresh_tokens,
                password_reset_tokens, tenants, access_capabilities,
-               audit_events, idempotency_records
+               audit_events, idempotency_records, audit_chain_heads
             TO sanad_fixture_ci;
             GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sanad_fixture_ci;
           "
@@ -903,7 +903,7 @@ jobs:
             ON organizations, organization_memberships, users, roles,
                role_capabilities, user_role_assignments, refresh_tokens,
                password_reset_tokens, tenants, access_capabilities,
-               audit_events, idempotency_records
+               audit_events, idempotency_records, audit_chain_heads
             TO sanad_fixture_ci;
             GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sanad_fixture_ci;
           "
@@ -923,7 +923,7 @@ jobs:
           TENANT_MIGRATION_DATABASE_DRIVER: ${{ env.DATABASE_DRIVER }}
         run: |
           ./mvnw -B -ntp test \
-            -Dtest="AuditEventPersistenceIntegrationTest,AuditAppendOnlyIntegrationTest,AuditRlsIntegrationTest,AuditRedactionIntegrationTest,AuditHashChainIntegrationTest,AuditTransactionBoundaryIntegrationTest,AuditDeniedRequestIntegrationTest,AuditActorAttributionIntegrationTest,IdempotencySameRequestReplayIntegrationTest,IdempotencyPayloadMismatchIntegrationTest,IdempotencyConcurrentExecutionIntegrationTest,IdempotencyCrossTenantIsolationIntegrationTest,IdempotencyFailureRecoveryIntegrationTest,IdempotencyResponseRedactionIntegrationTest,IdempotencyRlsIntegrationTest,IdempotencyExpirationIntegrationTest" \
+            -Dtest="AuditEventPersistenceIntegrationTest,AuditDatabasePrivilegeIntegrationTest,AuditAppendOnlyIntegrationTest,AuditRlsIntegrationTest,AuditRedactionIntegrationTest,AuditHashChainIntegrationTest,AuditHashChainConcurrencyIntegrationTest,AuditTransactionBoundaryIntegrationTest,AuditDeniedRequestIntegrationTest,AuditActorAttributionIntegrationTest,IdempotencyHttpContractIntegrationTest,IdempotencySameRequestReplayIntegrationTest,IdempotencyPayloadMismatchIntegrationTest,IdempotencyConcurrentExecutionIntegrationTest,IdempotencyCrossTenantIsolationIntegrationTest,IdempotencyFailureRecoveryIntegrationTest,IdempotencyResponseRedactionIntegrationTest,IdempotencyRlsIntegrationTest,IdempotencyExpirationIntegrationTest" \
             -Dspring.profiles.active=tenant-postgres-test \
             -Ddatabase.url="${DATABASE_URL}" \
             -Ddatabase.username="${DATABASE_USERNAME}" \

@@ -1,18 +1,17 @@
 package com.sanad.platform.audit.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.audit.domain.AuditEvent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.HexFormat;
+import java.util.UUID;
 
 /**
- * Stage 05 §11 — Hash-chain computation for audit events.
+ * Stage 05A.1 §8-9 — Linear, concurrency-safe hash chain computation.
  *
  * <p>Each audit event's {@code eventHash} is computed as:</p>
  * <pre>
@@ -20,41 +19,23 @@ import java.util.HexFormat;
  *     canonicalEventPayload
  *     + previousHash
  *     + tenantId
- *     + occurredAt
+ *     + occurredAt (truncated to microsecond precision)
+ *     + sequenceNumber
  *   )
  * </pre>
  *
- * <p>The canonical payload is a deterministic JSON serialization of
- * the event's mutable business fields (actor, action, resource,
- * outcome, state change). The {@code previousHash} links the event
- * to the preceding event in the same tenant's chain, forming a
- * tamper-evident log. The {@code tenantId} and {@code occurredAt}
- * are included to bind the hash to a specific tenant and time,
- * preventing chain replay across tenants.</p>
- *
- * <h2>Concurrent-safe previousHash selection</h2>
- * <p>When multiple events are written concurrently within the same
- * tenant, each must select a consistent {@code previousHash}. The
- * service uses the latest existing event's hash (via
- * {@code findLatestByTenantId}) and falls back to a fixed genesis
- * value if no prior event exists. Concurrent inserts may produce
- * events with the same {@code previousHash} — this is acceptable
- * because the chain is verified by recomputing hashes in order, not
- * by requiring a strict linear chain.</p>
+ * <p>The chain is linear: each event's {@code previousHash} equals the
+ * preceding event's {@code eventHash}, and {@code sequenceNumber}
+ * increments by exactly 1. The {@link AuditService} acquires a
+ * pessimistic lock on {@code audit_chain_heads} before computing the
+ * next sequence, preventing concurrent forks.</p>
  */
 @Service
 public class AuditHashChainService {
 
-    private static final Logger log = LoggerFactory.getLogger(AuditHashChainService.class);
     private static final String HASH_ALGORITHM = "SHA-256";
     private static final String GENESIS_HASH = "0000000000000000000000000000000000000000000000000000000000000000";
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-
-    /**
-     * Returns the genesis hash used for the first event in a tenant's
-     * chain (when no prior event exists).
-     */
     public String getGenesisHash() {
         return GENESIS_HASH;
     }
@@ -62,20 +43,24 @@ public class AuditHashChainService {
     /**
      * Computes the event hash for the given event payload.
      *
-     * @param event the event (must have tenantId, occurredAt, and all
-     *              business fields populated; eventHash may be null)
+     * @param event the event (must have tenantId, occurredAt, sequenceNumber,
+     *              and all business fields populated)
      * @param previousHash the hash of the preceding event in the same
      *                     tenant's chain, or {@link #getGenesisHash()}
-     *                     if this is the first event
+     *                     if this is the first event (sequence 1)
      * @return the 64-character hex SHA-256 hash
      */
     public String computeEventHash(AuditEvent event, String previousHash) {
         try {
             String canonical = canonicalize(event);
+            // Truncate occurredAt to microsecond precision (PostgreSQL
+            // TIMESTAMP WITH TIME ZONE stores microseconds, not nanoseconds).
+            String occurredAtMicros = truncateToMicros(event.getOccurredAt());
             String input = canonical
                     + "|previousHash=" + nullToEmpty(previousHash)
                     + "|tenantId=" + nullToEmpty(event.getTenantId() == null ? null : event.getTenantId().toString())
-                    + "|occurredAt=" + nullToEmpty(event.getOccurredAt() == null ? null : event.getOccurredAt().toString());
+                    + "|occurredAt=" + occurredAtMicros
+                    + "|sequenceNumber=" + (event.getSequenceNumber() == null ? "" : event.getSequenceNumber().toString());
             MessageDigest digest = MessageDigest.getInstance(HASH_ALGORITHM);
             byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(hash);
@@ -85,21 +70,25 @@ public class AuditHashChainService {
     }
 
     /**
-     * Verifies that the stored {@code eventHash} matches a recomputed
-     * hash. Used by {@link AuditIntegrityVerificationService}.
+     * Truncates an Instant to microsecond precision (PostgreSQL's
+     * TIMESTAMP WITH TIME ZONE resolution).
+     */
+    String truncateToMicros(Instant instant) {
+        if (instant == null) return "";
+        // Truncate nanoseconds to microseconds (drop the last 3 digits)
+        long micros = instant.getEpochSecond() * 1_000_000 + instant.getNano() / 1_000;
+        return Long.toString(micros);
+    }
+
+    /**
+     * Verifies that the stored {@code eventHash} matches a recomputed hash.
      */
     public boolean verifyEventHash(AuditEvent event, String expectedPreviousHash) {
         String recomputed = computeEventHash(event, expectedPreviousHash);
         return recomputed.equals(event.getEventHash());
     }
 
-    /**
-     * Produces a deterministic JSON serialization of the event's
-     * business fields. The serialization is sorted by key to ensure
-     * determinism regardless of field insertion order.
-     */
     private String canonicalize(AuditEvent event) {
-        // Use a sorted-key JSON tree for determinism.
         StringBuilder sb = new StringBuilder();
         appendSorted(sb, "action", event.getAction());
         appendSorted(sb, "actorDisplayName", event.getActorDisplayName());
@@ -130,7 +119,6 @@ public class AuditHashChainService {
     }
 
     private void appendSorted(StringBuilder sb, String key, String value) {
-        // Keys are appended in alphabetical order by construction.
         sb.append(key).append("=").append(nullToEmpty(value)).append(";");
     }
 

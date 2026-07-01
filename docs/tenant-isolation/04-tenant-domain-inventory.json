@@ -377,6 +377,13 @@
       "classification": "TENANT_OWNED",
       "tenantColumn": "tenant_id",
       "description": "Persistent idempotency state for sensitive commands"
+    },
+    {
+      "entity": "AuditChainHead",
+      "table": "audit_chain_heads",
+      "classification": "TENANT_OWNED",
+      "tenantColumn": "tenant_id",
+      "description": "Chain head pointer for tenant audit hash chain"
     }
   ],
   "summary": {

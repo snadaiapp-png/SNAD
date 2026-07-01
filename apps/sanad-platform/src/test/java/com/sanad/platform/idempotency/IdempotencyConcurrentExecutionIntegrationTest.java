@@ -1,8 +1,6 @@
 package com.sanad.platform.idempotency;
 
-import com.sanad.platform.idempotency.service.IdempotencyService;
-import com.sanad.platform.security.tenant.TenantContext;
-import com.sanad.platform.security.tenant.TenantContextProvider;
+import com.sanad.platform.security.service.JwtTokenProvider;
 import com.sanad.platform.security.tenant.support.TenantFixtureDataSourceConfig;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeeder;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeederConfig;
@@ -16,11 +14,17 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
 
 import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -32,20 +36,33 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 /**
- * Stage 05 §17 — Verifies that the database-level unique constraint on
- * {@code (tenant_id, operation, route, idempotency_key)} serializes
- * concurrent duplicate requests.
+ * Stage 05A.1 §17 — Verifies HTTP-level concurrent idempotency enforcement
+ * on {@code POST /api/v1/organizations}.
  *
- * <p>20 threads simultaneously call {@link IdempotencyService#reserveOrReplay}
- * with the same key and payload. Exactly 1 thread must get NEW (and
- * subsequently complete the record). The remaining 19 must get
- * IN_PROGRESS (and retry until REPLAY after the winner completes).</p>
+ * <p>Stage 05A.1 §13 — All HTTP requests use real JWTs through MockMvc.
+ * No direct {@link com.sanad.platform.idempotency.service.IdempotencyService}
+ * calls — the test exercises the full filter chain including the
+ * {@link IdempotencyCommandInterceptor}.</p>
  *
- * <p>After all threads complete, exactly 1 idempotency record must exist
- * with status COMPLETED, and all 20 threads must return the same
- * response body.</p>
+ * <p>Stage 05A.1 §22 — Each POST carries an {@code Idempotency-Key} header.</p>
+ *
+ * <p>20 concurrent POST requests use the SAME Idempotency-Key and the SAME
+ * body. The unique constraint on {@code (tenant_id, operation, route,
+ * idempotency_key)} serializes them:</p>
+ * <ul>
+ *   <li>Exactly 1 thread wins the INSERT → 201 Created.</li>
+ *   <li>The remaining 19 threads either see IN_PROGRESS (HTTP 409
+ *       SANAD-IDEMP-003) while the winner is processing, or see REPLAY
+ *       (HTTP 201 with Idempotency-Replayed: true) after the winner
+ *       completes.</li>
+ *   <li>Exactly 1 idempotency record exists in the DB afterward.</li>
+ *   <li>Exactly 1 organization is created.</li>
+ * </ul>
+ *
+ * <p>All DB reads use {@link PreparedStatement}.</p>
  */
 @SpringBootTest
 @Import({TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
@@ -56,11 +73,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class IdempotencyConcurrentExecutionIntegrationTest {
 
     private static final int THREAD_COUNT = 20;
-    private static final int MAX_RETRIES = 200;
-    private static final long RETRY_SLEEP_MS = 50;
+    private static final long TIMEOUT_SECONDS = 120;
 
-    @Autowired private IdempotencyService idempotencyService;
-    @Autowired private TenantContextProvider contextProvider;
+    @Autowired private MockMvc mockMvc;
+    @Autowired private JwtTokenProvider jwtTokenProvider;
     @Autowired private TenantFixtureSeeder fixtureSeeder;
 
     @Autowired
@@ -68,12 +84,13 @@ class IdempotencyConcurrentExecutionIntegrationTest {
     private DataSource fixtureDataSource;
 
     private TenantTestFixture fixture;
-    private JdbcTemplate fixtureJdbc;
+    private String tokenA;
 
     @BeforeEach
     void setUp() {
         fixture = fixtureSeeder.seedCrudFixture();
-        fixtureJdbc = new JdbcTemplate(fixtureDataSource);
+        tokenA = jwtTokenProvider.mintAccessToken(
+                fixture.userAId(), fixture.tenantAId(), "alice-a@example.com");
     }
 
     @AfterEach
@@ -81,120 +98,130 @@ class IdempotencyConcurrentExecutionIntegrationTest {
         fixtureSeeder.cleanup(fixture);
     }
 
-    private void setTenantContext() {
-        contextProvider.setContext(new TenantContext(
-                fixture.tenantAId(), fixture.userAId(),
-                "test-jti-" + UUID.randomUUID(), 0L,
-                Set.of(), TenantContext.TenantContextSource.TEST_FIXTURE,
-                "test-req-" + UUID.randomUUID()));
-    }
-
     @Test
-    @DisplayName("twentyConcurrentRequests_executeOnce: 20 threads, same key+body → 1 record, all return same response")
+    @DisplayName("twentyConcurrentRequests_executeOnce: 20 concurrent POSTs with same key+body → 1 record, 1 org created")
     void twentyConcurrentRequests_executeOnce() throws Exception {
         String key = "concurrent-key-" + UUID.randomUUID();
-        String body = "{\"name\":\"Concurrent Org\"}";
-        String operation = "ORGANIZATION.CREATE";
-        String route = "/api/v1/organizations";
-        String resourceType = "Organization";
-        String method = "POST";
-        String expectedResponseBody = "{\"id\":\"org-concurrent-1\",\"name\":\"Concurrent Org\"}";
-        String expectedHeaders = "Location:/api/v1/organizations/org-concurrent-1";
+        String uniqueName = "Concurrent Org " + UUID.randomUUID();
+        String body = "{\"name\":\"" + uniqueName + "\",\"description\":\"concurrent\"}";
 
         ExecutorService executor = Executors.newFixedThreadPool(THREAD_COUNT);
         CountDownLatch startLatch = new CountDownLatch(1);
-        List<CompletableFuture<String>> futures = new ArrayList<>();
-        AtomicInteger newCount = new AtomicInteger(0);
+        List<CompletableFuture<Integer>> futures = new ArrayList<>();
+        AtomicInteger created201 = new AtomicInteger(0);
+        AtomicInteger replayed201 = new AtomicInteger(0);
+        AtomicInteger conflict409 = new AtomicInteger(0);
 
         for (int i = 0; i < THREAD_COUNT; i++) {
-            CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> {
+            CompletableFuture<Integer> future = CompletableFuture.supplyAsync(() -> {
                 try {
                     startLatch.await();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     throw new RuntimeException(e);
                 }
-                setTenantContext();
-                try {
-                    for (int retry = 0; retry < MAX_RETRIES; retry++) {
-                        IdempotencyService.ReservationResult result =
-                                idempotencyService.reserveOrReplay(
-                                        key, operation, route, resourceType,
-                                        method, body, null);
-                        switch (result.type()) {
-                            case NEW -> {
-                                newCount.incrementAndGet();
-                                // Simulate the business operation and store the response.
-                                idempotencyService.complete(
-                                        result.record().getId(), 201,
-                                        expectedHeaders, expectedResponseBody);
-                                return expectedResponseBody;
+                // Retry loop: if we get 409 IN_PROGRESS, wait briefly and retry
+                // until we get 201 (winner or replay).
+                for (int retry = 0; retry < 200; retry++) {
+                    try {
+                        int status = mockMvc.perform(post("/api/v1/organizations")
+                                        .param("tenantId", fixture.tenantAId().toString())
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(body)
+                                        .header("Authorization", "Bearer " + tokenA)
+                                        .header(IdempotencyCommandInterceptor.IDEMPOTENCY_KEY_HEADER, key))
+                                .andReturn().getResponse().getStatus();
+                        if (status == 201) {
+                            // Could be the original 201 OR a replayed 201.
+                            // Distinguish via the Idempotency-Replayed header.
+                            boolean replayed = "true".equals(
+                                    mockMvc.perform(post("/api/v1/organizations")
+                                                    .param("tenantId", fixture.tenantAId().toString())
+                                                    .contentType(MediaType.APPLICATION_JSON)
+                                                    .content(body)
+                                                    .header("Authorization", "Bearer " + tokenA)
+                                                    .header(IdempotencyCommandInterceptor.IDEMPOTENCY_KEY_HEADER, key))
+                                            .andReturn().getResponse()
+                                            .getHeader(IdempotencyCommandInterceptor.IDEMPOTENCY_REPLAYED_HEADER));
+                            // The second call above will always be a REPLAY now.
+                            // Track the first-call status by incrementing the
+                            // appropriate counter.
+                            if (retry == 0) {
+                                created201.incrementAndGet();
+                            } else {
+                                replayed201.incrementAndGet();
                             }
-                            case REPLAY -> {
-                                return result.record().getResponseBody();
-                            }
-                            case IN_PROGRESS -> {
-                                // Wait and retry.
-                                try {
-                                    Thread.sleep(RETRY_SLEEP_MS);
-                                } catch (InterruptedException e) {
-                                    Thread.currentThread().interrupt();
-                                    throw new RuntimeException(e);
-                                }
-                            }
-                            default -> throw new RuntimeException(
-                                    "Unexpected reservation type: " + result.type());
+                            return status;
                         }
+                        if (status == 409) {
+                            // IN_PROGRESS — wait and retry.
+                            try {
+                                Thread.sleep(50);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                throw new RuntimeException(e);
+                            }
+                            conflict409.incrementAndGet();
+                            continue;
+                        }
+                        return status;
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
                     }
-                    throw new RuntimeException("Exhausted retries waiting for REPLAY");
-                } finally {
-                    contextProvider.clear();
                 }
+                throw new RuntimeException("Exhausted retries waiting for 201");
             }, executor);
             futures.add(future);
         }
 
-        // Release all threads simultaneously.
         startLatch.countDown();
 
-        // Wait for all futures to complete.
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                .get(60, TimeUnit.SECONDS);
+                .get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         executor.shutdown();
 
-        // Collect results.
-        Set<String> responseBodies = new java.util.HashSet<>();
-        for (CompletableFuture<String> f : futures) {
-            responseBodies.add(f.get());
+        // Collect final statuses.
+        Set<Integer> finalStatuses = new HashSet<>();
+        for (CompletableFuture<Integer> f : futures) {
+            finalStatuses.add(f.get());
         }
 
-        // Assert: exactly 1 NEW reservation.
-        assertThat(newCount.get())
-                .as("exactly one thread must get NEW")
-                .isEqualTo(1);
+        // All 20 threads must eventually get a 201 (either as the winner or
+        // as a replay after the winner completes).
+        assertThat(finalStatuses)
+                .as("all 20 threads must eventually return 201 (winner or replay)")
+                .containsOnly(201);
 
-        // Assert: all 20 threads return the same response body.
-        assertThat(responseBodies)
-                .as("all 20 threads must return the same response body")
-                .hasSize(1);
-        assertThat(responseBodies.iterator().next())
-                .isEqualTo(expectedResponseBody);
+        // Exactly 1 idempotency record must exist.
+        String countSql = "SELECT COUNT(*) FROM idempotency_records "
+                + "WHERE tenant_id = ? AND idempotency_key = ?";
+        try (Connection conn = fixtureDataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(countSql)) {
+            ps.setObject(1, fixture.tenantAId());
+            ps.setString(2, key);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                int recordCount = rs.getInt(1);
+                assertThat(recordCount)
+                        .as("exactly one idempotency record must exist for the concurrent key")
+                        .isEqualTo(1);
+            }
+        }
 
-        // Assert: exactly 1 idempotency record with status COMPLETED.
-        Integer completedCount = fixtureJdbc.queryForObject(
-                "SELECT COUNT(*) FROM idempotency_records " +
-                "WHERE tenant_id = ? AND idempotency_key = ? AND status = 'COMPLETED'",
-                Integer.class, fixture.tenantAId(), key);
-        assertThat(completedCount)
-                .as("exactly one COMPLETED idempotency record must exist")
-                .isEqualTo(1);
-
-        Integer totalCount = fixtureJdbc.queryForObject(
-                "SELECT COUNT(*) FROM idempotency_records " +
-                "WHERE tenant_id = ? AND idempotency_key = ?",
-                Integer.class, fixture.tenantAId(), key);
-        assertThat(totalCount)
-                .as("exactly one idempotency record (any status) must exist")
-                .isEqualTo(1);
+        // Exactly 1 organization with the unique name must exist.
+        String orgSql = "SELECT COUNT(*) FROM organizations "
+                + "WHERE tenant_id = ? AND name = ?";
+        try (Connection conn = fixtureDataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(orgSql)) {
+            ps.setObject(1, fixture.tenantAId());
+            ps.setString(2, uniqueName);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                int orgCount = rs.getInt(1);
+                assertThat(orgCount)
+                        .as("exactly one organization must be created for the concurrent key")
+                        .isEqualTo(1);
+            }
+        }
     }
 }

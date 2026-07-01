@@ -36,7 +36,8 @@
     "refresh_tokens",
     "password_reset_tokens",
     "audit_events",
-    "idempotency_records"
+    "idempotency_records",
+    "audit_chain_heads"
   ],
   "rlsProtectedCount": 8,
   "globalExceptionCount": 2,

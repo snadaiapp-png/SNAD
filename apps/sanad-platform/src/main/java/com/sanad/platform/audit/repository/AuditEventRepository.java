@@ -76,12 +76,12 @@ public interface AuditEventRepository extends JpaRepository<AuditEvent, UUID> {
     Optional<AuditEvent> findLatestByTenantId(@Param("tenantId") UUID tenantId);
 
     /**
-     * Stage 05 §11 — Returns all audit events for a tenant ordered for
-     * hash-chain verification (oldest first). Used by
+     * Stage 05A.1 §9 — Returns all audit events for a tenant ordered by
+     * sequence_number ASC for hash-chain verification. Used by
      * {@link com.sanad.platform.audit.service.AuditIntegrityVerificationService}.
      */
     @Query(value = "SELECT * FROM audit_events WHERE tenant_id = :tenantId "
-            + "ORDER BY occurred_at ASC, id ASC",
+            + "ORDER BY sequence_number ASC",
             nativeQuery = true)
     List<AuditEvent> findAllByTenantIdOrderedForVerification(@Param("tenantId") UUID tenantId);
 }

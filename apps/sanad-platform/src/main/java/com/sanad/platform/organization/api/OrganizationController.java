@@ -1,6 +1,7 @@
 package com.sanad.platform.organization.api;
 
 import com.sanad.platform.organization.dto.CreateOrganizationRequest;
+import com.sanad.platform.idempotency.IdempotentOperation;
 import com.sanad.platform.shared.api.ApiErrorResponse;
 import com.sanad.platform.shared.api.PageRequestParams;
 import com.sanad.platform.shared.api.PageResponse;
@@ -136,6 +137,7 @@ public class OrganizationController {
             )
     })
     @RequireCapability("ORGANIZATION.CREATE")
+    @IdempotentOperation(operation = "ORGANIZATION.CREATE", resourceType = "Organization")
     @PostMapping
     public ResponseEntity<OrganizationResponse> createOrganization(
             @Valid @RequestBody CreateOrganizationRequest request) {

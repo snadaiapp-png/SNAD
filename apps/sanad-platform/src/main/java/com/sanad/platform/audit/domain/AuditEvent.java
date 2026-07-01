@@ -191,6 +191,10 @@ public class AuditEvent {
     @Column(name = "schema_version", nullable = false, updatable = false)
     private Integer schemaVersion = 1;
 
+    // Stage 05A.1 §8 — Linear hash chain sequence number
+    @Column(name = "sequence_number", nullable = false, updatable = false)
+    private Long sequenceNumber;
+
     // === Timestamps ===
 
     @NotNull
@@ -253,6 +257,7 @@ public class AuditEvent {
     public String getEventHash() { return eventHash; }
     public String getHashAlgorithm() { return hashAlgorithm; }
     public Integer getSchemaVersion() { return schemaVersion; }
+    public Long getSequenceNumber() { return sequenceNumber; }
     public Instant getOccurredAt() { return occurredAt; }
     public Instant getRecordedAt() { return recordedAt; }
     public Instant getCreatedAt() { return createdAt; }
@@ -291,6 +296,7 @@ public class AuditEvent {
     public void setEventHash(String eventHash) { this.eventHash = eventHash; }
     public void setHashAlgorithm(String hashAlgorithm) { this.hashAlgorithm = hashAlgorithm; }
     public void setSchemaVersion(Integer schemaVersion) { this.schemaVersion = schemaVersion; }
+    public void setSequenceNumber(Long sequenceNumber) { this.sequenceNumber = sequenceNumber; }
     public void setOccurredAt(Instant occurredAt) { this.occurredAt = occurredAt; }
     public void setRecordedAt(Instant recordedAt) { this.recordedAt = recordedAt; }
 

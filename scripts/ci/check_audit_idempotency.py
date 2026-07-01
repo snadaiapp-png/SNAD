@@ -38,13 +38,16 @@ WORKFLOW_FILE = REPO_ROOT / ".github" / "workflows" / "quality-gate.yml"
 
 MANDATORY_TESTS = [
     "AuditEventPersistenceIntegrationTest",
+    "AuditDatabasePrivilegeIntegrationTest",
     "AuditAppendOnlyIntegrationTest",
     "AuditRlsIntegrationTest",
     "AuditRedactionIntegrationTest",
     "AuditHashChainIntegrationTest",
+    "AuditHashChainConcurrencyIntegrationTest",
     "AuditTransactionBoundaryIntegrationTest",
     "AuditDeniedRequestIntegrationTest",
     "AuditActorAttributionIntegrationTest",
+    "IdempotencyHttpContractIntegrationTest",
     "IdempotencySameRequestReplayIntegrationTest",
     "IdempotencyPayloadMismatchIntegrationTest",
     "IdempotencyConcurrentExecutionIntegrationTest",
@@ -216,6 +219,100 @@ def check_tests_in_workflow() -> list[str]:
     return issues
 
 
+def check_no_fixture_bypass_in_triggers() -> list[str]:
+    """Stage 05A.1 §3 — No fixture-role bypass in the LATEST audit trigger functions.
+
+    Migrations are immutable, so V25 (which introduced the bypass) cannot be
+    modified. V26 must recreate the functions WITHOUT the bypass. This check
+    reads all migrations in order and determines the final state of each
+    function body (between $$ markers) — if the last definition contains a
+    bypass, it fails.
+    """
+    import re
+    issues = []
+    # Track the latest function BODY (between $$ markers) for each function.
+    latest_function_bodies = {}
+    for mig in sorted(MIGRATION_PG_DIR.glob("V*.sql")):
+        content = mig.read_text()
+        for func_name in ["block_audit_events_update", "block_audit_events_delete", "block_audit_events_truncate"]:
+            if func_name in content and "FUNCTION" in content.upper():
+                # Extract the function body between $$ ... $$
+                pattern = rf"CREATE OR REPLACE FUNCTION {func_name}\(\).*?AS \$\$ (.*?) \$\$"
+                match = re.search(pattern, content, re.DOTALL)
+                if match:
+                    latest_function_bodies[func_name] = (mig.name, match.group(1))
+                else:
+                    # Fallback: try without the exact spacing
+                    pattern2 = rf"FUNCTION {func_name}\(\).*?\$\$(.*?)\$\$"
+                    match2 = re.search(pattern2, content, re.DOTALL)
+                    if match2:
+                        latest_function_bodies[func_name] = (mig.name, match2.group(1))
+
+    for func_name, (mig_name, body) in latest_function_bodies.items():
+        for pattern in ["sanad_fixture_ci", "current_user", "fixture", "test role", "CI role"]:
+            if pattern.lower() in body.lower():
+                issues.append(f"{mig_name}: trigger function '{func_name}' body contains forbidden pattern '{pattern}'")
+    return issues
+
+
+def check_audit_service_fail_closed() -> list[str]:
+    """Stage 05A.1 §12 — AuditService must throw on missing context, not return null."""
+    svc = SRC_MAIN / "com" / "sanad" / "platform" / "audit" / "service" / "AuditService.java"
+    if not svc.exists():
+        return [f"Audit service not found: {svc}"]
+    content = svc.read_text()
+    issues = []
+    if "AuditContextMissingException" not in content:
+        issues.append("AuditService does not throw AuditContextMissingException on missing context")
+    # Check that the doRecord method does not contain 'return null'.
+    # We extract just the doRecord method body by finding its start and end
+    # (the next method declaration at the same or lesser indentation).
+    import re
+    match = re.search(r'(private AuditEvent doRecord\(.*?\{)', content, re.DOTALL)
+    if match:
+        start = match.end()
+        # Find the next method declaration after doRecord
+        rest = content[start:]
+        next_method = re.search(r'\n    (private|public|protected) ', rest)
+        if next_method:
+            dorecord_body = rest[:next_method.start()]
+        else:
+            dorecord_body = rest
+        if "return null;" in dorecord_body:
+            issues.append("AuditService.doRecord contains 'return null' — must throw AuditContextMissingException")
+    return issues
+
+
+def check_hash_chain_has_sequence() -> list[str]:
+    """Stage 05A.1 §8 — AuditEvent must have sequence_number for linear chain."""
+    entity = SRC_MAIN / "com" / "sanad" / "platform" / "audit" / "domain" / "AuditEvent.java"
+    if not entity.exists():
+        return [f"Audit entity not found: {entity}"]
+    content = entity.read_text()
+    if "sequenceNumber" not in content or "sequence_number" not in content:
+        return ["AuditEvent entity is missing sequence_number field"]
+    # Check for chain heads table
+    chain_head = SRC_MAIN / "com" / "sanad" / "platform" / "audit" / "domain" / "AuditChainHead.java"
+    if not chain_head.exists():
+        return ["AuditChainHead entity not found — required for linear hash chain"]
+    return []
+
+
+def check_runtime_role_no_update_delete_on_audit() -> list[str]:
+    """Stage 05A.1 §5 — Runtime role must not have UPDATE/DELETE on audit_events."""
+    # Check V26 or later migration for REVOKE + GRANT SELECT, INSERT only
+    issues = []
+    found_revoke = False
+    for mig in sorted(MIGRATION_PG_DIR.glob("V*.sql")):
+        content = mig.read_text()
+        if "REVOKE ALL ON audit_events" in content and "GRANT SELECT, INSERT" in content:
+            found_revoke = True
+            break
+    if not found_revoke:
+        issues.append("No migration found that revokes UPDATE/DELETE from sanad_runtime_app on audit_events")
+    return issues
+
+
 def main() -> int:
     checks = [
         ("Audit entity has tenantId", check_audit_entity_has_tenant_id),
@@ -229,6 +326,10 @@ def main() -> int:
         ("Migrations exist", check_migrations_exist),
         ("Mandatory tests exist", check_mandatory_tests_exist),
         ("Tests in workflow", check_tests_in_workflow),
+        ("No fixture bypass in triggers", check_no_fixture_bypass_in_triggers),
+        ("Audit service fail-closed", check_audit_service_fail_closed),
+        ("Hash chain has sequence_number", check_hash_chain_has_sequence),
+        ("Runtime role no UPDATE/DELETE on audit", check_runtime_role_no_update_delete_on_audit),
     ]
 
     all_issues = []

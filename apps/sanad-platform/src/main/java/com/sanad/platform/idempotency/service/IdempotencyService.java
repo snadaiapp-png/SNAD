@@ -1,5 +1,6 @@
 package com.sanad.platform.idempotency.service;
 
+import com.sanad.platform.audit.service.AuditRedactionService;
 import com.sanad.platform.idempotency.domain.IdempotencyRecord;
 import com.sanad.platform.idempotency.domain.IdempotencyStatus;
 import com.sanad.platform.idempotency.repository.IdempotencyRecordRepository;
@@ -53,13 +54,16 @@ public class IdempotencyService {
     private final IdempotencyRecordRepository repository;
     private final RequestFingerprintService fingerprintService;
     private final TenantContextProvider contextProvider;
+    private final AuditRedactionService redactionService;
 
     public IdempotencyService(IdempotencyRecordRepository repository,
                                RequestFingerprintService fingerprintService,
-                               TenantContextProvider contextProvider) {
+                               TenantContextProvider contextProvider,
+                               AuditRedactionService redactionService) {
         this.repository = repository;
         this.fingerprintService = fingerprintService;
         this.contextProvider = contextProvider;
+        this.redactionService = redactionService;
     }
 
     public enum ReservationType { NEW, REPLAY, CONFLICT, IN_PROGRESS, EXPIRED }
@@ -178,7 +182,8 @@ public class IdempotencyService {
         rec.setStatus(IdempotencyStatus.COMPLETED);
         rec.setResponseStatus(responseStatus);
         rec.setResponseHeaders(sanitizeHeaders(responseHeaders));
-        rec.setResponseBody(responseBody);
+        // Stage 05A.1 §24 — Redact sensitive fields from response body before persistence.
+        rec.setResponseBody(redactionService.redactJson(responseBody));
         rec.setCompletedAt(Instant.now());
         repository.save(rec);
     }
@@ -195,7 +200,8 @@ public class IdempotencyService {
         }
         rec.setStatus(retryable ? IdempotencyStatus.FAILED_RETRYABLE : IdempotencyStatus.FAILED_FINAL);
         rec.setErrorCode(errorCode);
-        rec.setErrorDetail(errorDetail);
+        // Stage 05A.1 §24 — Redact sensitive data from error detail.
+        rec.setErrorDetail(redactErrorDetail(errorDetail));
         rec.setCompletedAt(Instant.now());
         repository.save(rec);
     }
@@ -224,5 +230,13 @@ public class IdempotencyService {
             sb.append(line).append("\n");
         }
         return sb.toString().trim();
+    }
+
+    private String redactErrorDetail(String detail) {
+        if (detail == null) return null;
+        if (detail.trim().startsWith("{")) {
+            return redactionService.redactJson(detail);
+        }
+        return detail;
     }
 }

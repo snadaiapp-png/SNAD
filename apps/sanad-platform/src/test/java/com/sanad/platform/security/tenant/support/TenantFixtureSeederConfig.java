@@ -243,8 +243,12 @@ public class TenantFixtureSeederConfig {
 
             // Cleanup Tenant A (includes all security fixture users)
             if (fixture.tenantAId() != null) {
+                // Stage 05A.1: audit_events is append-only (triggers block DELETE).
+                // Use try-catch for audit_events and audit_chain_heads cleanup —
+                // the ephemeral CI database is destroyed after the job anyway.
+                try { jdbc.update("DELETE FROM audit_chain_heads WHERE tenant_id = ?", fixture.tenantAId()); } catch (Exception e) { /* append-only table — skip */ }
+                try { jdbc.update("DELETE FROM audit_events WHERE tenant_id = ?", fixture.tenantAId()); } catch (Exception e) { /* append-only table — skip */ }
                 jdbc.update("DELETE FROM idempotency_records WHERE tenant_id = ?", fixture.tenantAId());
-                jdbc.update("DELETE FROM audit_events WHERE tenant_id = ?", fixture.tenantAId());
                 jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", fixture.tenantAId());
                 jdbc.update("DELETE FROM organization_memberships WHERE tenant_id = ?", fixture.tenantAId());
                 jdbc.update("DELETE FROM organizations WHERE tenant_id = ?", fixture.tenantAId());
@@ -256,8 +260,9 @@ public class TenantFixtureSeederConfig {
             }
             // Cleanup Tenant B
             if (fixture.tenantBId() != null) {
+                try { jdbc.update("DELETE FROM audit_chain_heads WHERE tenant_id = ?", fixture.tenantBId()); } catch (Exception e) { /* append-only table — skip */ }
+                try { jdbc.update("DELETE FROM audit_events WHERE tenant_id = ?", fixture.tenantBId()); } catch (Exception e) { /* append-only table — skip */ }
                 jdbc.update("DELETE FROM idempotency_records WHERE tenant_id = ?", fixture.tenantBId());
-                jdbc.update("DELETE FROM audit_events WHERE tenant_id = ?", fixture.tenantBId());
                 jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", fixture.tenantBId());
                 jdbc.update("DELETE FROM organization_memberships WHERE tenant_id = ?", fixture.tenantBId());
                 jdbc.update("DELETE FROM organizations WHERE tenant_id = ?", fixture.tenantBId());

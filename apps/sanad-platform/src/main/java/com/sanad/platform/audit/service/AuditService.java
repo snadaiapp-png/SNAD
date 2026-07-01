@@ -1,8 +1,10 @@
 package com.sanad.platform.audit.service;
 
 import com.sanad.platform.audit.domain.AuditActorType;
+import com.sanad.platform.audit.domain.AuditChainHead;
 import com.sanad.platform.audit.domain.AuditEvent;
 import com.sanad.platform.audit.domain.AuditOutcome;
+import com.sanad.platform.audit.repository.AuditChainHeadRepository;
 import com.sanad.platform.audit.repository.AuditEventRepository;
 import com.sanad.platform.security.tenant.TenantContext;
 import com.sanad.platform.security.tenant.TenantContextProvider;
@@ -19,36 +21,23 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Stage 05 §8-9 — Central service for recording audit events.
+ * Stage 05A.1 — Central service for recording audit events.
  *
- * <p>Every auditable action calls {@link #record(AuditContext)} to
- * persist exactly one {@link AuditEvent}. The service:</p>
- * <ol>
- *   <li>Extracts actor, session, and request identity from verified
- *       sources (TenantContext, Authentication, MDC, HTTP request) —
- *       NEVER from client-supplied request body fields.</li>
- *   <li>Redacts sensitive fields from before/after/metadata JSON.</li>
- *   <li>Computes the event hash (linked to the previous event in the
- *       same tenant's chain).</li>
- *   <li>Persists the event via INSERT (UPDATE/DELETE blocked by DB
- *       triggers).</li>
- * </ol>
- *
- * <h2>Transaction boundary</h2>
- * <p>For successful business mutations, {@link #record(AuditContext)}
- * runs in {@code Propagation.REQUIRED} — it joins the caller's
- * transaction. If the business mutation commits, the audit event
- * commits. If the business mutation rolls back, the audit event
- * rolls back too (no false success audit).</p>
- *
- * <p>For denied requests (authentication/authorization failures),
- * there is no business transaction to join. The caller should use
- * {@link #recordDenied(AuditContext)} which runs in
- * {@code Propagation.REQUIRES_NEW} to ensure the denial audit is
- * persisted even if the caller's transaction is marked for rollback.</p>
+ * <p>Key changes from Stage 05:</p>
+ * <ul>
+ *   <li>Fail-closed: throws {@link AuditContextMissingException} if a
+ *       tenant-scoped action has no verified tenant context. Never
+ *       returns null or logs a warning and continues.</li>
+ *   <li>Actor trust boundary: when a verified TenantContext exists,
+ *       actor identity is taken from it ONLY. Caller-supplied
+ *       {@code ctx.actorUserId()} is ignored.</li>
+ *   <li>Linear hash chain: uses {@code audit_chain_heads} with
+ *       {@code SELECT FOR UPDATE} to serialize chain extension.</li>
+ * </ul>
  */
 @Service
 public class AuditService {
@@ -56,34 +45,28 @@ public class AuditService {
     private static final Logger log = LoggerFactory.getLogger(AuditService.class);
 
     private final AuditEventRepository repository;
+    private final AuditChainHeadRepository chainHeadRepository;
     private final AuditRedactionService redactionService;
     private final AuditHashChainService hashChainService;
     private final TenantContextProvider contextProvider;
 
     public AuditService(AuditEventRepository repository,
+                         AuditChainHeadRepository chainHeadRepository,
                          AuditRedactionService redactionService,
                          AuditHashChainService hashChainService,
                          TenantContextProvider contextProvider) {
         this.repository = repository;
+        this.chainHeadRepository = chainHeadRepository;
         this.redactionService = redactionService;
         this.hashChainService = hashChainService;
         this.contextProvider = contextProvider;
     }
 
-    /**
-     * Records an audit event in the caller's transaction.
-     * Use for successful business mutations.
-     */
     @Transactional(propagation = Propagation.REQUIRED)
     public AuditEvent record(AuditContext ctx) {
         return doRecord(ctx, false);
     }
 
-    /**
-     * Records an audit event in a new independent transaction.
-     * Use for denied requests where the caller's transaction may
-     * roll back.
-     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public AuditEvent recordDenied(AuditContext ctx) {
         return doRecord(ctx, true);
@@ -92,16 +75,25 @@ public class AuditService {
     private AuditEvent doRecord(AuditContext ctx, boolean denied) {
         TenantContext tenantContext = contextProvider.currentContext().orElse(null);
         UUID tenantId = tenantContext != null ? tenantContext.tenantId() : ctx.tenantId();
+
+        // Stage 05A.1 §12 — Fail-closed: no silent skip.
         if (tenantId == null) {
-            log.warn("Audit record skipped: no tenant context and no explicit tenantId. action={}", ctx.action());
-            return null;
+            throw new AuditContextMissingException(
+                    "Cannot record audit event: no verified tenant context for action=" + ctx.action());
         }
 
         Instant now = Instant.now();
         String requestId = MDC.get(RequestIdFilter.MDC_KEY);
-        String previousHash = repository.findLatestByTenantId(tenantId)
-                .map(AuditEvent::getEventHash)
-                .orElse(hashChainService.getGenesisHash());
+
+        // Stage 05A.1 §8 — Lock chain head for linear extension.
+        AuditChainHead chainHead = chainHeadRepository.findByTenantIdForUpdate(tenantId)
+                .orElseGet(() -> {
+                    AuditChainHead newHead = new AuditChainHead(tenantId);
+                    return chainHeadRepository.save(newHead);
+                });
+
+        long nextSequence = (chainHead.getHeadSequence() == null ? 0 : chainHead.getHeadSequence()) + 1;
+        String previousHash = chainHead.getHeadHash() != null ? chainHead.getHeadHash() : hashChainService.getGenesisHash();
 
         AuditEvent event = new AuditEvent(
                 tenantId,
@@ -114,16 +106,18 @@ public class AuditService {
                 now,
                 "" // placeholder — set below
         );
+        event.setSequenceNumber(nextSequence);
         event.setPreviousHash(previousHash);
 
-        // Actor attribution
+        // Stage 05A.1 §13 — Actor attribution trust boundary.
+        // When verified TenantContext exists, take identity from it ONLY.
         if (tenantContext != null) {
             event.setActorUserId(tenantContext.userId());
             event.setSessionId(tenantContext.sessionId());
+            // Ignore ctx.actorUserId() — verified context wins.
         }
-        if (ctx.actorUserId() != null) {
-            event.setActorUserId(ctx.actorUserId());
-        }
+        // actorService and actorDisplayName are service-level metadata,
+        // safe to take from ctx (they describe the calling service, not the user).
         event.setActorService(ctx.actorService());
         event.setActorDisplayName(ctx.actorDisplayName());
 
@@ -163,7 +157,14 @@ public class AuditService {
         String eventHash = hashChainService.computeEventHash(event, previousHash);
         event.setEventHash(eventHash);
 
-        return repository.save(event);
+        AuditEvent saved = repository.save(event);
+
+        // Update chain head
+        chainHead.setHeadSequence(nextSequence);
+        chainHead.setHeadHash(eventHash);
+        chainHeadRepository.save(chainHead);
+
+        return saved;
     }
 
     private HttpServletRequest currentServletRequest() {

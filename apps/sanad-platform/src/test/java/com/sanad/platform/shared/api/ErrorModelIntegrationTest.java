@@ -1,6 +1,7 @@
 package com.sanad.platform.shared.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.UUID;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
