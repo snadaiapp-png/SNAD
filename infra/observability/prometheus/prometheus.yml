@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    system: snad
+    environment: local
+
+scrape_configs:
+  - job_name: snad-backend
+    metrics_path: /actuator/prometheus
+    scheme: http
+    static_configs:
+      - targets:
+          - backend:8080
+        labels:
+          service: sanad-platform
