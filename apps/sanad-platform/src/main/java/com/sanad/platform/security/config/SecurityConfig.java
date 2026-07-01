@@ -89,16 +89,28 @@ public class SecurityConfig {
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, exception) -> {
                             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                            response.setContentType("application/json");
+                            response.setContentType("application/problem+json");
                             response.getWriter().write(
-                                    "{\"status\":401,\"error\":\"Unauthorized\",\"message\":\"Authentication required\"}"
+                                    "{\"type\":\"https://snad.ai/errors/auth-001\","
+                                    + "\"title\":\"Unauthorized\","
+                                    + "\"status\":401,"
+                                    + "\"detail\":\"Authentication is required\","
+                                    + "\"instance\":\"" + request.getRequestURI() + "\","
+                                    + "\"code\":\"SANAD-AUTH-001\","
+                                    + "\"timestamp\":\"" + java.time.Instant.now() + "\"}"
                             );
                         })
                         .accessDeniedHandler((request, response, exception) -> {
                             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                            response.setContentType("application/json");
+                            response.setContentType("application/problem+json");
                             response.getWriter().write(
-                                    "{\"status\":403,\"error\":\"Forbidden\",\"message\":\"Access denied\"}"
+                                    "{\"type\":\"https://snad.ai/errors/sec-001\","
+                                    + "\"title\":\"Access denied\","
+                                    + "\"status\":403,"
+                                    + "\"detail\":\"Access is denied for this resource\","
+                                    + "\"instance\":\"" + request.getRequestURI() + "\","
+                                    + "\"code\":\"SANAD-SEC-001\","
+                                    + "\"timestamp\":\"" + java.time.Instant.now() + "\"}"
                             );
                         })
                 )

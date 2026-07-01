@@ -165,13 +165,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String error,
             String message
     ) throws IOException {
+        String errorCode = (status == 401) ? "SANAD-AUTH-001" : "SANAD-TEN-002";
         response.setStatus(status);
-        response.setContentType("application/json");
+        response.setContentType("application/problem+json");
+        response.setHeader("X-Request-Id", java.util.UUID.randomUUID().toString());
         response.getWriter().write(
-                "{\"timestamp\":\"" + java.time.Instant.now() + "\","
-                        + "\"status\":" + status + ","
-                        + "\"error\":\"" + error + "\","
-                        + "\"message\":\"" + message + "\","
-                        + "\"path\":\"" + request.getRequestURI() + "\"}");
+                "{\"type\":\"https://snad.ai/errors/" + errorCode.toLowerCase().replace("sanad-", "")
+                + "\",\"title\":\"" + error + "\","
+                + "\"status\":" + status + ","
+                + "\"detail\":\"" + message + "\","
+                + "\"instance\":\"" + request.getRequestURI() + "\","
+                + "\"code\":\"" + errorCode + "\","
+                + "\"requestId\":\"" + response.getHeader("X-Request-Id") + "\","
+                + "\"timestamp\":\"" + java.time.Instant.now() + "\"}");
     }
 }
