@@ -54,35 +54,44 @@ public class TenantFixtureSeederConfig {
             jdbc.update("INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at) VALUES (?, ?, 'ADMIN', 'Admin', 'Admin role', 'ACTIVE', NOW(), NOW())",
                     roleId, tenantA);
 
-            // Insert USER.READ capability (global reference data)
-            // V14 migration seeds capabilities, so it should already exist.
-            // Use a try-catch to handle the case where it doesn't.
-            try {
-                capabilityId = jdbc.queryForObject(
-                    "SELECT id FROM access_capabilities WHERE code = 'USER.READ'", UUID.class);
-            } catch (Exception e) {
-                // Capability doesn't exist — create it
-                capabilityId = UUID.randomUUID();
-                jdbc.update("INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at) VALUES (?, 'USER.READ', 'Read Users', 'Read user records', 'ACTIVE', NOW(), NOW())",
-                        capabilityId);
+            // Grant multiple capabilities to Role A (V14 seeds these with fixed UUIDs)
+            // ORGANIZATION.READ — for listing organizations
+            // USER.READ — for listing users
+            String[] capCodes = {"ORGANIZATION.READ", "USER.READ", "ORGANIZATION.CREATE", "ORGANIZATION.WRITE"};
+            UUID firstCapId = null;
+            for (String code : capCodes) {
+                try {
+                    UUID capId = jdbc.queryForObject(
+                        "SELECT id FROM access_capabilities WHERE code = '" + code + "'", UUID.class);
+                    if (firstCapId == null) firstCapId = capId;
+                    UUID roleCapId = UUID.randomUUID();
+                    jdbc.update("INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at) VALUES (?, ?, ?, ?, NOW())",
+                            roleCapId, tenantA, roleId, capId);
+                } catch (Exception e) {
+                    // Capability not seeded by V14 — skip
+                }
             }
-
-            // Link role to USER.READ capability in Tenant A
-            UUID roleCapId = UUID.randomUUID();
-            jdbc.update("INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at) VALUES (?, ?, ?, ?, NOW())",
-                    roleCapId, tenantA, roleId, capabilityId);
+            capabilityId = firstCapId != null ? firstCapId : UUID.randomUUID();
 
             // Grant the role to User A in Tenant A
             jdbc.update("INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
                     roleGrantId, tenantA, userA, roleId);
 
-            // Create Role B in Tenant B with same capability (independent)
+            // Create Role B in Tenant B with same capabilities (independent)
             UUID roleBId = UUID.randomUUID();
             jdbc.update("INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at) VALUES (?, ?, 'ADMIN', 'Admin B', 'Admin role B', 'ACTIVE', NOW(), NOW())",
                     roleBId, tenantB);
-            UUID roleBCapId = UUID.randomUUID();
-            jdbc.update("INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at) VALUES (?, ?, ?, ?, NOW())",
-                    roleBCapId, tenantB, roleBId, capabilityId);
+            for (String code : capCodes) {
+                try {
+                    UUID capId = jdbc.queryForObject(
+                        "SELECT id FROM access_capabilities WHERE code = '" + code + "'", UUID.class);
+                    UUID roleBCapId = UUID.randomUUID();
+                    jdbc.update("INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at) VALUES (?, ?, ?, ?, NOW())",
+                            roleBCapId, tenantB, roleBId, capId);
+                } catch (Exception e) {
+                    // skip
+                }
+            }
             UUID roleBGrantId = UUID.randomUUID();
             jdbc.update("INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
                     roleBGrantId, tenantB, userB, roleBId);

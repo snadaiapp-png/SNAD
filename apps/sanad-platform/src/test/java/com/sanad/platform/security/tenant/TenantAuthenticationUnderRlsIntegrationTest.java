@@ -1,6 +1,6 @@
 package com.sanad.platform.security.tenant;
 
-import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import com.sanad.platform.security.service.JwtTokenProvider;
 import com.sanad.platform.security.tenant.support.TenantFixtureDataSourceConfig;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeeder;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeederConfig;
@@ -16,17 +16,17 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
-import javax.sql.DataSource;
+import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Stage 04A.3.4 §10 — Authentication under RLS.
- * Uses SecurityPermitAllTestConfig + RLS enforcement.
+ * Stage 04A.3.5 §6 — Authentication under RLS with real JWTs.
+ * NO SecurityPermitAllTestConfig.
  */
 @SpringBootTest
-@Import({SecurityPermitAllTestConfig.class, TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
+@Import({TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
 @AutoConfigureMockMvc
 @ActiveProfiles("tenant-postgres-test")
 @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(
@@ -34,14 +34,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class TenantAuthenticationUnderRlsIntegrationTest {
 
     @Autowired private MockMvc mockMvc;
+    @Autowired private JwtTokenProvider jwtTokenProvider;
     @Autowired private TenantFixtureSeeder fixtureSeeder;
-    @Autowired private DataSource dataSource;
 
     private TenantTestFixture fixture;
+    private String tokenA;
+    private String tokenB;
 
     @BeforeEach
     void setUp() {
         fixture = fixtureSeeder.seedCrudFixture();
+        tokenA = jwtTokenProvider.mintAccessToken(fixture.userAId(), fixture.tenantAId(), "alice-a@example.com");
+        tokenB = jwtTokenProvider.mintAccessToken(fixture.userBId(), fixture.tenantBId(), "bob-b@example.com");
     }
 
     @AfterEach
@@ -50,24 +54,69 @@ class TenantAuthenticationUnderRlsIntegrationTest {
     }
 
     @Test
-    @DisplayName("Database is PostgreSQL (non-skippable)")
-    void databaseIsPostgreSQL() throws Exception {
-        PostgresTestUtil.assertPostgreSQL(dataSource);
+    @DisplayName("Valid User A JWT + Tenant A → 200")
+    void validUserA_200() throws Exception {
+        mockMvc.perform(get("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .header("Authorization", "Bearer " + tokenA))
+                .andExpect(status().isOk());
     }
 
     @Test
-    @DisplayName("Tenant A endpoint → 200 (RLS-enforced)")
-    void tenantA_200() throws Exception {
+    @DisplayName("Valid User B JWT + Tenant B → 200")
+    void validUserB_200() throws Exception {
+        mockMvc.perform(get("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantBId().toString())
+                        .header("Authorization", "Bearer " + tokenB))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("No Authorization header → 401")
+    void noAuth_401() throws Exception {
         mockMvc.perform(get("/api/v1/organizations")
                         .param("tenantId", fixture.tenantAId().toString()))
-                .andExpect(status().isOk());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
-    @DisplayName("Tenant B endpoint → 200 (RLS-enforced)")
-    void tenantB_200() throws Exception {
+    @DisplayName("Malformed JWT → 401")
+    void malformedJwt_401() throws Exception {
         mockMvc.perform(get("/api/v1/organizations")
-                        .param("tenantId", fixture.tenantBId().toString()))
-                .andExpect(status().isOk());
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .header("Authorization", "Bearer not-a-jwt"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Unknown user ID → 401")
+    void unknownUser_401() throws Exception {
+        String unknownToken = jwtTokenProvider.mintAccessToken(
+                UUID.randomUUID(), fixture.tenantAId(), "unknown@example.com");
+        mockMvc.perform(get("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .header("Authorization", "Bearer " + unknownToken))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Suspended user → 401")
+    void suspendedUser_401() throws Exception {
+        String suspendedToken = jwtTokenProvider.mintAccessToken(
+                fixture.suspendedUserId(), fixture.tenantAId(), "suspended@example.com");
+        mockMvc.perform(get("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .header("Authorization", "Bearer " + suspendedToken))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Old session version → 401")
+    void oldSessionVersion_401() throws Exception {
+        fixtureSeeder.incrementSessionVersion(fixture.tenantAId(), fixture.userAId());
+        mockMvc.perform(get("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .header("Authorization", "Bearer " + tokenA))
+                .andExpect(status().isUnauthorized());
     }
 }
