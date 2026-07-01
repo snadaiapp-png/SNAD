@@ -40,8 +40,13 @@ jobs:
       - name: Install validators
         run: python3 -m pip install --quiet cfn-lint pyyaml pytest boto3
 
-      - name: Validate CloudFormation
-        run: cfn-lint infra/aws/nvd-platform-bootstrap.yml
+      - name: Render and validate CloudFormation
+        run: |
+          mkdir -p artifacts/aws-bootstrap-ci
+          python3 scripts/aws/render_nvd_platform_template.py \
+            --source infra/aws/nvd-platform-bootstrap.yml \
+            --output artifacts/aws-bootstrap-ci/nvd-platform-bootstrap.rendered.yml
+          cfn-lint artifacts/aws-bootstrap-ci/nvd-platform-bootstrap.rendered.yml
 
       - name: Validate shell automation
         run: |
@@ -49,7 +54,9 @@ jobs:
           bash -n scripts/aws/configure_github_nvd_platform.sh
 
       - name: Validate Python automation
-        run: python3 -m py_compile scripts/aws/publish_verified_nvd_bundle_to_s3.py
+        run: |
+          python3 -m py_compile scripts/aws/render_nvd_platform_template.py
+          python3 -m py_compile scripts/aws/publish_verified_nvd_bundle_to_s3.py
 
       - name: Validate workflow YAML
         run: |
