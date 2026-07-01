@@ -1,8 +1,0 @@
-{
-  "purpose": "refresh-stale-nvd-feed",
-  "issue": 197,
-  "requested_by": "project-owner",
-  "requested_at": "2026-07-01T16:55:00Z",
-  "one_time": true,
-  "reason": "The latest verified Dependency-Check snapshot exceeded the 48-hour freshness policy."
-}
