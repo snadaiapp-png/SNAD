@@ -13,4 +13,6 @@ paths = [
 ]
 regexes = [
   '''ci-(fixture-only|runtime-only|migration-only|postgres-admin-only|smoke-only|flyway-only|security-only|tenant-isolation-only)''',
+  '''ci-smoke-only-jwt-secret-not-for-production''',
+  '''ci-only-non-production-key-1234567890''',
 ]
