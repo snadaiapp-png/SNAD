@@ -1,26 +1,13 @@
-# ============================================================
-# SANAD — NVD Snapshot Integrity (Read-Only Verification)
-# ============================================================
-# EXEC-PROMPT-010R12E Section 13 — downloads the latest verified
-# snapshot from storage and independently verifies it on a
-# GitHub-hosted runner. This proves the snapshot is consumable
-# without the publisher's self-hosted environment.
-#
-# This workflow never touches NVD_API_KEY and never calls the NVD API.
-# ============================================================
-
 name: NVD Snapshot Integrity
 
 on:
   workflow_dispatch:
   schedule:
-    # Daily at 02:43 UTC — after the 02:17 publisher run.
     - cron: '43 2 * * *'
 
 permissions:
   contents: read
   actions: read
-  # id-token: write is required for OIDC-based storage auth.
   id-token: write
 
 concurrency:
@@ -28,14 +15,14 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DEPENDENCY_CHECK_VERSION: "12.1.0"
-  PYTHONUNBUFFERED: "1"
+  DEPENDENCY_CHECK_VERSION: '12.1.0'
+  MAX_AGE_HOURS: '48'
 
 jobs:
   verify:
     name: Verify Latest Snapshot
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -53,144 +40,125 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Verify storage backend configured
+      - name: Install dependencies
         shell: bash
         run: |
-          BACKEND="${{ vars.NVD_SNAPSHOT_BACKEND }}"
-          if [ -z "$BACKEND" ]; then
-            echo "::error::Repository variable NVD_SNAPSHOT_BACKEND is not set."
-            echo "Cannot verify snapshots without a configured storage backend."
-            exit 1
-          fi
-          echo "Storage backend: $BACKEND"
+          set -euo pipefail
+          python3 -m pip install --quiet pytest pyyaml boto3
+          command -v gh >/dev/null
+          command -v aws >/dev/null
 
-      - name: Install Python dependencies
+      - name: Select and validate storage backend
+        id: backend
         shell: bash
-        run: |
-          python3 -m pip install --quiet pytest pyyaml
-          if [ "${{ vars.NVD_SNAPSHOT_BACKEND }}" = "s3" ]; then
-            python3 -m pip install --quiet boto3
-          fi
-
-      - name: Resolve latest verified snapshot
-        id: resolve
-        shell: bash
-        run: |
-          set -uo pipefail
-          python3 - <<'PY'
-          import json, os, sys
-          sys.path.insert(0, '.')
-          from scripts.security.nvd_snapshot_store import get_backend, SnapshotNotFoundError
-          backend = get_backend(os.environ.get('NVD_SNAPSHOT_BACKEND', ''))
-          latest = backend.resolve_latest_verified()
-          if not latest:
-              print("::error::No verified snapshot available. Run NVD Snapshot Publisher first.")
-              raise SystemExit(1)
-          print(f"snapshot_id={latest['snapshot_id']}")
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"snapshot_id={latest['snapshot_id']}\n")
-              f.write(f"archive_sha256={latest.get('archive_sha256','')}\n")
-              f.write(f"created_at={latest.get('created_at','')}\n")
-          PY
         env:
-          NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
+          CONFIGURED_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
+          ROLE_ARN: ${{ vars.NVD_SNAPSHOT_READER_ROLE }}
+          REGION: ${{ vars.NVD_SNAPSHOT_REGION }}
+          BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
+        run: |
+          set -euo pipefail
+          BACKEND="${CONFIGURED_BACKEND:-github-releases}"
+          case "$BACKEND" in
+            github-releases|s3) ;;
+            *) echo "::error::Unsupported backend: $BACKEND"; exit 1 ;;
+          esac
+          if [[ "$BACKEND" == 's3' ]]; then
+            [[ -n "$ROLE_ARN" && -n "$REGION" && -n "$BUCKET" ]] || {
+              echo '::error::S3 snapshot variables are incomplete'
+              exit 1
+            }
+          fi
+          echo "name=$BACKEND" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials via OIDC
-        if: vars.NVD_SNAPSHOT_BACKEND == 's3'
+        if: steps.backend.outputs.name == 's3'
         uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b
         with:
           role-to-assume: ${{ vars.NVD_SNAPSHOT_READER_ROLE }}
           aws-region: ${{ vars.NVD_SNAPSHOT_REGION }}
+          audience: sts.amazonaws.com
           role-session-name: snad-nvd-integrity-${{ github.run_id }}
+          role-duration-seconds: 1800
+          mask-aws-account-id: true
+          unset-current-credentials: true
 
-      - name: Download snapshot bundle
-        id: download
+      - name: Verify AWS identity and bucket controls
+        if: steps.backend.outputs.name == 's3'
         shell: bash
+        env:
+          EXPECTED_ACCOUNT: ${{ vars.NVD_SNAPSHOT_AWS_ACCOUNT_ID }}
+          BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
         run: |
           set -euo pipefail
-          mkdir -p "${{ runner.temp }}/snapshot-download"
-          python3 - <<'PY'
-          import os, sys, pathlib, json
-          sys.path.insert(0, '.')
-          from scripts.security.nvd_snapshot_store import get_backend
-          backend = get_backend(os.environ['NVD_SNAPSHOT_BACKEND'])
-          latest = backend.resolve_latest_verified()
-          if not latest:
-              print("::error::No verified snapshot available")
-              raise SystemExit(1)
-          bundle = backend.download_snapshot_bundle(
-              latest,
-              pathlib.Path(os.environ['RUNNER_TEMP']) / 'snapshot-download',
-          )
-          print(f"archive_path={bundle['archive_path']}")
-          print(f"manifest_path={bundle['manifest_path']}")
-          print(f"checksums_path={bundle['checksums_path']}")
-          print(f"snapshot_id={bundle['snapshot_id']}")
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"archive_path={bundle['archive_path']}\n")
-              f.write(f"manifest_path={bundle['manifest_path']}\n")
-              f.write(f"checksums_path={bundle['checksums_path']}\n")
-              f.write(f"snapshot_id={bundle['snapshot_id']}\n")
-          PY
+          IDENTITY=$(aws sts get-caller-identity --output json)
+          ACCOUNT=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["Account"])' <<< "$IDENTITY")
+          [[ -z "$EXPECTED_ACCOUNT" || "$ACCOUNT" == "$EXPECTED_ACCOUNT" ]] || {
+            echo '::error::Unexpected AWS account assumed through OIDC'
+            exit 1
+          }
+          VERSIONING=$(aws s3api get-bucket-versioning --bucket "$BUCKET" --query Status --output text)
+          [[ "$VERSIONING" == 'Enabled' ]] || { echo '::error::Bucket versioning is not enabled'; exit 1; }
+          aws s3api get-bucket-encryption --bucket "$BUCKET" >/dev/null
+
+      - name: Download latest verified snapshot
+        id: download
+        shell: bash
         env:
-          NVD_SNAPSHOT_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NVD_SNAPSHOT_BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
           NVD_SNAPSHOT_PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
           NVD_SNAPSHOT_REGION: ${{ vars.NVD_SNAPSHOT_REGION }}
           NVD_SNAPSHOT_ENDPOINT: ${{ vars.NVD_SNAPSHOT_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          DEST="${{ runner.temp }}/snapshot-download"
+          python3 scripts/security/download_nvd_snapshot.py \
+            --backend '${{ steps.backend.outputs.name }}' \
+            --destination "$DEST" \
+            --repository '${{ github.repository }}' \
+            --max-age-hours "$MAX_AGE_HOURS" \
+            --github-output "$GITHUB_OUTPUT"
 
-      - name: Verify snapshot (v2 contract)
+      - name: Verify snapshot contract, checksums, age, and offline usability
         id: verify
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           python3 scripts/security/verify_nvd_snapshot.py \
-            --archive "${{ steps.download.outputs.archive_path }}" \
-            --manifest "${{ steps.download.outputs.manifest_path }}" \
-            --checksums "${{ steps.download.outputs.checksums_path }}" \
-            --expected-snapshot-id "${{ steps.download.outputs.snapshot_id }}" \
-            --expected-dc-version "${{ env.DEPENDENCY_CHECK_VERSION }}" \
+            --archive '${{ steps.download.outputs.archive_path }}' \
+            --manifest '${{ steps.download.outputs.manifest_path }}' \
+            --checksums '${{ steps.download.outputs.checksums_path }}' \
+            --expected-snapshot-id '${{ steps.download.outputs.snapshot_id }}' \
+            --expected-dc-version "$DEPENDENCY_CHECK_VERSION" \
             --min-size 52428800 \
-            --max-age-hours 48 \
+            --max-age-hours "$MAX_AGE_HOURS" \
             --run-smoke \
-            --smoke-extract-dir "${{ runner.temp }}/smoke-extract"
+            --smoke-extract-dir '${{ runner.temp }}/smoke-extract' \
+            | tee '${{ runner.temp }}/snapshot-verification.log'
+          grep -q '^verification_result=valid$' '${{ runner.temp }}/snapshot-verification.log'
 
-      - name: Upload evidence
+      - name: Upload integrity evidence
+        id: upload
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: nvd-snapshot-integrity-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/snapshot-download/
-            ${{ runner.temp }}/smoke-extract/offline-smoke-test.log
+            ${{ runner.temp }}/snapshot-download/download-evidence.json
+            ${{ runner.temp }}/snapshot-download/bundle/manifest.json
+            ${{ runner.temp }}/snapshot-download/bundle/SHA256SUMS
+            ${{ runner.temp }}/snapshot-verification.log
+            ${{ runner.temp }}/offline-smoke-test.log
           if-no-files-found: warn
           retention-days: 14
-
-      - name: Write summary
-        if: always()
-        shell: bash
-        run: |
-          {
-            echo "## NVD Snapshot Integrity — R12E"
-            echo ""
-            echo "**Run ID:** ${{ github.run_id }}"
-            echo "**Snapshot ID:** \`${{ steps.resolve.outputs.snapshot_id || '<none>' }}\`"
-            echo "**Snapshot created:** ${{ steps.resolve.outputs.created_at }}"
-            echo "**Archive SHA-256:** \`${{ steps.resolve.outputs.archive_sha256 }}\`"
-            echo ""
-            echo "Read-only verification on GitHub-hosted runner. No NVD_API_KEY used."
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Final enforcement
         if: always()
         shell: bash
         run: |
-          if [ -z "${{ steps.resolve.outputs.snapshot_id }}" ]; then
-            echo "::error::No snapshot resolved"
-            exit 1
-          fi
-          if [ ! -f "${{ steps.download.outputs.archive_path }}" ]; then
-            echo "::error::Archive not downloaded"
-            exit 1
-          fi
-          echo "Snapshot integrity verification PASSED."
+          set -euo pipefail
+          [[ '${{ steps.download.outcome }}' == 'success' ]] || { echo '::error::Snapshot download failed'; exit 1; }
+          [[ '${{ steps.verify.outcome }}' == 'success' ]] || { echo '::error::Snapshot verification failed'; exit 1; }
+          [[ '${{ steps.upload.outcome }}' == 'success' ]] || { echo '::error::Integrity evidence upload failed'; exit 1; }
+          echo 'Snapshot integrity verification PASSED.'
