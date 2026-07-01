@@ -43,26 +43,42 @@ public class AuditHashChainService {
     /**
      * Computes the event hash for the given event payload.
      *
-     * @param event the event (must have tenantId, occurredAt, sequenceNumber,
-     *              and all business fields populated)
+     * <p>Stage 05A.2 §6 — Supports schema versioning:
+     * <ul>
+     *   <li>schemaVersion = 1 (legacy): hash does NOT include sequence_number.
+     *       Used for events created before V27 migration.</li>
+     *   <li>schemaVersion = 2 (current): hash includes sequence_number for
+     *       linear chain enforcement.</li>
+     * </ul>
+     *
+     * @param event the event (must have tenantId, occurredAt, and all
+     *              business fields populated; sequenceNumber required for v2)
      * @param previousHash the hash of the preceding event in the same
      *                     tenant's chain, or {@link #getGenesisHash()}
-     *                     if this is the first event (sequence 1)
+     *                     if this is the first event
      * @return the 64-character hex SHA-256 hash
      */
     public String computeEventHash(AuditEvent event, String previousHash) {
         try {
             String canonical = canonicalize(event);
-            // Truncate occurredAt to microsecond precision (PostgreSQL
-            // TIMESTAMP WITH TIME ZONE stores microseconds, not nanoseconds).
             String occurredAtMicros = truncateToMicros(event.getOccurredAt());
-            String input = canonical
-                    + "|previousHash=" + nullToEmpty(previousHash)
-                    + "|tenantId=" + nullToEmpty(event.getTenantId() == null ? null : event.getTenantId().toString())
-                    + "|occurredAt=" + occurredAtMicros
-                    + "|sequenceNumber=" + (event.getSequenceNumber() == null ? "" : event.getSequenceNumber().toString());
+            int schemaVersion = event.getSchemaVersion() != null ? event.getSchemaVersion() : 2;
+
+            StringBuilder input = new StringBuilder(canonical)
+                    .append("|previousHash=").append(nullToEmpty(previousHash))
+                    .append("|tenantId=").append(nullToEmpty(
+                            event.getTenantId() == null ? null : event.getTenantId().toString()))
+                    .append("|occurredAt=").append(occurredAtMicros);
+
+            // Schema v2 includes sequence_number for linear chain enforcement.
+            // Schema v1 (legacy) omits it.
+            if (schemaVersion >= 2) {
+                input.append("|sequenceNumber=")
+                        .append(event.getSequenceNumber() == null ? "" : event.getSequenceNumber().toString());
+            }
+
             MessageDigest digest = MessageDigest.getInstance(HASH_ALGORITHM);
-            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
+            byte[] hash = digest.digest(input.toString().getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(hash);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 not available", e);

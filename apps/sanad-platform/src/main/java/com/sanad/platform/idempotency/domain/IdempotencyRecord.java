@@ -116,6 +116,20 @@ public class IdempotencyRecord {
     @Column(name = "error_detail", length = 1000)
     private String errorDetail;
 
+    // Stage 05A.2 §14 — Processing lease
+    @Size(max = 128)
+    @Column(name = "lease_owner_request_id", length = 128)
+    private String leaseOwnerRequestId;
+
+    @Column(name = "lease_expires_at")
+    private Instant leaseExpiresAt;
+
+    @Column(name = "attempt_count", nullable = false)
+    private Integer attemptCount = 0;
+
+    @Column(name = "last_attempt_at")
+    private Instant lastAttemptAt;
+
     protected IdempotencyRecord() {
     }
 
@@ -151,6 +165,10 @@ public class IdempotencyRecord {
     public String getOwnerRequestId() { return ownerRequestId; }
     public String getErrorCode() { return errorCode; }
     public String getErrorDetail() { return errorDetail; }
+    public String getLeaseOwnerRequestId() { return leaseOwnerRequestId; }
+    public Instant getLeaseExpiresAt() { return leaseExpiresAt; }
+    public Integer getAttemptCount() { return attemptCount; }
+    public Instant getLastAttemptAt() { return lastAttemptAt; }
 
     public void setResourceType(String resourceType) { this.resourceType = resourceType; }
     public void setStatus(IdempotencyStatus status) { this.status = status; }
@@ -164,6 +182,10 @@ public class IdempotencyRecord {
     public void setOwnerRequestId(String ownerRequestId) { this.ownerRequestId = ownerRequestId; }
     public void setErrorCode(String errorCode) { this.errorCode = errorCode; }
     public void setErrorDetail(String errorDetail) { this.errorDetail = errorDetail; }
+    public void setLeaseOwnerRequestId(String leaseOwnerRequestId) { this.leaseOwnerRequestId = leaseOwnerRequestId; }
+    public void setLeaseExpiresAt(Instant leaseExpiresAt) { this.leaseExpiresAt = leaseExpiresAt; }
+    public void setAttemptCount(Integer attemptCount) { this.attemptCount = attemptCount; }
+    public void setLastAttemptAt(Instant lastAttemptAt) { this.lastAttemptAt = lastAttemptAt; }
 
     @Override
     public boolean equals(Object o) {

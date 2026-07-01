@@ -37,6 +37,7 @@ MIGRATION_PG_DIR = REPO_ROOT / "apps" / "sanad-platform" / "src" / "main" / "res
 WORKFLOW_FILE = REPO_ROOT / ".github" / "workflows" / "quality-gate.yml"
 
 MANDATORY_TESTS = [
+    "AuditMigrationUpgradeIntegrationTest",
     "AuditEventPersistenceIntegrationTest",
     "AuditDatabasePrivilegeIntegrationTest",
     "AuditAppendOnlyIntegrationTest",
@@ -44,15 +45,18 @@ MANDATORY_TESTS = [
     "AuditRedactionIntegrationTest",
     "AuditHashChainIntegrationTest",
     "AuditHashChainConcurrencyIntegrationTest",
+    "AuditFirstWriteConcurrencyIntegrationTest",
     "AuditTransactionBoundaryIntegrationTest",
     "AuditDeniedRequestIntegrationTest",
     "AuditActorAttributionIntegrationTest",
     "IdempotencyHttpContractIntegrationTest",
+    "IdempotencyProductionResponseCaptureIntegrationTest",
     "IdempotencySameRequestReplayIntegrationTest",
     "IdempotencyPayloadMismatchIntegrationTest",
     "IdempotencyConcurrentExecutionIntegrationTest",
     "IdempotencyCrossTenantIsolationIntegrationTest",
     "IdempotencyFailureRecoveryIntegrationTest",
+    "IdempotencyProcessingLeaseIntegrationTest",
     "IdempotencyResponseRedactionIntegrationTest",
     "IdempotencyRlsIntegrationTest",
     "IdempotencyExpirationIntegrationTest",
@@ -300,7 +304,6 @@ def check_hash_chain_has_sequence() -> list[str]:
 
 def check_runtime_role_no_update_delete_on_audit() -> list[str]:
     """Stage 05A.1 §5 — Runtime role must not have UPDATE/DELETE on audit_events."""
-    # Check V26 or later migration for REVOKE + GRANT SELECT, INSERT only
     issues = []
     found_revoke = False
     for mig in sorted(MIGRATION_PG_DIR.glob("V*.sql")):
@@ -310,6 +313,71 @@ def check_runtime_role_no_update_delete_on_audit() -> list[str]:
             break
     if not found_revoke:
         issues.append("No migration found that revokes UPDATE/DELETE from sanad_runtime_app on audit_events")
+    return issues
+
+
+def check_tenant_fk_restored() -> list[str]:
+    """Stage 05A.2 §3 — FK constraints on audit/idempotency tenant_id must be restored."""
+    issues = []
+    found_fk = False
+    for mig in sorted(MIGRATION_DIR.glob("V*.sql")) + sorted(MIGRATION_PG_DIR.glob("V*.sql")):
+        content = mig.read_text()
+        if "fk_audit_events_tenant" in content and "FOREIGN KEY" in content.upper() and "REFERENCES tenants" in content:
+            found_fk = True
+            break
+    if not found_fk:
+        issues.append("No migration found that restores FK on audit_events.tenant_id → tenants.id")
+    return issues
+
+
+def check_no_swallowed_cleanup_exceptions() -> list[str]:
+    """Stage 05A.2 §4 — Fixture cleanup must not swallow exceptions."""
+    seeder = SRC_TEST / "com" / "sanad" / "platform" / "security" / "tenant" / "support" / "TenantFixtureSeederConfig.java"
+    if not seeder.exists():
+        return [f"Fixture seeder not found: {seeder}"]
+    content = seeder.read_text()
+    issues = []
+    # Check for try-catch that ignores exceptions during cleanup
+    if "catch (Exception e) {" in content and "/*" in content:
+        issues.append("Fixture cleanup contains swallowed exception handling (try-catch with ignore)")
+    return issues
+
+
+def check_hash_schema_versioning() -> list[str]:
+    """Stage 05A.2 §6 — Hash chain must support schema versioning (v1 and v2)."""
+    svc = SRC_MAIN / "com" / "sanad" / "platform" / "audit" / "service" / "AuditHashChainService.java"
+    if not svc.exists():
+        return [f"Hash chain service not found: {svc}"]
+    content = svc.read_text()
+    issues = []
+    if "schemaVersion" not in content and "schema_version" not in content:
+        issues.append("AuditHashChainService does not support schema versioning")
+    if "sequenceNumber" not in content and "sequence_number" not in content:
+        issues.append("AuditHashChainService does not include sequence_number in v2 hash")
+    return issues
+
+
+def check_atomic_chain_head_init() -> list[str]:
+    """Stage 05A.2 §7 — Chain-head initialization must use atomic INSERT ON CONFLICT."""
+    repo = SRC_MAIN / "com" / "sanad" / "platform" / "audit" / "repository" / "AuditChainHeadRepository.java"
+    if not repo.exists():
+        return [f"Chain head repository not found: {repo}"]
+    content = repo.read_text()
+    issues = []
+    if "ON CONFLICT" not in content or "atomicInit" not in content:
+        issues.append("AuditChainHeadRepository does not use atomic INSERT ON CONFLICT for initialization")
+    return issues
+
+
+def check_idempotency_atomic_reservation() -> list[str]:
+    """Stage 05A.2 §13 — Idempotency reservation must use atomic ON CONFLICT, not save/flush."""
+    repo = SRC_MAIN / "com" / "sanad" / "platform" / "idempotency" / "repository" / "IdempotencyRecordRepository.java"
+    if not repo.exists():
+        return [f"Idempotency repository not found: {repo}"]
+    content = repo.read_text()
+    issues = []
+    if "ON CONFLICT" not in content or "atomicReserve" not in content:
+        issues.append("IdempotencyRecordRepository does not use atomic INSERT ON CONFLICT for reservation")
     return issues
 
 
@@ -330,6 +398,11 @@ def main() -> int:
         ("Audit service fail-closed", check_audit_service_fail_closed),
         ("Hash chain has sequence_number", check_hash_chain_has_sequence),
         ("Runtime role no UPDATE/DELETE on audit", check_runtime_role_no_update_delete_on_audit),
+        ("Tenant FK restored", check_tenant_fk_restored),
+        ("No swallowed cleanup exceptions", check_no_swallowed_cleanup_exceptions),
+        ("Hash schema versioning", check_hash_schema_versioning),
+        ("Atomic chain-head init", check_atomic_chain_head_init),
+        ("Idempotency atomic reservation", check_idempotency_atomic_reservation),
     ]
 
     all_issues = []

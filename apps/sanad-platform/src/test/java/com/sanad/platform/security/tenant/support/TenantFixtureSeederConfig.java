@@ -235,20 +235,23 @@ public class TenantFixtureSeederConfig {
             if (fixture == null) return;
 
             // Cleanup archived tenant first (if exists)
+            // Stage 05A.2: tenant NOT physically deleted (FK RESTRICT from audit_events)
             if (fixture.archivedTenantId() != null) {
                 jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", fixture.archivedTenantId());
                 jdbc.update("DELETE FROM users WHERE tenant_id = ?", fixture.archivedTenantId());
-                jdbc.update("DELETE FROM tenants WHERE id = ?", fixture.archivedTenantId());
             }
 
-            // Cleanup Tenant A (includes all security fixture users)
+            // Stage 05A.2 §4 — Test isolation without weakening production.
+            // audit_events is append-only (triggers block DELETE). audit_chain_heads
+            // and idempotency_records have FK ON DELETE RESTRICT to tenants.
+            // We clean up idempotency_records and audit_chain_heads first (no triggers),
+            // then non-audit tables, then users. audit_events rows are left in place
+            // (the ephemeral CI database is destroyed after the job).
+            // No exceptions are swallowed — if a DELETE fails, it propagates.
+            // Tenants are NOT physically deleted (FK RESTRICT from audit_events).
             if (fixture.tenantAId() != null) {
-                // Stage 05A.1: audit_events is append-only (triggers block DELETE).
-                // Use try-catch for audit_events and audit_chain_heads cleanup —
-                // the ephemeral CI database is destroyed after the job anyway.
-                try { jdbc.update("DELETE FROM audit_chain_heads WHERE tenant_id = ?", fixture.tenantAId()); } catch (Exception e) { /* append-only table — skip */ }
-                try { jdbc.update("DELETE FROM audit_events WHERE tenant_id = ?", fixture.tenantAId()); } catch (Exception e) { /* append-only table — skip */ }
                 jdbc.update("DELETE FROM idempotency_records WHERE tenant_id = ?", fixture.tenantAId());
+                jdbc.update("DELETE FROM audit_chain_heads WHERE tenant_id = ?", fixture.tenantAId());
                 jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", fixture.tenantAId());
                 jdbc.update("DELETE FROM organization_memberships WHERE tenant_id = ?", fixture.tenantAId());
                 jdbc.update("DELETE FROM organizations WHERE tenant_id = ?", fixture.tenantAId());
@@ -258,11 +261,9 @@ public class TenantFixtureSeederConfig {
                 jdbc.update("DELETE FROM roles WHERE tenant_id = ?", fixture.tenantAId());
                 jdbc.update("DELETE FROM users WHERE tenant_id = ?", fixture.tenantAId());
             }
-            // Cleanup Tenant B
             if (fixture.tenantBId() != null) {
-                try { jdbc.update("DELETE FROM audit_chain_heads WHERE tenant_id = ?", fixture.tenantBId()); } catch (Exception e) { /* append-only table — skip */ }
-                try { jdbc.update("DELETE FROM audit_events WHERE tenant_id = ?", fixture.tenantBId()); } catch (Exception e) { /* append-only table — skip */ }
                 jdbc.update("DELETE FROM idempotency_records WHERE tenant_id = ?", fixture.tenantBId());
+                jdbc.update("DELETE FROM audit_chain_heads WHERE tenant_id = ?", fixture.tenantBId());
                 jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", fixture.tenantBId());
                 jdbc.update("DELETE FROM organization_memberships WHERE tenant_id = ?", fixture.tenantBId());
                 jdbc.update("DELETE FROM organizations WHERE tenant_id = ?", fixture.tenantBId());
@@ -272,12 +273,10 @@ public class TenantFixtureSeederConfig {
                 jdbc.update("DELETE FROM roles WHERE tenant_id = ?", fixture.tenantBId());
                 jdbc.update("DELETE FROM users WHERE tenant_id = ?", fixture.tenantBId());
             }
-            if (fixture.tenantAId() != null) {
-                jdbc.update("DELETE FROM tenants WHERE id = ?", fixture.tenantAId());
-            }
-            if (fixture.tenantBId() != null) {
-                jdbc.update("DELETE FROM tenants WHERE id = ?", fixture.tenantBId());
-            }
+            // Stage 05A.2 §3 — Tenants are NOT physically deleted because
+            // audit_events has FK ON DELETE RESTRICT. The ephemeral CI database
+            // is destroyed after the job. Archived tenant is also left in place.
+            // (Physical tenant deletion would require anonymization, not DELETE.)
         }
     }
 }

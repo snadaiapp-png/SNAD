@@ -85,12 +85,24 @@ public class AuditService {
         Instant now = Instant.now();
         String requestId = MDC.get(RequestIdFilter.MDC_KEY);
 
-        // Stage 05A.1 §8 — Lock chain head for linear extension.
+        // Stage 05A.2 §7 — Atomic chain-head initialization (no save-on-empty race).
+        // atomicInit uses PostgreSQL ON CONFLICT syntax. On H2 (local profile),
+        // this will throw — catch and fall back to find-or-create.
+        try {
+            chainHeadRepository.atomicInit(tenantId);
+        } catch (Exception e) {
+            // H2 fallback: check if the row exists, create if not.
+            // This is safe under H2 (single-threaded local dev). Under PostgreSQL
+            // (production), atomicInit succeeds and this branch is never reached.
+            if (!chainHeadRepository.findByTenantId(tenantId).isPresent()) {
+                chainHeadRepository.save(new com.sanad.platform.audit.domain.AuditChainHead(tenantId));
+            }
+        }
+        // Now the row exists — lock it for update.
         AuditChainHead chainHead = chainHeadRepository.findByTenantIdForUpdate(tenantId)
-                .orElseGet(() -> {
-                    AuditChainHead newHead = new AuditChainHead(tenantId);
-                    return chainHeadRepository.save(newHead);
-                });
+                .orElseThrow(() -> new IllegalStateException(
+                        "audit_chain_heads row not found for tenant " + tenantId
+                        + " after atomicInit — this should never happen"));
 
         long nextSequence = (chainHead.getHeadSequence() == null ? 0 : chainHead.getHeadSequence()) + 1;
         String previousHash = chainHead.getHeadHash() != null ? chainHead.getHeadHash() : hashChainService.getGenesisHash();

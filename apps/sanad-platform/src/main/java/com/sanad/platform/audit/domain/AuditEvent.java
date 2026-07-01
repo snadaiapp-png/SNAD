@@ -189,7 +189,7 @@ public class AuditEvent {
     private String hashAlgorithm = "SHA-256";
 
     @Column(name = "schema_version", nullable = false, updatable = false)
-    private Integer schemaVersion = 1;
+    private Integer schemaVersion = 2;
 
     // Stage 05A.1 §8 — Linear hash chain sequence number
     @Column(name = "sequence_number", nullable = false, updatable = false)

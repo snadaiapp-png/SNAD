@@ -10,7 +10,6 @@ import com.sanad.platform.shared.api.RequestIdFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -98,9 +97,49 @@ public class IdempotencyService {
         String fingerprint = fingerprintService.compute(method, route, body, queryString, tenantId, operation);
         Instant now = Instant.now();
         Instant expiresAt = now.plus(DEFAULT_TTL);
+        Instant leaseExpiresAt = now.plus(Duration.ofMinutes(5));
         String requestId = MDC.get(RequestIdFilter.MDC_KEY);
 
-        // Check for an existing record.
+        // Stage 05A.2 §13 — Atomic reservation using INSERT ON CONFLICT DO NOTHING.
+        // This eliminates the save/flush/exception-recovery pattern.
+        // On H2 (local profile), ON CONFLICT is not supported — fall back to
+        // find-or-insert. Under PostgreSQL (production/CI), atomicReserve succeeds.
+        UUID newId = UUID.randomUUID();
+        Optional<UUID> insertedId;
+        try {
+            insertedId = repository.atomicReserve(
+                    newId, tenantId, idempotencyKey, operation, route, resourceType,
+                    fingerprint, expiresAt, requestId, leaseExpiresAt);
+        } catch (Exception e) {
+            // H2 fallback: check existing, insert if not found.
+            Optional<IdempotencyRecord> existing = repository
+                    .findByTenantOperationRouteKey(tenantId, operation, route, idempotencyKey);
+            if (existing.isPresent()) {
+                insertedId = Optional.empty();
+            } else {
+                IdempotencyRecord newRec = new IdempotencyRecord(
+                        tenantId, idempotencyKey, operation, route, fingerprint,
+                        IdempotencyStatus.PROCESSING, expiresAt);
+                newRec.setResourceType(resourceType);
+                newRec.setLockedAt(now);
+                newRec.setProcessingStartedAt(now);
+                newRec.setOwnerRequestId(requestId);
+                newRec.setLeaseOwnerRequestId(requestId);
+                newRec.setLeaseExpiresAt(leaseExpiresAt);
+                newRec.setAttemptCount(1);
+                newRec.setLastAttemptAt(now);
+                repository.save(newRec);
+                insertedId = Optional.of(newRec.getId());
+            }
+        }
+
+        if (insertedId.isPresent()) {
+            // We won the insert — this is a NEW reservation.
+            IdempotencyRecord rec = repository.findById(newId).orElseThrow();
+            return new ReservationResult(ReservationType.NEW, rec, "New reservation created");
+        }
+
+        // The row already exists — re-read in this fresh transaction.
         Optional<IdempotencyRecord> existing = repository
                 .findByTenantOperationRouteKey(tenantId, operation, route, idempotencyKey);
 
@@ -123,17 +162,28 @@ public class IdempotencyService {
             }
             // Still processing → tell the client to wait.
             if (rec.getStatus() == IdempotencyStatus.PROCESSING) {
+                // Stage 05A.2 §14 — Check if the lease has expired; if so, attempt takeover.
+                if (rec.getLeaseExpiresAt() != null && rec.getLeaseExpiresAt().isBefore(now)) {
+                    Optional<UUID> takeoverId = repository.atomicTakeoverLease(rec.getId(), requestId, leaseExpiresAt);
+                    if (takeoverId.isPresent()) {
+                        IdempotencyRecord taken = repository.findById(rec.getId()).orElseThrow();
+                        return new ReservationResult(ReservationType.NEW, taken,
+                                "Lease takeover — re-executing after expired processing lease");
+                    }
+                }
                 return new ReservationResult(ReservationType.IN_PROGRESS, rec,
                         "Request is still processing — retry later");
             }
-            // Failed retryable → allow re-execution.
+            // Failed retryable → attempt atomic takeover.
             if (rec.getStatus() == IdempotencyStatus.FAILED_RETRYABLE) {
-                rec.setStatus(IdempotencyStatus.PROCESSING);
-                rec.setProcessingStartedAt(now);
-                rec.setOwnerRequestId(requestId);
-                repository.save(rec);
-                return new ReservationResult(ReservationType.NEW, rec,
-                        "Re-executing after retryable failure");
+                Optional<UUID> takeoverId = repository.atomicTakeoverLease(rec.getId(), requestId, leaseExpiresAt);
+                if (takeoverId.isPresent()) {
+                    IdempotencyRecord taken = repository.findById(rec.getId()).orElseThrow();
+                    return new ReservationResult(ReservationType.NEW, taken,
+                            "Re-executing after retryable failure");
+                }
+                return new ReservationResult(ReservationType.IN_PROGRESS, rec,
+                        "Concurrent retry detected — retry later");
             }
             // Failed final → reject.
             if (rec.getStatus() == IdempotencyStatus.FAILED_FINAL) {
@@ -142,30 +192,10 @@ public class IdempotencyService {
             }
         }
 
-        // No existing record → INSERT. Concurrent inserts collide on the
-        // unique constraint; the loser gets IN_PROGRESS.
-        IdempotencyRecord newRec = new IdempotencyRecord(
-                tenantId, idempotencyKey, operation, route, fingerprint,
-                IdempotencyStatus.PROCESSING, expiresAt);
-        newRec.setResourceType(resourceType);
-        newRec.setLockedAt(now);
-        newRec.setProcessingStartedAt(now);
-        newRec.setOwnerRequestId(requestId);
-        try {
-            repository.save(newRec);
-            repository.flush();
-            return new ReservationResult(ReservationType.NEW, newRec,
-                    "New reservation created");
-        } catch (DataIntegrityViolationException e) {
-            log.info("Idempotency concurrent insert detected: tenant={} key={} operation={}",
-                    tenantId, idempotencyKey, operation);
-            // Re-read the winning record.
-            IdempotencyRecord winner = repository
-                    .findByTenantOperationRouteKey(tenantId, operation, route, idempotencyKey)
-                    .orElse(null);
-            return new ReservationResult(ReservationType.IN_PROGRESS, winner,
-                    "Concurrent request detected — retry later");
-        }
+        // Should not reach here — atomicReserve either inserts or returns empty,
+        // and the existing-record branch above handles all statuses.
+        return new ReservationResult(ReservationType.IN_PROGRESS, null,
+                "Unexpected state — retry later");
     }
 
     /**
