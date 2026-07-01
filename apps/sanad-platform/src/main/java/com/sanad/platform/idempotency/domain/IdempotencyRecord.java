@@ -130,6 +130,10 @@ public class IdempotencyRecord {
     @Column(name = "last_attempt_at")
     private Instant lastAttemptAt;
 
+    // Stage 05A.2.1 §6 — Lease fencing token
+    @Column(name = "lease_version", nullable = false)
+    private Long leaseVersion = 0L;
+
     protected IdempotencyRecord() {
     }
 
@@ -169,6 +173,7 @@ public class IdempotencyRecord {
     public Instant getLeaseExpiresAt() { return leaseExpiresAt; }
     public Integer getAttemptCount() { return attemptCount; }
     public Instant getLastAttemptAt() { return lastAttemptAt; }
+    public Long getLeaseVersion() { return leaseVersion; }
 
     public void setResourceType(String resourceType) { this.resourceType = resourceType; }
     public void setStatus(IdempotencyStatus status) { this.status = status; }
@@ -186,6 +191,7 @@ public class IdempotencyRecord {
     public void setLeaseExpiresAt(Instant leaseExpiresAt) { this.leaseExpiresAt = leaseExpiresAt; }
     public void setAttemptCount(Integer attemptCount) { this.attemptCount = attemptCount; }
     public void setLastAttemptAt(Instant lastAttemptAt) { this.lastAttemptAt = lastAttemptAt; }
+    public void setLeaseVersion(Long leaseVersion) { this.leaseVersion = leaseVersion; }
 
     @Override
     public boolean equals(Object o) {

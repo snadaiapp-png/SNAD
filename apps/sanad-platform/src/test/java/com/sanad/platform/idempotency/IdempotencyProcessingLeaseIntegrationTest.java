@@ -146,12 +146,15 @@ class IdempotencyProcessingLeaseIntegrationTest {
                 "POST", "/api/v1/organizations", body, null,
                 tenantId, "ORGANIZATION.CREATE");
 
+        // Stage 05A.2.1 §6 — Insert with lease_version=1 (the V32 column is
+        // NOT NULL with DEFAULT 0, but we set it explicitly to mirror what
+        // PostgresIdempotencyReservationStore.atomicReserve does).
         String sql = "INSERT INTO idempotency_records (id, tenant_id, idempotency_key, "
                 + "operation, route, request_fingerprint, status, expires_at, "
                 + "created_at, updated_at, lease_owner_request_id, lease_expires_at, "
-                + "attempt_count, last_attempt_at) "
+                + "attempt_count, last_attempt_at, lease_version) "
                 + "VALUES (?, ?, ?, 'ORGANIZATION.CREATE', '/api/v1/organizations', "
-                + "?, 'PROCESSING', ?, ?, ?, ?, ?, 1, ?)";
+                + "?, 'PROCESSING', ?, ?, ?, ?, ?, 1, ?, 1)";
         Timestamp now = Timestamp.from(Instant.now());
         Timestamp futureExpiry = Timestamp.from(Instant.now().plusSeconds(3600));
         Timestamp leaseTs = Timestamp.from(leaseExpiry);
@@ -286,7 +289,7 @@ class IdempotencyProcessingLeaseIntegrationTest {
                 .doesNotStartWith("original-owner-");
 
         // Verify the lease_expires_at was updated to a future time.
-        String leaseSql = "SELECT lease_expires_at FROM idempotency_records "
+        String leaseSql = "SELECT lease_expires_at, lease_version FROM idempotency_records "
                 + "WHERE tenant_id = ? AND idempotency_key = ?";
         try (Connection conn = fixtureDataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(leaseSql)) {
@@ -301,6 +304,11 @@ class IdempotencyProcessingLeaseIntegrationTest {
                 assertThat(leaseExpiresAt.toInstant())
                         .as("lease_expires_at must be in the future after takeover")
                         .isAfter(Instant.now());
+                // Stage 05A.2.1 §6 — lease_version must be incremented to 2.
+                long leaseVersion = rs.getLong("lease_version");
+                assertThat(leaseVersion)
+                        .as("lease_version must be incremented from 1 to 2 after takeover (Stage 05A.2.1 §6)")
+                        .isEqualTo(2L);
             }
         }
     }

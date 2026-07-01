@@ -145,7 +145,7 @@ class AuditTransactionBoundaryIntegrationTest {
     }
 
     @Test
-    @DisplayName("denialRequest_noSuccessAuditRecorded: 401 → JwtAuthFilter rejects before TenantContextFilter → no SUCCESS audit")
+    @DisplayName("denialRequest_noSuccessAuditRecorded: 401 → JwtAuthFilter rejects before TenantContextFilter → no SUCCESS audit (denial audit independent)")
     void denialRequest_noSuccessAuditRecorded() throws Exception {
         int before = countSuccessAuditForOrgCreate();
 
@@ -153,6 +153,13 @@ class AuditTransactionBoundaryIntegrationTest {
         // JwtAuthenticationFilter rejects the request before the
         // TenantContextFilter runs, so no TenantContext is established
         // and no business audit event is written for this request.
+        //
+        // Stage 05A.2.1 §8 — The denial audit (if any) is written via
+        // AuditService.recordDenied() in a REQUIRES_NEW transaction,
+        // so it commits independently of the business transaction. This
+        // test verifies that no SUCCESS audit is recorded for the denied
+        // request — the denial audit (if produced) is tracked separately
+        // under outcome='DENIED', not under outcome='SUCCESS'.
         mockMvc.perform(post("/api/v1/organizations")
                         .param("tenantId", fixture.tenantAId().toString())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -162,7 +169,7 @@ class AuditTransactionBoundaryIntegrationTest {
         int after = countSuccessAuditForOrgCreate();
         assertThat(after)
                 .as("no SUCCESS audit should be recorded for a denied request "
-                        + "(JwtAuthFilter rejects before TenantContextFilter runs)")
+                        + "(denial audit is independent — outcome='DENIED', not 'SUCCESS')")
                 .isEqualTo(before);
     }
 }

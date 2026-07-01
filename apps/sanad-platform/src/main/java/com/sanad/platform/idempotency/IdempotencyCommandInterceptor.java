@@ -179,52 +179,11 @@ public class IdempotencyCommandInterceptor implements HandlerInterceptor {
                                  HttpServletResponse response,
                                  Object handler,
                                  Exception ex) throws Exception {
-        if (!(handler instanceof HandlerMethod handlerMethod)) {
-            return;
-        }
-        IdempotentOperation annotation = handlerMethod.getMethodAnnotation(IdempotentOperation.class);
-        if (annotation == null) {
-            return;
-        }
-
-        Object reservationAttr = request.getAttribute(RESERVATION_ATTR);
-        if (!(reservationAttr instanceof IdempotencyService.ReservationResult reservation)) {
-            return;
-        }
-        if (reservation.type() != IdempotencyService.ReservationType.NEW) {
-            return;
-        }
-
-        IdempotencyRecord rec = reservation.record();
-        if (rec == null) {
-            return;
-        }
-
-        int status = response.getStatus();
-        String body = readCapturedResponseBody(response);
-        String headers = collectResponseHeaders(response);
-
-        if (status >= 400 || ex != null) {
-            // Stage 05A.1 §24 — Mark the reservation as failed (retryable for 5xx,
-            // final for 4xx validation errors).
-            boolean retryable = status >= 500;
-            String errorCode = ex != null ? "SANAD-IDEMP-EXEC" : "SANAD-IDEMP-HTTP-" + status;
-            String detail = ex != null
-                    ? ex.getClass().getSimpleName() + ": " + ex.getMessage()
-                    : "HTTP " + status;
-            try {
-                idempotencyService.fail(rec.getId(), errorCode, detail, retryable);
-            } catch (Exception failEx) {
-                log.warn("Idempotency fail() threw for record {}: {}", rec.getId(), failEx.getMessage());
-            }
-        } else {
-            try {
-                idempotencyService.complete(rec.getId(), status, headers, body);
-            } catch (Exception completeEx) {
-                log.warn("Idempotency complete() threw for record {}: {}",
-                        rec.getId(), completeEx.getMessage());
-            }
-        }
+        // Stage 05A.2.1 §8 — No completion in afterCompletion.
+        // The IdempotentCommandExecutor handles completion inside the
+        // business transaction (Transaction B). This interceptor is
+        // limited to: missing-key validation, fingerprint calculation,
+        // reservation, replay, conflict, and in-progress response.
     }
 
     private String readRequestBody(HttpServletRequest request) throws IOException {
