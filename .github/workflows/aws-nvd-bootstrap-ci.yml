@@ -8,6 +8,7 @@ on:
       - '.github/workflows/aws-nvd-bootstrap-ci.yml'
       - '.github/workflows/aws-nvd-snapshot-mirror.yml'
       - '.github/workflows/aws-nvd-reader-validation.yml'
+      - '.github/workflows/aws-nvd-full-activation.yml'
       - 'scripts/security/download_nvd_snapshot.py'
       - 'scripts/security/verify_nvd_snapshot.py'
   push:
@@ -18,6 +19,7 @@ on:
       - '.github/workflows/aws-nvd-bootstrap-ci.yml'
       - '.github/workflows/aws-nvd-snapshot-mirror.yml'
       - '.github/workflows/aws-nvd-reader-validation.yml'
+      - '.github/workflows/aws-nvd-full-activation.yml'
 
 permissions:
   contents: read
@@ -67,6 +69,7 @@ jobs:
               Path('.github/workflows/aws-nvd-bootstrap-ci.yml'),
               Path('.github/workflows/aws-nvd-snapshot-mirror.yml'),
               Path('.github/workflows/aws-nvd-reader-validation.yml'),
+              Path('.github/workflows/aws-nvd-full-activation.yml'),
           ):
               data = yaml.safe_load(path.read_text(encoding='utf-8'))
               assert isinstance(data, dict)
