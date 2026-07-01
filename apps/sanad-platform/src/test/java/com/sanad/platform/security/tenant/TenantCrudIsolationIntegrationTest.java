@@ -54,6 +54,8 @@ class TenantCrudIsolationIntegrationTest {
     @Autowired private JwtTokenProvider jwtTokenProvider;
     @Autowired private TenantRepository tenantRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private TenantContextProvider contextProvider;
+    @Autowired private TenantRlsBinder rlsBinder;
 
     private UUID tenantAId;
     private UUID tenantBId;
@@ -63,7 +65,7 @@ class TenantCrudIsolationIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        // Create two tenants
+        // Create two tenants (tenants table has no RLS — SECURITY_GLOBAL)
         tenantAId = tenantRepository.save(
                 new Tenant("Tenant A", "tenant-a-" + UUID.randomUUID(), TenantStatus.ACTIVE)
         ).getId();
@@ -71,16 +73,32 @@ class TenantCrudIsolationIntegrationTest {
                 new Tenant("Tenant B", "tenant-b-" + UUID.randomUUID(), TenantStatus.ACTIVE)
         ).getId();
 
-        // Create a user in each tenant
+        // Stage 04A.3: RLS is active on the users table. We must set the
+        // TenantContext and bind RLS before creating users.
+        // Create user A under tenant A context
+        contextProvider.setContext(new TenantContext(
+                tenantAId, UUID.randomUUID(), "setup-A", 0L, java.util.Set.of(),
+                TenantContext.TenantContextSource.TEST_FIXTURE, "setup-A"));
+        rlsBinder.bindTenantToCurrentTransaction();
+
         User userA = new User(tenantAId, "alice-a@example.com", "Alice A", UserStatus.ACTIVE);
         userA.setPasswordHash("dummy-hash");
         userA = userRepository.save(userA);
         userAId = userA.getId();
 
+        // Switch context to tenant B for user B creation
+        contextProvider.setContext(new TenantContext(
+                tenantBId, UUID.randomUUID(), "setup-B", 0L, java.util.Set.of(),
+                TenantContext.TenantContextSource.TEST_FIXTURE, "setup-B"));
+        rlsBinder.bindTenantToCurrentTransaction();
+
         User userB = new User(tenantBId, "bob-b@example.com", "Bob B", UserStatus.ACTIVE);
         userB.setPasswordHash("dummy-hash");
         userB = userRepository.save(userB);
         userBId = userB.getId();
+
+        // Clear context — tests will set their own via JWT
+        contextProvider.clear();
 
         // Mint a JWT for user A in tenant A
         tokenA = jwtTokenProvider.mintAccessToken(userAId, tenantAId, "alice-a@example.com");
