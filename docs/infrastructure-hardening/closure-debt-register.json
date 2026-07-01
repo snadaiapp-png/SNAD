@@ -627,21 +627,133 @@
         "Mandatory PostgreSQL tenant tests pass with zero skipped"
       ],
       "verificationCommand": "psql -c \"SELECT relforcerowsecurity FROM pg_class WHERE relname = 'users'\""
+    },
+    {
+      "id": "CD-04-P1-011",
+      "title": "Migration-owner FORCE RLS test uses the runtime DataSource",
+      "severity": "P1",
+      "status": "OPEN",
+      "blocking": true,
+      "owner": "infra-04a33",
+      "evidence": "TenantMigrationOwnerForceRlsIntegrationTest autowires the runtime DataSource instead of a dedicated migration-owner DataSource.",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
+      "targetClosureStage": "04A.3.3",
+      "acceptanceCriteria": [
+        "Test uses @Qualifier('tenantMigrationOwnerDataSource')",
+        "current_user = sanad_migration_owner",
+        "FORCE RLS verified on 8/8 tables"
+      ],
+      "verificationCommand": "grep 'tenantMigrationOwnerDataSource' apps/sanad-platform/src/test/java/com/sanad/platform/security/tenant/TenantMigrationOwnerForceRlsIntegrationTest.java"
+    },
+    {
+      "id": "CD-04-P1-012",
+      "title": "Tenant CRUD certification bypasses authentication and authorization",
+      "severity": "P1",
+      "status": "OPEN",
+      "blocking": true,
+      "owner": "infra-04a33",
+      "evidence": "TenantCrudIsolationIntegrationTest uses SecurityPermitAllTestConfig.",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
+      "targetClosureStage": "04A.3.3",
+      "acceptanceCriteria": [
+        "No SecurityPermitAllTestConfig",
+        "Real JWT",
+        "Exact status assertions"
+      ],
+      "verificationCommand": "grep 'SecurityPermitAllTestConfig' apps/sanad-platform/src/test/java/com/sanad/platform/security/tenant/TenantCrudIsolationIntegrationTest.java"
+    },
+    {
+      "id": "CD-04-P1-013",
+      "title": "Authentication-under-RLS test lacks successful and revoked-session scenarios",
+      "severity": "P1",
+      "status": "OPEN",
+      "blocking": true,
+      "owner": "infra-04a33",
+      "evidence": "Only validates JWT claims structure.",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
+      "targetClosureStage": "04A.3.3",
+      "acceptanceCriteria": [
+        "Valid user → 200",
+        "Revoked session → 401",
+        "Suspended user → 401"
+      ],
+      "verificationCommand": "grep 'MockMvc' apps/sanad-platform/src/test/java/com/sanad/platform/security/tenant/TenantAuthenticationUnderRlsIntegrationTest.java"
+    },
+    {
+      "id": "CD-04-P1-014",
+      "title": "Capability tenant binding tested only with in-memory objects",
+      "severity": "P1",
+      "status": "OPEN",
+      "blocking": true,
+      "owner": "infra-04a33",
+      "evidence": "Creates TenantContext records manually.",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
+      "targetClosureStage": "04A.3.3",
+      "acceptanceCriteria": [
+        "Real roles/grants in PostgreSQL",
+        "HTTP request → 200/403"
+      ],
+      "verificationCommand": "grep 'MockMvc' apps/sanad-platform/src/test/java/com/sanad/platform/security/tenant/TenantCapabilityBindingIntegrationTest.java"
+    },
+    {
+      "id": "CD-04-P1-015",
+      "title": "Session tenant binding tests validate JWT structure not enforcement",
+      "severity": "P1",
+      "status": "OPEN",
+      "blocking": true,
+      "owner": "infra-04a33",
+      "evidence": "Only checks JWT claims.",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
+      "targetClosureStage": "04A.3.3",
+      "acceptanceCriteria": [
+        "Valid session → 200",
+        "Incremented version → 401",
+        "Through MockMvc"
+      ],
+      "verificationCommand": "grep 'MockMvc' apps/sanad-platform/src/test/java/com/sanad/platform/security/tenant/TenantSessionBindingIntegrationTest.java"
+    },
+    {
+      "id": "CD-04-P1-016",
+      "title": "Fixture role test does not execute through fixture DataSource",
+      "severity": "P1",
+      "status": "OPEN",
+      "blocking": true,
+      "owner": "infra-04a33",
+      "evidence": "Queries pg_roles via runtime DS.",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
+      "targetClosureStage": "04A.3.3",
+      "acceptanceCriteria": [
+        "Uses @Qualifier('tenantFixtureDataSource')",
+        "current_user = sanad_fixture_ci"
+      ],
+      "verificationCommand": "grep 'tenantFixtureDataSource' apps/sanad-platform/src/test/java/com/sanad/platform/security/tenant/TenantFixtureRoleIntegrationTest.java"
     }
   ],
   "summary": {
     "inheritedDebtCount": 11,
-    "newDebtCount": 27,
-    "totalDebtCount": 38,
+    "newDebtCount": 33,
+    "totalDebtCount": 44,
     "closedDebtCount": 17,
-    "openDebtCount": 5,
+    "openDebtCount": 11,
     "inProgressDebtCount": 1,
     "blockedDebtCount": 6,
     "readyForVerificationDebtCount": 1,
     "reopenedDebtCount": 8,
     "acceptedRiskDebtCount": 0,
     "openP0DebtCount": 2,
-    "openBlockingP1DebtCount": 9,
+    "openBlockingP1DebtCount": 15,
     "carriedForwardDebtCount": 0,
     "debtGate": "BLOCKED",
     "blockingDebtIds": [
@@ -655,7 +767,13 @@
       "CD-04-P1-006",
       "CD-04-P1-007",
       "CD-04-P1-009",
-      "CD-04-P1-010"
+      "CD-04-P1-010",
+      "CD-04-P1-011",
+      "CD-04-P1-012",
+      "CD-04-P1-013",
+      "CD-04-P1-014",
+      "CD-04-P1-015",
+      "CD-04-P1-016"
     ],
     "closedDebtIds": [
       "CD-01-P1-001",

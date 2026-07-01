@@ -9,13 +9,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import javax.sql.DataSource;
 import java.util.UUID;
 
-/**
- * Stage 04A.3.1 §4 — Implementation of {@link TenantFixtureSeeder}.
- *
- * <p>Uses the Fixture DataSource (migration_owner account) to create
- * test data WITHOUT RLS restrictions. The Runtime DataSource
- * (sanad_runtime_app) is NEVER used for fixture creation.</p>
- */
 @TestConfiguration
 @ConditionalOnProperty(name = "tenant.fixture.database.username")
 public class TenantFixtureSeederConfig {
@@ -40,66 +33,106 @@ public class TenantFixtureSeederConfig {
             UUID tenantB = UUID.randomUUID();
             UUID userA = UUID.randomUUID();
             UUID userB = UUID.randomUUID();
+            UUID roleId = UUID.randomUUID();
+            UUID capabilityId = UUID.randomUUID();
+            UUID roleGrantId = UUID.randomUUID();
             String pwHash = "$2a$10$dummyhashvaluereplacedinrealusecase1234567890123456";
 
-            // Insert tenants (no RLS on tenants table)
-            jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) " +
-                    "VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())", tenantA, "Tenant A " + tenantA, "ta-" + tenantA);
-            jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) " +
-                    "VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())", tenantB, "Tenant B " + tenantB, "tb-" + tenantB);
+            // Insert tenants
+            jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                    tenantA, "Tenant A " + tenantA, "ta-" + tenantA);
+            jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                    tenantB, "Tenant B " + tenantB, "tb-" + tenantB);
 
-            // Insert users (RLS-protected, but fixture DS bypasses RLS)
-            jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, " +
-                    "password_hash, session_version, created_at, updated_at) " +
-                    "VALUES (?, ?, ?, ?, 'ACTIVE', ?, 0, NOW(), NOW())",
+            // Insert users
+            jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, session_version, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', ?, 0, NOW(), NOW())",
                     userA, tenantA, "alice-a@example.com", "Alice A", pwHash);
-            jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, " +
-                    "password_hash, session_version, created_at, updated_at) " +
-                    "VALUES (?, ?, ?, ?, 'ACTIVE', ?, 0, NOW(), NOW())",
+            jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, session_version, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', ?, 0, NOW(), NOW())",
                     userB, tenantB, "bob-b@example.com", "Bob B", pwHash);
 
+            // Insert a role in Tenant A
+            jdbc.update("INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at) VALUES (?, ?, 'ADMIN', 'Admin', 'Admin role', 'ACTIVE', NOW(), NOW())",
+                    roleId, tenantA);
+
+            // Insert USER.READ and USER.WRITE capabilities (global reference data)
+            // Check if they already exist from V14 migration
+            Integer capCount = jdbc.queryForObject("SELECT COUNT(*) FROM access_capabilities WHERE code = 'USER.READ'", Integer.class);
+            if (capCount == null || capCount == 0) {
+                jdbc.update("INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at) VALUES (?, 'USER.READ', 'Read Users', 'Read user records', 'ACTIVE', NOW(), NOW())",
+                        capabilityId);
+            } else {
+                capabilityId = jdbc.queryForObject("SELECT id FROM access_capabilities WHERE code = 'USER.READ'", UUID.class);
+            }
+
+            // Link role to USER.READ capability in Tenant A
+            UUID roleCapId = UUID.randomUUID();
+            jdbc.update("INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at) VALUES (?, ?, ?, ?, NOW())",
+                    roleCapId, tenantA, roleId, capabilityId);
+
+            // Grant the role to User A in Tenant A
+            jdbc.update("INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                    roleGrantId, tenantA, userA, roleId);
+
             return new TenantTestFixture(tenantA, tenantB, userA, userB,
-                    pwHash, pwHash, null, null, null, null, null, null, null);
+                    pwHash, pwHash, null, null, null, null, roleId, capabilityId, roleGrantId);
         }
 
         @Override
         public TenantTestFixture seedPaginationFixture() {
             UUID tenantA = UUID.randomUUID();
             UUID tenantB = UUID.randomUUID();
-            UUID orgA = UUID.randomUUID();
-            UUID orgB = UUID.randomUUID();
 
-            // Insert tenants
-            jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) " +
-                    "VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())", tenantA, "Tenant A " + tenantA, "pa-" + tenantA);
-            jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) " +
-                    "VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())", tenantB, "Tenant B " + tenantB, "pb-" + tenantB);
+            jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                    tenantA, "Tenant A " + tenantA, "pa-" + tenantA);
+            jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                    tenantB, "Tenant B " + tenantB, "pb-" + tenantB);
 
-            // Insert organizations for tenant A (3 orgs)
             for (int i = 1; i <= 3; i++) {
-                UUID orgId = (i == 1) ? orgA : UUID.randomUUID();
-                jdbc.update("INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at) " +
-                        "VALUES (?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                UUID orgId = UUID.randomUUID();
+                jdbc.update("INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
                         orgId, tenantA, "Alpha-A" + i, "desc A" + i);
             }
-
-            // Insert organizations for tenant B (2 orgs)
             for (int i = 1; i <= 2; i++) {
-                UUID orgId = (i == 1) ? orgB : UUID.randomUUID();
-                jdbc.update("INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at) " +
-                        "VALUES (?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                UUID orgId = UUID.randomUUID();
+                jdbc.update("INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
                         orgId, tenantB, "Bravo-B" + i, "desc B" + i);
             }
 
             return new TenantTestFixture(tenantA, tenantB, null, null,
-                    null, null, orgA, orgB, null, null, null, null, null);
+                    null, null, null, null, null, null, null, null, null);
+        }
+
+        @Override
+        public TenantTestFixture seedAuthFixture() {
+            return seedCrudFixture(); // Reuse CRUD fixture for auth tests
+        }
+
+        @Override
+        public TenantTestFixture seedCapabilityFixture() {
+            return seedCrudFixture(); // Reuse CRUD fixture (has role grants)
+        }
+
+        @Override
+        public TenantTestFixture seedSessionFixture() {
+            return seedCrudFixture(); // Reuse CRUD fixture (has session version 0)
+        }
+
+        @Override
+        public void incrementSessionVersion(UUID tenantId, UUID userId) {
+            jdbc.update("UPDATE users SET session_version = session_version + 1 WHERE tenant_id = ? AND id = ?",
+                    tenantId, userId);
+        }
+
+        @Override
+        public void revokeRoleGrant(UUID tenantId, UUID grantId) {
+            jdbc.update("UPDATE user_role_assignments SET status = 'REVOKED', updated_at = NOW() WHERE tenant_id = ? AND id = ?",
+                    tenantId, grantId);
         }
 
         @Override
         public void cleanup(TenantTestFixture fixture) {
             if (fixture == null) return;
 
-            // Delete ALL users for these tenants first (including test-created ones)
             if (fixture.tenantAId() != null) {
                 jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", fixture.tenantAId());
                 jdbc.update("DELETE FROM organization_memberships WHERE tenant_id = ?", fixture.tenantAId());

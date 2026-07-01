@@ -675,6 +675,10 @@ jobs:
           TENANT_FIXTURE_DATABASE_PASSWORD: ci-fixture-only
           TENANT_FIXTURE_DATABASE_URL: ${{ env.DATABASE_URL }}
           TENANT_FIXTURE_DATABASE_DRIVER: ${{ env.DATABASE_DRIVER }}
+          TENANT_MIGRATION_DATABASE_USERNAME: sanad_migration_owner
+          TENANT_MIGRATION_DATABASE_PASSWORD: ci-migration-only
+          TENANT_MIGRATION_DATABASE_URL: ${{ env.DATABASE_URL }}
+          TENANT_MIGRATION_DATABASE_DRIVER: ${{ env.DATABASE_DRIVER }}
         run: |
           ./mvnw -B -ntp test \
             -Dtest="TenantTransactionManagerWiringTest,TenantTransactionConnectionBindingIntegrationTest,TenantRuntimeRoleIntegrationTest,TenantRlsIntegrationTest,TenantConnectionPoolLeakageTest,TenantAuthenticationUnderRlsIntegrationTest,TenantCrudIsolationIntegrationTest,TenantNestedResourceIsolationTest,TenantCapabilityBindingIntegrationTest,TenantSessionBindingIntegrationTest,TenantMassAssignmentTest,TenantEnumerationProtectionTest,TenantAwarePaginationIntegrationTest,TenantMigrationOwnerForceRlsIntegrationTest,TenantFixtureRoleIntegrationTest" \
@@ -686,7 +690,11 @@ jobs:
             -Dtenant.fixture.database.url="${DATABASE_URL}" \
             -Dtenant.fixture.database.username="${TENANT_FIXTURE_DATABASE_USERNAME}" \
             -Dtenant.fixture.database.password="${TENANT_FIXTURE_DATABASE_PASSWORD}" \
-            -Dtenant.fixture.database.driver="${DATABASE_DRIVER}"
+            -Dtenant.fixture.database.driver="${DATABASE_DRIVER}" \
+            -Dtenant.migration.database.url="${DATABASE_URL}" \
+            -Dtenant.migration.database.username="${TENANT_MIGRATION_DATABASE_USERNAME}" \
+            -Dtenant.migration.database.password="${TENANT_MIGRATION_DATABASE_PASSWORD}" \
+            -Dtenant.migration.database.driver="${DATABASE_DRIVER}"
       - name: Upload tenant isolation evidence
         if: always()
         uses: actions/upload-artifact@v4
