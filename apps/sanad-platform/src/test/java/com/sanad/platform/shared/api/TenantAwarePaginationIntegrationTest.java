@@ -46,42 +46,34 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("tenant-postgres-test")
 @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(
     named = "RUN_TENANT_POSTGRES_TESTS", matches = "true")
-@Transactional
 class TenantAwarePaginationIntegrationTest {
 
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private TenantRepository tenantRepository;
     @Autowired private OrganizationRepository organizationRepository;
-    @jakarta.persistence.PersistenceContext private jakarta.persistence.EntityManager entityManager;
 
     private UUID tenantAId;
     private UUID tenantBId;
 
     @BeforeEach
     void setUp() throws Exception {
-        // Create tenants (tenants table has no RLS)
+        // Create tenants (tenants table has no RLS — SECURITY_GLOBAL)
         Tenant tenantA = new Tenant("Tenant A", "slug-a-" + UUID.randomUUID(), TenantStatus.ACTIVE);
         tenantAId = tenantRepository.save(tenantA).getId();
         Tenant tenantB = new Tenant("Tenant B", "slug-b-" + UUID.randomUUID(), TenantStatus.ACTIVE);
         tenantBId = tenantRepository.save(tenantB).getId();
 
-        // Stage 04A.3: RLS is active on organizations table. Set RLS context
-        // before creating organizations via HTTP POST.
-        setRlsTenant(tenantAId);
+        // Stage 04A.3: No @Transactional on test class — each HTTP request
+        // creates its own transaction. The testTenantContextFilter sets the
+        // TenantContext from the tenantId query param, and the
+        // TenantAwareJpaTransactionManager.doBegin() sets RLS on the
+        // transaction's connection. This ensures each INSERT is RLS-scoped.
         createOrg(tenantAId, "Alpha-A1");
         createOrg(tenantAId, "Alpha-A2");
         createOrg(tenantAId, "Alpha-A3");
-        setRlsTenant(tenantBId);
         createOrg(tenantBId, "Bravo-B1");
         createOrg(tenantBId, "Bravo-B2");
-    }
-
-    private void setRlsTenant(UUID tenantId) {
-        entityManager.createNativeQuery(
-                "SELECT set_config('app.current_tenant_id', :tenant, true)")
-                .setParameter("tenant", tenantId.toString())
-                .getSingleResult();
     }
 
     private void createOrg(UUID tenantId, String name) throws Exception {

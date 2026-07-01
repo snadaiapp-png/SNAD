@@ -26,7 +26,6 @@ class TenantRuntimeRoleIntegrationTest {
 
     @Test
     @DisplayName("Runtime role: sanad_runtime_app with NOSUPERUSER, NOBYPASSRLS, non-owner")
-    @Transactional
     void runtimeRoleVerification() throws Exception {
         PostgresTestUtil.assertPostgreSQL(dataSource);
 

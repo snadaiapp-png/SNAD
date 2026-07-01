@@ -23,7 +23,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("tenant-postgres-test")
 @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(
     named = "RUN_TENANT_POSTGRES_TESTS", matches = "true")
-@Transactional
 class TenantRlsIntegrationTest {
 
     @Autowired private DataSource dataSource;

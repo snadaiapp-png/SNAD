@@ -22,6 +22,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Stage 04A.3 §6 — Transaction connection binding proof.
  * Verifies SET config and repository query use the SAME connection (same backend PID).
  * Non-skippable PostgreSQL.
+ *
+ * Note: Uses @Transactional + EntityManager.doWork() to avoid the maximumPoolSize=1
+ * deadlock (PostgresTestUtil.assertPostgreSQL would try to get a 2nd connection).
  */
 @SpringBootTest
 @Import(SecurityPermitAllTestConfig.class)
@@ -35,49 +38,54 @@ class TenantTransactionConnectionBindingIntegrationTest {
     @Autowired private DataSource dataSource;
 
     @Test
-    @DisplayName("Database is PostgreSQL (non-skippable)")
-    void databaseIsPostgreSQL() throws Exception {
-        PostgresTestUtil.assertPostgreSQL(dataSource);
+    @DisplayName("Database is PostgreSQL (non-skippable) — via EntityManager connection")
+    @Transactional
+    void databaseIsPostgreSQL() {
+        var session = entityManager.unwrap(org.hibernate.Session.class);
+        session.doWork(connection -> {
+            String productName = connection.getMetaData().getDatabaseProductName();
+            assertThat(productName)
+                    .as("Mandatory tenant test requires PostgreSQL but found: " + productName)
+                    .isEqualTo("PostgreSQL");
+        });
     }
 
     @Test
     @DisplayName("SET config and repository query use same connection (same PID)")
     @Transactional
     void setConfigAndQuery_sameConnection() {
-        PostgresTestUtil.assertPostgreSQL(dataSource);
-
         UUID tenantId = UUID.randomUUID();
-        // Set up TenantContext
-        ThreadLocalTenantContextProvider provider = new ThreadLocalTenantContextProvider();
-        provider.setContext(new TenantContext(
-                tenantId, UUID.randomUUID(), "test-session", 0L, java.util.Set.of(),
-                TenantContext.TenantContextSource.TEST_FIXTURE, "test-req"));
 
         var session = entityManager.unwrap(org.hibernate.Session.class);
+        final String[] dbName = {null};
         final int[] pid1 = {0};
         final int[] pid2 = {0};
         final String[] setting = {null};
 
         session.doWork(connection -> {
+            try {
+                dbName[0] = connection.getMetaData().getDatabaseProductName();
+            } catch (Exception e) {
+                throw new AssertionError("Failed to get database product name", e);
+            }
+
+            assertThat(dbName[0])
+                    .as("Mandatory tenant test requires PostgreSQL but found: " + dbName[0])
+                    .isEqualTo("PostgreSQL");
+
             try (Statement stmt = connection.createStatement()) {
-                // Set tenant on this connection
                 stmt.execute("SET LOCAL app.current_tenant_id = '" + tenantId + "'");
 
-                // Get PID of this connection
                 ResultSet rs = stmt.executeQuery("SELECT pg_backend_pid()");
                 if (rs.next()) pid1[0] = rs.getInt(1);
 
-                // Read setting
                 rs = stmt.executeQuery("SELECT current_setting('app.current_tenant_id', true)");
                 if (rs.next()) setting[0] = rs.getString(1);
 
-                // Execute a trivial query and get PID again
                 rs = stmt.executeQuery("SELECT pg_backend_pid()");
                 if (rs.next()) pid2[0] = rs.getInt(1);
             }
         });
-
-        provider.clear();
 
         assertThat(pid1[0])
                 .as("SET config PID must equal repository query PID (same connection)")
