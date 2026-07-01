@@ -101,6 +101,18 @@ public class JwtSessionValidationServiceImpl implements JwtSessionValidationServ
             Tenant tenant = tenantRepository.findById(claims.tenantId()).orElse(null);
             boolean tenantActive = tenant != null && tenant.getStatus() == TenantStatus.ACTIVE;
 
+            // Stage 04A.3.5: reject suspended users and archived tenants
+            if (!userActive) {
+                log.debug("Session validation failed: user not active userId={} status={}",
+                        claims.userId(), user.getStatus());
+                return null;
+            }
+            if (!tenantActive) {
+                log.debug("Session validation failed: tenant not active tenantId={} status={}",
+                        claims.tenantId(), tenant != null ? tenant.getStatus() : "null");
+                return null;
+            }
+
             return new ValidatedSession(
                     claims.tenantId(),
                     claims.userId(),
