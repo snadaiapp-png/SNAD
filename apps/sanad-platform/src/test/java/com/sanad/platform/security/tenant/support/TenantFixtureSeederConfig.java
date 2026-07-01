@@ -76,8 +76,51 @@ public class TenantFixtureSeederConfig {
             jdbc.update("INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
                     roleGrantId, tenantA, userA, roleId);
 
+            // Create Role B in Tenant B with same capability (independent)
+            UUID roleBId = UUID.randomUUID();
+            jdbc.update("INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at) VALUES (?, ?, 'ADMIN', 'Admin B', 'Admin role B', 'ACTIVE', NOW(), NOW())",
+                    roleBId, tenantB);
+            UUID roleBCapId = UUID.randomUUID();
+            jdbc.update("INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at) VALUES (?, ?, ?, ?, NOW())",
+                    roleBCapId, tenantB, roleBId, capabilityId);
+            UUID roleBGrantId = UUID.randomUUID();
+            jdbc.update("INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                    roleBGrantId, tenantB, userB, roleBId);
+
+            // --- Security chain fixtures (§6) ---
+            // Suspended user in Tenant A
+            UUID suspendedUserId = UUID.randomUUID();
+            jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, session_version, created_at, updated_at) VALUES (?, ?, ?, ?, 'SUSPENDED', ?, 0, NOW(), NOW())",
+                    suspendedUserId, tenantA, "suspended@example.com", "Suspended", pwHash);
+
+            // User with revoked membership (ACTIVE user, REVOKED grant)
+            UUID revokedMembershipUserId = UUID.randomUUID();
+            UUID revokedMembershipGrantId = UUID.randomUUID();
+            jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, session_version, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', ?, 0, NOW(), NOW())",
+                    revokedMembershipUserId, tenantA, "revoked@example.com", "Revoked", pwHash);
+            jdbc.update("INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'REVOKED', NOW(), NOW())",
+                    revokedMembershipGrantId, tenantA, revokedMembershipUserId, roleId);
+
+            // Archived tenant with a user
+            UUID archivedTenantId = UUID.randomUUID();
+            UUID archivedTenantUserId = UUID.randomUUID();
+            jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) VALUES (?, ?, ?, 'ARCHIVED', NOW(), NOW())",
+                    archivedTenantId, "Archived Tenant", "at-" + archivedTenantId);
+            jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, session_version, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', ?, 0, NOW(), NOW())",
+                    archivedTenantUserId, archivedTenantId, "archived@example.com", "Archived", pwHash);
+
+            // User without capability in Tenant A (ACTIVE, no role grant)
+            UUID userWithoutCapId = UUID.randomUUID();
+            jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, session_version, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', ?, 0, NOW(), NOW())",
+                    userWithoutCapId, tenantA, "nocap@example.com", "NoCap", pwHash);
+
             return new TenantTestFixture(tenantA, tenantB, userA, userB,
-                    pwHash, pwHash, null, null, null, null, roleId, capabilityId, roleGrantId);
+                    pwHash, pwHash, null, null, null, null, roleId, capabilityId, roleGrantId,
+                    suspendedUserId, tenantA,
+                    revokedMembershipUserId, tenantA, revokedMembershipGrantId,
+                    archivedTenantId, archivedTenantUserId,
+                    userWithoutCapId, tenantA,
+                    roleBId, roleBGrantId);
         }
 
         @Override
@@ -136,6 +179,14 @@ public class TenantFixtureSeederConfig {
         public void cleanup(TenantTestFixture fixture) {
             if (fixture == null) return;
 
+            // Cleanup archived tenant first (if exists)
+            if (fixture.archivedTenantId() != null) {
+                jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", fixture.archivedTenantId());
+                jdbc.update("DELETE FROM users WHERE tenant_id = ?", fixture.archivedTenantId());
+                jdbc.update("DELETE FROM tenants WHERE id = ?", fixture.archivedTenantId());
+            }
+
+            // Cleanup Tenant A (includes all security fixture users)
             if (fixture.tenantAId() != null) {
                 jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", fixture.tenantAId());
                 jdbc.update("DELETE FROM organization_memberships WHERE tenant_id = ?", fixture.tenantAId());
@@ -146,6 +197,7 @@ public class TenantFixtureSeederConfig {
                 jdbc.update("DELETE FROM roles WHERE tenant_id = ?", fixture.tenantAId());
                 jdbc.update("DELETE FROM users WHERE tenant_id = ?", fixture.tenantAId());
             }
+            // Cleanup Tenant B
             if (fixture.tenantBId() != null) {
                 jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", fixture.tenantBId());
                 jdbc.update("DELETE FROM organization_memberships WHERE tenant_id = ?", fixture.tenantBId());

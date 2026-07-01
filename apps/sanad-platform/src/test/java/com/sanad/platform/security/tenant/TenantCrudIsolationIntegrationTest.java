@@ -1,11 +1,10 @@
 package com.sanad.platform.security.tenant;
 
-import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import com.sanad.platform.security.service.JwtTokenProvider;
-import com.sanad.platform.security.tenant.support.TenantFixtureSeeder;
-import com.sanad.platform.security.tenant.support.TenantTestFixture;
 import com.sanad.platform.security.tenant.support.TenantFixtureDataSourceConfig;
+import com.sanad.platform.security.tenant.support.TenantFixtureSeeder;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeederConfig;
+import com.sanad.platform.security.tenant.support.TenantTestFixture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -26,18 +25,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Stage 04A.3.1 §7 — Cross-tenant CRUD isolation integration tests.
+ * Stage 04A.3.4 §9 — CRUD isolation through full security chain.
  *
- * <p>Non-skippable PostgreSQL. Uses Fixture DataSource for test data
- * creation (bypasses RLS). HTTP requests use the Runtime DataSource
- * (sanad_runtime_app, subject to RLS) via the full Spring Security +
- * TenantContextFilter + TenantAwareJpaTransactionManager chain.</p>
- *
- * <p>NO @Transactional — each MockMvc request runs in its own
- * application transaction with proper RLS binding.</p>
+ * <p>NO SecurityPermitAllTestConfig. Real JWT via JwtTokenProvider.
+ * Full filter chain: JwtAuthFilter → SessionValidation → TenantContext →
+ * TenantAwareJpaTransactionManager → RLS → Controller → Service.</p>
  */
 @SpringBootTest
-@Import({SecurityPermitAllTestConfig.class, TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
+@Import({TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
 @AutoConfigureMockMvc
 @ActiveProfiles("tenant-postgres-test")
 @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(
@@ -45,13 +40,23 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class TenantCrudIsolationIntegrationTest {
 
     @Autowired private MockMvc mockMvc;
+    @Autowired private JwtTokenProvider jwtTokenProvider;
     @Autowired private TenantFixtureSeeder fixtureSeeder;
 
     private TenantTestFixture fixture;
+    private String tokenA;
+    private String tokenB;
+    private String tokenNoCap;
 
     @BeforeEach
     void setUp() {
         fixture = fixtureSeeder.seedCrudFixture();
+        tokenA = jwtTokenProvider.mintAccessToken(
+                fixture.userAId(), fixture.tenantAId(), "alice-a@example.com");
+        tokenB = jwtTokenProvider.mintAccessToken(
+                fixture.userBId(), fixture.tenantBId(), "bob-b@example.com");
+        tokenNoCap = jwtTokenProvider.mintAccessToken(
+                fixture.userWithoutCapabilityId(), fixture.tenantAId(), "nocap@example.com");
     }
 
     @AfterEach
@@ -59,91 +64,77 @@ class TenantCrudIsolationIntegrationTest {
         fixtureSeeder.cleanup(fixture);
     }
 
-    // === Cross-tenant denied ===
+    // === Same-tenant authorized ===
 
     @Test
-    @DisplayName("Same-tenant list: 200 (organizations — no capability required by test config)")
-    void sameTenantList_exact200() throws Exception {
+    @DisplayName("Token A + List Tenant A organizations → 200")
+    void tokenA_listOrgsA_200() throws Exception {
         mockMvc.perform(get("/api/v1/organizations")
-                        .param("tenantId", fixture.tenantAId().toString()))
-                .andExpect(status().isOk());
-    }
-
-    @Test
-    @DisplayName("Cross-tenant ID: 404 (user not found in tenant scope)")
-    void crossTenantId_exact404() throws Exception {
-        mockMvc.perform(get("/api/v1/users/{userId}", fixture.userBId())
-                        .param("tenantId", fixture.tenantAId().toString()))
-                .andExpect(status().isNotFound());
-    }
-
-    @Test
-    @DisplayName("Cross-tenant read: same behavior as same-tenant with permit-all (200)")
-    void crossTenantRead_users_200() throws Exception {
-        // With SecurityPermitAllTestConfig, there's no JWT to mismatch.
-        // The test filter sets context from the param. RLS ensures only
-        // the param's tenant data is visible.
-        mockMvc.perform(get("/api/v1/organizations")
-                        .param("tenantId", fixture.tenantBId().toString()))
-                .andExpect(status().isOk());
-    }
-
-    @Test
-    @DisplayName("Cross-tenant read organizations: 200 (RLS-enforced, not capability)")
-    void crossTenantRead_organizations_200() throws Exception {
-        mockMvc.perform(get("/api/v1/organizations")
-                        .param("tenantId", fixture.tenantAId().toString()))
-                .andExpect(status().isOk());
-    }
-
-    @Test
-    @DisplayName("Cross-tenant write: 201 (RLS enforces tenant_id = context)")
-    void crossTenantWrite_user_201() throws Exception {
-        // With SecurityPermitAllTestConfig, the @RequireCapability aspect
-        // is bypassed. The test filter sets context from tenantId param.
-        // The service creates the user with the context's tenantId.
-        // RLS ensures the INSERT only succeeds for the context's tenant.
-        String body = "{\"email\":\"test-create@example.com\",\"displayName\":\"Test\"}";
-        mockMvc.perform(post("/api/v1/users")
                         .param("tenantId", fixture.tenantAId().toString())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isCreated());
-    }
-
-    @Test
-    @DisplayName("Same-tenant list users: 200 (permit-all config)")
-    void sameTenantList_users_200() throws Exception {
-        mockMvc.perform(get("/api/v1/users")
-                        .param("tenantId", fixture.tenantAId().toString()))
+                        .header("Authorization", "Bearer " + tokenA))
                 .andExpect(status().isOk());
     }
 
-    // === Missing/invalid parameters ===
+    @Test
+    @DisplayName("Token B + List Tenant B organizations → 200")
+    void tokenB_listOrgsB_200() throws Exception {
+        mockMvc.perform(get("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantBId().toString())
+                        .header("Authorization", "Bearer " + tokenB))
+                .andExpect(status().isOk());
+    }
+
+    // === Cross-tenant selector denied ===
 
     @Test
-    @DisplayName("Missing tenantId: 400 (missing required param)")
-    void missingTenantId_selector() throws Exception {
-        mockMvc.perform(get("/api/v1/users"))
-                .andExpect(status().isBadRequest());
+    @DisplayName("Token A + selector B → 403 SANAD-TEN-002")
+    void tokenA_selectorB_403() throws Exception {
+        mockMvc.perform(get("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantBId().toString())
+                        .header("Authorization", "Bearer " + tokenA))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SANAD-TEN-002"));
     }
 
     @Test
-    @DisplayName("Invalid tenantId format: 400 (type mismatch)")
-    void invalidTenantIdFormat_rejected() throws Exception {
-        mockMvc.perform(get("/api/v1/users")
-                        .param("tenantId", "not-a-uuid"))
-                .andExpect(status().isBadRequest());
+    @DisplayName("Token B + selector A → 403 SANAD-TEN-002")
+    void tokenB_selectorA_403() throws Exception {
+        mockMvc.perform(get("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .header("Authorization", "Bearer " + tokenB))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SANAD-TEN-002"));
+    }
+
+    // === Authentication failures ===
+
+    @Test
+    @DisplayName("No token → 401 SANAD-AUTH-001")
+    void noToken_401() throws Exception {
+        mockMvc.perform(get("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantAId().toString()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("SANAD-AUTH-001"));
     }
 
     @Test
-    @DisplayName("Missing authentication: 401")
-    void missingAuthentication_401() throws Exception {
-        // With SecurityPermitAllTestConfig, all requests are permitted.
-        // The test filter sets context from tenantId param. Without the param,
-        // no context is set → 400 (missing required param).
-        // This test verifies that without tenantId, the request fails.
-        mockMvc.perform(get("/api/v1/users"))
-                .andExpect(status().isBadRequest());
+    @DisplayName("Malformed token → 401")
+    void malformedToken_401() throws Exception {
+        mockMvc.perform(get("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .header("Authorization", "Bearer not-a-jwt"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // === Capability enforcement ===
+
+    @Test
+    @DisplayName("Token without capability → 403 SANAD-SEC-001")
+    void tokenNoCap_403() throws Exception {
+        mockMvc.perform(get("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .header("Authorization", "Bearer " + tokenNoCap))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SANAD-SEC-001"));
     }
 }

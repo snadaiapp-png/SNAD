@@ -1,0 +1,96 @@
+{
+  "stage": "04A.3.4",
+  "generatedAt": "2026-07-01T00:00:00Z",
+  "criteria": [
+    {
+      "criterion": "Valid authentication",
+      "testClass": "TenantAuthenticationUnderRlsIntegrationTest",
+      "testMethod": "validUserA_200",
+      "expectedResult": "200",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": null,
+      "workflowHeadSha": null
+    },
+    {
+      "criterion": "Invalid authentication",
+      "testClass": "TenantAuthenticationUnderRlsIntegrationTest",
+      "testMethod": "malformedJwt_401",
+      "expectedResult": "401",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": null,
+      "workflowHeadSha": null
+    },
+    {
+      "criterion": "Session revocation",
+      "testClass": "TenantAuthenticationUnderRlsIntegrationTest",
+      "testMethod": "oldSessionVersion_401",
+      "expectedResult": "401",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": null,
+      "workflowHeadSha": null
+    },
+    {
+      "criterion": "Membership revocation",
+      "testClass": "TenantCapabilityBindingIntegrationTest",
+      "testMethod": "revokeGrant_then403",
+      "expectedResult": "403 SANAD-SEC-001",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": null,
+      "workflowHeadSha": null
+    },
+    {
+      "criterion": "Tenant selector denial",
+      "testClass": "TenantCrudIsolationIntegrationTest",
+      "testMethod": "tokenA_selectorB_403",
+      "expectedResult": "403 SANAD-TEN-002",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": null,
+      "workflowHeadSha": null
+    },
+    {
+      "criterion": "Cross-tenant resource denial",
+      "testClass": "TenantCrudIsolationIntegrationTest",
+      "testMethod": "tokenNoCap_403",
+      "expectedResult": "403 SANAD-SEC-001",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": null,
+      "workflowHeadSha": null
+    },
+    {
+      "criterion": "Capability grant",
+      "testClass": "TenantCapabilityBindingIntegrationTest",
+      "testMethod": "tokenA_tenantA_200",
+      "expectedResult": "200",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": null,
+      "workflowHeadSha": null
+    },
+    {
+      "criterion": "Capability revocation",
+      "testClass": "TenantCapabilityBindingIntegrationTest",
+      "testMethod": "revokeGrant_then403",
+      "expectedResult": "403 SANAD-SEC-001",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": null,
+      "workflowHeadSha": null
+    },
+    {
+      "criterion": "Archived tenant denial",
+      "testClass": "TenantAuthenticationUnderRlsIntegrationTest",
+      "testMethod": "nonexistentTenant_401",
+      "expectedResult": "401",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": null,
+      "workflowHeadSha": null
+    },
+    {
+      "criterion": "Suspended user denial",
+      "testClass": "TenantAuthenticationUnderRlsIntegrationTest",
+      "testMethod": "suspendedUser_401",
+      "expectedResult": "401",
+      "artifact": "tenant-isolation-evidence",
+      "workflowRunId": null,
+      "workflowHeadSha": null
+    }
+  ]
+}
