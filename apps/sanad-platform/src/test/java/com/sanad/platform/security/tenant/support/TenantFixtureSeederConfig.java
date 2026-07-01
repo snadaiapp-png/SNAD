@@ -83,16 +83,16 @@ public class TenantFixtureSeederConfig {
             jdbc.update("INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
                     orgAId, tenantA, "Org A", "Test org A");
             UUID membershipAId = UUID.randomUUID();
-            jdbc.update("INSERT INTO organization_memberships (id, tenant_id, organization_id, email, display_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
-                    membershipAId, tenantA, orgAId, "alice-a@example.com", "Alice A");
+            jdbc.update("INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, email, display_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                    membershipAId, tenantA, orgAId, userA, "alice-a@example.com", "Alice A");
 
             // User B needs an organization + membership in Tenant B
             UUID orgBId = UUID.randomUUID();
             jdbc.update("INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
                     orgBId, tenantB, "Org B", "Test org B");
             UUID membershipBId = UUID.randomUUID();
-            jdbc.update("INSERT INTO organization_memberships (id, tenant_id, organization_id, email, display_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
-                    membershipBId, tenantB, orgBId, "bob-b@example.com", "Bob B");
+            jdbc.update("INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, email, display_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                    membershipBId, tenantB, orgBId, userB, "bob-b@example.com", "Bob B");
 
             // Create Role B in Tenant B with same capabilities (independent)
             UUID roleBId = UUID.randomUUID();
