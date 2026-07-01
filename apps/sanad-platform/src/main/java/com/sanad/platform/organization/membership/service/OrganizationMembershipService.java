@@ -71,37 +71,37 @@ public class OrganizationMembershipService {
      *                                                       for this (tenant, organization) pair
      */
     @Transactional
-    public OrganizationMembershipResponse inviteMember(InviteOrganizationMemberRequest request) {
+    public OrganizationMembershipResponse inviteMember(UUID tenantId, InviteOrganizationMemberRequest request) {
+        Objects.requireNonNull(tenantId, "tenantId must not be null");
         Objects.requireNonNull(request, "InviteOrganizationMemberRequest must not be null");
-        Objects.requireNonNull(request.getTenantId(), "tenantId must not be null");
         Objects.requireNonNull(request.getOrganizationId(), "organizationId must not be null");
         Objects.requireNonNull(request.getEmail(), "email must not be null");
 
         // --- Validate Tenant exists ---
-        Tenant tenant = tenantRepository.findById(request.getTenantId())
+        Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new EntityNotFoundException(
-                        "Tenant not found with id: " + request.getTenantId()));
+                        "Tenant not found with id: " + tenantId));
 
         // --- Validate Organization exists within the tenant ---
         Organization organization = organizationRepository
-                .findByTenantIdAndId(request.getTenantId(), request.getOrganizationId())
+                .findByTenantIdAndId(tenantId, request.getOrganizationId())
                 .orElseThrow(() -> new EntityNotFoundException(
                         "Organization not found with id: " + request.getOrganizationId()
-                                + " for tenant: " + request.getTenantId()));
+                                + " for tenant: " + tenantId));
 
         // --- Normalize email to lowercase (defensive; entity also normalizes) ---
         String normalizedEmail = request.getEmail().trim().toLowerCase();
 
         // --- Prevent duplicate membership ---
         if (membershipRepository.existsByTenantIdAndOrganizationIdAndEmail(
-                request.getTenantId(), request.getOrganizationId(), normalizedEmail)) {
+                tenantId, request.getOrganizationId(), normalizedEmail)) {
             throw new OrganizationMembershipAlreadyExistsException(
-                    request.getTenantId(), request.getOrganizationId(), normalizedEmail);
+                    tenantId, request.getOrganizationId(), normalizedEmail);
         }
 
         // --- Create + persist the membership with status INVITED ---
         OrganizationMembership membership = new OrganizationMembership(
-                request.getTenantId(),
+                tenantId,
                 request.getOrganizationId(),
                 normalizedEmail,
                 request.getDisplayName(),

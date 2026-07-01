@@ -623,8 +623,8 @@ jobs:
             -Ddatabase.username="${DATABASE_USERNAME}" \
             -Ddatabase.password="${DATABASE_PASSWORD}" \
             -Ddatabase.driver="${DATABASE_DRIVER}"
-      - name: Run static tenant isolation gate
-        run: bash scripts/ci/check-tenant-isolation.sh
+      - name: Run static tenant isolation gate (Stage 04A — Python)
+        run: python3 scripts/ci/check_tenant_isolation.py
       - name: Verify tenant domain inventory coverage
         run: |
           python3 -c "

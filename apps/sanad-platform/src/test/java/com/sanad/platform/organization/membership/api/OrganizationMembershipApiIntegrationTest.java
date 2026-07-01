@@ -71,7 +71,6 @@ class OrganizationMembershipApiIntegrationTest {
 
     private String invitePayload(String email, String displayName) throws Exception {
         return objectMapper.writeValueAsString(Map.of(
-                "tenantId", tenantId.toString(),
                 "organizationId", organizationId.toString(),
                 "email", email,
                 "displayName", displayName

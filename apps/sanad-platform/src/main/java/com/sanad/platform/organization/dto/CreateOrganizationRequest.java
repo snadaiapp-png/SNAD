@@ -1,32 +1,21 @@
 package com.sanad.platform.organization.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
-
-import java.util.UUID;
 
 /**
  * Inbound request payload for the {@code createOrganization} use case.
  *
- * <p>This DTO is the contract between the future transport layer
- * (REST controllers, message handlers, etc.) and the application service
- * layer. It is intentionally unaware of persistence details — callers
- * identify the parent Tenant by its UUID only, and the service layer
- * is responsible for resolving that UUID into a {@code Tenant} entity
- * before constructing the {@code Organization} aggregate (per the
- * DDD aggregate-consistency rule enforced by EXEC-PROMPT-005-FIX).</p>
+ * <p>Stage 04A §18: The {@code tenantId} field has been REMOVED from
+ * this DTO. The tenant is established server-side from the verified
+ * TenantContext — the client cannot assign a tenant.</p>
  *
- * <p>Validation annotations are evaluated by Spring's
- * {@code @Valid} mechanism at the controller boundary (when one is
- * added in a later stage). The service layer also performs defensive
- * validation as a second line of defence.</p>
+ * <p>If the client sends a {@code tenantId} field in the JSON body,
+ * it will be silently ignored by Jackson (no setter exists). The
+ * service layer always uses {@code TenantResolver.requireTenantId()}
+ * to obtain the verified tenant.</p>
  */
 public class CreateOrganizationRequest {
-
-    /** UUID of the parent Tenant. Must not be null. */
-    @NotNull(message = "tenantId must not be null")
-    private UUID tenantId;
 
     /** Human-readable organization name. Must not be blank, max 200 chars. */
     @NotBlank(message = "name must not be blank")
@@ -45,8 +34,7 @@ public class CreateOrganizationRequest {
     public CreateOrganizationRequest() {
     }
 
-    public CreateOrganizationRequest(UUID tenantId, String name, String description) {
-        this.tenantId = tenantId;
+    public CreateOrganizationRequest(String name, String description) {
         this.name = name;
         this.description = description;
     }
@@ -54,14 +42,6 @@ public class CreateOrganizationRequest {
     // ------------------------------------------------------------
     // Getters / Setters
     // ------------------------------------------------------------
-
-    public UUID getTenantId() {
-        return tenantId;
-    }
-
-    public void setTenantId(UUID tenantId) {
-        this.tenantId = tenantId;
-    }
 
     public String getName() {
         return name;
@@ -82,8 +62,7 @@ public class CreateOrganizationRequest {
     @Override
     public String toString() {
         return "CreateOrganizationRequest{" +
-                "tenantId=" + tenantId +
-                ", name='" + name + '\'' +
+                "name='" + name + '\'' +
                 ", description='" + (description != null && description.length() > 50
                         ? description.substring(0, 50) + "..." : description) + '\'' +
                 '}';

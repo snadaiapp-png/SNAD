@@ -10,14 +10,15 @@ import java.util.UUID;
 /**
  * Inbound request payload for the {@code inviteMember} use case.
  *
- * <p>The email is normalized to lowercase inside the service layer before
- * the existence check and persistence, so callers may submit any casing
- * without affecting deduplication.</p>
+ * <p>Stage 04A §18: The {@code tenantId} field has been REMOVED.
+ * The tenant is established server-side from the verified TenantContext.</p>
+ *
+ * <p>The {@code organizationId} field is retained because it identifies
+ * the parent resource within the tenant scope — it is not a tenant
+ * assignment field. The service validates that the organization belongs
+ * to the verified tenant before creating the membership.</p>
  */
 public class InviteOrganizationMemberRequest {
-
-    @NotNull(message = "tenantId must not be null")
-    private UUID tenantId;
 
     @NotNull(message = "organizationId must not be null")
     private UUID organizationId;
@@ -33,16 +34,12 @@ public class InviteOrganizationMemberRequest {
     public InviteOrganizationMemberRequest() {
     }
 
-    public InviteOrganizationMemberRequest(UUID tenantId, UUID organizationId,
+    public InviteOrganizationMemberRequest(UUID organizationId,
                                            String email, String displayName) {
-        this.tenantId = tenantId;
         this.organizationId = organizationId;
         this.email = email;
         this.displayName = displayName;
     }
-
-    public UUID getTenantId() { return tenantId; }
-    public void setTenantId(UUID tenantId) { this.tenantId = tenantId; }
 
     public UUID getOrganizationId() { return organizationId; }
     public void setOrganizationId(UUID organizationId) { this.organizationId = organizationId; }
@@ -55,8 +52,7 @@ public class InviteOrganizationMemberRequest {
 
     @Override
     public String toString() {
-        return "InviteOrganizationMemberRequest{tenantId=" + tenantId
-                + ", organizationId=" + organizationId
+        return "InviteOrganizationMemberRequest{organizationId=" + organizationId
                 + ", email='" + email + '\'' + ", displayName='" + displayName + "'}";
     }
 }

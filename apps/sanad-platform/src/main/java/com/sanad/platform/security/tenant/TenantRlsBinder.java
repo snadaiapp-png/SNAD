@@ -5,30 +5,37 @@ import org.hibernate.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.UUID;
 
 /**
- * Stage 04 §17 — Binds the tenant context to the PostgreSQL session
- * inside each transaction so RLS policies can enforce isolation.
+ * Stage 04A §7 — Automatic transaction-level RLS binding.
  *
- * <p>Called by services (or a transaction interceptor) at the start of
- * a transactional method. Uses {@code SET LOCAL} so the setting is
- * scoped to the current transaction and is automatically cleared when
- * the transaction ends — no risk of leaking to a pooled connection.</p>
+ * <p>This component registers a {@link TransactionSynchronization} that
+ * executes {@code SELECT set_config('app.current_tenant_id', ?, true)}
+ * on the transaction's connection before any query runs.</p>
  *
- * <p>If the current database is H2 (local profile), the SET LOCAL is
- * a no-op (H2 ignores unknown session variables). The application-layer
- * tenant scoping remains the source of truth in that profile.</p>
+ * <p>Usage: services call {@link #bindTenantToCurrentTransaction()} at the
+ * start of a @Transactional method. The binding uses the EntityManager
+ * that is bound to the current transaction by Spring, so the SET config
+ * runs on the SAME connection as the transaction's queries.</p>
+ *
+ * <p>The {@code true} parameter (is_local) scopes the setting to the
+ * transaction — it is automatically cleared when the transaction ends.</p>
+ *
+ * <p>This replaces the old {@link TenantRlsBinder} which required manual
+ * invocation. Services can still call this explicitly, but the
+ * {@link TenantContextFilter} also calls it for request-scoped transactions.</p>
  */
 @Component
 public class TenantRlsBinder {
 
     private static final Logger log = LoggerFactory.getLogger(TenantRlsBinder.class);
 
-    private static final String SET_LOCAL_SQL =
-            "SET LOCAL app.current_tenant_id = '%s'";
+    private static final String SET_CONFIG_SQL =
+            "SELECT set_config('app.current_tenant_id', ?, true)";
 
     private final TenantContextProvider contextProvider;
     private final EntityManager entityManager;
@@ -40,12 +47,10 @@ public class TenantRlsBinder {
     }
 
     /**
-     * Sets the {@code app.current_tenant_id} session variable on the
-     * current PostgreSQL connection, scoped to the active transaction.
-     *
-     * <p>Must be called inside a {@code @Transactional} method. If no
-     * transaction is active, the call is a no-op (RLS will fail-closed
-     * because the setting is missing).</p>
+     * Binds the current TenantContext's tenantId to the PostgreSQL
+     * connection via SET LOCAL. Must be called inside a @Transactional
+     * method — uses the EntityManager that is bound to the current
+     * transaction.
      */
     public void bindTenantToCurrentTransaction() {
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
@@ -54,26 +59,23 @@ public class TenantRlsBinder {
 
         TenantContext context = contextProvider.currentContext().orElse(null);
         if (context == null) {
-            // No tenant context — RLS will fail-closed (no rows returned).
-            // This is the safe default; do NOT set a sentinel value.
+            log.debug("RLS bind skipped — no TenantContext (RLS will fail-closed)");
             return;
         }
 
         UUID tenantId = context.tenantId();
-        String sql = String.format(SET_LOCAL_SQL, tenantId.toString());
-
         try {
             Session session = entityManager.unwrap(Session.class);
             session.doWork(connection -> {
-                try (var stmt = connection.createStatement()) {
-                    stmt.execute(sql);
+                try (var stmt = connection.prepareStatement(SET_CONFIG_SQL)) {
+                    stmt.setString(1, tenantId.toString());
+                    stmt.execute();
                 }
             });
             log.debug("RLS tenant bound: requestId={} tenantId={}",
                     context.requestId(), tenantId);
         } catch (Exception e) {
-            // Likely H2 (which doesn't support SET LOCAL the same way) —
-            // application-layer scoping remains the source of truth.
+            // H2 doesn't support set_config — application-layer scoping remains.
             log.debug("RLS bind skipped (likely non-PostgreSQL): {}", e.getMessage());
         }
     }

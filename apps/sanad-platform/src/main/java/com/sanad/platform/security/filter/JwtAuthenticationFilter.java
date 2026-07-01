@@ -127,6 +127,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         details.put("user_id", claims.getSubject());
         details.put("tenant_id", jwtTenantIdStr);
         details.put("email", claims.get("email", String.class));
+        details.put("jti", claims.getId());
         details.put(JwtTokenProvider.ROTATION_REQUIRED_CLAIM, rotationRequired);
         details.put(JwtTokenProvider.SESSION_VERSION_CLAIM, jwtSessionVersion);
 

@@ -71,9 +71,7 @@ class TenantContextLifecycleTest {
     void sequentialRequests_doNotShareContext() {
         // Request 1: tenant A
         UUID tenantA = UUID.randomUUID();
-        TenantContext ctxA = new TenantContext(
-                tenantA, UUID.randomUUID(), "session-A", Set.of(),
-                TenantContext.TenantContextSource.JWT_CLAIM, "req-A");
+        TenantContext ctxA = new TenantContext(tenantA, UUID.randomUUID(), "session-A", 0L, Set.of(), TenantContext.TenantContextSource.JWT_CLAIM, "req-A");
         provider.setContext(ctxA);
         assertThat(provider.requireContext().tenantId()).isEqualTo(tenantA);
 
@@ -82,9 +80,7 @@ class TenantContextLifecycleTest {
 
         // Request 2: tenant B
         UUID tenantB = UUID.randomUUID();
-        TenantContext ctxB = new TenantContext(
-                tenantB, UUID.randomUUID(), "session-B", Set.of(),
-                TenantContext.TenantContextSource.JWT_CLAIM, "req-B");
+        TenantContext ctxB = new TenantContext(tenantB, UUID.randomUUID(), "session-B", 0L, Set.of(), TenantContext.TenantContextSource.JWT_CLAIM, "req-B");
         provider.setContext(ctxB);
         assertThat(provider.requireContext().tenantId()).isEqualTo(tenantB);
 
@@ -95,9 +91,7 @@ class TenantContextLifecycleTest {
     @DisplayName("Context does NOT propagate to child threads (no InheritableThreadLocal)")
     void contextDoesNotPropagateToChildThreads() throws InterruptedException {
         UUID tenantId = UUID.randomUUID();
-        TenantContext ctx = new TenantContext(
-                tenantId, UUID.randomUUID(), "session", Set.of(),
-                TenantContext.TenantContextSource.JWT_CLAIM, "req");
+        TenantContext ctx = new TenantContext(tenantId, UUID.randomUUID(), "session", 0L, Set.of(), TenantContext.TenantContextSource.JWT_CLAIM, "req");
         provider.setContext(ctx);
 
         Thread[] threads = new Thread[1];
@@ -147,9 +141,7 @@ class TenantContextLifecycleTest {
     @DisplayName("TenantContext is immutable — record fields cannot be mutated")
     void contextIsImmutable() {
         UUID tenantId = UUID.randomUUID();
-        TenantContext ctx = new TenantContext(
-                tenantId, UUID.randomUUID(), "session", Set.of("CAP.READ"),
-                TenantContext.TenantContextSource.JWT_CLAIM, "req");
+        TenantContext ctx = new TenantContext(tenantId, UUID.randomUUID(), "session", 0L, Set.of("CAP.READ"), TenantContext.TenantContextSource.JWT_CLAIM, "req");
 
         // Records are immutable by design — verify the tenantId cannot be changed
         assertThat(ctx.tenantId()).isEqualTo(tenantId);
@@ -164,9 +156,7 @@ class TenantContextLifecycleTest {
     @DisplayName("matchesTenant() returns true for matching tenant, false for non-matching")
     void matchesTenant() {
         UUID tenantId = UUID.randomUUID();
-        TenantContext ctx = new TenantContext(
-                tenantId, UUID.randomUUID(), null, Set.of(),
-                TenantContext.TenantContextSource.JWT_CLAIM, "req");
+        TenantContext ctx = new TenantContext(tenantId, UUID.randomUUID(), null, 0L, Set.of(), TenantContext.TenantContextSource.JWT_CLAIM, "req");
 
         assertThat(ctx.matchesTenant(tenantId)).isTrue();
         assertThat(ctx.matchesTenant(UUID.randomUUID())).isFalse();
@@ -176,9 +166,7 @@ class TenantContextLifecycleTest {
     @Test
     @DisplayName("hasCapability() checks capability presence")
     void hasCapability() {
-        TenantContext ctx = new TenantContext(
-                UUID.randomUUID(), UUID.randomUUID(), null, Set.of("USER.READ", "USER.WRITE"),
-                TenantContext.TenantContextSource.JWT_CLAIM, "req");
+        TenantContext ctx = new TenantContext(UUID.randomUUID(), UUID.randomUUID(), null, 0L, Set.of("USER.READ", "USER.WRITE"), TenantContext.TenantContextSource.JWT_CLAIM, "req");
 
         assertThat(ctx.hasCapability("USER.READ")).isTrue();
         assertThat(ctx.hasCapability("USER.WRITE")).isTrue();
@@ -186,12 +174,7 @@ class TenantContextLifecycleTest {
     }
 
     private TenantContext createContext() {
-        return new TenantContext(
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                "session-id",
-                Set.of("USER.READ"),
-                TenantContext.TenantContextSource.TEST_FIXTURE,
+        return new TenantContext(UUID.randomUUID(), UUID.randomUUID(), "session-id", 0L, Set.of("USER.READ"), TenantContext.TenantContextSource.TEST_FIXTURE,
                 "test-request-id");
     }
 }

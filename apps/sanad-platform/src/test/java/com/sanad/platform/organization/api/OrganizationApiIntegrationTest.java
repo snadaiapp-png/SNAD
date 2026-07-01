@@ -105,7 +105,6 @@ class OrganizationApiIntegrationTest {
     // ============================================================
     private String createPayload(String name, String description) throws Exception {
         return objectMapper.writeValueAsString(java.util.Map.of(
-                "tenantId", tenantId.toString(),
                 "name", name,
                 "description", description
         ));
@@ -116,6 +115,7 @@ class OrganizationApiIntegrationTest {
     // ============================================================
     private JsonNode createOrganization(String name, String description) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/organizations")
+                        .param("tenantId", tenantId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createPayload(name, description)))
                 .andExpect(status().isCreated())
@@ -155,6 +155,7 @@ class OrganizationApiIntegrationTest {
 
         // --- Act + Assert: second create with same name fails ---
         mockMvc.perform(post("/api/v1/organizations")
+                        .param("tenantId", tenantId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createPayload("Dup Name", "Second")))
                 .andExpect(status().isConflict())

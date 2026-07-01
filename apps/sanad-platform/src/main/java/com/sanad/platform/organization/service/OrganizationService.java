@@ -95,21 +95,21 @@ public class OrganizationService {
      *                                              already exists under the same Tenant
      */
     @Transactional
-    public OrganizationResponse createOrganization(CreateOrganizationRequest request) {
+    public OrganizationResponse createOrganization(UUID tenantId, CreateOrganizationRequest request) {
+        Objects.requireNonNull(tenantId, "tenantId must not be null");
         Objects.requireNonNull(request, "CreateOrganizationRequest must not be null");
-        Objects.requireNonNull(request.getTenantId(), "tenantId must not be null");
         Objects.requireNonNull(request.getName(), "name must not be null");
 
         // --- Business Rule 1: Verify the parent Tenant exists ---
-        Tenant tenant = tenantRepository.findById(request.getTenantId())
+        Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new EntityNotFoundException(
-                        "Tenant not found with id: " + request.getTenantId()));
+                        "Tenant not found with id: " + tenantId));
 
         // --- Business Rule 2: Verify organization name uniqueness within the tenant ---
         if (organizationRepository.existsByTenantIdAndName(
-                request.getTenantId(), request.getName())) {
+                tenantId, request.getName())) {
             throw new OrganizationAlreadyExistsException(
-                    request.getTenantId(), request.getName());
+                    tenantId, request.getName());
         }
 
         // --- Business Rule 3 + 5: Construct the new Organization aggregate ---

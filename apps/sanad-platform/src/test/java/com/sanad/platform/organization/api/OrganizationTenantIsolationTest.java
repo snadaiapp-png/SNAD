@@ -94,11 +94,11 @@ class OrganizationTenantIsolationTest {
     // ============================================================
     private JsonNode createOrganization(UUID tenantId, String name, String description) throws Exception {
         String payload = objectMapper.writeValueAsString(Map.of(
-                "tenantId", tenantId.toString(),
                 "name", name,
                 "description", description
         ));
         MvcResult result = mockMvc.perform(post("/api/v1/organizations")
+                        .param("tenantId", tenantId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated())
@@ -252,9 +252,9 @@ class OrganizationTenantIsolationTest {
 
         // Create org with SAME name under tenant B — should NOT get 409
         mockMvc.perform(post("/api/v1/organizations")
+                        .param("tenantId", tenantBId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
-                                "tenantId", tenantBId.toString(),
                                 "name", "Shared Name",
                                 "description", "tenant B's org"
                         ))))

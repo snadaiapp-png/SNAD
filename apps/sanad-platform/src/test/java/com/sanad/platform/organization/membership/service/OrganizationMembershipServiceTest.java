@@ -98,8 +98,7 @@ class OrganizationMembershipServiceTest {
     @Test
     @DisplayName("inviteMember: success - creates membership with status INVITED")
     void inviteMember_success_createsInvitedMembership() {
-        InviteOrganizationMemberRequest request = new InviteOrganizationMemberRequest(
-                tenantId, organizationId, "alice@example.com", "Alice");
+        InviteOrganizationMemberRequest request = new InviteOrganizationMemberRequest(organizationId, "alice@example.com", "Alice");
 
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
         when(organizationRepository.findByTenantIdAndId(tenantId, organizationId))
@@ -109,7 +108,7 @@ class OrganizationMembershipServiceTest {
         when(membershipRepository.save(any(OrganizationMembership.class))).thenReturn(savedMembership);
         when(membershipMapper.toResponse(savedMembership)).thenReturn(expectedResponse);
 
-        OrganizationMembershipResponse result = service.inviteMember(request);
+        OrganizationMembershipResponse result = service.inviteMember(tenantId, request);
 
         assertThat(result).isNotNull();
         assertThat(result.getStatus()).isEqualTo(MembershipStatus.INVITED);
@@ -129,12 +128,11 @@ class OrganizationMembershipServiceTest {
     @Test
     @DisplayName("inviteMember: tenant not found -> EntityNotFoundException")
     void inviteMember_tenantNotFound_throwsException() {
-        InviteOrganizationMemberRequest request = new InviteOrganizationMemberRequest(
-                tenantId, organizationId, "alice@example.com", "Alice");
+        InviteOrganizationMemberRequest request = new InviteOrganizationMemberRequest(organizationId, "alice@example.com", "Alice");
 
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.inviteMember(request))
+        assertThatThrownBy(() -> service.inviteMember(tenantId, request))
                 .isInstanceOf(EntityNotFoundException.class)
                 .hasMessageContaining("Tenant not found with id");
 
@@ -145,14 +143,13 @@ class OrganizationMembershipServiceTest {
     @Test
     @DisplayName("inviteMember: organization not found -> EntityNotFoundException")
     void inviteMember_organizationNotFound_throwsException() {
-        InviteOrganizationMemberRequest request = new InviteOrganizationMemberRequest(
-                tenantId, organizationId, "alice@example.com", "Alice");
+        InviteOrganizationMemberRequest request = new InviteOrganizationMemberRequest(organizationId, "alice@example.com", "Alice");
 
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
         when(organizationRepository.findByTenantIdAndId(tenantId, organizationId))
                 .thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.inviteMember(request))
+        assertThatThrownBy(() -> service.inviteMember(tenantId, request))
                 .isInstanceOf(EntityNotFoundException.class)
                 .hasMessageContaining("Organization not found with id");
 
@@ -162,8 +159,7 @@ class OrganizationMembershipServiceTest {
     @Test
     @DisplayName("inviteMember: duplicate email -> OrganizationMembershipAlreadyExistsException")
     void inviteMember_duplicateEmail_throwsException() {
-        InviteOrganizationMemberRequest request = new InviteOrganizationMemberRequest(
-                tenantId, organizationId, "alice@example.com", "Alice");
+        InviteOrganizationMemberRequest request = new InviteOrganizationMemberRequest(organizationId, "alice@example.com", "Alice");
 
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
         when(organizationRepository.findByTenantIdAndId(tenantId, organizationId))
@@ -171,7 +167,7 @@ class OrganizationMembershipServiceTest {
         when(membershipRepository.existsByTenantIdAndOrganizationIdAndEmail(
                 tenantId, organizationId, "alice@example.com")).thenReturn(true);
 
-        assertThatThrownBy(() -> service.inviteMember(request))
+        assertThatThrownBy(() -> service.inviteMember(tenantId, request))
                 .isInstanceOf(OrganizationMembershipAlreadyExistsException.class)
                 .hasMessage("Organization membership already exists for this email");
 
@@ -181,8 +177,7 @@ class OrganizationMembershipServiceTest {
     @Test
     @DisplayName("inviteMember: normalizes email to lowercase before dedup check and save")
     void inviteMember_normalizesEmailToLowerCase() {
-        InviteOrganizationMemberRequest request = new InviteOrganizationMemberRequest(
-                tenantId, organizationId, "Alice.Black@Example.COM", "Alice");
+        InviteOrganizationMemberRequest request = new InviteOrganizationMemberRequest(organizationId, "Alice.Black@Example.COM", "Alice");
 
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
         when(organizationRepository.findByTenantIdAndId(tenantId, organizationId))
@@ -192,7 +187,7 @@ class OrganizationMembershipServiceTest {
         when(membershipRepository.save(any(OrganizationMembership.class))).thenReturn(savedMembership);
         when(membershipMapper.toResponse(savedMembership)).thenReturn(expectedResponse);
 
-        service.inviteMember(request);
+        service.inviteMember(tenantId, request);
 
         // Verify the dedup check used the lowercased email
         verify(membershipRepository).existsByTenantIdAndOrganizationIdAndEmail(

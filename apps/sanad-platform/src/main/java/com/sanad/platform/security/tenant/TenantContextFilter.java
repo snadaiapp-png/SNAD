@@ -68,6 +68,8 @@ public class TenantContextFilter extends OncePerRequestFilter {
         Object tenantIdObj = detailsMap.get("tenant_id");
         Object userIdObj = detailsMap.get("user_id");
         Object emailObj = detailsMap.get("email");
+        Object sessionIdObj = detailsMap.get("jti");
+        Object sessionVersionObj = detailsMap.get("session_version");
 
         if (tenantIdObj == null || userIdObj == null) {
             // Incomplete claims — cannot establish context.
@@ -88,17 +90,25 @@ public class TenantContextFilter extends OncePerRequestFilter {
 
         String requestId = MDC.get(RequestIdFilter.MDC_KEY);
         String email = emailObj != null ? emailObj.toString() : null;
+        String sessionId = sessionIdObj != null ? sessionIdObj.toString() : null;
 
-        // Capabilities are not currently stored in the JWT; they are
-        // evaluated by the @RequireCapability aspect against the DB.
-        // For the TenantContext, we carry an empty set — the aspect
-        // remains the source of truth for capability evaluation.
+        long sessionVersion = 0L;
+        if (sessionVersionObj instanceof Number) {
+            sessionVersion = ((Number) sessionVersionObj).longValue();
+        }
+
+        // Capabilities are not stored in the JWT; they are evaluated by the
+        // @RequireCapability aspect against the DB. For the TenantContext,
+        // we carry an empty set — the aspect remains the source of truth.
+        // capabilitiesVerified() returns false when empty, so callers should
+        // not treat this as "zero capabilities".
         Set<String> capabilities = Set.of();
 
         TenantContext context = new TenantContext(
                 tenantId,
                 userId,
-                email,  // sessionId slot — reused for email until session-id tracking is added
+                sessionId,
+                sessionVersion,
                 capabilities,
                 TenantContext.TenantContextSource.JWT_CLAIM,
                 requestId

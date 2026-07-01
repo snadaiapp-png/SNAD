@@ -68,9 +68,12 @@ import java.util.UUID;
 public class OrganizationController {
 
     private final OrganizationService organizationService;
+    private final com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
-    public OrganizationController(OrganizationService organizationService) {
+    public OrganizationController(OrganizationService organizationService,
+                                   com.sanad.platform.security.tenant.TenantResolver tenantResolver) {
         this.organizationService = organizationService;
+        this.tenantResolver = tenantResolver;
     }
 
     /**
@@ -137,7 +140,9 @@ public class OrganizationController {
     public ResponseEntity<OrganizationResponse> createOrganization(
             @Valid @RequestBody CreateOrganizationRequest request) {
 
-        OrganizationResponse created = organizationService.createOrganization(request);
+        // Stage 04A §10: tenantId from verified TenantContext, not from client.
+        java.util.UUID verifiedTenantId = tenantResolver.requireTenantId();
+        OrganizationResponse created = organizationService.createOrganization(verifiedTenantId, request);
 
         // Build the Location header for the 201 response
         URI location = ServletUriComponentsBuilder

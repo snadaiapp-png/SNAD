@@ -36,6 +36,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc(addFilters = false)
 @Import(OrganizationMembershipApiExceptionHandler.class)
 class OrganizationMembershipControllerTest {
+    @org.junit.jupiter.api.BeforeEach
+    void mockTenantResolver() {
+        org.mockito.Mockito.when(tenantResolver.requireTenantId()).thenReturn(tenantId);
+        org.mockito.Mockito.when(tenantResolver.validateClientSelector(org.mockito.ArgumentMatchers.any())).thenReturn(tenantId);
+    }
+
 
     @Autowired
     private MockMvc mockMvc;
@@ -45,6 +51,9 @@ class OrganizationMembershipControllerTest {
 
     @MockBean
     private OrganizationMembershipService membershipService;
+
+    @MockBean
+    private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
     private final UUID tenantId = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private final UUID organizationId = UUID.fromString("22222222-2222-2222-2222-222222222222");
@@ -62,9 +71,8 @@ class OrganizationMembershipControllerTest {
     @Test
     @DisplayName("CASE 1: POST invite valid -> 201 Created")
     void inviteMember_valid_returns201() throws Exception {
-        InviteOrganizationMemberRequest request = new InviteOrganizationMemberRequest(
-                tenantId, organizationId, "alice@example.com", "Alice");
-        when(membershipService.inviteMember(any(InviteOrganizationMemberRequest.class)))
+        InviteOrganizationMemberRequest request = new InviteOrganizationMemberRequest(organizationId, "alice@example.com", "Alice");
+        when(membershipService.inviteMember(eq(tenantId), any(InviteOrganizationMemberRequest.class)))
                 .thenReturn(sampleResponse(MembershipStatus.INVITED));
 
         mockMvc.perform(post("/api/v1/organizations/{organizationId}/memberships", organizationId)
@@ -84,9 +92,8 @@ class OrganizationMembershipControllerTest {
     @Test
     @DisplayName("CASE 2: POST duplicate email -> 409 Conflict")
     void inviteMember_duplicate_returns409() throws Exception {
-        InviteOrganizationMemberRequest request = new InviteOrganizationMemberRequest(
-                tenantId, organizationId, "alice@example.com", "Alice");
-        when(membershipService.inviteMember(any(InviteOrganizationMemberRequest.class)))
+        InviteOrganizationMemberRequest request = new InviteOrganizationMemberRequest(organizationId, "alice@example.com", "Alice");
+        when(membershipService.inviteMember(eq(tenantId), any(InviteOrganizationMemberRequest.class)))
                 .thenThrow(new OrganizationMembershipAlreadyExistsException(tenantId, organizationId, "alice@example.com"));
 
         mockMvc.perform(post("/api/v1/organizations/{organizationId}/memberships", organizationId)

@@ -88,8 +88,13 @@ public class JwtTokenProvider {
         Instant now = Instant.now();
         Instant expiry = now.plus(jwtConfig.getAccessTokenTtl());
 
+        // Stage 04A §6 — jti (JWT ID) is the real session identifier.
+        // It is unique per token and used as the sessionId in TenantContext.
+        String tokenId = UUID.randomUUID().toString();
+
         return Jwts.builder()
                 .subject(userId.toString())
+                .id(tokenId)
                 .claim("tenant_id", tenantId.toString())
                 .claim("email", email)
                 .claim(ROTATION_REQUIRED_CLAIM, credentialRotationRequired)

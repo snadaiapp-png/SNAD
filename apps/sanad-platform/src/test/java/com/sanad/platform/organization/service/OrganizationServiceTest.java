@@ -80,7 +80,6 @@ class OrganizationServiceTest {
         reflectSet(tenant, "updatedAt", now);
 
         createRequest = new CreateOrganizationRequest(
-                tenantId,
                 "Acme Riyadh Branch",
                 "Main Riyadh operations"
         );
@@ -125,7 +124,7 @@ class OrganizationServiceTest {
         when(organizationMapper.toResponse(savedOrganization)).thenReturn(expectedResponse);
 
         // --- Act ---
-        OrganizationResponse actualResponse = organizationService.createOrganization(createRequest);
+        OrganizationResponse actualResponse = organizationService.createOrganization(tenantId, createRequest);
 
         // --- Assert ---
         assertThat(actualResponse).isNotNull();
@@ -170,7 +169,7 @@ class OrganizationServiceTest {
                 .thenReturn(true);
 
         // --- Act + Assert ---
-        assertThatThrownBy(() -> organizationService.createOrganization(createRequest))
+        assertThatThrownBy(() -> organizationService.createOrganization(tenantId, createRequest))
                 .isInstanceOf(OrganizationAlreadyExistsException.class)
                 .hasMessage("Organization already exists for this tenant");
 
@@ -194,7 +193,7 @@ class OrganizationServiceTest {
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.empty());
 
         // --- Act + Assert ---
-        assertThatThrownBy(() -> organizationService.createOrganization(createRequest))
+        assertThatThrownBy(() -> organizationService.createOrganization(tenantId, createRequest))
                 .isInstanceOf(EntityNotFoundException.class)
                 .hasMessageContaining("Tenant not found with id")
                 .hasMessageContaining(tenantId.toString());

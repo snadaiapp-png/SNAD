@@ -53,9 +53,12 @@ import java.util.UUID;
 public class OrganizationMembershipController {
 
     private final OrganizationMembershipService membershipService;
+    private final com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
-    public OrganizationMembershipController(OrganizationMembershipService membershipService) {
+    public OrganizationMembershipController(OrganizationMembershipService membershipService,
+                                             com.sanad.platform.security.tenant.TenantResolver tenantResolver) {
         this.membershipService = membershipService;
+        this.tenantResolver = tenantResolver;
     }
 
     // ============================================================
@@ -90,7 +93,9 @@ public class OrganizationMembershipController {
             @RequestParam UUID tenantId,
             @Valid @RequestBody InviteOrganizationMemberRequest request) {
 
-        OrganizationMembershipResponse created = membershipService.inviteMember(request);
+        // Stage 04A §9: validate client tenantId against verified TenantContext.
+        java.util.UUID verifiedTenantId = tenantResolver.validateClientSelector(tenantId);
+        OrganizationMembershipResponse created = membershipService.inviteMember(verifiedTenantId, request);
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{membershipId}")
                 .buildAndExpand(created.getId())

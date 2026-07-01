@@ -57,6 +57,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc(addFilters = false)
 @Import(OrganizationApiExceptionHandler.class)
 class OrganizationControllerTest {
+    @org.junit.jupiter.api.BeforeEach
+    void mockTenantResolver() {
+        org.mockito.Mockito.when(tenantResolver.requireTenantId()).thenReturn(tenantId);
+        org.mockito.Mockito.when(tenantResolver.validateClientSelector(org.mockito.ArgumentMatchers.any())).thenReturn(tenantId);
+    }
+
 
     @Autowired
     private MockMvc mockMvc;
@@ -66,6 +72,9 @@ class OrganizationControllerTest {
 
     @MockBean
     private OrganizationService organizationService;
+
+    @MockBean
+    private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
     // Common fixtures
     private final UUID tenantId = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -88,14 +97,13 @@ class OrganizationControllerTest {
     @DisplayName("CASE 1: POST valid request -> 201 Created with Location header")
     void createOrganization_validRequest_returns201() throws Exception {
         // --- Arrange ---
-        CreateOrganizationRequest request = new CreateOrganizationRequest(
-                tenantId, "Acme Riyadh Branch", "Main Riyadh operations");
+        CreateOrganizationRequest request = new CreateOrganizationRequest("Acme Riyadh Branch", "Main Riyadh operations");
 
         OrganizationResponse serviceResponse = new OrganizationResponse(
                 organizationId, tenantId, "Acme Riyadh Branch", "Main Riyadh operations",
                 OrganizationStatus.ACTIVE, now, now);
 
-        when(organizationService.createOrganization(any(CreateOrganizationRequest.class)))
+        when(organizationService.createOrganization(eq(tenantId), any(CreateOrganizationRequest.class)))
                 .thenReturn(serviceResponse);
 
         // --- Act + Assert ---
@@ -126,10 +134,9 @@ class OrganizationControllerTest {
     @DisplayName("CASE 2: POST duplicate organization -> 409 Conflict")
     void createOrganization_duplicateOrganization_returns409() throws Exception {
         // --- Arrange ---
-        CreateOrganizationRequest request = new CreateOrganizationRequest(
-                tenantId, "Acme Riyadh Branch", "Main Riyadh operations");
+        CreateOrganizationRequest request = new CreateOrganizationRequest("Acme Riyadh Branch", "Main Riyadh operations");
 
-        when(organizationService.createOrganization(any(CreateOrganizationRequest.class)))
+        when(organizationService.createOrganization(eq(tenantId), any(CreateOrganizationRequest.class)))
                 .thenThrow(new OrganizationAlreadyExistsException(tenantId, "Acme Riyadh Branch"));
 
         // --- Act + Assert ---
@@ -155,10 +162,9 @@ class OrganizationControllerTest {
     @DisplayName("CASE 3: POST invalid tenant -> 404 Not Found")
     void createOrganization_invalidTenant_returns404() throws Exception {
         // --- Arrange ---
-        CreateOrganizationRequest request = new CreateOrganizationRequest(
-                tenantId, "Acme Riyadh Branch", "Main Riyadh operations");
+        CreateOrganizationRequest request = new CreateOrganizationRequest("Acme Riyadh Branch", "Main Riyadh operations");
 
-        when(organizationService.createOrganization(any(CreateOrganizationRequest.class)))
+        when(organizationService.createOrganization(eq(tenantId), any(CreateOrganizationRequest.class)))
                 .thenThrow(new EntityNotFoundException("Tenant not found with id: " + tenantId));
 
         // --- Act + Assert ---
