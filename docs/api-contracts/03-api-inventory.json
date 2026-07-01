@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "generatedAt": "2026-07-01T00:00:00Z",
-  "totalEndpoints": 50,
+  "totalEndpoints": 56,
   "controllers": [
     {
       "name": "AuthController",
@@ -681,6 +681,42 @@
           "path": "/api/v1/access/evaluation",
           "auth": true,
           "capability": "ACCESS.EVALUATE",
+          "tenant": true,
+          "pagination": false,
+          "errorSchema": "ApiErrorResponse",
+          "runtimeVerified": true
+        }
+      ]
+    },
+    {
+      "name": "AuditEventController",
+      "module": "audit",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/v1/audit-events",
+          "auth": true,
+          "capability": "AUDIT.READ",
+          "tenant": true,
+          "pagination": true,
+          "errorSchema": "ApiErrorResponse",
+          "runtimeVerified": true
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/audit-events/{id}",
+          "auth": true,
+          "capability": "AUDIT.READ",
+          "tenant": true,
+          "pagination": false,
+          "errorSchema": "ApiErrorResponse",
+          "runtimeVerified": true
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/audit-events/integrity",
+          "auth": true,
+          "capability": "AUDIT.INTEGRITY_VERIFY",
           "tenant": true,
           "pagination": false,
           "errorSchema": "ApiErrorResponse",

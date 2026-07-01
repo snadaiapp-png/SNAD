@@ -43,7 +43,17 @@ public enum ErrorCode {
     SANAD_PAG_002("SANAD-PAG-002", "Invalid sort field", 400),
 
     // Rate limit
-    SANAD_RATE_001("SANAD-RATE-001", "Rate limit exceeded", 429);
+    SANAD_RATE_001("SANAD-RATE-001", "Rate limit exceeded", 429),
+
+    // Audit (Stage 05)
+    SANAD_AUDIT_001("SANAD-AUDIT-001", "Audit event not found", 404),
+    SANAD_AUDIT_002("SANAD-AUDIT-002", "Audit integrity check failed", 409),
+
+    // Idempotency (Stage 05)
+    SANAD_IDEMP_001("SANAD-IDEMP-001", "Idempotency key required", 400),
+    SANAD_IDEMP_002("SANAD-IDEMP-002", "Idempotency key conflict — payload mismatch", 409),
+    SANAD_IDEMP_003("SANAD-IDEMP-003", "Idempotency key in progress — retry later", 409),
+    SANAD_IDEMP_004("SANAD-IDEMP-004", "Idempotency record expired", 410);
 
     private final String code;
     private final String title;

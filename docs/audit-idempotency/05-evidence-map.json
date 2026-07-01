@@ -1,0 +1,30 @@
+{
+  "stage": "05",
+  "generatedAt": "2026-07-02T00:00:00Z",
+  "implementationWorkflowRunId": null,
+  "implementationWorkflowHeadSha": null,
+  "implementationArtifactId": null,
+  "implementationArtifactName": "audit-idempotency-evidence",
+  "criteria": [
+    {"criterion": "Audit event persisted with all fields", "testClass": "AuditEventPersistenceIntegrationTest", "testMethod": "auditEvent_persistedWithAllFields", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Audit append-only: INSERT succeeds", "testClass": "AuditAppendOnlyIntegrationTest", "testMethod": "auditInsert_succeeds", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Audit append-only: UPDATE rejected", "testClass": "AuditAppendOnlyIntegrationTest", "testMethod": "auditUpdate_rejected", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Audit append-only: DELETE rejected", "testClass": "AuditAppendOnlyIntegrationTest", "testMethod": "auditDelete_rejected", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Audit append-only: TRUNCATE rejected", "testClass": "AuditAppendOnlyIntegrationTest", "testMethod": "auditTruncate_rejected", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Audit RLS: tenant sees only own events", "testClass": "AuditRlsIntegrationTest", "testMethod": "runtimeRole_seesOnlyOwnTenantEvents", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Audit redaction: password fields redacted", "testClass": "AuditRedactionIntegrationTest", "testMethod": "passwordFieldRedacted", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Audit hash chain: single event verifies", "testClass": "AuditHashChainIntegrationTest", "testMethod": "hashChain_verifiesForSingleEvent", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Audit hash chain: tampering detected", "testClass": "AuditHashChainIntegrationTest", "testMethod": "hashChain_detectsTampering", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Audit transaction boundary: success committed", "testClass": "AuditTransactionBoundaryIntegrationTest", "testMethod": "businessSuccess_auditCommitted", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Audit denied request: 401 audited", "testClass": "AuditDeniedRequestIntegrationTest", "testMethod": "authFailure_audited", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Audit actor attribution: USER attributed", "testClass": "AuditActorAttributionIntegrationTest", "testMethod": "userActorAttributed", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Idempotency same-request replay", "testClass": "IdempotencySameRequestReplayIntegrationTest", "testMethod": "sameKeySamePayload_replaysResponse", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Idempotency payload mismatch returns 409", "testClass": "IdempotencyPayloadMismatchIntegrationTest", "testMethod": "sameKeyDifferentPayload_returns409", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Idempotency concurrent execution count = 1", "testClass": "IdempotencyConcurrentExecutionIntegrationTest", "testMethod": "twentyConcurrentRequests_executeOnce", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Idempotency cross-tenant isolation", "testClass": "IdempotencyCrossTenantIsolationIntegrationTest", "testMethod": "sameKeyDifferentTenants_independent", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Idempotency failure recovery: retryable allows retry", "testClass": "IdempotencyFailureRecoveryIntegrationTest", "testMethod": "retryableFailure_allowsRetry", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Idempotency response redaction: Set-Cookie stripped", "testClass": "IdempotencyResponseRedactionIntegrationTest", "testMethod": "setCookieStrippedFromStoredResponse", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Idempotency RLS: tenant sees only own records", "testClass": "IdempotencyRlsIntegrationTest", "testMethod": "runtimeRole_seesOnlyOwnTenantRecords", "artifact": "audit-idempotency-evidence"},
+    {"criterion": "Idempotency expiration: expired PROCESSING returns EXPIRED", "testClass": "IdempotencyExpirationIntegrationTest", "testMethod": "expiredProcessingRecord_returnsExpired", "artifact": "audit-idempotency-evidence"}
+  ]
+}

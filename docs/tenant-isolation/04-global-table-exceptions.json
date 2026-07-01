@@ -34,7 +34,9 @@
     "role_capabilities",
     "user_role_assignments",
     "refresh_tokens",
-    "password_reset_tokens"
+    "password_reset_tokens",
+    "audit_events",
+    "idempotency_records"
   ],
   "rlsProtectedCount": 8,
   "globalExceptionCount": 2,
