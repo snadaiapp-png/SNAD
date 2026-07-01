@@ -1,0 +1,71 @@
+{
+  "name": "@snad/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "engines": {
+    "node": ">=22.13 <25"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "test": "jest --runInBand",
+    "doctor": "expo-doctor",
+    "verify:env": "node scripts/verify-environment.mjs",
+    "export:web": "expo export --platform web --output-dir dist",
+    "prebuild:clean": "expo prebuild --clean"
+  },
+  "dependencies": {
+    "@react-native-community/netinfo": "12.0.1",
+    "@shopify/flash-list": "2.3.2",
+    "@tanstack/react-query": "5.101.2",
+    "expo": "~57.0.1",
+    "expo-constants": "~57.0.2",
+    "expo-crypto": "~57.0.0",
+    "expo-device": "~57.0.0",
+    "expo-linking": "~57.0.1",
+    "expo-local-authentication": "~57.0.0",
+    "expo-localization": "~57.0.0",
+    "expo-notifications": "~57.0.2",
+    "expo-router": "~57.0.2",
+    "expo-secure-store": "~57.0.0",
+    "expo-splash-screen": "~57.0.1",
+    "expo-sqlite": "~57.0.0",
+    "expo-status-bar": "~57.0.0",
+    "expo-system-ui": "~57.0.0",
+    "expo-updates": "~57.0.5",
+    "i18next": "26.3.4",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-i18next": "17.0.8",
+    "react-native": "0.86.0",
+    "react-native-gesture-handler": "~2.32.0",
+    "react-native-reanimated": "4.5.0",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "4.25.2",
+    "react-native-web": "~0.21.0",
+    "react-native-worklets": "0.10.0",
+    "zod": "4.4.3",
+    "zustand": "5.0.14"
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "14.0.1",
+    "@types/jest": "30.0.0",
+    "@types/react": "~19.2.2",
+    "eslint": "10.6.0",
+    "eslint-config-expo": "57.0.0",
+    "jest": "30.4.2",
+    "jest-expo": "57.0.0",
+    "typescript": "~6.0.3"
+  },
+  "jest": {
+    "preset": "jest-expo",
+    "testMatch": [
+      "**/?(*.)+(spec|test).[jt]s?(x)"
+    ]
+  }
+}
