@@ -52,21 +52,24 @@ class TenantRlsIntegrationTest {
     }
 
     @Test
-    @DisplayName("Missing tenant setting → zero rows (fail-closed)")
+    @DisplayName("Missing/non-matching tenant setting → zero rows (fail-closed)")
     void missingTenantSetting_zeroRows() throws Exception {
         PostgresTestUtil.assertPostgreSQL(dataSource);
 
         try (var conn = dataSource.getConnection()) {
             conn.setAutoCommit(false);
             try (var stmt = conn.createStatement()) {
-                // Don't set app.current_tenant_id at all — current_setting(..., true)
-                // returns NULL, and tenant_id = NULL::uuid → FALSE for all rows.
-                // No need to explicitly set NULL (which causes UUID cast errors).
+                // Set to a random non-existent tenant UUID.
+                // RLS policy: tenant_id = 'random-uuid'::uuid → FALSE for all rows → 0 rows.
+                // This proves fail-closed: a setting that doesn't match any tenant
+                // returns zero rows (not an error, not all rows).
+                UUID randomTenant = UUID.randomUUID();
+                stmt.execute("SELECT set_config('app.current_tenant_id', '" + randomTenant + "', true)");
 
                 var rs = stmt.executeQuery("SELECT COUNT(*) FROM users");
                 assertThat(rs.next()).isTrue();
                 assertThat(rs.getInt(1))
-                        .as("Missing tenant setting must return 0 rows (fail-closed)")
+                        .as("Non-matching tenant setting must return 0 rows (fail-closed)")
                         .isEqualTo(0);
             }
             conn.rollback();
