@@ -20,8 +20,11 @@ name: NVD Bulk Feed Mirror Publisher
 on:
   workflow_dispatch:
   schedule:
-    # Daily at 03:17 UTC
     - cron: '17 3 * * *'
+  push:
+    branches: [feat/crm-runtime-environment]
+    paths:
+      - '.github/security-requests/nvd-feed-refresh.json'
 
 permissions:
   contents: write
@@ -81,7 +84,6 @@ jobs:
           feed_dir = Path(os.environ.get("FEED_DIR", "/tmp/nvd-feed"))
           work_dir = Path(os.environ.get("WORK_DIR", "/tmp/nvd-feed-work"))
 
-          # Run the resumable mirror
           checkpoint = run_bulk_feed_mirror(
               feed_dir=feed_dir,
               work_dir=work_dir,
@@ -90,7 +92,6 @@ jobs:
               backend=backend,
           )
 
-          # Check if complete
           if not checkpoint.is_complete():
               print(f"\n=== INCOMPLETE: {len(checkpoint.completed_feeds)}/{len(checkpoint.required_feeds)} feeds ===")
               print("Progress persisted to seed checkpoint. Next run will resume.")
@@ -99,8 +100,6 @@ jobs:
               sys.exit(1)
 
           print(f"\n=== ALL FEEDS VERIFIED: {len(checkpoint.completed_feeds)}/{len(checkpoint.required_feeds)} ===")
-
-          # Verify content
           verification = verify_feed_content(feed_dir)
           if not verification["valid"]:
               print("::error::Feed content verification failed")
@@ -108,13 +107,11 @@ jobs:
               sys.exit(1)
           print(f"Content verification: PASS ({verification['feed_count']} feeds)")
 
-          # Find seed release
           seed = find_active_seed(backend)
           if not seed:
               print("::error::No active seed release found for final publish")
               sys.exit(1)
 
-          # Publish final release
           result = publish_final_feed_release(
               backend=backend,
               checkpoint=checkpoint,
