@@ -1,6 +1,6 @@
 import { getLocales } from "expo-localization";
-import { environment } from "@/core/config/environment";
-import { getAccessToken } from "@/core/auth/secure-session";
+import { environment } from "../config/environment";
+import { getAccessToken } from "../auth/secure-session";
 
 export class MobileApiError extends Error {
   constructor(
