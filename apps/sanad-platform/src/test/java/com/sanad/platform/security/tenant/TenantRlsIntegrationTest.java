@@ -28,17 +28,19 @@ class TenantRlsIntegrationTest {
     @Autowired private DataSource dataSource;
 
     @Test
-    @DisplayName("RLS is enabled on users and organization_memberships")
+    @DisplayName("RLS is enabled and forced on users and organization_memberships")
     void rlsEnabled_andForced() throws Exception {
         PostgresTestUtil.assertPostgreSQL(dataSource);
 
         try (var conn = dataSource.getConnection(); var stmt = conn.createStatement()) {
             for (String table : new String[]{"users", "organization_memberships"}) {
                 var rs = stmt.executeQuery(
-                    "SELECT relrowsecurity FROM pg_class WHERE relname = '" + table + "'");
+                    "SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = '" + table + "'");
                 assertThat(rs.next()).as("Table %s must exist", table).isTrue();
                 assertThat(rs.getBoolean("relrowsecurity"))
                         .as("Table %s must have RLS enabled", table).isTrue();
+                assertThat(rs.getBoolean("relforcerowsecurity"))
+                        .as("Table %s must have FORCE RLS (V20 restored)", table).isTrue();
             }
 
             var rs = stmt.executeQuery(

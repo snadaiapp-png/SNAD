@@ -606,21 +606,42 @@
       ],
       "verificationCommand": "grep -r 'sanad_runtime_app\\|sanad_migration_owner' .github/workflows/ apps/sanad-platform/src/main/resources/db/",
       "reopenReason": "The Stage 04A.2 tests were not executed by the PostgreSQL tenant-isolation job and several tests returned successfully on H2 without exercising RLS."
+    },
+    {
+      "id": "CD-04-P1-010",
+      "title": "FORCE ROW LEVEL SECURITY removed from tenant-owned production tables",
+      "severity": "P1",
+      "status": "IN_PROGRESS",
+      "blocking": true,
+      "owner": "infra-04a32",
+      "evidence": "V19 removed FORCE RLS to support fixture inserts. V20 restores it.",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
+      "targetClosureStage": "04A.3.2",
+      "acceptanceCriteria": [
+        "FORCE RLS restored on all 8 tenant-owned tables (V20)",
+        "Runtime role remains non-owner and NOBYPASSRLS",
+        "Migration owner is subject to RLS during ordinary DML (FORCE RLS)",
+        "Fixture bypass exists only inside ephemeral CI",
+        "Mandatory PostgreSQL tenant tests pass with zero skipped"
+      ],
+      "verificationCommand": "psql -c \"SELECT relforcerowsecurity FROM pg_class WHERE relname = 'users'\""
     }
   ],
   "summary": {
     "inheritedDebtCount": 11,
-    "newDebtCount": 26,
-    "totalDebtCount": 37,
+    "newDebtCount": 27,
+    "totalDebtCount": 38,
     "closedDebtCount": 17,
     "openDebtCount": 5,
-    "inProgressDebtCount": 0,
+    "inProgressDebtCount": 1,
     "blockedDebtCount": 6,
     "readyForVerificationDebtCount": 1,
     "reopenedDebtCount": 8,
     "acceptedRiskDebtCount": 0,
     "openP0DebtCount": 2,
-    "openBlockingP1DebtCount": 8,
+    "openBlockingP1DebtCount": 9,
     "carriedForwardDebtCount": 0,
     "debtGate": "BLOCKED",
     "blockingDebtIds": [
@@ -633,7 +654,8 @@
       "CD-04-P1-005",
       "CD-04-P1-006",
       "CD-04-P1-007",
-      "CD-04-P1-009"
+      "CD-04-P1-009",
+      "CD-04-P1-010"
     ],
     "closedDebtIds": [
       "CD-01-P1-001",

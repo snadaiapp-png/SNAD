@@ -612,10 +612,9 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Provision migration and runtime DB roles (Stage 04A.1 §7-8)
+      - name: Provision migration, runtime, and fixture DB roles (Stage 04A.3.2)
         run: |
           sudo apt-get install -y postgresql-client > /dev/null 2>&1 || true
-          # Create migration_owner role (owns tables, runs Flyway)
           psql -h localhost -U postgres -d sanad_tenant_isolation -c "
             DO \$\$
             BEGIN
@@ -626,16 +625,20 @@ jobs:
                 CREATE ROLE sanad_runtime_app WITH LOGIN PASSWORD 'ci-runtime-only'
                   NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
               END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_fixture_ci') THEN
+                CREATE ROLE sanad_fixture_ci WITH LOGIN PASSWORD 'ci-fixture-only'
+                  NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS;
+              END IF;
             END
             \$\$;
           "
-          # Grant migration_owner ownership of schema public
           psql -h localhost -U postgres -d sanad_tenant_isolation -c "
             GRANT ALL ON SCHEMA public TO sanad_migration_owner;
             GRANT USAGE ON SCHEMA public TO sanad_runtime_app;
+            GRANT USAGE ON SCHEMA public TO sanad_fixture_ci;
           "
           echo "Roles provisioned:"
-          psql -h localhost -U postgres -d sanad_tenant_isolation -c "SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname IN ('sanad_migration_owner','sanad_runtime_app');"
+          psql -h localhost -U postgres -d sanad_tenant_isolation -c "SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname IN ('sanad_migration_owner','sanad_runtime_app','sanad_fixture_ci');"
       - name: Run Flyway migrations as migration_owner
         working-directory: apps/sanad-platform
         env:
@@ -650,26 +653,31 @@ jobs:
             -Ddatabase.username="${DATABASE_USERNAME}" \
             -Ddatabase.password="${DATABASE_PASSWORD}" \
             -Ddatabase.driver="${DATABASE_DRIVER}"
-      - name: Grant runtime role privileges (post-migration)
+      - name: Grant runtime and fixture role privileges (post-migration)
         run: |
-          # After migrations, grant CRUD to runtime role
           psql -h localhost -U postgres -d sanad_tenant_isolation -c "
             GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO sanad_runtime_app;
             GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sanad_runtime_app;
+            GRANT SELECT, INSERT, UPDATE, DELETE
+            ON organizations, organization_memberships, users, roles,
+               role_capabilities, user_role_assignments, refresh_tokens,
+               password_reset_tokens, tenants
+            TO sanad_fixture_ci;
+            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sanad_fixture_ci;
           "
-      - name: Run mandatory tenant isolation tests as runtime role (PostgreSQL 16)
+      - name: Run mandatory tenant isolation tests (15 classes, PostgreSQL 16)
         working-directory: apps/sanad-platform
         env:
           DATABASE_USERNAME: sanad_runtime_app
           DATABASE_PASSWORD: ci-runtime-only
           RUN_TENANT_POSTGRES_TESTS: "true"
-          TENANT_FIXTURE_DATABASE_USERNAME: sanad_migration_owner
-          TENANT_FIXTURE_DATABASE_PASSWORD: ci-migration-only
+          TENANT_FIXTURE_DATABASE_USERNAME: sanad_fixture_ci
+          TENANT_FIXTURE_DATABASE_PASSWORD: ci-fixture-only
           TENANT_FIXTURE_DATABASE_URL: ${{ env.DATABASE_URL }}
           TENANT_FIXTURE_DATABASE_DRIVER: ${{ env.DATABASE_DRIVER }}
         run: |
           ./mvnw -B -ntp test \
-            -Dtest="TenantTransactionManagerWiringTest,TenantTransactionConnectionBindingIntegrationTest,TenantRuntimeRoleIntegrationTest,TenantRlsIntegrationTest,TenantConnectionPoolLeakageTest,TenantAuthenticationUnderRlsIntegrationTest,TenantCrudIsolationIntegrationTest,TenantNestedResourceIsolationTest,TenantCapabilityBindingIntegrationTest,TenantSessionBindingIntegrationTest,TenantMassAssignmentTest,TenantEnumerationProtectionTest,TenantAwarePaginationIntegrationTest" \
+            -Dtest="TenantTransactionManagerWiringTest,TenantTransactionConnectionBindingIntegrationTest,TenantRuntimeRoleIntegrationTest,TenantRlsIntegrationTest,TenantConnectionPoolLeakageTest,TenantAuthenticationUnderRlsIntegrationTest,TenantCrudIsolationIntegrationTest,TenantNestedResourceIsolationTest,TenantCapabilityBindingIntegrationTest,TenantSessionBindingIntegrationTest,TenantMassAssignmentTest,TenantEnumerationProtectionTest,TenantAwarePaginationIntegrationTest,TenantMigrationOwnerForceRlsIntegrationTest,TenantFixtureRoleIntegrationTest" \
             -Dspring.profiles.active=tenant-postgres-test \
             -Ddatabase.url="${DATABASE_URL}" \
             -Ddatabase.username="${DATABASE_USERNAME}" \
