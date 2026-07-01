@@ -1,0 +1,40 @@
+name: AWS NVD Bootstrap Diagnostics
+
+on:
+  pull_request:
+    paths:
+      - 'infra/aws/nvd-platform-bootstrap.yml'
+      - '.github/workflows/aws-nvd-bootstrap-diagnostics.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install --quiet cfn-lint
+      - name: Run cfn-lint
+        id: lint
+        continue-on-error: true
+        run: |
+          mkdir -p artifacts/aws-bootstrap
+          cfn-lint infra/aws/nvd-platform-bootstrap.yml > artifacts/aws-bootstrap/cfn-lint.txt 2>&1
+      - name: Upload diagnostics
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-nvd-bootstrap-diagnostics-${{ github.run_id }}
+          path: artifacts/aws-bootstrap/cfn-lint.txt
+          if-no-files-found: error
+          retention-days: 7
+      - name: Enforce lint result
+        if: always()
+        run: |
+          test '${{ steps.upload.outcome }}' = success
+          test '${{ steps.lint.outcome }}' = success
