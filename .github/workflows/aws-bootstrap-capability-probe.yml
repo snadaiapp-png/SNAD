@@ -1,6 +1,10 @@
 name: AWS Bootstrap Capability Probe
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/aws-bootstrap-capability-probe.yml'
+      - '.github/security-requests/aws-bootstrap-probe.json'
   push:
     branches: [feat/crm-runtime-environment]
     paths:
