@@ -20,7 +20,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Stage 04A.3.5 §10 — Session enforcement via HTTP.
+ * Stage 04A.3.6 §10 — Session enforcement via HTTP with membership.
  * NO SecurityPermitAllTestConfig.
  */
 @SpringBootTest
@@ -97,6 +97,25 @@ class TenantSessionBindingIntegrationTest {
         mockMvc.perform(get("/api/v1/organizations")
                         .param("tenantId", fixture.tenantAId().toString())
                         .header("Authorization", "Bearer " + suspendedToken))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Revoked membership → 401")
+    void revokedMembership_401() throws Exception {
+        // First verify it works
+        mockMvc.perform(get("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .header("Authorization", "Bearer " + tokenA))
+                .andExpect(status().isOk());
+
+        // Revoke membership
+        fixtureSeeder.revokeMembership(fixture.tenantAId(), fixture.userAId());
+
+        // Now should be denied
+        mockMvc.perform(get("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .header("Authorization", "Bearer " + tokenA))
                 .andExpect(status().isUnauthorized());
     }
 }

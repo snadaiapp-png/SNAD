@@ -37,15 +37,18 @@ public class JwtSessionValidationServiceImpl implements JwtSessionValidationServ
     private final TenantRepository tenantRepository;
     private final TenantContextProvider contextProvider;
     private final TenantRlsBinder rlsBinder;
+    private final com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository membershipRepository;
 
     public JwtSessionValidationServiceImpl(UserRepository userRepository,
                                             TenantRepository tenantRepository,
                                             TenantContextProvider contextProvider,
-                                            TenantRlsBinder rlsBinder) {
+                                            TenantRlsBinder rlsBinder,
+                                            com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository membershipRepository) {
         this.userRepository = userRepository;
         this.tenantRepository = tenantRepository;
         this.contextProvider = contextProvider;
         this.rlsBinder = rlsBinder;
+        this.membershipRepository = membershipRepository;
     }
 
     @Override
@@ -111,6 +114,22 @@ public class JwtSessionValidationServiceImpl implements JwtSessionValidationServ
                 log.debug("Session validation failed: tenant not active tenantId={} status={}",
                         claims.tenantId(), tenant != null ? tenant.getStatus() : "null");
                 return null;
+            }
+
+            // Stage 04A.3.6: validate active membership
+            // The user must have at least one ACTIVE membership in the tenant,
+            // OR have no memberships at all (backward compatibility for users
+            // created via registration flow before memberships were required).
+            var memberships = membershipRepository.findByTenantIdAndUserId(
+                    claims.tenantId(), claims.userId());
+            if (!memberships.isEmpty()) {
+                boolean hasActiveMembership = memberships.stream()
+                        .anyMatch(m -> m.getStatus() == com.sanad.platform.organization.membership.domain.MembershipStatus.ACTIVE);
+                if (!hasActiveMembership) {
+                    log.debug("Session validation failed: no active membership userId={} tenantId={}",
+                            claims.userId(), claims.tenantId());
+                    return null;
+                }
             }
 
             return new ValidatedSession(

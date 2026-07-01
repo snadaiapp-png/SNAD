@@ -739,21 +739,95 @@
         "current_user = sanad_fixture_ci"
       ],
       "verificationCommand": "grep 'tenantFixtureDataSource' apps/sanad-platform/src/test/java/com/sanad/platform/security/tenant/TenantFixtureRoleIntegrationTest.java"
+    },
+    {
+      "id": "CD-04-P1-017",
+      "title": "Active tenant membership is not revalidated during JWT session validation",
+      "severity": "P1",
+      "status": "OPEN",
+      "blocking": true,
+      "owner": "infra-04a36",
+      "evidence": "JwtSessionValidationServiceImpl does not query membership table.",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
+      "targetClosureStage": "04A.3.6",
+      "acceptanceCriteria": [
+        "Membership query inside session validation",
+        "Revoked membership results in 401",
+        "Active membership results in authenticated"
+      ],
+      "verificationCommand": "grep membership apps/sanad-platform/src/main/java/com/sanad/platform/security/tenant/JwtSessionValidationServiceImpl.java"
+    },
+    {
+      "id": "CD-04-P1-018",
+      "title": "Expired JWT and archived-tenant denial scenarios are not certified",
+      "severity": "P1",
+      "status": "OPEN",
+      "blocking": true,
+      "owner": "infra-04a36",
+      "evidence": "No expired JWT test or archived-tenant denial test exists.",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
+      "targetClosureStage": "04A.3.6",
+      "acceptanceCriteria": [
+        "Expired JWT results in 401",
+        "Archived tenant results in denied"
+      ],
+      "verificationCommand": "grep expired apps/sanad-platform/src/test/java/com/sanad/platform/security/tenant/TenantAuthenticationUnderRlsIntegrationTest.java"
+    },
+    {
+      "id": "CD-04-P1-019",
+      "title": "Application CRUD tenant-isolation certification does not cover resource-level create, read, update and delete operations",
+      "severity": "P1",
+      "status": "OPEN",
+      "blocking": true,
+      "owner": "infra-04a36",
+      "evidence": "CRUD test only covers list and cross-tenant selector.",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
+      "targetClosureStage": "04A.3.6",
+      "acceptanceCriteria": [
+        "Same-tenant create results in 201",
+        "Cross-tenant resource ID results in 404",
+        "Mass assignment rejected"
+      ],
+      "verificationCommand": "grep create apps/sanad-platform/src/test/java/com/sanad/platform/security/tenant/TenantCrudIsolationIntegrationTest.java"
+    },
+    {
+      "id": "CD-04-P1-020",
+      "title": "Stage-04 execution state and closure-debt register do not match validated implementation",
+      "severity": "P1",
+      "status": "OPEN",
+      "blocking": true,
+      "owner": "infra-04a36",
+      "evidence": "Execution state claims false for fields that are actually verified.",
+      "closureEvidence": null,
+      "closureDate": null,
+      "closedCommitSha": null,
+      "targetClosureStage": "04A.3.6",
+      "acceptanceCriteria": [
+        "All verified fields set to true",
+        "Open blocking P1 = 0"
+      ],
+      "verificationCommand": "cat docs/tenant-isolation/04-execution-state.json"
     }
   ],
   "summary": {
     "inheritedDebtCount": 11,
-    "newDebtCount": 33,
-    "totalDebtCount": 44,
+    "newDebtCount": 37,
+    "totalDebtCount": 48,
     "closedDebtCount": 19,
-    "openDebtCount": 5,
+    "openDebtCount": 9,
     "inProgressDebtCount": 5,
     "blockedDebtCount": 6,
     "readyForVerificationDebtCount": 1,
     "reopenedDebtCount": 8,
     "acceptedRiskDebtCount": 0,
     "openP0DebtCount": 2,
-    "openBlockingP1DebtCount": 13,
+    "openBlockingP1DebtCount": 17,
     "carriedForwardDebtCount": 0,
     "debtGate": "BLOCKED",
     "blockingDebtIds": [
@@ -771,7 +845,11 @@
       "CD-04-P1-012",
       "CD-04-P1-013",
       "CD-04-P1-014",
-      "CD-04-P1-015"
+      "CD-04-P1-015",
+      "CD-04-P1-017",
+      "CD-04-P1-018",
+      "CD-04-P1-019",
+      "CD-04-P1-020"
     ],
     "closedDebtIds": [
       "CD-01-P1-001",

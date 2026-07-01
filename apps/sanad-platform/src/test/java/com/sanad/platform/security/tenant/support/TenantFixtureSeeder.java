@@ -52,6 +52,16 @@ public interface TenantFixtureSeeder {
     void revokeRoleGrant(UUID tenantId, UUID grantId);
 
     /**
+     * Revokes all memberships for a user in a tenant (simulates membership removal).
+     */
+    void revokeMembership(UUID tenantId, UUID userId);
+
+    /**
+     * Archives a tenant (changes status to ARCHIVED).
+     */
+    void archiveTenant(UUID tenantId);
+
+    /**
      * Cleans up all fixtures created by the seeder.
      * Uses the Fixture DataSource (bypasses RLS).
      */

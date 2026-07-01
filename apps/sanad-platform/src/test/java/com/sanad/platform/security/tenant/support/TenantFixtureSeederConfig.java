@@ -77,6 +77,23 @@ public class TenantFixtureSeederConfig {
             jdbc.update("INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
                     roleGrantId, tenantA, userA, roleId);
 
+            // Stage 04A.3.6: Create active memberships for User A and User B
+            // User A needs an organization + membership in Tenant A
+            UUID orgAId = UUID.randomUUID();
+            jdbc.update("INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                    orgAId, tenantA, "Org A", "Test org A");
+            UUID membershipAId = UUID.randomUUID();
+            jdbc.update("INSERT INTO organization_memberships (id, tenant_id, organization_id, email, display_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                    membershipAId, tenantA, orgAId, "alice-a@example.com", "Alice A");
+
+            // User B needs an organization + membership in Tenant B
+            UUID orgBId = UUID.randomUUID();
+            jdbc.update("INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                    orgBId, tenantB, "Org B", "Test org B");
+            UUID membershipBId = UUID.randomUUID();
+            jdbc.update("INSERT INTO organization_memberships (id, tenant_id, organization_id, email, display_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                    membershipBId, tenantB, orgBId, "bob-b@example.com", "Bob B");
+
             // Create Role B in Tenant B with same capabilities (independent)
             UUID roleBId = UUID.randomUUID();
             jdbc.update("INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at) VALUES (?, ?, 'ADMIN', 'Admin B', 'Admin role B', 'ACTIVE', NOW(), NOW())",
@@ -124,7 +141,7 @@ public class TenantFixtureSeederConfig {
                     userWithoutCapId, tenantA, "nocap@example.com", "NoCap", pwHash);
 
             return new TenantTestFixture(tenantA, tenantB, userA, userB,
-                    pwHash, pwHash, null, null, null, null, roleId, capabilityId, roleGrantId,
+                    pwHash, pwHash, orgAId, orgBId, membershipAId, membershipBId, roleId, capabilityId, roleGrantId,
                     suspendedUserId, tenantA,
                     revokedMembershipUserId, tenantA, revokedMembershipGrantId,
                     archivedTenantId, archivedTenantUserId,
@@ -182,6 +199,18 @@ public class TenantFixtureSeederConfig {
         public void revokeRoleGrant(UUID tenantId, UUID grantId) {
             jdbc.update("UPDATE user_role_assignments SET status = 'REVOKED', updated_at = NOW() WHERE tenant_id = ? AND id = ?",
                     tenantId, grantId);
+        }
+
+        @Override
+        public void revokeMembership(UUID tenantId, UUID userId) {
+            // Revoke all memberships for the user in the tenant by updating status
+            jdbc.update("UPDATE organization_memberships SET status = 'REMOVED', updated_at = NOW() WHERE tenant_id = ? AND email IN (SELECT email FROM users WHERE id = ?)",
+                    tenantId, userId);
+        }
+
+        @Override
+        public void archiveTenant(UUID tenantId) {
+            jdbc.update("UPDATE tenants SET status = 'ARCHIVED', updated_at = NOW() WHERE id = ?", tenantId);
         }
 
         @Override
