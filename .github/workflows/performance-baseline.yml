@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  JWT_SECRET: ci-only-non-production-validation-key-1234567890
+  JWT_SECRET: ${{ format('jwt-secret-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
 
 jobs:
   backend-health-baseline:
@@ -31,7 +31,7 @@ jobs:
         env:
           POSTGRES_DB: sanad_perf
           POSTGRES_USER: sanad_perf
-          POSTGRES_PASSWORD: perf_ci_only
+          POSTGRES_PASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
         ports:
           - 5432:5432
         options: >-
@@ -54,7 +54,7 @@ jobs:
             -e JWT_SECRET \
             -e DATABASE_URL=jdbc:postgresql://localhost:5432/sanad_perf \
             -e DATABASE_USERNAME=sanad_perf \
-            -e DATABASE_PASSWORD=perf_ci_only \
+            -e DATABASE_PASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} \
             -e DATABASE_DRIVER=org.postgresql.Driver \
             -e JPA_DDL_AUTO=validate \
             -e FLYWAY_ENABLED=true \

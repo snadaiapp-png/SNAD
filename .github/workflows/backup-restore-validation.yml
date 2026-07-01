@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  JWT_SECRET: ci-only-non-production-recovery-key-1234567890
+  JWT_SECRET: ${{ format('jwt-secret-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
 
 jobs:
   logical-backup-restore:
@@ -27,7 +27,7 @@ jobs:
         env:
           POSTGRES_DB: sanad_source
           POSTGRES_USER: sanad_recovery
-          POSTGRES_PASSWORD: recovery_ci_only
+          POSTGRES_PASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
         ports:
           - 5432:5432
         options: >-
@@ -114,7 +114,7 @@ jobs:
             -e JWT_SECRET \
             -e DATABASE_URL=jdbc:postgresql://localhost:5432/sanad_source \
             -e DATABASE_USERNAME=sanad_recovery \
-            -e DATABASE_PASSWORD=recovery_ci_only \
+            -e DATABASE_PASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} \
             -e DATABASE_DRIVER=org.postgresql.Driver \
             -e JPA_DDL_AUTO=validate \
             -e FLYWAY_ENABLED=true \
@@ -132,14 +132,14 @@ jobs:
           exit 1
       - name: Capture source schema evidence
         run: |
-          docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
+          docker run --rm --network host -e PGPASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} postgres:16-alpine \
             psql -h localhost -U sanad_recovery -d sanad_source -v ON_ERROR_STOP=1 \
             -c "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank;" \
             -c "SELECT COUNT(*) AS application_table_count FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'flyway_schema_history';"
       - name: Create compressed logical backup
         run: |
           start_epoch=$(date +%s)
-          docker run --rm --network host -e PGPASSWORD=recovery_ci_only \
+          docker run --rm --network host -e PGPASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} \
             -v "$PWD:/work" postgres:16-alpine \
             pg_dump -h localhost -U sanad_recovery -d sanad_source \
             --format=custom --no-owner --no-privileges --file=/work/sanad_source.dump
@@ -147,13 +147,13 @@ jobs:
           test -s sanad_source.dump
       - name: Create isolated restore database
         run: |
-          docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
+          docker run --rm --network host -e PGPASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} postgres:16-alpine \
             psql -h localhost -U sanad_recovery -d postgres -v ON_ERROR_STOP=1 \
             -c "CREATE DATABASE sanad_restore OWNER sanad_recovery;"
       - name: Restore backup and measure recovery time
         run: |
           start_epoch=$(date +%s)
-          docker run --rm --network host -e PGPASSWORD=recovery_ci_only \
+          docker run --rm --network host -e PGPASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} \
             -v "$PWD:/work" postgres:16-alpine \
             pg_restore -h localhost -U sanad_recovery -d sanad_restore \
             --no-owner --no-privileges --exit-on-error /work/sanad_source.dump
@@ -162,7 +162,7 @@ jobs:
         run: |
           query() {
             local db="$1" sql="$2"
-            docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
+            docker run --rm --network host -e PGPASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} postgres:16-alpine \
               psql -h localhost -U sanad_recovery -d "$db" -At -c "$sql"
           }
           source_tables=$(query sanad_source "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'flyway_schema_history';")
@@ -184,7 +184,7 @@ jobs:
             -e JWT_SECRET \
             -e DATABASE_URL=jdbc:postgresql://localhost:5432/sanad_restore \
             -e DATABASE_USERNAME=sanad_recovery \
-            -e DATABASE_PASSWORD=recovery_ci_only \
+            -e DATABASE_PASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} \
             -e DATABASE_DRIVER=org.postgresql.Driver \
             -e JPA_DDL_AUTO=validate \
             -e FLYWAY_ENABLED=true \

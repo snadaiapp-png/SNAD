@@ -58,6 +58,8 @@ jobs:
           fi
       - name: Check no merge conflict markers
         run: git diff --check
+      - name: Reconcile closure-debt register (Stage 04A.3.6.2)
+        run: python3 scripts/ci/check_closure_debt_register.py docs/infrastructure-hardening/closure-debt-register.json
 
   migration-immutability:
     name: migration-immutability
@@ -102,7 +104,7 @@ jobs:
         env:
           POSTGRES_DB: sanad_test
           POSTGRES_USER: sanad
-          POSTGRES_PASSWORD: ci-test-only
+          POSTGRES_PASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
         ports:
           - 5432:5432
         options: >-
@@ -111,10 +113,10 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      JWT_SECRET: ci-only-non-production-key-1234567890
+      JWT_SECRET: ${{ format('jwt-secret-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
       DATABASE_URL: jdbc:postgresql://localhost:5432/sanad_test
       DATABASE_USERNAME: sanad
-      DATABASE_PASSWORD: ci-test-only
+      DATABASE_PASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
       DATABASE_DRIVER: org.postgresql.Driver
     steps:
       - uses: actions/checkout@v4
@@ -137,7 +139,7 @@ jobs:
         env:
           POSTGRES_DB: sanad_flyway
           POSTGRES_USER: sanad
-          POSTGRES_PASSWORD: ci-flyway-only
+          POSTGRES_PASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
         ports:
           - 5432:5432
         options: >-
@@ -146,10 +148,10 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      JWT_SECRET: ci-only-non-production-key-1234567890
+      JWT_SECRET: ${{ format('jwt-secret-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
       DATABASE_URL: jdbc:postgresql://localhost:5432/sanad_flyway
       DATABASE_USERNAME: sanad
-      DATABASE_PASSWORD: ci-flyway-only
+      DATABASE_PASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
       DATABASE_DRIVER: org.postgresql.Driver
       FLYWAY_ENABLED: "true"
       SANAD_CORS_ALLOWED_ORIGINS: https://snad-app.vercel.app
@@ -169,20 +171,20 @@ jobs:
         run: |
           sudo apt-get install -y postgresql-client > /dev/null 2>&1 || true
           # Connection failure must FAIL the job (not skip).
-          if ! PGPASSWORD=ci-flyway-only psql -h localhost -U sanad -d sanad_flyway -tAc \
+          if ! PGPASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} psql -h localhost -U sanad -d sanad_flyway -tAc \
               "SELECT 1" >/dev/null 2>&1; then
             echo "FAIL: cannot connect to PostgreSQL for flyway validation"
             exit 1
           fi
           # flyway_schema_history must exist and be non-empty.
-          if ! PGPASSWORD=ci-flyway-only psql -h localhost -U sanad -d sanad_flyway -tAc \
+          if ! PGPASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} psql -h localhost -U sanad -d sanad_flyway -tAc \
               "SELECT to_regclass('public.flyway_schema_history')" | grep -q "flyway_schema_history"; then
             echo "FAIL: flyway_schema_history table does not exist"
             exit 1
           fi
-          FIRST_COUNT=$(PGPASSWORD=ci-flyway-only psql -h localhost -U sanad -d sanad_flyway -tAc \
+          FIRST_COUNT=$(PGPASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} psql -h localhost -U sanad -d sanad_flyway -tAc \
               "SELECT COUNT(*) FROM flyway_schema_history WHERE success = true")
-          FAILED_COUNT=$(PGPASSWORD=ci-flyway-only psql -h localhost -U sanad -d sanad_flyway -tAc \
+          FAILED_COUNT=$(PGPASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} psql -h localhost -U sanad -d sanad_flyway -tAc \
               "SELECT COUNT(*) FROM flyway_schema_history WHERE success = false")
           echo "Successful migrations: $FIRST_COUNT"
           echo "Failed migrations: $FAILED_COUNT"
@@ -195,7 +197,7 @@ jobs:
             echo "FAIL: $FAILED_COUNT migrations have success=false"
             exit 1
           fi
-          LATEST_VERSION=$(PGPASSWORD=ci-flyway-only psql -h localhost -U sanad -d sanad_flyway -tAc \
+          LATEST_VERSION=$(PGPASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} psql -h localhost -U sanad -d sanad_flyway -tAc \
               "SELECT version FROM flyway_schema_history WHERE success = true ORDER BY installed_rank DESC LIMIT 1")
           echo "Latest applied migration version: $LATEST_VERSION"
           echo "Flyway schema history: PASS"
@@ -206,7 +208,7 @@ jobs:
         run: |
           ./mvnw -B -ntp test -Dtest="FlywayValidationTest" -Dspring.profiles.active=prod -Ddatabase.url="${DATABASE_URL}" -Ddatabase.username="${DATABASE_USERNAME}" -Ddatabase.password="${DATABASE_PASSWORD}" -Ddatabase.driver="${DATABASE_DRIVER}"
           # Verify SECOND_COUNT == FIRST_COUNT (no re-execution)
-          SECOND_COUNT=$(PGPASSWORD=ci-flyway-only psql -h localhost -U sanad -d sanad_flyway -tAc \
+          SECOND_COUNT=$(PGPASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} psql -h localhost -U sanad -d sanad_flyway -tAc \
               "SELECT COUNT(*) FROM flyway_schema_history WHERE success = true")
           echo "Second-startup successful migrations: $SECOND_COUNT"
           echo "First-startup successful migrations: $FIRST_COUNT"
@@ -260,21 +262,94 @@ jobs:
   secret-scan:
     name: secret-scan
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Gitleaks policy gate (forbid broad path exclusions)
+        run: python3 scripts/ci/check_gitleaks_policy.py .gitleaks.toml
+      - name: Secret-detection canary (proves gitleaks detects real secrets)
+        run: |
+          set -Eeuo pipefail
+
+          CANARY_DIR="${RUNNER_TEMP}/gitleaks-canary-362"
+          rm -rf "$CANARY_DIR"
+          mkdir -p "$CANARY_DIR"
+
+          # Synthetic AWS access key ID + secret that gitleaks MUST detect.
+          # Split across two variables so the canary literal is not present
+          # as a single string in the committed workflow file (and therefore
+          # does not trip the policy gate or the repo scan).
+          PREFIX='AKIA'
+          SUFFIX='ZSANAD362CANARY0123456'
+          printf 'aws_access_key_id = %s\naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY362\n' "$PREFIX$SUFFIX" > "$CANARY_DIR/canary.ini"
+
+          set +e
+          docker run --rm \
+            -v "$CANARY_DIR:/scan" \
+            -v "$PWD/.gitleaks.toml:/config/.gitleaks.toml:ro" \
+            zricethezav/gitleaks:v8.24.3 detect \
+            --source=/scan \
+            --config=/config/.gitleaks.toml \
+            --no-git \
+            --redact \
+            --exit-code=1
+          CANARY_STATUS=$?
+          set -e
+
+          rm -rf "$CANARY_DIR"
+
+          if [ "$CANARY_STATUS" -eq 0 ]; then
+            echo "FAIL: canary secret was NOT detected by gitleaks"
+            echo "CANARY SECRET DETECTED: FAIL"
+            exit 1
+          fi
+
+          echo "CANARY SECRET DETECTED: PASS"
       - name: Current tree secret scan
         run: |
+          set -Eeuo pipefail
+
+          REPORT_DIR="${RUNNER_TEMP}/gitleaks-report-362"
+          rm -rf "$REPORT_DIR"
+          mkdir -p "$REPORT_DIR"
+
+          set +e
           docker run --rm \
             -v "$PWD:/repo" \
+            -v "$REPORT_DIR:/report" \
             zricethezav/gitleaks:v8.24.3 detect \
             --source=/repo \
             --config=/repo/.gitleaks.toml \
             --no-git \
             --redact \
+            --report-format=json \
+            --report-path=/report/findings.json \
             --exit-code=1
+          SCAN_STATUS=$?
+          set -e
+
+          if [ -f "$REPORT_DIR/findings.json" ]; then
+            FINDING_COUNT=$(python3 -c "import json,sys; print(len(json.load(open('$REPORT_DIR/findings.json'))))")
+          else
+            FINDING_COUNT=0
+          fi
+
+          echo "CURRENT REPOSITORY FINDINGS: $FINDING_COUNT"
+
+          if [ "$SCAN_STATUS" -ne 0 ]; then
+            echo "FAIL: gitleaks detected secrets in the current repository tree"
+            if [ -f "$REPORT_DIR/findings.json" ]; then
+              cat "$REPORT_DIR/findings.json"
+            fi
+            exit "$SCAN_STATUS"
+          fi
+
+          echo "secret-scan: PASS"
 
   dependency-scan:
     name: dependency-scan
@@ -305,6 +380,13 @@ jobs:
     name: container-smoke
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Stage 04A.3.6.2 — secret-like literals replaced with GitHub
+      # expressions derived from github.run_id and github.run_attempt.
+      # These are stable across the job (so the Postgres container and the
+      # app container see the same password) and are not committed secrets.
+      SMOKE_PG_PASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
+      SMOKE_JWT_SECRET: ${{ format('jwt-secret-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
     steps:
       - uses: actions/checkout@v4
       - name: Runtime container smoke test
@@ -334,7 +416,7 @@ jobs:
             --network "$NETWORK" \
             -e POSTGRES_DB=sanad_smoke \
             -e POSTGRES_USER=sanad \
-            -e POSTGRES_PASSWORD=ci-smoke-only \
+            -e POSTGRES_PASSWORD="$SMOKE_PG_PASSWORD" \
             --health-cmd="pg_isready -U sanad -d sanad_smoke" \
             --health-interval=5s \
             --health-timeout=5s \
@@ -366,9 +448,9 @@ jobs:
             -e SPRING_PROFILES_ACTIVE=prod \
             -e DATABASE_URL="jdbc:postgresql://${POSTGRES_CONTAINER}:5432/sanad_smoke" \
             -e DATABASE_USERNAME=sanad \
-            -e DATABASE_PASSWORD=ci-smoke-only \
+            -e DATABASE_PASSWORD="$SMOKE_PG_PASSWORD" \
             -e DATABASE_DRIVER=org.postgresql.Driver \
-            -e JWT_SECRET=ci-smoke-only-jwt-secret-not-for-production \
+            -e JWT_SECRET="$SMOKE_JWT_SECRET" \
             -e JPA_DDL_AUTO=validate \
             -e FLYWAY_ENABLED=true \
             -e SANAD_CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app \
@@ -413,7 +495,7 @@ jobs:
           # Allowlist (these literal phrases are OK in logs):
           #   - "JWT_SECRET" (env var NAME, not its value)
           #   - "DATABASE_PASSWORD" (env var NAME)
-          #   - "ci-smoke-only" (test fixture password literal)
+          #   - "$SMOKE_PG_PASSWORD" value (test fixture password, not a real secret)
           #   - "passwordSet", "passwordHash", "mustChangePassword", "password_reset"
           #     (field/method names, not actual secrets)
           #
@@ -421,7 +503,7 @@ jobs:
 
           DISALLOWED_PATTERNS='password=[^[:space:]]+|password:[[:space:]]+[^[:space:]]+|token=[^[:space:]]+|bearer[[:space:]][A-Za-z0-9._-]{20,}|apikey=[^[:space:]]+|api-key:[[:space:]]+[^[:space:]]+|secret=[^[:space:]]+|client_secret:[[:space:]]+[^[:space:]]+|authorization:[[:space:]]bearer[[:space:]][A-Za-z0-9._-]{20,}'
 
-          ALLOWLIST='JWT_SECRET|DATABASE_PASSWORD|ci-smoke-only|passwordSet|passwordHash|mustChangePassword|password_reset|change.*password|setPassword|Using generated security password'
+          ALLOWLIST="JWT_SECRET|DATABASE_PASSWORD|${SMOKE_PG_PASSWORD}|passwordSet|passwordHash|mustChangePassword|password_reset|change.*password|setPassword|Using generated security password"
 
           # Find disallowed matches, then filter out the allowlist
           MATCHES=$(docker logs "$APP_CONTAINER" 2>&1 \
@@ -438,8 +520,8 @@ jobs:
           echo "LOG_REDACTION: PASS"
 
           # Also verify no env var VALUES appear in logs (sample the known CI env values)
-          for secret_val in "ci-smoke-only-jwt-secret-not-for-production" "ci-smoke-only"; do
-            if docker logs "$APP_CONTAINER" 2>&1 | grep -F "$secret_val" | grep -v "JWT_SECRET\|DATABASE_PASSWORD\|ci-smoke-only" ; then
+          for secret_val in "$SMOKE_JWT_SECRET" "$SMOKE_PG_PASSWORD"; do
+            if docker logs "$APP_CONTAINER" 2>&1 | grep -F "$secret_val" | grep -v "JWT_SECRET\|DATABASE_PASSWORD\|${SMOKE_PG_PASSWORD}" ; then
               echo "FAIL: env var value leaked into logs: $secret_val"
               echo "LOG_REDACTION: FAIL"
               exit 1
@@ -470,7 +552,7 @@ jobs:
         env:
           POSTGRES_DB: sanad_security
           POSTGRES_USER: sanad
-          POSTGRES_PASSWORD: ci-security-only
+          POSTGRES_PASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
         ports:
           - 5432:5432
         options: >-
@@ -479,10 +561,10 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      JWT_SECRET: ci-only-non-production-key-1234567890
+      JWT_SECRET: ${{ format('jwt-secret-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
       DATABASE_URL: jdbc:postgresql://localhost:5432/sanad_security
       DATABASE_USERNAME: sanad
-      DATABASE_PASSWORD: ci-security-only
+      DATABASE_PASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
       DATABASE_DRIVER: org.postgresql.Driver
     steps:
       - uses: actions/checkout@v4
@@ -506,7 +588,7 @@ jobs:
         env:
           POSTGRES_DB: sanad_api_contract
           POSTGRES_USER: sanad
-          POSTGRES_PASSWORD: ci-api-contract-only
+          POSTGRES_PASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
         ports:
           - 5432:5432
         options: >-
@@ -515,7 +597,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      JWT_SECRET: ci-only-non-production-key-1234567890
+      JWT_SECRET: ${{ format('jwt-secret-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -591,7 +673,7 @@ jobs:
         env:
           POSTGRES_DB: sanad_tenant_isolation
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: ci-postgres-admin-only
+          POSTGRES_PASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
         ports:
           - 5432:5432
         options: >-
@@ -600,11 +682,11 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      JWT_SECRET: ci-only-non-production-key-1234567890
+      JWT_SECRET: ${{ format('jwt-secret-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
       DATABASE_URL: jdbc:postgresql://localhost:5432/sanad_tenant_isolation
       DATABASE_DRIVER: org.postgresql.Driver
       SANAD_CORS_ALLOWED_ORIGINS: https://snad-app.vercel.app
-      PGPASSWORD: ci-postgres-admin-only
+      PGPASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -619,14 +701,14 @@ jobs:
             DO \$\$
             BEGIN
               IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_migration_owner') THEN
-                CREATE ROLE sanad_migration_owner WITH LOGIN PASSWORD 'ci-migration-only' CREATEDB;
+                CREATE ROLE sanad_migration_owner WITH LOGIN PASSWORD '${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}' CREATEDB;
               END IF;
               IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_runtime_app') THEN
-                CREATE ROLE sanad_runtime_app WITH LOGIN PASSWORD 'ci-runtime-only'
+                CREATE ROLE sanad_runtime_app WITH LOGIN PASSWORD '${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}'
                   NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
               END IF;
               IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_fixture_ci') THEN
-                CREATE ROLE sanad_fixture_ci WITH LOGIN PASSWORD 'ci-fixture-only'
+                CREATE ROLE sanad_fixture_ci WITH LOGIN PASSWORD '${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}'
                   NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS;
               END IF;
             END
@@ -643,9 +725,9 @@ jobs:
         working-directory: apps/sanad-platform
         env:
           FLYWAY_DATABASE_USERNAME: sanad_migration_owner
-          FLYWAY_DATABASE_PASSWORD: ci-migration-only
+          FLYWAY_DATABASE_PASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
           DATABASE_USERNAME: sanad_migration_owner
-          DATABASE_PASSWORD: ci-migration-only
+          DATABASE_PASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
         run: |
           ./mvnw -B -ntp test -Dtest="FlywayValidationTest" \
             -Dspring.profiles.active=prod \
@@ -669,14 +751,14 @@ jobs:
         working-directory: apps/sanad-platform
         env:
           DATABASE_USERNAME: sanad_runtime_app
-          DATABASE_PASSWORD: ci-runtime-only
+          DATABASE_PASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
           RUN_TENANT_POSTGRES_TESTS: "true"
           TENANT_FIXTURE_DATABASE_USERNAME: sanad_fixture_ci
-          TENANT_FIXTURE_DATABASE_PASSWORD: ci-fixture-only
+          TENANT_FIXTURE_DATABASE_PASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
           TENANT_FIXTURE_DATABASE_URL: ${{ env.DATABASE_URL }}
           TENANT_FIXTURE_DATABASE_DRIVER: ${{ env.DATABASE_DRIVER }}
           TENANT_MIGRATION_DATABASE_USERNAME: sanad_migration_owner
-          TENANT_MIGRATION_DATABASE_PASSWORD: ci-migration-only
+          TENANT_MIGRATION_DATABASE_PASSWORD: ${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }}
           TENANT_MIGRATION_DATABASE_URL: ${{ env.DATABASE_URL }}
           TENANT_MIGRATION_DATABASE_DRIVER: ${{ env.DATABASE_DRIVER }}
         run: |
@@ -752,6 +834,10 @@ jobs:
       - tenant-isolation
     if: always()
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Check repository-policy
         if: needs.repository-policy.result != 'success'
         run: exit 1
@@ -791,5 +877,7 @@ jobs:
       - name: Check tenant-isolation
         if: needs.tenant-isolation.result != 'success'
         run: exit 1
+      - name: Reconcile closure-debt register (Stage 04A.3.6.2 final gate)
+        run: python3 scripts/ci/check_closure_debt_register.py docs/infrastructure-hardening/closure-debt-register.json
       - name: All checks passed
         run: 'echo "QUALITY GATE: PASS — 13 mandatory jobs + 1 aggregation job"'

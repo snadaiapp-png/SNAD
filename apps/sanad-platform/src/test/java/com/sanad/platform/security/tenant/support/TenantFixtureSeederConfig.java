@@ -217,6 +217,15 @@ public class TenantFixtureSeederConfig {
         }
 
         @Override
+        public void setMembershipStatus(UUID tenantId, UUID userId, String status) {
+            String email = jdbc.queryForObject(
+                "SELECT email FROM users WHERE tenant_id = ? AND id = ?",
+                String.class, tenantId, userId);
+            jdbc.update("UPDATE organization_memberships SET status = ?, updated_at = NOW() WHERE tenant_id = ? AND email = ?",
+                    status, tenantId, email);
+        }
+
+        @Override
         public void archiveTenant(UUID tenantId) {
             jdbc.update("UPDATE tenants SET status = 'ARCHIVED', updated_at = NOW() WHERE id = ?", tenantId);
         }

@@ -820,7 +820,7 @@
     "newDebtCount": 37,
     "totalDebtCount": 48,
     "closedDebtCount": 19,
-    "openDebtCount": 9,
+    "openDebtCount": 10,
     "inProgressDebtCount": 5,
     "blockedDebtCount": 6,
     "readyForVerificationDebtCount": 1,
@@ -868,10 +868,12 @@
       "CD-03-P1-004",
       "CD-03-P1-005",
       "CD-03-P1-006",
-      "CD-04-P1-008"
+      "CD-04-P1-008",
+      "CD-04-P1-011",
+      "CD-04-P1-016"
     ],
     "carriedForwardDebtIds": [],
     "status": "BLOCKED",
-    "lastUpdated": "2026-06-30T23:17:32Z"
+    "lastUpdated": "2026-07-02T00:00:00Z"
   }
 }

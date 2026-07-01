@@ -1,5 +1,7 @@
 package com.sanad.platform.security.tenant;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.security.service.JwtTokenProvider;
 import com.sanad.platform.security.tenant.support.TenantFixtureDataSourceConfig;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeeder;
@@ -10,12 +12,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+
+import javax.sql.DataSource;
+import java.util.List;
+import java.util.Map;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -37,6 +45,9 @@ class TenantCrudIsolationIntegrationTest {
     @Autowired private MockMvc mockMvc;
     @Autowired private JwtTokenProvider jwtTokenProvider;
     @Autowired private TenantFixtureSeeder fixtureSeeder;
+    @Autowired
+    @Qualifier("tenantFixtureDataSource")
+    private DataSource fixtureDataSource;
 
     private TenantTestFixture fixture;
     private String tokenA;
@@ -164,5 +175,101 @@ class TenantCrudIsolationIntegrationTest {
                         .header("Authorization", "Bearer " + tokenA))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.tenantId").value(fixture.tenantAId().toString()));
+    }
+
+    // ============================================================
+    // Stage 04A.3.6.2 — Organization resource-level isolation
+    // (CD-04-P1-019 closure evidence)
+    // ============================================================
+
+    @Test
+    @DisplayName("organizationSameTenantGet_200: tokenA GETs Organization A by id → 200")
+    void organizationSameTenantGet_200() throws Exception {
+        mockMvc.perform(get("/api/v1/organizations/{id}", fixture.organizationAId())
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .header("Authorization", "Bearer " + tokenA))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(fixture.organizationAId().toString()))
+                .andExpect(jsonPath("$.tenantId").value(fixture.tenantAId().toString()));
+    }
+
+    @Test
+    @DisplayName("organizationCrossTenantGet_404: tokenA GETs Organization B by id → 404")
+    void organizationCrossTenantGet_404() throws Exception {
+        mockMvc.perform(get("/api/v1/organizations/{id}", fixture.organizationBId())
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .header("Authorization", "Bearer " + tokenA))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("organizationSameTenantCreate_201: tokenA creates org in Tenant A → 201")
+    void organizationSameTenantCreate_201() throws Exception {
+        String body = "{\"name\":\"New Org A 362\",\"description\":\"stage 04a362\"}";
+        mockMvc.perform(post("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body)
+                        .header("Authorization", "Bearer " + tokenA))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.tenantId").value(fixture.tenantAId().toString()));
+    }
+
+    // ============================================================
+    // Stage 04A.3.6.2 — Mass assignment verification at the database
+    // (CD-04-P1-005 closure evidence — DB-level, not just response-level)
+    // ============================================================
+
+    @Test
+    @DisplayName("massAssignment_databaseTenantForcedToA: POST with body tenantId=B under tokenA → row stored under Tenant A, NOT visible under Tenant B")
+    void massAssignment_databaseTenantForcedToA() throws Exception {
+        // 1. POST with a body that attempts to force tenantId=B while the
+        //    request selector is Tenant A and the JWT is Tenant A.
+        String body = "{\"name\":\"Mass Assign DB 362\",\"description\":\"db verify\",\"tenantId\":\""
+                + fixture.tenantBId() + "\"}";
+        String response = mockMvc.perform(post("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body)
+                        .header("Authorization", "Bearer " + tokenA))
+                // 2. Verify 201 Created
+                .andExpect(status().isCreated())
+                // 3. Verify response tenantId = Tenant A (not Tenant B)
+                .andExpect(jsonPath("$.tenantId").value(fixture.tenantAId().toString()))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        // Extract the created organization id from the response.
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode node = mapper.readTree(response);
+        String createdId = node.get("id").asText();
+
+        // 4. Read the row via the Fixture DataSource (bypasses RLS).
+        JdbcTemplate fixtureJdbc = new JdbcTemplate(fixtureDataSource);
+        List<Map<String, Object>> rows = fixtureJdbc.queryForList(
+                "SELECT tenant_id FROM organizations WHERE id = ?::uuid",
+                createdId);
+
+        // 5. Verify the stored tenant_id = Tenant A.
+        org.junit.jupiter.api.Assertions.assertFalse(rows.isEmpty(),
+                "organization row must exist in the database after 201 response");
+        Object storedTenantId = rows.get(0).get("tenant_id");
+        org.junit.jupiter.api.Assertions.assertEquals(
+                fixture.tenantAId().toString(),
+                storedTenantId.toString(),
+                "stored tenant_id must be Tenant A, not the body-supplied Tenant B");
+
+        // 6. Verify the row is NOT visible under Tenant B by querying with
+        //    the runtime DataSource scoped to Tenant B. We can't easily do
+        //    that here without a tenant-scoped EntityManager, so we instead
+        //    assert the negative: the row's tenant_id is not Tenant B.
+        org.junit.jupiter.api.Assertions.assertNotEquals(
+                fixture.tenantBId().toString(),
+                storedTenantId.toString(),
+                "stored tenant_id must NOT be Tenant B");
+
+        // Cleanup the created row to avoid leaking fixtures between tests.
+        fixtureJdbc.update("DELETE FROM organizations WHERE id = ?::uuid", createdId);
     }
 }

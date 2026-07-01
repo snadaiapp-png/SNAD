@@ -57,6 +57,15 @@ public interface TenantFixtureSeeder {
     void revokeMembership(UUID tenantId, UUID userId);
 
     /**
+     * Stage 04A.3.6.2 — Sets the status of all memberships for a user in a
+     * tenant. Used to test INACTIVE membership denial without relying on
+     * REVOKED/REMOVED semantics.
+     *
+     * @param status the new status string (must match a MembershipStatus enum value)
+     */
+    void setMembershipStatus(UUID tenantId, UUID userId, String status);
+
+    /**
      * Archives a tenant (changes status to ARCHIVED).
      */
     void archiveTenant(UUID tenantId);

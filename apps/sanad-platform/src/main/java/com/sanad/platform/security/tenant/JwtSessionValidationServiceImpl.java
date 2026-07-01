@@ -116,15 +116,18 @@ public class JwtSessionValidationServiceImpl implements JwtSessionValidationServ
                 return null;
             }
 
-            // Stage 04A.3.6.1: STRICT membership enforcement
-            // The user MUST have at least one ACTIVE membership in the tenant.
-            // No fail-open: if no memberships exist, the user is denied.
+            // Stage 04A.3.6.2: STRICT membership entity-match enforcement.
+            // The user MUST have at least one ACTIVE membership whose
+            // (tenantId, userId) pair exactly matches the verified JWT claims.
+            // No fail-open: if no such membership exists, the user is denied.
             var memberships = membershipRepository.findByTenantIdAndUserId(
                     claims.tenantId(), claims.userId());
             boolean hasActiveMembership = memberships.stream()
-                    .anyMatch(m -> m.getStatus() == com.sanad.platform.organization.membership.domain.MembershipStatus.ACTIVE
-                            && m.getTenantId().equals(claims.tenantId())
-                            && claims.userId().equals(claims.userId()));
+                    .anyMatch(membership ->
+                            claims.tenantId().equals(membership.getTenantId())
+                            && claims.userId().equals(membership.getUserId())
+                            && membership.getStatus() == com.sanad.platform.organization.membership.domain.MembershipStatus.ACTIVE
+                    );
             if (!hasActiveMembership) {
                 log.debug("Session validation failed: no active membership userId={} tenantId={}",
                         claims.userId(), claims.tenantId());

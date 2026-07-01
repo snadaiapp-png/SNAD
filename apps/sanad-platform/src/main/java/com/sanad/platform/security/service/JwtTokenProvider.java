@@ -8,6 +8,7 @@ import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Date;
 import java.util.UUID;
@@ -31,11 +33,29 @@ public class JwtTokenProvider {
 
     private final SecurityProperties.Jwt jwtConfig;
     private final Environment environment;
+    private final Clock clock;
     private SecretKey signingKey;
 
+    @Autowired
     public JwtTokenProvider(SecurityProperties securityProperties, Environment environment) {
+        this(securityProperties, environment, Clock.systemUTC());
+    }
+
+    /**
+     * Stage 04A.3.6.2 — Clock-injected constructor for testability.
+     *
+     * <p>Production wiring uses {@link Clock#systemUTC()}. Tests can inject a
+     * fixed {@link Clock} to mint tokens with deterministic issued-at and
+     * expiration timestamps — e.g. an expired-but-validly-signed token that
+     * exercises the real {@code JwtAuthenticationFilter} expiry path without
+     * sleeping or faking the signature.</p>
+     */
+    public JwtTokenProvider(SecurityProperties securityProperties,
+                             Environment environment,
+                             Clock clock) {
         this.jwtConfig = securityProperties.getJwt();
         this.environment = environment;
+        this.clock = clock == null ? Clock.systemUTC() : clock;
     }
 
     @PostConstruct
@@ -85,11 +105,55 @@ public class JwtTokenProvider {
             boolean credentialRotationRequired,
             long sessionVersion
     ) {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         Instant expiry = now.plus(jwtConfig.getAccessTokenTtl());
 
         // Stage 04A §6 — jti (JWT ID) is the real session identifier.
         // It is unique per token and used as the sessionId in TenantContext.
+        String tokenId = UUID.randomUUID().toString();
+
+        return Jwts.builder()
+                .subject(userId.toString())
+                .id(tokenId)
+                .claim("tenant_id", tenantId.toString())
+                .claim("email", email)
+                .claim(ROTATION_REQUIRED_CLAIM, credentialRotationRequired)
+                .claim(SESSION_VERSION_CLAIM, sessionVersion)
+                .issuer(jwtConfig.getIssuer())
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(expiry))
+                .signWith(signingKey)
+                .compact();
+    }
+
+    /**
+     * Stage 04A.3.6.2 — Mint a token whose issuedAt and expiration are derived
+     * from the supplied {@link Clock} rather than the provider's configured
+     * clock.
+     *
+     * <p>This overload exists so that integration tests can mint a token that
+     * is <strong>validly signed by the production signing key</strong> but
+     * whose {@code exp} claim is already in the past relative to the running
+     * server. The resulting token flows through the real
+     * {@code JwtAuthenticationFilter} → {@code JwtTokenProvider.parseAndValidate}
+     * path and is rejected by {@code io.jsonwebtoken} exactly as a production
+     * expired token would be. This eliminates the previous "fake expired JWT
+     * with an invalid signature" workaround (CD-04-P1-018).</p>
+     *
+     * @param overrideClock the clock used to compute issuedAt and exp
+     */
+    public String mintAccessTokenWithClock(
+            UUID userId,
+            UUID tenantId,
+            String email,
+            boolean credentialRotationRequired,
+            long sessionVersion,
+            Clock overrideClock
+    ) {
+        Clock effective = overrideClock == null ? clock : overrideClock;
+        Instant now = effective.instant();
+        Instant expiry = now.plus(jwtConfig.getAccessTokenTtl());
+
         String tokenId = UUID.randomUUID().toString();
 
         return Jwts.builder()
@@ -133,6 +197,6 @@ public class JwtTokenProvider {
     }
 
     public Instant getAccessTokenExpiry() {
-        return Instant.now().plus(jwtConfig.getAccessTokenTtl());
+        return clock.instant().plus(jwtConfig.getAccessTokenTtl());
     }
 }
