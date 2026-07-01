@@ -1,25 +1,34 @@
 SHELL := /usr/bin/env bash
 COMPOSE := docker compose --env-file .env
+CRM_COMPOSE := docker compose --env-file .env -f compose.yaml -f compose.crm.yaml
 
-.PHONY: help bootstrap doctor config build up up-devtools up-platform up-observability up-full down restart ps logs smoke test test-web test-backend test-mobile clean-data
+.PHONY: help bootstrap doctor config build up up-devtools up-platform up-observability up-full down restart ps logs smoke test test-web test-backend test-mobile clean-data crm-config crm-build crm-up crm-up-scale crm-up-search crm-up-observability crm-up-full crm-down crm-ps crm-logs crm-readiness crm-db-seed crm-db-validate crm-load crm-backup crm-restore-verify
 
 help:
 	@printf '%s\n' \
 	  'SNAD runtime commands' \
 	  '' \
-	  '  make bootstrap          Create .env and generate local secrets' \
-	  '  make doctor             Validate host prerequisites and Compose' \
-	  '  make config             Render the effective Compose configuration' \
-	  '  make build              Build backend and web images' \
-	  '  make up                 Start PostgreSQL, backend, and web' \
-	  '  make up-devtools        Start core plus local email capture' \
-	  '  make up-platform        Start core plus Redis platform services' \
-	  '  make up-observability   Start core plus Prometheus and Grafana' \
-	  '  make up-full            Start all available local profiles' \
-	  '  make smoke              Validate backend, OpenAPI, and web endpoints' \
-	  '  make test               Run backend, web, and mobile quality checks' \
-	  '  make down               Stop the local environment' \
-	  '  make clean-data         Delete local Docker volumes after confirmation'
+	  'General:' \
+	  '  make bootstrap             Create .env and generate local secrets' \
+	  '  make doctor                Validate host prerequisites and Compose' \
+	  '  make test                  Run backend, web, and mobile quality checks' \
+	  '' \
+	  'CRM runtime:' \
+	  '  make crm-config            Validate merged CRM Compose configuration' \
+	  '  make crm-build             Build CRM backend and web images' \
+	  '  make crm-up                Start PostgreSQL 18, backend, and web' \
+	  '  make crm-up-scale          Start core plus Valkey' \
+	  '  make crm-up-search         Start core plus OpenSearch and Dashboards' \
+	  '  make crm-up-observability  Start core plus Prometheus and Grafana' \
+	  '  make crm-up-full           Start all CRM local profiles' \
+	  '  make crm-db-seed           Generate scale dataset' \
+	  '  make crm-db-validate       Validate tenant isolation, indexes, queues, vectors' \
+	  '  make crm-load              Run k6 CRM readiness load test' \
+	  '  make crm-backup            Create timestamped PostgreSQL backup' \
+	  '  make crm-restore-verify    Restore latest backup into temporary database' \
+	  '  make crm-readiness         Run complete runtime readiness checks' \
+	  '  make crm-down              Stop CRM runtime' \
+	  '  make clean-data            Delete local Docker volumes after confirmation'
 
 bootstrap:
 	@bash scripts/dev/bootstrap.sh
@@ -80,7 +89,62 @@ test-web:
 test-mobile:
 	@cd apps/mobile && npm ci && npm run verify:env && npx expo-doctor@1.20.0 && npm run typecheck && npm run lint && npm test -- --passWithNoTests && npm run export:web
 
+crm-config:
+	@$(CRM_COMPOSE) config --quiet
+	@echo 'CRM Compose configuration is valid.'
+
+crm-build:
+	@$(CRM_COMPOSE) build --pull backend web
+
+crm-up:
+	@$(CRM_COMPOSE) up -d --build postgres backend web
+	@$(MAKE) crm-readiness
+
+crm-up-scale:
+	@$(CRM_COMPOSE) --profile crm-scale up -d --build postgres valkey backend web
+	@$(MAKE) crm-readiness
+
+crm-up-search:
+	@$(CRM_COMPOSE) --profile crm-search up -d --build postgres opensearch opensearch-dashboards crm-search-init backend web
+	@$(MAKE) crm-readiness
+
+crm-up-observability:
+	@$(CRM_COMPOSE) --profile observability up -d --build postgres backend web prometheus grafana
+	@$(MAKE) crm-readiness
+
+crm-up-full:
+	@$(CRM_COMPOSE) --profile devtools --profile crm-scale --profile crm-search --profile observability up -d --build
+	@$(MAKE) crm-readiness
+
+crm-down:
+	@$(CRM_COMPOSE) --profile devtools --profile crm-scale --profile crm-search --profile observability --profile crm-load down --remove-orphans
+
+crm-ps:
+	@$(CRM_COMPOSE) --profile devtools --profile crm-scale --profile crm-search --profile observability ps
+
+crm-logs:
+	@$(CRM_COMPOSE) --profile devtools --profile crm-scale --profile crm-search --profile observability logs --follow --tail=200
+
+crm-readiness:
+	@bash scripts/crm/readiness.sh
+
+crm-db-seed:
+	@bash scripts/crm/seed-scale.sh
+
+crm-db-validate:
+	@bash scripts/crm/validate-scale.sh
+
+crm-load:
+	@mkdir -p artifacts/performance
+	@$(CRM_COMPOSE) --profile crm-load run --rm crm-load-test
+
+crm-backup:
+	@bash scripts/crm/backup.sh
+
+crm-restore-verify:
+	@bash scripts/crm/restore-verify.sh
+
 clean-data:
 	@read -r -p 'Delete all SNAD local Docker volumes? Type DELETE: ' answer; \
 	  if [[ "$$answer" != 'DELETE' ]]; then echo 'Cancelled.'; exit 1; fi
-	@$(COMPOSE) down --volumes --remove-orphans
+	@$(CRM_COMPOSE) --profile devtools --profile crm-scale --profile crm-search --profile observability down --volumes --remove-orphans
