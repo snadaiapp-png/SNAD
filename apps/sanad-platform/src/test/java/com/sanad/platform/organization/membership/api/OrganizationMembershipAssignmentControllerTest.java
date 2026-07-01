@@ -29,11 +29,19 @@ class OrganizationMembershipAssignmentControllerTest {
     private MockMvc mockMvc;
     @MockBean
     private OrganizationMembershipUserLinkService assignmentService;
+    @MockBean
+    private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
     private final UUID tenantId = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private final UUID organizationId = UUID.fromString("22222222-2222-2222-2222-222222222222");
     private final UUID membershipId = UUID.fromString("33333333-3333-3333-3333-333333333333");
     private final UUID userId = UUID.fromString("44444444-4444-4444-4444-444444444444");
+
+    @org.junit.jupiter.api.BeforeEach
+    void mockTenantResolver() {
+        org.mockito.Mockito.when(tenantResolver.validateClientSelector(org.mockito.ArgumentMatchers.any())).thenReturn(tenantId);
+        org.mockito.Mockito.when(tenantResolver.requireTenantId()).thenReturn(tenantId);
+    }
 
     @Test
     void assignReturnsLinkedMembership() throws Exception {

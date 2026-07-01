@@ -25,6 +25,7 @@ class CapabilityEvaluationControllerTest {
 
     @Autowired private MockMvc mockMvc;
     @MockBean private CapabilityEvaluationService evaluationService;
+    @MockBean private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
     private final UUID tenantId = UUID.randomUUID();
     private final UUID userId = UUID.randomUUID();

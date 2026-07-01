@@ -1,7 +1,9 @@
 package com.sanad.platform.security.filter;
 
 import com.sanad.platform.security.service.JwtTokenProvider;
-import com.sanad.platform.user.repository.UserRepository;
+import com.sanad.platform.security.tenant.JwtSessionValidationService;
+import com.sanad.platform.security.tenant.JwtSessionValidationService.ValidatedSession;
+import com.sanad.platform.security.tenant.JwtSessionValidationService.VerifiedJwtClaims;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -28,11 +30,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtTokenProvider jwtTokenProvider;
-    private final UserRepository userRepository;
+    private final JwtSessionValidationService sessionValidationService;
 
-    public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider, UserRepository userRepository) {
+    public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider,
+                                    JwtSessionValidationService sessionValidationService) {
         this.jwtTokenProvider = jwtTokenProvider;
-        this.userRepository = userRepository;
+        this.sessionValidationService = sessionValidationService;
     }
 
     @Override
@@ -80,22 +83,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
         }
 
-        // --- Session version validation (DEFECT-001) ---
-        // Compare the session_version in the JWT against the current DB value.
-        // If they differ, the token was issued before a logout/password-change/reset
-        // and must be rejected immediately.
+        // --- Session version validation (Stage 04A.1 §4) ---
+        // Use JwtSessionValidationService to validate inside a tenant-bound
+        // transaction. This breaks the auth/RLS cycle: the service establishes
+        // a provisional TenantContext BEFORE querying the RLS-protected users table.
         UUID jwtUserId;
         try {
             jwtUserId = UUID.fromString(claims.getSubject());
         } catch (IllegalArgumentException | NullPointerException e) {
-            writeError(response, request, 401, "Unauthorized", "رمز المصادقة غير صالح");
-            return;
-        }
-
-        Long currentSessionVersion = userRepository.findSessionVersionByTenantIdAndId(jwtTenantId, jwtUserId);
-        if (currentSessionVersion == null) {
-            // User no longer exists — treat as unauthenticated
-            log.debug("Session version check failed: user not found for userId={} tenantId={}", jwtUserId, jwtTenantId);
             writeError(response, request, 401, "Unauthorized", "رمز المصادقة غير صالح");
             return;
         }
@@ -106,13 +101,29 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             jwtSessionVersion = ((Number) jwtVersionObj).longValue();
         }
 
-        if (jwtSessionVersion != currentSessionVersion) {
-            log.debug("Session version mismatch: JWT={} DB={} userId={} path={}",
-                    jwtSessionVersion, currentSessionVersion, jwtUserId, request.getRequestURI());
+        String tokenId = claims.getId();
+
+        VerifiedJwtClaims verifiedClaims = new VerifiedJwtClaims(
+                jwtTenantId,
+                jwtUserId,
+                tokenId,
+                claims.get("email", String.class),
+                jwtSessionVersion,
+                false
+        );
+
+        ValidatedSession session = sessionValidationService.validate(verifiedClaims);
+        if (session == null) {
+            // Session validation failed — user not found, session version mismatch,
+            // or user/tenant inactive. Return 401 without disclosing which.
+            log.debug("Session validation failed: userId={} tenantId={}", jwtUserId, jwtTenantId);
             writeError(response, request, 401, "Unauthorized",
                     "تم إبطال الجلسة؛ يرجى تسجيل الدخول مرة أخرى");
             return;
         }
+
+        // Session validation passed — the service already verified session version,
+        // user status, and tenant status inside the tenant-bound transaction.
 
         boolean rotationRequired = Boolean.TRUE.equals(
                 claims.get(JwtTokenProvider.ROTATION_REQUIRED_CLAIM, Boolean.class));

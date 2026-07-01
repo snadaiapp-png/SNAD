@@ -1,6 +1,7 @@
 package com.sanad.platform.access.api;
 
 import com.sanad.platform.access.UserAccessResponse;
+import com.sanad.platform.security.tenant.TenantResolver;
 import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.access.grant.UserRoleGrantService;
 import com.sanad.platform.shared.api.PageRequestParams;
@@ -23,9 +24,12 @@ import java.util.UUID;
 public class UserAccessController {
 
     private final UserRoleGrantService grantService;
+    private final com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
-    public UserAccessController(UserRoleGrantService grantService) {
+    public UserAccessController(UserRoleGrantService grantService,
+            com.sanad.platform.security.tenant.TenantResolver tenantResolver) {
         this.grantService = grantService;
+        this.tenantResolver = tenantResolver;
     }
 
     @RequireCapability("USER.GRANT_ROLE")
@@ -36,7 +40,7 @@ public class UserAccessController {
             @PathVariable UUID roleId,
             @RequestParam(required = false) UUID organizationId) {
         return ResponseEntity.status(HttpStatus.CREATED).body(
-                grantService.grant(tenantId, userId, roleId, organizationId));
+                grantService.grant(tenantResolver.validateClientSelector(tenantId), userId, roleId, organizationId));
     }
 
     @RequireCapability("ROLE.READ")
@@ -47,7 +51,7 @@ public class UserAccessController {
             @Valid PageRequestParams params) {
         Set<String> allowedSortFields = Set.of("id", "userId", "roleId", "organizationId", "status", "createdAt");
         Pageable pageable = SortAllowlist.toPageable(params, allowedSortFields);
-        Page<UserAccessResponse> page = grantService.list(tenantId, userId, pageable);
+        Page<UserAccessResponse> page = grantService.list(tenantResolver.validateClientSelector(tenantId), userId, pageable);
         return ResponseEntity.ok(PageResponseBuilder.from(page, page.getContent()));
     }
 
@@ -56,6 +60,6 @@ public class UserAccessController {
     ResponseEntity<UserAccessResponse> revoke(
             @RequestParam UUID tenantId,
             @PathVariable UUID grantId) {
-        return ResponseEntity.ok(grantService.revoke(tenantId, grantId));
+        return ResponseEntity.ok(grantService.revoke(tenantResolver.validateClientSelector(tenantId), grantId));
     }
 }

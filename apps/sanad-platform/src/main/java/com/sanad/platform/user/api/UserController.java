@@ -1,6 +1,7 @@
 package com.sanad.platform.user.api;
 
 import com.sanad.platform.shared.api.ApiErrorResponse;
+import com.sanad.platform.security.tenant.TenantResolver;
 import com.sanad.platform.shared.api.PageRequestParams;
 import com.sanad.platform.shared.api.PageResponse;
 import com.sanad.platform.shared.api.PageResponseBuilder;
@@ -53,9 +54,12 @@ import java.util.UUID;
 public class UserController {
 
     private final UserService userService;
+    private final com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
-    public UserController(UserService userService) {
+    public UserController(UserService userService,
+            com.sanad.platform.security.tenant.TenantResolver tenantResolver) {
         this.userService = userService;
+        this.tenantResolver = tenantResolver;
     }
 
     @Operation(summary = "Create a user", description = "Creates a tenant-scoped user. Default status is INVITED.")
@@ -80,7 +84,7 @@ public class UserController {
             @RequestParam UUID tenantId,
             @Valid @RequestBody CreateUserRequest request) {
 
-        UserResponse created = userService.createUser(tenantId, request);
+        UserResponse created = userService.createUser(tenantResolver.validateClientSelector(tenantId), request);
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{userId}")
                 .buildAndExpand(created.getId())
@@ -106,7 +110,7 @@ public class UserController {
         // Sort allowlist for User
         Set<String> allowedSortFields = Set.of("id", "email", "displayName", "status", "createdAt", "updatedAt");
         Pageable pageable = SortAllowlist.toPageable(params, allowedSortFields);
-        Page<UserResponse> page = userService.listUsers(tenantId, pageable);
+        Page<UserResponse> page = userService.listUsers(tenantResolver.validateClientSelector(tenantId), pageable);
         return ResponseEntity.ok(PageResponseBuilder.from(page, page.getContent()));
     }
 
@@ -130,7 +134,7 @@ public class UserController {
             @Parameter(description = "Tenant UUID (scope)", required = true)
             @RequestParam UUID tenantId) {
 
-        return ResponseEntity.ok(userService.getUser(tenantId, userId));
+        return ResponseEntity.ok(userService.getUser(tenantResolver.validateClientSelector(tenantId), userId));
     }
 
     @Operation(summary = "Update a user", description = "Updates email and display name within the tenant scope.")
@@ -157,7 +161,7 @@ public class UserController {
             @RequestParam UUID tenantId,
             @Valid @RequestBody UpdateUserRequest request) {
 
-        return ResponseEntity.ok(userService.updateUser(tenantId, userId, request));
+        return ResponseEntity.ok(userService.updateUser(tenantResolver.validateClientSelector(tenantId), userId, request));
     }
 
     @Operation(summary = "Activate a user", description = "Sets the user status to ACTIVE.")
@@ -175,7 +179,7 @@ public class UserController {
             @PathVariable UUID userId,
             @RequestParam UUID tenantId) {
 
-        return ResponseEntity.ok(userService.activateUser(tenantId, userId));
+        return ResponseEntity.ok(userService.activateUser(tenantResolver.validateClientSelector(tenantId), userId));
     }
 
     @Operation(summary = "Deactivate a user", description = "Sets the user status to INACTIVE.")
@@ -193,7 +197,7 @@ public class UserController {
             @PathVariable UUID userId,
             @RequestParam UUID tenantId) {
 
-        return ResponseEntity.ok(userService.deactivateUser(tenantId, userId));
+        return ResponseEntity.ok(userService.deactivateUser(tenantResolver.validateClientSelector(tenantId), userId));
     }
 
     @Operation(summary = "Suspend a user", description = "Sets the user status to SUSPENDED.")
@@ -211,7 +215,7 @@ public class UserController {
             @PathVariable UUID userId,
             @RequestParam UUID tenantId) {
 
-        return ResponseEntity.ok(userService.suspendUser(tenantId, userId));
+        return ResponseEntity.ok(userService.suspendUser(tenantResolver.validateClientSelector(tenantId), userId));
     }
 
     @Operation(summary = "Archive a user", description = "Sets the user status to ARCHIVED.")
@@ -229,6 +233,6 @@ public class UserController {
             @PathVariable UUID userId,
             @RequestParam UUID tenantId) {
 
-        return ResponseEntity.ok(userService.archiveUser(tenantId, userId));
+        return ResponseEntity.ok(userService.archiveUser(tenantResolver.validateClientSelector(tenantId), userId));
     }
 }

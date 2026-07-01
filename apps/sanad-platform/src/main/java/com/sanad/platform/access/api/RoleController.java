@@ -1,6 +1,7 @@
 package com.sanad.platform.access.api;
 
 import com.sanad.platform.access.role.*;
+import com.sanad.platform.security.tenant.TenantResolver;
 import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.shared.api.PageRequestParams;
 import com.sanad.platform.shared.api.PageResponse;
@@ -22,9 +23,12 @@ import java.util.UUID;
 public class RoleController {
 
     private final RoleService roleService;
+    private final com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
-    public RoleController(RoleService roleService) {
+    public RoleController(RoleService roleService,
+            com.sanad.platform.security.tenant.TenantResolver tenantResolver) {
         this.roleService = roleService;
+        this.tenantResolver = tenantResolver;
     }
 
     @RequireCapability("ROLE.WRITE")
@@ -33,7 +37,7 @@ public class RoleController {
             @RequestParam UUID tenantId,
             @Valid @RequestBody CreateRoleRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(roleService.create(tenantId, request));
+                .body(roleService.create(tenantResolver.validateClientSelector(tenantId), request));
     }
 
     @RequireCapability("ROLE.READ")
@@ -43,7 +47,7 @@ public class RoleController {
             @Valid PageRequestParams params) {
         Set<String> allowedSortFields = Set.of("id", "code", "name", "status", "createdAt", "updatedAt");
         Pageable pageable = SortAllowlist.toPageable(params, allowedSortFields);
-        Page<RoleResponse> page = roleService.list(tenantId, pageable);
+        Page<RoleResponse> page = roleService.list(tenantResolver.validateClientSelector(tenantId), pageable);
         return ResponseEntity.ok(PageResponseBuilder.from(page, page.getContent()));
     }
 
@@ -51,7 +55,7 @@ public class RoleController {
     @GetMapping("/{roleId}")
     ResponseEntity<RoleResponse> get(
             @RequestParam UUID tenantId, @PathVariable UUID roleId) {
-        return ResponseEntity.ok(roleService.get(tenantId, roleId));
+        return ResponseEntity.ok(roleService.get(tenantResolver.validateClientSelector(tenantId), roleId));
     }
 
     @RequireCapability("ROLE.WRITE")
@@ -60,7 +64,7 @@ public class RoleController {
             @RequestParam UUID tenantId,
             @PathVariable UUID roleId,
             @Valid @RequestBody UpdateRoleRequest request) {
-        return ResponseEntity.ok(roleService.update(tenantId, roleId, request));
+        return ResponseEntity.ok(roleService.update(tenantResolver.validateClientSelector(tenantId), roleId, request));
     }
 
     @RequireCapability("ROLE.WRITE")

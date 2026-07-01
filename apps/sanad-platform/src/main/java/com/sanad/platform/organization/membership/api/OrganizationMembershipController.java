@@ -131,7 +131,7 @@ public class OrganizationMembershipController {
                 "id", "organizationId", "userId", "email", "status", "createdAt", "updatedAt");
         Pageable pageable = SortAllowlist.toPageable(params, allowedSortFields);
         Page<OrganizationMembershipResponse> page =
-                membershipService.listMemberships(tenantId, organizationId, pageable);
+                membershipService.listMemberships(tenantResolver.validateClientSelector(tenantId), organizationId, pageable);
         return ResponseEntity.ok(PageResponseBuilder.from(page, page.getContent()));
     }
 
@@ -161,7 +161,7 @@ public class OrganizationMembershipController {
             @Parameter(description = "Tenant UUID (scope)", required = true)
             @RequestParam UUID tenantId) {
 
-        return ResponseEntity.ok(membershipService.getMembership(tenantId, organizationId, membershipId));
+        return ResponseEntity.ok(membershipService.getMembership(tenantResolver.validateClientSelector(tenantId), organizationId, membershipId));
     }
 
     // ============================================================
@@ -187,7 +187,7 @@ public class OrganizationMembershipController {
             @PathVariable UUID membershipId,
             @RequestParam UUID tenantId) {
 
-        return ResponseEntity.ok(membershipService.activateMembership(tenantId, organizationId, membershipId));
+        return ResponseEntity.ok(membershipService.activateMembership(tenantResolver.validateClientSelector(tenantId), organizationId, membershipId));
     }
 
     // ============================================================
@@ -213,7 +213,7 @@ public class OrganizationMembershipController {
             @PathVariable UUID membershipId,
             @RequestParam UUID tenantId) {
 
-        return ResponseEntity.ok(membershipService.deactivateMembership(tenantId, organizationId, membershipId));
+        return ResponseEntity.ok(membershipService.deactivateMembership(tenantResolver.validateClientSelector(tenantId), organizationId, membershipId));
     }
 
     // ============================================================
@@ -239,6 +239,6 @@ public class OrganizationMembershipController {
             @PathVariable UUID membershipId,
             @RequestParam UUID tenantId) {
 
-        return ResponseEntity.ok(membershipService.removeMembership(tenantId, organizationId, membershipId));
+        return ResponseEntity.ok(membershipService.removeMembership(tenantResolver.validateClientSelector(tenantId), organizationId, membershipId));
     }
 }

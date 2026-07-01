@@ -210,7 +210,7 @@ public class OrganizationController {
             @Parameter(description = "Tenant UUID (scope)", required = true)
             @RequestParam UUID tenantId) {
 
-        return ResponseEntity.ok(organizationService.getOrganization(tenantId, id));
+        return ResponseEntity.ok(organizationService.getOrganization(tenantResolver.validateClientSelector(tenantId), id));
     }
 
     /**
@@ -255,7 +255,7 @@ public class OrganizationController {
             @Valid PageRequestParams params) {
         Set<String> allowedSortFields = Set.of("id", "name", "status", "createdAt", "updatedAt");
         Pageable pageable = SortAllowlist.toPageable(params, allowedSortFields);
-        Page<OrganizationResponse> page = organizationService.listOrganizations(tenantId, pageable);
+        Page<OrganizationResponse> page = organizationService.listOrganizations(tenantResolver.validateClientSelector(tenantId), pageable);
         return ResponseEntity.ok(PageResponseBuilder.from(page, page.getContent()));
     }
 
@@ -316,7 +316,7 @@ public class OrganizationController {
             @RequestParam UUID tenantId,
             @Valid @RequestBody UpdateOrganizationRequest request) {
 
-        return ResponseEntity.ok(organizationService.updateOrganization(tenantId, id, request));
+        return ResponseEntity.ok(organizationService.updateOrganization(tenantResolver.validateClientSelector(tenantId), id, request));
     }
 
     /**

@@ -48,10 +48,18 @@ class UserControllerTest {
 
     @MockBean
     private UserService userService;
+    @MockBean
+    private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
     private final UUID tenantId = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private final UUID userId = UUID.fromString("22222222-2222-2222-2222-222222222222");
     private final Instant now = Instant.parse("2026-06-18T00:00:00Z");
+
+    @org.junit.jupiter.api.BeforeEach
+    void mockTenantResolver() {
+        org.mockito.Mockito.when(tenantResolver.validateClientSelector(org.mockito.ArgumentMatchers.any())).thenReturn(tenantId);
+        org.mockito.Mockito.when(tenantResolver.requireTenantId()).thenReturn(tenantId);
+    }
 
     private UserResponse response(UserStatus status) {
         return new UserResponse(userId, tenantId, "alice@example.com", "Alice", status, now, now);

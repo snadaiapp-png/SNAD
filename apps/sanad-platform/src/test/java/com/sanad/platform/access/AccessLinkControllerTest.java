@@ -27,11 +27,18 @@ class AccessLinkControllerTest {
     @Autowired private MockMvc mockMvc;
     @MockBean private RoleCapabilityService mappingService;
     @MockBean private UserRoleGrantService grantService;
+    @MockBean private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
     private final UUID tenantId = UUID.randomUUID();
     private final UUID roleId = UUID.randomUUID();
     private final UUID capabilityId = UUID.randomUUID();
     private final UUID userId = UUID.randomUUID();
+
+    @org.junit.jupiter.api.BeforeEach
+    void mockTenantResolver() {
+        org.mockito.Mockito.when(tenantResolver.validateClientSelector(org.mockito.ArgumentMatchers.any())).thenReturn(tenantId);
+        org.mockito.Mockito.when(tenantResolver.requireTenantId()).thenReturn(tenantId);
+    }
     private final UUID organizationId = UUID.randomUUID();
     private final UUID grantId = UUID.randomUUID();
 

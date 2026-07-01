@@ -3,6 +3,7 @@ package com.sanad.platform.security.config;
 import com.sanad.platform.config.CorsProperties;
 import com.sanad.platform.security.filter.JwtAuthenticationFilter;
 import com.sanad.platform.security.service.JwtTokenProvider;
+import com.sanad.platform.security.tenant.JwtSessionValidationService;
 import com.sanad.platform.security.tenant.TenantContextFilter;
 import com.sanad.platform.security.tenant.TenantContextProvider;
 import com.sanad.platform.user.repository.UserRepository;
@@ -38,18 +39,18 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtTokenProvider jwtTokenProvider;
-    private final UserRepository userRepository;
+    private final JwtSessionValidationService sessionValidationService;
     private final CorsProperties corsProperties;
     private final Environment environment;
     private final TenantContextProvider tenantContextProvider;
 
     public SecurityConfig(JwtTokenProvider jwtTokenProvider,
-                          UserRepository userRepository,
+                          JwtSessionValidationService sessionValidationService,
                           CorsProperties corsProperties,
                           Environment environment,
                           TenantContextProvider tenantContextProvider) {
         this.jwtTokenProvider = jwtTokenProvider;
-        this.userRepository = userRepository;
+        this.sessionValidationService = sessionValidationService;
         this.corsProperties = corsProperties;
         this.environment = environment;
         this.tenantContextProvider = tenantContextProvider;
@@ -105,7 +106,7 @@ public class SecurityConfig {
                 .securityContext(sc -> sc.requireExplicitSave(false));
 
         http.addFilterBefore(
-                new JwtAuthenticationFilter(jwtTokenProvider, userRepository),
+                new JwtAuthenticationFilter(jwtTokenProvider, sessionValidationService),
                 UsernamePasswordAuthenticationFilter.class
         );
         // Stage 04 — TenantContextFilter runs AFTER JwtAuthenticationFilter

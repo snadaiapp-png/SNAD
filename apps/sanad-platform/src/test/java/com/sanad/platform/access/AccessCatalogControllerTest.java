@@ -29,10 +29,17 @@ class AccessCatalogControllerTest {
     @Autowired private MockMvc mockMvc;
     @MockBean private RoleService roleService;
     @MockBean private AccessCapabilityService capabilityService;
+    @MockBean private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
     private final UUID tenantId = UUID.randomUUID();
     private final UUID roleId = UUID.randomUUID();
     private final UUID capabilityId = UUID.randomUUID();
+
+    @org.junit.jupiter.api.BeforeEach
+    void mockTenantResolver() {
+        org.mockito.Mockito.when(tenantResolver.validateClientSelector(org.mockito.ArgumentMatchers.any())).thenReturn(tenantId);
+        org.mockito.Mockito.when(tenantResolver.requireTenantId()).thenReturn(tenantId);
+    }
 
     @Test
     void createRoleReturns201() throws Exception {

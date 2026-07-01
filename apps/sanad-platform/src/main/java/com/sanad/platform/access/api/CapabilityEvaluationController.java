@@ -1,6 +1,7 @@
 package com.sanad.platform.access.api;
 
 import com.sanad.platform.access.AccessDecisionResponse;
+import com.sanad.platform.security.tenant.TenantResolver;
 import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.access.evaluation.CapabilityEvaluationService;
 import org.springframework.http.ResponseEntity;
@@ -16,9 +17,12 @@ import java.util.UUID;
 public class CapabilityEvaluationController {
 
     private final CapabilityEvaluationService evaluationService;
+    private final com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
-    public CapabilityEvaluationController(CapabilityEvaluationService evaluationService) {
+    public CapabilityEvaluationController(CapabilityEvaluationService evaluationService,
+            com.sanad.platform.security.tenant.TenantResolver tenantResolver) {
         this.evaluationService = evaluationService;
+        this.tenantResolver = tenantResolver;
     }
 
     @RequireCapability("ACCESS.EVALUATE")

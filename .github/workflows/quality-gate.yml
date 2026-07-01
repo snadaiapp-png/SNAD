@@ -590,8 +590,8 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_DB: sanad_tenant_isolation
-          POSTGRES_USER: sanad
-          POSTGRES_PASSWORD: ci-tenant-isolation-only
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-postgres-admin-only
         ports:
           - 5432:5432
         options: >-
@@ -602,8 +602,6 @@ jobs:
     env:
       JWT_SECRET: ci-only-non-production-key-1234567890
       DATABASE_URL: jdbc:postgresql://localhost:5432/sanad_tenant_isolation
-      DATABASE_USERNAME: sanad
-      DATABASE_PASSWORD: ci-tenant-isolation-only
       DATABASE_DRIVER: org.postgresql.Driver
       SANAD_CORS_ALLOWED_ORIGINS: https://snad-app.vercel.app
     steps:
@@ -613,8 +611,56 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Run tenant isolation tests (PostgreSQL 16)
+      - name: Provision migration and runtime DB roles (Stage 04A.1 §7-8)
+        run: |
+          sudo apt-get install -y postgresql-client > /dev/null 2>&1 || true
+          # Create migration_owner role (owns tables, runs Flyway)
+          psql -h localhost -U postgres -d sanad_tenant_isolation -c "
+            DO \$\$
+            BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_migration_owner') THEN
+                CREATE ROLE sanad_migration_owner WITH LOGIN PASSWORD 'ci-migration-only' CREATEDB;
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_runtime_app') THEN
+                CREATE ROLE sanad_runtime_app WITH LOGIN PASSWORD 'ci-runtime-only'
+                  NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+              END IF;
+            END
+            \$\$;
+          "
+          # Grant migration_owner ownership of schema public
+          psql -h localhost -U postgres -d sanad_tenant_isolation -c "
+            GRANT ALL ON SCHEMA public TO sanad_migration_owner;
+            GRANT USAGE ON SCHEMA public TO sanad_runtime_app;
+          "
+          echo "Roles provisioned:"
+          psql -h localhost -U postgres -d sanad_tenant_isolation -c "SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname IN ('sanad_migration_owner','sanad_runtime_app');"
+      - name: Run Flyway migrations as migration_owner
         working-directory: apps/sanad-platform
+        env:
+          FLYWAY_DATABASE_USERNAME: sanad_migration_owner
+          FLYWAY_DATABASE_PASSWORD: ci-migration-only
+          DATABASE_USERNAME: sanad_migration_owner
+          DATABASE_PASSWORD: ci-migration-only
+        run: |
+          ./mvnw -B -ntp test -Dtest="FlywayValidationTest" \
+            -Dspring.profiles.active=prod \
+            -Ddatabase.url="${DATABASE_URL}" \
+            -Ddatabase.username="${DATABASE_USERNAME}" \
+            -Ddatabase.password="${DATABASE_PASSWORD}" \
+            -Ddatabase.driver="${DATABASE_DRIVER}"
+      - name: Grant runtime role privileges (post-migration)
+        run: |
+          # After migrations, grant CRUD to runtime role
+          psql -h localhost -U postgres -d sanad_tenant_isolation -c "
+            GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO sanad_runtime_app;
+            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sanad_runtime_app;
+          "
+      - name: Run tenant isolation tests as runtime role (PostgreSQL 16)
+        working-directory: apps/sanad-platform
+        env:
+          DATABASE_USERNAME: sanad_runtime_app
+          DATABASE_PASSWORD: ci-runtime-only
         run: |
           ./mvnw -B -ntp test \
             -Dtest="TenantContextLifecycleTest,TenantCrudIsolationIntegrationTest,TenantBindingSecurityIntegrationTest,OrganizationTenantIsolationTest,TenantAwarePaginationIntegrationTest" \
@@ -623,7 +669,19 @@ jobs:
             -Ddatabase.username="${DATABASE_USERNAME}" \
             -Ddatabase.password="${DATABASE_PASSWORD}" \
             -Ddatabase.driver="${DATABASE_DRIVER}"
-      - name: Run static tenant isolation gate (Stage 04A — Python)
+      - name: Verify runtime role is non-superuser and non-BYPASSRLS
+        run: |
+          RESULT=$(psql -h localhost -U postgres -d sanad_tenant_isolation -tAc "
+            SELECT rolname, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication
+            FROM pg_roles WHERE rolname = 'sanad_runtime_app';
+          ")
+          echo "Runtime role: $RESULT"
+          echo "$RESULT" | grep -q "sanad_runtime_app|f|f|f|f|f" || {
+            echo "FAIL: sanad_runtime_app does not have the required flags (NOSUPERUSER, NOBYPASSRLS, etc.)"
+            exit 1
+          }
+          echo "Runtime role verification: PASS"
+      - name: Run static tenant isolation gate (Stage 04A.1 — Python)
         run: python3 scripts/ci/check_tenant_isolation.py
       - name: Verify tenant domain inventory coverage
         run: |

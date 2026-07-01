@@ -1,6 +1,7 @@
 package com.sanad.platform.organization.membership.api;
 
 import com.sanad.platform.organization.membership.dto.OrganizationMembershipResponse;
+import com.sanad.platform.security.tenant.TenantResolver;
 import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.organization.membership.service.OrganizationMembershipUserLinkService;
 import org.springframework.http.ResponseEntity;
@@ -17,10 +18,13 @@ import java.util.UUID;
 public class OrganizationMembershipAssignmentController {
 
     private final OrganizationMembershipUserLinkService assignmentService;
+    private final com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
     public OrganizationMembershipAssignmentController(
-            OrganizationMembershipUserLinkService assignmentService) {
+            OrganizationMembershipUserLinkService assignmentService,
+            com.sanad.platform.security.tenant.TenantResolver tenantResolver) {
         this.assignmentService = assignmentService;
+        this.tenantResolver = tenantResolver;
     }
 
     @RequireCapability("MEMBERSHIP.WRITE")

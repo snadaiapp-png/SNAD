@@ -1,6 +1,7 @@
 package com.sanad.platform.access.api;
 
 import com.sanad.platform.access.role.RoleAccessResponse;
+import com.sanad.platform.security.tenant.TenantResolver;
 import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.access.role.RoleCapabilityService;
 import com.sanad.platform.shared.api.PageRequestParams;
@@ -23,9 +24,12 @@ import java.util.UUID;
 public class RoleAccessController {
 
     private final RoleCapabilityService mappingService;
+    private final com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
-    public RoleAccessController(RoleCapabilityService mappingService) {
+    public RoleAccessController(RoleCapabilityService mappingService,
+            com.sanad.platform.security.tenant.TenantResolver tenantResolver) {
         this.mappingService = mappingService;
+        this.tenantResolver = tenantResolver;
     }
 
     @RequireCapability("ROLE.WRITE")
@@ -35,7 +39,7 @@ public class RoleAccessController {
             @PathVariable UUID roleId,
             @PathVariable UUID capabilityId) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(mappingService.attach(tenantId, roleId, capabilityId));
+                .body(mappingService.attach(tenantResolver.validateClientSelector(tenantId), roleId, capabilityId));
     }
 
     @RequireCapability("ROLE.WRITE")
@@ -44,7 +48,7 @@ public class RoleAccessController {
             @RequestParam UUID tenantId,
             @PathVariable UUID roleId,
             @PathVariable UUID capabilityId) {
-        mappingService.detach(tenantId, roleId, capabilityId);
+        mappingService.detach(tenantResolver.validateClientSelector(tenantId), roleId, capabilityId);
         return ResponseEntity.noContent().build();
     }
 
@@ -56,7 +60,7 @@ public class RoleAccessController {
             @Valid PageRequestParams params) {
         Set<String> allowedSortFields = Set.of("id", "roleId", "capabilityId", "createdAt");
         Pageable pageable = SortAllowlist.toPageable(params, allowedSortFields);
-        Page<RoleAccessResponse> page = mappingService.list(tenantId, roleId, pageable);
+        Page<RoleAccessResponse> page = mappingService.list(tenantResolver.validateClientSelector(tenantId), roleId, pageable);
         return ResponseEntity.ok(PageResponseBuilder.from(page, page.getContent()));
     }
 }
