@@ -1,0 +1,65 @@
+name: CRM Image CI
+
+on:
+  pull_request:
+    paths:
+      - "apps/sanad-platform/**"
+      - "apps/web/**"
+      - "compose.yaml"
+      - "compose.crm.yaml"
+      - ".github/workflows/crm-image-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-image:
+    name: CRM Backend Image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        id: build
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          docker build --progress=plain -t snad-crm-backend:test apps/sanad-platform 2>&1 | tee backend-image.log
+      - name: Upload backend build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-backend-image-${{ github.sha }}
+          path: backend-image.log
+          retention-days: 7
+      - name: Fail on backend image error
+        if: steps.build.outcome == 'failure'
+        run: exit 1
+
+  web-image:
+    name: CRM Web Image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build web image
+        id: build
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          docker build --progress=plain --build-arg NEXT_PUBLIC_API_BASE_URL=http://localhost:8080 -t snad-crm-web:test apps/web 2>&1 | tee web-image.log
+      - name: Upload web build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-web-image-${{ github.sha }}
+          path: web-image.log
+          retention-days: 7
+      - name: Fail on web image error
+        if: steps.build.outcome == 'failure'
+        run: exit 1
