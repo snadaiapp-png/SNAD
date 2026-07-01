@@ -1,0 +1,48 @@
+name: Mobile Lockfile Sync
+
+on:
+  push:
+    branches:
+      - feat/mobile-environment-foundation
+    paths:
+      - "apps/mobile/package.json"
+      - ".github/workflows/mobile-lockfile-sync.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mobile-lockfile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync-lockfile:
+    name: Generate mobile package-lock
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/mobile-environment-foundation
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.x"
+
+      - name: Generate deterministic lockfile
+        working-directory: apps/mobile
+        run: npm install --package-lock-only --no-audit --no-fund
+
+      - name: Commit lockfile when changed
+        shell: bash
+        run: |
+          git add apps/mobile/package-lock.json
+          if git diff --cached --quiet; then
+            echo "Mobile package-lock.json is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(mobile): lock Expo SDK 57 dependencies"
+          git push origin HEAD:feat/mobile-environment-foundation
