@@ -31,14 +31,14 @@ CREATE TABLE crm_benchmark.account (
 );
 
 CREATE TABLE crm_benchmark.contact (
-    tenant_id       uuid NOT NULL,
-    id              uuid NOT NULL,
-    account_id      uuid NOT NULL,
-    display_name    text NOT NULL,
-    email           citext,
-    phone_e164      varchar(32),
+    tenant_id        uuid NOT NULL,
+    id               uuid NOT NULL,
+    account_id       uuid NOT NULL,
+    display_name     text NOT NULL,
+    email            citext,
+    phone_e164       varchar(32),
     lifecycle_status varchar(24) NOT NULL,
-    created_at      timestamptz NOT NULL,
+    created_at       timestamptz NOT NULL,
     PRIMARY KEY (tenant_id, id),
     CONSTRAINT fk_benchmark_contact_account
       FOREIGN KEY (tenant_id, account_id)
@@ -56,22 +56,22 @@ INSERT INTO crm_runtime.tenant_capacity (
 )
 SELECT
     gen_random_uuid(),
-    ((tenant_number - 1) % 128)::smallint,
-    CASE (tenant_number % 4)
+    ((series.tenant_number - 1) % 128)::smallint,
+    CASE (series.tenant_number % 4)
       WHEN 0 THEN 'sa-central-1'
       WHEN 1 THEN 'eu-central-1'
       WHEN 2 THEN 'us-east-1'
       ELSE 'ap-southeast-1'
     END,
     CASE
-      WHEN tenant_number % 100 = 0 THEN 'DEDICATED'
-      WHEN tenant_number % 20 = 0 THEN 'ENTERPRISE'
-      WHEN tenant_number % 5 = 0 THEN 'GROWTH'
+      WHEN series.tenant_number % 100 = 0 THEN 'DEDICATED'
+      WHEN series.tenant_number % 20 = 0 THEN 'ENTERPRISE'
+      WHEN series.tenant_number % 5 = 0 THEN 'GROWTH'
       ELSE 'STANDARD'
     END,
     5000000,
     107374182400
-FROM generate_series(1, :tenant_count) AS tenant_number
+FROM generate_series(1, :tenant_count) AS series(tenant_number)
 ON CONFLICT (tenant_id) DO NOTHING;
 
 CREATE TEMP TABLE benchmark_tenant AS
@@ -95,22 +95,22 @@ SELECT
     tenant.tenant_id,
     gen_random_uuid(),
     CASE
-      WHEN account_number % 3 = 0 THEN 'شركة العميل ' || tenant.tenant_number || '-' || account_number
-      ELSE 'Customer Account ' || tenant.tenant_number || '-' || account_number
+      WHEN series.account_number % 3 = 0 THEN 'شركة العميل ' || tenant.tenant_number || '-' || series.account_number
+      ELSE 'Customer Account ' || tenant.tenant_number || '-' || series.account_number
     END,
     lower(
       CASE
-        WHEN account_number % 3 = 0 THEN 'شركة العميل ' || tenant.tenant_number || '-' || account_number
-        ELSE 'Customer Account ' || tenant.tenant_number || '-' || account_number
+        WHEN series.account_number % 3 = 0 THEN 'شركة العميل ' || tenant.tenant_number || '-' || series.account_number
+        ELSE 'Customer Account ' || tenant.tenant_number || '-' || series.account_number
       END
     ),
-    CASE WHEN account_number % 97 = 0 THEN 'INACTIVE' ELSE 'ACTIVE' END,
+    CASE WHEN series.account_number % 97 = 0 THEN 'INACTIVE' ELSE 'ACTIVE' END,
     gen_random_uuid(),
-    ((tenant.tenant_number * 1000 + account_number) % 1000000)::numeric(19,2),
-    now() - make_interval(days => (account_number % 365)),
-    now() - make_interval(minutes => (account_number % 1440))
+    ((tenant.tenant_number * 1000 + series.account_number) % 1000000)::numeric(19,2),
+    now() - make_interval(days => (series.account_number % 365)::integer),
+    now() - make_interval(mins => (series.account_number % 1440)::integer)
 FROM benchmark_tenant tenant
-CROSS JOIN generate_series(1, :accounts_per_tenant) AS account_number;
+CROSS JOIN generate_series(1, :accounts_per_tenant) AS series(account_number);
 
 INSERT INTO crm_benchmark.contact (
     tenant_id,
@@ -126,13 +126,13 @@ SELECT
     account.tenant_id,
     gen_random_uuid(),
     account.id,
-    'Contact ' || contact_number || ' - ' || account.display_name,
-    ('contact-' || contact_number || '-' || replace(account.id::text, '-', '') || '@example.test')::citext,
-    '+9665' || lpad(((abs(hashtext(account.id::text)) + contact_number) % 100000000)::text, 8, '0'),
+    'Contact ' || series.contact_number || ' - ' || account.display_name,
+    ('contact-' || series.contact_number || '-' || replace(account.id::text, '-', '') || '@example.test')::citext,
+    '+9665' || lpad(((abs(hashtext(account.id::text)::bigint) + series.contact_number) % 100000000)::text, 8, '0'),
     'ACTIVE',
     account.created_at
 FROM crm_benchmark.account account
-CROSS JOIN generate_series(1, :contacts_per_account) AS contact_number;
+CROSS JOIN generate_series(1, :contacts_per_account) AS series(contact_number);
 
 CREATE INDEX idx_benchmark_account_tenant_status
     ON crm_benchmark.account (tenant_id, lifecycle_status, updated_at DESC);
