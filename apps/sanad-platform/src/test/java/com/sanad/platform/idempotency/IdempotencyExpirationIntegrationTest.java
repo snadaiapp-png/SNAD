@@ -81,7 +81,7 @@ class IdempotencyExpirationIntegrationTest {
                 "created_at, updated_at) VALUES (?, ?, ?, 'ORGANIZATION.CREATE', " +
                 "'/api/v1/organizations', ?, ?, ?, NOW(), NOW())",
                 id, fixture.tenantAId(), key,
-                "a".repeat(64), status, expiresAt);
+                "a".repeat(64), status, java.sql.Timestamp.from(expiresAt));
         return id;
     }
 

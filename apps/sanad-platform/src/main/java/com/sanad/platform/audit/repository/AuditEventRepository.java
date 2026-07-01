@@ -41,8 +41,8 @@ public interface AuditEventRepository extends JpaRepository<AuditEvent, UUID> {
                 + "AND (:resourceId IS NULL OR a.resourceId = :resourceId) "
                 + "AND (:outcome IS NULL OR a.outcome = :outcome) "
                 + "AND (:correlationId IS NULL OR a.correlationId = :correlationId) "
-                + "AND (:from IS NULL OR a.occurredAt >= :from) "
-                + "AND (:to IS NULL OR a.occurredAt < :to) "
+                + "AND (CAST(:from AS timestamp) IS NULL OR a.occurredAt >= :from) "
+                + "AND (CAST(:to AS timestamp) IS NULL OR a.occurredAt < :to) "
                 + "ORDER BY a.occurredAt DESC, a.id DESC",
         countQuery = "SELECT COUNT(a) FROM AuditEvent a WHERE a.tenantId = :tenantId "
                 + "AND (:actorUserId IS NULL OR a.actorUserId = :actorUserId) "
@@ -51,8 +51,8 @@ public interface AuditEventRepository extends JpaRepository<AuditEvent, UUID> {
                 + "AND (:resourceId IS NULL OR a.resourceId = :resourceId) "
                 + "AND (:outcome IS NULL OR a.outcome = :outcome) "
                 + "AND (:correlationId IS NULL OR a.correlationId = :correlationId) "
-                + "AND (:from IS NULL OR a.occurredAt >= :from) "
-                + "AND (:to IS NULL OR a.occurredAt < :to)")
+                + "AND (CAST(:from AS timestamp) IS NULL OR a.occurredAt >= :from) "
+                + "AND (CAST(:to AS timestamp) IS NULL OR a.occurredAt < :to)")
     Page<AuditEvent> findFiltered(
             @Param("tenantId") UUID tenantId,
             @Param("actorUserId") UUID actorUserId,
