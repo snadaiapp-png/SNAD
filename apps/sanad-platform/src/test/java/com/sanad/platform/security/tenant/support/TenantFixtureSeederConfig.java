@@ -99,36 +99,26 @@ public class TenantFixtureSeederConfig {
         public void cleanup(TenantTestFixture fixture) {
             if (fixture == null) return;
 
-            // Delete in reverse FK order
-            if (fixture.roleGrantId() != null) {
-                jdbc.update("DELETE FROM user_role_assignments WHERE id = ?", fixture.roleGrantId());
-            }
-            if (fixture.membershipAId() != null) {
-                jdbc.update("DELETE FROM organization_memberships WHERE id = ?", fixture.membershipAId());
-            }
-            if (fixture.membershipBId() != null) {
-                jdbc.update("DELETE FROM organization_memberships WHERE id = ?", fixture.membershipBId());
-            }
-            if (fixture.organizationAId() != null) {
-                jdbc.update("DELETE FROM organizations WHERE id = ?", fixture.organizationAId());
-            }
-            if (fixture.organizationBId() != null) {
-                jdbc.update("DELETE FROM organizations WHERE id = ?", fixture.organizationBId());
-            }
-            // Delete all orgs for these tenants (pagination fixture creates multiple)
+            // Delete ALL users for these tenants first (including test-created ones)
             if (fixture.tenantAId() != null) {
-                jdbc.update("DELETE FROM organizations WHERE tenant_id = ?", fixture.tenantAId());
+                jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", fixture.tenantAId());
                 jdbc.update("DELETE FROM organization_memberships WHERE tenant_id = ?", fixture.tenantAId());
+                jdbc.update("DELETE FROM organizations WHERE tenant_id = ?", fixture.tenantAId());
+                jdbc.update("DELETE FROM refresh_tokens WHERE tenant_id = ?", fixture.tenantAId());
+                jdbc.update("DELETE FROM password_reset_tokens WHERE tenant_id = ?", fixture.tenantAId());
+                jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", fixture.tenantAId());
+                jdbc.update("DELETE FROM roles WHERE tenant_id = ?", fixture.tenantAId());
+                jdbc.update("DELETE FROM users WHERE tenant_id = ?", fixture.tenantAId());
             }
             if (fixture.tenantBId() != null) {
-                jdbc.update("DELETE FROM organizations WHERE tenant_id = ?", fixture.tenantBId());
+                jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", fixture.tenantBId());
                 jdbc.update("DELETE FROM organization_memberships WHERE tenant_id = ?", fixture.tenantBId());
-            }
-            if (fixture.userAId() != null) {
-                jdbc.update("DELETE FROM users WHERE id = ?", fixture.userAId());
-            }
-            if (fixture.userBId() != null) {
-                jdbc.update("DELETE FROM users WHERE id = ?", fixture.userBId());
+                jdbc.update("DELETE FROM organizations WHERE tenant_id = ?", fixture.tenantBId());
+                jdbc.update("DELETE FROM refresh_tokens WHERE tenant_id = ?", fixture.tenantBId());
+                jdbc.update("DELETE FROM password_reset_tokens WHERE tenant_id = ?", fixture.tenantBId());
+                jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", fixture.tenantBId());
+                jdbc.update("DELETE FROM roles WHERE tenant_id = ?", fixture.tenantBId());
+                jdbc.update("DELETE FROM users WHERE tenant_id = ?", fixture.tenantBId());
             }
             if (fixture.tenantAId() != null) {
                 jdbc.update("DELETE FROM tenants WHERE id = ?", fixture.tenantAId());
