@@ -59,15 +59,20 @@ class TenantRlsIntegrationTest {
     void missingTenantSetting_zeroRows() throws Exception {
         PostgresTestUtil.assertPostgreSQL(dataSource);
 
-        try (var conn = dataSource.getConnection(); var stmt = conn.createStatement()) {
-            // RESET the tenant setting to ensure it's NULL (not empty string)
-            stmt.execute("RESET app.current_tenant_id");
+        try (var conn = dataSource.getConnection()) {
+            conn.setAutoCommit(false);
+            try (var stmt = conn.createStatement()) {
+                // Set tenant to NULL (not empty string) — RLS policy evaluates
+                // tenant_id = NULL::uuid → FALSE for all rows → 0 rows
+                stmt.execute("SELECT set_config('app.current_tenant_id', NULL, true)");
 
-            var rs = stmt.executeQuery("SELECT COUNT(*) FROM users");
-            assertThat(rs.next()).isTrue();
-            assertThat(rs.getInt(1))
-                    .as("Missing tenant setting must return 0 rows (fail-closed)")
-                    .isEqualTo(0);
+                var rs = stmt.executeQuery("SELECT COUNT(*) FROM users");
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getInt(1))
+                        .as("Missing/null tenant setting must return 0 rows (fail-closed)")
+                        .isEqualTo(0);
+            }
+            conn.rollback();
         }
     }
 
@@ -77,13 +82,15 @@ class TenantRlsIntegrationTest {
         PostgresTestUtil.assertPostgreSQL(dataSource);
 
         UUID tenantA = java.util.UUID.randomUUID();
-        try (var conn = dataSource.getConnection(); var stmt = conn.createStatement()) {
-            stmt.execute("SET LOCAL app.current_tenant_id = '" + tenantA + "'");
+        try (var conn = dataSource.getConnection()) {
+            conn.setAutoCommit(false);
+            try (var stmt = conn.createStatement()) {
+                stmt.execute("SELECT set_config('app.current_tenant_id', '" + tenantA + "', true)");
 
-            // Query users — only A's rows visible
-            var rs = stmt.executeQuery("SELECT COUNT(*) FROM users WHERE tenant_id = '" + tenantA + "'");
-            assertThat(rs.next()).isTrue();
-            // Count may be 0 if no test data, but query succeeds (RLS allows it)
+                var rs = stmt.executeQuery("SELECT COUNT(*) FROM users WHERE tenant_id = '" + tenantA + "'");
+                assertThat(rs.next()).isTrue();
+            }
+            conn.rollback();
         }
     }
 }
