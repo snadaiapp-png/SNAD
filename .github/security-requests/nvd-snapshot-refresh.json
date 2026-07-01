@@ -2,7 +2,9 @@
   "purpose": "refresh-stale-nvd-snapshot",
   "issue": 197,
   "requested_by": "project-owner",
-  "requested_at": "2026-07-01T17:00:00Z",
+  "requested_at": "2026-07-01T20:05:00Z",
+  "attempt": 2,
   "one_time": true,
-  "maximum_age_hours": 48
+  "maximum_age_hours": 48,
+  "diagnostics_required": true
 }
