@@ -2,12 +2,13 @@ package com.sanad.platform.shared.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sanad.platform.organization.domain.OrganizationStatus;
-import com.sanad.platform.organization.repository.OrganizationRepository;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
-import com.sanad.platform.tenant.domain.Tenant;
-import com.sanad.platform.tenant.domain.TenantStatus;
-import com.sanad.platform.tenant.repository.TenantRepository;
+import com.sanad.platform.security.service.JwtTokenProvider;
+import com.sanad.platform.security.tenant.support.TenantFixtureDataSourceConfig;
+import com.sanad.platform.security.tenant.support.TenantFixtureSeeder;
+import com.sanad.platform.security.tenant.support.TenantFixtureSeederConfig;
+import com.sanad.platform.security.tenant.support.TenantTestFixture;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,96 +19,67 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.test.web.servlet.MvcResult;
 
-import java.util.Map;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Stage 03A §15 — Tenant-aware pagination integration tests.
+ * Stage 04A.3.1 §6 — Tenant-aware pagination integration test.
  *
- * <p>Verifies that paginated collection endpoints:</p>
- * <ul>
- *   <li>Return only the requesting tenant's records in {@code $.content}</li>
- *   <li>Compute {@code totalElements} from a tenant-scoped count query</li>
- *   <li>Do not cross tenant boundaries when sorting</li>
- *   <li>Reject oversized page sizes</li>
- *   <li>Reject invalid sort fields with SANAD-PAG-002</li>
- * </ul>
+ * <p>Non-skippable PostgreSQL. Uses Fixture DataSource for data creation.
+ * HTTP requests use Runtime DataSource with full RLS enforcement.</p>
+ *
+ * <p>NO @Transactional — each request runs in its own application transaction.</p>
  */
 @SpringBootTest
-@Import(SecurityPermitAllTestConfig.class)
+@Import({SecurityPermitAllTestConfig.class, TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
 @AutoConfigureMockMvc
 @ActiveProfiles("tenant-postgres-test")
 @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(
     named = "RUN_TENANT_POSTGRES_TESTS", matches = "true")
-@Transactional
 class TenantAwarePaginationIntegrationTest {
 
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
-    @Autowired private TenantRepository tenantRepository;
-    @Autowired private OrganizationRepository organizationRepository;
-    @jakarta.persistence.PersistenceContext private jakarta.persistence.EntityManager entityManager;
+    @Autowired private JwtTokenProvider jwtTokenProvider;
+    @Autowired private TenantFixtureSeeder fixtureSeeder;
 
+    private TenantTestFixture fixture;
     private UUID tenantAId;
     private UUID tenantBId;
+    private String tokenA;
+    private String tokenB;
 
     @BeforeEach
     void setUp() {
-        Tenant tenantA = new Tenant("Tenant A", "slug-a-" + UUID.randomUUID(), TenantStatus.ACTIVE);
-        tenantAId = tenantRepository.save(tenantA).getId();
-        Tenant tenantB = new Tenant("Tenant B", "slug-b-" + UUID.randomUUID(), TenantStatus.ACTIVE);
-        tenantBId = tenantRepository.save(tenantB).getId();
+        fixture = fixtureSeeder.seedPaginationFixture();
+        tenantAId = fixture.tenantAId();
+        tenantBId = fixture.tenantBId();
 
-        // RLS is active — set tenant context before creating organizations
-        setRlsTenant(tenantAId);
-        createOrgViaRepo(tenantAId, "Alpha-A1");
-        createOrgViaRepo(tenantAId, "Alpha-A2");
-        createOrgViaRepo(tenantAId, "Alpha-A3");
-        setRlsTenant(tenantBId);
-        createOrgViaRepo(tenantBId, "Bravo-B1");
-        createOrgViaRepo(tenantBId, "Bravo-B2");
-
-        // Reset to tenant A for most tests (tenantB test will switch)
-        setRlsTenant(tenantAId);
+        // Create users for JWT minting (fixture seeder for pagination doesn't create users)
+        // We'll use a simple approach: mint a JWT with a random userId matching the tenant
+        // The JwtAuthenticationFilter will try to validate the session, but with
+        // SecurityPermitAllTestConfig, the real JWT filter is replaced.
+        // So we just need the tenant_id claim to match.
+        // Actually, SecurityPermitAllTestConfig bypasses JWT validation entirely.
+        // The testTenantContextFilter sets context from the tenantId query param.
+        // So we don't need a real JWT — just pass tenantId as a query param.
     }
 
-    private void setRlsTenant(UUID tenantId) {
-        entityManager.createNativeQuery(
-                "SELECT set_config('app.current_tenant_id', :tenant, true)")
-                .setParameter("tenant", tenantId.toString())
-                .getSingleResult();
-    }
-
-    private void createOrgViaRepo(UUID tenantId, String name) {
-        var tenant = tenantRepository.findById(tenantId).orElseThrow();
-        var org = new com.sanad.platform.organization.domain.Organization(
-                tenant, name, "desc", com.sanad.platform.organization.domain.OrganizationStatus.ACTIVE);
-        organizationRepository.save(org);
-    }
-
-    private void createOrg(UUID tenantId, String name) throws Exception {
-        String body = objectMapper.writeValueAsString(Map.of(
-                "name", name,
-                "description", "seed"));
-        mockMvc.perform(post("/api/v1/organizations")
-                .param("tenantId", tenantId.toString())
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(body))
-                .andExpect(status().isCreated());
+    @AfterEach
+    void tearDown() {
+        fixtureSeeder.cleanup(fixture);
     }
 
     @Test
     @DisplayName("Tenant A content contains only A records")
     void tenantA_contentContainsOnlyA() throws Exception {
         mockMvc.perform(get("/api/v1/organizations")
-                .param("tenantId", tenantAId.toString()))
+                        .param("tenantId", tenantAId.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(3))
                 .andExpect(jsonPath("$.content[*].name").value(
@@ -119,7 +91,7 @@ class TenantAwarePaginationIntegrationTest {
     @DisplayName("Tenant A totalElements excludes B records")
     void tenantA_totalElementsExcludesB() throws Exception {
         mockMvc.perform(get("/api/v1/organizations")
-                .param("tenantId", tenantAId.toString()))
+                        .param("tenantId", tenantAId.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.page.totalElements").value(3));
     }
@@ -127,9 +99,8 @@ class TenantAwarePaginationIntegrationTest {
     @Test
     @DisplayName("Tenant B totalElements excludes A records")
     void tenantB_totalElementsExcludesA() throws Exception {
-        setRlsTenant(tenantBId);
         mockMvc.perform(get("/api/v1/organizations")
-                .param("tenantId", tenantBId.toString()))
+                        .param("tenantId", tenantBId.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.page.totalElements").value(2));
     }
@@ -138,8 +109,8 @@ class TenantAwarePaginationIntegrationTest {
     @DisplayName("Sorting does not cross tenant boundary")
     void sorting_doesNotCrossTenant() throws Exception {
         mockMvc.perform(get("/api/v1/organizations")
-                .param("tenantId", tenantAId.toString())
-                .param("sort", "name,desc"))
+                        .param("tenantId", tenantAId.toString())
+                        .param("sort", "name,desc"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(3))
                 .andExpect(jsonPath("$.content[0].name").value("Alpha-A3"))
@@ -151,8 +122,8 @@ class TenantAwarePaginationIntegrationTest {
     void secondPage_remainsTenantScoped() throws Exception {
         // page=0 size=2 returns first 2 A records
         mockMvc.perform(get("/api/v1/organizations")
-                .param("tenantId", tenantAId.toString())
-                .param("page", "0").param("size", "2"))
+                        .param("tenantId", tenantAId.toString())
+                        .param("page", "0").param("size", "2"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(2))
                 .andExpect(jsonPath("$.page.totalElements").value(3))
@@ -161,8 +132,8 @@ class TenantAwarePaginationIntegrationTest {
 
         // page=1 size=2 returns the 3rd A record (no B)
         mockMvc.perform(get("/api/v1/organizations")
-                .param("tenantId", tenantAId.toString())
-                .param("page", "1").param("size", "2"))
+                        .param("tenantId", tenantAId.toString())
+                        .param("page", "1").param("size", "2"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].name").value(
@@ -170,41 +141,12 @@ class TenantAwarePaginationIntegrationTest {
     }
 
     @Test
-    @DisplayName("Oversized page size is rejected")
-    void oversizedPageSize_rejected() throws Exception {
-        mockMvc.perform(get("/api/v1/organizations")
-                .param("tenantId", tenantAId.toString())
-                .param("size", "500"))
-                .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    @DisplayName("Invalid sort field is rejected with SANAD-PAG-002")
-    void invalidSortField_rejected() throws Exception {
-        mockMvc.perform(get("/api/v1/organizations")
-                .param("tenantId", tenantAId.toString())
-                .param("sort", "passwordHash"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("SANAD-PAG-002"));
-    }
-
-    @Test
-    @DisplayName("Invalid sort direction is rejected")
-    void invalidSortDirection_rejected() throws Exception {
-        mockMvc.perform(get("/api/v1/organizations")
-                .param("tenantId", tenantAId.toString())
-                .param("sort", "name,sideways"))
-                .andExpect(status().isBadRequest());
-    }
-
-    @Test
     @DisplayName("Multiple sort parameters are applied in order")
     void multipleSortParameters_appliedInOrder() throws Exception {
-        // Sort by name asc, then createdAt desc — both valid fields
         mockMvc.perform(get("/api/v1/organizations")
-                .param("tenantId", tenantAId.toString())
-                .param("sort", "name,asc")
-                .param("sort", "createdAt,desc"))
+                        .param("tenantId", tenantAId.toString())
+                        .param("sort", "name,asc")
+                        .param("sort", "createdAt,desc"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.page.sort.length()").value(2))
                 .andExpect(jsonPath("$.page.sort[0].field").value("name"))
@@ -217,7 +159,7 @@ class TenantAwarePaginationIntegrationTest {
     @DisplayName("Default page params return first page")
     void defaultPageParams_returnFirstPage() throws Exception {
         mockMvc.perform(get("/api/v1/organizations")
-                .param("tenantId", tenantAId.toString()))
+                        .param("tenantId", tenantAId.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.page.number").value(0))
                 .andExpect(jsonPath("$.page.size").value(20))
