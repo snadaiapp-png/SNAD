@@ -10,6 +10,9 @@ import com.sanad.platform.access.role.Role;
 import com.sanad.platform.access.role.RoleCapability;
 import com.sanad.platform.access.role.RoleCapabilityRepository;
 import com.sanad.platform.access.role.RoleRepository;
+import com.sanad.platform.organization.domain.Organization;
+import com.sanad.platform.organization.domain.OrganizationStatus;
+import com.sanad.platform.organization.membership.domain.OrganizationMembership;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
 import com.sanad.platform.organization.repository.OrganizationRepository;
 import com.sanad.platform.security.dto.AuthResponse;
@@ -116,6 +119,17 @@ class AuthApiIntegrationTest {
         }
         UserRoleGrant grant = new UserRoleGrant(tenantId, userId, viewerRole.getId(), null);
         userRoleGrantRepository.save(grant);
+
+        // Stage 04A.3.6.1: Create an ACTIVE membership for the test user
+        // so strict membership enforcement allows authentication
+        Organization org = new Organization(tenant, "Auth Test Org",
+                "Test org", OrganizationStatus.ACTIVE);
+        organizationRepository.save(org);
+        OrganizationMembership membership = new OrganizationMembership(
+                tenantId, org.getId(), testEmail, "Test User",
+                com.sanad.platform.organization.membership.domain.MembershipStatus.ACTIVE);
+        membership.setUserId(userId);
+        membershipRepository.save(membership);
     }
 
     // ------------------------------------------------------------

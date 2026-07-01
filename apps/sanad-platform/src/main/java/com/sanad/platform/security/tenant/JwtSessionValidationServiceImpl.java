@@ -116,20 +116,19 @@ public class JwtSessionValidationServiceImpl implements JwtSessionValidationServ
                 return null;
             }
 
-            // Stage 04A.3.6: validate active membership
-            // The user must have at least one ACTIVE membership in the tenant,
-            // OR have no memberships at all (backward compatibility for users
-            // created via registration flow before memberships were required).
+            // Stage 04A.3.6.1: STRICT membership enforcement
+            // The user MUST have at least one ACTIVE membership in the tenant.
+            // No fail-open: if no memberships exist, the user is denied.
             var memberships = membershipRepository.findByTenantIdAndUserId(
                     claims.tenantId(), claims.userId());
-            if (!memberships.isEmpty()) {
-                boolean hasActiveMembership = memberships.stream()
-                        .anyMatch(m -> m.getStatus() == com.sanad.platform.organization.membership.domain.MembershipStatus.ACTIVE);
-                if (!hasActiveMembership) {
-                    log.debug("Session validation failed: no active membership userId={} tenantId={}",
-                            claims.userId(), claims.tenantId());
-                    return null;
-                }
+            boolean hasActiveMembership = memberships.stream()
+                    .anyMatch(m -> m.getStatus() == com.sanad.platform.organization.membership.domain.MembershipStatus.ACTIVE
+                            && m.getTenantId().equals(claims.tenantId())
+                            && claims.userId().equals(claims.userId()));
+            if (!hasActiveMembership) {
+                log.debug("Session validation failed: no active membership userId={} tenantId={}",
+                        claims.userId(), claims.tenantId());
+                return null;
             }
 
             return new ValidatedSession(

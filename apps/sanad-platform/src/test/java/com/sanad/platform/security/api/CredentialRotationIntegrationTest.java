@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.access.grant.UserRoleGrantRepository;
 import com.sanad.platform.access.role.RoleCapabilityRepository;
 import com.sanad.platform.access.role.RoleRepository;
+import com.sanad.platform.organization.domain.Organization;
+import com.sanad.platform.organization.membership.domain.OrganizationMembership;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
 import com.sanad.platform.organization.repository.OrganizationRepository;
 import com.sanad.platform.security.domain.RefreshTokenRepository;
@@ -81,6 +83,15 @@ class CredentialRotationIntegrationTest {
         user.setPasswordSetBy("test-bootstrap");
         user.setMustChangePassword(true);
         userRepository.save(user);
+
+        // Stage 04A.3.6.1: Create ACTIVE membership for strict enforcement
+        Organization org = organizationRepository.save(new Organization(tenant, "Rotation Org",
+                "Test org", com.sanad.platform.organization.domain.OrganizationStatus.ACTIVE));
+        OrganizationMembership membership = new OrganizationMembership(
+                tenant.getId(), org.getId(), email, "Rotation User",
+                com.sanad.platform.organization.membership.domain.MembershipStatus.ACTIVE);
+        membership.setUserId(user.getId());
+        membershipRepository.save(membership);
 
         LoginRequest login = new LoginRequest(email, initialValue);
         MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")

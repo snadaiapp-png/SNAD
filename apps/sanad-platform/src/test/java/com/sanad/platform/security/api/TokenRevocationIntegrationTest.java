@@ -9,6 +9,8 @@ import com.sanad.platform.access.role.Role;
 import com.sanad.platform.access.role.RoleCapability;
 import com.sanad.platform.access.role.RoleCapabilityRepository;
 import com.sanad.platform.access.role.RoleRepository;
+import com.sanad.platform.organization.domain.Organization;
+import com.sanad.platform.organization.membership.domain.OrganizationMembership;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
 import com.sanad.platform.organization.repository.OrganizationRepository;
 import com.sanad.platform.security.dto.AuthResponse;
@@ -116,6 +118,15 @@ class TokenRevocationIntegrationTest {
         }
         UserRoleGrant grant = new UserRoleGrant(tenantId, userId, viewerRole.getId(), null);
         userRoleGrantRepository.save(grant);
+
+        // Stage 04A.3.6.1: Create ACTIVE membership for strict enforcement
+        Organization org = organizationRepository.save(new Organization(tenant, "Revocation Org",
+                "Test org", com.sanad.platform.organization.domain.OrganizationStatus.ACTIVE));
+        OrganizationMembership membership = new OrganizationMembership(
+                tenantId, org.getId(), testEmail, "Revocation Test User",
+                com.sanad.platform.organization.membership.domain.MembershipStatus.ACTIVE);
+        membership.setUserId(userId);
+        membershipRepository.save(membership);
     }
 
     // ================================================================
