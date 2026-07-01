@@ -1,0 +1,13 @@
+{
+  "purpose": "validate-live-aws-nvd-reader",
+  "issue": 197,
+  "requested_by": "project-owner",
+  "requested_at": "2026-07-01T20:10:00Z",
+  "required_controls": [
+    "oidc-assume-role",
+    "expected-account",
+    "bucket-versioning",
+    "bucket-encryption",
+    "read-latest-pointer"
+  ]
+}
