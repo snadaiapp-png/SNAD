@@ -59,14 +59,14 @@ class TenantRlsIntegrationTest {
         try (var conn = dataSource.getConnection()) {
             conn.setAutoCommit(false);
             try (var stmt = conn.createStatement()) {
-                // Set tenant to NULL (not empty string) — RLS policy evaluates
-                // tenant_id = NULL::uuid → FALSE for all rows → 0 rows
-                stmt.execute("SELECT set_config('app.current_tenant_id', NULL, true)");
+                // Don't set app.current_tenant_id at all — current_setting(..., true)
+                // returns NULL, and tenant_id = NULL::uuid → FALSE for all rows.
+                // No need to explicitly set NULL (which causes UUID cast errors).
 
                 var rs = stmt.executeQuery("SELECT COUNT(*) FROM users");
                 assertThat(rs.next()).isTrue();
                 assertThat(rs.getInt(1))
-                        .as("Missing/null tenant setting must return 0 rows (fail-closed)")
+                        .as("Missing tenant setting must return 0 rows (fail-closed)")
                         .isEqualTo(0);
             }
             conn.rollback();

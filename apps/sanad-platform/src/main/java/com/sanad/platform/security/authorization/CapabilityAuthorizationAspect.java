@@ -149,13 +149,15 @@ public class CapabilityAuthorizationAspect {
         if (response == null || response.isCommitted()) return;
 
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-        response.setContentType("application/json");
+        response.setContentType("application/problem+json");
         response.getWriter().write(
-                "{\"timestamp\":\"" + java.time.Instant.now() + "\","
+                "{\"type\":\"https://snad.ai/errors/sec-001\","
+                        + "\"title\":\"Access denied\","
                         + "\"status\":403,"
-                        + "\"error\":\"Forbidden\","
-                        + "\"message\":\"" + message + "\","
-                        + "\"path\":\"" + attrs.getRequest().getRequestURI() + "\"}");
+                        + "\"detail\":\"" + message + "\","
+                        + "\"instance\":\"" + attrs.getRequest().getRequestURI() + "\","
+                        + "\"code\":\"SANAD-SEC-001\","
+                        + "\"timestamp\":\"" + java.time.Instant.now() + "\"}");
         response.flushBuffer();
     }
 }
