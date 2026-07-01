@@ -10,10 +10,14 @@ before delegating to the publisher CLI.
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 from pathlib import Path
 
-from scripts.security import nvd_snapshot_store as store
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.security import nvd_snapshot_store as store  # noqa: E402
 
 
 def promote_latest_pointer(self: store.GitHubReleasesBackend, pointer: dict) -> None:
@@ -46,7 +50,6 @@ def promote_latest_pointer(self: store.GitHubReleasesBackend, pointer: dict) -> 
         try:
             self._request("DELETE", f"releases/assets/{asset_id}")
         except store.SnapshotNotFoundError:
-            # The pointer asset was already absent. The release itself remains valid.
             pass
 
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as handle:
@@ -61,7 +64,9 @@ def promote_latest_pointer(self: store.GitHubReleasesBackend, pointer: dict) -> 
         pointer_path.unlink(missing_ok=True)
 
     refreshed = self._request("GET", f"releases/{release_id}")
-    latest_assets = [asset for asset in refreshed.get("assets", []) if asset.get("name") == "latest.json"]
+    latest_assets = [
+        asset for asset in refreshed.get("assets", []) if asset.get("name") == "latest.json"
+    ]
     if len(latest_assets) != 1:
         raise store.StorageBackendError(
             f"expected exactly one latest.json asset after promotion; found {len(latest_assets)}"
