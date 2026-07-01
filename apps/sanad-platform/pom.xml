@@ -84,6 +84,12 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- Prometheus registry for container and observability profiles -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <!-- SMTP delivery for secure account-recovery notifications -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
