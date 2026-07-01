@@ -64,8 +64,13 @@ public interface IdempotencyRecordRepository extends JpaRepository<IdempotencyRe
     /**
      * Stage 05A.2 §14 — Atomic lease takeover. Only succeeds if the
      * record is FAILED_RETRYABLE or the lease has expired.
+     * Returns the record ID if the takeover succeeded, or empty if
+     * the WHERE clause didn't match (record is still actively processing).
+     *
+     * Note: This uses a native query WITHOUT @Modifying because
+     * @Modifying only supports void/int return types, but we need
+     * the RETURNING clause to know if the UPDATE matched.
      */
-    @Modifying
     @Query(value = "UPDATE idempotency_records "
             + "SET status = 'PROCESSING', "
             + "    lease_owner_request_id = :newOwner, "
