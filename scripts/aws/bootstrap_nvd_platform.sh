@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TEMPLATE="${ROOT_DIR}/infra/aws/nvd-platform-bootstrap.yml"
+SOURCE_TEMPLATE="${ROOT_DIR}/infra/aws/nvd-platform-bootstrap.yml"
 STACK_NAME="${STACK_NAME:-snad-nvd-platform}"
 REPOSITORY_OWNER="${REPOSITORY_OWNER:-snadaiapp-png}"
 REPOSITORY_NAME="${REPOSITORY_NAME:-SNAD}"
@@ -11,18 +11,22 @@ PUBLISHER_ENVIRONMENT="${PUBLISHER_ENVIRONMENT:-nvd-publisher}"
 SNAPSHOT_PREFIX="${NVD_SNAPSHOT_PREFIX:-snad-nvd}"
 RETENTION_DAYS="${NONCURRENT_RETENTION_DAYS:-90}"
 OUTPUT_DIR="${OUTPUT_DIR:-${ROOT_DIR}/artifacts/security/aws-bootstrap}"
+TEMPLATE="${OUTPUT_DIR}/nvd-platform-bootstrap.rendered.yml"
 
 command -v aws >/dev/null || { echo 'AWS CLI is required.' >&2; exit 1; }
 command -v python3 >/dev/null || { echo 'Python 3 is required.' >&2; exit 1; }
-[[ -f "${TEMPLATE}" ]] || { echo "Template not found: ${TEMPLATE}" >&2; exit 1; }
+[[ -f "${SOURCE_TEMPLATE}" ]] || { echo "Template not found: ${SOURCE_TEMPLATE}" >&2; exit 1; }
 
 REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || true)}}"
 [[ -n "${REGION}" ]] || { echo 'Set AWS_REGION to the approved deployment region.' >&2; exit 1; }
 
 mkdir -p "${OUTPUT_DIR}"
+python3 "${ROOT_DIR}/scripts/aws/render_nvd_platform_template.py" \
+  --source "${SOURCE_TEMPLATE}" \
+  --output "${TEMPLATE}"
+
 IDENTITY_FILE="${OUTPUT_DIR}/bootstrap-caller-identity.json"
 OUTPUTS_FILE="${OUTPUT_DIR}/bootstrap-outputs.json"
-CONTROLS_FILE="${OUTPUT_DIR}/bootstrap-controls.json"
 
 aws sts get-caller-identity --output json > "${IDENTITY_FILE}"
 ACCOUNT_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["Account"])' "${IDENTITY_FILE}")"
@@ -87,18 +91,9 @@ KMS_KEY_ARN="$(output_value SnapshotKmsKeyArn)"
 DEPLOYED_BUCKET="$(output_value SnapshotBucketName)"
 DEPLOYED_PREFIX="$(output_value SnapshotPrefix)"
 
-aws s3api get-bucket-versioning \
-  --region "${REGION}" \
-  --bucket "${DEPLOYED_BUCKET}" \
-  --output json > "${OUTPUT_DIR}/bucket-versioning.json"
-aws s3api get-bucket-encryption \
-  --region "${REGION}" \
-  --bucket "${DEPLOYED_BUCKET}" \
-  --output json > "${OUTPUT_DIR}/bucket-encryption.json"
-aws s3api get-public-access-block \
-  --region "${REGION}" \
-  --bucket "${DEPLOYED_BUCKET}" \
-  --output json > "${OUTPUT_DIR}/bucket-public-access-block.json"
+aws s3api get-bucket-versioning --region "${REGION}" --bucket "${DEPLOYED_BUCKET}" --output json > "${OUTPUT_DIR}/bucket-versioning.json"
+aws s3api get-bucket-encryption --region "${REGION}" --bucket "${DEPLOYED_BUCKET}" --output json > "${OUTPUT_DIR}/bucket-encryption.json"
+aws s3api get-public-access-block --region "${REGION}" --bucket "${DEPLOYED_BUCKET}" --output json > "${OUTPUT_DIR}/bucket-public-access-block.json"
 
 python3 - "${OUTPUT_DIR}" "${ACCOUNT_ID}" "${REGION}" "${CALLER_ARN}" "${DEPLOYED_BUCKET}" "${DEPLOYED_PREFIX}" "${READER_ROLE_ARN}" "${PUBLISHER_ROLE_ARN}" "${KMS_KEY_ARN}" <<'PY'
 import json, pathlib, sys
@@ -136,8 +131,6 @@ PY
 cat <<EOF
 
 AWS bootstrap completed and verified.
-
-Configure the following GitHub repository/environment variables:
 NVD_SNAPSHOT_BACKEND=s3
 NVD_SNAPSHOT_AWS_ACCOUNT_ID=${ACCOUNT_ID}
 NVD_SNAPSHOT_REGION=${REGION}
@@ -146,6 +139,5 @@ NVD_SNAPSHOT_PREFIX=${DEPLOYED_PREFIX}
 NVD_SNAPSHOT_READER_ROLE=${READER_ROLE_ARN}
 NVD_SNAPSHOT_PUBLISHER_ROLE=${PUBLISHER_ROLE_ARN}
 NVD_SNAPSHOT_KMS_KEY_ARN=${KMS_KEY_ARN}
-
 Evidence directory: ${OUTPUT_DIR}
 EOF
