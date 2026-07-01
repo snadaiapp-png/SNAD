@@ -36,10 +36,10 @@ spring:
     show-sql: false
 
   flyway:
-    enabled: true
+    enabled: false  # Migrations already applied by the migration_owner step
     locations: classpath:db/migration,classpath:db/migration-pg-only
     baseline-on-migrate: false
-    validate-on-migrate: true
+    validate-on-migrate: false
     clean-disabled: true
 
   lifecycle:
