@@ -203,9 +203,12 @@ public class TenantFixtureSeederConfig {
 
         @Override
         public void revokeMembership(UUID tenantId, UUID userId) {
-            // Revoke all memberships for the user in the tenant by updating status
-            jdbc.update("UPDATE organization_memberships SET status = 'REMOVED', updated_at = NOW() WHERE tenant_id = ? AND email IN (SELECT email FROM users WHERE id = ?)",
-                    tenantId, userId);
+            // Get the user's email first, then revoke memberships by email
+            String email = jdbc.queryForObject(
+                "SELECT email FROM users WHERE tenant_id = ? AND id = ?",
+                String.class, tenantId, userId);
+            jdbc.update("UPDATE organization_memberships SET status = 'REMOVED', updated_at = NOW() WHERE tenant_id = ? AND email = ?",
+                    tenantId, email);
         }
 
         @Override
