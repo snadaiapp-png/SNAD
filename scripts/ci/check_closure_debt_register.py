@@ -33,7 +33,14 @@ from pathlib import Path
 
 
 def compute_counts(debts: list[dict]) -> dict:
-    """Compute reconciliation metrics from a list of debt objects."""
+    """Compute reconciliation metrics from a list of debt objects.
+
+    Status counting follows the convention used by the existing
+    `tests/test_closure_debt_register.py::test_summary_counts_match_items`:
+    each status (OPEN, IN_PROGRESS, BLOCKED, READY_FOR_VERIFICATION,
+    REOPENED, ACCEPTED_RISK, CLOSED) is counted separately, and
+    `openDebtCount` counts ONLY items with status == "OPEN".
+    """
     closed = []
     blocking = []
     counts = {
@@ -43,7 +50,10 @@ def compute_counts(debts: list[dict]) -> dict:
         "inProgressDebtCount": 0,
         "reopenedDebtCount": 0,
         "blockedDebtCount": 0,
+        "readyForVerificationDebtCount": 0,
+        "acceptedRiskDebtCount": 0,
         "openBlockingP1DebtCount": 0,
+        "openP0DebtCount": 0,
         "closedDebtIds": [],
         "blockingDebtIds": [],
     }
@@ -68,12 +78,15 @@ def compute_counts(debts: list[dict]) -> dict:
         elif status == "BLOCKED":
             counts["blockedDebtCount"] += 1
         elif status == "READY_FOR_VERIFICATION":
-            # Treated as a form of "open" — not closed, not blocked.
-            counts["openDebtCount"] += 1
+            counts["readyForVerificationDebtCount"] += 1
         elif status == "ACCEPTED_RISK":
-            # Treated as a form of "closed" — no longer blocking.
-            counts["closedDebtCount"] += 1
+            counts["acceptedRiskDebtCount"] += 1
+            # Treated as no longer blocking — counted as closed for gate purposes.
             closed.append(debt_id)
+
+        # P0 open count (matches existing test logic).
+        if severity == "P0" and status not in ("CLOSED", "ACCEPTED_RISK"):
+            counts["openP0DebtCount"] += 1
 
         # Blocking debt = any debt with blocking=true AND status not CLOSED/ACCEPTED_RISK.
         if is_blocking and status not in ("CLOSED", "ACCEPTED_RISK"):

@@ -1,5 +1,6 @@
 package com.sanad.platform.organization.api;
 
+import com.sanad.platform.access.AccessResourceNotFoundException;
 import com.sanad.platform.organization.exception.OrganizationAlreadyExistsException;
 import com.sanad.platform.shared.api.ApiErrorResponse;
 import com.sanad.platform.shared.api.ErrorCode;
@@ -57,6 +58,25 @@ public class OrganizationApiExceptionHandler {
                 requestId(), request.getRequestURI(), ex.getClass().getSimpleName());
         return build(ErrorCode.SANAD_RES_001,
                 "The requested organization was not found.", request);
+    }
+
+    /**
+     * Stage 04A.3.6.2 — Map {@link AccessResourceNotFoundException} (thrown by
+     * the capability evaluation layer when a cross-tenant resource lookup
+     * returns no rows under RLS) to HTTP 404 instead of letting it fall
+     * through to the global 500 handler.
+     *
+     * <p>This preserves the tenant-isolation invariant: a cross-tenant GET
+     * must return 404 (Not Found), not 500 (Internal Server Error). Returning
+     * 500 would leak that the resource exists in another tenant.</p>
+     */
+    @ExceptionHandler(AccessResourceNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleAccessResourceNotFound(
+            AccessResourceNotFoundException ex, HttpServletRequest request) {
+        log.warn("Access resource not found: requestId={} path={} message={}",
+                requestId(), request.getRequestURI(), ex.getMessage());
+        return build(ErrorCode.SANAD_RES_001,
+                "The requested resource was not found.", request);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
