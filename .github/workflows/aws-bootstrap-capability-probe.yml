@@ -1,111 +1,15 @@
 name: AWS Bootstrap Capability Probe
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/aws-bootstrap-capability-probe.yml'
-      - '.github/security-requests/aws-bootstrap-probe.json'
-  push:
-    branches: [feat/crm-runtime-environment]
-    paths:
-      - '.github/security-requests/aws-bootstrap-probe.json'
   workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
-  probe:
-    name: Probe AWS Bootstrap Inputs
+  retired:
+    name: Probe Retired
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: nvd-reader
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Record credential and variable availability
-        id: probe
-        shell: bash
-        env:
-          BOOTSTRAP_ROLE: ${{ vars.AWS_BOOTSTRAP_ROLE_ARN }}
-          GENERIC_ROLE_VAR: ${{ vars.AWS_ROLE_TO_ASSUME }}
-          GENERIC_ROLE_SECRET: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          SECRET_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
-          READER_ROLE: ${{ vars.NVD_SNAPSHOT_READER_ROLE }}
-          REGION: ${{ vars.NVD_SNAPSHOT_REGION }}
-          BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
-          PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
-          ACCOUNT_ID: ${{ vars.NVD_SNAPSHOT_AWS_ACCOUNT_ID }}
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts/security/aws-bootstrap
-          present() { [[ -n "$1" ]] && printf true || printf false; }
-          STATIC_READY=false
-          if [[ -n "$ACCESS_KEY" && -n "$SECRET_KEY" ]]; then STATIC_READY=true; fi
-          OIDC_READY=false
-          if [[ -n "$BOOTSTRAP_ROLE" || -n "$GENERIC_ROLE_VAR" || -n "$GENERIC_ROLE_SECRET" ]]; then OIDC_READY=true; fi
-          READER_CONFIG_READY=false
-          if [[ -n "$READER_ROLE" && -n "$REGION" && -n "$BUCKET" && -n "$PREFIX" ]]; then READER_CONFIG_READY=true; fi
-          cat > artifacts/security/aws-bootstrap/capability.json <<JSON
-          {
-            "bootstrap_oidc_role_available": $OIDC_READY,
-            "bootstrap_static_credentials_available": $STATIC_READY,
-            "bootstrap_session_token_available": $(present "$SESSION_TOKEN"),
-            "reader_role_variable_available": $(present "$READER_ROLE"),
-            "region_variable_available": $(present "$REGION"),
-            "bucket_variable_available": $(present "$BUCKET"),
-            "prefix_variable_available": $(present "$PREFIX"),
-            "account_id_variable_available": $(present "$ACCOUNT_ID"),
-            "reader_configuration_complete": $READER_CONFIG_READY,
-            "secret_values_exposed": false
-          }
-          JSON
-          python3 -m json.tool artifacts/security/aws-bootstrap/capability.json
-          echo "oidc_ready=$OIDC_READY" >> "$GITHUB_OUTPUT"
-          echo "static_ready=$STATIC_READY" >> "$GITHUB_OUTPUT"
-          echo "reader_ready=$READER_CONFIG_READY" >> "$GITHUB_OUTPUT"
-
-      - name: Upload capability evidence
-        id: upload
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: aws-bootstrap-capability-${{ github.run_id }}
-          path: artifacts/security/aws-bootstrap/capability.json
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Write probe summary
-        if: always()
-        shell: bash
-        run: |
-          {
-            echo '## AWS Bootstrap Capability Probe'
-            echo ''
-            echo "- Bootstrap OIDC role available: ${{ steps.probe.outputs.oidc_ready }}"
-            echo "- Bootstrap static credentials available: ${{ steps.probe.outputs.static_ready }}"
-            echo "- Reader configuration complete: ${{ steps.probe.outputs.reader_ready }}"
-            echo "- Secret values exposed: false"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Final readiness enforcement
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ '${{ steps.upload.outcome }}' == 'success' ]] || { echo '::error::Capability evidence upload failed'; exit 1; }
-          if [[ '${{ steps.probe.outputs.reader_ready }}' == 'true' ]]; then
-            echo 'AWS reader configuration is complete.'
-            exit 0
-          fi
-          if [[ '${{ steps.probe.outputs.oidc_ready }}' == 'true' || '${{ steps.probe.outputs.static_ready }}' == 'true' ]]; then
-            echo 'AWS bootstrap authentication is available.'
-            exit 0
-          fi
-          echo '::error::No AWS bootstrap authentication or complete reader configuration is available.'
-          exit 1
+      - name: Report retirement
+        run: echo 'Temporary AWS bootstrap capability probe has been retired after evidence capture.'
