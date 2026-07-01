@@ -1,0 +1,451 @@
+name: Security Scan (OWASP)
+
+on:
+  pull_request:
+    paths:
+      - 'apps/sanad-platform/pom.xml'
+      - 'apps/sanad-platform/src/**'
+      - '.github/workflows/security-scan.yml'
+      - 'scripts/ci/**'
+      - 'scripts/security/**'
+      - 'tests/ci/**'
+      - 'tests/security/**'
+      - 'infra/aws/nvd-snapshot-reader-role.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/pom.xml'
+      - 'apps/sanad-platform/src/**'
+      - '.github/workflows/security-scan.yml'
+      - 'scripts/ci/**'
+      - 'scripts/security/**'
+      - 'tests/ci/**'
+      - 'tests/security/**'
+      - 'infra/aws/nvd-snapshot-reader-role.yml'
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DEPENDENCY_CHECK_VERSION: '12.1.0'
+  NVD_MAX_AGE_HOURS: '48'
+  NVD_MIN_SIZE_BYTES: '52428800'
+  NVD_CANONICAL_DIR: ${{ github.workspace }}/.cache/dependency-check-data
+  EVIDENCE_DIR: ${{ github.workspace }}/artifacts/security/owasp
+
+jobs:
+  dependency-check:
+    name: OWASP Dependency-Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install validation dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet pytest pyyaml boto3
+          command -v gh >/dev/null
+          command -v aws >/dev/null
+          command -v mvn >/dev/null
+
+      - name: Run security contract tests
+        id: contract_tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pytest \
+            tests/ci/test_parse_owasp.py \
+            tests/ci/test_validate_nvd_database.py \
+            tests/security/test_nvd_snapshot_consumer.py \
+            tests/security/test_nvd_oidc_contract.py \
+            -q
+          echo 'result=pass' >> "$GITHUB_OUTPUT"
+
+      - name: Determine secure storage mode
+        id: mode
+        shell: bash
+        env:
+          CONFIGURED_BACKEND: ${{ vars.NVD_SNAPSHOT_BACKEND }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == 'pull_request' ]]; then
+            BACKEND='github-releases'
+            EXECUTION_MODE='pull-request-evidence'
+          else
+            BACKEND="${CONFIGURED_BACKEND:-github-releases}"
+            EXECUTION_MODE='acceptance'
+          fi
+          case "$BACKEND" in
+            github-releases|s3) ;;
+            *) echo "::error::Unsupported NVD snapshot backend: $BACKEND"; exit 1 ;;
+          esac
+          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
+          echo "execution_mode=$EXECUTION_MODE" >> "$GITHUB_OUTPUT"
+          echo "Selected backend: $BACKEND"
+          echo "Execution mode: $EXECUTION_MODE"
+
+      - name: Validate backend configuration
+        id: backend_preflight
+        shell: bash
+        env:
+          BACKEND: ${{ steps.mode.outputs.backend }}
+          ROLE_ARN: ${{ vars.NVD_SNAPSHOT_READER_ROLE }}
+          AWS_REGION_VALUE: ${{ vars.NVD_SNAPSHOT_REGION }}
+          BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
+          PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
+        run: |
+          set -euo pipefail
+          if [[ "$BACKEND" == 's3' ]]; then
+            [[ -n "$ROLE_ARN" ]] || { echo '::error::NVD_SNAPSHOT_READER_ROLE is required'; exit 1; }
+            [[ -n "$AWS_REGION_VALUE" ]] || { echo '::error::NVD_SNAPSHOT_REGION is required'; exit 1; }
+            [[ -n "$BUCKET" ]] || { echo '::error::NVD_SNAPSHOT_BUCKET is required'; exit 1; }
+            [[ "$ROLE_ARN" =~ ^arn:aws:iam::[0-9]{12}:role/ ]] || { echo '::error::Reader role ARN is invalid'; exit 1; }
+          fi
+          echo 'result=pass' >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials via OIDC
+        id: aws_credentials
+        if: steps.mode.outputs.backend == 's3'
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b
+        with:
+          role-to-assume: ${{ vars.NVD_SNAPSHOT_READER_ROLE }}
+          aws-region: ${{ vars.NVD_SNAPSHOT_REGION }}
+          audience: sts.amazonaws.com
+          role-session-name: snad-nvd-reader-${{ github.run_id }}
+          role-duration-seconds: 1800
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Verify AWS reader identity and bucket controls
+        id: aws_verification
+        if: steps.mode.outputs.backend == 's3'
+        shell: bash
+        env:
+          EXPECTED_ACCOUNT: ${{ vars.NVD_SNAPSHOT_AWS_ACCOUNT_ID }}
+          BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
+          PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          IDENTITY_JSON=$(aws sts get-caller-identity --output json)
+          ACCOUNT=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["Account"])' <<< "$IDENTITY_JSON")
+          ARN=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["Arn"])' <<< "$IDENTITY_JSON")
+          if [[ -n "$EXPECTED_ACCOUNT" && "$ACCOUNT" != "$EXPECTED_ACCOUNT" ]]; then
+            echo "::error::OIDC assumed unexpected AWS account"
+            exit 1
+          fi
+          VERSIONING_JSON=$(aws s3api get-bucket-versioning --bucket "$BUCKET" --output json)
+          STATUS=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("Status", ""))' <<< "$VERSIONING_JSON")
+          [[ "$STATUS" == 'Enabled' ]] || { echo '::error::Snapshot bucket versioning is not enabled'; exit 1; }
+          ENCRYPTION_JSON=$(aws s3api get-bucket-encryption --bucket "$BUCKET" --output json)
+          aws s3api head-object \
+            --bucket "$BUCKET" \
+            --key "${PREFIX:-snad-nvd}/channels/verified/latest.json" \
+            --output json > "$EVIDENCE_DIR/aws-latest-object.json"
+          python3 - <<'PY' "$EVIDENCE_DIR/aws-oidc-evidence.json" "$IDENTITY_JSON" "$VERSIONING_JSON" "$ENCRYPTION_JSON" "$ARN"
+          import json, sys
+          output, identity, versioning, encryption, arn = sys.argv[1:]
+          evidence = {
+              'identity': json.loads(identity),
+              'assumed_role_arn': arn,
+              'bucket_versioning': json.loads(versioning),
+              'bucket_encryption': json.loads(encryption),
+          }
+          with open(output, 'w', encoding='utf-8') as handle:
+              json.dump(evidence, handle, indent=2, sort_keys=True)
+          PY
+          echo 'result=pass' >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify NVD snapshot source
+        id: download_snapshot
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NVD_SNAPSHOT_BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
+          NVD_SNAPSHOT_PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
+          NVD_SNAPSHOT_REGION: ${{ vars.NVD_SNAPSHOT_REGION }}
+          NVD_SNAPSHOT_ENDPOINT: ${{ vars.NVD_SNAPSHOT_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR" "${{ runner.temp }}/nvd-consumer"
+          python3 scripts/security/download_nvd_snapshot.py \
+            --backend '${{ steps.mode.outputs.backend }}' \
+            --destination '${{ runner.temp }}/nvd-consumer' \
+            --repository '${{ github.repository }}' \
+            --max-age-hours "$NVD_MAX_AGE_HOURS" \
+            --github-output "$GITHUB_OUTPUT" \
+            2>&1 | tee "$EVIDENCE_DIR/snapshot-download.log"
+          cp '${{ runner.temp }}/nvd-consumer/download-evidence.json' "$EVIDENCE_DIR/download-evidence.json"
+
+      - name: Verify snapshot checksum, contract, database, and age
+        id: verify_snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p '${{ runner.temp }}/nvd-verified'
+          python3 scripts/security/verify_nvd_snapshot.py \
+            --archive '${{ steps.download_snapshot.outputs.archive_path }}' \
+            --manifest '${{ steps.download_snapshot.outputs.manifest_path }}' \
+            --checksums '${{ steps.download_snapshot.outputs.checksums_path }}' \
+            --expected-snapshot-id '${{ steps.download_snapshot.outputs.snapshot_id }}' \
+            --expected-dc-version "$DEPENDENCY_CHECK_VERSION" \
+            --min-size "$NVD_MIN_SIZE_BYTES" \
+            --max-age-hours "$NVD_MAX_AGE_HOURS" \
+            --smoke-extract-dir '${{ runner.temp }}/nvd-verified' \
+            2>&1 | tee "$EVIDENCE_DIR/snapshot-verification.log"
+          grep -q '^verification_result=valid$' "$EVIDENCE_DIR/snapshot-verification.log"
+          while IFS='=' read -r key value; do
+            case "$key" in
+              verification_result|database_sha256|database_size_bytes|age_hours|freshness_tier)
+                echo "$key=$value" >> "$GITHUB_OUTPUT"
+                ;;
+            esac
+          done < "$EVIDENCE_DIR/snapshot-verification.log"
+          echo 'result=pass' >> "$GITHUB_OUTPUT"
+
+      - name: Prepare canonical offline database
+        id: prepare_database
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$NVD_CANONICAL_DIR"
+          mkdir -p "$NVD_CANONICAL_DIR"
+          cp -a '${{ runner.temp }}/nvd-verified/data/.' "$NVD_CANONICAL_DIR/"
+          test -s "$NVD_CANONICAL_DIR/odc.mv.db"
+          find "$NVD_CANONICAL_DIR" -maxdepth 1 -type f -printf '%f %s bytes\n' | sort | tee "$EVIDENCE_DIR/canonical-database-files.txt"
+          echo 'result=pass' >> "$GITHUB_OUTPUT"
+
+      - name: Run OWASP dependency-check offline
+        id: owasp_scan
+        shell: bash
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          REPORT_DIR='target/dependency-check-report'
+          rm -rf "$REPORT_DIR" target/dependency-check-report.json target/dependency-check-report.html
+          mkdir -p "$REPORT_DIR"
+          set +e
+          mvn --batch-mode --no-transfer-progress \
+            org.owasp:dependency-check-maven:${DEPENDENCY_CHECK_VERSION}:check \
+            -Powasp-offline-gate \
+            -DdataDirectory="$NVD_CANONICAL_DIR" \
+            -DautoUpdate=false \
+            -DfailOnError=false \
+            -DfailBuildOnCVSS=11 \
+            -DossIndexAnalyzerEnabled=false \
+            -DhostedSuppressionsEnabled=false \
+            -DversionCheckEnabled=false \
+            -DoutputDirectory="$REPORT_DIR" \
+            > "$EVIDENCE_DIR/owasp-scan.log" 2>&1
+          EXIT_CODE=$?
+          set -e
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          echo 'result=completed' >> "$GITHUB_OUTPUT"
+          tail -100 "$EVIDENCE_DIR/owasp-scan.log"
+
+      - name: Verify HTML and JSON reports
+        id: preflight_reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPORT_DIR='apps/sanad-platform/target/dependency-check-report'
+          JSON_REPORT="$REPORT_DIR/dependency-check-report.json"
+          HTML_REPORT="$REPORT_DIR/dependency-check-report.html"
+          [[ -s "$JSON_REPORT" ]] || { echo '::error::OWASP JSON report missing or empty'; exit 1; }
+          [[ -s "$HTML_REPORT" ]] || { echo '::error::OWASP HTML report missing or empty'; exit 1; }
+          python3 -m json.tool "$JSON_REPORT" >/dev/null
+          grep -qi 'Dependency-Check' "$HTML_REPORT"
+          echo "json_report=$JSON_REPORT" >> "$GITHUB_OUTPUT"
+          echo "html_report=$HTML_REPORT" >> "$GITHUB_OUTPUT"
+          echo "json_size=$(stat -c%s "$JSON_REPORT")" >> "$GITHUB_OUTPUT"
+          echo "html_size=$(stat -c%s "$HTML_REPORT")" >> "$GITHUB_OUTPUT"
+          echo 'result=pass' >> "$GITHUB_OUTPUT"
+
+      - name: Verify offline network behavior
+        id: offline_audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOG="$EVIDENCE_DIR/owasp-scan.log"
+          if grep -Eqi 'services\.nvd\.nist\.gov|nvd\.nist\.gov/developers|ossindex\.sonatype\.org|Sonatype OSS Index API' "$LOG"; then
+            echo '::error::Offline scanner attempted a prohibited vulnerability-service request'
+            grep -Ei 'services\.nvd\.nist\.gov|nvd\.nist\.gov/developers|ossindex\.sonatype\.org|Sonatype OSS Index API' "$LOG" | head -20
+            exit 1
+          fi
+          echo 'result=verified' >> "$GITHUB_OUTPUT"
+
+      - name: Parse OWASP JSON report
+        id: parse_report
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPORT='${{ steps.preflight_reports.outputs.json_report }}'
+          PARSE_OUTPUT=$(python3 scripts/ci/parse_owasp_report.py "$REPORT")
+          echo "$PARSE_OUTPUT" | tee "$EVIDENCE_DIR/parsed-owasp-result.txt"
+          while IFS='=' read -r key value; do
+            [[ -n "$key" ]] && echo "$key=$value" >> "$GITHUB_OUTPUT"
+          done <<< "$PARSE_OUTPUT"
+          echo 'parser_execution=pass' >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate terminal security policy
+        id: evaluate
+        if: always()
+        shell: bash
+        env:
+          CONTRACT_TESTS: ${{ steps.contract_tests.outputs.result }}
+          BACKEND_PREFLIGHT: ${{ steps.backend_preflight.outputs.result }}
+          SNAPSHOT_DOWNLOAD: ${{ steps.download_snapshot.outcome }}
+          SNAPSHOT_VERIFY: ${{ steps.verify_snapshot.outputs.result }}
+          DATABASE_PREPARE: ${{ steps.prepare_database.outputs.result }}
+          SCAN_RESULT: ${{ steps.owasp_scan.outputs.result }}
+          REPORT_PREFLIGHT: ${{ steps.preflight_reports.outputs.result }}
+          OFFLINE_AUDIT: ${{ steps.offline_audit.outputs.result }}
+          PARSER_EXECUTION: ${{ steps.parse_report.outputs.parser_execution }}
+          PARSED_RESULT: ${{ steps.parse_report.outputs.result }}
+          TOTAL_DEPENDENCIES: ${{ steps.parse_report.outputs.total_dependencies }}
+          TOTAL_VULNERABILITIES: ${{ steps.parse_report.outputs.total_vulnerabilities }}
+          HIGH_COUNT: ${{ steps.parse_report.outputs.high }}
+          CRITICAL_COUNT: ${{ steps.parse_report.outputs.critical }}
+          UNKNOWN_COUNT: ${{ steps.parse_report.outputs.unknown }}
+          ANALYSIS_EXCEPTIONS: ${{ steps.parse_report.outputs.analysis_exceptions }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          DECISION='pass'
+          REASONS=()
+          require_equal() {
+            local label="$1" actual="$2" expected="$3"
+            if [[ "$actual" != "$expected" ]]; then
+              DECISION='fail'
+              REASONS+=("$label=$actual expected=$expected")
+            fi
+          }
+          require_equal contract_tests "$CONTRACT_TESTS" pass
+          require_equal backend_preflight "$BACKEND_PREFLIGHT" pass
+          require_equal snapshot_download "$SNAPSHOT_DOWNLOAD" success
+          require_equal snapshot_verify "$SNAPSHOT_VERIFY" pass
+          require_equal database_prepare "$DATABASE_PREPARE" pass
+          require_equal scan_result "$SCAN_RESULT" completed
+          require_equal report_preflight "$REPORT_PREFLIGHT" pass
+          require_equal offline_audit "$OFFLINE_AUDIT" verified
+          require_equal parser_execution "$PARSER_EXECUTION" pass
+          require_equal parsed_result "$PARSED_RESULT" pass
+          require_equal high "$HIGH_COUNT" 0
+          require_equal critical "$CRITICAL_COUNT" 0
+          require_equal unknown "$UNKNOWN_COUNT" 0
+          require_equal analysis_exceptions "$ANALYSIS_EXCEPTIONS" 0
+          if [[ -z "$TOTAL_DEPENDENCIES" || "$TOTAL_DEPENDENCIES" -le 0 ]]; then
+            DECISION='fail'
+            REASONS+=("total_dependencies=$TOTAL_DEPENDENCIES expected>0")
+          fi
+          REASONS_JSON=$(printf '%s\n' "${REASONS[@]:-}" | python3 -c 'import json,sys; print(json.dumps([line.rstrip("\n") for line in sys.stdin if line.strip()]))')
+          python3 - <<'PY' "$EVIDENCE_DIR/terminal-enforcement.json" "$DECISION" "$REASONS_JSON"
+          import json, os, sys
+          output, decision, reasons = sys.argv[1:]
+          evidence = {
+              'decision': decision,
+              'reasons': json.loads(reasons),
+              'run_id': os.environ['GITHUB_RUN_ID'],
+              'tested_sha': os.environ['GITHUB_SHA'],
+              'event': os.environ['GITHUB_EVENT_NAME'],
+              'snapshot_id': os.environ.get('SNAPSHOT_ID', ''),
+              'snapshot_age_hours': os.environ.get('SNAPSHOT_AGE', ''),
+              'database_sha256': os.environ.get('DATABASE_SHA', ''),
+              'total_dependencies': os.environ.get('TOTAL_DEPENDENCIES', ''),
+              'total_vulnerabilities': os.environ.get('TOTAL_VULNERABILITIES', ''),
+              'high': os.environ.get('HIGH_COUNT', ''),
+              'critical': os.environ.get('CRITICAL_COUNT', ''),
+              'unknown': os.environ.get('UNKNOWN_COUNT', ''),
+              'analysis_exceptions': os.environ.get('ANALYSIS_EXCEPTIONS', ''),
+          }
+          with open(output, 'w', encoding='utf-8') as handle:
+              json.dump(evidence, handle, indent=2, sort_keys=True)
+          PY
+          echo "decision=$DECISION" >> "$GITHUB_OUTPUT"
+          printf 'Terminal decision: %s\n' "$DECISION"
+          printf 'Reasons: %s\n' "${REASONS[*]:-none}"
+        env:
+          SNAPSHOT_ID: ${{ steps.download_snapshot.outputs.snapshot_id }}
+          SNAPSHOT_AGE: ${{ steps.verify_snapshot.outputs.age_hours }}
+          DATABASE_SHA: ${{ steps.verify_snapshot.outputs.database_sha256 }}
+
+      - name: Upload OWASP evidence
+        id: upload_evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-dependency-check-evidence-${{ github.run_id }}
+          path: |
+            apps/sanad-platform/target/dependency-check-report/dependency-check-report.json
+            apps/sanad-platform/target/dependency-check-report/dependency-check-report.html
+            artifacts/security/owasp/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Write security summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## OWASP Dependency-Check — Verified Offline Gate'
+            echo ''
+            echo "- Tested SHA: \`${{ github.sha }}\`"
+            echo "- Run ID: ${{ github.run_id }}"
+            echo "- Execution mode: ${{ steps.mode.outputs.execution_mode }}"
+            echo "- Snapshot backend: ${{ steps.mode.outputs.backend }}"
+            echo "- Snapshot ID: \`${{ steps.download_snapshot.outputs.snapshot_id }}\`"
+            echo "- Snapshot age: ${{ steps.verify_snapshot.outputs.age_hours }} hours"
+            echo "- Database SHA-256: \`${{ steps.verify_snapshot.outputs.database_sha256 }}\`"
+            echo "- HTML report: ${{ steps.preflight_reports.outputs.html_size }} bytes"
+            echo "- JSON report: ${{ steps.preflight_reports.outputs.json_size }} bytes"
+            echo "- Dependencies: ${{ steps.parse_report.outputs.total_dependencies }}"
+            echo "- Vulnerabilities: ${{ steps.parse_report.outputs.total_vulnerabilities }}"
+            echo "- High: ${{ steps.parse_report.outputs.high }}"
+            echo "- Critical: ${{ steps.parse_report.outputs.critical }}"
+            echo "- Unknown: ${{ steps.parse_report.outputs.unknown }}"
+            echo "- Analysis exceptions: ${{ steps.parse_report.outputs.analysis_exceptions }}"
+            echo "- Offline audit: ${{ steps.offline_audit.outputs.result }}"
+            echo "- Evidence upload: ${{ steps.upload_evidence.outcome }}"
+            echo "- Terminal decision: **${{ steps.evaluate.outputs.decision }}**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Final enforcement
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ '${{ steps.evaluate.outputs.decision }}' == 'pass' ]] || {
+            echo '::error::Terminal OWASP policy decision is not pass'
+            cat "$EVIDENCE_DIR/terminal-enforcement.json" || true
+            exit 1
+          }
+          [[ '${{ steps.upload_evidence.outcome }}' == 'success' ]] || {
+            echo '::error::OWASP evidence artifact upload failed'
+            exit 1
+          }
+          echo 'OWASP terminal enforcement PASSED.'
