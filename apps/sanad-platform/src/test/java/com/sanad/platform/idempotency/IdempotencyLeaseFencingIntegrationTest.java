@@ -166,7 +166,7 @@ class IdempotencyLeaseFencingIntegrationTest {
         // === Step 3: Worker B takes over (lease_version becomes 2) ===
         Instant leaseExpiresAtB = Instant.now().plusSeconds(3600);
         Optional<LeaseGrant> takenOver =
-                store.atomicTakeoverLease(recordId, ownerB, leaseExpiresAtB);
+                store.atomicTakeoverLease(recordId, fixture.tenantAId(), ownerB, leaseExpiresAtB);
         assertThat(takenOver)
                 .as("Worker B's takeover must succeed (lease was expired)")
                 .isPresent();
@@ -246,7 +246,7 @@ class IdempotencyLeaseFencingIntegrationTest {
 
         // Step 3: Worker B takes over.
         Instant leaseExpiresAtB = Instant.now().plusSeconds(3600);
-        store.atomicTakeoverLease(recordId, ownerB, leaseExpiresAtB);
+        store.atomicTakeoverLease(recordId, fixture.tenantAId(), ownerB, leaseExpiresAtB);
 
         // Step 4: Worker A attempts fail with stale lease_version = 1 → rejected.
         assertThatThrownBy(() -> store.atomicFail(
