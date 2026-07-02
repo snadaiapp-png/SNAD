@@ -41,5 +41,8 @@
   ],
   "rlsProtectedCount": 8,
   "globalExceptionCount": 2,
-  "totalTables": 10
+  "totalTables": 10,
+  "globalReferenceTables": [
+    "platform_security_audit_events"
+  ]
 }

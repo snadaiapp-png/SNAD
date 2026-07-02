@@ -384,6 +384,13 @@
       "classification": "TENANT_OWNED",
       "tenantColumn": "tenant_id",
       "description": "Chain head pointer for tenant audit hash chain"
+    },
+    {
+      "entity": "PlatformSecurityAuditEvent",
+      "table": "platform_security_audit_events",
+      "classification": "GLOBAL_REFERENCE",
+      "tenantColumn": null,
+      "description": "Pre-authentication security denial audit (no tenant scope)"
     }
   ],
   "summary": {
