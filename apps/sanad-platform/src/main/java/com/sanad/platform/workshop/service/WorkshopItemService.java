@@ -1,5 +1,6 @@
 package com.sanad.platform.workshop.service;
 
+import com.sanad.platform.workshop.domain.Workshop;
 import com.sanad.platform.workshop.dto.WorkshopDtos;
 import com.sanad.platform.workshop.repository.WorkshopActivityRepository;
 import com.sanad.platform.workshop.repository.WorkshopWorkItemRepository;
@@ -29,6 +30,8 @@ public class WorkshopItemService {
 
     public WorkshopDtos.WorkItemResponse create(UUID tenantId, UUID userId, UUID workshopId,
                                                  WorkshopDtos.CreateWorkItemRequest request) {
-        throw new UnsupportedOperationException("not implemented");
+        Workshop workshop = loader.requireWorkshop(tenantId, workshopId);
+        workshop.ensureExecutionOpen();
+        return null;
     }
 }
