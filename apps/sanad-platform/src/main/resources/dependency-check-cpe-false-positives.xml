@@ -1,37 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
     <suppress until="2026-10-01Z">
-        <notes><![CDATA[
-            The advisory applies to Prometheus server behavior. The matched Maven
-            artifact is Micrometer's registry integration and is not the affected
-            server product. This correction is limited to one package and one CVE
-            and expires for mandatory review.
-        ]]></notes>
+        <notes><![CDATA[Micrometer registry is not the Prometheus server product.]]></notes>
         <packageUrl regex="true">^pkg:maven/io\.micrometer/micrometer-registry-prometheus@.*$</packageUrl>
         <cve>CVE-2026-42154</cve>
     </suppress>
 
     <suppress until="2026-10-01Z">
-        <notes><![CDATA[
-            JetBrains documents CVE-2020-29582 as resolved in Kotlin 1.4.21.
-            The scanned components are fixed Kotlin 1.9.25 standard-library
-            modules. The correction is restricted to the base, common, JDK7,
-            and JDK8 package names at the exact version and CVE.
-        ]]></notes>
+        <notes><![CDATA[Kotlin 1.9.25 is newer than the documented fixed release.]]></notes>
         <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/kotlin-stdlib(-common|-jdk7|-jdk8)?@1\.9\.25$</packageUrl>
         <cve>CVE-2020-29582</cve>
     </suppress>
 
     <suppress until="2026-10-01Z">
-        <notes><![CDATA[
-            GHSA-2c5c-chwr-9hqw affects io.netty:netty-codec-http3 from
-            4.2.0.Final through 4.2.12.Final. The scanned components are
-            codec or transport modules on the distinct 4.1.135.Final branch.
-            The generic Netty CPE association is corrected only for the exact
-            codec, Java transport, epoll-classes, and native-unix-common package
-            identities and CVE.
-        ]]></notes>
-        <packageUrl regex="true">^pkg:maven/io\.netty/(netty-codec|netty-transport(-classes-epoll|-native-unix-common)?)@4\.1\.135\.Final$</packageUrl>
+        <notes><![CDATA[The scanned Netty 4.1.135 modules are not the affected HTTP/3 codec module.]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.netty/(netty-buffer|netty-codec|netty-transport(-classes-epoll|-native-unix-common)?)@4\.1\.135\.Final$</packageUrl>
         <cve>CVE-2026-42582</cve>
     </suppress>
 </suppressions>
