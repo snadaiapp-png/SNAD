@@ -100,7 +100,9 @@ class CrmPostgresMigrationTest {
     }
 
     private void assertCrmMigrationAppliedExactlyOnce(JdbcTemplate jdbc) {
-        assertThat(latestVersion(jdbc)).isEqualTo(CRM_SCHEMA_VERSION);
+        // Stage 05A.2.9.1 — The CRM migration (V20260702_1) must be applied
+        // exactly once. It does NOT need to be the latest version — the
+        // reconciler migration (V20260702_2) runs after it.
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE version=? AND success=TRUE",
                 Long.class,
