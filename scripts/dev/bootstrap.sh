@@ -75,6 +75,10 @@ set_if_empty POSTGRES_PASSWORD "$(random_value 32)"
 set_if_empty SPRING_DATASOURCE_PASSWORD "$(grep '^POSTGRES_PASSWORD=' "${ENV_FILE}" | cut -d= -f2-)"
 set_if_empty JWT_SECRET "$(random_value 64)"
 set_if_empty REDIS_PASSWORD "$(random_value 32)"
+set_if_empty CRM_CACHE_PASSWORD "$(random_value 32)"
+set_if_empty CRM_BROKER_PASSWORD "$(random_value 32)"
+set_if_empty CRM_STORAGE_ACCESS_KEY "snad$(random_value 12)"
+set_if_empty CRM_STORAGE_SECRET_KEY "$(random_value 48)"
 set_if_empty GRAFANA_ADMIN_PASSWORD "$(random_value 32)"
 
 chmod 600 "${ENV_FILE}" 2>/dev/null || true
@@ -84,14 +88,12 @@ SNAD local environment is initialized.
 
 Next commands:
   make doctor
-  make config
-  make up
+  make crm-platform-config
+  make crm-platform-up
 
-Optional profiles:
-  make up-devtools
-  make up-platform
-  make up-observability
-  make up-full
+Validation:
+  make crm-platform-readiness
+  make crm-platform-test
 
 Secrets were generated into .env and were not printed.
 EOF
