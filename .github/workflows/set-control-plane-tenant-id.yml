@@ -52,19 +52,21 @@ jobs:
           set -euo pipefail
           echo "Setting SANAD_CONTROL_PLANE_TENANT_ID in Render..."
           
-          # Get current env vars
+          # Get current env vars — Render returns [{envVar: {key, value}}] format
           CURRENT_ENV=$(curl --silent --show-error \
             --header "Authorization: Bearer $RENDER_API_KEY" \
             --header "Accept: application/json" \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100")
           
-          # Update or add SANAD_CONTROL_PLANE_TENANT_ID
-          NEW_ENV=$(echo "$CURRENT_ENV" | jq --arg tenantId "$CONTROL_PLANE_TENANT_ID" \
-            'map(if .key == "SANAD_CONTROL_PLANE_TENANT_ID" then .value = $tenantId else . end) + 
+          # Normalize to flat [{key, value}] format, update/add our key
+          NEW_ENV=$(echo "$CURRENT_ENV" | jq '[.[]? | (.envVar // .)]' | jq --arg tenantId "$CONTROL_PLANE_TENANT_ID" \
+            'map(if .key == "SANAD_CONTROL_PLANE_TENANT_ID" then .value = $tenantId else . end) +
              (if any(.key == "SANAD_CONTROL_PLANE_TENANT_ID") then [] else [{"key": "SANAD_CONTROL_PLANE_TENANT_ID", "value": $tenantId}] end)')
           
+          echo "Sending $(echo "$NEW_ENV" | jq 'length') env vars to Render..."
+          
           # Push updated env vars — this triggers an automatic deploy on Render
-          HTTP_CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+          HTTP_CODE=$(curl --silent --output /tmp/put-response.json --write-out '%{http_code}' \
             --request PUT \
             --header "Authorization: Bearer $RENDER_API_KEY" \
             --header "Content-Type: application/json" \
@@ -73,9 +75,11 @@ jobs:
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars")
           
           echo "Render PUT env-vars HTTP status: $HTTP_CODE"
+          echo "Response body: $(cat /tmp/put-response.json | head -c 500)"
           
           if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "202" ]; then
             echo "::error::Failed to set env var in Render (HTTP $HTTP_CODE)"
+            cat /tmp/put-response.json
             exit 1
           fi
           
