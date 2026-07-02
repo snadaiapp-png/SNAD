@@ -148,9 +148,9 @@ jobs:
           set -euo pipefail
           test -f artifacts/crm-platform-runtime/markers/platform-gate.ok
           docker compose --env-file .env -f compose.yaml -f compose.crm.yaml -f compose.crm.messaging-storage.yaml \
-            exec -T rabbitmq rabbitmqctl -p /snad list_exchanges -q name | grep -Fx snad.crm.events
+            exec -T rabbitmq rabbitmqctl list_exchanges -p /snad -q name | grep -Fx snad.crm.events
           docker compose --env-file .env -f compose.yaml -f compose.crm.yaml -f compose.crm.messaging-storage.yaml \
-            exec -T rabbitmq rabbitmqctl -p /snad list_queues -q name | grep -Fx snad.crm.dead-letter
+            exec -T rabbitmq rabbitmqctl list_queues -p /snad -q name | grep -Fx snad.crm.dead-letter
           COUNT=$(docker compose --env-file .env -f compose.yaml -f compose.crm.yaml \
             exec -T postgres psql -U snad -d sanad -Atqc \
             "SELECT count(*) FROM information_schema.tables WHERE table_schema='crm_platform';")
