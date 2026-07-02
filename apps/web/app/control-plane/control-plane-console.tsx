@@ -88,9 +88,22 @@ export function ControlPlaneConsole() {
   useEffect(() => {
     if (state !== "AUTHENTICATED") return;
     let cancelled = false;
-    reload().catch(() => { if (!cancelled) setMessage("تعذر تحميل مركز الإدارة."); });
+    Promise.all([
+      platformOperationsApi.dashboard(),
+      platformOperationsApi.tenants(),
+      platformOperationsApi.plans(),
+      platformOperationsApi.subscriptions(),
+      platformOperationsApi.invoices(),
+      platformOperationsApi.systems(),
+    ]).then(([dashboard, tenants, plans, subscriptions, invoices, systems]) => {
+      if (cancelled) return;
+      setData({ dashboard, tenants, plans, subscriptions, invoices, systems });
+      setTenantId((current) => current || tenants[0]?.id || "");
+    }).catch(() => {
+      if (!cancelled) setMessage("تعذر تحميل مركز الإدارة.");
+    });
     return () => { cancelled = true; };
-  }, [reload, state]);
+  }, [state]);
 
   useEffect(() => {
     if (state !== "AUTHENTICATED" || !tenantId) return;
