@@ -1,0 +1,102 @@
+.root {
+  min-height: 100vh;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  background: #f5f7fb;
+  color: #14213d;
+}
+
+.header,
+.formCard,
+.listCard {
+  background: #fff;
+  border: 1px solid #e3e8f2;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(20, 33, 61, 0.05);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  padding: 24px;
+}
+
+.header h1 { margin: 4px 0 8px; }
+.header p { margin: 0; color: #596579; }
+.eyebrow { color: #3563e9 !important; font-size: .78rem !important; font-weight: 800; letter-spacing: .12em; }
+.headerActions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.root button {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  background: #1f4bd8;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.root button:disabled { opacity: .55; cursor: not-allowed; }
+
+.error,
+.success { padding: 13px 16px; border-radius: 12px; font-weight: 700; }
+.error { background: #fff0f0; color: #a62626; border: 1px solid #f1caca; }
+.success { background: #edf9f0; color: #1f7135; border: 1px solid #bee1c7; }
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(130px, 1fr));
+  gap: 12px;
+}
+.metrics article { background: #fff; border: 1px solid #e3e8f2; border-radius: 14px; padding: 17px; display: flex; flex-direction: column; gap: 9px; }
+.metrics span { color: #69768a; font-size: .88rem; }
+.metrics strong { font-size: 1.45rem; }
+
+.tabs { display: flex; gap: 8px; overflow: auto; padding: 5px; background: #e9eef8; border-radius: 13px; }
+.tabs button { white-space: nowrap; background: transparent; color: #34415a; }
+.tabs .activeTab { background: #fff; color: #1538a6; box-shadow: 0 3px 12px rgba(31, 75, 216, .12); }
+
+.workspace,
+.salesGrid { display: grid; grid-template-columns: minmax(250px, 340px) minmax(0, 1fr); gap: 18px; align-items: start; }
+.salesGrid { grid-template-columns: repeat(2, minmax(250px, 1fr)); }
+.salesGrid .listCard { grid-column: 1 / -1; }
+.formCard,
+.listCard { padding: 20px; }
+.formCard { display: flex; flex-direction: column; gap: 13px; position: sticky; top: 16px; }
+.formCard h2,
+.listCard h2 { margin: 0 0 8px; }
+.formCard label { display: flex; flex-direction: column; gap: 6px; font-size: .9rem; font-weight: 700; }
+.formCard input,
+.formCard select,
+.listCard select { width: 100%; border: 1px solid #ccd5e5; border-radius: 9px; padding: 10px 11px; background: #fff; color: #14213d; font: inherit; }
+.tableWrap { overflow: auto; }
+.listCard table { width: 100%; min-width: 680px; border-collapse: collapse; }
+.listCard th,
+.listCard td { padding: 12px; border-bottom: 1px solid #edf0f5; text-align: right; }
+.listCard th { color: #68758a; background: #fafbfe; font-size: .82rem; }
+.listCard td { font-size: .91rem; }
+.listCard td button { padding: 7px 10px; font-size: .82rem; }
+.rowActions { display: flex; gap: 6px; white-space: nowrap; }
+
+.drawer { position: fixed; inset: 0 0 0 auto; width: min(520px, 94vw); height: 100vh; padding: 24px; overflow: auto; z-index: 30; background: #fff; border-left: 1px solid #dbe2ef; box-shadow: -20px 0 60px rgba(18, 32, 60, .18); }
+.drawerHeader { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.drawerMetrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 24px 0; }
+.drawerMetrics span { padding: 14px; display: flex; flex-direction: column; gap: 6px; background: #f2f5fb; border-radius: 12px; }
+.timeline { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.timeline li { padding: 12px; display: flex; flex-direction: column; gap: 5px; border-right: 3px solid #3563e9; border-radius: 10px; background: #f8faff; }
+.timeline span { color: #68758a; font-size: .82rem; }
+
+@media (max-width: 1100px) { .metrics { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 760px) {
+  .root { padding: 14px; }
+  .header { flex-direction: column; }
+  .metrics { grid-template-columns: repeat(2, 1fr); }
+  .workspace,
+  .salesGrid { grid-template-columns: 1fr; }
+  .formCard { position: static; }
+  .salesGrid .listCard { grid-column: auto; }
+}
