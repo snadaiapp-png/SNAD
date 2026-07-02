@@ -1,0 +1,173 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SNAD CRM private multi-tenant object storage with KMS encryption and retention controls.
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: ''
+  ApplicationRoleArn:
+    Type: String
+    Description: IAM role used by the approved CRM application workload.
+  NoncurrentRetentionDays:
+    Type: Number
+    Default: 90
+    MinValue: 30
+    MaxValue: 3650
+  TemporaryObjectExpirationDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 30
+
+Conditions:
+  UseExplicitBucketName: !Not [!Equals [!Ref BucketName, '']]
+
+Resources:
+  CrmStorageKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: SNAD CRM object encryption key.
+      EnableKeyRotation: true
+      PendingWindowInDays: 30
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AccountAdministration
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: ApplicationObjectEncryption
+            Effect: Allow
+            Principal:
+              AWS: !Ref ApplicationRoleArn
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey
+              - kms:DescribeKey
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:ViaService: !Sub 's3.${AWS::Region}.amazonaws.com'
+      Tags:
+        - Key: Project
+          Value: SNAD
+        - Key: Domain
+          Value: CRM
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  CrmStorageAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/snad-crm-objects
+      TargetKeyId: !Ref CrmStorageKey
+
+  CrmBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !If [UseExplicitBucketName, !Ref BucketName, !Ref 'AWS::NoValue']
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt CrmStorageKey.Arn
+      VersioningConfiguration:
+        Status: Enabled
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 3
+          - Id: ExpireTemporaryObjects
+            Status: Enabled
+            Prefix: tmp/
+            ExpirationInDays: !Ref TemporaryObjectExpirationDays
+          - Id: RetainNoncurrentVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: !Ref NoncurrentRetentionDays
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+      Tags:
+        - Key: Project
+          Value: SNAD
+        - Key: Domain
+          Value: CRM
+        - Key: DataClassification
+          Value: Confidential
+
+  CrmBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CrmBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt CrmBucket.Arn
+              - !Sub '${CrmBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+          - Sid: DenyUnencryptedObjectWrites
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${CrmBucket.Arn}/*'
+            Condition:
+              StringNotEquals:
+                s3:x-amz-server-side-encryption: aws:kms
+          - Sid: ApplicationTenantObjects
+            Effect: Allow
+            Principal:
+              AWS: !Ref ApplicationRoleArn
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:PutObject
+              - s3:AbortMultipartUpload
+              - s3:ListMultipartUploadParts
+            Resource: !Sub '${CrmBucket.Arn}/tenants/*'
+          - Sid: ApplicationPrefixListing
+            Effect: Allow
+            Principal:
+              AWS: !Ref ApplicationRoleArn
+            Action:
+              - s3:GetBucketLocation
+              - s3:ListBucket
+            Resource: !GetAtt CrmBucket.Arn
+            Condition:
+              StringLike:
+                s3:prefix:
+                  - tenants/*
+
+Outputs:
+  BucketName:
+    Value: !Ref CrmBucket
+  BucketArn:
+    Value: !GetAtt CrmBucket.Arn
+  KmsKeyArn:
+    Value: !GetAtt CrmStorageKey.Arn
