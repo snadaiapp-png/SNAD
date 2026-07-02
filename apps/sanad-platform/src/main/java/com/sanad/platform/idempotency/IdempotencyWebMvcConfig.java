@@ -21,7 +21,6 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  */
 @Configuration
 @ConditionalOnBean(IdempotencyService.class)
-@org.springframework.context.annotation.Profile({"tenant-postgres-test", "prod"})
 public class IdempotencyWebMvcConfig implements WebMvcConfigurer {
 
     private final IdempotencyCommandInterceptor idempotencyInterceptor;

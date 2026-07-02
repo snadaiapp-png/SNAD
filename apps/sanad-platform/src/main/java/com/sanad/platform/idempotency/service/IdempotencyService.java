@@ -68,7 +68,7 @@ public class IdempotencyService {
         }
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional(propagation = Propagation.REQUIRED)
     public ReservationResult reserveOrReplay(
             String idempotencyKey,
             String operation,
@@ -147,9 +147,23 @@ public class IdempotencyService {
     /**
      * Stage 05A.2.1 §7 — Atomic completion with lease fencing.
      * Throws StaleIdempotencyLeaseException if the lease doesn't match.
+     * Uses REQUIRES_NEW for standalone completion (Transaction C path).
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void complete(UUID recordId, String leaseOwnerRequestId, long leaseVersion,
+                          int responseStatus, String responseHeaders, String responseBody) {
+        store.atomicComplete(recordId, leaseOwnerRequestId, leaseVersion,
+                responseStatus, sanitizeHeaders(responseHeaders),
+                redactionService.redactJson(responseBody));
+    }
+
+    /**
+     * Stage 05A.2.3 §10 — Completion within an existing transaction (Transaction B).
+     * Uses MANDATORY propagation — must be called within an active transaction.
+     * This ensures business mutation, audit, and completion all commit together.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void completeInTransaction(UUID recordId, String leaseOwnerRequestId, long leaseVersion,
                           int responseStatus, String responseHeaders, String responseBody) {
         store.atomicComplete(recordId, leaseOwnerRequestId, leaseVersion,
                 responseStatus, sanitizeHeaders(responseHeaders),

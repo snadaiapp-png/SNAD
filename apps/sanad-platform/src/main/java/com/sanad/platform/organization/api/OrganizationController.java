@@ -149,25 +149,23 @@ public class OrganizationController {
             jakarta.servlet.http.HttpServletRequest httpRequest,
             @Valid @RequestBody CreateOrganizationRequest request) {
 
-        // Stage 05A.2.2 §8 — Use IdempotentCommandExecutor for the create command.
-        // The executor handles reservation, business execution, audit, and completion
-        // in a single transaction boundary.
+        // Stage 05A.2.3 §7 — No fail-open. The interceptor must set the key.
+        // If the interceptor is not active (local profile), tests use a
+        // test-only configuration that provides the key, not a production
+        // controller fallback.
         java.util.UUID verifiedTenantId = tenantResolver.requireTenantId();
 
         // Read idempotency metadata from request attributes (set by interceptor).
         String idempotencyKey = (String) httpRequest.getAttribute(
                 IdempotencyCommandInterceptor.IDEMPOTENCY_KEY_ATTR);
 
-        // If the interceptor is not active (local profile), fall back to direct
-        // service call without idempotency enforcement.
+        // Stage 05A.2.3 §7 — Missing key on an @IdempotentOperation endpoint is
+        // a configuration error, not a fallback path. Return 400.
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            OrganizationResponse created = organizationService.createOrganization(verifiedTenantId, request);
-            URI location = ServletUriComponentsBuilder
-                    .fromCurrentRequest()
-                    .path("/{id}")
-                    .buildAndExpand(created.getId())
-                    .toUri();
-            return ResponseEntity.created(location).body(created);
+            throw new IllegalArgumentException(
+                    "Idempotency-Key is required for this operation but was not set by the interceptor. "
+                    + "This indicates a configuration error — the IdempotencyCommandInterceptor must be "
+                    + "registered for profiles that serve idempotent endpoints.");
         }
 
         String method = httpRequest.getMethod();

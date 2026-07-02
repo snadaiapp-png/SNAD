@@ -100,7 +100,8 @@ class OrganizationTenantIsolationTest {
         MvcResult result = mockMvc.perform(post("/api/v1/organizations")
                         .param("tenantId", tenantId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload))
+                        .content(payload)
+                        .header("Idempotency-Key", "test-" + UUID.randomUUID()))
                 .andExpect(status().isCreated())
                 .andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString());
@@ -257,7 +258,8 @@ class OrganizationTenantIsolationTest {
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "name", "Shared Name",
                                 "description", "tenant B's org"
-                        ))))
+                        )))
+                        .header("Idempotency-Key", "test-" + UUID.randomUUID()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.name").value("Shared Name"));
     }

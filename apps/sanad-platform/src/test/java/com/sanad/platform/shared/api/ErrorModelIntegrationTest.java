@@ -90,7 +90,8 @@ class ErrorModelIntegrationTest {
         // Missing required fields (tenantId param missing, body missing name)
         ResultActions result = mockMvc.perform(post("/api/v1/organizations")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"description\":\"missing name\"}"))
+                .content("{\"description\":\"missing name\"}")
+                .header("Idempotency-Key", "test-" + UUID.randomUUID()))
                 .andExpect(status().isBadRequest());
         assertUnifiedErrorShape(result, 400);
         assertRequestIdMatches(result);
@@ -106,7 +107,8 @@ class ErrorModelIntegrationTest {
         ResultActions result = mockMvc.perform(post("/api/v1/organizations")
                 .param("tenantId", "11111111-1111-1111-1111-111111111111")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{not valid json"))
+                .content("{not valid json")
+                .header("Idempotency-Key", "test-" + UUID.randomUUID()))
                 .andExpect(status().isBadRequest());
         assertUnifiedErrorShape(result, 400);
         // The malformed body content must NOT be echoed back in the detail.
@@ -260,7 +262,8 @@ class ErrorModelIntegrationTest {
         // 400 path
         mockMvc.perform(post("/api/v1/organizations")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{}"))
+                .content("{}")
+                .header("Idempotency-Key", "test-" + UUID.randomUUID()))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith("application/problem+json"));
 
@@ -279,7 +282,8 @@ class ErrorModelIntegrationTest {
     void noStackTraceInErrorBody() throws Exception {
         ResultActions result = mockMvc.perform(post("/api/v1/organizations")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{bad"))
+                .content("{bad")
+                .header("Idempotency-Key", "test-" + UUID.randomUUID()))
                 .andExpect(status().isBadRequest());
 
         String body = result.andReturn().getResponse().getContentAsString();

@@ -117,7 +117,8 @@ class OrganizationApiIntegrationTest {
         MvcResult result = mockMvc.perform(post("/api/v1/organizations")
                         .param("tenantId", tenantId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(createPayload(name, description)))
+                        .content(createPayload(name, description))
+                        .header("Idempotency-Key", "test-" + UUID.randomUUID()))
                 .andExpect(status().isCreated())
                 .andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString());
@@ -157,7 +158,8 @@ class OrganizationApiIntegrationTest {
         mockMvc.perform(post("/api/v1/organizations")
                         .param("tenantId", tenantId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(createPayload("Dup Name", "Second")))
+                        .content(createPayload("Dup Name", "Second"))
+                        .header("Idempotency-Key", "test-" + UUID.randomUUID()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.status").value(409))
                 .andExpect(jsonPath("$.title").exists())
@@ -339,7 +341,8 @@ class OrganizationApiIntegrationTest {
 
         mockMvc.perform(post("/api/v1/organizations")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(invalidPayload))
+                        .content(invalidPayload)
+                        .header("Idempotency-Key", "test-" + UUID.randomUUID()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.title").exists())

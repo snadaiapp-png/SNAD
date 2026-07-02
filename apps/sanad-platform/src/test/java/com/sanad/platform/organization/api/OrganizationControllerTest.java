@@ -79,6 +79,39 @@ class OrganizationControllerTest {
     @MockBean
     private com.sanad.platform.idempotency.service.IdempotentCommandExecutor idempotentCommandExecutor;
 
+    @org.junit.jupiter.api.BeforeEach
+    void setupIdempotencyMock() {
+        // Mock the executor to call the actual service and return the result.
+        // This allows the service mock to control the outcome (success, 404, 409).
+        org.mockito.Mockito.when(idempotentCommandExecutor.execute(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
+            .thenAnswer(invocation -> {
+                // The last argument is the Supplier<T> (business action)
+                @SuppressWarnings("unchecked")
+                java.util.function.Supplier<OrganizationResponse> action =
+                    (java.util.function.Supplier<OrganizationResponse>) invocation.getArgument(5);
+                try {
+                    OrganizationResponse result = action.get();
+                    return new com.sanad.platform.idempotency.service.IdempotentHttpResult<>(
+                        201,
+                        java.util.Map.of(),
+                        null,
+                        result != null ? result.getId() : null,
+                        false,
+                        1L,
+                        result
+                    );
+                } catch (RuntimeException e) {
+                    throw e; // Propagate service exceptions (404, 409, etc.)
+                }
+            });
+    }
+
     // Common fixtures
     private final UUID tenantId = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private final UUID organizationId = UUID.fromString("22222222-2222-2222-2222-222222222222");
@@ -112,6 +145,7 @@ class OrganizationControllerTest {
         // --- Act + Assert ---
         mockMvc.perform(post("/api/v1/organizations")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .requestAttr("sanad.idempotency.key", "test-key")
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
                 .andExpect(header().exists("Location"))
@@ -145,6 +179,7 @@ class OrganizationControllerTest {
         // --- Act + Assert ---
         mockMvc.perform(post("/api/v1/organizations")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .requestAttr("sanad.idempotency.key", "test-key")
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.timestamp").exists())
@@ -173,6 +208,7 @@ class OrganizationControllerTest {
         // --- Act + Assert ---
         mockMvc.perform(post("/api/v1/organizations")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .requestAttr("sanad.idempotency.key", "test-key")
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.timestamp").exists())
@@ -203,6 +239,7 @@ class OrganizationControllerTest {
         // --- Act + Assert ---
         mockMvc.perform(post("/api/v1/organizations")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .requestAttr("sanad.idempotency.key", "test-key")
                         .content(invalidJson))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.timestamp").exists())
@@ -340,6 +377,7 @@ class OrganizationControllerTest {
         mockMvc.perform(put("/api/v1/organizations/{id}", organizationId)
                         .param("tenantId", tenantId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
+                        .requestAttr("sanad.idempotency.key", "test-key")
                         .content(objectMapper.writeValueAsString(update))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
@@ -363,6 +401,7 @@ class OrganizationControllerTest {
         mockMvc.perform(put("/api/v1/organizations/{id}", organizationId)
                         .param("tenantId", tenantId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
+                        .requestAttr("sanad.idempotency.key", "test-key")
                         .content(objectMapper.writeValueAsString(update))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isConflict())
@@ -387,6 +426,7 @@ class OrganizationControllerTest {
         mockMvc.perform(put("/api/v1/organizations/{id}", organizationId)
                         .param("tenantId", tenantId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
+                        .requestAttr("sanad.idempotency.key", "test-key")
                         .content(objectMapper.writeValueAsString(update))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
@@ -407,6 +447,7 @@ class OrganizationControllerTest {
         mockMvc.perform(put("/api/v1/organizations/{id}", organizationId)
                         .param("tenantId", tenantId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
+                        .requestAttr("sanad.idempotency.key", "test-key")
                         .content(invalidJson)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
