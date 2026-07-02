@@ -47,7 +47,7 @@ public final class WorkshopDtos {
             @NotNull WorkshopAssignment.Role role) {}
 
     public record CreateDependencyRequest(
-            @NotNull UUID predecessorItemId,
+            @NotNull UUID requiredItemId,
             WorkshopDependency.Type type) {}
 
     public record CreateActivityRequest(
