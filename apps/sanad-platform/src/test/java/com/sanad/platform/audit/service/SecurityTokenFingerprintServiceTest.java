@@ -15,6 +15,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>This is a pure unit test (no Spring context) — the service has no
  * dependencies and can be instantiated directly.</p>
  *
+ * <p>Stage 05A.2.9.2 — All test fixture strings are unmistakably non-secret
+ * placeholder values (not JWT-shaped, not API-key-shaped) to avoid
+ * triggering gitleaks rules. The {@link SecurityTokenFingerprintService}
+ * hashes ANY non-blank string — it does not require a real JWT.</p>
+ *
  * <p>Acceptance criteria (§11):</p>
  * <ul>
  *   <li>Null token → null fingerprint.</li>
@@ -31,6 +36,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SecurityTokenFingerprintServiceTest {
 
     private static final Pattern LOWERCASE_HEX_64 = Pattern.compile("[0-9a-f]{64}");
+
+    // Stage 05A.2.9.2 — Unmistakably non-secret test fixture strings.
+    // These are NOT real JWTs, NOT real API keys — just arbitrary strings
+    // used to test the SHA-256 fingerprint behavior. The fingerprint
+    // service hashes any non-blank string; it does not parse or validate
+    // JWT structure.
+    private static final String FIXTURE_A = "test-fixture-input-a-not-a-secret";
+    private static final String FIXTURE_B = "test-fixture-input-b-not-a-secret";
+    private static final String FIXTURE_C = "test-fixture-input-c-not-a-secret";
+    private static final String FIXTURE_D = "test-fixture-input-d-not-a-secret";
 
     private final SecurityTokenFingerprintService service = new SecurityTokenFingerprintService();
 
@@ -51,14 +66,14 @@ class SecurityTokenFingerprintServiceTest {
     @Test
     @DisplayName("fingerprintLength_is64")
     void fingerprintLength_is64() {
-        String fp = service.fingerprint("eyJhbGciOiJIUzI1NiJ9.payload.signature");
+        String fp = service.fingerprint(FIXTURE_A);
         assertThat(fp).hasSize(64);
     }
 
     @Test
     @DisplayName("fingerprintFormat_isLowercaseHex64")
     void fingerprintFormat_isLowercaseHex64() {
-        String fp = service.fingerprint("eyJhbGciOiJIUzI1NiJ9.payload.signature");
+        String fp = service.fingerprint(FIXTURE_A);
         assertThat(fp).matches(LOWERCASE_HEX_64);
         assertThat(fp).isEqualTo(fp.toLowerCase());
     }
@@ -66,41 +81,36 @@ class SecurityTokenFingerprintServiceTest {
     @Test
     @DisplayName("sameToken_producesSameFingerprint (deterministic)")
     void sameToken_producesSameFingerprint() {
-        String token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.signature";
-        String fp1 = service.fingerprint(token);
-        String fp2 = service.fingerprint(token);
+        String fp1 = service.fingerprint(FIXTURE_B);
+        String fp2 = service.fingerprint(FIXTURE_B);
         assertThat(fp1).isEqualTo(fp2);
     }
 
     @Test
     @DisplayName("differentTokens_produceDifferentFingerprints")
     void differentTokens_produceDifferentFingerprints() {
-        String tokenA = "eyJhbGciOiJIUzI1NiJ9.payload-a.signature";
-        String tokenB = "eyJhbGciOiJIUzI1NiJ9.payload-b.signature";
-        String fpA = service.fingerprint(tokenA);
-        String fpB = service.fingerprint(tokenB);
+        String fpA = service.fingerprint(FIXTURE_A);
+        String fpB = service.fingerprint(FIXTURE_B);
         assertThat(fpA).isNotEqualTo(fpB);
     }
 
     @Test
     @DisplayName("fingerprint_doesNotContainRawToken")
     void fingerprint_doesNotContainRawToken() {
-        String token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzIn0.abc123signature";
-        String fp = service.fingerprint(token);
+        String fp = service.fingerprint(FIXTURE_C);
         assertThat(fp)
                 .as("fingerprint must NOT contain the raw token or any substring of it")
-                .doesNotContain(token);
+                .doesNotContain(FIXTURE_C);
         // Also check that no significant substring of the token appears
-        assertThat(fp).doesNotContain("eyJhbGciOiJIUzI1NiJ9");
-        assertThat(fp).doesNotContain("abc123signature");
+        assertThat(fp).doesNotContain("test-fixture-input");
+        assertThat(fp).doesNotContain("not-a-secret");
     }
 
     @Test
     @DisplayName("fingerprint_doesNotContainTokenPrefix")
     void fingerprint_doesNotContainTokenPrefix() {
-        String token = "PREFIX1234567890.payload.signature";
-        String prefix = token.substring(0, 8); // "PREFIX12"
-        String fp = service.fingerprint(token);
+        String prefix = FIXTURE_D.substring(0, 8); // "test-fix"
+        String fp = service.fingerprint(FIXTURE_D);
         assertThat(fp)
                 .as("fingerprint must NOT contain the token prefix (first 8 chars)")
                 .doesNotContain(prefix);
@@ -109,11 +119,8 @@ class SecurityTokenFingerprintServiceTest {
     @Test
     @DisplayName("fingerprint_doesNotContainTokenSuffix")
     void fingerprint_doesNotContainTokenSuffix() {
-        String token = "header.payload.SUFFIX9876";
-        String suffix = token.substring(token.length() - 8); // "SUFFIX9876".substring(0,8) = "UFFIX9876"... let's use last 8
-        // Actually use the last 8 chars
-        String last8 = token.substring(Math.max(0, token.length() - 8));
-        String fp = service.fingerprint(token);
+        String last8 = FIXTURE_D.substring(FIXTURE_D.length() - 8); // "-a-secret"
+        String fp = service.fingerprint(FIXTURE_D);
         assertThat(fp)
                 .as("fingerprint must NOT contain the token suffix (last 8 chars: %s)", last8)
                 .doesNotContain(last8);
