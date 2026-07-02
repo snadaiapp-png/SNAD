@@ -23,10 +23,12 @@ import java.util.UUID;
 public interface AuditChainHeadRepository extends JpaRepository<AuditChainHead, UUID> {
 
     /**
-     * Stage 05A.2 §7 — Atomically initializes the chain head for a tenant.
-     * If the row already exists, does nothing. Safe to call concurrently.
+     * Atomically initializes the chain head for a tenant. The modifying query
+     * is flushed before the following locked read so every competing writer
+     * observes the same database row rather than a stale persistence-context
+     * snapshot.
      */
-    @Modifying
+    @Modifying(flushAutomatically = true)
     @Query(value = "INSERT INTO audit_chain_heads (tenant_id, head_sequence, head_hash, updated_at) "
             + "VALUES (:tenantId, 0, NULL, NOW()) "
             + "ON CONFLICT (tenant_id) DO NOTHING",
@@ -34,8 +36,8 @@ public interface AuditChainHeadRepository extends JpaRepository<AuditChainHead, 
     int atomicInit(@Param("tenantId") UUID tenantId);
 
     /**
-     * Stage 05A.2 §7 — Locks the chain head row for update. Must be
-     * called AFTER {@link #atomicInit} to ensure the row exists.
+     * Locks the chain head row for update. Must be called after
+     * {@link #atomicInit} on PostgreSQL to ensure the row exists.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT h FROM AuditChainHead h WHERE h.tenantId = :tenantId")
