@@ -1,0 +1,88 @@
+name: Stage 06 Production Readiness
+
+on:
+  push:
+    branches:
+      - stage06-production-readiness
+  pull_request:
+    branches:
+      - infra/05a292-ci-regression-evidence-closure
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stage06-production-readiness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stage06-governance:
+    name: stage06-governance
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate Stage 06 governance package
+        run: python3 scripts/ci/check_stage06_readiness.py
+
+  stage06-doc-integrity:
+    name: stage06-doc-integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate JSON files
+        run: |
+          python3 -c "
+          import json, pathlib
+          for p in pathlib.Path('.').rglob('*.json'):
+              if any(part in str(p) for part in ['node_modules', '.git', '.next']):
+                  continue
+              json.loads(p.read_text())
+          print('JSON validation: PASS')
+          "
+      - name: Validate YAML files
+        run: |
+          pip install pyyaml -q
+          python3 -c "
+          import yaml, pathlib
+          for p in pathlib.Path('.').rglob('*.yml'):
+              if any(part in str(p) for part in ['node_modules', '.git', '.next']):
+                  continue
+              yaml.safe_load(p.read_text())
+          print('YAML validation: PASS')
+          "
+      - name: Validate Markdown stage markers
+        run: |
+          grep -q 'Stage 06 Status: CERTIFIED FOR CONTROLLED RELEASE PREPARATION' docs/operations/STAGE06-PRODUCTION-READINESS.md
+          grep -q 'Commercial Production Release: NOT AUTHORIZED' docs/operations/STAGE06-PRODUCTION-READINESS.md
+          grep -q 'Stage 07 / Release Authorization: REQUIRED' docs/audit/SANAD-GATE-STATUS.md
+
+  stage06-final:
+    name: stage06-final
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - stage06-governance
+      - stage06-doc-integrity
+    if: always()
+    steps:
+      - name: Check Stage 06 governance
+        if: needs.stage06-governance.result != 'success'
+        run: exit 1
+      - name: Check Stage 06 document integrity
+        if: needs.stage06-doc-integrity.result != 'success'
+        run: exit 1
+      - name: Stage 06 certified
+        run: |
+          echo 'STAGE 06: CERTIFIED FOR CONTROLLED RELEASE PREPARATION'
+          echo 'COMMERCIAL PRODUCTION RELEASE: NOT AUTHORIZED'
+          echo 'STAGE 07 / RELEASE AUTHORIZATION: REQUIRED'
