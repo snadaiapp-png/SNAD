@@ -58,8 +58,6 @@ export default function ControlPlanePage() {
   useEffect(() => {
     if (state !== "AUTHENTICATED") return;
     let cancelled = false;
-    setLoading(true);
-    setError(null);
     Promise.all([
       platformOperationsApi.dashboard(),
       platformOperationsApi.tenants(),
