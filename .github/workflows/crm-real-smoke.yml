@@ -1,0 +1,33 @@
+name: CRM Real API Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'CRM backend base URL'
+        required: true
+        default: 'https://sanad-backend-mcrj.onrender.com'
+
+permissions:
+  contents: read
+
+jobs:
+  real-smoke:
+    name: Authenticated CRM API smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Require CRM bearer token
+        run: |
+          test -n "${CRM_BEARER_TOKEN:-}"
+        env:
+          CRM_BEARER_TOKEN: ${{ secrets.CRM_SMOKE_BEARER_TOKEN }}
+
+      - name: Run real CRM smoke
+        run: bash scripts/crm/real-crm-smoke.sh
+        env:
+          CRM_BASE_URL: ${{ github.event.inputs.base_url }}
+          CRM_BEARER_TOKEN: ${{ secrets.CRM_SMOKE_BEARER_TOKEN }}
