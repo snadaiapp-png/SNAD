@@ -52,7 +52,7 @@ jobs:
             --header "Authorization: Bearer $RENDER_API_KEY" \
             --header "Content-Type: application/json" \
             --header "Accept: application/json" \
-            --data '{"clearCache": true}' \
+            --data '{"clearCache": "clear"}' \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys")
           
           DEPLOY_ID=$(echo "$DEPLOY_RESPONSE" | jq -r '.id // empty')
