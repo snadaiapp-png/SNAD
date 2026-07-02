@@ -1,0 +1,11 @@
+services:
+  api-gateway:
+    image: nginx:1.29-alpine
+    profiles: ["crm-platform"]
+    restart: unless-stopped
+    volumes:
+      - ./infra/gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "127.0.0.1:8088:8080"
+    networks:
+      - edge

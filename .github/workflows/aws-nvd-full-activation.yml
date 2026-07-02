@@ -1,0 +1,492 @@
+name: AWS NVD Full Activation
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 * * * *'
+  push:
+    branches: [feat/crm-runtime-environment]
+    paths:
+      - '.github/security-requests/aws-full-activation.json'
+
+permissions:
+  contents: read
+  id-token: write
+  actions: read
+
+concurrency:
+  group: aws-nvd-full-activation
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: '1'
+  DEPENDENCY_CHECK_VERSION: '12.1.0'
+  MAX_AGE_HOURS: '48'
+
+jobs:
+  bootstrap:
+    name: Bootstrap AWS Trust and Storage
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: aws-bootstrap
+    outputs:
+      account_id: ${{ steps.outputs.outputs.account_id }}
+      region: ${{ steps.outputs.outputs.region }}
+      bucket: ${{ steps.outputs.outputs.bucket }}
+      prefix: ${{ steps.outputs.outputs.prefix }}
+      reader_role: ${{ steps.outputs.outputs.reader_role }}
+      publisher_role: ${{ steps.outputs.outputs.publisher_role }}
+      kms_key_arn: ${{ steps.outputs.outputs.kms_key_arn }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install bootstrap validators
+        run: python3 -m pip install --quiet cfn-lint pyyaml boto3
+
+      - name: Detect approved bootstrap authentication
+        id: auth
+        shell: bash
+        env:
+          BOOTSTRAP_ROLE: ${{ vars.AWS_BOOTSTRAP_ROLE_ARN }}
+          ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          SECRET_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          BOOTSTRAP_REGION: ${{ vars.AWS_BOOTSTRAP_REGION }}
+          NVD_REGION: ${{ vars.NVD_SNAPSHOT_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/security/aws-full-activation/bootstrap
+          MODE=missing
+          if [[ -n "$BOOTSTRAP_ROLE" ]]; then
+            MODE=oidc
+          elif [[ -n "$ACCESS_KEY" && -n "$SECRET_KEY" ]]; then
+            MODE=static-temporary
+          fi
+          REGION="${BOOTSTRAP_REGION:-${NVD_REGION:-}}"
+          cat > artifacts/security/aws-full-activation/bootstrap/readiness.json <<JSON
+          {
+            "authentication_mode": "$MODE",
+            "bootstrap_role_available": $([[ -n "$BOOTSTRAP_ROLE" ]] && echo true || echo false),
+            "temporary_access_credentials_available": $([[ -n "$ACCESS_KEY" && -n "$SECRET_KEY" ]] && echo true || echo false),
+            "session_token_available": $([[ -n "$SESSION_TOKEN" ]] && echo true || echo false),
+            "region_available": $([[ -n "$REGION" ]] && echo true || echo false),
+            "secret_values_exposed": false
+          }
+          JSON
+          python3 -m json.tool artifacts/security/aws-full-activation/bootstrap/readiness.json
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "region=$REGION" >> "$GITHUB_OUTPUT"
+
+      - name: Upload bootstrap readiness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-full-activation-readiness-${{ github.run_id }}
+          path: artifacts/security/aws-full-activation/bootstrap/readiness.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce bootstrap readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ '${{ steps.auth.outputs.mode }}' != 'missing' ]] || { echo '::error::No approved AWS bootstrap identity is connected'; exit 1; }
+          [[ -n '${{ steps.auth.outputs.region }}' ]] || { echo '::error::AWS bootstrap region is not configured'; exit 1; }
+
+      - name: Assume bootstrap role with GitHub OIDC
+        if: steps.auth.outputs.mode == 'oidc'
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b
+        with:
+          role-to-assume: ${{ vars.AWS_BOOTSTRAP_ROLE_ARN }}
+          aws-region: ${{ steps.auth.outputs.region }}
+          audience: sts.amazonaws.com
+          role-session-name: snad-bootstrap-${{ github.run_id }}
+          role-duration-seconds: 3600
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Configure approved temporary bootstrap credentials
+        if: steps.auth.outputs.mode == 'static-temporary'
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ steps.auth.outputs.region }}
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Render and lint deployment template
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/security/aws-full-activation/bootstrap
+          python3 scripts/aws/render_nvd_platform_template.py \
+            --source infra/aws/nvd-platform-bootstrap.yml \
+            --output artifacts/security/aws-full-activation/bootstrap/nvd-platform-bootstrap.rendered.yml
+          cfn-lint artifacts/security/aws-full-activation/bootstrap/nvd-platform-bootstrap.rendered.yml
+
+      - name: Deploy and verify AWS platform
+        id: deploy
+        shell: bash
+        env:
+          AWS_REGION: ${{ steps.auth.outputs.region }}
+          OUTPUT_DIR: ${{ github.workspace }}/artifacts/security/aws-full-activation/bootstrap
+          STACK_NAME: snad-nvd-platform
+          REPOSITORY_OWNER: snadaiapp-png
+          REPOSITORY_NAME: SNAD
+          READER_ENVIRONMENT: nvd-reader
+          PUBLISHER_ENVIRONMENT: nvd-publisher
+          NVD_SNAPSHOT_PREFIX: snad-nvd
+        run: |
+          set -euo pipefail
+          bash scripts/aws/bootstrap_nvd_platform.sh
+          python3 -c 'import json; assert json.load(open("artifacts/security/aws-full-activation/bootstrap/bootstrap-controls.json"))["result"] == "pass"'
+          echo 'result=pass' >> "$GITHUB_OUTPUT"
+
+      - name: Export stack outputs
+        id: outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          data = json.load(open('artifacts/security/aws-full-activation/bootstrap/bootstrap-controls.json', encoding='utf-8'))
+          mapping = {
+              'account_id': 'account_id',
+              'region': 'region',
+              'bucket': 'bucket',
+              'prefix': 'prefix',
+              'reader_role': 'reader_role_arn',
+              'publisher_role': 'publisher_role_arn',
+              'kms_key_arn': 'kms_key_arn',
+          }
+          for output, key in mapping.items():
+              value = data.get(key, '')
+              if not value:
+                  raise SystemExit(f'missing bootstrap output: {key}')
+              print(f'{output}={value}')
+          PY
+
+      - name: Upload bootstrap evidence
+        id: bootstrap_upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-full-activation-bootstrap-${{ github.run_id }}
+          path: artifacts/security/aws-full-activation/bootstrap/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Bootstrap final enforcement
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ '${{ steps.deploy.outputs.result }}' == 'pass' ]] || { echo '::error::AWS bootstrap deployment failed'; exit 1; }
+          [[ '${{ steps.bootstrap_upload.outcome }}' == 'success' ]] || { echo '::error::Bootstrap evidence upload failed'; exit 1; }
+
+  mirror:
+    name: Publish Verified Snapshot to S3
+    needs: bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment: nvd-publisher
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install --quiet boto3 pyyaml
+
+      - name: Assume publisher role
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b
+        with:
+          role-to-assume: ${{ needs.bootstrap.outputs.publisher_role }}
+          aws-region: ${{ needs.bootstrap.outputs.region }}
+          audience: sts.amazonaws.com
+          role-session-name: snad-publisher-${{ github.run_id }}
+          role-duration-seconds: 3600
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Download verified source snapshot
+        id: source
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/security/aws-full-activation/mirror
+          python3 scripts/security/download_nvd_snapshot.py \
+            --backend github-releases \
+            --destination '${{ runner.temp }}/nvd-source' \
+            --repository '${{ github.repository }}' \
+            --max-age-hours "$MAX_AGE_HOURS" \
+            --github-output "$GITHUB_OUTPUT"
+          cp '${{ runner.temp }}/nvd-source/download-evidence.json' artifacts/security/aws-full-activation/mirror/source-download-evidence.json
+
+      - name: Verify source and publish to S3
+        id: publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/security/verify_nvd_snapshot.py \
+            --archive '${{ steps.source.outputs.archive_path }}' \
+            --manifest '${{ steps.source.outputs.manifest_path }}' \
+            --checksums '${{ steps.source.outputs.checksums_path }}' \
+            --expected-snapshot-id '${{ steps.source.outputs.snapshot_id }}' \
+            --expected-dc-version "$DEPENDENCY_CHECK_VERSION" \
+            --min-size 52428800 \
+            --max-age-hours "$MAX_AGE_HOURS" \
+            --smoke-extract-dir '${{ runner.temp }}/source-smoke' \
+            | tee artifacts/security/aws-full-activation/mirror/source-verification.log
+          grep -q '^verification_result=valid$' artifacts/security/aws-full-activation/mirror/source-verification.log
+          python3 scripts/aws/publish_verified_nvd_bundle_to_s3.py \
+            --pointer '${{ runner.temp }}/nvd-source/pointer/latest.json' \
+            --archive '${{ steps.source.outputs.archive_path }}' \
+            --manifest '${{ steps.source.outputs.manifest_path }}' \
+            --checksums '${{ steps.source.outputs.checksums_path }}' \
+            --bucket '${{ needs.bootstrap.outputs.bucket }}' \
+            --prefix '${{ needs.bootstrap.outputs.prefix }}' \
+            --region '${{ needs.bootstrap.outputs.region }}' \
+            --kms-key-arn '${{ needs.bootstrap.outputs.kms_key_arn }}' \
+            --evidence artifacts/security/aws-full-activation/mirror/s3-mirror-evidence.json
+          python3 -c 'import json; assert json.load(open("artifacts/security/aws-full-activation/mirror/s3-mirror-evidence.json"))["result"] == "pass"'
+          echo 'result=pass' >> "$GITHUB_OUTPUT"
+
+      - name: Upload mirror evidence
+        id: mirror_upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-full-activation-mirror-${{ github.run_id }}
+          path: artifacts/security/aws-full-activation/mirror/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Mirror final enforcement
+        if: always()
+        run: |
+          test '${{ steps.publish.outputs.result }}' = pass
+          test '${{ steps.mirror_upload.outcome }}' = success
+
+  reader:
+    name: Validate Reader OIDC and Snapshot
+    needs: [bootstrap, mirror]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: nvd-reader
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install --quiet boto3 pyyaml
+
+      - name: Assume reader role
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b
+        with:
+          role-to-assume: ${{ needs.bootstrap.outputs.reader_role }}
+          aws-region: ${{ needs.bootstrap.outputs.region }}
+          audience: sts.amazonaws.com
+          role-session-name: snad-reader-${{ github.run_id }}
+          role-duration-seconds: 1800
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Validate identity, bucket, and snapshot
+        id: validate
+        shell: bash
+        env:
+          NVD_SNAPSHOT_BUCKET: ${{ needs.bootstrap.outputs.bucket }}
+          NVD_SNAPSHOT_PREFIX: ${{ needs.bootstrap.outputs.prefix }}
+          NVD_SNAPSHOT_REGION: ${{ needs.bootstrap.outputs.region }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/security/aws-full-activation/reader
+          aws sts get-caller-identity --output json > artifacts/security/aws-full-activation/reader/caller-identity.json
+          ACCOUNT=$(python3 -c 'import json; print(json.load(open("artifacts/security/aws-full-activation/reader/caller-identity.json"))["Account"])')
+          test "$ACCOUNT" = '${{ needs.bootstrap.outputs.account_id }}'
+          aws s3api get-bucket-versioning --bucket "$NVD_SNAPSHOT_BUCKET" --output json > artifacts/security/aws-full-activation/reader/bucket-versioning.json
+          aws s3api get-bucket-encryption --bucket "$NVD_SNAPSHOT_BUCKET" --output json > artifacts/security/aws-full-activation/reader/bucket-encryption.json
+          python3 scripts/security/download_nvd_snapshot.py \
+            --backend s3 \
+            --destination '${{ runner.temp }}/nvd-reader' \
+            --bucket "$NVD_SNAPSHOT_BUCKET" \
+            --prefix "$NVD_SNAPSHOT_PREFIX" \
+            --region "$NVD_SNAPSHOT_REGION" \
+            --max-age-hours "$MAX_AGE_HOURS" \
+            --github-output "$GITHUB_OUTPUT"
+          cp '${{ runner.temp }}/nvd-reader/download-evidence.json' artifacts/security/aws-full-activation/reader/download-evidence.json
+          cp '${{ runner.temp }}/nvd-reader/pointer/latest.json' artifacts/security/aws-full-activation/reader/latest.json
+
+      - name: Verify complete S3 bundle
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/security/verify_nvd_snapshot.py \
+            --archive '${{ steps.validate.outputs.archive_path }}' \
+            --manifest '${{ steps.validate.outputs.manifest_path }}' \
+            --checksums '${{ steps.validate.outputs.checksums_path }}' \
+            --expected-snapshot-id '${{ steps.validate.outputs.snapshot_id }}' \
+            --expected-dc-version "$DEPENDENCY_CHECK_VERSION" \
+            --min-size 52428800 \
+            --max-age-hours "$MAX_AGE_HOURS" \
+            --run-smoke \
+            --smoke-extract-dir '${{ runner.temp }}/reader-smoke' \
+            | tee artifacts/security/aws-full-activation/reader/snapshot-verification.log
+          grep -q '^verification_result=valid$' artifacts/security/aws-full-activation/reader/snapshot-verification.log
+          echo 'result=pass' >> "$GITHUB_OUTPUT"
+
+      - name: Upload reader evidence
+        id: reader_upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-full-activation-reader-${{ github.run_id }}
+          path: artifacts/security/aws-full-activation/reader/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Reader final enforcement
+        if: always()
+        run: |
+          test '${{ steps.verify.outputs.result }}' = pass
+          test '${{ steps.reader_upload.outcome }}' = success
+
+  owasp:
+    name: Run OWASP Acceptance from S3
+    needs: [bootstrap, mirror, reader]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: nvd-reader
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install --quiet boto3 pyyaml
+
+      - name: Assume reader role for OWASP
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b
+        with:
+          role-to-assume: ${{ needs.bootstrap.outputs.reader_role }}
+          aws-region: ${{ needs.bootstrap.outputs.region }}
+          audience: sts.amazonaws.com
+          role-session-name: snad-owasp-${{ github.run_id }}
+          role-duration-seconds: 3600
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Run terminal OWASP gate from S3
+        id: gate
+        shell: bash
+        env:
+          NVD_ACTIVE_BACKEND: s3
+          NVD_SNAPSHOT_BUCKET: ${{ needs.bootstrap.outputs.bucket }}
+          NVD_SNAPSHOT_PREFIX: ${{ needs.bootstrap.outputs.prefix }}
+          NVD_SNAPSHOT_REGION: ${{ needs.bootstrap.outputs.region }}
+          NVD_MAX_AGE_HOURS: '48'
+          EVIDENCE_DIR: ${{ github.workspace }}/artifacts/security/aws-full-activation/owasp
+        run: |
+          set -euo pipefail
+          bash scripts/security/run_owasp_gate.sh
+          python3 -c 'import json; assert json.load(open("artifacts/security/aws-full-activation/owasp/terminal-enforcement.json"))["decision"] == "pass"'
+          echo 'result=pass' >> "$GITHUB_OUTPUT"
+
+      - name: Upload OWASP acceptance evidence
+        id: owasp_upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-full-activation-owasp-${{ github.run_id }}
+          path: |
+            artifacts/security/aws-full-activation/owasp/
+            apps/sanad-platform/target/dependency-check-report/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: OWASP final enforcement
+        if: always()
+        run: |
+          test '${{ steps.gate.outputs.result }}' = pass
+          test '${{ steps.owasp_upload.outcome }}' = success
+
+  acceptance:
+    name: Publish Full Positive Acceptance Report
+    needs: [bootstrap, mirror, reader, owasp]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Download all activation evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: aws-full-activation-*
+          path: evidence
+          merge-multiple: false
+
+      - name: Generate terminal acceptance report
+        id: report
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p acceptance
+          BOOTSTRAP='${{ needs.bootstrap.result }}'
+          MIRROR='${{ needs.mirror.result }}'
+          READER='${{ needs.reader.result }}'
+          OWASP='${{ needs.owasp.result }}'
+          DECISION=fail
+          if [[ "$BOOTSTRAP" == success && "$MIRROR" == success && "$READER" == success && "$OWASP" == success ]]; then DECISION=pass; fi
+          cat > acceptance/aws-nvd-full-acceptance.json <<JSON
+          {
+            "decision": "$DECISION",
+            "run_id": "${{ github.run_id }}",
+            "tested_sha": "${{ github.sha }}",
+            "aws_account_id": "${{ needs.bootstrap.outputs.account_id }}",
+            "aws_region": "${{ needs.bootstrap.outputs.region }}",
+            "s3_bucket": "${{ needs.bootstrap.outputs.bucket }}",
+            "snapshot_prefix": "${{ needs.bootstrap.outputs.prefix }}",
+            "bootstrap": "$BOOTSTRAP",
+            "mirror": "$MIRROR",
+            "reader_oidc": "$READER",
+            "owasp_s3": "$OWASP",
+            "permanent_aws_keys_required": false
+          }
+          JSON
+          python3 -m json.tool acceptance/aws-nvd-full-acceptance.json
+          echo "decision=$DECISION" >> "$GITHUB_OUTPUT"
+
+      - name: Upload full acceptance report
+        id: acceptance_upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-nvd-full-acceptance-${{ github.run_id }}
+          path: |
+            acceptance/
+            evidence/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Terminal acceptance enforcement
+        run: |
+          test '${{ steps.report.outputs.decision }}' = pass
+          test '${{ steps.acceptance_upload.outcome }}' = success
+          echo 'AWS/OIDC NVD FULL ACTIVATION: PASS'

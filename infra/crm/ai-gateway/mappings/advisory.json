@@ -1,0 +1,34 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPathPattern": "/v1/(summarize|score|next-action)",
+    "headers": {
+      "X-SNAD-Tenant-ID": {
+        "matches": ".+"
+      },
+      "X-SNAD-Actor-ID": {
+        "matches": ".+"
+      },
+      "Content-Type": {
+        "contains": "application/json"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store"
+    },
+    "jsonBody": {
+      "advisory": true,
+      "humanConfirmationRequired": true,
+      "inputMustBeDataMinimized": true,
+      "model": "deterministic-local-v1",
+      "summary": "Local governed AI contract response",
+      "score": 50,
+      "scale": 100,
+      "action": "review_customer_context"
+    }
+  }
+}

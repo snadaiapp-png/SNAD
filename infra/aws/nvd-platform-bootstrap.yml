@@ -1,0 +1,331 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  SNAD verified NVD snapshot platform: GitHub Actions OIDC trust, KMS encryption,
+  versioned private S3 storage, and separate least-privilege reader/publisher roles.
+
+Parameters:
+  CreateGitHubOidcProvider:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Set false when the GitHub Actions OIDC provider already exists in this AWS account.
+  ExistingGitHubOidcProviderArn:
+    Type: String
+    Default: ''
+    Description: Required when CreateGitHubOidcProvider is false.
+  RepositoryOwner:
+    Type: String
+    Default: snadaiapp-png
+    AllowedPattern: '^[A-Za-z0-9_.-]+$'
+  RepositoryName:
+    Type: String
+    Default: SNAD
+    AllowedPattern: '^[A-Za-z0-9_.-]+$'
+  ReaderEnvironment:
+    Type: String
+    Default: nvd-reader
+    AllowedPattern: '^[A-Za-z0-9_.-]+$'
+  PublisherEnvironment:
+    Type: String
+    Default: nvd-publisher
+    AllowedPattern: '^[A-Za-z0-9_.-]+$'
+  SnapshotBucketName:
+    Type: String
+    Default: ''
+    Description: Optional globally unique bucket name. Leave empty for a generated name.
+  SnapshotPrefix:
+    Type: String
+    Default: snad-nvd
+    AllowedPattern: '^[A-Za-z0-9!_.*()/-]+$'
+  ReaderRoleName:
+    Type: String
+    Default: snad-github-nvd-snapshot-reader
+    AllowedPattern: '^[A-Za-z0-9+=,.@_-]{1,64}$'
+  PublisherRoleName:
+    Type: String
+    Default: snad-github-nvd-snapshot-publisher
+    AllowedPattern: '^[A-Za-z0-9+=,.@_-]{1,64}$'
+  NoncurrentVersionRetentionDays:
+    Type: Number
+    Default: 90
+    MinValue: 30
+    MaxValue: 3650
+
+Conditions:
+  CreateOidcProvider: !Equals [!Ref CreateGitHubOidcProvider, 'true']
+  UseExplicitBucketName: !Not [!Equals [!Ref SnapshotBucketName, '']]
+
+Resources:
+  GitHubActionsOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      Tags:
+        - Key: Project
+          Value: SNAD
+        - Key: Purpose
+          Value: GitHubActionsOIDC
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  SnapshotKmsKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: SNAD NVD snapshot object encryption key.
+      EnableKeyRotation: true
+      PendingWindowInDays: 30
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnableAccountAdministration
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+      Tags:
+        - TagKey: Project
+          TagValue: SNAD
+        - TagKey: Purpose
+          TagValue: NVDSnapshotEncryption
+        - TagKey: ManagedBy
+          TagValue: CloudFormation
+
+  SnapshotKmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/snad-nvd-snapshots
+      TargetKeyId: !Ref SnapshotKmsKey
+
+  SnapshotBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !If [UseExplicitBucketName, !Ref SnapshotBucketName, !Ref 'AWS::NoValue']
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt SnapshotKmsKey.Arn
+      VersioningConfiguration:
+        Status: Enabled
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+          - Id: RetainNoncurrentVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: !Ref NoncurrentVersionRetentionDays
+      Tags:
+        - Key: Project
+          Value: SNAD
+        - Key: Purpose
+          Value: VerifiedNVDSnapshots
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  SnapshotBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SnapshotBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt SnapshotBucket.Arn
+              - !Sub '${SnapshotBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  SnapshotReaderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref ReaderRoleName
+      Description: Read-only GitHub Actions access to verified SNAD NVD snapshots.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: GitHubReaderEnvironmentOnly
+            Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateOidcProvider
+                - !Ref GitHubActionsOidcProvider
+                - !Ref ExistingGitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub 'repo:${RepositoryOwner}/${RepositoryName}:environment:${ReaderEnvironment}'
+      Policies:
+        - PolicyName: ReadVerifiedNvdSnapshots
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: InspectBucketControls
+                Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:GetBucketVersioning
+                  - s3:GetEncryptionConfiguration
+                Resource: !GetAtt SnapshotBucket.Arn
+              - Sid: ListVerifiedSnapshotPrefix
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt SnapshotBucket.Arn
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - !Sub '${SnapshotPrefix}/channels/verified/*'
+                      - !Sub '${SnapshotPrefix}/snapshots/*'
+              - Sid: ReadVerifiedSnapshotObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetObjectAttributes
+                Resource:
+                  - !Sub '${SnapshotBucket.Arn}/${SnapshotPrefix}/channels/verified/latest.json'
+                  - !Sub '${SnapshotBucket.Arn}/${SnapshotPrefix}/snapshots/*'
+              - Sid: DecryptSnapshotObjects
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:DescribeKey
+                Resource: !GetAtt SnapshotKmsKey.Arn
+                Condition:
+                  StringEquals:
+                    kms:ViaService: !Sub 's3.${AWS::Region}.amazonaws.com'
+      Tags:
+        - Key: Project
+          Value: SNAD
+        - Key: Purpose
+          Value: NVDSnapshotReadOnly
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  SnapshotPublisherRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref PublisherRoleName
+      Description: GitHub Actions writer for immutable SNAD NVD snapshots and the verified latest pointer.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: GitHubPublisherEnvironmentOnly
+            Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateOidcProvider
+                - !Ref GitHubActionsOidcProvider
+                - !Ref ExistingGitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub 'repo:${RepositoryOwner}/${RepositoryName}:environment:${PublisherEnvironment}'
+      Policies:
+        - PolicyName: PublishVerifiedNvdSnapshots
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: InspectAndListSnapshotBucket
+                Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:GetBucketVersioning
+                  - s3:GetEncryptionConfiguration
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                Resource: !GetAtt SnapshotBucket.Arn
+                Condition:
+                  StringLikeIfExists:
+                    s3:prefix:
+                      - !Sub '${SnapshotPrefix}/channels/verified/*'
+                      - !Sub '${SnapshotPrefix}/snapshots/*'
+              - Sid: PublishSnapshotObjects
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetObjectAttributes
+                  - s3:AbortMultipartUpload
+                  - s3:ListMultipartUploadParts
+                Resource:
+                  - !Sub '${SnapshotBucket.Arn}/${SnapshotPrefix}/channels/verified/latest.json'
+                  - !Sub '${SnapshotBucket.Arn}/${SnapshotPrefix}/snapshots/*'
+              - Sid: RetainOnlySnapshotHistory
+                Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                  - s3:DeleteObjectVersion
+                Resource: !Sub '${SnapshotBucket.Arn}/${SnapshotPrefix}/snapshots/*'
+              - Sid: EncryptAndVerifySnapshotObjects
+                Effect: Allow
+                Action:
+                  - kms:Encrypt
+                  - kms:Decrypt
+                  - kms:ReEncrypt*
+                  - kms:GenerateDataKey
+                  - kms:DescribeKey
+                Resource: !GetAtt SnapshotKmsKey.Arn
+                Condition:
+                  StringEquals:
+                    kms:ViaService: !Sub 's3.${AWS::Region}.amazonaws.com'
+      Tags:
+        - Key: Project
+          Value: SNAD
+        - Key: Purpose
+          Value: NVDSnapshotPublisher
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  GitHubOidcProviderArn:
+    Value: !If [CreateOidcProvider, !Ref GitHubActionsOidcProvider, !Ref ExistingGitHubOidcProviderArn]
+  SnapshotBucketName:
+    Value: !Ref SnapshotBucket
+  SnapshotBucketArn:
+    Value: !GetAtt SnapshotBucket.Arn
+  SnapshotPrefix:
+    Value: !Ref SnapshotPrefix
+  SnapshotKmsKeyArn:
+    Value: !GetAtt SnapshotKmsKey.Arn
+  ReaderRoleArn:
+    Value: !GetAtt SnapshotReaderRole.Arn
+  PublisherRoleArn:
+    Value: !GetAtt SnapshotPublisherRole.Arn
+  AwsAccountId:
+    Value: !Ref AWS::AccountId
+  AwsRegion:
+    Value: !Ref AWS::Region
+  ReaderSubject:
+    Value: !Sub 'repo:${RepositoryOwner}/${RepositoryName}:environment:${ReaderEnvironment}'
+  PublisherSubject:
+    Value: !Sub 'repo:${RepositoryOwner}/${RepositoryName}:environment:${PublisherEnvironment}'

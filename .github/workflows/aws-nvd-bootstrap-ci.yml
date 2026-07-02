@@ -1,0 +1,86 @@
+name: AWS NVD Bootstrap CI
+
+on:
+  pull_request:
+    paths:
+      - 'infra/aws/nvd-platform-bootstrap.yml'
+      - 'scripts/aws/**'
+      - '.github/workflows/aws-nvd-bootstrap-ci.yml'
+      - '.github/workflows/aws-nvd-snapshot-mirror.yml'
+      - '.github/workflows/aws-nvd-reader-validation.yml'
+      - '.github/workflows/aws-nvd-full-activation.yml'
+      - 'scripts/security/download_nvd_snapshot.py'
+      - 'scripts/security/verify_nvd_snapshot.py'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/aws/nvd-platform-bootstrap.yml'
+      - 'scripts/aws/**'
+      - '.github/workflows/aws-nvd-bootstrap-ci.yml'
+      - '.github/workflows/aws-nvd-snapshot-mirror.yml'
+      - '.github/workflows/aws-nvd-reader-validation.yml'
+      - '.github/workflows/aws-nvd-full-activation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate AWS NVD Bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install validators
+        run: python3 -m pip install --quiet cfn-lint pyyaml pytest boto3
+
+      - name: Render and validate CloudFormation
+        run: |
+          mkdir -p artifacts/aws-bootstrap-ci
+          python3 scripts/aws/render_nvd_platform_template.py \
+            --source infra/aws/nvd-platform-bootstrap.yml \
+            --output artifacts/aws-bootstrap-ci/nvd-platform-bootstrap.rendered.yml
+          cfn-lint artifacts/aws-bootstrap-ci/nvd-platform-bootstrap.rendered.yml
+
+      - name: Validate shell automation
+        run: |
+          bash -n scripts/aws/bootstrap_nvd_platform.sh
+          bash -n scripts/aws/configure_github_nvd_platform.sh
+
+      - name: Validate Python automation
+        run: |
+          python3 -m py_compile scripts/aws/render_nvd_platform_template.py
+          python3 -m py_compile scripts/aws/publish_verified_nvd_bundle_to_s3.py
+
+      - name: Validate workflow YAML
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml
+          for path in (
+              Path('.github/workflows/aws-nvd-bootstrap-ci.yml'),
+              Path('.github/workflows/aws-nvd-snapshot-mirror.yml'),
+              Path('.github/workflows/aws-nvd-reader-validation.yml'),
+              Path('.github/workflows/aws-nvd-full-activation.yml'),
+          ):
+              data = yaml.safe_load(path.read_text(encoding='utf-8'))
+              assert isinstance(data, dict)
+              assert 'jobs' in data
+              assert data['jobs']
+              print(f'{path}: valid')
+          PY
+
+      - name: Run existing OIDC and snapshot contract tests
+        run: |
+          python3 -m pytest \
+            tests/security/test_nvd_oidc_contract.py \
+            tests/security/test_nvd_snapshot_consumer.py \
+            -q

@@ -1,0 +1,112 @@
+services:
+  backend:
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-container,crm-platform}
+      CRM_MESSAGING_ENABLED: "true"
+      CRM_BROKER_HOST: rabbitmq
+      CRM_BROKER_PORT: 5672
+      CRM_BROKER_USERNAME: ${CRM_BROKER_USERNAME:-snad}
+      CRM_BROKER_PASSWORD: ${CRM_BROKER_PASSWORD}
+      CRM_BROKER_VHOST: /snad
+      CRM_CACHE_HOST: valkey
+      CRM_CACHE_PORT: 6379
+      CRM_WORKFLOW_ENABLED: "true"
+      CRM_SEARCH_ENABLED: "true"
+      CRM_SEARCH_URL: http://opensearch:9200
+      CRM_STORAGE_ENABLED: "true"
+      CRM_STORAGE_ENDPOINT: http://minio:9000
+      CRM_STORAGE_REGION: us-east-1
+      CRM_STORAGE_BUCKET: ${CRM_STORAGE_BUCKET:-snad-crm}
+      CRM_STORAGE_PATH_STYLE: "true"
+      AWS_ACCESS_KEY_ID: ${CRM_STORAGE_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${CRM_STORAGE_SECRET_KEY}
+      AWS_REGION: us-east-1
+      CRM_ANTIVIRUS_ENABLED: "true"
+      CRM_ANTIVIRUS_HOST: clamav
+      CRM_ANTIVIRUS_PORT: 3310
+      CRM_NOTIFICATIONS_ENABLED: "true"
+      CRM_NOTIFICATION_FROM: ${CRM_NOTIFICATION_FROM:-no-reply@snad.local}
+      CRM_WEBHOOKS_ENABLED: "true"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      opensearch:
+        condition: service_healthy
+      clamav:
+        condition: service_healthy
+
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    profiles: ["crm-platform"]
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${CRM_BROKER_USERNAME:-snad}
+      RABBITMQ_DEFAULT_PASS: ${CRM_BROKER_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: /snad
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    ports:
+      - "127.0.0.1:${CRM_BROKER_MANAGEMENT_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks:
+      - data
+      - observability
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    profiles: ["crm-platform"]
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${CRM_STORAGE_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${CRM_STORAGE_SECRET_KEY}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "127.0.0.1:${CRM_STORAGE_API_PORT:-9000}:9000"
+      - "127.0.0.1:${CRM_STORAGE_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks:
+      - data
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    profiles: ["crm-platform"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${CRM_STORAGE_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${CRM_STORAGE_SECRET_KEY}
+      CRM_STORAGE_BUCKET: ${CRM_STORAGE_BUCKET:-snad-crm}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing "local/$${CRM_STORAGE_BUCKET}"
+        mc version enable "local/$${CRM_STORAGE_BUCKET}"
+        mc anonymous set none "local/$${CRM_STORAGE_BUCKET}"
+        mc stat "local/$${CRM_STORAGE_BUCKET}"
+    networks:
+      - data
+
+volumes:
+  rabbitmq-data:
+  minio-data:

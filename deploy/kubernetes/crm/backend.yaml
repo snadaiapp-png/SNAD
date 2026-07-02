@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snad-crm-backend
+  namespace: snad-crm
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: snad-crm-backend
+  template:
+    metadata:
+      labels:
+        app: snad-crm-backend
+    spec:
+      serviceAccountName: snad-crm-backend
+      containers:
+        - name: backend
+          image: snad-crm-backend:production
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: snad-crm-config
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 3Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: snad-crm-backend
+  namespace: snad-crm
+spec:
+  selector:
+    app: snad-crm-backend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

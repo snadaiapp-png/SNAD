@@ -1,0 +1,210 @@
+name: CRM Platform Runtime CI
+
+on:
+  pull_request:
+    paths:
+      - 'apps/sanad-platform/**'
+      - 'apps/web/**'
+      - 'compose.yaml'
+      - 'compose.crm.yaml'
+      - 'compose.crm.*.yaml'
+      - 'infra/crm/**'
+      - 'infra/gateway/**'
+      - 'infra/observability/**'
+      - 'scripts/crm/platform-readiness.sh'
+      - 'scripts/dev/bootstrap.sh'
+      - '.github/workflows/crm-platform-runtime-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/**'
+      - 'compose.crm.*.yaml'
+      - 'scripts/crm/platform-readiness.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    name: Execute Complete CRM Platform
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Initialize environment and evidence
+        run: |
+          bash scripts/dev/bootstrap.sh
+          mkdir -p artifacts/crm-platform-runtime/markers
+          sudo sysctl -w vm.max_map_count=262144
+
+      - name: Validate merged configuration
+        id: config
+        shell: bash
+        run: |
+          set -o pipefail
+          docker compose --env-file .env \
+            -f compose.yaml -f compose.crm.yaml \
+            -f compose.crm.messaging-storage.yaml \
+            -f compose.crm.tracing.yaml \
+            -f compose.crm.logging.yaml \
+            -f compose.crm.gateway.yaml \
+            --profile devtools --profile crm-scale --profile crm-storage \
+            --profile crm-search --profile observability --profile crm-platform \
+            config 2>&1 | tee artifacts/crm-platform-runtime/compose-config.txt >/dev/null
+          touch artifacts/crm-platform-runtime/markers/config.ok
+
+      - name: Pull platform images
+        id: pull
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          test -f artifacts/crm-platform-runtime/markers/config.ok
+          docker compose --env-file .env \
+            -f compose.yaml -f compose.crm.yaml \
+            -f compose.crm.messaging-storage.yaml \
+            -f compose.crm.tracing.yaml \
+            -f compose.crm.logging.yaml \
+            -f compose.crm.gateway.yaml \
+            --profile crm-scale --profile crm-storage --profile crm-search --profile crm-platform \
+            pull postgres valkey clamav opensearch rabbitmq minio minio-init otel-collector tempo loki promtail api-gateway \
+            2>&1 | tee artifacts/crm-platform-runtime/image-pull.log
+          touch artifacts/crm-platform-runtime/markers/pull.ok
+
+      - name: Start data and platform services
+        id: start_data
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          test -f artifacts/crm-platform-runtime/markers/pull.ok
+          docker compose --env-file .env \
+            -f compose.yaml -f compose.crm.yaml \
+            -f compose.crm.messaging-storage.yaml \
+            -f compose.crm.tracing.yaml \
+            -f compose.crm.logging.yaml \
+            -f compose.crm.gateway.yaml \
+            --profile crm-scale --profile crm-storage --profile crm-search --profile crm-platform \
+            up -d postgres valkey clamav opensearch crm-search-init rabbitmq minio minio-init otel-collector tempo loki promtail \
+            2>&1 | tee artifacts/crm-platform-runtime/start-data.log
+          touch artifacts/crm-platform-runtime/markers/start-data.ok
+
+      - name: Build and start applications and gateway
+        id: start_apps
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          test -f artifacts/crm-platform-runtime/markers/start-data.ok
+          docker compose --env-file .env \
+            -f compose.yaml -f compose.crm.yaml \
+            -f compose.crm.messaging-storage.yaml \
+            -f compose.crm.tracing.yaml \
+            -f compose.crm.logging.yaml \
+            -f compose.crm.gateway.yaml \
+            --profile crm-scale --profile crm-storage --profile crm-search --profile crm-platform \
+            up -d --build backend web api-gateway \
+            2>&1 | tee artifacts/crm-platform-runtime/start-apps.log
+          touch artifacts/crm-platform-runtime/markers/start-apps.ok
+
+      - name: Wait for application readiness
+        id: readiness
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f artifacts/crm-platform-runtime/markers/start-apps.ok
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://localhost:8080/actuator/health/readiness >/dev/null \
+              && curl --fail --silent http://localhost:3000 >/dev/null \
+              && curl --fail --silent http://localhost:8088/gateway-health >/dev/null; then
+              echo 'ready' | tee artifacts/crm-platform-runtime/readiness.txt
+              touch artifacts/crm-platform-runtime/markers/readiness.ok
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'readiness timeout' | tee artifacts/crm-platform-runtime/readiness.txt
+          exit 1
+
+      - name: Run complete platform readiness gate
+        id: gate
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          test -f artifacts/crm-platform-runtime/markers/readiness.ok
+          bash scripts/crm/platform-readiness.sh 2>&1 | tee artifacts/crm-platform-runtime/platform-readiness.txt
+          touch artifacts/crm-platform-runtime/markers/platform-gate.ok
+
+      - name: Verify broker and database contracts
+        id: contracts
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f artifacts/crm-platform-runtime/markers/platform-gate.ok
+          docker compose --env-file .env -f compose.yaml -f compose.crm.yaml -f compose.crm.messaging-storage.yaml \
+            exec -T rabbitmq rabbitmqctl list_exchanges -p /snad -q name | grep -Fx snad.crm.events
+          docker compose --env-file .env -f compose.yaml -f compose.crm.yaml -f compose.crm.messaging-storage.yaml \
+            exec -T rabbitmq rabbitmqctl list_queues -p /snad -q name | grep -Fx snad.crm.dead-letter
+          COUNT=$(docker compose --env-file .env -f compose.yaml -f compose.crm.yaml \
+            exec -T postgres psql -U snad -d sanad -Atqc \
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='crm_platform';")
+          test "$COUNT" -ge 24
+          printf 'platform_tables=%s\n' "$COUNT" | tee artifacts/crm-platform-runtime/contracts.txt
+          touch artifacts/crm-platform-runtime/markers/contracts.ok
+
+      - name: Capture service evidence
+        if: always()
+        run: |
+          docker compose --env-file .env \
+            -f compose.yaml -f compose.crm.yaml \
+            -f compose.crm.messaging-storage.yaml \
+            -f compose.crm.tracing.yaml \
+            -f compose.crm.logging.yaml \
+            -f compose.crm.gateway.yaml ps -a > artifacts/crm-platform-runtime/compose-ps.txt || true
+          docker compose --env-file .env \
+            -f compose.yaml -f compose.crm.yaml \
+            -f compose.crm.messaging-storage.yaml \
+            -f compose.crm.tracing.yaml \
+            -f compose.crm.logging.yaml \
+            -f compose.crm.gateway.yaml logs --no-color --tail=500 > artifacts/crm-platform-runtime/compose.log 2>&1 || true
+          curl --silent http://localhost:8080/actuator/health > artifacts/crm-platform-runtime/backend-health.json || true
+          curl --silent http://localhost:9200/_cluster/health > artifacts/crm-platform-runtime/opensearch-health.json || true
+
+      - name: Upload runtime evidence
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-platform-runtime-${{ github.run_id }}
+          path: artifacts/crm-platform-runtime/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Final enforcement
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(config pull start-data start-apps readiness platform-gate contracts)
+          for marker in "${required[@]}"; do
+            test -f "artifacts/crm-platform-runtime/markers/${marker}.ok"
+          done
+
+      - name: Stop platform
+        if: always()
+        run: |
+          docker compose --env-file .env \
+            -f compose.yaml -f compose.crm.yaml \
+            -f compose.crm.messaging-storage.yaml \
+            -f compose.crm.tracing.yaml \
+            -f compose.crm.logging.yaml \
+            -f compose.crm.gateway.yaml \
+            --profile devtools --profile crm-scale --profile crm-storage \
+            --profile crm-search --profile observability --profile crm-platform \
+            down --volumes --remove-orphans || true

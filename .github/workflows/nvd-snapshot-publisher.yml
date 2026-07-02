@@ -56,7 +56,16 @@ jobs:
           python3 -m pip install --quiet pyyaml pytest
           sudo apt-get install -y zstd || true
 
+      - name: Verify latest-pointer regression fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pytest tests/security/test_nvd_latest_pointer_promotion.py -q
+          python3 -m py_compile scripts/security/run_nvd_snapshot_publisher.py
+
       - name: Run Incremental Publisher (Datafeed Mode)
+        id: publisher
+        continue-on-error: true
         shell: bash
         env:
           NVD_SNAPSHOT_BACKEND: github-releases
@@ -64,14 +73,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          set -euo pipefail
+          set -o pipefail
           WORK_DIR="${{ runner.temp }}/nvd-work"
           CANONICAL_DIR="${{ runner.temp }}/nvd-canonical"
           LKG_DIR="${{ runner.temp }}/nvd-lkg"
-          rm -rf "$WORK_DIR" "$CANONICAL_DIR" "$LKG_DIR"
-          mkdir -p "$WORK_DIR" "$CANONICAL_DIR" "$LKG_DIR"
+          LOG_DIR="${{ runner.temp }}/nvd-publisher-evidence"
+          rm -rf "$WORK_DIR" "$CANONICAL_DIR" "$LKG_DIR" "$LOG_DIR"
+          mkdir -p "$WORK_DIR" "$CANONICAL_DIR" "$LKG_DIR" "$LOG_DIR"
 
-          python3 scripts/security/publish_nvd_snapshot.py \
+          python3 scripts/security/run_nvd_snapshot_publisher.py \
             --mode incremental \
             --source-mode datafeed \
             --update-timeout-minutes 180 \
@@ -79,7 +89,21 @@ jobs:
             --canonical-dir "$CANONICAL_DIR" \
             --lkg-dir "$LKG_DIR" \
             --publisher-commit-sha "${{ github.sha }}" \
-            --publisher-run-id "${{ github.run_id }}"
+            --publisher-run-id "${{ github.run_id }}" \
+            2>&1 | tee "$LOG_DIR/publisher.log"
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          exit "$EXIT_CODE"
+
+      - name: Upload publisher diagnostics
+        id: diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nvd-snapshot-publisher-${{ github.run_id }}
+          path: ${{ runner.temp }}/nvd-publisher-evidence/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Write summary
         if: always()
@@ -93,4 +117,20 @@ jobs:
             echo "**Mode:** Incremental (datafeed source)"
             echo "**Backend:** GitHub Releases"
             echo "**NVD_API_KEY:** NOT USED"
+            echo "**Publisher outcome:** ${{ steps.publisher.outcome }}"
+            echo "**Publisher exit code:** ${{ steps.publisher.outputs.exit_code }}"
+            echo "**Diagnostics upload:** ${{ steps.diagnostics.outcome }}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Final enforcement
+        if: always()
+        shell: bash
+        run: |
+          [[ '${{ steps.publisher.outcome }}' == 'success' ]] || {
+            echo '::error::NVD Snapshot Publisher failed'
+            exit 1
+          }
+          [[ '${{ steps.diagnostics.outcome }}' == 'success' ]] || {
+            echo '::error::Publisher diagnostics upload failed'
+            exit 1
+          }

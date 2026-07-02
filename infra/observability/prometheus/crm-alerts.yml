@@ -1,0 +1,43 @@
+groups:
+  - name: crm-platform
+    rules:
+      - alert: CrmBackendUnavailable
+        expr: up{job="snad-backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: sanad-platform
+        annotations:
+          summary: CRM backend is unavailable
+      - alert: CrmHighServerErrorRate
+        expr: sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count[5m])), 1) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+          service: sanad-platform
+        annotations:
+          summary: CRM server error rate exceeds five percent
+      - alert: CrmHighApiLatency
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket[5m]))) > 0.7
+        for: 10m
+        labels:
+          severity: warning
+          service: sanad-platform
+        annotations:
+          summary: CRM API p95 latency exceeds 700 milliseconds
+      - alert: CrmDatabasePoolSaturation
+        expr: hikaricp_connections_active / clamp_min(hikaricp_connections_max, 1) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          service: postgresql
+        annotations:
+          summary: CRM database pool saturation is high
+      - alert: CrmJvmHeapPressure
+        expr: sum(jvm_memory_used_bytes{area="heap"}) / clamp_min(sum(jvm_memory_max_bytes{area="heap"}), 1) > 0.85
+        for: 15m
+        labels:
+          severity: warning
+          service: sanad-platform
+        annotations:
+          summary: CRM JVM heap usage is above 85 percent

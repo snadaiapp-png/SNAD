@@ -1,0 +1,159 @@
+name: AWS NVD Snapshot Mirror
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '47 */6 * * *'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aws-nvd-snapshot-mirror
+  cancel-in-progress: false
+
+env:
+  EVIDENCE_DIR: ${{ github.workspace }}/artifacts/security/aws-nvd-mirror
+  MAX_AGE_HOURS: '48'
+
+jobs:
+  mirror:
+    name: Mirror Verified Snapshot to S3
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment: nvd-publisher
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet boto3 pyyaml pytest
+          python3 -m py_compile scripts/aws/publish_verified_nvd_bundle_to_s3.py
+          command -v gh >/dev/null
+
+      - name: Validate configured inputs
+        id: preflight
+        shell: bash
+        env:
+          ROLE_ARN: ${{ vars.NVD_SNAPSHOT_PUBLISHER_ROLE }}
+          REGION: ${{ vars.NVD_SNAPSHOT_REGION }}
+          BUCKET: ${{ vars.NVD_SNAPSHOT_BUCKET }}
+          PREFIX: ${{ vars.NVD_SNAPSHOT_PREFIX }}
+          KMS_KEY: ${{ vars.NVD_SNAPSHOT_KMS_KEY_ARN }}
+        run: |
+          set -euo pipefail
+          [[ "$ROLE_ARN" =~ ^arn:aws:iam::[0-9]{12}:role/ ]] || { echo '::error::Publisher role is missing or invalid'; exit 1; }
+          [[ -n "$REGION" && -n "$BUCKET" && -n "$PREFIX" ]] || { echo '::error::S3 configuration is incomplete'; exit 1; }
+          [[ "$KMS_KEY" =~ ^arn:aws:kms: ]] || { echo '::error::KMS key ARN is missing or invalid'; exit 1; }
+          echo 'result=pass' >> "$GITHUB_OUTPUT"
+
+      - name: Assume publisher role with GitHub OIDC
+        id: credentials
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b
+        with:
+          role-to-assume: ${{ vars.NVD_SNAPSHOT_PUBLISHER_ROLE }}
+          aws-region: ${{ vars.NVD_SNAPSHOT_REGION }}
+          audience: sts.amazonaws.com
+          role-session-name: snad-nvd-publisher-${{ github.run_id }}
+          role-duration-seconds: 3600
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Record publisher identity
+        id: identity
+        shell: bash
+        env:
+          EXPECTED_ACCOUNT: ${{ vars.NVD_SNAPSHOT_AWS_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          aws sts get-caller-identity --output json > "$EVIDENCE_DIR/caller-identity.json"
+          ACCOUNT=$(python3 -c 'import json; print(json.load(open("artifacts/security/aws-nvd-mirror/caller-identity.json"))["Account"])')
+          [[ -z "$EXPECTED_ACCOUNT" || "$ACCOUNT" == "$EXPECTED_ACCOUNT" ]] || { echo '::error::Unexpected AWS account'; exit 1; }
+          echo 'result=pass' >> "$GITHUB_OUTPUT"
+
+      - name: Download latest verified GitHub snapshot
+        id: download
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DEST='${{ runner.temp }}/nvd-source'
+          python3 scripts/security/download_nvd_snapshot.py \
+            --backend github-releases \
+            --destination "$DEST" \
+            --repository '${{ github.repository }}' \
+            --max-age-hours "$MAX_AGE_HOURS" \
+            --github-output "$GITHUB_OUTPUT"
+          cp "$DEST/download-evidence.json" "$EVIDENCE_DIR/source-download-evidence.json"
+
+      - name: Verify source bundle
+        id: verify_source
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERIFY_DIR='${{ runner.temp }}/nvd-source-verified'
+          python3 scripts/security/verify_nvd_snapshot.py \
+            --archive '${{ steps.download.outputs.archive_path }}' \
+            --manifest '${{ steps.download.outputs.manifest_path }}' \
+            --checksums '${{ steps.download.outputs.checksums_path }}' \
+            --expected-snapshot-id '${{ steps.download.outputs.snapshot_id }}' \
+            --expected-dc-version 12.1.0 \
+            --min-size 52428800 \
+            --max-age-hours "$MAX_AGE_HOURS" \
+            --smoke-extract-dir "$VERIFY_DIR" \
+            | tee "$EVIDENCE_DIR/source-verification.log"
+          grep -q '^verification_result=valid$' "$EVIDENCE_DIR/source-verification.log"
+          echo 'result=pass' >> "$GITHUB_OUTPUT"
+
+      - name: Publish and verify S3 bundle
+        id: publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/aws/publish_verified_nvd_bundle_to_s3.py \
+            --pointer '${{ runner.temp }}/nvd-source/pointer/latest.json' \
+            --archive '${{ steps.download.outputs.archive_path }}' \
+            --manifest '${{ steps.download.outputs.manifest_path }}' \
+            --checksums '${{ steps.download.outputs.checksums_path }}' \
+            --bucket '${{ vars.NVD_SNAPSHOT_BUCKET }}' \
+            --prefix '${{ vars.NVD_SNAPSHOT_PREFIX }}' \
+            --region '${{ vars.NVD_SNAPSHOT_REGION }}' \
+            --kms-key-arn '${{ vars.NVD_SNAPSHOT_KMS_KEY_ARN }}' \
+            --evidence "$EVIDENCE_DIR/s3-mirror-evidence.json"
+          python3 -c 'import json; assert json.load(open("artifacts/security/aws-nvd-mirror/s3-mirror-evidence.json"))["result"] == "pass"'
+          echo 'result=pass' >> "$GITHUB_OUTPUT"
+
+      - name: Upload mirror evidence
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-nvd-snapshot-mirror-${{ github.run_id }}
+          path: artifacts/security/aws-nvd-mirror/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Final enforcement
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ '${{ steps.preflight.outputs.result }}' == 'pass' ]] || { echo '::error::Mirror preflight failed'; exit 1; }
+          [[ '${{ steps.credentials.outcome }}' == 'success' ]] || { echo '::error::Publisher OIDC assumption failed'; exit 1; }
+          [[ '${{ steps.identity.outputs.result }}' == 'pass' ]] || { echo '::error::Publisher identity validation failed'; exit 1; }
+          [[ '${{ steps.verify_source.outputs.result }}' == 'pass' ]] || { echo '::error::Source snapshot verification failed'; exit 1; }
+          [[ '${{ steps.publish.outputs.result }}' == 'pass' ]] || { echo '::error::S3 publish verification failed'; exit 1; }
+          [[ '${{ steps.upload.outcome }}' == 'success' ]] || { echo '::error::Mirror evidence upload failed'; exit 1; }
+          echo 'AWS NVD snapshot mirror PASSED.'

@@ -1,0 +1,239 @@
+name: CRM Runtime CI
+
+on:
+  pull_request:
+    paths:
+      - "compose.yaml"
+      - "compose.crm.yaml"
+      - "Makefile"
+      - "scripts/crm/**"
+      - "scripts/dev/**"
+      - "infra/crm/**"
+      - "infra/observability/**"
+      - "tests/performance/**"
+      - "apps/sanad-platform/**"
+      - "apps/web/**"
+      - ".github/workflows/crm-runtime-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COMPOSE_FILE: compose.yaml:compose.crm.yaml
+
+jobs:
+  static-validation:
+    name: CRM Runtime Static Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create local runtime configuration
+        run: |
+          cp .env.example .env
+          bash scripts/dev/bootstrap.sh
+
+      - name: Validate Compose model
+        run: docker compose --env-file .env -f compose.yaml -f compose.crm.yaml config --quiet
+
+      - name: Validate shell scripts
+        run: |
+          bash -n scripts/dev/bootstrap.sh
+          bash -n scripts/dev/doctor.sh
+          bash -n scripts/dev/smoke.sh
+          bash -n scripts/crm/readiness.sh
+          bash -n scripts/crm/seed-scale.sh
+          bash -n scripts/crm/validate-scale.sh
+          bash -n scripts/crm/backup.sh
+          bash -n scripts/crm/restore-verify.sh
+          sh -n infra/crm/opensearch/install-index-templates.sh
+
+      - name: Validate JSON and YAML configuration
+        run: |
+          python3 -m json.tool infra/crm/opensearch/crm-index-template.json >/dev/null
+          python3 - <<'PY'
+          import pathlib
+          import yaml
+          for path in [
+              pathlib.Path('infra/crm/runtime/versions.yml'),
+              pathlib.Path('infra/observability/prometheus/prometheus.yml'),
+              pathlib.Path('infra/observability/grafana/provisioning/datasources/prometheus.yml'),
+          ]:
+              yaml.safe_load(path.read_text(encoding='utf-8'))
+          PY
+
+  image-build:
+    name: CRM Backend and Web Images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create local runtime configuration
+        run: |
+          cp .env.example .env
+          bash scripts/dev/bootstrap.sh
+
+      - name: Build immutable application images
+        run: docker compose --env-file .env -f compose.yaml -f compose.crm.yaml build backend web
+
+  database-scale:
+    name: CRM PostgreSQL Scale and Restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create local runtime configuration
+        run: |
+          cp .env.example .env
+          bash scripts/dev/bootstrap.sh
+
+      - name: Start PostgreSQL 18 with pgvector
+        run: docker compose --env-file .env -f compose.yaml -f compose.crm.yaml up -d postgres
+
+      - name: Wait for PostgreSQL readiness
+        run: |
+          for attempt in {1..60}; do
+            if docker compose --env-file .env -f compose.yaml -f compose.crm.yaml exec -T postgres pg_isready -U sanad -d sanad; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Generate 1000 tenants, 100000 accounts, and 200000 contacts
+        env:
+          CRM_LOAD_TENANTS: "1000"
+          CRM_LOAD_ACCOUNTS_PER_TENANT: "100"
+          CRM_LOAD_CONTACTS_PER_ACCOUNT: "2"
+        run: bash scripts/crm/seed-scale.sh
+
+      - name: Validate tenant isolation, indexes, partitions, queues, and vectors
+        run: bash scripts/crm/validate-scale.sh
+
+      - name: Create and restore a verified backup
+        run: |
+          bash scripts/crm/backup.sh
+          bash scripts/crm/restore-verify.sh
+
+      - name: Capture PostgreSQL scale evidence
+        run: |
+          mkdir -p artifacts/performance
+          docker compose --env-file .env -f compose.yaml -f compose.crm.yaml exec -T postgres \
+            psql -U sanad -d sanad -c "SELECT version();" \
+            -c "SELECT extname, extversion FROM pg_extension ORDER BY extname;" \
+            -c "SELECT schemaname, relname, n_live_tup FROM pg_stat_user_tables ORDER BY n_live_tup DESC;" \
+            -c "SELECT pg_size_pretty(pg_database_size(current_database())) AS database_size;" \
+            > artifacts/performance/postgres-scale-evidence.txt
+
+      - name: Upload database evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-database-scale-${{ github.sha }}
+          path: |
+            artifacts/performance
+            artifacts/backups/*.sha256
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Capture PostgreSQL logs
+        if: always()
+        run: docker compose --env-file .env -f compose.yaml -f compose.crm.yaml logs postgres > postgres.log
+
+      - name: Upload PostgreSQL logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-postgres-logs-${{ github.sha }}
+          path: postgres.log
+          retention-days: 7
+
+      - name: Stop database runtime
+        if: always()
+        run: docker compose --env-file .env -f compose.yaml -f compose.crm.yaml down --volumes --remove-orphans
+
+  search-cache:
+    name: CRM Valkey and OpenSearch
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create local runtime configuration
+        run: |
+          cp .env.example .env
+          bash scripts/dev/bootstrap.sh
+
+      - name: Start CRM cache and search
+        run: |
+          docker compose --env-file .env -f compose.yaml -f compose.crm.yaml \
+            --profile crm-scale --profile crm-search up -d valkey opensearch
+
+      - name: Wait for Valkey and OpenSearch
+        run: |
+          for attempt in {1..60}; do
+            VALKEY_OK=0
+            SEARCH_OK=0
+            docker compose --env-file .env -f compose.yaml -f compose.crm.yaml exec -T valkey valkey-cli ping | grep -q PONG && VALKEY_OK=1 || true
+            curl --fail --silent http://localhost:9200/_cluster/health >/dev/null && SEARCH_OK=1 || true
+            if [[ "${VALKEY_OK}" == "1" && "${SEARCH_OK}" == "1" ]]; then
+              exit 0
+            fi
+            sleep 3
+          done
+          exit 1
+
+      - name: Install CRM index templates
+        run: docker compose --env-file .env -f compose.yaml -f compose.crm.yaml --profile crm-search run --rm crm-search-init
+
+      - name: Validate cache behavior
+        run: |
+          docker compose --env-file .env -f compose.yaml -f compose.crm.yaml exec -T valkey valkey-cli SET crm:readiness ready EX 60
+          test "$(docker compose --env-file .env -f compose.yaml -f compose.crm.yaml exec -T valkey valkey-cli --raw GET crm:readiness | tr -d '\r')" = "ready"
+
+      - name: Validate tenant-routed multilingual search
+        run: |
+          TENANT_ID=11111111-1111-1111-1111-111111111111
+          curl --fail --silent --show-error \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            "http://localhost:9200/snad-crm-write/_doc/account-1?routing=${TENANT_ID}&refresh=true" \
+            --data '{"tenant_id":"11111111-1111-1111-1111-111111111111","entity_type":"ACCOUNT","entity_id":"account-1","document_version":1,"lifecycle_status":"ACTIVE","display_name":"شركة العميل العالمية","search_text":"شركة العميل العالمية Global Customer","created_at":"2026-07-01T00:00:00Z","updated_at":"2026-07-01T00:00:00Z","metadata":{"source":"ci"}}'
+          curl --fail --silent --show-error \
+            -H 'Content-Type: application/json' \
+            "http://localhost:9200/snad-crm-read/_search?routing=${TENANT_ID}" \
+            --data '{"query":{"bool":{"filter":[{"term":{"tenant_id":"11111111-1111-1111-1111-111111111111"}}],"must":[{"match":{"display_name":"العميل"}}]}}}' \
+            | tee search-result.json
+          python3 - <<'PY'
+          import json
+          result = json.load(open('search-result.json', encoding='utf-8'))
+          assert result['hits']['total']['value'] == 1, result
+          PY
+
+      - name: Upload search evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-search-cache-${{ github.sha }}
+          path: search-result.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Stop search runtime
+        if: always()
+        run: docker compose --env-file .env -f compose.yaml -f compose.crm.yaml --profile crm-scale --profile crm-search down --volumes --remove-orphans
+
+  load-script:
+    name: CRM k6 Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate k6 script
+        run: docker run --rm -v "$PWD/tests/performance/k6:/scripts:ro" grafana/k6:2.1.0 inspect /scripts/crm-readiness.js

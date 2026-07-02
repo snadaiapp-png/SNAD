@@ -1,0 +1,47 @@
+services:
+  log-volume-init:
+    image: alpine:3.22
+    profiles: ["crm-platform", "observability"]
+    user: "0:0"
+    command: ["sh", "-ec", "mkdir -p /logs && chmod 0770 /logs && chown -R 100:101 /logs"]
+    volumes:
+      - application-logs:/logs
+    networks:
+      - observability
+
+  backend:
+    environment:
+      LOGGING_FILE_NAME: /var/log/snad/application.log
+    volumes:
+      - application-logs:/var/log/snad
+    depends_on:
+      log-volume-init:
+        condition: service_completed_successfully
+
+  loki:
+    image: grafana/loki:3.5.5
+    profiles: ["crm-platform", "observability"]
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./infra/observability/loki.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    networks:
+      - observability
+
+  promtail:
+    image: grafana/promtail:3.5.5
+    profiles: ["crm-platform", "observability"]
+    restart: unless-stopped
+    command: ["-config.file=/etc/promtail/config.yml"]
+    volumes:
+      - ./infra/observability/promtail.yml:/etc/promtail/config.yml:ro
+      - application-logs:/var/log/snad:ro
+    depends_on:
+      - loki
+    networks:
+      - observability
+
+volumes:
+  application-logs:
+  loki-data:

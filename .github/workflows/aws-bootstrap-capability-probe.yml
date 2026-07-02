@@ -1,0 +1,15 @@
+name: AWS Bootstrap Capability Probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  retired:
+    name: Probe Retired
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report retirement
+        run: echo 'Temporary AWS bootstrap capability probe has been retired after evidence capture.'

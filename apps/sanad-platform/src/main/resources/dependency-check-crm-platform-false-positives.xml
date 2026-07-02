@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <suppress until="2026-10-01Z">
+        <notes><![CDATA[
+            CVE-2020-29582 was resolved in Kotlin 1.4.21. The scanned Maven
+            component is kotlin-stdlib 1.9.25. The NVD CPE range currently
+            over-matches this later fixed version. This correction is limited
+            to one package and one CVE and expires for mandatory review.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/kotlin-stdlib@1\.9\.25$</packageUrl>
+        <cve>CVE-2020-29582</cve>
+    </suppress>
+
+    <suppress until="2026-10-01Z">
+        <notes><![CDATA[
+            CVE-2026-42582 applies to io.netty:netty-codec-http3 versions
+            4.2.0.Final through 4.2.12.Final. Dependency-Check associated the
+            generic Netty CPE with io.netty:netty-transport 4.1.135.Final,
+            which is a different module and branch. The correction is limited
+            to the exact package and CVE and expires for mandatory review.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.netty/netty-transport@4\.1\.135\.Final$</packageUrl>
+        <cve>CVE-2026-42582</cve>
+    </suppress>
+</suppressions>

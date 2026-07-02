@@ -1,0 +1,79 @@
+name: CRM Storage Security CI
+
+on:
+  pull_request:
+    paths:
+      - "compose.yaml"
+      - "compose.crm.yaml"
+      - "scripts/crm/check-storage-security.sh"
+      - "infra/crm/runtime/versions.yml"
+      - ".github/workflows/crm-storage-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-storage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  attachment-security:
+    name: CRM Attachment Malware Scanner
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create local runtime configuration
+        run: |
+          cp .env.example .env
+          bash scripts/dev/bootstrap.sh
+
+      - name: Validate storage profile
+        run: docker compose --env-file .env -f compose.yaml -f compose.crm.yaml --profile crm-storage config --quiet
+
+      - name: Start ClamAV
+        run: docker compose --env-file .env -f compose.yaml -f compose.crm.yaml --profile crm-storage up -d clamav
+
+      - name: Wait for malware scanner readiness
+        run: |
+          for attempt in {1..60}; do
+            if bash scripts/crm/check-storage-security.sh; then
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+
+      - name: Capture ClamAV version and status
+        run: |
+          mkdir -p artifacts/security
+          docker compose --env-file .env -f compose.yaml -f compose.crm.yaml exec -T clamav clamdscan --version | tee artifacts/security/clamav-version.txt
+          docker compose --env-file .env -f compose.yaml -f compose.crm.yaml exec -T clamav clamdscan --ping 1 | tee artifacts/security/clamav-status.txt
+
+      - name: Upload attachment-security evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-attachment-security-${{ github.sha }}
+          path: artifacts/security
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Capture scanner logs
+        if: always()
+        run: docker compose --env-file .env -f compose.yaml -f compose.crm.yaml logs clamav > clamav.log
+
+      - name: Upload scanner logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-clamav-logs-${{ github.sha }}
+          path: clamav.log
+          retention-days: 7
+
+      - name: Stop storage profile
+        if: always()
+        run: docker compose --env-file .env -f compose.yaml -f compose.crm.yaml --profile crm-storage down --volumes --remove-orphans

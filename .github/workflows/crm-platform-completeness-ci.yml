@@ -1,0 +1,159 @@
+name: CRM Platform Completeness CI
+
+on:
+  pull_request:
+    paths:
+      - 'apps/sanad-platform/pom.xml'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/platform/**'
+      - 'apps/sanad-platform/src/main/resources/application-crm-platform.yml'
+      - 'apps/sanad-platform/src/main/resources/db/migration/V5*.sql'
+      - 'compose.crm.*.yaml'
+      - 'infra/gateway/**'
+      - 'infra/observability/**'
+      - 'scripts/crm/**'
+      - 'scripts/ci/validate-crm-platform.sh'
+      - 'deploy/kubernetes/crm/**'
+      - '.github/workflows/crm-platform-completeness-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/pom.xml'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/platform/**'
+      - 'apps/sanad-platform/src/main/resources/application-crm-platform.yml'
+      - 'apps/sanad-platform/src/main/resources/db/migration/V5*.sql'
+      - 'compose.crm.*.yaml'
+      - 'infra/gateway/**'
+      - 'infra/observability/**'
+      - 'scripts/crm/**'
+      - 'scripts/ci/validate-crm-platform.sh'
+      - 'deploy/kubernetes/crm/**'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Complete CRM Platform
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install YAML validator
+        run: python3 -m pip install --quiet pyyaml
+
+      - name: Validate completeness contract
+        id: contract
+        run: |
+          mkdir -p artifacts/crm-platform
+          bash scripts/ci/validate-crm-platform.sh | tee artifacts/crm-platform/completeness.txt
+
+      - name: Validate shell syntax
+        id: shell
+        run: |
+          bash -n scripts/dev/bootstrap.sh
+          bash -n scripts/crm/platform-readiness.sh
+          bash -n scripts/crm/backup.sh
+          bash -n scripts/crm/restore-verify.sh
+
+      - name: Validate YAML documents
+        id: yaml
+        run: |
+          python3 - <<'PY' | tee artifacts/crm-platform/yaml-validation.txt
+          from pathlib import Path
+          import yaml
+          paths = [
+              Path('apps/sanad-platform/src/main/resources/application-crm-platform.yml'),
+              Path('compose.crm.messaging-storage.yaml'),
+              Path('compose.crm.tracing.yaml'),
+              Path('compose.crm.logging.yaml'),
+              Path('compose.crm.gateway.yaml'),
+              Path('infra/observability/otel-collector.yml'),
+              Path('infra/observability/tempo.yml'),
+              Path('infra/observability/loki.yml'),
+              Path('infra/observability/promtail.yml'),
+              Path('infra/observability/prometheus/crm-alerts.yml'),
+              Path('deploy/kubernetes/crm/namespace.yaml'),
+              Path('deploy/kubernetes/crm/serviceaccount.yaml'),
+              Path('deploy/kubernetes/crm/configmap.yaml'),
+          ]
+          for path in paths:
+              with path.open(encoding='utf-8') as handle:
+                  documents = list(yaml.safe_load_all(handle))
+              assert documents and all(document is not None for document in documents), path
+              print(f'{path}: valid')
+          PY
+
+      - name: Compile backend platform integrations
+        id: compile
+        working-directory: apps/sanad-platform
+        run: mvn --batch-mode --no-transfer-progress -DskipTests compile
+
+      - name: Generate local environment
+        run: bash scripts/dev/bootstrap.sh
+
+      - name: Validate merged Compose platform
+        id: compose
+        run: |
+          docker compose --env-file .env \
+            -f compose.yaml \
+            -f compose.crm.yaml \
+            -f compose.crm.messaging-storage.yaml \
+            -f compose.crm.tracing.yaml \
+            -f compose.crm.logging.yaml \
+            -f compose.crm.gateway.yaml \
+            --profile devtools \
+            --profile crm-scale \
+            --profile crm-storage \
+            --profile crm-search \
+            --profile observability \
+            --profile crm-platform \
+            config --quiet
+          echo 'compose_result=pass' > artifacts/crm-platform/compose-result.txt
+
+      - name: Write acceptance summary
+        if: always()
+        run: |
+          {
+            echo '## CRM Platform Completeness CI'
+            echo ''
+            echo "- Completeness contract: ${{ steps.contract.outcome }}"
+            echo "- Shell validation: ${{ steps.shell.outcome }}"
+            echo "- YAML validation: ${{ steps.yaml.outcome }}"
+            echo "- Java compilation: ${{ steps.compile.outcome }}"
+            echo "- Compose validation: ${{ steps.compose.outcome }}"
+          } | tee artifacts/crm-platform/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload validation evidence
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-platform-completeness-${{ github.run_id }}
+          path: artifacts/crm-platform/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Final enforcement
+        if: always()
+        run: |
+          test '${{ steps.contract.outcome }}' = success
+          test '${{ steps.shell.outcome }}' = success
+          test '${{ steps.yaml.outcome }}' = success
+          test '${{ steps.compile.outcome }}' = success
+          test '${{ steps.compose.outcome }}' = success
+          test '${{ steps.upload.outcome }}' = success
