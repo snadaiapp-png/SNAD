@@ -53,6 +53,8 @@ public final class AdminDtos {
             @NotBlank @Size(max = 63)
             @Pattern(regexp = "^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$") String subdomain,
             @Email @Size(max = 255) String billingEmail,
+            @NotBlank @Email @Size(max = 255) String adminEmail,
+            @NotBlank @Size(max = 200) String adminDisplayName,
             @Pattern(regexp = "^[A-Z]{2}$") String countryCode,
             @Size(max = 10) String locale,
             @Size(max = 64) String timezone,
