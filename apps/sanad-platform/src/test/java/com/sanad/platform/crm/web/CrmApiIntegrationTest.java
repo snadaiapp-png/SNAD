@@ -111,7 +111,9 @@ class CrmApiIntegrationTest {
         JsonNode wonOpportunity = perform(patch("/api/v1/crm/opportunities/{id}/stage", opportunityId)
                 .with(authentication(auth(TENANT_A, USER_A)))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"stageId":"%s","reason":"Contract signed"}""".formatted(wonStage)), 200);
+                .content("""
+                        {"stageId":"%s","reason":"Contract signed"}
+                        """.formatted(wonStage)), 200);
         assertThat(wonOpportunity.path("status").asText()).isEqualTo("WON");
 
         JsonNode activity = perform(post("/api/v1/crm/activities")
@@ -124,20 +126,28 @@ class CrmApiIntegrationTest {
         perform(patch("/api/v1/crm/activities/{id}/complete", activity.path("id").asText())
                 .with(authentication(auth(TENANT_A, USER_A)))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"result":"Done"}"""), 200);
+                .content("""
+                        {"result":"Done"}
+                        """), 200);
 
         JsonNode lead = perform(post("/api/v1/crm/leads")
                 .with(authentication(auth(TENANT_A, USER_A)))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"displayName":"Noura Alharbi","companyName":"Noura Labs","source":"WEB"}"""), 201);
+                .content("""
+                        {"displayName":"Noura Alharbi","companyName":"Noura Labs","source":"WEB"}
+                        """), 201);
         perform(patch("/api/v1/crm/leads/{id}/status", lead.path("id").asText())
                 .with(authentication(auth(TENANT_A, USER_A)))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"status":"QUALIFIED"}"""), 200);
+                .content("""
+                        {"status":"QUALIFIED"}
+                        """), 200);
         JsonNode conversion = perform(post("/api/v1/crm/leads/{id}/convert", lead.path("id").asText())
                 .with(authentication(auth(TENANT_A, USER_A)))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"createOpportunity":false,"currencyCode":"SAR"}"""), 200);
+                .content("""
+                        {"createOpportunity":false,"currencyCode":"SAR"}
+                        """), 200);
         assertThat(conversion.path("opportunity").isNull()).isTrue();
         assertThat(conversion.path("idempotent").asBoolean()).isFalse();
 
@@ -164,7 +174,9 @@ class CrmApiIntegrationTest {
         JsonNode account = perform(post("/api/v1/crm/accounts")
                 .with(authentication(auth(TENANT_A, USER_A)))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"displayName":"Private A","accountType":"BUSINESS","primaryCurrencyCode":"SAR"}"""), 201);
+                .content("""
+                        {"displayName":"Private A","accountType":"BUSINESS","primaryCurrencyCode":"SAR"}
+                        """), 201);
 
         mockMvc.perform(get("/api/v1/crm/accounts/{id}", account.path("id").asText())
                         .with(authentication(auth(TENANT_B, USER_B))))
