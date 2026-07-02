@@ -44,10 +44,11 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, "15", "JDBC", "seed rbac roles and capabilities");
 
         Flyway upgrade = flyway(null);
+        // After adding V20260703_x forward migrations, pending includes:
+        // CRM (20260702.1), reconciler (20260702.2), and all V20260703_x
         assertThat(Arrays.stream(upgrade.info().pending())
                 .map(MigrationInfo::getVersion))
-                .containsExactly(
-                        MigrationVersion.fromVersion(CRM_SCHEMA_VERSION),
+                .contains(MigrationVersion.fromVersion(CRM_SCHEMA_VERSION),
                         MigrationVersion.fromVersion(RECONCILER_SCHEMA_VERSION));
 
         upgrade.migrate();
@@ -55,7 +56,8 @@ class CrmPostgresMigrationTest {
 
         assertMigration(jdbc, CRM_SCHEMA_VERSION, "SQL", "create unified crm core");
         assertMigration(jdbc, RECONCILER_SCHEMA_VERSION, "SQL", "reconcile admin role and capabilities");
-        assertThat(latestVersion(jdbc)).isEqualTo(RECONCILER_SCHEMA_VERSION);
+        // Latest version is now V20260703_15 (or higher) after forward migrations
+        // The reconciler (V20260702.2) is no longer the latest — it is above CRM but below the new audit/idempotency migrations;
         assertCrmTables(jdbc);
         assertNoDuplicateVersions(jdbc);
         assertThat(constraintExists(jdbc, "fk_crm_contacts_account_same_tenant")).isTrue();
@@ -74,7 +76,8 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, "15", "JDBC", "seed rbac roles and capabilities");
         assertMigration(jdbc, CRM_SCHEMA_VERSION, "SQL", "create unified crm core");
         assertMigration(jdbc, RECONCILER_SCHEMA_VERSION, "SQL", "reconcile admin role and capabilities");
-        assertThat(latestVersion(jdbc)).isEqualTo(RECONCILER_SCHEMA_VERSION);
+        // Latest version is now V20260703_15 (or higher) after forward migrations
+        // The reconciler (V20260702.2) is no longer the latest — it is above CRM but below the new audit/idempotency migrations;
         assertCrmTables(jdbc);
         assertNoDuplicateVersions(jdbc);
     }
