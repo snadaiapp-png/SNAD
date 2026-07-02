@@ -40,4 +40,9 @@ public class WorkshopItemService {
                 request.estimatedMinutes(), request.sequenceNo() == null ? 0 : request.sequenceNo(), userId);
         return mapper.toResponse(items.saveAndFlush(value));
     }
+
+    public WorkshopDtos.WorkItemResponse transition(UUID tenantId, UUID workshopId, UUID itemId,
+                                                     WorkshopDtos.TransitionWorkItemRequest request) {
+        throw new UnsupportedOperationException("not implemented");
+    }
 }
