@@ -4,7 +4,6 @@ import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -22,7 +21,7 @@ import java.util.UUID;
  * this exact class name preserves Flyway validation compatibility while
  * supporting both PostgreSQL and H2 PostgreSQL mode.</p>
  */
-@Component
+
 public class V15__seed_rbac_roles_and_capabilities extends BaseJavaMigration {
 
     private static final Logger log = LoggerFactory.getLogger(V15__seed_rbac_roles_and_capabilities.class);
