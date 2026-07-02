@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: Exact main commit to deploy
+        description: Exact current main commit to deploy
         required: true
       pull_request_number:
         description: Pull request used for release evidence
         required: true
-        default: "54"
+        default: "205"
       rollback_on_failure:
         description: Redeploy the previous successful commit when verification fails
         type: boolean
@@ -22,13 +22,14 @@ permissions:
 
 env:
   PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+  WEB_PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
 
 jobs:
   deploy-and-verify:
     name: Deploy exact commit and verify production
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 30
+    timeout-minutes: 35
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
@@ -38,11 +39,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_DATABASE_URL PRODUCTION_BASE_URL; do
+          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_DATABASE_URL PRODUCTION_BASE_URL WEB_PRODUCTION_BASE_URL; do
             test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
           done
           [[ "${{ inputs.commit_sha }}" =~ ^[0-9a-f]{40}$ ]]
           [[ "$PRODUCTION_BASE_URL" == https://* ]]
+          [[ "$WEB_PRODUCTION_BASE_URL" == https://* ]]
 
       - name: Verify target is the current main head
         id: target
@@ -61,6 +63,50 @@ jobs:
         with:
           ref: ${{ steps.target.outputs.sha }}
           fetch-depth: 0
+
+      - name: Verify required Render runtime configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" \
+            > /tmp/render-env.json
+
+          jq '[.[]? | (.envVar // .)]' /tmp/render-env.json > /tmp/render-env-normalized.json
+
+          required=(
+            SPRING_PROFILES_ACTIVE
+            DATABASE_URL
+            DATABASE_USERNAME
+            DATABASE_PASSWORD
+            JWT_SECRET
+            BOOTSTRAP_ENABLED
+            SANAD_CONTROL_PLANE_TENANT_ID
+          )
+
+          for key in "${required[@]}"; do
+            jq -e --arg key "$key" 'any(.[]; .key == $key and ((.value // "") | length > 0))' \
+              /tmp/render-env-normalized.json >/dev/null || {
+                echo "::error::Required Render environment value is missing: $key"
+                exit 1
+              }
+          done
+
+          bootstrap_enabled=$(jq -r '.[] | select(.key == "BOOTSTRAP_ENABLED") | .value // empty' \
+            /tmp/render-env-normalized.json)
+          [ "$bootstrap_enabled" = "false" ] || {
+            echo "::error::BOOTSTRAP_ENABLED must equal false in production."
+            exit 1
+          }
+
+          control_tenant_id=$(jq -r '.[] | select(.key == "SANAD_CONTROL_PLANE_TENANT_ID") | .value // empty' \
+            /tmp/render-env-normalized.json)
+          [[ "$control_tenant_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]] || {
+            echo "::error::SANAD_CONTROL_PLANE_TENANT_ID must be a valid UUID."
+            exit 1
+          }
 
       - name: Capture previous successful production commit
         id: previous
@@ -104,9 +150,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 60); do
+          for attempt in $(seq 1 72); do
             status=$(curl --silent --show-error --output /tmp/readiness.json --write-out '%{http_code}' \
-              "$PRODUCTION_BASE_URL/actuator/health/readiness" || true)
+              --max-time 20 "$PRODUCTION_BASE_URL/actuator/health/readiness" || true)
             if [ "$status" = "200" ] && jq -e '.status == "UP"' /tmp/readiness.json >/dev/null 2>&1; then
               exit 0
             fi
@@ -115,13 +161,38 @@ jobs:
           echo "::error::Production readiness did not become UP."
           exit 1
 
-      - name: Verify Flyway V10 and V11
+      - name: Verify current Flyway production compatibility
         shell: bash
         run: bash scripts/production/verify-flyway.sh
 
       - name: Verify production security boundary
         shell: bash
         run: bash scripts/production/verify-auth-contract.sh
+
+      - name: Verify Vercel Control Plane and BFF
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          control_plane_status=$(curl --silent --show-error --location \
+            --output /tmp/control-plane.html --write-out '%{http_code}' \
+            --max-time 60 "$WEB_PRODUCTION_BASE_URL/control-plane")
+          [ "$control_plane_status" = "200" ] || {
+            echo "::error::Vercel Control Plane returned HTTP $control_plane_status"
+            exit 1
+          }
+
+          bff_status=$(curl --silent --show-error \
+            --output /tmp/control-plane-api.json --write-out '%{http_code}' \
+            --max-time 90 "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/control-plane/dashboard" || true)
+          case "$bff_status" in
+            401|403) ;;
+            *)
+              echo "::error::Vercel BFF returned HTTP $bff_status; expected authenticated rejection 401 or 403."
+              cat /tmp/control-plane-api.json || true
+              exit 1
+              ;;
+          esac
 
       - name: Write sanitized release evidence
         if: success()
@@ -132,8 +203,9 @@ jobs:
             --arg commit "${{ steps.target.outputs.sha }}" \
             --arg deployment "${{ steps.deploy.outputs.id }}" \
             --arg previous "${{ steps.previous.outputs.sha }}" \
-            --arg url "$PRODUCTION_BASE_URL" \
-            '{result:"DEPLOYMENT_VERIFIED",commit:$commit,deploymentId:$deployment,previousCommit:$previous,productionUrl:$url,flyway:["V10","V11"],health:"UP",unauthenticatedSecurityBoundary:"PASSED",authenticatedProductionSmoke:"PENDING",gate032:"OPEN"}' \
+            --arg backendUrl "$PRODUCTION_BASE_URL" \
+            --arg webUrl "$WEB_PRODUCTION_BASE_URL" \
+            '{result:"DEPLOYMENT_VERIFIED",commit:$commit,deploymentId:$deployment,previousCommit:$previous,backendUrl:$backendUrl,webUrl:$webUrl,flyway:["V15:JDBC","V20260702.1:SQL","V20260702.2:SQL"],health:"UP",vercelControlPlane:"UP",vercelBff:"CONNECTED",unauthenticatedSecurityBoundary:"PASSED",authenticatedProductionSmoke:"PENDING"}' \
             > production-release-evidence.json
 
       - name: Upload release evidence
@@ -148,22 +220,25 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
-      - name: Record verified deployment with smoke hold
+      - name: Record verified deployment with authenticated-smoke hold
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pull_request_number }}
         shell: bash
         run: |
-          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Production deployment passed for exact commit \`${{ steps.target.outputs.sha }}\`. Render deployment \`${{ steps.deploy.outputs.id }}\`, readiness, Flyway V10/V11, and the unauthenticated security boundary were verified by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Authenticated production login/refresh/logout and tenant-isolation smoke evidence is still required; Gate #032 remains OPEN. No secret values were recorded."
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Production deployment passed for exact commit \`${{ steps.target.outputs.sha }}\`. Render deployment \`${{ steps.deploy.outputs.id }}\`, readiness, Flyway V15/CRM/RBAC reconciliation, the unauthenticated security boundary, Vercel Control Plane, and BFF connectivity were verified by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Authenticated administrative smoke remains pending. No secret values were recorded."
           {
             echo "## Production deployment — VERIFIED"
             echo "- Exact commit: ${{ steps.target.outputs.sha }}"
             echo "- Render deployment: ${{ steps.deploy.outputs.id }}"
-            echo "- Flyway V10/V11: VERIFIED"
-            echo "- Security boundary: VERIFIED"
-            echo "- Authenticated production smoke: PENDING"
-            echo "- Gate #032: OPEN"
+            echo "- Flyway V15 JDBC: VERIFIED"
+            echo "- CRM V20260702.1: VERIFIED"
+            echo "- RBAC V20260702.2: VERIFIED"
+            echo "- Backend readiness: UP"
+            echo "- Vercel Control Plane: UP"
+            echo "- Vercel BFF: CONNECTED"
+            echo "- Authenticated administrative smoke: PENDING"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Roll back failed release
@@ -176,8 +251,8 @@ jobs:
             --wait \
             --output json \
             --confirm > render-rollback.json
-          curl --fail-with-body --silent --show-error "$PRODUCTION_BASE_URL/actuator/health" \
-            | jq -e '.status == "UP"' >/dev/null
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            "$PRODUCTION_BASE_URL/actuator/health" | jq -e '.status == "UP"' >/dev/null
 
       - name: Record failed release
         if: failure()
@@ -186,4 +261,4 @@ jobs:
           PR_NUMBER: ${{ inputs.pull_request_number }}
         shell: bash
         run: |
-          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Production release verification FAILED for commit \`${{ inputs.commit_sha }}\`. Rollback was attempted when a previous successful commit was available. Gate #032 remains OPEN. Evidence: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Production release verification FAILED for commit \`${{ inputs.commit_sha }}\`. Rollback was attempted when a previous successful commit was available. Evidence: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
