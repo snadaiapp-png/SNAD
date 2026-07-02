@@ -1,0 +1,34 @@
+services:
+  backend:
+    environment:
+      LOGGING_FILE_NAME: /var/log/snad/application.log
+    volumes:
+      - application-logs:/var/log/snad
+
+  loki:
+    image: grafana/loki:3.5.5
+    profiles: ["crm-platform", "observability"]
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./infra/observability/loki.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    networks:
+      - observability
+
+  promtail:
+    image: grafana/promtail:3.5.5
+    profiles: ["crm-platform", "observability"]
+    restart: unless-stopped
+    command: ["-config.file=/etc/promtail/config.yml"]
+    volumes:
+      - ./infra/observability/promtail.yml:/etc/promtail/config.yml:ro
+      - application-logs:/var/log/snad:ro
+    depends_on:
+      - loki
+    networks:
+      - observability
+
+volumes:
+  application-logs:
+  loki-data:
