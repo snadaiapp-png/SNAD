@@ -62,6 +62,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          test -f artifacts/crm-platform-runtime/markers/config.ok
           docker compose --env-file .env \
             -f compose.yaml -f compose.crm.yaml \
             -f compose.crm.messaging-storage.yaml \
@@ -75,11 +76,11 @@ jobs:
 
       - name: Start data and platform services
         id: start_data
-        if: steps.pull.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
+          test -f artifacts/crm-platform-runtime/markers/pull.ok
           docker compose --env-file .env \
             -f compose.yaml -f compose.crm.yaml \
             -f compose.crm.messaging-storage.yaml \
@@ -93,11 +94,11 @@ jobs:
 
       - name: Build and start applications and gateway
         id: start_apps
-        if: steps.start_data.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
+          test -f artifacts/crm-platform-runtime/markers/start-data.ok
           docker compose --env-file .env \
             -f compose.yaml -f compose.crm.yaml \
             -f compose.crm.messaging-storage.yaml \
@@ -111,11 +112,11 @@ jobs:
 
       - name: Wait for application readiness
         id: readiness
-        if: steps.start_apps.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
+          test -f artifacts/crm-platform-runtime/markers/start-apps.ok
           for attempt in $(seq 1 60); do
             if curl --fail --silent http://localhost:8080/actuator/health/readiness >/dev/null \
               && curl --fail --silent http://localhost:3000 >/dev/null \
@@ -131,21 +132,21 @@ jobs:
 
       - name: Run complete platform readiness gate
         id: gate
-        if: steps.readiness.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
+          test -f artifacts/crm-platform-runtime/markers/readiness.ok
           bash scripts/crm/platform-readiness.sh | tee artifacts/crm-platform-runtime/platform-readiness.txt
           touch artifacts/crm-platform-runtime/markers/platform-gate.ok
 
       - name: Verify broker and database contracts
         id: contracts
-        if: steps.gate.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
+          test -f artifacts/crm-platform-runtime/markers/platform-gate.ok
           docker compose --env-file .env -f compose.yaml -f compose.crm.yaml -f compose.crm.messaging-storage.yaml \
             exec -T rabbitmq rabbitmqctl list_exchanges -q name | grep -Fx snad.crm.events
           docker compose --env-file .env -f compose.yaml -f compose.crm.yaml -f compose.crm.messaging-storage.yaml \
