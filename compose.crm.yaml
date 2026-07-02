@@ -1,0 +1,176 @@
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.4-pg18
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - max_connections=300
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - wal_compression=on
+      - -c
+      - statement_timeout=30s
+      - -c
+      - idle_in_transaction_session_timeout=60s
+      - -c
+      - track_io_timing=on
+      - -c
+      - log_min_duration_statement=1000
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./infra/crm/postgres/init:/docker-entrypoint-initdb.d:ro
+
+  backend:
+    environment:
+      DATABASE_POOL_MAX: 40
+      DATABASE_POOL_MIN: 5
+      CRM_ATTACHMENTS_PATH: /var/lib/snad/crm-attachments
+      CRM_CACHE_HOST: valkey
+      CRM_CACHE_PORT: 6379
+      CRM_SEARCH_URL: http://opensearch:9200
+      CRM_SEARCH_INDEX_PREFIX: snad-crm
+      CRM_ANTIVIRUS_HOST: clamav
+      CRM_ANTIVIRUS_PORT: 3310
+    volumes:
+      - crm-attachments:/var/lib/snad/crm-attachments
+
+  valkey:
+    image: valkey/valkey:9.1-alpine
+    profiles: ["crm-scale"]
+    restart: unless-stopped
+    command:
+      - valkey-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - "60"
+      - "10000"
+      - --protected-mode
+      - "yes"
+    volumes:
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - data
+
+  clamav:
+    image: clamav/clamav:1.5.2
+    profiles: ["crm-storage"]
+    restart: unless-stopped
+    environment:
+      CLAMD_STARTUP_TIMEOUT: 1800
+      FRESHCLAM_CHECKS: 12
+    volumes:
+      - clamav-data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --ping 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 30
+      start_period: 120s
+    networks:
+      - data
+
+  opensearch:
+    image: opensearchproject/opensearch:3.6.0
+    profiles: ["crm-search"]
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms1g -Xmx1g
+      cluster.name: snad-crm-local
+      node.name: snad-crm-search-1
+      action.auto_create_index: "false"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:9200/_cluster/health | grep -E '\"status\":\"(green|yellow)\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    networks:
+      - data
+      - observability
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:3.6.0
+    profiles: ["crm-search"]
+    restart: unless-stopped
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    environment:
+      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
+      DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
+      SERVER_HOST: 0.0.0.0
+    ports:
+      - "127.0.0.1:5601:5601"
+    networks:
+      - data
+
+  crm-search-init:
+    image: curlimages/curl:8.15.0
+    profiles: ["crm-search"]
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    volumes:
+      - ./infra/crm/opensearch:/config:ro
+    entrypoint: ["/bin/sh", "/config/install-index-templates.sh"]
+    networks:
+      - data
+
+  crm-load-test:
+    image: grafana/k6:2.1.0
+    profiles: ["crm-load"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      CRM_BASE_URL: http://backend:8080
+      CRM_LOAD_VUS: "100"
+      CRM_LOAD_DURATION: 5m
+    volumes:
+      - ./tests/performance/k6:/scripts:ro
+      - ./artifacts/performance:/results
+    command: ["run", "--summary-export=/results/crm-readiness-summary.json", "/scripts/crm-readiness.js"]
+    networks:
+      - edge
+
+volumes:
+  crm-attachments:
+  valkey-data:
+  clamav-data:
+  opensearch-data:

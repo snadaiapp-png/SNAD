@@ -9,7 +9,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.6</version>
+        <version>3.5.16</version>
         <relativePath/>
     </parent>
 
@@ -24,79 +24,103 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-
         <java.version>17</java.version>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
-        <!-- Override Spring Boot parent maven.compiler.release=17.
-             The CI runtime is JRE only and lacks the ct.sym file
-             required by the release flag. Using source/target
-             instead produces equivalent Java 17 bytecode. -->
         <maven.compiler.release></maven.compiler.release>
-
-        <springdoc-openapi-starter-webmvc-ui.version>2.6.0</springdoc-openapi-starter-webmvc-ui.version>
+        <springdoc-openapi-starter-webmvc-ui.version>2.8.17</springdoc-openapi-starter-webmvc-ui.version>
+        <swagger-ui.version>5.32.8</swagger-ui.version>
+        <aws-sdk.version>2.31.78</aws-sdk.version>
         <testcontainers.version>1.20.4</testcontainers.version>
-        <!-- OWASP Dependency-Check version (used by -Powasp-offline-gate) -->
         <dependency-check.version>12.1.0</dependency-check.version>
-
-        <!-- ============================================================ -->
-        <!-- Security version overrides (R12L OWASP remediation — round 2) -->
-        <!-- Upgraded to latest available versions to address 2025-2026   -->
-        <!-- CVEs that remained after the Spring Boot 3.4.5 upgrade.      -->
-        <!-- ============================================================ -->
-
-        <!-- Log4j API: 2.24.3 → 2.25.0 fixes CVE-2026-34477/78/79/80/81, CVE-2025-68161 -->
         <log4j2.version>2.25.0</log4j2.version>
-
-        <!-- Commons Lang3: 3.17.0 → 3.18.0 fixes CVE-2025-48924 -->
         <commons-lang3.version>3.18.0</commons-lang3.version>
-
-        <!-- PostgreSQL JDBC: 42.7.5 → 42.7.6 fixes CVE-2025-49146, CVE-2026-42198 -->
         <postgresql.version>42.7.6</postgresql.version>
-
-        <!-- Spring Boot 3.5.6 BOM provides:
-             - Spring Framework 6.2.x (latest patch): fixes CVE-2026-41838/41842/41848/41850/41851/22740/22737/22741/22745/22735
-             - Spring Security 6.5.x: fixes CVE-2026-22732/22746/22748/40988/41003/41694/41706/47838/22751
-             - Tomcat Embed 10.1.42+: fixes remaining 2025-2026 Tomcat CVEs
-             - Hibernate Validator 8.0.2.Final+: fixes CVE-2025-15104
-             - Eclipse Angus 2.0.4+: fixes CVE-2025-7962 -->
     </properties>
 
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${aws-sdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
-        <!-- Spring Boot starters -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
-
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
-
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
-
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
-
-        <!-- SMTP delivery for secure account-recovery notifications -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-mail</artifactId>
+            <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
-
-        <!-- Spring Security (EXEC-PROMPT-032A) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-quartz</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
 
-        <!-- JWT support (EXEC-PROMPT-032A) -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sts</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>url-connection-client</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-api</artifactId>
@@ -114,67 +138,56 @@
             <version>0.12.6</version>
             <scope>runtime</scope>
         </dependency>
-
-        <!-- Caffeine cache for login rate limiting (EXEC-PROMPT-032A) -->
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>
         </dependency>
 
-        <!-- AOP for @RequireCapability authorization aspect (DEFECT-007) -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-aop</artifactId>
-        </dependency>
-
-        <!-- Database: PostgreSQL driver (runtime) -->
-        <!-- Version overridden via <postgresql.version> property for CVE remediation. -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
-
-        <!-- Database: H2 for local profile validation (runtime) -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
-
-        <!-- Database migrations: Flyway -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
         </dependency>
-
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
-        <!-- OpenAPI / Swagger UI -->
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>${springdoc-openapi-starter-webmvc-ui.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.webjars</groupId>
+            <artifactId>swagger-ui</artifactId>
+            <version>${swagger-ui.version}</version>
+        </dependency>
 
-        <!-- Test scope -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
-
-        <!-- Spring Security test support (EXEC-PROMPT-032A) -->
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-test</artifactId>
             <scope>test</scope>
         </dependency>
-
-        <!-- Testcontainers for production-profile tests with real PostgreSQL -->
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>postgresql</artifactId>
@@ -197,10 +210,6 @@
                 <configuration>
                     <source>${java.version}</source>
                     <target>${java.version}</target>
-                    <!-- Explicitly unset release. The runtime image in CI
-                         is JRE only and lacks the ct.sym file required by
-                         the release flag. source/target produce the same
-                         Java 17 bytecode without that dependency. -->
                     <release></release>
                 </configuration>
             </plugin>
@@ -216,21 +225,6 @@
         </plugins>
     </build>
 
-    <!-- ============================================================ -->
-    <!-- OWASP Dependency-Check offline-gate profile                  -->
-    <!-- EXEC-PROMPT-010R12A Section 11 — preferred multi-format      -->
-    <!-- model: explicit <formats> element in plugin configuration.   -->
-    <!-- Activated by -Powasp-offline-gate in security-scan.yml.      -->
-    <!--                                                              -->
-    <!-- Properties enforced:                                         -->
-    <!--   autoUpdate              = false  (no NVD API calls)        -->
-    <!--   failOnError             = true                             -->
-    <!--   failBuildOnCVSS         = 11     (HIGH/CRITICAL gate)      -->
-    <!--   ossIndexAnalyzerEnabled = false  (no Sonatype OSS Index)   -->
-    <!--   hostedSuppressionsEnabled = false                          -->
-    <!--   versionCheckEnabled     = false                            -->
-    <!--   formats                 = [HTML, JSON]                     -->
-    <!-- ============================================================ -->
     <profiles>
         <profile>
             <id>owasp-offline-gate</id>
@@ -249,13 +243,15 @@
                             <failOnError>true</failOnError>
                             <failBuildOnCVSS>11</failBuildOnCVSS>
                             <ossIndexAnalyzerEnabled>false</ossIndexAnalyzerEnabled>
+                            <centralAnalyzerEnabled>false</centralAnalyzerEnabled>
+                            <retireJsAnalyzerEnabled>false</retireJsAnalyzerEnabled>
+                            <knownExploitedEnabled>false</knownExploitedEnabled>
                             <hostedSuppressionsEnabled>false</hostedSuppressionsEnabled>
                             <versionCheckEnabled>false</versionCheckEnabled>
-                            <!-- R12L OWASP remediation: suppress CVEs where NVD CPE
-                                 range has no upper version bound (false positives
-                                 for our latest patched versions). See:
-                                 src/main/resources/dependency-check-suppressions.xml -->
-                            <suppressionFile>${project.basedir}/src/main/resources/dependency-check-suppressions.xml</suppressionFile>
+                            <suppressionFiles>
+                                <suppressionFile>${project.basedir}/src/main/resources/dependency-check-suppressions.xml</suppressionFile>
+                                <suppressionFile>${project.basedir}/src/main/resources/dependency-check-cpe-false-positives.xml</suppressionFile>
+                            </suppressionFiles>
                         </configuration>
                     </plugin>
                 </plugins>

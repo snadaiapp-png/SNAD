@@ -1,0 +1,98 @@
+spring:
+  rabbitmq:
+    host: ${CRM_BROKER_HOST:rabbitmq}
+    port: ${CRM_BROKER_PORT:5672}
+    username: ${CRM_BROKER_USERNAME:snad}
+    password: ${CRM_BROKER_PASSWORD}
+    virtual-host: ${CRM_BROKER_VHOST:/snad}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    listener:
+      simple:
+        acknowledge-mode: auto
+        default-requeue-rejected: false
+        prefetch: 50
+        retry:
+          enabled: true
+          max-attempts: 5
+          initial-interval: 1s
+          multiplier: 2
+          max-interval: 30s
+  data:
+    redis:
+      host: ${CRM_CACHE_HOST:valkey}
+      port: ${CRM_CACHE_PORT:6379}
+      password: ${CRM_CACHE_PASSWORD:}
+      timeout: 3s
+      connect-timeout: 3s
+  cache:
+    type: redis
+    redis:
+      time-to-live: 10m
+      cache-null-values: false
+      use-key-prefix: true
+      key-prefix: "snad:crm:"
+  quartz:
+    job-store-type: memory
+    auto-startup: false
+    properties:
+      org.quartz.scheduler.instanceName: snad-crm-local-scheduler
+      org.quartz.threadPool.threadCount: 4
+      org.quartz.threadPool.threadPriority: 5
+
+management:
+  tracing:
+    enabled: ${OTEL_TRACING_ENABLED:true}
+    sampling:
+      probability: ${OTEL_TRACES_SAMPLER_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:http://otel-collector:4318/v1/traces}
+  observations:
+    key-values:
+      platform: crm
+
+sanad:
+  crm:
+    platform:
+      messaging:
+        enabled: ${CRM_MESSAGING_ENABLED:true}
+        exchange: snad.crm.events
+        dead-letter-exchange: snad.crm.dlx
+        batch-size: ${CRM_OUTBOX_BATCH_SIZE:100}
+        max-attempts: ${CRM_OUTBOX_MAX_ATTEMPTS:12}
+        poll-interval: ${CRM_OUTBOX_POLL_INTERVAL:2s}
+      workflow:
+        enabled: ${CRM_WORKFLOW_ENABLED:true}
+        timer-batch-size: ${CRM_WORKFLOW_TIMER_BATCH_SIZE:100}
+        poll-interval: ${CRM_WORKFLOW_POLL_INTERVAL:5s}
+      search:
+        enabled: ${CRM_SEARCH_ENABLED:true}
+        endpoint: ${CRM_SEARCH_URL:http://opensearch:9200}
+        index-prefix: ${CRM_SEARCH_INDEX_PREFIX:snad-crm}
+        timeout: ${CRM_SEARCH_TIMEOUT:10s}
+      storage:
+        enabled: ${CRM_STORAGE_ENABLED:true}
+        endpoint: ${CRM_STORAGE_ENDPOINT:http://minio:9000}
+        region: ${CRM_STORAGE_REGION:us-east-1}
+        bucket: ${CRM_STORAGE_BUCKET:snad-crm}
+        path-style-access: ${CRM_STORAGE_PATH_STYLE:true}
+        presign-duration: ${CRM_STORAGE_PRESIGN_DURATION:10m}
+      antivirus:
+        enabled: ${CRM_ANTIVIRUS_ENABLED:true}
+        host: ${CRM_ANTIVIRUS_HOST:clamav}
+        port: ${CRM_ANTIVIRUS_PORT:3310}
+        timeout: ${CRM_ANTIVIRUS_TIMEOUT:30s}
+      notifications:
+        enabled: ${CRM_NOTIFICATIONS_ENABLED:true}
+        from: ${CRM_NOTIFICATION_FROM:no-reply@snad.local}
+        batch-size: ${CRM_NOTIFICATION_BATCH_SIZE:100}
+      ai-gateway:
+        enabled: ${CRM_AI_GATEWAY_ENABLED:false}
+        endpoint: ${CRM_AI_GATEWAY_URL:http://ai-gateway:8080}
+        api-key: ${CRM_AI_GATEWAY_API_KEY:}
+        timeout: ${CRM_AI_GATEWAY_TIMEOUT:20s}
+      webhooks:
+        enabled: ${CRM_WEBHOOKS_ENABLED:true}
+        timeout: ${CRM_WEBHOOK_TIMEOUT:10s}
+        max-attempts: ${CRM_WEBHOOK_MAX_ATTEMPTS:8}
