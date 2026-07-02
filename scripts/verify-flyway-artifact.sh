@@ -69,8 +69,11 @@ info "Verifying JAR: ${JAR_PATH}"
 
 # Use unzip (available in most environments including Alpine)
 # List JAR contents — extract the filename column robustly.
+# Note: we suppress pipefail inside the function because grep -q
+# closes the pipe early (SIGPIPE → exit 141), which pipefail would
+# promote to a non-zero function return.
 list_jar() {
-    unzip -Z1 "$JAR_PATH" 2>/dev/null
+    (set +o pipefail; unzip -Z1 "$JAR_PATH" 2>/dev/null)
 }
 
 # --- 1. V15 must exist in source ---
@@ -120,7 +123,11 @@ info "No cross-directory duplicate versions (OK)"
 
 # --- 5. application-prod.yml must be in JAR ---
 info "Checking application-prod.yml in JAR..."
-if ! list_jar | grep -q 'BOOT-INF/classes/application-prod.yml'; then
+set +o pipefail
+list_jar | grep -q 'BOOT-INF/classes/application-prod.yml'
+FOUND=$?
+set -o pipefail
+if [ "$FOUND" -ne 0 ]; then
     fail "application-prod.yml not found in JAR."
 fi
 info "application-prod.yml present in JAR (OK)"
@@ -147,17 +154,27 @@ info "Flyway config in application-prod.yml verified (OK)"
 
 # --- 7. Verify both migration directories are in JAR ---
 info "Checking migration directories in JAR..."
-if ! list_jar | grep -q 'BOOT-INF/classes/db/migration/'; then
+set +o pipefail
+list_jar | grep -q 'BOOT-INF/classes/db/migration/'
+MIGRATION_FOUND=$?
+list_jar | grep -q 'BOOT-INF/classes/db/migration-pg-only/'
+PG_ONLY_FOUND=$?
+set -o pipefail
+if [ "$MIGRATION_FOUND" -ne 0 ]; then
     fail "db/migration/ directory not found in JAR."
 fi
-if ! list_jar | grep -q 'BOOT-INF/classes/db/migration-pg-only/'; then
+if [ "$PG_ONLY_FOUND" -ne 0 ]; then
     fail "db/migration-pg-only/ directory not found in JAR."
 fi
 info "Both migration directories present in JAR (OK)"
 
 # --- 8. Verify reconciler migration V20260702_1 is in JAR ---
 info "Checking V20260702_1 reconciler in JAR..."
-if ! list_jar | grep -q 'V20260702_1__reconcile_admin_role_and_capabilities.sql'; then
+set +o pipefail
+list_jar | grep -q 'V20260702_1__reconcile_admin_role_and_capabilities.sql'
+RECONCILER_FOUND=$?
+set -o pipefail
+if [ "$RECONCILER_FOUND" -ne 0 ]; then
     fail "V20260702_1 reconciler migration not found in JAR."
 fi
 info "V20260702_1 reconciler present (OK)"
