@@ -2,9 +2,9 @@
   min-height: 100vh;
   padding: 32px;
   background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--snad-gold) 12%, transparent), transparent 35%),
-    var(--background);
-  color: var(--foreground);
+    radial-gradient(circle at top left, color-mix(in srgb, var(--snad-brand-gold) 12%, transparent), transparent 35%),
+    var(--snad-surface-canvas);
+  color: var(--snad-text-primary);
 }
 
 .header {
@@ -15,10 +15,10 @@
   justify-content: space-between;
   gap: 24px;
   padding: 28px;
-  border: 1px solid color-mix(in srgb, var(--snad-primary) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--snad-brand-primary) 20%, transparent);
   border-radius: 24px;
-  background: color-mix(in srgb, var(--background) 94%, white);
-  box-shadow: 0 18px 55px rgb(0 0 0 / 8%);
+  background: var(--snad-surface-primary);
+  box-shadow: var(--snad-shadow-md);
 }
 
 .header h1 {
@@ -27,10 +27,11 @@
   line-height: 1.1;
 }
 
-.header p { margin: 0; opacity: .72; }
+.header p { margin: 0; color: var(--snad-text-secondary); }
 
 .eyebrow {
-  color: var(--snad-primary);
+  color: var(--snad-text-brand);
+  font-family: var(--snad-font-latin);
   font-size: .75rem;
   font-weight: 800;
   letter-spacing: .14em;
@@ -51,20 +52,24 @@
   border-radius: 999px;
   padding: 10px 16px;
   cursor: pointer;
-  color: white;
-  background: var(--snad-primary);
+  color: var(--snad-text-inverse);
+  background: var(--snad-brand-primary);
   font: inherit;
   font-weight: 700;
 }
+
+.identity button:hover { background: var(--snad-brand-primary-hover); }
+.identity button:focus-visible,
+.panelHeading input:focus-visible { outline: 3px solid var(--snad-focus-ring); outline-offset: 2px; }
 
 .error {
   max-width: 1480px;
   margin: 0 auto 24px;
   padding: 16px 20px;
   border-radius: 16px;
-  border: 1px solid #b42318;
-  background: #fef3f2;
-  color: #912018;
+  border: 1px solid var(--snad-error);
+  background: var(--snad-error-soft);
+  color: var(--snad-error);
 }
 
 .metrics {
@@ -77,9 +82,9 @@
 
 .metrics article,
 .panel {
-  border: 1px solid color-mix(in srgb, var(--snad-primary) 16%, transparent);
-  background: color-mix(in srgb, var(--background) 96%, white);
-  box-shadow: 0 12px 40px rgb(0 0 0 / 6%);
+  border: 1px solid var(--snad-border-default);
+  background: var(--snad-surface-primary);
+  box-shadow: var(--snad-shadow-md);
 }
 
 .metrics article {
@@ -91,8 +96,8 @@
   justify-content: space-between;
 }
 
-.metrics span { opacity: .7; font-size: .9rem; }
-.metrics strong { font-size: 2rem; color: var(--snad-primary); }
+.metrics span { color: var(--snad-text-secondary); font-size: .9rem; }
+.metrics strong { font-family: var(--snad-font-numeric); font-size: 2rem; color: var(--snad-text-brand); }
 
 .panel {
   max-width: 1480px;
@@ -113,44 +118,44 @@
 
 .panelHeading input {
   width: min(360px, 100%);
-  border: 1px solid color-mix(in srgb, var(--snad-primary) 22%, transparent);
+  border: 1px solid var(--snad-border-default);
   border-radius: 14px;
   padding: 12px 14px;
   font: inherit;
-  background: transparent;
-  color: inherit;
+  background: var(--snad-surface-secondary);
+  color: var(--snad-text-primary);
 }
 
 .tableWrap { overflow-x: auto; }
 .tableWrap table { width: 100%; border-collapse: collapse; min-width: 760px; }
 .tableWrap th,
-.tableWrap td { padding: 14px; text-align: right; border-bottom: 1px solid rgb(0 0 0 / 8%); }
-.tableWrap th { font-size: .82rem; opacity: .65; }
+.tableWrap td { padding: 14px; text-align: right; border-bottom: 1px solid var(--snad-border-subtle); }
+.tableWrap th { font-size: .82rem; color: var(--snad-text-muted); }
 .tableWrap td strong,
 .tableWrap td small { display: block; }
-.tableWrap td small { margin-top: 4px; opacity: .62; }
+.tableWrap td small { margin-top: 4px; color: var(--snad-text-secondary); }
 
 .status {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
   padding: 5px 10px;
-  background: #ecfdf3;
-  color: #027a48;
+  background: var(--snad-success-soft);
+  color: var(--snad-success);
   font-size: .78rem;
   font-weight: 800;
 }
 
 .status[data-status="SUSPENDED"],
 .status[data-status="CANCELLED"],
-.status[data-status="INCIDENT"] { background: #fef3f2; color: #b42318; }
+.status[data-status="INCIDENT"] { background: var(--snad-error-soft); color: var(--snad-error); }
 .status[data-status="PAST_DUE"],
 .status[data-status="DEGRADED"],
-.status[data-status="MAINTENANCE"] { background: #fffaeb; color: #b54708; }
+.status[data-status="MAINTENANCE"] { background: var(--snad-warning-soft); color: var(--snad-warning); }
 .status[data-status="TRIAL"],
-.status[data-status="PENDING"] { background: #eff8ff; color: #175cd3; }
+.status[data-status="PENDING"] { background: var(--snad-info-soft); color: var(--snad-info); }
 .status[data-status="ARCHIVED"],
-.status[data-status="DISABLED"] { background: #f2f4f7; color: #475467; }
+.status[data-status="DISABLED"] { background: var(--snad-surface-secondary); color: var(--snad-text-muted); }
 
 .systemGrid {
   display: grid;
@@ -159,16 +164,17 @@
 }
 
 .systemGrid article {
-  border: 1px solid rgb(0 0 0 / 8%);
+  border: 1px solid var(--snad-border-subtle);
   border-radius: 18px;
   padding: 18px;
+  background: var(--snad-surface-secondary);
 }
 
 .systemGrid article > div { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 .systemGrid h3 { margin: 18px 0 6px; }
-.systemGrid p { margin: 0 0 16px; opacity: .65; }
+.systemGrid p { margin: 0 0 16px; color: var(--snad-text-secondary); }
 .systemGrid dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; margin: 0; font-size: .85rem; }
-.systemGrid dt { opacity: .58; }
+.systemGrid dt { color: var(--snad-text-muted); }
 .systemGrid dd { margin: 0; }
 
 .auditList { display: grid; gap: 10px; }
@@ -178,14 +184,14 @@
   gap: 18px;
   align-items: center;
   padding: 14px 0;
-  border-bottom: 1px solid rgb(0 0 0 / 8%);
+  border-bottom: 1px solid var(--snad-border-subtle);
 }
 .auditList article div { display: flex; flex-direction: column; gap: 3px; }
 .auditList article span,
 .auditList article p,
-.auditList article time { opacity: .65; font-size: .85rem; }
+.auditList article time { color: var(--snad-text-secondary); font-size: .85rem; }
 .auditList article p { margin: 0; }
-.empty { opacity: .6; }
+.empty { color: var(--snad-text-muted); }
 
 @media (max-width: 1100px) {
   .metrics, .systemGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
