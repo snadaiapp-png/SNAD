@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 record CreateAccountRequest(
@@ -124,7 +125,9 @@ record CreateCustomFieldRequest(
         @NotBlank @Pattern(regexp = "[A-Za-z][A-Za-z0-9_]{1,119}") String fieldKey,
         @NotBlank @Size(max = 240) String labelAr,
         @NotBlank @Size(max = 240) String labelEn,
-        @NotBlank @Size(max = 32) String dataType,
+        @NotBlank @Pattern(regexp = "TEXT|NUMBER|BOOLEAN|DATE|DATETIME|EMAIL|URL", flags = Pattern.Flag.CASE_INSENSITIVE) String dataType,
         Boolean sensitive,
         Boolean searchable,
         Boolean required) { }
+
+record UpdateCustomFieldValuesRequest(@NotNull Map<String, Object> values) { }
