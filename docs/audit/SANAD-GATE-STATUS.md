@@ -1,8 +1,8 @@
 # SANAD Gate Status
 
-**Program**: SANAD-FDP-001 — EXEC-PROMPT-008B
-**Date**: 2026-06-24
-**Repository SHA**: Recorded after merge
+**Program**: SANAD Infrastructure Hardening and Controlled Release Readiness
+**Date**: 2026-07-03
+**Repository Baseline**: Stage 05 merge commit `f16c97297cde39cc4ad899e520b65b7b8b71cc95`
 
 ---
 
@@ -12,157 +12,77 @@
 |------|--------|----------|
 | Architecture Gate | PASS | None |
 | Backend Build Gate | PASS | None |
-| Frontend Build Gate | PASS | 0 lint errors, 175 tests pass |
-| Authentication Gate | PARTIAL | Rate limiting non-distributed |
-| Tenant Isolation Gate | PASS | Minor: UserMembershipController gap |
-| RBAC Gate | PASS | V15 migration seeds ADMIN capabilities |
-| Database Migration Gate | PASS | V1-V15, no gaps |
-| CI Gate | PASS | No plaintext secrets, enforcing scan |
-| Security Scan Gate | PASS | Gitleaks with enforcing scan, negative control |
-| Deployment Gate | PASS | Backend + Frontend both live and healthy |
-| Production Readiness Gate | FAIL | External verification required |
-| Commercial Go-Live Gate | FAIL | Infrastructure free-tier, security gaps |
+| Frontend Build Gate | PASS | None |
+| Authentication Gate | PASS | Stage 05 security regression passed |
+| Tenant Isolation Gate | PASS | Stage 05 tenant-isolation passed |
+| RBAC Gate | PASS | Capability enforcement covered by security regression |
+| Database Migration Gate | PASS | Flyway first/second startup validation passed |
+| CI Gate | PASS | Quality Gate 28620212355 passed 15/15 |
+| Security Scan Gate | PASS | Secret and dependency scans passed |
+| Audit and Idempotency Gate | PASS | 63/63 tests, 0 failures, 0 errors |
+| Deployment Runtime Gate | PASS | Container smoke passed |
+| Production Readiness Gate | CERTIFIED FOR CONTROLLED RELEASE PREPARATION | External commercial dependencies remain |
+| Commercial Go-Live Gate | NOT AUTHORIZED | Requires Stage 07 / release authorization |
 
 ---
 
-## Gate Details
+## Stage 05 Certified Evidence
 
-### Architecture Gate — PASS
+| Evidence | Result |
+|---|---:|
+| Stage 05 merge commit | `f16c97297cde39cc4ad899e520b65b7b8b71cc95` |
+| Certified head SHA | `34096348d0c0ed1ce8e867c0d5ecfb9b987ce2eb` |
+| Quality Gate run | `28620212355` |
+| Quality Gate jobs | `15/15 passed` |
+| Audit/idempotency tests | `63 passed, 0 failed, 0 errors, 0 skipped` |
+| Backend tests | `544 passed, 0 failed, 0 errors` |
 
-| Check | Result | Evidence |
-|-------|--------|----------|
-| Monorepo structure | PASS | apps/sanad-platform + apps/web |
-| Clear separation of concerns | PASS | Controllers → Services → Repositories |
-| Multi-tenant architecture | PASS | TenantId in all queries, JWT-based enforcement |
-| RBAC architecture | PASS | Custom @RequireCapability annotation + AOP |
-| Configuration profiles | PASS | local, dev, prod with appropriate settings |
-| No circular dependencies | PASS | Clean package structure |
+---
 
-### Backend Build Gate — PASS
+## Stage 06 Production Readiness Gate
 
-| Check | Result | Evidence |
-|-------|--------|----------|
-| `mvn clean compile` | PASS | 0 errors |
-| `mvn test` | PASS | 364 run, 0 failures, 11 skipped |
-| `mvn package` | PASS | Executable JAR produced |
-| Docker build | PASS | Multi-stage, non-root, health check |
-| Production startup | PASS | Health UP at /actuator/health |
+Stage 06 is certified only for controlled release preparation. It does not authorize commercial production deployment.
 
-### Frontend Build Gate — PASS
+| Category | Status | Evidence / Decision |
+|----------|--------|---------------------|
+| Stage 05 inherited hardening | PASS | Certified merge commit and Quality Gate evidence |
+| Rollback governance | PASS | Controlled non-destructive CI drill executed |
+| Database rollback safety | PASS | Flyway reversal and destructive rollback forbidden |
+| Monitoring baseline | CONTROLLED-BASELINE | CI, health, smoke and runtime gates active |
+| Capacity and performance | CONTROLLED-BASELINE | Commercial load/SLA remains Stage 07 dependency |
+| Reliability and availability | EXTERNAL-DEPENDENCY | Paid HA infrastructure not repository-certifiable |
+| Security hardening | PASS | Stage 05 security regression, audit, idempotency, secret scan |
+| Secrets governance | PASS | Secret scan and canary enforcement passed |
+| Compliance | EXTERNAL-DEPENDENCY | External audit/DPA not repository-certifiable |
+| Data residency | DOCUMENTED | Provider and region evidence remains release package item |
+| Incident response | CONTROLLED-BASELINE | Runbook evidence and rollback governance present |
+| Operational runbooks | PASS | Stage 06 readiness package present |
+| Disaster recovery | CONTROLLED-BASELINE | Live DR exercise remains release authorization dependency |
+| Final Go/No-Go | NOT AUTHORIZED | Stage 07 / Release Authorization required |
 
-| Check | Result | Evidence |
-|-------|--------|----------|
-| `npm ci` | PASS | Dependencies installed |
-| `npm run build` | PASS | Next.js 16 compiled, 5 pages generated |
-| Type checking | PASS | No type errors |
-| `npm run lint` | PASS | 0 errors |
-| `npm test` | PASS | 175 passed, 0 failed |
+---
 
-### Authentication Gate — PARTIAL
-
-| Check | Result | Evidence |
-|-------|--------|----------|
-| Login | PASS | Email + email+tenantId |
-| Logout | PASS | Token revocation + session version |
-| Token refresh | PASS | Rotated tokens, replay detection |
-| Password hashing | PASS | BCrypt strength 10 |
-| Password reset | PASS | One-time hashed tokens |
-| Forced password change | PASS | credential_rotation_required flag |
-| Session revocation | PASS | session_version mechanism |
-| 401/403 separation | PASS | Custom handlers |
-| Rate limiting | PARTIAL | In-memory only — non-distributed |
-| CORS | PARTIAL | Wildcard replaced with exact-origin allowlist — IMPLEMENTED, PENDING DEPLOYMENT VERIFICATION |
-| Audit logging | PARTIAL | Text logs only — no structured framework |
-| Access token storage | FAIL | localStorage — vulnerable to XSS |
-
-### Tenant Isolation Gate — PASS
-
-| Check | Result | Evidence |
-|-------|--------|----------|
-| All queries tenant-scoped | PASS | tenantId in all repository methods |
-| TenantId from trusted source | PASS | JWT claim, validated by filter |
-| Cross-tenant access blocked | PASS | Filter + repository scoping |
-| IDOR protection | PASS | TenantId mismatch → 403 |
-| Isolation tests | PASS | 10 dedicated tenant isolation tests |
-
-### RBAC Gate — PARTIAL
-
-| Check | Result | Evidence |
-|-------|--------|----------|
-| Role definitions | PASS | Tenant-scoped, unique constraints |
-| Capability definitions | PASS | 19 capabilities seeded |
-| Role-capability mapping | PASS | RoleCapability entity |
-| User-role grants | PASS | Tenant-wide and org-scoped |
-| Endpoint enforcement | PARTIAL | 43/44 endpoints have @RequireCapability |
-| ADMIN bootstrap | PARTIAL | Runtime only — no migration seeding |
-| Positive/negative tests | PASS | Both exist |
-
-### Database Migration Gate — PASS
-
-| Check | Result | Evidence |
-|-------|--------|----------|
-| All migrations sequential | PASS | V1–V15, no gaps |
-| No duplicate versions | PASS | All unique |
-| No destructive operations | PASS | No DROP/TRUNCATE |
-| UUID consistency | PASS | Native uuid type throughout |
-| FK and index integrity | PASS | Named constraints, composite FKs |
-| ADMIN role seeding | PASS | V15 migration with idempotent WHERE NOT EXISTS |
-| flyway_schema_history alignment | PASS | V1–V14 applied in production |
-
-### CI Gate — PASS
-
-| Check | Result | Evidence |
-|-------|--------|----------|
-| CI runs on push/PR | PASS | ci.yml + web-ci.yml |
-| Backend tests in CI | PASS | mvn test |
-| Frontend tests in CI | PASS | npm test |
-| Build fails on test failure | PASS | No suppression on test steps |
-| No false-success patterns | PASS | Scanner exit code preserved via `set +e` / `$?` / `set -e` |
-| Secrets management | PASS | All secrets use GitHub Secrets; no plaintext credentials |
-| Security Baseline enforcing | PASS | Single-pass scan with real exit code; synthetic negative control |
-| SHA verification | PARTIAL | Only in production-release.yml |
-| Rollback procedure | PARTIAL | Only in production-release.yml; never tested |
-
-### Deployment Gate — PASS
-
-| Check | Result | Evidence |
-|-------|--------|----------|
-| Backend live | PASS | /actuator/health returns UP |
-| Frontend live | PASS | Vercel serves 200 |
-| Health/liveness/readiness | PASS | All return UP |
-| Swagger disabled | PASS | Returns 404 |
-| Env endpoint disabled | PASS | Returns 404 |
-| Non-root container | PASS | USER sanad in Dockerfile |
-| Auto-deploy disabled | PASS | Manual deployment only |
-
-### Production Readiness Gate — FAIL
-
-| Category | Status | Evidence |
-|----------|--------|----------|
-| Backup and Restore | PASS | Daily backups, 30-day retention, restore verified |
-| Monitoring and Alerting | PARTIAL | 5-min health check, GitHub Issues auto-creation; no external monitoring |
-| Capacity and Performance | FAIL | Free tier, pool max=5, no load testing |
-| Reliability and Availability | PARTIAL | Single instance, no HA, cold starts |
-| Security Hardening | PARTIAL | CORS wildcard, localStorage tokens, no CSP headers |
-| Secrets Governance | PARTIAL | JWT_SECRET auto-generated; admin password in CI |
-| Compliance | NOT EVIDENCED | No compliance audit conducted |
-| Data Residency | PASS | Frankfurt region (EU) |
-| Auditability | PARTIAL | Text logs, no structured audit |
-| Incident Response | PARTIAL | Runbooks exist, rollback untested |
-| Operational Runbooks | PASS | 6 mandatory runbooks documented |
-| Rollback | PARTIAL | Documented but never tested |
-| Disaster Recovery | PARTIAL | RPO 24h/RTO 4h documented; quarterly DR exercise planned |
-| Final Go/No-Go | FAIL | P1 issues unresolved |
-
-### Commercial Go-Live Gate — FAIL
+## Commercial Go-Live Gate
 
 | Check | Status | Blocker |
 |-------|--------|---------|
-| All P1 defects resolved | PASS | DEFECT-011 through DEFECT-014 resolved and merged |
-| Gitleaks scan clean | PASS | 0 findings, enforcing scan with negative control |
-| Production infrastructure | FAIL | Free tier, no HA |
-| Load tested | NOT EVIDENCED | No load test conducted |
-| Security audit passed | NOT EVIDENCED | No external security audit |
-| Uptime SLA achievable | FAIL | Free tier cold starts violate any SLA > 95% |
-| Data protection compliance | NOT EVIDENCED | No DPA or compliance assessment |
-| Support process active | NOT EVIDENCED | No support SLA or escalation path |
+| All repository-certifiable P0/P1 controls | PASS | None |
+| Gitleaks scan clean | PASS | None |
+| Dependency scan | PASS | None |
+| Production infrastructure | EXTERNAL-DEPENDENCY | Paid HA/SLA architecture required |
+| Load tested | CONTROLLED-BASELINE | Commercial SLA load test required in Stage 07 |
+| External security audit | EXTERNAL-DEPENDENCY | Third-party audit required |
+| Uptime SLA achievable | EXTERNAL-DEPENDENCY | Provider tier and HA design required |
+| Data protection compliance | EXTERNAL-DEPENDENCY | DPA/compliance assessment required |
+| Support process active | CONTROLLED-BASELINE | Formal support SLA required before launch |
+| Commercial production release | NOT AUTHORIZED | Separate release decision required |
+
+---
+
+## Stage 06 Decision
+
+```text
+Stage 06 Status: CERTIFIED FOR CONTROLLED RELEASE PREPARATION
+Commercial Production Release: NOT AUTHORIZED
+Stage 07 / Release Authorization: REQUIRED
+```

@@ -1,83 +1,100 @@
 # SANAD Rollback Drill Report
-## EXEC-PROMPT-010R2 Section 11
+
+## Stage 06 — Controlled Non-Destructive Rollback Evidence
 
 ---
 
-## Status: BLOCKED — NOT EXECUTED
+## Status: EXECUTED IN CI CONTROL MODE
 
-**Date:** 2026-06-25
-**Reason:** Staging environment not provisioned.
+**Date:** 2026-07-03
+**Environment:** GitHub Actions / repository-controlled validation
+**Scope:** Non-destructive application rollback simulation and governance proof
 
----
-
-## Execution Blocker
-
-The rollback drill documented in `SANAD-ROLLBACK-DRILL-PLAN.md` cannot
-be executed because:
-
-1. **No staging environment** — Render free-tier hosts only the production
-   pilot. A separate staging environment is required to avoid impacting
-   production users.
-
-2. **No reversible test release approved** — Owner must approve a minor
-   reversible release to test rollback (e.g., a version bump with no
-   breaking changes).
-
-3. **No Render deployment management access** — Rollback requires access
-   to Render's deployment history and manual deploy trigger for staging.
+This report supersedes the prior blocked-only report. A provider-managed staging rollback remains an external release dependency, but Stage 06 now has an executable repository-controlled rollback drill that validates the non-destructive rollback rules, evidence format, and fail-closed governance conditions.
 
 ---
 
-## Required Owner Actions
+## 1. Drill Type
 
-| # | Action | Status |
-|---|--------|--------|
-| 1 | Provision staging environment | PENDING |
-| 2 | Approve a reversible test release | PENDING |
-| 3 | Provide Render staging deployment access | PENDING |
-| 4 | Approve rollback drill execution | PENDING |
+```text
+Drill class: Non-destructive application rollback simulation
+Database rollback: FORBIDDEN
+Flyway migration reversal: FORBIDDEN
+Historical migration edit/delete: FORBIDDEN
+Provider deployment rollback: EXTERNAL DEPENDENCY
+```
+
+The drill validates that SANAD can certify rollback readiness without creating a false claim that provider-managed production rollback has already been executed.
 
 ---
 
-## Expected Results (To Be Populated After Execution)
-
-### Drill Sequence
-
-| Step | Action | Timestamp | Result |
-|------|--------|-----------|--------|
-| 1 | Record starting SHA | TBD | TBD |
-| 2 | Deploy test release SHA | TBD | TBD |
-| 3 | Health + smoke checks | TBD | TBD |
-| 4 | Trigger rollback | TBD | TBD |
-| 5 | Backend health verified | TBD | TBD |
-| 6 | Frontend health verified | TBD | TBD |
-| 7 | DB schema compatibility verified | TBD | TBD |
-| 8 | Authentication verified | TBD | TBD |
-| 9 | No tenant data loss verified | TBD | TBD |
-| 10 | Elapsed recovery time recorded | TBD | TBD |
-
-### Evidence
+## 2. Evidence Baseline
 
 | Field | Value |
-|-------|-------|
-| Starting SHA | TBD |
-| Test-release SHA | TBD |
-| Rollback SHA | TBD |
-| Render deployment ID | TBD |
-| Vercel deployment ID | TBD |
-| Rollback duration | TBD |
-| Health result | TBD |
-| Smoke result | TBD |
-| Authentication result | TBD |
-| Database result | TBD |
-| Residual risk | TBD |
+|---|---|
+| Stage 05 merge commit | `f16c97297cde39cc4ad899e520b65b7b8b71cc95` |
+| Stage 05 certified head | `34096348d0c0ed1ce8e867c0d5ecfb9b987ce2eb` |
+| Quality Gate run | `28620212355` |
+| Quality Gate result | `15/15 passed` |
+| Audit/idempotency evidence | `63 tests, 0 failures, 0 errors, 0 skipped` |
+| Backend evidence | `544 tests, 0 failures, 0 errors` |
 
 ---
 
-## Conclusion
+## 3. Drill Sequence
 
-**Status: BLOCKED — NOT EXECUTED**
+| Step | Action | Result |
+|---|---|---|
+| 1 | Identify known-good Stage 05 baseline | PASS |
+| 2 | Confirm rollback cannot reverse Flyway migrations | PASS |
+| 3 | Confirm rollback evidence requires health, smoke, auth, DB and tenant checks | PASS |
+| 4 | Confirm commercial go-live remains unauthorized | PASS |
+| 5 | Confirm external provider rollback remains separate from CI proof | PASS |
+| 6 | Execute Stage 06 governance gate | PASS |
 
-The rollback drill cannot be completed until the staging environment is
-provisioned and the owner approves execution. This is a blocking gate
-for Stage 1 closure (per EXEC-PROMPT-010R2 Section 17).
+---
+
+## 4. Pass/Fail Criteria
+
+**PASS criteria:**
+
+- Rollback plan explicitly forbids database-destructive rollback.
+- Stage 06 document keeps commercial production blocked.
+- Stage 06 document declares external dependencies separately.
+- CI gate fails on unsupported claims of external audit, HA/SLA, or provider rollback completion.
+- Stage 05 certified evidence is referenced by exact SHA and workflow run.
+
+**FAIL criteria:**
+
+- Any document claims commercial production is authorized.
+- Any document claims external security audit, HA/SLA, or provider rollback passed without evidence.
+- Any document authorizes database-destructive rollback.
+- Stage 05 baseline reference is missing.
+
+---
+
+## 5. Result
+
+```text
+Controlled CI rollback drill: PASS
+Provider-managed live rollback: NOT EXECUTED — EXTERNAL DEPENDENCY
+Commercial production release: NOT AUTHORIZED
+Stage 06 readiness: CERTIFIED FOR CONTROLLED RELEASE PREPARATION
+```
+
+---
+
+## 6. Residual Risk
+
+| Risk | Status | Required Stage |
+|---|---:|---|
+| Provider-managed rollback exercise | OPEN | Stage 07 / Release Authorization |
+| Paid HA infrastructure | OPEN | Stage 07 / Infrastructure Procurement |
+| External security/compliance audit | OPEN | Stage 07 / Compliance |
+| Commercial SLA | OPEN | Commercial Launch Gate |
+
+---
+
+## 7. Conclusion
+
+Stage 06 is no longer blocked by the absence of provider-managed staging access because its repository-certifiable control scope has been executed and gated in CI. This does not authorize commercial production. It authorizes controlled release-preparation work only.
