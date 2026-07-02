@@ -2,22 +2,17 @@ package com.sanad.platform.crm.web;
 
 import com.sanad.platform.security.authorization.RequireCapability;
 import jakarta.validation.Valid;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -59,15 +54,13 @@ public class CrmController {
 
     @RequireCapability("CRM.ACCOUNT.READ")
     @GetMapping("/accounts/{accountId}")
-    public Map<String, Object> getAccount(
-            Authentication authentication, @PathVariable UUID accountId) {
+    public Map<String, Object> getAccount(Authentication authentication, @PathVariable UUID accountId) {
         return crm.getAccount(authentication, accountId);
     }
 
     @RequireCapability("CRM.ACCOUNT.READ")
     @GetMapping("/accounts/{accountId}/customer-360")
-    public Map<String, Object> customer360(
-            Authentication authentication, @PathVariable UUID accountId) {
+    public Map<String, Object> customer360(Authentication authentication, @PathVariable UUID accountId) {
         return extended.customer360(authentication, accountId);
     }
 
@@ -82,15 +75,13 @@ public class CrmController {
 
     @RequireCapability("CRM.ACCOUNT.ARCHIVE")
     @PatchMapping("/accounts/{accountId}/archive")
-    public Map<String, Object> archiveAccount(
-            Authentication authentication, @PathVariable UUID accountId) {
+    public Map<String, Object> archiveAccount(Authentication authentication, @PathVariable UUID accountId) {
         return crm.archiveAccount(authentication, accountId);
     }
 
     @RequireCapability("CRM.ACCOUNT.ARCHIVE")
     @PatchMapping("/accounts/{accountId}/restore")
-    public Map<String, Object> restoreAccount(
-            Authentication authentication, @PathVariable UUID accountId) {
+    public Map<String, Object> restoreAccount(Authentication authentication, @PathVariable UUID accountId) {
         return extended.restoreAccount(authentication, accountId);
     }
 
@@ -114,8 +105,7 @@ public class CrmController {
 
     @RequireCapability("CRM.CONTACT.READ")
     @GetMapping("/contacts/{contactId}")
-    public Map<String, Object> getContact(
-            Authentication authentication, @PathVariable UUID contactId) {
+    public Map<String, Object> getContact(Authentication authentication, @PathVariable UUID contactId) {
         return extended.getContact(authentication, contactId);
     }
 
@@ -130,15 +120,13 @@ public class CrmController {
 
     @RequireCapability("CRM.CONTACT.ARCHIVE")
     @PatchMapping("/contacts/{contactId}/archive")
-    public Map<String, Object> archiveContact(
-            Authentication authentication, @PathVariable UUID contactId) {
+    public Map<String, Object> archiveContact(Authentication authentication, @PathVariable UUID contactId) {
         return extended.archiveContact(authentication, contactId);
     }
 
     @RequireCapability("CRM.CONTACT.ARCHIVE")
     @PatchMapping("/contacts/{contactId}/restore")
-    public Map<String, Object> restoreContact(
-            Authentication authentication, @PathVariable UUID contactId) {
+    public Map<String, Object> restoreContact(Authentication authentication, @PathVariable UUID contactId) {
         return extended.restoreContact(authentication, contactId);
     }
 
@@ -161,8 +149,7 @@ public class CrmController {
 
     @RequireCapability("CRM.LEAD.READ")
     @GetMapping("/leads/{leadId}")
-    public Map<String, Object> getLead(
-            Authentication authentication, @PathVariable UUID leadId) {
+    public Map<String, Object> getLead(Authentication authentication, @PathVariable UUID leadId) {
         return extended.getLead(authentication, leadId);
     }
 
@@ -200,8 +187,7 @@ public class CrmController {
 
     @RequireCapability("CRM.OPPORTUNITY.READ")
     @GetMapping("/pipelines/{pipelineId}/stages")
-    public List<Map<String, Object>> listPipelineStages(
-            Authentication authentication, @PathVariable UUID pipelineId) {
+    public List<Map<String, Object>> listPipelineStages(Authentication authentication, @PathVariable UUID pipelineId) {
         return extended.listPipelineStages(authentication, pipelineId);
     }
 
@@ -224,8 +210,7 @@ public class CrmController {
 
     @RequireCapability("CRM.OPPORTUNITY.READ")
     @GetMapping("/opportunities/{opportunityId}")
-    public Map<String, Object> getOpportunity(
-            Authentication authentication, @PathVariable UUID opportunityId) {
+    public Map<String, Object> getOpportunity(Authentication authentication, @PathVariable UUID opportunityId) {
         return extended.getOpportunity(authentication, opportunityId);
     }
 
@@ -259,8 +244,7 @@ public class CrmController {
 
     @RequireCapability("CRM.ACTIVITY.READ")
     @GetMapping("/activities/{activityId}")
-    public Map<String, Object> getActivity(
-            Authentication authentication, @PathVariable UUID activityId) {
+    public Map<String, Object> getActivity(Authentication authentication, @PathVariable UUID activityId) {
         return extended.getActivity(authentication, activityId);
     }
 
@@ -283,18 +267,15 @@ public class CrmController {
         return crm.timeline(authentication, subjectType, subjectId, limit);
     }
 
-    @RequireCapability("CRM.IMPORT.WRITE")
-    @PostMapping(value = "/imports/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<Map<String, Object>> uploadImport(
+    @RequireCapability("CRM.ADMIN")
+    @PostMapping("/imports")
+    public ResponseEntity<Map<String, Object>> createImportJob(
             Authentication authentication,
-            @RequestPart("entityType") String entityType,
-            @RequestPart(value = "mapping", required = false) String mapping,
-            @RequestPart("file") MultipartFile file) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(extended.uploadImport(authentication, entityType, mapping, file));
+            @Valid @RequestBody CreateImportJobRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(extended.createImportJob(authentication, request));
     }
 
-    @RequireCapability("CRM.IMPORT.READ")
+    @RequireCapability("CRM.ADMIN")
     @GetMapping("/imports")
     public List<Map<String, Object>> listImportJobs(
             Authentication authentication,
@@ -302,101 +283,19 @@ public class CrmController {
         return extended.listImportJobs(authentication, limit);
     }
 
-    @RequireCapability("CRM.IMPORT.READ")
-    @GetMapping("/imports/{jobId}")
-    public Map<String, Object> getImportJob(
-            Authentication authentication, @PathVariable UUID jobId) {
-        return extended.getImportJob(authentication, jobId);
-    }
-
-    @RequireCapability("CRM.IMPORT.WRITE")
-    @PostMapping("/imports/{jobId}/run")
-    public Map<String, Object> runImport(
-            Authentication authentication, @PathVariable UUID jobId) {
-        return extended.runImport(authentication, jobId);
-    }
-
-    @RequireCapability("CRM.IMPORT.WRITE")
-    @PostMapping("/imports/{jobId}/cancel")
-    public Map<String, Object> cancelImport(
-            Authentication authentication, @PathVariable UUID jobId) {
-        return extended.cancelImport(authentication, jobId);
-    }
-
-    @RequireCapability("CRM.IMPORT.READ")
-    @GetMapping("/imports/{jobId}/errors")
-    public List<Map<String, Object>> listImportErrors(
-            Authentication authentication,
-            @PathVariable UUID jobId,
-            @RequestParam(defaultValue = "500") int limit) {
-        return extended.listImportErrors(authentication, jobId, limit);
-    }
-
-    @RequireCapability("CRM.IMPORT.READ")
-    @GetMapping(value = "/imports/{jobId}/errors.csv", produces = "text/csv")
-    public ResponseEntity<String> downloadImportErrors(
-            Authentication authentication, @PathVariable UUID jobId) {
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=\"crm-import-errors-" + jobId + ".csv\"")
-                .contentType(MediaType.parseMediaType("text/csv"))
-                .body(extended.importErrorsCsv(authentication, jobId));
-    }
-
-    @RequireCapability("CRM.CUSTOM_FIELD.WRITE")
+    @RequireCapability("CRM.ADMIN")
     @PostMapping("/custom-fields")
     public ResponseEntity<Map<String, Object>> createCustomField(
             Authentication authentication,
             @Valid @RequestBody CreateCustomFieldRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(extended.createCustomField(authentication, request));
+        return ResponseEntity.status(HttpStatus.CREATED).body(extended.createCustomField(authentication, request));
     }
 
-    @RequireCapability("CRM.CUSTOM_FIELD.READ")
+    @RequireCapability("CRM.ACCOUNT.READ")
     @GetMapping("/custom-fields")
     public List<Map<String, Object>> listCustomFields(
             Authentication authentication,
             @RequestParam(required = false) String entityType) {
         return extended.listCustomFields(authentication, entityType);
-    }
-
-    @RequireCapability("CRM.CUSTOM_FIELD.WRITE")
-    @PutMapping("/custom-fields/values/{entityType}/{entityId}")
-    public Map<String, Object> upsertCustomFieldValues(
-            Authentication authentication,
-            @PathVariable String entityType,
-            @PathVariable UUID entityId,
-            @Valid @RequestBody UpdateCustomFieldValuesRequest request) {
-        return extended.upsertCustomFieldValues(authentication, entityType, entityId, request);
-    }
-
-    @RequireCapability("CRM.CUSTOM_FIELD.READ")
-    @GetMapping("/custom-fields/values/{entityType}/{entityId}")
-    public Map<String, Object> readCustomFieldValues(
-            Authentication authentication,
-            @PathVariable String entityType,
-            @PathVariable UUID entityId) {
-        return extended.readCustomFieldValues(authentication, entityType, entityId, false);
-    }
-
-    @RequireCapability("CRM.ADMIN")
-    @GetMapping("/custom-fields/values/{entityType}/{entityId}/sensitive")
-    public Map<String, Object> readSensitiveCustomFieldValues(
-            Authentication authentication,
-            @PathVariable String entityType,
-            @PathVariable UUID entityId) {
-        return extended.readCustomFieldValues(authentication, entityType, entityId, true);
-    }
-
-    @RequireCapability("CRM.CUSTOM_FIELD.READ")
-    @GetMapping("/custom-fields/search")
-    public List<Map<String, Object>> searchCustomFieldValues(
-            Authentication authentication,
-            @RequestParam String entityType,
-            @RequestParam String fieldKey,
-            @RequestParam String query,
-            @RequestParam(defaultValue = "50") int limit) {
-        return extended.searchCustomFieldValues(
-                authentication, entityType, fieldKey, query, limit);
     }
 }
