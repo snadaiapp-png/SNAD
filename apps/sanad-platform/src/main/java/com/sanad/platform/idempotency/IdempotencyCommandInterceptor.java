@@ -64,6 +64,14 @@ public class IdempotencyCommandInterceptor implements HandlerInterceptor {
     /** Request attribute key under which the cached request body is stashed. */
     public static final String REQUEST_BODY_ATTR = "sanad.idempotency.requestBody";
 
+    /** Request attribute keys for idempotency metadata (Stage 05A.2.2 §7). */
+    public static final String IDEMPOTENCY_KEY_ATTR = "sanad.idempotency.key";
+    public static final String IDEMPOTENCY_OPERATION_ATTR = "sanad.idempotency.operation";
+    public static final String IDEMPOTENCY_RESOURCE_TYPE_ATTR = "sanad.idempotency.resourceType";
+    public static final String IDEMPOTENCY_METHOD_ATTR = "sanad.idempotency.method";
+    public static final String IDEMPOTENCY_ROUTE_ATTR = "sanad.idempotency.route";
+    public static final String IDEMPOTENCY_QUERY_ATTR = "sanad.idempotency.query";
+
     private final IdempotencyService idempotencyService;
     private final TenantContextProvider contextProvider;
 
@@ -93,6 +101,9 @@ public class IdempotencyCommandInterceptor implements HandlerInterceptor {
             return true;
         }
 
+        // Stage 05A.2.2 §7 — Interceptor only validates the key and attaches
+        // it to the request. The IdempotentCommandExecutor handles reservation,
+        // execution, replay, and completion.
         String idempotencyKey = request.getHeader(IDEMPOTENCY_KEY_HEADER);
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
             writeError(response, request, 400, "SANAD-IDEMP-001",
@@ -100,67 +111,15 @@ public class IdempotencyCommandInterceptor implements HandlerInterceptor {
             return false;
         }
 
-        // Stage 05A.1 — Fail-closed: require a verified TenantContext.
-        TenantContext tenantContext = contextProvider.currentContext().orElse(null);
-        if (tenantContext == null || tenantContext.tenantId() == null) {
-            writeError(response, request, 401, "SANAD-AUTH-001",
-                    "Authentication is required for idempotent operations");
-            return false;
-        }
+        // Attach key and cached body to request attributes for the executor.
+        request.setAttribute(IDEMPOTENCY_KEY_ATTR, idempotencyKey);
+        request.setAttribute(IDEMPOTENCY_OPERATION_ATTR, annotation.operation());
+        request.setAttribute(IDEMPOTENCY_RESOURCE_TYPE_ATTR, annotation.resourceType());
+        request.setAttribute(IDEMPOTENCY_METHOD_ATTR, method);
+        request.setAttribute(IDEMPOTENCY_ROUTE_ATTR, request.getRequestURI());
+        request.setAttribute(IDEMPOTENCY_QUERY_ATTR, request.getQueryString());
 
-        String operation = annotation.operation();
-        String resourceType = annotation.resourceType();
-        String route = request.getRequestURI();
-        String body = readRequestBody(request);
-        String queryString = request.getQueryString();
-
-        IdempotencyService.ReservationResult reservation = idempotencyService.reserveOrReplay(
-                idempotencyKey, operation, route, resourceType, method, body, queryString);
-
-        switch (reservation.type()) {
-            case NEW -> {
-                // Stash the reservation so afterCompletion can complete it.
-                request.setAttribute(RESERVATION_ATTR, reservation);
-                return true;
-            }
-            case REPLAY -> {
-                // Replay the stored response, do NOT invoke the controller.
-                IdempotencyRecord rec = reservation.record();
-                if (rec == null) {
-                    writeError(response, request, 500, "SANAD-IDEMP-999",
-                            "Idempotency replay requested but record is null");
-                    return false;
-                }
-                writeReplay(response, request, rec);
-                return false;
-            }
-            case CONFLICT -> {
-                writeError(response, request, 409, "SANAD-IDEMP-002",
-                        reservation.message() != null
-                                ? reservation.message()
-                                : "Idempotency key reused with a different payload");
-                return false;
-            }
-            case IN_PROGRESS -> {
-                writeError(response, request, 409, "SANAD-IDEMP-003",
-                        reservation.message() != null
-                                ? reservation.message()
-                                : "Request is still processing — retry later");
-                return false;
-            }
-            case EXPIRED -> {
-                writeError(response, request, 410, "SANAD-IDEMP-004",
-                        reservation.message() != null
-                                ? reservation.message()
-                                : "Idempotency key has expired");
-                return false;
-            }
-            default -> {
-                writeError(response, request, 500, "SANAD-IDEMP-999",
-                        "Unknown idempotency reservation type");
-                return false;
-            }
-        }
+        return true;
     }
 
     @Override

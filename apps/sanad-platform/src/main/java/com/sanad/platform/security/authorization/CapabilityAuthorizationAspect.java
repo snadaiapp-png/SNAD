@@ -90,8 +90,11 @@ public class CapabilityAuthorizationAspect {
             log.debug("RBAC DENY: userId={} tenantId={} capability={} reason={} path={}",
                     userId, tenantId, capabilityCode, decision.reason(),
                     getRequestPath());
-            writeForbidden("غير مصرح بهذه العملية");
-            return;
+            // Stage 05A.2.2 §4 — Throw instead of writing response directly.
+            // This ensures the controller method is NEVER executed.
+            // A central exception handler catches this and returns 403.
+            throw new CapabilityDeniedException(tenantId, userId, capabilityCode,
+                    decision.reason());
         }
 
         log.debug("RBAC ALLOW: userId={} tenantId={} capability={} role={}",

@@ -1,8 +1,5 @@
 package com.sanad.platform.organization.service;
 
-import com.sanad.platform.audit.domain.AuditOutcome;
-import com.sanad.platform.audit.service.AuditContext;
-import com.sanad.platform.audit.service.AuditService;
 import com.sanad.platform.organization.domain.Organization;
 import com.sanad.platform.organization.domain.OrganizationStatus;
 import com.sanad.platform.organization.dto.CreateOrganizationRequest;
@@ -55,7 +52,6 @@ public class OrganizationService {
     private final TenantRepository tenantRepository;
     private final OrganizationRepository organizationRepository;
     private final OrganizationMapper organizationMapper;
-    private final AuditService auditService;
 
     /**
      * Constructor-based dependency injection (no field injection,
@@ -63,12 +59,10 @@ public class OrganizationService {
      */
     public OrganizationService(TenantRepository tenantRepository,
                                 OrganizationRepository organizationRepository,
-                                OrganizationMapper organizationMapper,
-                                AuditService auditService) {
+                                OrganizationMapper organizationMapper) {
         this.tenantRepository = tenantRepository;
         this.organizationRepository = organizationRepository;
         this.organizationMapper = organizationMapper;
-        this.auditService = auditService;
     }
 
     /**
@@ -131,17 +125,9 @@ public class OrganizationService {
         // --- Business Rule 7: Persist the new aggregate ---
         Organization saved = organizationRepository.save(organization);
 
-        // Stage 05 §9: Audit the successful organization creation.
-        // The audit event is recorded in the SAME transaction — if
-        // anything fails after this point, both the organization and
-        // the audit event roll back (no false success audit).
-        auditService.record(AuditContext.builder(
-                        "ORGANIZATION.CREATE", "Organization", "CREATE")
-                .resourceId(saved.getId().toString())
-                .outcome(AuditOutcome.SUCCESS)
-                .httpStatus(201)
-                .afterState("{\"name\":\"" + saved.getName() + "\",\"status\":\"ACTIVE\"}")
-                .build());
+        // Stage 05A.2.2 §10 — Audit is owned by the IdempotentCommandExecutor
+        // for the create command. The service no longer writes a duplicate
+        // audit event. This ensures exactly 1 SUCCESS audit event per command.
 
         // --- Business Rule 8: Return the transport-layer DTO ---
         return organizationMapper.toResponse(saved);

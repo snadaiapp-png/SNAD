@@ -1,7 +1,10 @@
 package com.sanad.platform.organization.api;
 
 import com.sanad.platform.organization.dto.CreateOrganizationRequest;
+import com.sanad.platform.idempotency.IdempotencyCommandInterceptor;
 import com.sanad.platform.idempotency.IdempotentOperation;
+import com.sanad.platform.idempotency.service.IdempotentCommandExecutor;
+import com.sanad.platform.idempotency.service.IdempotentHttpResult;
 import com.sanad.platform.shared.api.ApiErrorResponse;
 import com.sanad.platform.shared.api.PageRequestParams;
 import com.sanad.platform.shared.api.PageResponse;
@@ -70,11 +73,14 @@ public class OrganizationController {
 
     private final OrganizationService organizationService;
     private final com.sanad.platform.security.tenant.TenantResolver tenantResolver;
+    private final IdempotentCommandExecutor idempotentCommandExecutor;
 
     public OrganizationController(OrganizationService organizationService,
-                                   com.sanad.platform.security.tenant.TenantResolver tenantResolver) {
+                                   com.sanad.platform.security.tenant.TenantResolver tenantResolver,
+                                   IdempotentCommandExecutor idempotentCommandExecutor) {
         this.organizationService = organizationService;
         this.tenantResolver = tenantResolver;
+        this.idempotentCommandExecutor = idempotentCommandExecutor;
     }
 
     /**
@@ -140,22 +146,68 @@ public class OrganizationController {
     @IdempotentOperation(operation = "ORGANIZATION.CREATE", resourceType = "Organization")
     @PostMapping
     public ResponseEntity<OrganizationResponse> createOrganization(
+            jakarta.servlet.http.HttpServletRequest httpRequest,
             @Valid @RequestBody CreateOrganizationRequest request) {
 
-        // Stage 04A §10: tenantId from verified TenantContext, not from client.
+        // Stage 05A.2.2 §8 — Use IdempotentCommandExecutor for the create command.
+        // The executor handles reservation, business execution, audit, and completion
+        // in a single transaction boundary.
         java.util.UUID verifiedTenantId = tenantResolver.requireTenantId();
-        OrganizationResponse created = organizationService.createOrganization(verifiedTenantId, request);
 
-        // Build the Location header for the 201 response
-        URI location = ServletUriComponentsBuilder
-                .fromCurrentRequest()
-                .path("/{id}")
-                .buildAndExpand(created.getId())
-                .toUri();
+        // Read idempotency metadata from request attributes (set by interceptor).
+        String idempotencyKey = (String) httpRequest.getAttribute(
+                IdempotencyCommandInterceptor.IDEMPOTENCY_KEY_ATTR);
 
-        return ResponseEntity
-                .created(location)
-                .body(created);
+        // If the interceptor is not active (local profile), fall back to direct
+        // service call without idempotency enforcement.
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            OrganizationResponse created = organizationService.createOrganization(verifiedTenantId, request);
+            URI location = ServletUriComponentsBuilder
+                    .fromCurrentRequest()
+                    .path("/{id}")
+                    .buildAndExpand(created.getId())
+                    .toUri();
+            return ResponseEntity.created(location).body(created);
+        }
+
+        String method = httpRequest.getMethod();
+        String route = httpRequest.getRequestURI();
+        String queryString = httpRequest.getQueryString();
+
+        // Serialize the request body for fingerprinting.
+        String requestBody;
+        try {
+            requestBody = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(request);
+        } catch (Exception e) {
+            requestBody = request.toString();
+        }
+
+        IdempotentHttpResult<OrganizationResponse> result = idempotentCommandExecutor.execute(
+                new IdempotentCommandExecutor.OperationMetadata(
+                        "ORGANIZATION.CREATE", route, "Organization"),
+                idempotencyKey,
+                requestBody,
+                method,
+                queryString,
+                () -> organizationService.createOrganization(verifiedTenantId, request));
+
+        // Build response from the executor result.
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        if (result.replayed()) {
+            headers.add(IdempotencyCommandInterceptor.IDEMPOTENCY_REPLAYED_HEADER, "true");
+        }
+        if (result.resourceId() != null) {
+            URI location = ServletUriComponentsBuilder
+                    .fromCurrentRequest()
+                    .path("/{id}")
+                    .buildAndExpand(result.resourceId())
+                    .toUri();
+            headers.setLocation(location);
+        }
+
+        return new ResponseEntity<>(result.businessResult(), headers,
+                org.springframework.http.HttpStatus.valueOf(result.httpStatus()));
     }
 
     /**

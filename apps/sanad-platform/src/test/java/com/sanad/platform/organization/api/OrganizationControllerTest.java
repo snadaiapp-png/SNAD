@@ -76,6 +76,9 @@ class OrganizationControllerTest {
     @MockBean
     private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
+    @MockBean
+    private com.sanad.platform.idempotency.service.IdempotentCommandExecutor idempotentCommandExecutor;
+
     // Common fixtures
     private final UUID tenantId = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private final UUID organizationId = UUID.fromString("22222222-2222-2222-2222-222222222222");

@@ -128,6 +128,20 @@ public class GlobalExceptionHandler {
         return handleTypedBusiness(ex, req);
     }
 
+    // ------------------------------------------------------------------
+    // Stage 05A.2.2 §4 — Capability denial
+    // ------------------------------------------------------------------
+
+    @ExceptionHandler(com.sanad.platform.security.authorization.CapabilityDeniedException.class)
+    public ResponseEntity<ApiErrorResponse> handleCapabilityDenied(
+            com.sanad.platform.security.authorization.CapabilityDeniedException ex,
+            HttpServletRequest req) {
+        log.warn("Capability denied: requestId={} path={} tenant={} user={} capability={} reason={}",
+                requestId(), req.getRequestURI(), ex.getTenantId(),
+                ex.getUserId(), ex.getCapabilityCode(), ex.getReason());
+        return build(ErrorCode.SANAD_SEC_001, "Access denied — capability required: " + ex.getCapabilityCode(), req);
+    }
+
     @ExceptionHandler(InvalidPaginationException.class)
     public ResponseEntity<ApiErrorResponse> handleInvalidPagination(
             InvalidPaginationException ex, HttpServletRequest req) {

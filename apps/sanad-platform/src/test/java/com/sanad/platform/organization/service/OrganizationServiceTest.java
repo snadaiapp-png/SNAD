@@ -1,6 +1,5 @@
 package com.sanad.platform.organization.service;
 
-import com.sanad.platform.audit.service.AuditService;
 import com.sanad.platform.organization.domain.Organization;
 import com.sanad.platform.organization.domain.OrganizationStatus;
 import com.sanad.platform.organization.dto.CreateOrganizationRequest;
@@ -58,9 +57,6 @@ class OrganizationServiceTest {
 
     @Mock
     private OrganizationMapper organizationMapper;
-
-    @Mock
-    private AuditService auditService;
 
     @InjectMocks
     private OrganizationService organizationService;
