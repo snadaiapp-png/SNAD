@@ -26,6 +26,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Validate CRM shell scripts
         run: |
@@ -46,9 +48,16 @@ jobs:
 
       - name: Verify no new CRM UI runtime dependency
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          git diff --exit-code "${{ github.event.pull_request.base.sha }}" -- apps/web/package.json apps/web/package-lock.json
+          base_sha="${PR_BASE_SHA:-}"
+          if [ -z "$base_sha" ]; then
+            base_sha="$(git rev-parse origin/main)"
+          fi
+          git cat-file -e "$base_sha^{commit}"
+          git diff --exit-code "$base_sha" HEAD -- apps/web/package.json apps/web/package-lock.json
 
       - name: Verify deployment documentation
         run: |
