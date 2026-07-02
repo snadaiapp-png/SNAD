@@ -14,7 +14,7 @@
 
     <suppress until="2026-10-01Z">
         <notes><![CDATA[The scanned Netty modules are not the affected HTTP/3 codec module.]]></notes>
-        <packageUrl regex="true">^pkg:maven/io\.netty/(netty-buffer|netty-codec|netty-common|netty-transport(-classes-epoll|-native-unix-common)?)@4\.1\.135\.Final$</packageUrl>
+        <packageUrl regex="true">^pkg:maven/io\.netty/(netty-buffer|netty-codec|netty-common|netty-handler|netty-transport(-classes-epoll|-native-unix-common)?)@4\.1\.135\.Final$</packageUrl>
         <cve>CVE-2026-42582</cve>
     </suppress>
 </suppressions>
