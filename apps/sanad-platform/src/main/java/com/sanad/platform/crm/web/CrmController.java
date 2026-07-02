@@ -194,13 +194,6 @@ public class CrmController {
         return crm.timeline(authentication, subjectType, subjectId, limit);
     }
 
-    @Deprecated
-    @RequireCapability("CRM.IMPORT.WRITE")
-    @PostMapping("/imports")
-    public ResponseEntity<Map<String, Object>> createImportJob(Authentication authentication, @Valid @RequestBody CreateImportJobRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(extended.createImportJob(authentication, request));
-    }
-
     @RequireCapability("CRM.IMPORT.WRITE")
     @PostMapping(value = "/imports/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Map<String, Object>> uploadImport(Authentication authentication, @RequestPart("entityType") String entityType, @RequestPart(value = "mapping", required = false) String mapping, @RequestPart("file") MultipartFile file) {
