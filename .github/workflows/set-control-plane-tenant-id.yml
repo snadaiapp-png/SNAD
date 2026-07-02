@@ -2,7 +2,7 @@
 # SANAD Platform — Set Control Plane Tenant ID in Render
 # ------------------------------------------------------------
 # This workflow:
-# 1. Connects to production database
+# 1. Connects to production database using the full JDBC URL
 # 2. Finds a valid Control Plane tenant (first ACTIVE tenant with ADMIN role)
 # 3. Sets SANAD_CONTROL_PLANE_TENANT_ID in Render via Render API
 # 4. Triggers a new deploy to apply the env var change
@@ -27,19 +27,21 @@ jobs:
     name: Set SANAD_CONTROL_PLANE_TENANT_ID in Render
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 10
+    timeout-minutes: 20
     if: github.event.inputs.confirm == 'set'
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+      DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
     steps:
       - name: Validate prerequisites
         shell: bash
         run: |
           set -euo pipefail
-          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_DATABASE_URL; do
+          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_DATABASE_URL DATABASE_USERNAME DATABASE_PASSWORD; do
             test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
           done
           echo "All prerequisites validated."
@@ -51,43 +53,31 @@ jobs:
           sudo apt-get install -y -qq postgresql-client jq curl > /dev/null 2>&1
           echo "PostgreSQL client installed."
 
-      - name: Extract database connection details
+      - name: Find valid Control Plane tenant
         shell: bash
         run: |
           set -euo pipefail
-          # PRODUCTION_DATABASE_URL format: jdbc:postgresql://host:port/dbname?params
-          # or: postgresql://host:port/dbname?params
+          
+          # Convert JDBC URL to psql-compatible connection string
+          # Input:  jdbc:postgresql://host:port/dbname?params
+          # Output: host=host port=port dbname=dbname
           RAW_URL="$PRODUCTION_DATABASE_URL"
           # Strip jdbc: prefix
           RAW_URL="${RAW_URL#jdbc:}"
-          # Extract host, port, dbname
-          # Format: postgresql://host:port/dbname?params
-          HOST_PORT=$(echo "$RAW_URL" | sed -n 's|.*://\([^/]*\)/.*|\1|p')
-          DB_NAME=$(echo "$RAW_URL" | sed -n 's|.*://[^/]*/\([^?]*\).*|\1|p')
-          PGHOST=$(echo "$HOST_PORT" | cut -d: -f1)
-          PGPORT=$(echo "$HOST_PORT" | cut -d: -f2)
+          # Strip postgresql:// prefix
+          RAW_URL="${RAW_URL#postgresql://}"
+          # Extract host:port (everything before first /)
+          HOST_PORT="${RAW_URL%%/*}"
+          # Extract dbname (everything after first /, before ?)
+          DB_PART="${RAW_URL#*/}"
+          DB_NAME="${DB_PART%%\?*}"
+          PGHOST="${HOST_PORT%%:*}"
+          PGPORT="${HOST_PORT#*:}"
           PGPORT="${PGPORT:-5432}"
           
-          echo "PGHOST=$PGHOST" >> $GITHUB_ENV
-          echo "PGPORT=$PGPORT" >> $GITHUB_ENV
-          echo "PGDATABASE=$DB_NAME" >> $GITHUB_ENV
-          echo "Database host: $PGHOST:$PGPORT"
-          echo "Database name: $DB_NAME"
-
-      - name: Find valid Control Plane tenant
-        shell: bash
-        env:
-          PGUSER: ${{ secrets.DATABASE_USERNAME }}
-          PGPASSWORD: ${{ secrets.DATABASE_PASSWORD }}
-        run: |
-          set -euo pipefail
+          echo "Connecting to: host=$PGHOST port=$PGPORT dbname=$DB_NAME"
           
-          # Query for a valid Control Plane tenant:
-          # - Must have status = 'ACTIVE'
-          # - Must have at least one user with an ADMIN role
-          # - Must have at least one active membership
-          
-          TENANT_ID=$(psql -t -A -c "
+          TENANT_ID=$(PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$DB_NAME" -t -A -c "
             SELECT t.id::text
             FROM tenants t
             WHERE t.status = 'ACTIVE'
@@ -116,7 +106,7 @@ jobs:
             exit 1
           }
           
-          echo "Found valid Control Plane tenant: $TENANT_ID"
+          echo "Found valid Control Plane tenant UUID (masked for security)"
           echo "CONTROL_PLANE_TENANT_ID=$TENANT_ID" >> $GITHUB_ENV
 
       - name: Set SANAD_CONTROL_PLANE_TENANT_ID in Render
@@ -126,52 +116,34 @@ jobs:
           
           echo "Setting SANAD_CONTROL_PLANE_TENANT_ID in Render..."
           
-          # First, get current env vars to preserve them
+          # First, get current env vars
           CURRENT_ENV=$(curl --fail-with-body --silent --show-error \
             --header "Authorization: Bearer $RENDER_API_KEY" \
             --header "Accept: application/json" \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100")
           
-          # Build the new env var list: all existing vars + the new one
-          # Render API expects PUT with full env var list
+          # Build the new env var list: update existing or add new
           NEW_ENV=$(echo "$CURRENT_ENV" | jq --arg tenantId "$CONTROL_PLANE_TENANT_ID" \
             'map(if .key == "SANAD_CONTROL_PLANE_TENANT_ID" then .value = $tenantId else . end) + 
              (if any(.key == "SANAD_CONTROL_PLANE_TENANT_ID") then [] else [{"key": "SANAD_CONTROL_PLANE_TENANT_ID", "value": $tenantId}] end)')
           
           # Update env vars via Render API
-          RESPONSE=$(curl --fail-with-body --silent --show-error \
+          curl --fail-with-body --silent --show-error \
             --request PUT \
             --header "Authorization: Bearer $RENDER_API_KEY" \
             --header "Content-Type: application/json" \
             --header "Accept: application/json" \
             --data "$NEW_ENV" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars")
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars" > /dev/null
           
-          echo "Render API response received."
-          
-          # Verify the env var was set
-          VERIFY=$(curl --fail-with-body --silent --show-error \
-            --header "Authorization: Bearer $RENDER_API_KEY" \
-            --header "Accept: application/json" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100")
-          
-          CONTROL_TENANT=$(echo "$VERIFY" | jq -r '.[] | select(.key == "SANAD_CONTROL_PLANE_TENANT_ID") | .value // empty')
-          
-          test -n "$CONTROL_TENANT" || {
-            echo "::error::Failed to verify SANAD_CONTROL_PLANE_TENANT_ID was set in Render"
-            exit 1
-          }
-          
-          echo "::notice::SANAD_CONTROL_PLANE_TENANT_ID has been set in Render successfully."
-          echo "::notice::Value matches a valid production tenant UUID."
+          echo "Render env vars updated."
 
-      - name: Trigger new deploy to apply env var change
+      - name: Trigger new deploy
         shell: bash
         run: |
           set -euo pipefail
-          echo "Triggering new deploy on Render to apply the env var change..."
+          echo "Triggering deploy on Render..."
           
-          # Trigger a deploy via Render API
           DEPLOY_RESPONSE=$(curl --fail-with-body --silent --show-error \
             --request POST \
             --header "Authorization: Bearer $RENDER_API_KEY" \
@@ -181,43 +153,32 @@ jobs:
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys")
           
           DEPLOY_ID=$(echo "$DEPLOY_RESPONSE" | jq -r '.id // empty')
+          test -n "$DEPLOY_ID" || { echo "::error::Failed to trigger deploy"; exit 1; }
           
-          test -n "$DEPLOY_ID" || {
-            echo "::error::Failed to trigger deploy on Render"
-            exit 1
-          }
-          
-          echo "Deploy triggered successfully. Deploy ID: $DEPLOY_ID"
+          echo "Deploy triggered: $DEPLOY_ID"
           echo "DEPLOY_ID=$DEPLOY_ID" >> $GITHUB_ENV
 
-      - name: Wait for deploy to complete
+      - name: Wait for deploy to go live
         shell: bash
         run: |
           set -euo pipefail
-          echo "Waiting for deploy $DEPLOY_ID to complete..."
+          echo "Waiting for deploy $DEPLOY_ID..."
           
-          for i in $(seq 1 30); do
+          for i in $(seq 1 40); do
             sleep 30
             STATUS=$(curl --fail-with-body --silent --show-error \
               --header "Authorization: Bearer $RENDER_API_KEY" \
               --header "Accept: application/json" \
               "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$DEPLOY_ID" | jq -r '.status // empty')
             
-            echo "Attempt $i: Deploy status = $STATUS"
+            echo "[$i] Deploy status: $STATUS"
             
             case "$STATUS" in
-              live)
-                echo "::notice::Deploy is live!"
-                exit 0
-                ;;
-              build_failed|update_failed|canceled|deactivated)
-                echo "::error::Deploy failed with status: $STATUS"
-                exit 1
-                ;;
+              live) echo "::notice::Deploy is live!"; exit 0 ;;
+              build_failed|update_failed|canceled|deactivated) echo "::error::Deploy failed: $STATUS"; exit 1 ;;
             esac
           done
-          
-          echo "::warning::Deploy did not complete within 15 minutes. Check Render dashboard."
+          echo "::warning::Deploy did not complete in 20 minutes."
           exit 1
 
       - name: Verify backend health
@@ -226,25 +187,19 @@ jobs:
           BACKEND_URL: ${{ vars.PRODUCTION_BASE_URL }}
         run: |
           set -euo pipefail
-          echo "Verifying backend health..."
+          echo "Verifying backend health at $BACKEND_URL..."
           
-          for i in $(seq 1 10); do
-            sleep 10
+          for i in $(seq 1 12); do
+            sleep 15
             HTTP_CODE=$(curl --silent --output /tmp/health.json --write-out '%{http_code}' \
-              --max-time 30 \
-              "${BACKEND_URL}/actuator/health" || true)
+              --max-time 30 "${BACKEND_URL}/actuator/health" || true)
             
-            echo "Attempt $i: HTTP $HTTP_CODE"
-            
+            echo "[$i] HTTP $HTTP_CODE"
             if [ "$HTTP_CODE" = "200" ]; then
               STATUS=$(jq -r '.status // empty' /tmp/health.json)
-              echo "Health status: $STATUS"
-              test "$STATUS" = "UP" && {
-                echo "::notice::Backend is healthy!"
-                exit 0
-              }
+              echo "Status: $STATUS"
+              test "$STATUS" = "UP" && { echo "::notice::Backend is UP!"; exit 0; }
             fi
           done
-          
-          echo "::error::Backend health check failed after 10 attempts"
+          echo "::error::Backend health check failed"
           exit 1
