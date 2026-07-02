@@ -1,14 +1,6 @@
 services:
-  backend:
-    environment:
-      OTEL_TRACING_ENABLED: "true"
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
-    depends_on:
-      otel-collector:
-        condition: service_started
-
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.134.0
+    image: otel/opentelemetry-collector-contrib:0.155.0
     profiles: ["crm-platform", "observability"]
     restart: unless-stopped
     command: ["--config=/etc/otelcol-contrib/config.yml"]
