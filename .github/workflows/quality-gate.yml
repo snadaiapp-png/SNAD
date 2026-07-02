@@ -205,15 +205,50 @@ jobs:
             exit 1
           fi
           echo "V20260702_1 reconciler: PASS"
-      - name: Run Flyway V15 Testcontainers integration tests
+      - name: Run Flyway V15 Testcontainers integration tests (both empty-DB and upgrade)
         working-directory: apps/sanad-platform
         env:
           RUN_TESTCONTAINERS_TESTS: "true"
         run: |
-          ./mvnw -B -ntp test -Dtest="FlywayV15TestcontainersIntegrationTest" \
+          # Run BOTH Testcontainers tests: the empty-DB test and the
+          # two-phase upgrade test simulating old production state.
+          ./mvnw -B -ntp test \
+            -Dtest="FlywayV15TestcontainersIntegrationTest,FlywayV15UpgradeTestcontainersIntegrationTest" \
+            -Dsurefire.failIfNoSpecifiedTests=true \
             -Dspring.profiles.active=prod \
             -Dgit.commit="${GITHUB_SHA:-unknown}"
           echo "Flyway V15 Testcontainers tests: PASS"
+      - name: Verify both Testcontainers Surefire reports exist and have 0 failures
+        working-directory: apps/sanad-platform
+        run: |
+          # Both Surefire XML files must exist
+          REPORT_DIR="target/surefire-reports"
+          EMPTY_DB_REPORT="$REPORT_DIR/TEST-com.sanad.platform.api.FlywayV15TestcontainersIntegrationTest.xml"
+          UPGRADE_REPORT="$REPORT_DIR/TEST-com.sanad.platform.api.FlywayV15UpgradeTestcontainersIntegrationTest.xml"
+          
+          if [ ! -f "$EMPTY_DB_REPORT" ]; then
+            echo "FAIL: $EMPTY_DB_REPORT not found"
+            exit 1
+          fi
+          if [ ! -f "$UPGRADE_REPORT" ]; then
+            echo "FAIL: $UPGRADE_REPORT not found"
+            exit 1
+          fi
+          echo "Both Surefire reports exist: PASS"
+          
+          # Extract test counts and verify: tests > 0, failures = 0, errors = 0, skipped = 0
+          for report in "$EMPTY_DB_REPORT" "$UPGRADE_REPORT"; do
+            tests=$(grep -oP 'tests="\K[0-9]+' "$report" | head -1)
+            failures=$(grep -oP 'failures="\K[0-9]+' "$report" | head -1)
+            errors=$(grep -oP 'errors="\K[0-9]+' "$report" | head -1)
+            skipped=$(grep -oP 'skipped="\K[0-9]+' "$report" | head -1)
+            echo "$(basename $report): tests=$tests failures=$failures errors=$errors skipped=$skipped"
+            if [ "$tests" -eq 0 ]; then echo "FAIL: 0 tests in $(basename $report)"; exit 1; fi
+            if [ "$failures" -gt 0 ]; then echo "FAIL: $failures failures in $(basename $report)"; exit 1; fi
+            if [ "$errors" -gt 0 ]; then echo "FAIL: $errors errors in $(basename $report)"; exit 1; fi
+            if [ "$skipped" -gt 0 ]; then echo "FAIL: $skipped skipped in $(basename $report)"; exit 1; fi
+          done
+          echo "All Testcontainers Surefire reports: 0 failures, 0 errors, 0 skipped"
       - name: Verify flyway_schema_history (Stage 03A — no empty-history bypass)
         run: |
           sudo apt-get install -y postgresql-client > /dev/null 2>&1 || true
