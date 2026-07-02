@@ -1,6 +1,7 @@
 package com.sanad.platform.crm.web;
 
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +43,24 @@ class CrmXlsxImportIntegrationTest {
                 tenantId, "xlsx-" + tenantId.toString().substring(0, 8), "XLSX Tenant", now, now);
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)",
                 userId, tenantId, userId + "@example.test", "XLSX User", now, now);
+    }
+
+    @AfterEach
+    void cleanup() {
+        if (tenantId == null) return;
+        for (String table : List.of(
+                "crm_import_errors", "crm_import_files", "crm_custom_field_values",
+                "crm_timeline_events", "crm_activities", "crm_opportunity_stage_history",
+                "crm_leads", "crm_opportunities", "crm_contacts", "crm_pipeline_stages",
+                "crm_pipelines", "crm_accounts", "crm_import_jobs",
+                "crm_custom_field_definitions")) {
+            jdbc.update("DELETE FROM " + table + " WHERE tenant_id=?", tenantId);
+        }
+        jdbc.update("DELETE FROM role_capabilities WHERE tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM roles WHERE tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM users WHERE tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM tenants WHERE id=?", tenantId);
     }
 
     @Test
