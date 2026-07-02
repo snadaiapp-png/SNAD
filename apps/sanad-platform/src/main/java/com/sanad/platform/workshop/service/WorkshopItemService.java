@@ -8,6 +8,7 @@ import com.sanad.platform.workshop.repository.WorkshopWorkItemRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @Service
@@ -49,6 +50,7 @@ public class WorkshopItemService {
         WorkshopWorkItem value = loader.requireItem(tenantId, workshopId, itemId);
         boolean dependenciesReady = graphPolicy.dependenciesSatisfied(tenantId, workshopId, itemId, request.status());
         boolean checklistReady = !activities.existsIncompleteChecklistByTenantIdAndWorkItemId(tenantId, itemId);
-        return mapper.toResponse(value);
+        value.transitionTo(request.status(), request.blockedReason(), dependenciesReady, checklistReady, Instant.now());
+        return mapper.toResponse(items.saveAndFlush(value));
     }
 }
