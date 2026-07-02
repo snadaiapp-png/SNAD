@@ -68,8 +68,9 @@ fi
 info "Verifying JAR: ${JAR_PATH}"
 
 # Use unzip (available in most environments including Alpine)
+# List JAR contents — extract the filename column robustly.
 list_jar() {
-    unzip -l "$JAR_PATH" 2>/dev/null | awk '{print $4}'
+    unzip -Z1 "$JAR_PATH" 2>/dev/null
 }
 
 # --- 1. V15 must exist in source ---

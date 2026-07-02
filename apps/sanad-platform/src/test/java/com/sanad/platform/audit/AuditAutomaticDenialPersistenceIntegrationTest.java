@@ -412,8 +412,11 @@ class AuditAutomaticDenialPersistenceIntegrationTest {
         assertThat(tenantDeniedAfter).as("exactly one new tenant DENIED row")
                 .isEqualTo(tenantDeniedBefore + 1);
 
-        String errorCode = readLatestDeniedErrorCode(fixture.tenantAId());
-        assertThat(errorCode).isEqualTo("TENANT_SELECTOR_MISMATCH");
+        String[] latest = readLatestDeniedAudit(fixture.tenantAId());
+        assertThat(latest[0]).as("action must be TENANT_SELECTOR_MISMATCH").isEqualTo("TENANT_SELECTOR_MISMATCH");
+        assertThat(latest[1]).as("error_code must be SANAD-TEN-002").isEqualTo("SANAD-TEN-002");
+        assertThat(latest[2]).as("failure_reason must contain TENANT_SELECTOR_MISMATCH category")
+                .contains("TENANT_SELECTOR_MISMATCH");
     }
 
     @Test
@@ -435,8 +438,11 @@ class AuditAutomaticDenialPersistenceIntegrationTest {
         int tenantDeniedAfter = countDeniedAuditForTenant(fixture.tenantAId());
         assertThat(tenantDeniedAfter).isEqualTo(tenantDeniedBefore + 1);
 
-        String errorCode = readLatestDeniedErrorCode(fixture.tenantAId());
-        assertThat(errorCode).isEqualTo("ROTATION_REQUIRED");
+        String[] latest = readLatestDeniedAudit(fixture.tenantAId());
+        assertThat(latest[0]).as("action must be ROTATION_REQUIRED").isEqualTo("ROTATION_REQUIRED");
+        assertThat(latest[1]).as("error_code must be SANAD-ROT-001").isEqualTo("SANAD-ROT-001");
+        assertThat(latest[2]).as("failure_reason must contain ROTATION_REQUIRED category")
+                .contains("ROTATION_REQUIRED");
     }
 
     @Test
@@ -459,8 +465,11 @@ class AuditAutomaticDenialPersistenceIntegrationTest {
         int after = countDeniedAuditForTenant(fixture.tenantAId());
         assertThat(after).isGreaterThan(before);
 
-        String errorCode = readLatestDeniedErrorCode(fixture.tenantAId());
-        assertThat(errorCode).isEqualTo("CAPABILITY_DENIED");
+        String[] latest = readLatestDeniedAudit(fixture.tenantAId());
+        assertThat(latest[0]).as("action must be CAPABILITY_DENIED").isEqualTo("CAPABILITY_DENIED");
+        assertThat(latest[1]).as("error_code must be SANAD-SEC-001").isEqualTo("SANAD-SEC-001");
+        assertThat(latest[2]).as("failure_reason must contain CAPABILITY_DENIED category")
+                .contains("CAPABILITY_DENIED");
     }
 
     // === Helper methods ===
@@ -515,8 +524,8 @@ class AuditAutomaticDenialPersistenceIntegrationTest {
         }
     }
 
-    private String readLatestDeniedErrorCode(UUID tenantId) throws Exception {
-        String sql = "SELECT error_code FROM audit_events "
+    private String[] readLatestDeniedAudit(UUID tenantId) throws Exception {
+        String sql = "SELECT action, error_code, failure_reason FROM audit_events "
                 + "WHERE tenant_id = ? AND outcome = 'DENIED' "
                 + "ORDER BY occurred_at DESC, created_at DESC LIMIT 1";
         try (Connection conn = fixtureDataSource.getConnection();
@@ -524,11 +533,20 @@ class AuditAutomaticDenialPersistenceIntegrationTest {
             ps.setObject(1, tenantId);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    return rs.getString("error_code");
+                    return new String[]{
+                            rs.getString("action"),
+                            rs.getString("error_code"),
+                            rs.getString("failure_reason")
+                    };
                 }
             }
         }
         return null;
+    }
+
+    private String readLatestDeniedErrorCode(UUID tenantId) throws Exception {
+        String[] latest = readLatestDeniedAudit(tenantId);
+        return latest != null ? latest[1] : null;
     }
 
     private String extractRequestIdFromBody(MvcResult result) throws Exception {
