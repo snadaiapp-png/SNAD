@@ -219,7 +219,7 @@ class IdempotencyAtomicReservationIntegrationTest {
                 UUID storedId = (UUID) rs.getObject("id");
                 assertThat(storedId)
                         .as("stored row id must equal the winner's returned UUID")
-                        .isEqualTo(winnerGrant);
+                        .isEqualTo(winnerGrant.recordId());
             }
         }
     }

@@ -55,6 +55,9 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.sanad.platform.audit.service.TenantSecurityDenialAuditService tenantDenialAuditService;
+
     /** Safe generic detail returned for unexpected exceptions. */
     public static final String GENERIC_ERROR_DETAIL =
             "An unexpected error occurred. Please retry, and contact support with the request ID if the issue persists.";
@@ -139,6 +142,20 @@ public class GlobalExceptionHandler {
         log.warn("Capability denied: requestId={} path={} tenant={} user={} capability={} reason={}",
                 requestId(), req.getRequestURI(), ex.getTenantId(),
                 ex.getUserId(), ex.getCapabilityCode(), ex.getReason());
+        // Stage 05A.2.8: Record tenant-scoped denial audit (REQUIRES_NEW)
+        try {
+            if (tenantDenialAuditService != null) {
+                tenantDenialAuditService.recordDenial(
+                    "CAPABILITY_DENIED",
+                    "Organization",
+                    "ACCESS",
+                    "SANAD-SEC-001",
+                    "Capability denied: " + ex.getCapabilityCode(),
+                    403);
+            }
+        } catch (Exception auditEx) {
+            log.warn("Failed to record capability denial audit: {}", auditEx.getMessage());
+        }
         return build(ErrorCode.SANAD_SEC_001, "Access denied — capability required: " + ex.getCapabilityCode(), req);
     }
 

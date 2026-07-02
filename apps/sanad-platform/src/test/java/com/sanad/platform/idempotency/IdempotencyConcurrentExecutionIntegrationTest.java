@@ -114,6 +114,7 @@ class IdempotencyConcurrentExecutionIntegrationTest {
         AtomicInteger conflict409 = new AtomicInteger(0);
 
         for (int i = 0; i < THREAD_COUNT; i++) {
+            final int threadNum = i;
             CompletableFuture<Integer> future = CompletableFuture.supplyAsync(() -> {
                 try {
                     startLatch.await();
@@ -125,32 +126,23 @@ class IdempotencyConcurrentExecutionIntegrationTest {
                 // until we get 201 (winner or replay).
                 for (int retry = 0; retry < 200; retry++) {
                     try {
-                        int status = mockMvc.perform(post("/api/v1/organizations")
+                        org.springframework.test.web.servlet.MvcResult result = mockMvc.perform(post("/api/v1/organizations")
                                         .param("tenantId", fixture.tenantAId().toString())
                                         .contentType(MediaType.APPLICATION_JSON)
                                         .content(body)
                                         .header("Authorization", "Bearer " + tokenA)
                                         .header(IdempotencyCommandInterceptor.IDEMPOTENCY_KEY_HEADER, key))
-                                .andReturn().getResponse().getStatus();
+                                .andReturn();
+                        int status = result.getResponse().getStatus();
                         if (status == 201) {
-                            // Could be the original 201 OR a replayed 201.
-                            // Distinguish via the Idempotency-Replayed header.
-                            boolean replayed = "true".equals(
-                                    mockMvc.perform(post("/api/v1/organizations")
-                                                    .param("tenantId", fixture.tenantAId().toString())
-                                                    .contentType(MediaType.APPLICATION_JSON)
-                                                    .content(body)
-                                                    .header("Authorization", "Bearer " + tokenA)
-                                                    .header(IdempotencyCommandInterceptor.IDEMPOTENCY_KEY_HEADER, key))
-                                            .andReturn().getResponse()
-                                            .getHeader(IdempotencyCommandInterceptor.IDEMPOTENCY_REPLAYED_HEADER));
-                            // The second call above will always be a REPLAY now.
-                            // Track the first-call status by incrementing the
-                            // appropriate counter.
-                            if (retry == 0) {
-                                created201.incrementAndGet();
-                            } else {
+                            // Check replay header from the SAME response — no extra POST needed.
+                            String replayedHeader = result.getResponse()
+                                    .getHeader(IdempotencyCommandInterceptor.IDEMPOTENCY_REPLAYED_HEADER);
+                            boolean replayed = "true".equals(replayedHeader);
+                            if (replayed) {
                                 replayed201.incrementAndGet();
+                            } else {
+                                created201.incrementAndGet();
                             }
                             return status;
                         }
@@ -165,8 +157,20 @@ class IdempotencyConcurrentExecutionIntegrationTest {
                             conflict409.incrementAndGet();
                             continue;
                         }
+                        // Unexpected status — log diagnostic details
+                        String responseBody = "";
+                        try {
+                            responseBody = result.getResponse().getContentAsString();
+                        } catch (Exception ignored) {}
+                        System.err.println("Thread " + threadNum + " retry " + retry
+                                + ": unexpected HTTP " + status
+                                + " body=" + responseBody
+                                + " requestId=" + result.getResponse().getHeader("X-Request-Id"));
                         return status;
                     } catch (Exception e) {
+                        System.err.println("Thread " + threadNum + " retry " + retry
+                                + ": exception " + e.getClass().getSimpleName()
+                                + ": " + e.getMessage());
                         throw new RuntimeException(e);
                     }
                 }

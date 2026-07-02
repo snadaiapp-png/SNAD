@@ -43,17 +43,20 @@ public class SecurityConfig {
     private final CorsProperties corsProperties;
     private final Environment environment;
     private final TenantContextProvider tenantContextProvider;
+    private final com.sanad.platform.audit.service.PlatformSecurityDenialAuditService platformDenialAuditService;
 
     public SecurityConfig(JwtTokenProvider jwtTokenProvider,
                           JwtSessionValidationService sessionValidationService,
                           CorsProperties corsProperties,
                           Environment environment,
-                          TenantContextProvider tenantContextProvider) {
+                          TenantContextProvider tenantContextProvider,
+                          com.sanad.platform.audit.service.PlatformSecurityDenialAuditService platformDenialAuditService) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.sessionValidationService = sessionValidationService;
         this.corsProperties = corsProperties;
         this.environment = environment;
         this.tenantContextProvider = tenantContextProvider;
+        this.platformDenialAuditService = platformDenialAuditService;
     }
 
     /**
@@ -88,6 +91,28 @@ public class SecurityConfig {
                 )
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, exception) -> {
+                            // Stage 05A.2.8: Record platform security denial
+                            try {
+                                String reqId = org.slf4j.MDC.get("requestId");
+                                String tokenFp = null;
+                                String authHeader = request.getHeader("Authorization");
+                                if (authHeader != null && authHeader.startsWith("Bearer ")) {
+                                    // Redacted fingerprint — first 8 chars only, no raw JWT
+                                    String rawToken = authHeader.substring(7);
+                                    tokenFp = rawToken.length() > 8 ? rawToken.substring(0, 8) + "..." : "short";
+                                }
+                                String failureCat = "MISSING_JWT";
+                                if (authHeader != null && authHeader.startsWith("Bearer ")) {
+                                    failureCat = "MALFORMED_JWT"; // Will be refined by actual parse failure
+                                }
+                                platformDenialAuditService.recordDenial(
+                                        failureCat, "SANAD-AUTH-001", reqId,
+                                        request.getRequestURI(), request.getMethod(),
+                                        request.getRemoteAddr(), request.getHeader("User-Agent"),
+                                        tokenFp, null);
+                            } catch (Exception auditEx) {
+                                // Don't let audit failure prevent the 401 response
+                            }
                             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                             response.setContentType("application/problem+json");
                             response.getWriter().write(

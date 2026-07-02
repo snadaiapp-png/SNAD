@@ -98,6 +98,7 @@ class IdempotencyResponseRedactionIntegrationTest {
     @Autowired private JwtTokenProvider jwtTokenProvider;
     @Autowired private TenantFixtureSeeder fixtureSeeder;
     @Autowired private IdempotencyService idempotencyService;
+    @Autowired private com.sanad.platform.test.support.IdempotencyCompletionTestTransactionExecutor completionTestExecutor;
     @Autowired private IdempotencyReservationStore store;
     @Autowired private TenantContextProvider contextProvider;
 
@@ -260,7 +261,7 @@ class IdempotencyResponseRedactionIntegrationTest {
                     + "\"password\":\"hunter2\"},"
                     + "\"token\":\"should-be-redacted\"}";
 
-            idempotencyService.completeInTransaction(
+            completionTestExecutor.complete(
                     reserved.id(), reserved.tenantId(), reserved.ownerRequestId(), reserved.leaseVersion(),
                     201, "Content-Type: application/json", nestedJson);
         } finally {
