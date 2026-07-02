@@ -22,6 +22,8 @@ import com.sanad.platform.user.repository.UserRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import javax.sql.DataSource;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -46,6 +48,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class CredentialRotationIntegrationTest {
 
     @Autowired private MockMvc mockMvc;
+    @Autowired private DataSource dataSource;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private TenantRepository tenantRepository;
     @Autowired private UserRepository userRepository;
@@ -66,6 +69,10 @@ class CredentialRotationIntegrationTest {
         roleRepository.deleteAll();
         userRepository.deleteAll();
         organizationRepository.deleteAll();
+        // Stage 05A.2.5: Clean up audit/idempotency tables first (FK ON DELETE RESTRICT)
+        try { new JdbcTemplate(dataSource).execute("DELETE FROM audit_events"); } catch (Exception ignored) {}
+        try { new JdbcTemplate(dataSource).execute("DELETE FROM audit_chain_heads"); } catch (Exception ignored) {}
+        try { new JdbcTemplate(dataSource).execute("DELETE FROM idempotency_records"); } catch (Exception ignored) {}
         tenantRepository.deleteAll();
     }
 

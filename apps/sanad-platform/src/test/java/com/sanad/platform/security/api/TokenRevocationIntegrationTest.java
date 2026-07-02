@@ -30,6 +30,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import javax.sql.DataSource;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -61,6 +63,7 @@ class TokenRevocationIntegrationTest {
     private static final String REFRESH_COOKIE_NAME = "sanad_refresh";
 
     @Autowired private MockMvc mockMvc;
+    @Autowired private DataSource dataSource;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private TenantRepository tenantRepository;
     @Autowired private UserRepository userRepository;
@@ -89,6 +92,10 @@ class TokenRevocationIntegrationTest {
         organizationRepository.deleteAll();
         roleRepository.deleteAll();
         userRepository.deleteAll();
+        // Stage 05A.2.5: Clean up audit/idempotency tables first (FK ON DELETE RESTRICT)
+        try { new JdbcTemplate(dataSource).execute("DELETE FROM audit_events"); } catch (Exception ignored) {}
+        try { new JdbcTemplate(dataSource).execute("DELETE FROM audit_chain_heads"); } catch (Exception ignored) {}
+        try { new JdbcTemplate(dataSource).execute("DELETE FROM idempotency_records"); } catch (Exception ignored) {}
         tenantRepository.deleteAll();
 
         Tenant tenant = new Tenant(

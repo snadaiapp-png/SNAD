@@ -11,6 +11,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import javax.sql.DataSource;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
@@ -65,6 +67,9 @@ class OrganizationTenantIsolationTest {
     private MockMvc mockMvc;
 
     @Autowired
+    private javax.sql.DataSource dataSource;
+
+    @Autowired
     private ObjectMapper objectMapper;
 
     @Autowired
@@ -93,7 +98,11 @@ class OrganizationTenantIsolationTest {
     void tearDown() {
         // Clean up all test data (no @Transactional rollback)
         try {
-            tenantRepository.deleteAll();
+            // Stage 05A.2.5: Clean up audit/idempotency tables first (FK ON DELETE RESTRICT)
+        try { new JdbcTemplate(dataSource).execute("DELETE FROM audit_events"); } catch (Exception ignored) {}
+        try { new JdbcTemplate(dataSource).execute("DELETE FROM audit_chain_heads"); } catch (Exception ignored) {}
+        try { new JdbcTemplate(dataSource).execute("DELETE FROM idempotency_records"); } catch (Exception ignored) {}
+        tenantRepository.deleteAll();
         } catch (Exception e) {
             // Ignore cleanup errors
         }
