@@ -1,0 +1,33 @@
+services:
+  backend:
+    environment:
+      OTEL_TRACING_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.134.0
+    profiles: ["crm-platform", "observability"]
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yml"]
+    volumes:
+      - ./infra/observability/otel-collector.yml:/etc/otelcol-contrib/config.yml:ro
+    networks:
+      - observability
+      - data
+
+  tempo:
+    image: grafana/tempo:2.8.2
+    profiles: ["crm-platform", "observability"]
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yml"]
+    volumes:
+      - ./infra/observability/tempo.yml:/etc/tempo.yml:ro
+      - tempo-data:/var/tempo
+    networks:
+      - observability
+
+volumes:
+  tempo-data:
