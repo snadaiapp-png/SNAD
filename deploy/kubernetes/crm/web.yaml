@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snad-crm-web
+  namespace: snad-crm
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: snad-crm-web
+  template:
+    metadata:
+      labels:
+        app: snad-crm-web
+    spec:
+      containers:
+        - name: web
+          image: snad-crm-web:production
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: snad-crm-web
+  namespace: snad-crm
+spec:
+  selector:
+    app: snad-crm-web
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
