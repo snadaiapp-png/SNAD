@@ -1,8 +1,8 @@
 # SANAD Gate Status
 
-**Program**: SANAD Infrastructure Hardening and Controlled Release Readiness
-**Date**: 2026-07-03
-**Repository Baseline**: Stage 05 merge commit `f16c97297cde39cc4ad899e520b65b7b8b71cc95`
+**Program**: SANAD Infrastructure Hardening, Controlled Release Readiness and Release Authorization  
+**Date**: 2026-07-03  
+**Stage 06 Merge Baseline**: `fab656fda377edfe7e06a43896a4c9806ec6c78b`
 
 ---
 
@@ -21,8 +21,9 @@
 | Security Scan Gate | PASS | Secret and dependency scans passed |
 | Audit and Idempotency Gate | PASS | 63/63 tests, 0 failures, 0 errors |
 | Deployment Runtime Gate | PASS | Container smoke passed |
-| Production Readiness Gate | CERTIFIED FOR CONTROLLED RELEASE PREPARATION | External commercial dependencies remain |
-| Commercial Go-Live Gate | NOT AUTHORIZED | Requires Stage 07 / release authorization |
+| Production Readiness Gate | CERTIFIED FOR CONTROLLED RELEASE PREPARATION | Stage 06 merged |
+| Stage 07 Release Authorization Gate | OPEN | Mandatory internal and external evidence incomplete |
+| Commercial Go-Live Gate | NOT AUTHORIZED | Stage 07 acceptance not achieved |
 
 ---
 
@@ -41,7 +42,7 @@
 
 ## Stage 06 Production Readiness Gate
 
-Stage 06 is certified only for controlled release preparation. It does not authorize commercial production deployment.
+Stage 06 is certified for controlled release preparation and merged through commit `fab656fda377edfe7e06a43896a4c9806ec6c78b`.
 
 | Category | Status | Evidence / Decision |
 |----------|--------|---------------------|
@@ -49,40 +50,43 @@ Stage 06 is certified only for controlled release preparation. It does not autho
 | Rollback governance | PASS | Controlled non-destructive CI drill executed |
 | Database rollback safety | PASS | Flyway reversal and destructive rollback forbidden |
 | Monitoring baseline | CONTROLLED-BASELINE | CI, health, smoke and runtime gates active |
-| Capacity and performance | CONTROLLED-BASELINE | Commercial load/SLA remains Stage 07 dependency |
-| Reliability and availability | EXTERNAL-DEPENDENCY | Paid HA infrastructure not repository-certifiable |
-| Security hardening | PASS | Stage 05 security regression, audit, idempotency, secret scan |
-| Secrets governance | PASS | Secret scan and canary enforcement passed |
-| Compliance | EXTERNAL-DEPENDENCY | External audit/DPA not repository-certifiable |
-| Data residency | DOCUMENTED | Provider and region evidence remains release package item |
-| Incident response | CONTROLLED-BASELINE | Runbook evidence and rollback governance present |
-| Operational runbooks | PASS | Stage 06 readiness package present |
-| Disaster recovery | CONTROLLED-BASELINE | Live DR exercise remains release authorization dependency |
-| Final Go/No-Go | NOT AUTHORIZED | Stage 07 / Release Authorization required |
+| Capacity and performance | CONTROLLED-BASELINE | Commercial load/SLA is a Stage 07 requirement |
+| Reliability and availability | EXTERNAL-DEPENDENCY | Paid HA infrastructure required |
+| Security hardening | PASS | Stage 05 security regression and scans passed |
+| Compliance | EXTERNAL-DEPENDENCY | External audit and DPA required |
+| Disaster recovery | CONTROLLED-BASELINE | Live exercise is a Stage 07 requirement |
 
 ---
 
-## Commercial Go-Live Gate
+## Stage 07 Release Authorization Gate
 
-| Check | Status | Blocker |
-|-------|--------|---------|
-| All repository-certifiable P0/P1 controls | PASS | None |
-| Gitleaks scan clean | PASS | None |
-| Dependency scan | PASS | None |
-| Production infrastructure | EXTERNAL-DEPENDENCY | Paid HA/SLA architecture required |
-| Load tested | CONTROLLED-BASELINE | Commercial SLA load test required in Stage 07 |
-| External security audit | EXTERNAL-DEPENDENCY | Third-party audit required |
-| Uptime SLA achievable | EXTERNAL-DEPENDENCY | Provider tier and HA design required |
-| Data protection compliance | EXTERNAL-DEPENDENCY | DPA/compliance assessment required |
-| Support process active | CONTROLLED-BASELINE | Formal support SLA required before launch |
-| Commercial production release | NOT AUTHORIZED | Separate release decision required |
+Stage 07 is formally open on branch `stage07`.
+
+| Gate | Status | Required closure evidence |
+|---|---:|---|
+| Exact release candidate | PENDING | Candidate SHA and immutable artifact digest |
+| Repository Quality Gate | PENDING | All mandatory jobs green on exact candidate |
+| P0/P1 defect closure | PENDING | Zero P0; zero P1 or approved exceptions |
+| Production HA/SLA | EXTERNAL-DEPENDENCY | Paid provider architecture and approval |
+| Load and capacity | PENDING | Test report meeting proposed SLA |
+| External security assessment | EXTERNAL-DEPENDENCY | Independent report and remediation disposition |
+| Legal and data protection | EXTERNAL-DEPENDENCY | DPA, residency and compliance approval |
+| Backup and restore | PENDING | Measured RPO/RTO restore evidence |
+| Disaster recovery | EXTERNAL-DEPENDENCY | Production-equivalent failover evidence |
+| Provider rollback | EXTERNAL-DEPENDENCY | Non-destructive provider rehearsal |
+| Monitoring and on-call | PENDING | Dashboards, alerts, paging and owners |
+| Support SLA | PENDING | Support model and escalation approval |
+| Final Go/No-Go | NOT AUTHORIZED | Complete accountable approver set |
 
 ---
 
-## Stage 06 Decision
+## Current Decision
 
 ```text
-Stage 06 Status: CERTIFIED FOR CONTROLLED RELEASE PREPARATION
-Commercial Production Release: NOT AUTHORIZED
-Stage 07 / Release Authorization: REQUIRED
+Stage 06: CERTIFIED AND MERGED
+Stage 07: OPEN
+Stage 07 acceptance: NOT ACHIEVED
+Release preparation work: AUTHORIZED
+Commercial production deployment: NOT AUTHORIZED
+Final Go/No-Go: PENDING
 ```
