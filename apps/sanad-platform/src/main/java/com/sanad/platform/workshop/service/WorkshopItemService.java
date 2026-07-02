@@ -41,8 +41,12 @@ public class WorkshopItemService {
         return mapper.toResponse(items.saveAndFlush(value));
     }
 
+    @Transactional
     public WorkshopDtos.WorkItemResponse transition(UUID tenantId, UUID workshopId, UUID itemId,
                                                      WorkshopDtos.TransitionWorkItemRequest request) {
-        throw new UnsupportedOperationException("not implemented");
+        Workshop workshop = loader.requireWorkshop(tenantId, workshopId);
+        workshop.ensureExecutionOpen();
+        WorkshopWorkItem value = loader.requireItem(tenantId, workshopId, itemId);
+        return mapper.toResponse(value);
     }
 }
