@@ -1,11 +1,14 @@
 package com.sanad.platform.workshop.service;
 
 import com.sanad.platform.user.repository.UserRepository;
+import com.sanad.platform.workshop.dto.WorkshopDtos;
 import com.sanad.platform.workshop.repository.WorkshopActivityRepository;
 import com.sanad.platform.workshop.repository.WorkshopAssignmentRepository;
 import com.sanad.platform.workshop.repository.WorkshopDependencyRepository;
 import com.sanad.platform.workshop.repository.WorkshopWorkItemRepository;
 import org.springframework.stereotype.Service;
+
+import java.util.UUID;
 
 @Service
 public class WorkshopApplicationService {
@@ -34,5 +37,10 @@ public class WorkshopApplicationService {
         this.loader = loader;
         this.graphPolicy = graphPolicy;
         this.mapper = mapper;
+    }
+
+    public WorkshopDtos.DependencyResponse link(UUID tenantId, UUID actorId, UUID workshopId,
+                                                UUID successorId, WorkshopDtos.CreateDependencyRequest request) {
+        throw new UnsupportedOperationException("not implemented");
     }
 }
