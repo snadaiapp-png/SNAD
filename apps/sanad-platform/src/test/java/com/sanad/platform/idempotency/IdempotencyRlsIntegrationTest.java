@@ -210,11 +210,13 @@ class IdempotencyRlsIntegrationTest {
             conn.setAutoCommit(false);
             try {
                 // Query WITHOUT setting app.current_tenant_id.
+                // RLS policy: tenant_id = current_setting('app.current_tenant_id', true)::uuid
+                // When the setting is missing, current_setting(..., true) returns NULL,
+                // and the policy evaluates to FALSE for every row — 0 rows visible.
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "SELECT COUNT(*) FROM idempotency_records WHERE id = ?")) {
-                    ps.setObject(1, recordA);
+                        "SELECT COUNT(*) FROM idempotency_records")) {
                     try (ResultSet rs = ps.executeQuery()) {
-                        rs.next();
+                        assertThat(rs.next()).isTrue();
                         int count = rs.getInt(1);
                         assertThat(count)
                                 .as("without tenant context, 0 records must be visible (RLS fail-closed)")
@@ -308,16 +310,14 @@ class IdempotencyRlsIntegrationTest {
                         .isEqualTo(0);
 
                 // Verify the record was NOT modified (still COMPLETED).
-                try (PreparedStatement ps = conn.prepareStatement(
-                        "SELECT status FROM idempotency_records WHERE id = ?")) {
-                    ps.setObject(1, recordB);
-                    try (ResultSet rs = ps.executeQuery()) {
-                        rs.next();
-                        assertThat(rs.getString("status"))
-                                .as("Tenant B's record must remain COMPLETED after cross-tenant UPDATE attempt")
-                                .isEqualTo("COMPLETED");
-                    }
-                }
+                // Under Tenant A's RLS context, Tenant B's record is invisible,
+                // so the SELECT returns 0 rows. Use fixture DS to verify instead.
+                String status = fixtureJdbc.queryForObject(
+                        "SELECT status FROM idempotency_records WHERE id = ?",
+                        String.class, recordB);
+                assertThat(status)
+                        .as("Tenant B's record must remain COMPLETED after cross-tenant UPDATE attempt")
+                        .isEqualTo("COMPLETED");
             } finally {
                 conn.rollback();
             }

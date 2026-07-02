@@ -923,7 +923,7 @@ jobs:
           TENANT_MIGRATION_DATABASE_DRIVER: ${{ env.DATABASE_DRIVER }}
         run: |
           ./mvnw -B -ntp test \
-            -Dtest="AuditMigrationUpgradeIntegrationTest,AuditAutomaticDenialPersistenceIntegrationTest,AuditFirstWriteConcurrencyIntegrationTest,AuditHashChainConcurrencyIntegrationTest,AuditTransactionBoundaryIntegrationTest,IdempotencyAtomicReservationIntegrationTest,IdempotencyLeaseFencingIntegrationTest,IdempotencyProcessingLeaseIntegrationTest,IdempotencyAtomicBusinessCompletionIntegrationTest,IdempotencyProductionResponseCaptureIntegrationTest,IdempotencySameRequestReplayIntegrationTest,IdempotencyConcurrentExecutionIntegrationTest,IdempotencyRlsIntegrationTest,IdempotencyResponseRedactionIntegrationTest" \
+            -Dtest="CapabilityDenialRegressionIntegrationTest,AuditMigrationUpgradeIntegrationTest,AuditAutomaticDenialPersistenceIntegrationTest,AuditHashCanonicalizationIntegrationTest,AuditFirstWriteConcurrencyIntegrationTest,AuditHashChainConcurrencyIntegrationTest,AuditTransactionBoundaryIntegrationTest,IdempotencyRuntimeDataSourceIntegrationTest,IdempotencyAtomicReservationIntegrationTest,IdempotencyLeaseFencingIntegrationTest,IdempotencyProcessingLeaseIntegrationTest,IdempotencyAtomicBusinessCompletionIntegrationTest,IdempotencyProductionResponseCaptureIntegrationTest,IdempotencySameRequestReplayIntegrationTest,IdempotencyConcurrentExecutionIntegrationTest,IdempotencyRlsIntegrationTest,IdempotencyResponseRedactionIntegrationTest" \
             -Dspring.profiles.active=tenant-postgres-test \
             -Ddatabase.url="${DATABASE_URL}" \
             -Ddatabase.username="${DATABASE_USERNAME}" \
