@@ -32,7 +32,8 @@ public class IdempotentBusinessTransactionExecutor {
     @Transactional(propagation = Propagation.REQUIRED)
     public <T> IdempotentHttpResult<T> executeBusinessTransaction(
             LeaseGrant grant, String operation, String resourceType, Supplier<T> businessAction) {
-        return executeBusinessTransaction(grant, operation, resourceType, 201, businessAction);
+        int status = operation != null && operation.endsWith(".CREATE") ? 201 : 200;
+        return executeBusinessTransaction(grant, operation, resourceType, status, businessAction);
     }
 
     @Transactional(propagation = Propagation.REQUIRED)
