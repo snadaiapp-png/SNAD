@@ -2,6 +2,7 @@ package com.sanad.platform.workshop.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.idempotency.IdempotencyCommandInterceptor;
+import com.sanad.platform.idempotency.IdempotentOperation;
 import com.sanad.platform.idempotency.service.IdempotentCommandExecutor;
 import com.sanad.platform.idempotency.service.IdempotentHttpResult;
 import com.sanad.platform.security.authorization.RequireCapability;
@@ -13,6 +14,7 @@ import com.sanad.platform.workshop.service.WorkshopItemService;
 import com.sanad.platform.workshop.service.WorkshopLifecycleService;
 import com.sanad.platform.workshop.service.WorkshopReadService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -22,6 +24,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -51,6 +55,17 @@ public class WorkshopResource {
         this.tenants = tenants;
         this.commands = commands;
         this.json = json;
+    }
+
+    @PostMapping
+    @RequireCapability("WORKSHOP.CREATE")
+    @IdempotentOperation(operation = "WORKSHOP.CREATE", resourceType = "Workshop")
+    public ResponseEntity<?> create(HttpServletRequest request,
+                                    @Valid @RequestBody WorkshopDtos.CreateWorkshopRequest body) {
+        UUID tenantId = tenants.requireTenantId();
+        UUID userId = tenants.requireUserId();
+        return run(request, "WORKSHOP.CREATE", "Workshop", body,
+                () -> lifecycle.create(tenantId, userId, body));
     }
 
     @GetMapping
