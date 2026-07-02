@@ -3,6 +3,7 @@ package com.sanad.platform.crm.web;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,6 +55,25 @@ class CrmImportAndCustomFieldIntegrationTest {
         userB = UUID.randomUUID();
         seedIdentity(tenantA, userA, "a");
         seedIdentity(tenantB, userB, "b");
+    }
+
+    @AfterEach
+    void cleanup() {
+        if (tenantA == null || tenantB == null) return;
+        Object[] tenants = {tenantA, tenantB};
+        for (String table : List.of(
+                "crm_import_errors", "crm_import_files", "crm_custom_field_values",
+                "crm_timeline_events", "crm_activities", "crm_opportunity_stage_history",
+                "crm_leads", "crm_opportunities", "crm_contacts", "crm_pipeline_stages",
+                "crm_pipelines", "crm_accounts", "crm_import_jobs",
+                "crm_custom_field_definitions")) {
+            jdbc.update("DELETE FROM " + table + " WHERE tenant_id IN (?,?)", tenants);
+        }
+        jdbc.update("DELETE FROM role_capabilities WHERE tenant_id IN (?,?)", tenants);
+        jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id IN (?,?)", tenants);
+        jdbc.update("DELETE FROM roles WHERE tenant_id IN (?,?)", tenants);
+        jdbc.update("DELETE FROM users WHERE tenant_id IN (?,?)", tenants);
+        jdbc.update("DELETE FROM tenants WHERE id IN (?,?)", tenants);
     }
 
     @Test
