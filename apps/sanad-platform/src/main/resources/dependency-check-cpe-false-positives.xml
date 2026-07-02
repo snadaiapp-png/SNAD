@@ -15,10 +15,10 @@
         <notes><![CDATA[
             JetBrains documents CVE-2020-29582 as resolved in Kotlin 1.4.21.
             The scanned components are fixed Kotlin 1.9.25 standard-library
-            modules. The correction is restricted to these exact package names,
-            version, and CVE.
+            modules. The correction is restricted to the base, JDK7, and JDK8
+            package names at the exact version and CVE.
         ]]></notes>
-        <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/kotlin-stdlib(-jdk7)?@1\.9\.25$</packageUrl>
+        <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/kotlin-stdlib(-jdk7|-jdk8)?@1\.9\.25$</packageUrl>
         <cve>CVE-2020-29582</cve>
     </suppress>
 
@@ -27,10 +27,10 @@
             GHSA-2c5c-chwr-9hqw affects io.netty:netty-codec-http3 from
             4.2.0.Final through 4.2.12.Final. The scanned components are
             transport modules on the distinct 4.1.135.Final branch. The generic
-            Netty CPE association is corrected only for these exact package
-            identities and CVE.
+            Netty CPE association is corrected only for the exact Java transport,
+            epoll-classes, and native-unix-common package identities and CVE.
         ]]></notes>
-        <packageUrl regex="true">^pkg:maven/io\.netty/netty-transport(-classes-epoll)?@4\.1\.135\.Final$</packageUrl>
+        <packageUrl regex="true">^pkg:maven/io\.netty/netty-transport(-classes-epoll|-native-unix-common)?@4\.1\.135\.Final$</packageUrl>
         <cve>CVE-2026-42582</cve>
     </suppress>
 </suppressions>
