@@ -23,9 +23,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(AccessApiExceptionHandler.class)
 class CapabilityEvaluationControllerTest {
 
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.sanad.platform.audit.service.TenantSecurityDenialAuditService tenantSecurityDenialAuditService;
+
     @Autowired private MockMvc mockMvc;
-    @MockBean private CapabilityEvaluationService evaluationService;
-    @MockBean private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
+    @MockBean private CapabilityEvaluationService evaluationService;     @MockBean private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
     private final UUID tenantId = UUID.randomUUID();
     private final UUID userId = UUID.randomUUID();

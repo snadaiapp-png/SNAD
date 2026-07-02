@@ -44,19 +44,22 @@ public class SecurityConfig {
     private final Environment environment;
     private final TenantContextProvider tenantContextProvider;
     private final com.sanad.platform.audit.service.PlatformSecurityDenialAuditService platformDenialAuditService;
+    private final com.sanad.platform.audit.service.SecurityTokenFingerprintService tokenFingerprintService;
 
     public SecurityConfig(JwtTokenProvider jwtTokenProvider,
                           JwtSessionValidationService sessionValidationService,
                           CorsProperties corsProperties,
                           Environment environment,
                           TenantContextProvider tenantContextProvider,
-                          com.sanad.platform.audit.service.PlatformSecurityDenialAuditService platformDenialAuditService) {
+                          com.sanad.platform.audit.service.PlatformSecurityDenialAuditService platformDenialAuditService,
+                          com.sanad.platform.audit.service.SecurityTokenFingerprintService tokenFingerprintService) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.sessionValidationService = sessionValidationService;
         this.corsProperties = corsProperties;
         this.environment = environment;
         this.tenantContextProvider = tenantContextProvider;
         this.platformDenialAuditService = platformDenialAuditService;
+        this.tokenFingerprintService = tokenFingerprintService;
     }
 
     /**
@@ -91,19 +94,17 @@ public class SecurityConfig {
                 )
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, exception) -> {
-                            // Stage 05A.2.8: Record platform security denial
+                            // Stage 05A.2.9: Record platform security denial with safe fingerprint
                             try {
                                 String reqId = org.slf4j.MDC.get("requestId");
                                 String tokenFp = null;
                                 String authHeader = request.getHeader("Authorization");
-                                if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                                    // Redacted fingerprint — first 8 chars only, no raw JWT
-                                    String rawToken = authHeader.substring(7);
-                                    tokenFp = rawToken.length() > 8 ? rawToken.substring(0, 8) + "..." : "short";
-                                }
                                 String failureCat = "MISSING_JWT";
                                 if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                                    failureCat = "MALFORMED_JWT"; // Will be refined by actual parse failure
+                                    String rawToken = authHeader.substring(7);
+                                    // SHA-256 fingerprint — never store raw token or prefix
+                                    tokenFp = tokenFingerprintService.fingerprint(rawToken);
+                                    failureCat = "MALFORMED_JWT";
                                 }
                                 platformDenialAuditService.recordDenial(
                                         failureCat, "SANAD-AUTH-001", reqId,
@@ -111,7 +112,11 @@ public class SecurityConfig {
                                         request.getRemoteAddr(), request.getHeader("User-Agent"),
                                         tokenFp, null);
                             } catch (Exception auditEx) {
-                                // Don't let audit failure prevent the 401 response
+                                // Log ERROR but don't prevent 401 response
+                                org.slf4j.LoggerFactory.getLogger("SecurityConfig")
+                                    .error("Failed to record platform denial audit: requestId={} path={} exception={}",
+                                        org.slf4j.MDC.get("requestId"), request.getRequestURI(),
+                                        auditEx.getClass().getSimpleName());
                             }
                             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                             response.setContentType("application/problem+json");

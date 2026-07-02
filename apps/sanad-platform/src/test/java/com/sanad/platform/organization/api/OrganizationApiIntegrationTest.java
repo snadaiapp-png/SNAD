@@ -77,6 +77,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class OrganizationApiIntegrationTest {
 
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.sanad.platform.audit.service.TenantSecurityDenialAuditService tenantSecurityDenialAuditService;
+
     @Autowired
     private MockMvc mockMvc;
 

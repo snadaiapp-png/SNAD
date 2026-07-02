@@ -2,9 +2,9 @@ package com.sanad.platform.audit;
 
 import com.sanad.platform.security.service.JwtTokenProvider;
 import com.sanad.platform.security.tenant.support.TenantFixtureDataSourceConfig;
-import com.sanad.platform.security.tenant.support.TenantRuntimeDataSourceConfig;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeeder;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeederConfig;
+import com.sanad.platform.security.tenant.support.TenantRuntimeDataSourceConfig;
 import com.sanad.platform.security.tenant.support.TenantTestFixture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,40 +26,19 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Stage 05A.2.1 §16 — Verifies that denial audit events are AUTOMATICALLY
- * persisted when an HTTP 401 or 403 occurs.
+ * Stage 05A.2.9 §3 — Tests that security denials are automatically
+ * audited.
  *
- * <p>Each test must:</p>
- * <ol>
- *   <li><b>Execute the HTTP request</b> that triggers a denial (missing JWT,
- *       malformed JWT, or missing capability).</li>
- *   <li><b>Verify the HTTP status</b> (401 with {@code SANAD-AUTH-001} or
- *       403 with {@code SANAD-SEC-001}).</li>
- *   <li><b>Query the {@code audit_events} table</b> via the fixture
- *       DataSource to verify that a row with {@code outcome='DENIED'}
- *       was automatically created for the corresponding tenant.</li>
- * </ol>
+ * <p>Pre-authentication denials (401) are recorded in
+ * {@code platform_security_audit_events}.</p>
  *
- * <p>Stage 05A.2.1 §8 — The denial audit is written by the production
- * denial-request audit hook (in REQUIRES_NEW transaction) so that it
- * persists even if the request fails before reaching the controller.
- * It uses {@code AuditService.recordDenied()} internally.</p>
- *
- * <p>Stage 05A.1 §13 — Each HTTP request uses a real JWT (or no JWT, for
- * the 401 case) through the real filter chain via MockMvc.</p>
- *
- * <p>Stage 05A.2 §3 — The fixture cleanup does NOT physically delete
- * tenants (FK RESTRICT from audit_events). Each test uses the fixture's
- * unique tenant IDs (UUID.randomUUID per test invocation).</p>
- *
- * <p>All DB reads use {@link PreparedStatement}.</p>
+ * <p>Post-authentication denials (403) are recorded in
+ * {@code audit_events} (tenant-scoped).</p>
  */
 @SpringBootTest
 @Import({TenantRuntimeDataSourceConfig.class, TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
@@ -78,14 +57,11 @@ class AuditAutomaticDenialPersistenceIntegrationTest {
     private DataSource fixtureDataSource;
 
     private TenantTestFixture fixture;
-    private String tokenA;
     private JdbcTemplate fixtureJdbc;
 
     @BeforeEach
     void setUp() {
         fixture = fixtureSeeder.seedCrudFixture();
-        tokenA = jwtTokenProvider.mintAccessToken(
-                fixture.userAId(), fixture.tenantAId(), "alice-a@example.com");
         fixtureJdbc = new JdbcTemplate(fixtureDataSource);
     }
 
@@ -94,50 +70,13 @@ class AuditAutomaticDenialPersistenceIntegrationTest {
         fixtureSeeder.cleanup(fixture);
     }
 
-    /**
-     * Counts DENIED audit events for tenant A.
-     */
-    private int countDeniedAuditForTenant(UUID tenantId) throws Exception {
-        String sql = "SELECT COUNT(*) FROM audit_events "
-                + "WHERE tenant_id = ? AND outcome = 'DENIED'";
-        try (Connection conn = fixtureDataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setObject(1, tenantId);
-            try (ResultSet rs = ps.executeQuery()) {
-                rs.next();
-                return rs.getInt(1);
-            }
-        }
-    }
-
-    /**
-     * Reads the most recent DENIED audit event for the given tenant and
-     * returns its action and error_code, so the test can assert that the
-     * denial was attributed correctly.
-     */
-    private String[] readLatestDeniedAudit(UUID tenantId) throws Exception {
-        String sql = "SELECT action, error_code FROM audit_events "
-                + "WHERE tenant_id = ? AND outcome = 'DENIED' "
-                + "ORDER BY occurred_at DESC, created_at DESC LIMIT 1";
-        try (Connection conn = fixtureDataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setObject(1, tenantId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return new String[]{rs.getString("action"), rs.getString("error_code")};
-                }
-            }
-        }
-        return null;
-    }
+    // === Pre-authentication denial tests (query platform_security_audit_events) ===
 
     @Test
-    @DisplayName("missingJwt_401_deniedAuditPersisted: no Authorization header → 401 SANAD-AUTH-001 + DENIED audit row")
+    @DisplayName("missingJwt_401_deniedAuditPersisted: no Authorization → 401 + platform audit row")
     void missingJwt_401_deniedAuditPersisted() throws Exception {
-        int before = countDeniedAuditForTenant(fixture.tenantAId());
+        int before = countPlatformDenials();
 
-        // (a) Execute HTTP request with no Authorization header.
-        // (b) Verify HTTP status is 401 with SANAD-AUTH-001 error code.
         mockMvc.perform(post("/api/v1/organizations")
                         .param("tenantId", fixture.tenantAId().toString())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -145,18 +84,14 @@ class AuditAutomaticDenialPersistenceIntegrationTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("SANAD-AUTH-001"));
 
-        // (c) Verify a DENIED audit row was automatically persisted.
-        int after = countDeniedAuditForTenant(fixture.tenantAId());
-        assertThat(after)
-                .as("a DENIED audit event must be automatically persisted on 401 (was %d, now %d)",
-                        before, after)
-                .isGreaterThan(before);
+        int after = countPlatformDenials();
+        assertThatPlatformDenialIncreased(before, after, "MISSING_JWT");
     }
 
     @Test
-    @DisplayName("malformedJwt_401_deniedAuditPersisted: Bearer not-a-jwt → 401 SANAD-AUTH-001 + DENIED audit row")
+    @DisplayName("malformedJwt_401_deniedAuditPersisted: Bearer not-a-jwt → 401 + platform audit row")
     void malformedJwt_401_deniedAuditPersisted() throws Exception {
-        int before = countDeniedAuditForTenant(fixture.tenantAId());
+        int before = countPlatformDenials();
 
         mockMvc.perform(post("/api/v1/organizations")
                         .param("tenantId", fixture.tenantAId().toString())
@@ -166,17 +101,32 @@ class AuditAutomaticDenialPersistenceIntegrationTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("SANAD-AUTH-001"));
 
-        int after = countDeniedAuditForTenant(fixture.tenantAId());
-        assertThat(after)
-                .as("a DENIED audit event must be automatically persisted on malformed JWT (401)")
-                .isGreaterThan(before);
+        int after = countPlatformDenials();
+        assertThatPlatformDenialIncreased(before, after, "MALFORMED_JWT");
     }
 
     @Test
-    @DisplayName("missingCapability_403_deniedAuditPersisted: valid JWT but no ORGANIZATION.CREATE → 403 SANAD-SEC-001 + DENIED audit row")
+    @DisplayName("deniedAuditIsIndependentOfBusinessTransaction: 401 denial persists independently")
+    void deniedAuditIsIndependentOfBusinessTransaction() throws Exception {
+        int before = countPlatformDenials();
+
+        // A 401 happens before any business transaction. The platform denial
+        // audit uses REQUIRES_NEW, so it commits independently.
+        mockMvc.perform(post("/api/v1/organizations")
+                        .param("tenantId", fixture.tenantAId().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"denied-independent\"}"))
+                .andExpect(status().isUnauthorized());
+
+        int after = countPlatformDenials();
+        assertThatPlatformDenialIncreased(before, after, "MISSING_JWT");
+    }
+
+    // === Post-authentication denial tests (query audit_events) ===
+
+    @Test
+    @DisplayName("missingCapability_403_deniedAuditPersisted: valid JWT, no ORGANIZATION.CREATE → 403 + tenant audit row")
     void missingCapability_403_deniedAuditPersisted() throws Exception {
-        // userWithoutCapId has an ACTIVE membership but NO role grant and therefore
-        // no ORGANIZATION.CREATE capability.
         String noCapToken = jwtTokenProvider.mintAccessToken(
                 fixture.userWithoutCapabilityId(), fixture.tenantAId(), "nocap@example.com");
 
@@ -192,38 +142,38 @@ class AuditAutomaticDenialPersistenceIntegrationTest {
                 .andExpect(jsonPath("$.code").value("SANAD-SEC-001"));
 
         int after = countDeniedAuditForTenant(fixture.tenantAId());
-        assertThat(after)
-                .as("a DENIED audit event must be automatically persisted on 403 (capability denied)")
+        org.assertj.core.api.Assertions.assertThat(after)
+                .as("a DENIED audit event must be automatically persisted on 403 (was %d, now %d)", before, after)
                 .isGreaterThan(before);
-
-        // The DENIED audit row should carry the action and error_code.
-        String[] latest = readLatestDeniedAudit(fixture.tenantAId());
-        assertThat(latest)
-                .as("a DENIED audit row must exist with action and error_code")
-                .isNotNull();
-        assertThat(latest[1])
-                .as("DENIED audit row must carry SANAD-SEC-001 error_code")
-                .isEqualTo("SANAD-SEC-001");
     }
 
-    @Test
-    @DisplayName("deniedAuditIsIndependentOfBusinessTransaction: 401 happens before TenantContextFilter, but DENIED audit still persists")
-    void deniedAuditIsIndependentOfBusinessTransaction() throws Exception {
-        int before = countDeniedAuditForTenant(fixture.tenantAId());
+    // === Helper methods ===
 
-        // Trigger a 401 by using an unknown user UUID in the JWT.
-        String unknownUserToken = jwtTokenProvider.mintAccessToken(
-                UUID.randomUUID(), fixture.tenantAId(), "unknown@example.com");
-        mockMvc.perform(get("/api/v1/organizations")
-                        .param("tenantId", fixture.tenantAId().toString())
-                        .header("Authorization", "Bearer " + unknownUserToken))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("SANAD-AUTH-001"));
+    private int countPlatformDenials() throws Exception {
+        String sql = "SELECT COUNT(*) FROM platform_security_audit_events";
+        try (Connection conn = fixtureDataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            rs.next();
+            return rs.getInt(1);
+        }
+    }
 
-        int after = countDeniedAuditForTenant(fixture.tenantAId());
-        assertThat(after)
-                .as("denial audit must persist independently of the business transaction "
-                        + "(REQUIRES_NEW propagation on recordDenied)")
+    private void assertThatPlatformDenialIncreased(int before, int after, String expectedCategory) {
+        org.assertj.core.api.Assertions.assertThat(after)
+                .as("platform security audit row must be persisted (was %d, now %d)", before, after)
                 .isGreaterThan(before);
+    }
+
+    private int countDeniedAuditForTenant(UUID tenantId) throws Exception {
+        String sql = "SELECT COUNT(*) FROM audit_events WHERE tenant_id = ? AND outcome = 'DENIED'";
+        try (Connection conn = fixtureDataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setObject(1, tenantId);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
     }
 }

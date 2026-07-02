@@ -25,12 +25,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(MembershipAssignmentApiExceptionHandler.class)
 class OrganizationMembershipAssignmentControllerTest {
 
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.sanad.platform.audit.service.TenantSecurityDenialAuditService tenantSecurityDenialAuditService;
+
     @Autowired
     private MockMvc mockMvc;
-    @MockBean
-    private OrganizationMembershipUserLinkService assignmentService;
-    @MockBean
-    private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
+    @MockBean     private OrganizationMembershipUserLinkService assignmentService;
+    @MockBean     private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
     private final UUID tenantId = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private final UUID organizationId = UUID.fromString("22222222-2222-2222-2222-222222222222");

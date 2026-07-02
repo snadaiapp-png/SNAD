@@ -36,6 +36,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc(addFilters = false)
 @Import(OrganizationMembershipApiExceptionHandler.class)
 class OrganizationMembershipControllerTest {
+
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.sanad.platform.audit.service.TenantSecurityDenialAuditService tenantSecurityDenialAuditService;
     @org.junit.jupiter.api.BeforeEach
     void mockTenantResolver() {
         org.mockito.Mockito.when(tenantResolver.requireTenantId()).thenReturn(tenantId);
@@ -49,11 +52,9 @@ class OrganizationMembershipControllerTest {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @MockBean
-    private OrganizationMembershipService membershipService;
+    @MockBean     private OrganizationMembershipService membershipService;
 
-    @MockBean
-    private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
+    @MockBean     private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
     private final UUID tenantId = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private final UUID organizationId = UUID.fromString("22222222-2222-2222-2222-222222222222");

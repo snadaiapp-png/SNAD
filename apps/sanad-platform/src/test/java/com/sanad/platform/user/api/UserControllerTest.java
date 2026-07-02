@@ -40,16 +40,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(UserApiExceptionHandler.class)
 class UserControllerTest {
 
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.sanad.platform.audit.service.TenantSecurityDenialAuditService tenantSecurityDenialAuditService;
+
     @Autowired
     private MockMvc mockMvc;
 
     @Autowired
     private ObjectMapper objectMapper;
 
-    @MockBean
-    private UserService userService;
-    @MockBean
-    private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
+    @MockBean     private UserService userService;
+    @MockBean     private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
     private final UUID tenantId = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private final UUID userId = UUID.fromString("22222222-2222-2222-2222-222222222222");

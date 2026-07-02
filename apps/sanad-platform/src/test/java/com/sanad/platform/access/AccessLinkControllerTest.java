@@ -24,11 +24,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(AccessApiExceptionHandler.class)
 class AccessLinkControllerTest {
 
-    @Autowired private MockMvc mockMvc;
-    @MockBean private RoleCapabilityService mappingService;
-    @MockBean private UserRoleGrantService grantService;
-    @MockBean private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.sanad.platform.audit.service.TenantSecurityDenialAuditService tenantSecurityDenialAuditService;
 
+    @Autowired private MockMvc mockMvc;
+    @MockBean private RoleCapabilityService mappingService;     @MockBean private UserRoleGrantService grantService;
+    @MockBean private com.sanad.platform.security.tenant.TenantResolver tenantResolver; 
     private final UUID tenantId = UUID.randomUUID();
     private final UUID roleId = UUID.randomUUID();
     private final UUID capabilityId = UUID.randomUUID();

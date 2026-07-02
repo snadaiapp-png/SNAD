@@ -55,7 +55,7 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @org.springframework.beans.factory.annotation.Autowired
     private com.sanad.platform.audit.service.TenantSecurityDenialAuditService tenantDenialAuditService;
 
     /** Safe generic detail returned for unexpected exceptions. */
@@ -157,6 +157,31 @@ public class GlobalExceptionHandler {
             log.warn("Failed to record capability denial audit: {}", auditEx.getMessage());
         }
         return build(ErrorCode.SANAD_SEC_001, "Access denied — capability required: " + ex.getCapabilityCode(), req);
+    }
+
+    // ------------------------------------------------------------------
+    // Stage 05A.2.9 §10 — Idempotency HTTP semantics
+    // ------------------------------------------------------------------
+
+    @ExceptionHandler(com.sanad.platform.idempotency.service.IdempotentCommandExecutor.IdempotencyPayloadConflictException.class)
+    public ResponseEntity<ApiErrorResponse> handleIdempotencyConflict(
+            com.sanad.platform.idempotency.service.IdempotentCommandExecutor.IdempotencyPayloadConflictException ex,
+            HttpServletRequest req) {
+        return build(ErrorCode.SANAD_IDEMP_002, "Idempotency key conflict — payload mismatch", req);
+    }
+
+    @ExceptionHandler(com.sanad.platform.idempotency.service.IdempotentCommandExecutor.IdempotencyInProgressException.class)
+    public ResponseEntity<ApiErrorResponse> handleIdempotencyInProgress(
+            com.sanad.platform.idempotency.service.IdempotentCommandExecutor.IdempotencyInProgressException ex,
+            HttpServletRequest req) {
+        return build(ErrorCode.SANAD_IDEMP_003, "Request is still processing — retry later", req);
+    }
+
+    @ExceptionHandler(com.sanad.platform.idempotency.service.IdempotentCommandExecutor.IdempotencyExpiredException.class)
+    public ResponseEntity<ApiErrorResponse> handleIdempotencyExpired(
+            com.sanad.platform.idempotency.service.IdempotentCommandExecutor.IdempotencyExpiredException ex,
+            HttpServletRequest req) {
+        return build(ErrorCode.SANAD_IDEMP_004, "Idempotency record has expired", req);
     }
 
     @ExceptionHandler(InvalidPaginationException.class)

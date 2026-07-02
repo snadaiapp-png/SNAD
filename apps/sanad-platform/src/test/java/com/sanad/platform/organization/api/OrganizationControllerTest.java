@@ -57,6 +57,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc(addFilters = false)
 @Import(OrganizationApiExceptionHandler.class)
 class OrganizationControllerTest {
+
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.sanad.platform.audit.service.TenantSecurityDenialAuditService tenantSecurityDenialAuditService;
     @org.junit.jupiter.api.BeforeEach
     void mockTenantResolver() {
         org.mockito.Mockito.when(tenantResolver.requireTenantId()).thenReturn(tenantId);
@@ -70,14 +73,11 @@ class OrganizationControllerTest {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @MockBean
-    private OrganizationService organizationService;
+    @MockBean     private OrganizationService organizationService;
 
-    @MockBean
-    private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
+    @MockBean     private com.sanad.platform.security.tenant.TenantResolver tenantResolver;
 
-    @MockBean
-    private com.sanad.platform.idempotency.service.IdempotentCommandExecutor idempotentCommandExecutor;
+    @MockBean     private com.sanad.platform.idempotency.service.IdempotentCommandExecutor idempotentCommandExecutor;
 
     @org.junit.jupiter.api.BeforeEach
     void setupIdempotencyMock() {
