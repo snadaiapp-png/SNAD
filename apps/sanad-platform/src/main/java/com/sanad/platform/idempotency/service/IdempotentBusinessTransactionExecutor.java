@@ -12,13 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Map;
 import java.util.function.Supplier;
 
-/**
- * Stage 05A.2.6 §6 — Separate bean for Transaction B.
- *
- * <p>Executes business mutation + audit + idempotency completion atomically.
- * The stored response uses an explicit safe-header allowlist; sensitive
- * request/response headers are never copied into the replay record.</p>
- */
 @Component
 public class IdempotentBusinessTransactionExecutor {
 
@@ -38,26 +31,22 @@ public class IdempotentBusinessTransactionExecutor {
 
     @Transactional(propagation = Propagation.REQUIRED)
     public <T> IdempotentHttpResult<T> executeBusinessTransaction(
-            LeaseGrant grant,
-            String operation,
-            String resourceType,
-            Supplier<T> businessAction) {
+            LeaseGrant grant, String operation, String resourceType, Supplier<T> businessAction) {
+        return executeBusinessTransaction(grant, operation, resourceType, 201, businessAction);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRED)
+    public <T> IdempotentHttpResult<T> executeBusinessTransaction(
+            LeaseGrant grant, String operation, String resourceType,
+            int httpStatus, Supplier<T> businessAction) {
 
         T result = businessAction.get();
-
         String responseBody = serializer.serializeResponse(result);
-        int httpStatus = 201;
-
-        // Explicit allowlist. Do not capture servlet headers because they may
-        // contain Set-Cookie, Authorization, proxy credentials, or tracing
-        // material that must never be persisted for replay.
-        Map<String, String> headers = Map.of(
-                "Content-Type", "application/json"
-        );
-
+        Map<String, String> headers = Map.of("Content-Type", "application/json");
         java.util.UUID resourceId = extractResourceId(result);
+
         auditService.record(AuditContext.builder(
-                        operation, resourceType, "CREATE")
+                        operation, resourceType, httpStatus == 201 ? "CREATE" : "UPDATE")
                 .resourceId(resourceId != null ? resourceId.toString() : null)
                 .outcome(AuditOutcome.SUCCESS)
                 .httpStatus(httpStatus)
@@ -71,8 +60,7 @@ public class IdempotentBusinessTransactionExecutor {
 
         log.debug("Idempotent command completed recordId={} leaseVersion={} status={}",
                 grant.recordId(), grant.leaseVersion(), httpStatus);
-        return new IdempotentHttpResult<>(
-                httpStatus, headers, responseBody,
+        return new IdempotentHttpResult<>(httpStatus, headers, responseBody,
                 resourceId, false, grant.leaseVersion(), result);
     }
 
