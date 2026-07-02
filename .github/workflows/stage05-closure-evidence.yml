@@ -1,0 +1,154 @@
+name: Stage 05 Closure Evidence
+
+on:
+  push:
+    branches:
+      - infra/05-final-radical-closure
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: stage05-closure-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish-evidence:
+    name: publish-stage05-evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_PR: "213"
+      TARGET_WORKFLOW: "quality-gate.yml"
+    steps:
+      - name: Resolve Quality Gate run for exact SHA
+        id: resolve
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          RUN_ID=""
+          for attempt in $(seq 1 30); do
+            RUN_ID=$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/${TARGET_WORKFLOW}/runs?branch=${GITHUB_REF_NAME}&event=push&per_page=50" \
+              --jq ".workflow_runs[] | select(.head_sha == \"${GITHUB_SHA}\") | .id" \
+              | head -n1 || true)
+            if [ -n "$RUN_ID" ]; then break; fi
+            sleep 10
+          done
+          if [ -z "$RUN_ID" ]; then
+            echo "Unable to resolve Quality Gate run for SHA ${GITHUB_SHA}" >&2
+            exit 1
+          fi
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "Resolved Quality Gate run: $RUN_ID"
+
+      - name: Publish live run reference in PR body
+        shell: bash
+        env:
+          RUN_ID: ${{ steps.resolve.outputs.run_id }}
+        run: |
+          set -Eeuo pipefail
+          BODY=$(cat <<EOF
+          <!-- sanad-stage05-closure-live -->
+          ## Stage 05 Radical Closure
+
+          **Verification is running against the exact branch head.**
+
+          - Head SHA: \`${GITHUB_SHA}\`
+          - Branch: \`${GITHUB_REF_NAME}\`
+          - Quality Gate Run ID: \`${RUN_ID}\`
+          - Evidence Workflow Run ID: \`${GITHUB_RUN_ID}\`
+          - Current decision: **PENDING — Stage 05 is not certified until every job passes.**
+          EOF
+          )
+          gh pr edit "$TARGET_PR" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+
+      - name: Wait for Quality Gate completion
+        id: wait
+        shell: bash
+        env:
+          RUN_ID: ${{ steps.resolve.outputs.run_id }}
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 180); do
+            STATUS=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq '.status')
+            CONCLUSION=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq '.conclusion // ""')
+            echo "Quality Gate run ${RUN_ID}: status=${STATUS} conclusion=${CONCLUSION:-pending}"
+            if [ "$STATUS" = "completed" ]; then
+              echo "conclusion=$CONCLUSION" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for Quality Gate run ${RUN_ID}" >&2
+          exit 1
+
+      - name: Build exact job matrix
+        id: matrix
+        if: always() && steps.resolve.outputs.run_id != ''
+        shell: bash
+        env:
+          RUN_ID: ${{ steps.resolve.outputs.run_id }}
+        run: |
+          set -Eeuo pipefail
+          gh api --paginate \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+            --jq '.jobs[] | [.name, .status, (.conclusion // "pending")] | @tsv' \
+            | sort > /tmp/stage05-jobs.tsv
+          TOTAL=$(wc -l < /tmp/stage05-jobs.tsv | tr -d ' ')
+          PASSED=$(awk -F '\t' '$3 == "success" {count++} END {print count+0}' /tmp/stage05-jobs.tsv)
+          FAILED=$(awk -F '\t' '$3 != "success" {count++} END {print count+0}' /tmp/stage05-jobs.tsv)
+          {
+            echo "total=$TOTAL"
+            echo "passed=$PASSED"
+            echo "failed=$FAILED"
+          } >> "$GITHUB_OUTPUT"
+          cat /tmp/stage05-jobs.tsv
+
+      - name: Publish final evidence in PR body
+        if: always()
+        shell: bash
+        env:
+          RUN_ID: ${{ steps.resolve.outputs.run_id }}
+          CONCLUSION: ${{ steps.wait.outputs.conclusion }}
+          TOTAL: ${{ steps.matrix.outputs.total }}
+          PASSED: ${{ steps.matrix.outputs.passed }}
+          FAILED: ${{ steps.matrix.outputs.failed }}
+        run: |
+          set -Eeuo pipefail
+          if [ -f /tmp/stage05-jobs.tsv ]; then
+            MATRIX=$(awk -F '\t' '{printf "| `%s` | `%s` | `%s` |\n", $1, $2, $3}' /tmp/stage05-jobs.tsv)
+          else
+            MATRIX='| evidence-unavailable | completed | failure |'
+          fi
+          if [ "${CONCLUSION:-failure}" = "success" ] && [ "${FAILED:-1}" = "0" ]; then
+            DECISION='CERTIFIED — Stage 05 Quality Gate is fully green.'
+          else
+            DECISION='BLOCKED — one or more Stage 05 checks failed.'
+          fi
+          BODY=$(cat <<EOF
+          <!-- sanad-stage05-closure-evidence -->
+          ## Stage 05 Radical Closure Evidence
+
+          - Head SHA: \`${GITHUB_SHA}\`
+          - Branch: \`${GITHUB_REF_NAME}\`
+          - Quality Gate Run ID: \`${RUN_ID:-unresolved}\`
+          - Conclusion: \`${CONCLUSION:-failure}\`
+          - Jobs: \`${PASSED:-0}/${TOTAL:-0}\` passed; \`${FAILED:-1}\` failed
+          - Decision: **${DECISION}**
+
+          | Job | Status | Conclusion |
+          |---|---|---|
+          ${MATRIX}
+          EOF
+          )
+          gh pr edit "$TARGET_PR" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          if [ "${CONCLUSION:-failure}" != "success" ] || [ "${FAILED:-1}" != "0" ]; then
+            exit 1
+          fi

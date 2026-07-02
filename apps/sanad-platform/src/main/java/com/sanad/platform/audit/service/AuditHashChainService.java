@@ -8,7 +8,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
-import java.util.UUID;
 
 /**
  * Stage 05A.1 §8-9 — Linear, concurrency-safe hash chain computation.
@@ -19,7 +18,7 @@ import java.util.UUID;
  *     canonicalEventPayload
  *     + previousHash
  *     + tenantId
- *     + occurredAt (truncated to microsecond precision)
+ *     + occurredAt (normalized to PostgreSQL microsecond precision)
  *     + sequenceNumber
  *   )
  * </pre>
@@ -35,6 +34,7 @@ public class AuditHashChainService {
 
     private static final String HASH_ALGORITHM = "SHA-256";
     private static final String GENESIS_HASH = "0000000000000000000000000000000000000000000000000000000000000000";
+    private static final long MICROS_PER_SECOND = 1_000_000L;
 
     public String getGenesisHash() {
         return GENESIS_HASH;
@@ -61,7 +61,7 @@ public class AuditHashChainService {
     public String computeEventHash(AuditEvent event, String previousHash) {
         try {
             String canonical = canonicalize(event);
-            String occurredAtMicros = truncateToMicros(event.getOccurredAt());
+            String occurredAtMicros = toDatabaseMicros(event.getOccurredAt());
             int schemaVersion = event.getSchemaVersion() != null ? event.getSchemaVersion() : 2;
 
             StringBuilder input = new StringBuilder(canonical)
@@ -70,8 +70,6 @@ public class AuditHashChainService {
                             event.getTenantId() == null ? null : event.getTenantId().toString()))
                     .append("|occurredAt=").append(occurredAtMicros);
 
-            // Schema v2 includes sequence_number for linear chain enforcement.
-            // Schema v1 (legacy) omits it.
             if (schemaVersion >= 2) {
                 input.append("|sequenceNumber=")
                         .append(event.getSequenceNumber() == null ? "" : event.getSequenceNumber().toString());
@@ -86,13 +84,35 @@ public class AuditHashChainService {
     }
 
     /**
-     * Truncates an Instant to microsecond precision (PostgreSQL's
-     * TIMESTAMP WITH TIME ZONE resolution).
+     * Normalizes an instant exactly as PostgreSQL/JDBC persists timestamp
+     * values: nearest microsecond, including carry into the next second.
+     * Hashing and persistence must use the same value or a reload can appear
+     * tampered even when no data changed.
+     */
+    public Instant normalizeToDatabasePrecision(Instant instant) {
+        if (instant == null) return null;
+
+        long roundedMicrosWithinSecond = (instant.getNano() + 500L) / 1_000L;
+        long secondCarry = roundedMicrosWithinSecond / MICROS_PER_SECOND;
+        long microsWithinSecond = roundedMicrosWithinSecond % MICROS_PER_SECOND;
+        return Instant.ofEpochSecond(
+                instant.getEpochSecond() + secondCarry,
+                microsWithinSecond * 1_000L);
+    }
+
+    /**
+     * Returns the normalized PostgreSQL epoch-microsecond representation.
+     * Kept package-visible for deterministic tests.
      */
     String truncateToMicros(Instant instant) {
+        return toDatabaseMicros(instant);
+    }
+
+    private String toDatabaseMicros(Instant instant) {
         if (instant == null) return "";
-        // Truncate nanoseconds to microseconds (drop the last 3 digits)
-        long micros = instant.getEpochSecond() * 1_000_000 + instant.getNano() / 1_000;
+        Instant normalized = normalizeToDatabasePrecision(instant);
+        long micros = normalized.getEpochSecond() * MICROS_PER_SECOND
+                + normalized.getNano() / 1_000L;
         return Long.toString(micros);
     }
 

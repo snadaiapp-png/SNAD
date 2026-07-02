@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -16,23 +17,19 @@ import java.util.UUID;
 /**
  * Stage 05 §5 — Repository for {@link AuditEvent}.
  *
- * <p>Every query method is tenant-scoped. There is no
- * {@code findAll()} — the runtime role can only see audit events
- * for the current tenant (enforced by RLS).</p>
- *
- * <p>INSERT is the only mutation method exposed. UPDATE and DELETE
- * are blocked by PostgreSQL triggers (V23 migration). The
- * {@link #save(Object)} method inherited from JpaRepository performs
- * INSERT for new entities; calling it on a detached entity with an
- * existing ID would trigger an UPDATE which the DB rejects.</p>
+ * <p>Every query method is tenant-scoped. Declared query methods are
+ * explicitly transactional so {@code TenantAwareJpaTransactionManager}
+ * can bind {@code app.current_tenant_id} before PostgreSQL evaluates RLS.</p>
  */
 @Repository
 public interface AuditEventRepository extends JpaRepository<AuditEvent, UUID> {
 
+    @Transactional(readOnly = true)
     @Query("SELECT a FROM AuditEvent a WHERE a.tenantId = :tenantId AND a.id = :id")
     Optional<AuditEvent> findByTenantIdAndId(@Param("tenantId") UUID tenantId,
-                                              @Param("id") UUID id);
+                                               @Param("id") UUID id);
 
+    @Transactional(readOnly = true)
     @Query(
         value = "SELECT a FROM AuditEvent a WHERE a.tenantId = :tenantId "
                 + "AND (:actorUserId IS NULL OR a.actorUserId = :actorUserId) "
@@ -65,21 +62,13 @@ public interface AuditEventRepository extends JpaRepository<AuditEvent, UUID> {
             @Param("to") Instant to,
             Pageable pageable);
 
-    /**
-     * Stage 05 §11 — Returns the most recent audit event for a tenant,
-     * used to seed the hash chain's {@code previousHash} for the next
-     * event.
-     */
+    @Transactional(readOnly = true)
     @Query(value = "SELECT * FROM audit_events WHERE tenant_id = :tenantId "
             + "ORDER BY occurred_at DESC, id DESC LIMIT 1",
             nativeQuery = true)
     Optional<AuditEvent> findLatestByTenantId(@Param("tenantId") UUID tenantId);
 
-    /**
-     * Stage 05A.1 §9 — Returns all audit events for a tenant ordered by
-     * sequence_number ASC for hash-chain verification. Used by
-     * {@link com.sanad.platform.audit.service.AuditIntegrityVerificationService}.
-     */
+    @Transactional(readOnly = true)
     @Query(value = "SELECT * FROM audit_events WHERE tenant_id = :tenantId "
             + "ORDER BY sequence_number ASC",
             nativeQuery = true)
