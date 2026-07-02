@@ -137,6 +137,7 @@ jobs:
         run: |
           set -euo pipefail
           render deploys create "$RENDER_SERVICE_ID" \
+            --clear-cache \
             --commit "${{ steps.target.outputs.sha }}" \
             --wait \
             --output json \
@@ -247,6 +248,7 @@ jobs:
         run: |
           set -euo pipefail
           render deploys create "$RENDER_SERVICE_ID" \
+            --clear-cache \
             --commit "${{ steps.previous.outputs.sha }}" \
             --wait \
             --output json \
