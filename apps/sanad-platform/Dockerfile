@@ -11,8 +11,10 @@ WORKDIR /workspace
 COPY pom.xml ./
 RUN mvn -B -ntp -q dependency:go-offline -DskipTests || true
 
+# Cache-bust: copy a file that changes every commit to invalidate the Docker layer cache
+ARG RENDER_GIT_COMMIT=unknown
 COPY src ./src
-RUN mvn -B -ntp -q clean package -DskipTests
+RUN mvn -B -ntp -q clean package -DskipTests -Dgit.commit="${RENDER_GIT_COMMIT}"
 
 # Fail the image build when the production-compatible Java V15 or the
 # forward-only reconciler is absent from the executable Spring Boot JAR.
