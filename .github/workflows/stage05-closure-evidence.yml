@@ -53,6 +53,22 @@ jobs:
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
           echo "Resolved Quality Gate run: $RUN_ID"
 
+      - name: Publish resolved run reference
+        shell: bash
+        env:
+          RUN_ID: ${{ steps.resolve.outputs.run_id }}
+        run: |
+          set -Eeuo pipefail
+          gh pr comment "$TARGET_PR" --repo "$GITHUB_REPOSITORY" --body "<!-- sanad-stage05-closure-start -->
+          ## Stage 05 Closure Verification Started
+
+          - Head SHA: \`${GITHUB_SHA}\`
+          - Branch: \`${GITHUB_REF_NAME}\`
+          - Quality Gate Run ID: \`${RUN_ID}\`
+          - Evidence Workflow Run ID: \`${GITHUB_RUN_ID}\`
+
+          Final certification will be published by this workflow after the exact Quality Gate run completes."
+
       - name: Wait for Quality Gate completion
         id: wait
         shell: bash
