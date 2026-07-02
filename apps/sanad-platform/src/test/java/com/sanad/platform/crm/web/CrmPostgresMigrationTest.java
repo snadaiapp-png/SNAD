@@ -51,7 +51,11 @@ class CrmPostgresMigrationTest {
 
         Flyway crmUpgrade = flyway(null);
         MigrationInfo[] pending = crmUpgrade.info().pending();
-        assertThat(pending).hasSize(1);
+        // Stage 05A.2.9.1 — After merging with the Flyway V15 hotfix branch,
+        // there are 2 pending migrations beyond MAIN_SCHEMA_VERSION:
+        // 1. V20260702_1 (CRM unified core)
+        // 2. V20260702_2 (RBAC reconciler)
+        assertThat(pending).hasSize(2);
         assertThat(pending[0].getVersion()).isEqualTo(MigrationVersion.fromVersion(CRM_SCHEMA_VERSION));
 
         crmUpgrade.migrate();
