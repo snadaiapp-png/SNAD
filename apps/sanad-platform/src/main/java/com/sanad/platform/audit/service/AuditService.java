@@ -22,23 +22,15 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.Instant;
-import java.util.Objects;
 import java.util.UUID;
 
 /**
  * Stage 05A.1 — Central service for recording audit events.
  *
- * <p>Key changes from Stage 05:</p>
- * <ul>
- *   <li>Fail-closed: throws {@link AuditContextMissingException} if a
- *       tenant-scoped action has no verified tenant context. Never
- *       returns null or logs a warning and continues.</li>
- *   <li>Actor trust boundary: when a verified TenantContext exists,
- *       actor identity is taken from it ONLY. Caller-supplied
- *       {@code ctx.actorUserId()} is ignored.</li>
- *   <li>Linear hash chain: uses {@code audit_chain_heads} with
- *       {@code SELECT FOR UPDATE} to serialize chain extension.</li>
- * </ul>
+ * <p>Tenant chain extension is serialized by a database row lock. PostgreSQL
+ * writers always perform atomic initialization first and then load the chain
+ * head under {@code SELECT FOR UPDATE}; no unlocked pre-read is allowed into
+ * the persistence context.</p>
  */
 @Service
 public class AuditService {
@@ -53,11 +45,11 @@ public class AuditService {
     private final Environment environment;
 
     public AuditService(AuditEventRepository repository,
-                         AuditChainHeadRepository chainHeadRepository,
-                         AuditRedactionService redactionService,
-                         AuditHashChainService hashChainService,
-                         TenantContextProvider contextProvider,
-                         Environment environment) {
+                        AuditChainHeadRepository chainHeadRepository,
+                        AuditRedactionService redactionService,
+                        AuditHashChainService hashChainService,
+                        TenantContextProvider contextProvider,
+                        Environment environment) {
         this.repository = repository;
         this.chainHeadRepository = chainHeadRepository;
         this.redactionService = redactionService;
@@ -68,46 +60,48 @@ public class AuditService {
 
     @Transactional(propagation = Propagation.REQUIRED)
     public AuditEvent record(AuditContext ctx) {
-        return doRecord(ctx, false);
+        return doRecord(ctx);
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public AuditEvent recordDenied(AuditContext ctx) {
-        return doRecord(ctx, true);
+        return doRecord(ctx);
     }
 
-    private AuditEvent doRecord(AuditContext ctx, boolean denied) {
+    private AuditEvent doRecord(AuditContext ctx) {
         TenantContext tenantContext = contextProvider.currentContext().orElse(null);
         UUID tenantId = tenantContext != null ? tenantContext.tenantId() : ctx.tenantId();
 
-        // Stage 05A.1 §12 — Fail-closed: no silent skip.
         if (tenantId == null) {
             throw new AuditContextMissingException(
                     "Cannot record audit event: no verified tenant context for action=" + ctx.action());
         }
 
-        Instant now = Instant.now();
+        Instant now = hashChainService.normalizeToDatabasePrecision(Instant.now());
+        Instant occurredAt = hashChainService.normalizeToDatabasePrecision(
+                ctx.occurredAt() != null ? ctx.occurredAt() : now);
         String requestId = MDC.get(RequestIdFilter.MDC_KEY);
 
-        // Stage 05A.2.4 §3 — Chain-head initialization.
-        // On PostgreSQL (prod/tenant-postgres-test), use atomic INSERT ON CONFLICT.
-        // On H2 (local), use find-or-create (no ON CONFLICT — it poisons the tx).
         boolean isPostgres = environment.matchesProfiles("prod", "tenant-postgres-test");
-        if (!chainHeadRepository.findByTenantId(tenantId).isPresent()) {
-            if (isPostgres) {
-                chainHeadRepository.atomicInit(tenantId);
-            } else {
-                chainHeadRepository.save(new com.sanad.platform.audit.domain.AuditChainHead(tenantId));
-            }
+        if (isPostgres) {
+            // Never perform an unlocked findByTenantId() first. Such a read can
+            // place stale state in Hibernate's persistence context before the
+            // pessimistic lock is acquired, allowing duplicate sequences.
+            chainHeadRepository.atomicInit(tenantId);
+        } else if (chainHeadRepository.findByTenantId(tenantId).isEmpty()) {
+            // H2 does not support the PostgreSQL ON CONFLICT statement.
+            chainHeadRepository.saveAndFlush(new AuditChainHead(tenantId));
         }
-        // Now the row exists — lock it for update.
+
         AuditChainHead chainHead = chainHeadRepository.findByTenantIdForUpdate(tenantId)
                 .orElseThrow(() -> new IllegalStateException(
                         "audit_chain_heads row not found for tenant " + tenantId
-                        + " after init — this should never happen"));
+                                + " after initialization"));
 
-        long nextSequence = (chainHead.getHeadSequence() == null ? 0 : chainHead.getHeadSequence()) + 1;
-        String previousHash = chainHead.getHeadHash() != null ? chainHead.getHeadHash() : hashChainService.getGenesisHash();
+        long nextSequence = (chainHead.getHeadSequence() == null ? 0L : chainHead.getHeadSequence()) + 1L;
+        String previousHash = chainHead.getHeadHash() != null
+                ? chainHead.getHeadHash()
+                : hashChainService.getGenesisHash();
 
         AuditEvent event = new AuditEvent(
                 tenantId,
@@ -116,41 +110,32 @@ public class AuditService {
                 ctx.resourceType(),
                 ctx.operation(),
                 ctx.outcome() != null ? ctx.outcome() : AuditOutcome.SUCCESS,
-                ctx.occurredAt() != null ? ctx.occurredAt() : now,
+                occurredAt,
                 now,
-                "" // placeholder — set below
+                ""
         );
         event.setSequenceNumber(nextSequence);
         event.setPreviousHash(previousHash);
 
-        // Stage 05A.1 §13 — Actor attribution trust boundary.
-        // When verified TenantContext exists, take identity from it ONLY.
         if (tenantContext != null) {
             event.setActorUserId(tenantContext.userId());
             event.setSessionId(tenantContext.sessionId());
-            // Ignore ctx.actorUserId() — verified context wins.
         }
-        // actorService and actorDisplayName are service-level metadata,
-        // safe to take from ctx (they describe the calling service, not the user).
         event.setActorService(ctx.actorService());
         event.setActorDisplayName(ctx.actorDisplayName());
 
-        // Request/correlation identity (from verified sources only)
         event.setRequestId(requestId);
         event.setJwtId(tenantContext != null ? tenantContext.sessionId() : null);
         event.setCorrelationId(ctx.correlationId());
         event.setTraceId(ctx.traceId());
 
-        // Action/resource detail
         event.setCategory(ctx.category());
         event.setResourceId(ctx.resourceId());
 
-        // Outcome
         event.setHttpStatus(ctx.httpStatus());
         event.setErrorCode(ctx.errorCode());
         event.setFailureReason(ctx.failureReason());
 
-        // Source
         HttpServletRequest servletRequest = currentServletRequest();
         if (servletRequest != null) {
             event.setSourceIp(extractClientIp(servletRequest));
@@ -161,23 +146,25 @@ public class AuditService {
         if (ctx.userAgent() != null) event.setUserAgent(ctx.userAgent());
         if (ctx.channel() != null) event.setChannel(ctx.channel());
 
-        // State change (redacted)
         event.setBeforeState(redactionService.redactJson(ctx.beforeState()));
         event.setAfterState(redactionService.redactJson(ctx.afterState()));
         event.setChangedFields(redactionService.redactJson(ctx.changedFields()));
         event.setMetadata(redactionService.redactJson(ctx.metadata()));
 
-        // Hash chain
         String eventHash = hashChainService.computeEventHash(event, previousHash);
         event.setEventHash(eventHash);
 
-        AuditEvent saved = repository.save(event);
+        // Flush while the chain-head lock is still held. A uniqueness failure
+        // therefore rolls back the event and head mutation atomically rather
+        // than surfacing only during transaction completion.
+        AuditEvent saved = repository.saveAndFlush(event);
 
-        // Update chain head
         chainHead.setHeadSequence(nextSequence);
         chainHead.setHeadHash(eventHash);
-        chainHeadRepository.save(chainHead);
+        chainHeadRepository.saveAndFlush(chainHead);
 
+        log.debug("Audit event appended tenant={} sequence={} eventId={}",
+                tenantId, nextSequence, saved.getId());
         return saved;
     }
 
