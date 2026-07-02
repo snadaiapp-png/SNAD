@@ -1,26 +1,31 @@
 # ============================================================
-# SANAD Platform - Production Dockerfile (Render-optimized)
-# ============================================================
-# Multi-stage build with Maven cache for faster rebuilds.
-# Tests are skipped (run in CI, not in Docker build).
+# SANAD Platform - Production Dockerfile (Render optimized)
 # ============================================================
 
 FROM maven:3.9-eclipse-temurin-21 AS builder
 
+ARG RENDER_GIT_COMMIT=unknown
+
 WORKDIR /workspace
 
-# Copy only pom.xml first for dependency caching
 COPY pom.xml ./
-
-# Download dependencies (this layer is cached unless pom.xml changes)
 RUN mvn -B -ntp -q dependency:go-offline -DskipTests || true
 
-# Copy source and build (skip tests)
 COPY src ./src
 RUN mvn -B -ntp -q clean package -DskipTests
 
-# ---------- Stage 2: Runtime ----------
+# Fail the image build when the production-compatible Java V15 or the
+# forward-only reconciler is absent from the executable Spring Boot JAR.
+RUN JAR_FILE="$(find target -maxdepth 1 -name 'sanad-platform-*.jar' ! -name '*.original' | head -n 1)" && \
+    test -n "$JAR_FILE" && \
+    jar tf "$JAR_FILE" | grep -q 'BOOT-INF/classes/com/sanad/platform/config/migration/V15__seed_rbac_roles_and_capabilities.class' && \
+    jar tf "$JAR_FILE" | grep -q 'BOOT-INF/classes/db/migration/V20260702_2__reconcile_admin_role_and_capabilities.sql' && \
+    jar tf "$JAR_FILE" | grep -q 'BOOT-INF/classes/db/migration/V20260702_1__create_unified_crm_core.sql'
+
 FROM eclipse-temurin:21-jre-alpine
+
+ARG RENDER_GIT_COMMIT=unknown
+ENV RENDER_GIT_COMMIT=${RENDER_GIT_COMMIT}
 
 RUN apk add --no-cache curl
 RUN addgroup -S sanad && adduser -S sanad -G sanad
