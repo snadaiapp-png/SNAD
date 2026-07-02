@@ -145,7 +145,7 @@ public class OrganizationController {
     @RequireCapability("ORGANIZATION.CREATE")
     @IdempotentOperation(operation = "ORGANIZATION.CREATE", resourceType = "Organization")
     @PostMapping
-    public ResponseEntity<OrganizationResponse> createOrganization(
+    public ResponseEntity<?> createOrganization(
             jakarta.servlet.http.HttpServletRequest httpRequest,
             @Valid @RequestBody CreateOrganizationRequest request) {
 
@@ -195,6 +195,18 @@ public class OrganizationController {
         if (result.replayed()) {
             headers.add(IdempotencyCommandInterceptor.IDEMPOTENCY_REPLAYED_HEADER, "true");
         }
+
+        // Stage 05A.2.4 §8 — For replay, use stored canonical body.
+        // For first execution, use the business result DTO.
+        if (result.replayed() && result.body() != null) {
+            // Replay: return stored canonical JSON body as a String.
+            // Use wildcard type to bypass generic type constraints.
+            return ResponseEntity.status(result.httpStatus())
+                    .headers(headers)
+                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .body(result.body());
+        }
+
         if (result.resourceId() != null) {
             URI location = ServletUriComponentsBuilder
                     .fromCurrentRequest()

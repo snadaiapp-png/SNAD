@@ -2,6 +2,7 @@ package com.sanad.platform.idempotency;
 
 import com.sanad.platform.security.service.JwtTokenProvider;
 import com.sanad.platform.security.tenant.support.TenantFixtureDataSourceConfig;
+import com.sanad.platform.security.tenant.support.TenantRuntimeDataSourceConfig;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeeder;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeederConfig;
 import com.sanad.platform.security.tenant.support.TenantTestFixture;
@@ -65,7 +66,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * <p>All DB reads use {@link PreparedStatement}.</p>
  */
 @SpringBootTest
-@Import({TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
+@Import({TenantRuntimeDataSourceConfig.class, TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
 @AutoConfigureMockMvc
 @ActiveProfiles("tenant-postgres-test")
 @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(

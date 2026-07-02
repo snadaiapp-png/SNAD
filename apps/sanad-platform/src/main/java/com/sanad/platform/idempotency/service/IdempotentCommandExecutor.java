@@ -1,29 +1,27 @@
 package com.sanad.platform.idempotency.service;
 
+import com.sanad.platform.idempotency.domain.IdempotencyRecord;
 import com.sanad.platform.shared.api.RequestIdFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
- * Stage 05A.2.3 §9-10 — Transactional idempotent command executor.
+ * Stage 05A.2.4 — Transactional idempotent command executor.
  *
- * <p>Uses a separate {@link IdempotentBusinessTransactionExecutor} bean for
- * Transaction B to avoid self-invocation issues with @Transactional.</p>
- *
+ * <p>Uses three separate beans for three transactions:</p>
  * <ol>
- *   <li><b>Transaction A</b> (REQUIRES_NEW): Reserve the idempotency key.</li>
- *   <li><b>Transaction B</b> (REQUIRED, via separate bean): Business + audit +
- *       completion all commit together.</li>
- *   <li><b>Transaction C</b> (REQUIRES_NEW, only on failure): Mark as
- *       FAILED_RETRYABLE.</li>
+ *   <li><b>Transaction A</b> (IdempotencyReservationTransactionExecutor, REQUIRES_NEW):
+ *       Reserve the idempotency key.</li>
+ *   <li><b>Transaction B</b> (IdempotentBusinessTransactionExecutor, REQUIRED):
+ *       Business + audit + completion all commit together.</li>
+ *   <li><b>Transaction C</b> (IdempotencyFailureTransactionExecutor, REQUIRES_NEW):
+ *       Mark as FAILED_RETRYABLE after Transaction B rolls back.</li>
  * </ol>
  */
 @Component
@@ -31,16 +29,19 @@ public class IdempotentCommandExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(IdempotentCommandExecutor.class);
 
-    private final IdempotencyService idempotencyService;
-    private final IdempotencyReplaySerializer serializer;
+    private final IdempotencyReservationTransactionExecutor reservationExecutor;
     private final IdempotentBusinessTransactionExecutor businessTxExecutor;
+    private final IdempotencyFailureTransactionExecutor failureExecutor;
+    private final IdempotencyReplaySerializer serializer;
 
-    public IdempotentCommandExecutor(IdempotencyService idempotencyService,
-                                       IdempotencyReplaySerializer serializer,
-                                       IdempotentBusinessTransactionExecutor businessTxExecutor) {
-        this.idempotencyService = idempotencyService;
-        this.serializer = serializer;
+    public IdempotentCommandExecutor(IdempotencyReservationTransactionExecutor reservationExecutor,
+                                       IdempotentBusinessTransactionExecutor businessTxExecutor,
+                                       IdempotencyFailureTransactionExecutor failureExecutor,
+                                       IdempotencyReplaySerializer serializer) {
+        this.reservationExecutor = reservationExecutor;
         this.businessTxExecutor = businessTxExecutor;
+        this.failureExecutor = failureExecutor;
+        this.serializer = serializer;
     }
 
     public <T> IdempotentHttpResult<T> execute(
@@ -51,8 +52,8 @@ public class IdempotentCommandExecutor {
             String queryString,
             Supplier<T> businessAction) {
 
-        // Transaction A: Reserve (commits independently)
-        IdempotencyService.ReservationResult reservation = idempotencyService.reserveOrReplay(
+        // Transaction A: Reserve (commits independently via REQUIRES_NEW)
+        IdempotencyService.ReservationResult reservation = reservationExecutor.reserve(
                 idempotencyKey,
                 operationMetadata.operation(),
                 operationMetadata.route(),
@@ -74,14 +75,16 @@ public class IdempotentCommandExecutor {
             throw new IdempotencyExpiredException(reservation.message());
         }
 
-        // Transaction B: Business execution + audit + completion (via separate bean)
-        var rec = reservation.record();
+        // Get verified lease owner BEFORE any transaction
         String leaseOwner = MDC.get(RequestIdFilter.MDC_KEY);
         if (leaseOwner == null || leaseOwner.isBlank()) {
-            leaseOwner = "unknown-" + UUID.randomUUID();
+            throw new IllegalStateException(
+                    "Cannot execute idempotent command: no verified request identity (MDC request ID is null)");
         }
         long leaseVersion = reservation.leaseVersion();
+        IdempotencyRecord rec = reservation.record();
 
+        // Transaction B: Business execution + audit + completion (via separate bean)
         try {
             return businessTxExecutor.executeBusinessTransaction(
                     rec, leaseOwner, leaseVersion,
@@ -89,32 +92,35 @@ public class IdempotentCommandExecutor {
                     operationMetadata.resourceType(),
                     businessAction);
         } catch (Exception e) {
-            // Transaction C: Mark as FAILED_RETRYABLE
+            // Transaction C: Mark as FAILED_RETRYABLE (via separate bean, REQUIRES_NEW)
             try {
-                idempotencyService.fail(rec.getId(), leaseOwner, leaseVersion,
-                        "SANAD-IDEMP-EXEC", e.getClass().getSimpleName() + ": " + e.getMessage(),
-                        true);
+                failureExecutor.failReservation(
+                        rec.getId(), leaseOwner, leaseVersion,
+                        "SANAD-IDEMP-EXEC",
+                        e.getClass().getSimpleName() + ": " + e.getMessage());
             } catch (Exception failEx) {
-                log.error("Idempotency fail() threw for record {}: {}", rec.getId(), failEx.getMessage());
+                log.error("Transaction C failed for record {}: {}", rec.getId(), failEx.getMessage());
+                // Don't swallow — throw composite exception
+                throw new RuntimeException("Business failure + Transaction C failure: "
+                        + e.getMessage() + " / " + failEx.getMessage(), e);
             }
             throw e;
         }
     }
 
     @SuppressWarnings("unchecked")
-    private <T> IdempotentHttpResult<T> buildReplayResult(
-            com.sanad.platform.idempotency.domain.IdempotencyRecord rec) {
-        // Stage 05A.2.3 §12 — Deserialize stored body for replay.
-        // The stored body is the canonical JSON of the original response.
+    private <T> IdempotentHttpResult<T> buildReplayResult(IdempotencyRecord rec) {
+        // Stage 05A.2.4 §8 — Build replay from stored canonical result.
+        // The stored response_body is the canonical JSON of the original response.
+        // The controller should use responseBody directly for replay responses.
         return new IdempotentHttpResult<>(
                 rec.getResponseStatus() != null ? rec.getResponseStatus() : 200,
                 Map.of(),
                 rec.getResponseBody(),
-                null,
+                null, // resourceId not stored separately — controller uses responseBody
                 true, // replayed
-                0, // leaseVersion not relevant for replay
-                null // businessResult not available on replay — controller
-                     // should use responseBody directly for replay responses
+                0,    // leaseVersion not relevant for replay
+                null  // businessResult null on replay — controller uses responseBody
         );
     }
 

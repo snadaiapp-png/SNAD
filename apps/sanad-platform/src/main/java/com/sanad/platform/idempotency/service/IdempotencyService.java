@@ -68,7 +68,7 @@ public class IdempotencyService {
         }
     }
 
-    @Transactional(propagation = Propagation.REQUIRED)
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ReservationResult reserveOrReplay(
             String idempotencyKey,
             String operation,

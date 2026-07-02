@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.security.service.JwtTokenProvider;
 import com.sanad.platform.security.tenant.support.TenantFixtureDataSourceConfig;
+import com.sanad.platform.security.tenant.support.TenantRuntimeDataSourceConfig;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeeder;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeederConfig;
 import com.sanad.platform.security.tenant.support.TenantTestFixture;
@@ -67,7 +68,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>All DB reads use {@link PreparedStatement}.</p>
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Import({TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
+@Import({TenantRuntimeDataSourceConfig.class, TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class})
 @ActiveProfiles("tenant-postgres-test")
 @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(
     named = "RUN_TENANT_POSTGRES_TESTS", matches = "true")
