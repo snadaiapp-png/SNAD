@@ -1,5 +1,5 @@
 -- Unified CRM core migration.
--- Uses V70 to avoid the V16/V17 conflicts in the superseded CRM draft branches.
+-- Uses a version newer than the latest migration on main so normal ordered upgrades apply it.
 -- Installs the real application tables used by /api/v1/crm/**.
 -- Compatible with PostgreSQL and H2 PostgreSQL mode.
 
