@@ -5,7 +5,6 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -128,6 +127,12 @@ public final class SaasAdminDtos {
             @NotNull UUID planId,
             @NotBlank @Pattern(regexp = "^(MONTHLY|ANNUAL)$") String billingCycle,
             @NotBlank @Pattern(regexp = "^(IMMEDIATE|NEXT_CYCLE)$") String effectiveMode,
+            @NotBlank @Size(max = 500) String reason
+    ) {
+    }
+
+    public record ChangeSeatsRequest(
+            @Min(1) int seatQuantity,
             @NotBlank @Size(max = 500) String reason
     ) {
     }
