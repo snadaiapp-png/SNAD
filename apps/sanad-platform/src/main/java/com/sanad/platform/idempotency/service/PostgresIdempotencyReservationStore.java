@@ -8,6 +8,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -41,6 +43,7 @@ public class PostgresIdempotencyReservationStore implements IdempotencyReservati
     }
 
     @Override
+    @Transactional(propagation = Propagation.REQUIRED)
     public Optional<LeaseGrant> atomicReserve(
             UUID tenantId, String idempotencyKey, String operation,
             String route, String resourceType, String requestFingerprint,
@@ -95,6 +98,7 @@ public class PostgresIdempotencyReservationStore implements IdempotencyReservati
     }
 
     @Override
+    @Transactional(propagation = Propagation.REQUIRED)
     public Optional<LeaseGrant> atomicTakeoverLease(
             UUID recordId, UUID tenantId,
             String newOwnerRequestId, Instant newLeaseExpiresAt) {
@@ -143,6 +147,7 @@ public class PostgresIdempotencyReservationStore implements IdempotencyReservati
     }
 
     @Override
+    @Transactional(propagation = Propagation.REQUIRED)
     public void atomicComplete(
             UUID recordId, UUID tenantId, String leaseOwnerRequestId, long leaseVersion,
             int responseStatus, String responseHeaders, String responseBody) {
@@ -182,6 +187,7 @@ public class PostgresIdempotencyReservationStore implements IdempotencyReservati
     }
 
     @Override
+    @Transactional(propagation = Propagation.REQUIRED)
     public void atomicFail(
             UUID recordId, UUID tenantId, String leaseOwnerRequestId, long leaseVersion,
             String errorCode, String errorDetail, boolean retryable) {
