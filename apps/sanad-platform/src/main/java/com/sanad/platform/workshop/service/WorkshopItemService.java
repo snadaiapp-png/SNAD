@@ -47,6 +47,8 @@ public class WorkshopItemService {
         Workshop workshop = loader.requireWorkshop(tenantId, workshopId);
         workshop.ensureExecutionOpen();
         WorkshopWorkItem value = loader.requireItem(tenantId, workshopId, itemId);
+        boolean dependenciesReady = graphPolicy.dependenciesSatisfied(tenantId, workshopId, itemId, request.status());
+        boolean checklistReady = !activities.existsIncompleteChecklistByTenantIdAndWorkItemId(tenantId, itemId);
         return mapper.toResponse(value);
     }
 }
