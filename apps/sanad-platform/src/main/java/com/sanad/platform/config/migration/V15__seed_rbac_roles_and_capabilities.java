@@ -141,8 +141,11 @@ public class V15__seed_rbac_roles_and_capabilities extends BaseJavaMigration {
      * Assigns ALL active capabilities to the specified role for each tenant.
      */
     private void assignAllCapabilitiesToRole(Context context, List<UUID> tenantIds, String roleCode) throws Exception {
+        // Use gen_random_uuid() in the SELECT so each row gets a unique id.
+        // Binding a single ? for id would give all rows the same UUID,
+        // causing a primary key violation on multi-row inserts.
         String sql = "INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at) " +
-                "SELECT ?, t.id, r.id, ac.id, CURRENT_TIMESTAMP " +
+                "SELECT gen_random_uuid(), t.id, r.id, ac.id, CURRENT_TIMESTAMP " +
                 "FROM tenants t " +
                 "JOIN roles r ON r.tenant_id = t.id AND r.code = ? " +
                 "JOIN access_capabilities ac ON ac.status = 'ACTIVE' " +
@@ -154,9 +157,8 @@ public class V15__seed_rbac_roles_and_capabilities extends BaseJavaMigration {
 
         try (PreparedStatement ps = context.getConnection().prepareStatement(sql)) {
             for (UUID tenantId : tenantIds) {
-                ps.setObject(1, UUID.randomUUID().toString(), java.sql.Types.OTHER);
-                ps.setString(2, roleCode);
-                ps.setObject(3, tenantId.toString(), java.sql.Types.OTHER);
+                ps.setString(1, roleCode);
+                ps.setObject(2, tenantId.toString(), java.sql.Types.OTHER);
                 ps.addBatch();
             }
             int[] results = ps.executeBatch();
@@ -178,7 +180,7 @@ public class V15__seed_rbac_roles_and_capabilities extends BaseJavaMigration {
         }
 
         String sql = "INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at) " +
-                "SELECT ?, t.id, r.id, ac.id, CURRENT_TIMESTAMP " +
+                "SELECT gen_random_uuid(), t.id, r.id, ac.id, CURRENT_TIMESTAMP " +
                 "FROM tenants t " +
                 "JOIN roles r ON r.tenant_id = t.id AND r.code = ? " +
                 "JOIN access_capabilities ac ON ac.code IN (" + inClause + ") AND ac.status = 'ACTIVE' " +
@@ -191,7 +193,6 @@ public class V15__seed_rbac_roles_and_capabilities extends BaseJavaMigration {
         try (PreparedStatement ps = context.getConnection().prepareStatement(sql)) {
             for (UUID tenantId : tenantIds) {
                 int paramIdx = 1;
-                ps.setObject(paramIdx++, UUID.randomUUID().toString(), java.sql.Types.OTHER);
                 ps.setString(paramIdx++, roleCode);
                 for (String code : capabilityCodes) {
                     ps.setString(paramIdx++, code);
