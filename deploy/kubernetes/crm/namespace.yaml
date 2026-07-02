@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: snad-crm
+  labels:
+    app.kubernetes.io/part-of: snad
+    pod-security.kubernetes.io/enforce: restricted
