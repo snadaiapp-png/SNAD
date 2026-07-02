@@ -1,0 +1,3 @@
+package com.sanad.platform.crm.web;
+
+final class CrmSourceProbe { }
