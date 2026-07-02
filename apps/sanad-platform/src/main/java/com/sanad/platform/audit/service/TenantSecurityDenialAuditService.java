@@ -2,6 +2,8 @@ package com.sanad.platform.audit.service;
 
 import com.sanad.platform.audit.domain.AuditActorType;
 import com.sanad.platform.audit.domain.AuditOutcome;
+import com.sanad.platform.security.denial.SecurityDenialCategory;
+import com.sanad.platform.security.denial.SecurityDenialContext;
 import com.sanad.platform.security.tenant.TenantContext;
 import com.sanad.platform.security.tenant.TenantContextProvider;
 import org.slf4j.Logger;
@@ -21,6 +23,14 @@ import java.util.UUID;
  *
  * <p>Uses REQUIRES_NEW so the audit survives any business
  * transaction rollback.</p>
+ *
+ * <p>Stage 05A.2.9.1 §8 — Added {@link #recordDenial(SecurityDenialContext,
+ * UUID, UUID, String)} so the {@link
+ * com.sanad.platform.security.denial.SecurityDenialCoordinator} can record
+ * a tenant-verified denial (TENANT_SELECTOR_MISMATCH, ROTATION_REQUIRED,
+ * CAPABILITY_DENIED) with explicit IDs when the request's TenantContext
+ * is not yet established (e.g. before TenantContextFilter runs) or has
+ * already been cleared.</p>
  */
 @Component
 public class TenantSecurityDenialAuditService {
@@ -36,6 +46,11 @@ public class TenantSecurityDenialAuditService {
         this.contextProvider = contextProvider;
     }
 
+    /**
+     * Legacy entry point used by {@link com.sanad.platform.shared.api.GlobalExceptionHandler}
+     * for capability denials. Reads tenant/user IDs from the current
+     * TenantContext.
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordDenial(
             String action,
@@ -58,6 +73,58 @@ public class TenantSecurityDenialAuditService {
                 .httpStatus(httpStatus)
                 .errorCode(errorCode)
                 .failureReason(failureReason)
+                .build());
+    }
+
+    /**
+     * Stage 05A.2.9.1 §8 — Coordinator entry point.
+     *
+     * <p>Records a tenant-verified denial ({@link SecurityDenialCategory#TENANT_SELECTOR_MISMATCH},
+     * {@link SecurityDenialCategory#ROTATION_REQUIRED}, or
+     * {@link SecurityDenialCategory#CAPABILITY_DENIED}) to
+     * {@code audit_events} with explicit tenant/user IDs. The category
+     * name is stored in the {@code error_code} column so test queries can
+     * assert the exact classification.</p>
+     *
+     * <p>This overload does NOT consult the current TenantContext — the
+     * coordinator supplies the IDs directly from the verified JWT claims.
+     * This is required because the TenantContext may not be set yet
+     * (TENANT_SELECTOR_MISMATCH fires before TenantContextFilter runs)
+     * or may already have been cleared.</p>
+     *
+     * @param context   the typed denial context (carries category + httpStatus)
+     * @param tenantId  the verified tenant ID from the JWT claim
+     * @param userId    the verified user ID from the JWT claim
+     * @param requestId the central request ID (from MDC, never re-generated)
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordDenial(
+            SecurityDenialContext context,
+            UUID tenantId,
+            UUID userId,
+            String requestId) {
+
+        if (tenantId == null || userId == null) {
+            log.warn("Tenant denial audit skipped: missing tenantId/userId for category={}",
+                    context.category());
+            return;
+        }
+
+        SecurityDenialCategory category = context.category();
+        String action = switch (category) {
+            case TENANT_SELECTOR_MISMATCH -> "TENANT_SELECTOR_MISMATCH";
+            case ROTATION_REQUIRED -> "ROTATION_REQUIRED";
+            case CAPABILITY_DENIED -> "CAPABILITY_DENIED";
+            default -> "SECURITY_DENIAL";
+        };
+
+        auditService.recordDenied(AuditContext.builder(action, "Security", "ACCESS")
+                .actorType(AuditActorType.USER)
+                .actorUserId(userId)
+                .outcome(AuditOutcome.DENIED)
+                .httpStatus(context.httpStatus())
+                .errorCode(category.name())
+                .failureReason("Security denial: " + category.name())
                 .build());
     }
 }

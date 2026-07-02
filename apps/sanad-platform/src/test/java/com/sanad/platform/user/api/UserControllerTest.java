@@ -43,6 +43,10 @@ class UserControllerTest {
     @org.springframework.boot.test.mock.mockito.MockBean
     private com.sanad.platform.audit.service.TenantSecurityDenialAuditService tenantSecurityDenialAuditService;
 
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.sanad.platform.security.denial.SecurityDenialCoordinator securityDenialCoordinator;
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.sanad.platform.security.tenant.TenantContextProvider tenantContextProvider;
     @Autowired
     private MockMvc mockMvc;
 

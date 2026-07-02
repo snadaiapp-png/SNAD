@@ -18,6 +18,10 @@ services:
     dockerContext: .
     healthCheckPath: /actuator/health
     autoDeployTrigger: "off"
+    # Stage 05A.2.9.1 — Render automatically sets RENDER_GIT_COMMIT
+    # at runtime. The application logs this value plus the JAR
+    # implementation version at startup for provenance verification.
+    # No explicit envVar needed — Render injects it automatically.
     envVars:
       - key: SPRING_PROFILES_ACTIVE
         value: prod

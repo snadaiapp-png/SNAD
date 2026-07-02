@@ -1,6 +1,10 @@
 package com.sanad.platform.security.config;
 
 import com.sanad.platform.config.CorsProperties;
+import com.sanad.platform.security.denial.SecurityDenialAttributes;
+import com.sanad.platform.security.denial.SecurityDenialCategory;
+import com.sanad.platform.security.denial.SecurityDenialContext;
+import com.sanad.platform.security.denial.SecurityDenialCoordinator;
 import com.sanad.platform.security.filter.JwtAuthenticationFilter;
 import com.sanad.platform.security.service.JwtTokenProvider;
 import com.sanad.platform.security.tenant.JwtSessionValidationService;
@@ -43,7 +47,7 @@ public class SecurityConfig {
     private final CorsProperties corsProperties;
     private final Environment environment;
     private final TenantContextProvider tenantContextProvider;
-    private final com.sanad.platform.audit.service.PlatformSecurityDenialAuditService platformDenialAuditService;
+    private final SecurityDenialCoordinator denialCoordinator;
     private final com.sanad.platform.audit.service.SecurityTokenFingerprintService tokenFingerprintService;
 
     public SecurityConfig(JwtTokenProvider jwtTokenProvider,
@@ -51,14 +55,14 @@ public class SecurityConfig {
                           CorsProperties corsProperties,
                           Environment environment,
                           TenantContextProvider tenantContextProvider,
-                          com.sanad.platform.audit.service.PlatformSecurityDenialAuditService platformDenialAuditService,
+                          SecurityDenialCoordinator denialCoordinator,
                           com.sanad.platform.audit.service.SecurityTokenFingerprintService tokenFingerprintService) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.sessionValidationService = sessionValidationService;
         this.corsProperties = corsProperties;
         this.environment = environment;
         this.tenantContextProvider = tenantContextProvider;
-        this.platformDenialAuditService = platformDenialAuditService;
+        this.denialCoordinator = denialCoordinator;
         this.tokenFingerprintService = tokenFingerprintService;
     }
 
@@ -94,61 +98,78 @@ public class SecurityConfig {
                 )
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, exception) -> {
-                            // Stage 05A.2.9: Record platform security denial with safe fingerprint
-                            try {
-                                String reqId = org.slf4j.MDC.get("requestId");
-                                String tokenFp = null;
-                                String authHeader = request.getHeader("Authorization");
-                                String failureCat = "MISSING_JWT";
-                                if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                                    String rawToken = authHeader.substring(7);
-                                    // SHA-256 fingerprint — never store raw token or prefix
-                                    tokenFp = tokenFingerprintService.fingerprint(rawToken);
-                                    failureCat = "MALFORMED_JWT";
-                                }
-                                platformDenialAuditService.recordDenial(
-                                        failureCat, "SANAD-AUTH-001", reqId,
-                                        request.getRequestURI(), request.getMethod(),
-                                        request.getRemoteAddr(), request.getHeader("User-Agent"),
-                                        tokenFp, null);
-                            } catch (Exception auditEx) {
-                                // Log ERROR but don't prevent 401 response
-                                org.slf4j.LoggerFactory.getLogger("SecurityConfig")
-                                    .error("Failed to record platform denial audit: requestId={} path={} exception={}",
-                                        org.slf4j.MDC.get("requestId"), request.getRequestURI(),
-                                        auditEx.getClass().getSimpleName());
+                            // Stage 05A.2.9.1 §8/§9 — Delegate every 401
+                            // path through the SecurityDenialCoordinator.
+                            //
+                            // The JwtAuthenticationFilter stores a
+                            // SecurityDenialContext as a request attribute
+                            // when it classifies a JWT failure (MISSING_JWT,
+                            // MALFORMED_JWT, INVALID_SIGNATURE, EXPIRED_JWT,
+                            // INVALID_SUBJECT, UNVERIFIED_TENANT). The filter
+                            // does NOT write the response — it lets the chain
+                            // continue so that permitAll endpoints (like
+                            // /api/v1/auth/login) proceed normally.
+                            //
+                            // This AuthenticationEntryPoint fires ONLY for
+                            // protected endpoints that require authentication.
+                            // It reads the stored denial context (if any) and
+                            // delegates to the coordinator. If no context was
+                            // stored (edge case), it falls back to MISSING_JWT.
+                            Boolean alreadyRecorded = (Boolean) request.getAttribute(
+                                    SecurityDenialAttributes.DENIAL_RECORDED);
+                            if (Boolean.TRUE.equals(alreadyRecorded)) {
+                                return;
                             }
-                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                            response.setContentType("application/problem+json");
-                            response.getWriter().write(
-                                    "{\"type\":\"https://snad.ai/errors/auth-001\","
-                                    + "\"title\":\"Unauthorized\","
-                                    + "\"status\":401,"
-                                    + "\"detail\":\"Authentication is required\","
-                                    + "\"instance\":\"" + request.getRequestURI() + "\","
-                                    + "\"code\":\"SANAD-AUTH-001\","
-                                    + "\"timestamp\":\"" + java.time.Instant.now() + "\"}"
-                            );
+                            // Read the denial context stored by the filter.
+                            SecurityDenialContext storedCtx = (SecurityDenialContext)
+                                    request.getAttribute(SecurityDenialAttributes.DENIAL_CONTEXT);
+                            if (storedCtx != null) {
+                                denialCoordinator.deny(request, response, storedCtx);
+                            } else {
+                                // Fallback: no context stored (e.g. request
+                                // bypassed the filter). Classify as
+                                // MISSING_JWT with fingerprint if Bearer
+                                // header is present.
+                                String authHeader = request.getHeader("Authorization");
+                                String tokenFp = null;
+                                if (authHeader != null && authHeader.startsWith("Bearer ")) {
+                                    tokenFp = tokenFingerprintService.fingerprint(
+                                            authHeader.substring(7));
+                                }
+                                denialCoordinator.deny(request, response,
+                                        SecurityDenialContext.of(
+                                                SecurityDenialCategory.MISSING_JWT,
+                                                "SANAD-AUTH-001",
+                                                401,
+                                                tokenFp));
+                            }
                         })
                         .accessDeniedHandler((request, response, exception) -> {
-                            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                            response.setContentType("application/problem+json");
-                            response.getWriter().write(
-                                    "{\"type\":\"https://snad.ai/errors/sec-001\","
-                                    + "\"title\":\"Access denied\","
-                                    + "\"status\":403,"
-                                    + "\"detail\":\"Access is denied for this resource\","
-                                    + "\"instance\":\"" + request.getRequestURI() + "\","
-                                    + "\"code\":\"SANAD-SEC-001\","
-                                    + "\"timestamp\":\"" + java.time.Instant.now() + "\"}"
-                            );
+                            // Stage 05A.2.9.1 §5 — The AccessDeniedHandler
+                            // fires when Spring Security's authorization
+                            // layer rejects a request. CapabilityDenied
+                            // denials are handled separately by the
+                            // GlobalExceptionHandler. This handler is
+                            // the fallback for any other 403.
+                            Boolean alreadyRecorded = (Boolean) request.getAttribute(
+                                    SecurityDenialAttributes.DENIAL_RECORDED);
+                            if (Boolean.TRUE.equals(alreadyRecorded)) {
+                                return;
+                            }
+                            denialCoordinator.deny(request, response,
+                                    SecurityDenialContext.of(
+                                            SecurityDenialCategory.CAPABILITY_DENIED,
+                                            "SANAD-SEC-001",
+                                            403,
+                                            null));
                         })
                 )
                 .headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()))
                 .securityContext(sc -> sc.requireExplicitSave(false));
 
         http.addFilterBefore(
-                new JwtAuthenticationFilter(jwtTokenProvider, sessionValidationService),
+                new JwtAuthenticationFilter(jwtTokenProvider, sessionValidationService,
+                        denialCoordinator, tokenFingerprintService),
                 UsernamePasswordAuthenticationFilter.class
         );
         // Stage 04 — TenantContextFilter runs AFTER JwtAuthenticationFilter

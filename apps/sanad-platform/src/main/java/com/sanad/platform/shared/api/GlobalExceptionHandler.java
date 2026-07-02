@@ -6,6 +6,11 @@ import com.sanad.platform.shared.api.exceptions.InvalidPaginationException;
 import com.sanad.platform.shared.api.exceptions.ResourceNotFoundException;
 import com.sanad.platform.shared.api.exceptions.TenantContextException;
 import com.sanad.platform.shared.api.exceptions.TypedBusinessException;
+import com.sanad.platform.security.denial.SecurityDenialContext;
+import com.sanad.platform.security.denial.SecurityDenialCoordinator;
+import com.sanad.platform.security.denial.SecurityDenialCategory;
+import com.sanad.platform.security.tenant.TenantContext;
+import com.sanad.platform.security.tenant.TenantContextProvider;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
@@ -55,8 +60,22 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.sanad.platform.audit.service.TenantSecurityDenialAuditService tenantDenialAuditService;
+    // Stage 05A.2.9.1 §14 — Constructor injection (mandatory).
+    // The previous @Autowired(required=false) field injection with a
+    // null-check is removed — the bean is mandatory and Spring will fail
+    // fast if it is not wired.
+    private final com.sanad.platform.audit.service.TenantSecurityDenialAuditService tenantDenialAuditService;
+    private final SecurityDenialCoordinator denialCoordinator;
+    private final TenantContextProvider tenantContextProvider;
+
+    public GlobalExceptionHandler(
+            com.sanad.platform.audit.service.TenantSecurityDenialAuditService tenantDenialAuditService,
+            SecurityDenialCoordinator denialCoordinator,
+            TenantContextProvider tenantContextProvider) {
+        this.tenantDenialAuditService = tenantDenialAuditService;
+        this.denialCoordinator = denialCoordinator;
+        this.tenantContextProvider = tenantContextProvider;
+    }
 
     /** Safe generic detail returned for unexpected exceptions. */
     public static final String GENERIC_ERROR_DETAIL =
@@ -142,19 +161,31 @@ public class GlobalExceptionHandler {
         log.warn("Capability denied: requestId={} path={} tenant={} user={} capability={} reason={}",
                 requestId(), req.getRequestURI(), ex.getTenantId(),
                 ex.getUserId(), ex.getCapabilityCode(), ex.getReason());
-        // Stage 05A.2.8: Record tenant-scoped denial audit (REQUIRES_NEW)
+        // Stage 05A.2.9.1 §8/§15 — Record the tenant-verified denial
+        // through the SecurityDenialCoordinator. The coordinator handles
+        // duplicate-recording prevention, audit-table routing, metric
+        // increment on failure, and ERROR logging without leaking the
+        // raw token.
+        //
+        // The category is CAPABILITY_DENIED, errorCode is SANAD-SEC-001.
+        // tenantId/userId are taken from the exception (which carries
+        // the verified IDs from the @RequireCapability aspect).
+        SecurityDenialContext denialCtx = SecurityDenialContext.of(
+                SecurityDenialCategory.CAPABILITY_DENIED,
+                "SANAD-SEC-001",
+                403,
+                null);
         try {
-            if (tenantDenialAuditService != null) {
-                tenantDenialAuditService.recordDenial(
-                    "CAPABILITY_DENIED",
-                    "Organization",
-                    "ACCESS",
-                    "SANAD-SEC-001",
-                    "Capability denied: " + ex.getCapabilityCode(),
-                    403);
-            }
+            denialCoordinator.recordTenantDenial(
+                    req,
+                    denialCtx,
+                    ex.getTenantId(),
+                    ex.getUserId());
         } catch (Exception auditEx) {
-            log.warn("Failed to record capability denial audit: {}", auditEx.getMessage());
+            // The coordinator already logged and incremented the metric.
+            // We still return the 403 response.
+            log.warn("Capability denial audit path threw — coordinator already logged: {}",
+                    auditEx.getClass().getSimpleName());
         }
         return build(ErrorCode.SANAD_SEC_001, "Access denied — capability required: " + ex.getCapabilityCode(), req);
     }

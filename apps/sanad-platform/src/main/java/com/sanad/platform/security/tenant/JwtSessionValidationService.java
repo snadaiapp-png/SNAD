@@ -1,5 +1,9 @@
 package com.sanad.platform.security.tenant;
 
+import com.sanad.platform.security.denial.SessionValidationResult;
+import com.sanad.platform.security.tenant.JwtSessionValidationService.VerifiedJwtClaims;
+import com.sanad.platform.security.tenant.JwtSessionValidationService.ValidatedSession;
+
 import java.util.UUID;
 
 /**
@@ -15,16 +19,26 @@ import java.util.UUID;
  * method with a provisional TenantContext established from the JWT claims.
  * This ensures the session-version query against the RLS-protected
  * {@code users} table runs with the correct tenant setting.</p>
+ *
+ * <p>Stage 05A.2.9.1 §7 — The signature was changed from
+ * {@code ValidatedSession validate(claims)} (returning null on failure)
+ * to {@code SessionValidationResult validateAndClassify(claims)} so the
+ * caller can persist the exact denial category
+ * (UNKNOWN_SESSION / REVOKED_SESSION / UNVERIFIED_TENANT) instead of
+ * collapsing every failure to a single bucket.</p>
  */
 public interface JwtSessionValidationService {
 
     /**
-     * Validates the session for the given verified JWT claims.
+     * Validates the session for the given verified JWT claims, returning
+     * a typed result that classifies the failure (if any).
      *
      * @param claims the cryptographically verified JWT claims
-     * @return the validated session data, or null if validation fails
+     * @return {@link SessionValidationResult.Valid} on success, or
+     *         {@link SessionValidationResult.Invalid} carrying the
+     *         canonical denial category
      */
-    ValidatedSession validate(VerifiedJwtClaims claims);
+    SessionValidationResult validateAndClassify(VerifiedJwtClaims claims);
 
     /**
      * Verified JWT claims extracted after cryptographic validation.
@@ -39,7 +53,7 @@ public interface JwtSessionValidationService {
     ) {}
 
     /**
-     * Result of session validation.
+     * Result of successful session validation.
      */
     record ValidatedSession(
             UUID tenantId,

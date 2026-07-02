@@ -1,5 +1,7 @@
 package com.sanad.platform.security.tenant;
 
+import com.sanad.platform.security.denial.SecurityDenialCategory;
+import com.sanad.platform.security.denial.SessionValidationResult;
 import com.sanad.platform.security.tenant.JwtSessionValidationService.VerifiedJwtClaims;
 import com.sanad.platform.security.tenant.JwtSessionValidationService.ValidatedSession;
 import com.sanad.platform.tenant.domain.Tenant;
@@ -53,7 +55,7 @@ public class JwtSessionValidationServiceImpl implements JwtSessionValidationServ
 
     @Override
     @Transactional(readOnly = true, propagation = Propagation.REQUIRED)
-    public ValidatedSession validate(VerifiedJwtClaims claims) {
+    public SessionValidationResult validateAndClassify(VerifiedJwtClaims claims) {
         // Establish provisional TenantContext from verified JWT claims
         TenantContext provisionalContext = new TenantContext(
                 claims.tenantId(),
@@ -79,14 +81,17 @@ public class JwtSessionValidationServiceImpl implements JwtSessionValidationServ
             if (currentSessionVersion == null) {
                 log.debug("Session validation failed: user not found userId={} tenantId={}",
                         claims.userId(), claims.tenantId());
-                return null;
+                return new SessionValidationResult.Invalid(
+                        SecurityDenialCategory.UNKNOWN_SESSION);
             }
 
-            // Check session version
+            // Check session version — a mismatch means the session was
+            // revoked server-side (logout, password change, admin revoke).
             if (claims.sessionVersion() != currentSessionVersion) {
                 log.debug("Session version mismatch: JWT={} DB={} userId={}",
                         claims.sessionVersion(), currentSessionVersion, claims.userId());
-                return null;
+                return new SessionValidationResult.Invalid(
+                        SecurityDenialCategory.REVOKED_SESSION);
             }
 
             // Load user to check status
@@ -95,7 +100,8 @@ public class JwtSessionValidationServiceImpl implements JwtSessionValidationServ
                     .orElse(null);
 
             if (user == null) {
-                return null;
+                return new SessionValidationResult.Invalid(
+                        SecurityDenialCategory.UNKNOWN_SESSION);
             }
 
             boolean userActive = user.getStatus() == UserStatus.ACTIVE;
@@ -104,16 +110,21 @@ public class JwtSessionValidationServiceImpl implements JwtSessionValidationServ
             Tenant tenant = tenantRepository.findById(claims.tenantId()).orElse(null);
             boolean tenantActive = tenant != null && tenant.getStatus() == TenantStatus.ACTIVE;
 
-            // Stage 04A.3.5: reject suspended users and archived tenants
+            // Stage 04A.3.5: reject suspended users and archived tenants.
+            // A suspended user is treated as REVOKED_SESSION (the session
+            // is no longer authoritative); an archived tenant is
+            // UNVERIFIED_TENANT (the tenant identity is no longer valid).
             if (!userActive) {
                 log.debug("Session validation failed: user not active userId={} status={}",
                         claims.userId(), user.getStatus());
-                return null;
+                return new SessionValidationResult.Invalid(
+                        SecurityDenialCategory.REVOKED_SESSION);
             }
             if (!tenantActive) {
                 log.debug("Session validation failed: tenant not active tenantId={} status={}",
                         claims.tenantId(), tenant != null ? tenant.getStatus() : "null");
-                return null;
+                return new SessionValidationResult.Invalid(
+                        SecurityDenialCategory.UNVERIFIED_TENANT);
             }
 
             // Stage 04A.3.6.2: STRICT membership entity-match enforcement.
@@ -131,18 +142,21 @@ public class JwtSessionValidationServiceImpl implements JwtSessionValidationServ
             if (!hasActiveMembership) {
                 log.debug("Session validation failed: no active membership userId={} tenantId={}",
                         claims.userId(), claims.tenantId());
-                return null;
+                return new SessionValidationResult.Invalid(
+                        SecurityDenialCategory.UNKNOWN_SESSION);
             }
 
-            return new ValidatedSession(
-                    claims.tenantId(),
-                    claims.userId(),
-                    claims.tokenId(),
-                    claims.email(),
-                    currentSessionVersion,
-                    claims.rotationRequired(),
-                    userActive,
-                    tenantActive
+            return new SessionValidationResult.Valid(
+                    new ValidatedSession(
+                            claims.tenantId(),
+                            claims.userId(),
+                            claims.tokenId(),
+                            claims.email(),
+                            currentSessionVersion,
+                            claims.rotationRequired(),
+                            userActive,
+                            tenantActive
+                    )
             );
         } finally {
             // Clear provisional context — the JwtAuthenticationFilter will
