@@ -32,7 +32,13 @@ public class CrmEmailNotificationWorker {
 
     @RabbitListener(queues = CrmPlatformConfiguration.NOTIFICATION_QUEUE)
     public void deliver(Map<String, Object> event) {
-        UUID id = UUID.fromString(String.valueOf(event.get("notificationId")));
+        Object notificationId = event.get("notificationId");
+        if (notificationId == null) {
+            log.debug("Ignoring non-delivery CRM notification event");
+            return;
+        }
+
+        UUID id = UUID.fromString(String.valueOf(notificationId));
         Map<String, Object> message = jdbc.queryForMap("""
             SELECT channel, recipient, subject, body, status, attempts
               FROM crm_platform.notification_message
@@ -60,10 +66,10 @@ public class CrmEmailNotificationWorker {
                    SET status='SENT', sent_at=now(), last_error=NULL
                  WHERE id=?
                 """, id);
-        } catch (Exception failure) {
+        } catch (RuntimeException failure) {
             markFailure(id, failure.getMessage());
             log.warn("CRM email notification {} failed", id, failure);
-            throw failure;
+            throw new IllegalStateException("CRM notification delivery failed", failure);
         }
     }
 
