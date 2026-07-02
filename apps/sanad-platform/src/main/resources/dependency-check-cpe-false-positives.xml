@@ -19,8 +19,8 @@
     </suppress>
 
     <suppress until="2026-10-01Z">
-        <notes><![CDATA[Exact module identity correction.]]></notes>
-        <packageUrl regex="true">^pkg:maven/io\.netty/netty-codec-http@4\.1\.135\.Final$</packageUrl>
+        <notes><![CDATA[Exact HTTP module identity correction.]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.netty/netty-codec-http2?@4\.1\.135\.Final$</packageUrl>
         <cve>CVE-2026-42582</cve>
     </suppress>
 </suppressions>
