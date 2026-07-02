@@ -10,6 +10,8 @@ sanad:
   tenant:
     rls:
       enabled: true
+  control-plane:
+    tenant-id: ${SANAD_CONTROL_PLANE_TENANT_ID:}
   cors:
     allowed-origins: ${SANAD_CORS_ALLOWED_ORIGINS:}
   security:

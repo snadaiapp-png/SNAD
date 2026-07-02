@@ -43,8 +43,8 @@ RUN mvn -B -ntp -q clean package -DskipTests \
 RUN JAR_FILE="$(find target -maxdepth 1 -name 'sanad-platform-*.jar' ! -name '*.original' | head -n 1)" && \
     test -n "$JAR_FILE" && \
     echo "Verifying V15 in: $JAR_FILE" && \
-    jar tf "$JAR_FILE" | grep -q 'BOOT-INF/classes/db/migration/V20260702_1__reconcile_admin_role_and_capabilities.sql' || { \
-        echo "FAIL: V20260702_1 reconciler SQL not found in JAR"; exit 1; \
+    jar tf "$JAR_FILE" | grep -q 'BOOT-INF/classes/db/migration/V20260702_2__reconcile_admin_role_and_capabilities.sql' || { \
+        echo "FAIL: V20260702_2 reconciler SQL not found in JAR"; exit 1; \
     } && \
     jar tf "$JAR_FILE" | grep -q 'BOOT-INF/classes/com/sanad/platform/config/migration/V15__seed_rbac_roles_and_capabilities.class' || { \
         echo "FAIL: V15 Java migration class not found in JAR"; exit 1; \

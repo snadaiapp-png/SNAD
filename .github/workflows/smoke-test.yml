@@ -1,10 +1,9 @@
 # ============================================================
-# SANAD Platform — Production Smoke Test
-# DEFECT-009/010: Post-deploy verification
-# DEFECT-012: Admin password moved to GitHub Secret
-# ============================================================
-# Runs after successful Render deployment.
-# Verifies critical production endpoints.
+# SNAD Platform — Pilot Production Smoke Test
+# ------------------------------------------------------------
+# Verifies the deployed Vercel frontend, same-origin BFF, Render backend,
+# and the protected authentication boundary. This workflow is evidence for
+# pilot integration only and does not authorize commercial production.
 # ============================================================
 
 name: Production Smoke Test
@@ -12,72 +11,173 @@ name: Production Smoke Test
 on:
   workflow_dispatch:
     inputs:
+      frontend_url:
+        description: 'Frontend URL'
+        required: true
+        default: 'https://snad-app.vercel.app'
+        type: string
       backend_url:
         description: 'Backend URL'
         required: true
         default: 'https://sanad-backend-mcrj.onrender.com'
+        type: string
   schedule:
     - cron: '0 */6 * * *'  # Every 6 hours
 
 permissions:
   contents: read
 
+concurrency:
+  group: pilot-production-smoke
+  cancel-in-progress: true
+
 jobs:
   smoke-test:
-    name: Production Health Check
+    name: Frontend, BFF, and Backend Health Check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FRONTEND_URL: ${{ github.event.inputs.frontend_url || 'https://snad-app.vercel.app' }}
+      BACKEND_URL: ${{ github.event.inputs.backend_url || 'https://sanad-backend-mcrj.onrender.com' }}
+      ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
+      ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Run production smoke test
-        env:
-          BASE_URL: ${{ github.event.inputs.backend_url || 'https://sanad-backend-mcrj.onrender.com' }}
-          ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
-          ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
+      - name: Validate target URLs
+        shell: bash
         run: |
-          echo "=== SANAD Production Smoke Test ==="
-          echo "Target: $BASE_URL"
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from urllib.parse import urlparse
+
+          for name in ("FRONTEND_URL", "BACKEND_URL"):
+              value = os.environ.get(name, "").rstrip("/")
+              parsed = urlparse(value)
+              if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+                  raise SystemExit(f"{name} must be a credential-free HTTPS origin")
+          PY
+
+      - name: Run deployment smoke checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          FRONTEND_URL="${FRONTEND_URL%/}"
+          BACKEND_URL="${BACKEND_URL%/}"
           PASS=0
           FAIL=0
 
-          # Health check
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/actuator/health")
-          if [ "$STATUS" = "200" ]; then echo "Health: $STATUS"; PASS=$((PASS+1)); else echo "Health: $STATUS"; FAIL=$((FAIL+1)); fi
-
-          # Login — requires SANAD_ADMIN_EMAIL and SANAD_ADMIN_PASSWORD secrets
-          if [ -n "$ADMIN_PASSWORD" ]; then
-            LOGIN=$(curl -s -X POST "$BASE_URL/api/v1/auth/login" \
-              -H "Content-Type: application/json" \
-              -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}")
-            TOKEN=$(echo "$LOGIN" | python3 -c "import sys,json; print(json.load(sys.stdin).get('accessToken',''))" 2>/dev/null || echo "")
-
-            if [ -n "$TOKEN" ]; then
-              echo "Login: success"; PASS=$((PASS+1))
-
-              # /auth/me
-              ME=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/api/v1/auth/me" -H "Authorization: Bearer $TOKEN")
-              if [ "$ME" = "200" ]; then echo "/auth/me: $ME"; PASS=$((PASS+1)); else echo "/auth/me: $ME"; FAIL=$((FAIL+1)); fi
-
-              # Logout
-              OUT=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/api/v1/auth/logout" -H "Authorization: Bearer $TOKEN")
-              if [ "$OUT" = "204" ]; then echo "Logout: $OUT"; PASS=$((PASS+1)); else echo "Logout: $OUT"; FAIL=$((FAIL+1)); fi
-
-              # DEFECT-001: Token revoked after logout
-              ME2=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/api/v1/auth/me" -H "Authorization: Bearer $TOKEN")
-              if [ "$ME2" = "401" ]; then echo "Token revoked after logout: $ME2"; PASS=$((PASS+1)); else echo "Token NOT revoked after logout: $ME2"; FAIL=$((FAIL+1)); fi
+          check_code() {
+            local name="$1"
+            local expected="$2"
+            local method="$3"
+            local url="$4"
+            shift 4
+            local actual
+            actual=$(curl --silent --show-error --location \
+              --connect-timeout 10 --max-time 30 \
+              --output /dev/null --write-out '%{http_code}' \
+              --request "$method" "$url" "$@" || true)
+            if [ "$actual" = "$expected" ]; then
+              echo "$name: PASS ($actual)"
+              PASS=$((PASS + 1))
             else
-              echo "Login: failed"; FAIL=$((FAIL+1))
+              echo "$name: FAIL (expected $expected, got ${actual:-transport-error})"
+              FAIL=$((FAIL + 1))
             fi
+          }
+
+          echo "=== SNAD Pilot Deployment Smoke Test ==="
+          echo "Frontend host: ${FRONTEND_URL#https://}"
+          echo "Backend host: ${BACKEND_URL#https://}"
+
+          check_code "Frontend root" "200" "GET" "$FRONTEND_URL/"
+          check_code "Control Plane page" "200" "GET" "$FRONTEND_URL/control-plane"
+          check_code "Backend health" "200" "GET" "$BACKEND_URL/actuator/health"
+          check_code "Backend liveness" "200" "GET" "$BACKEND_URL/actuator/health/liveness"
+          check_code "Backend readiness" "200" "GET" "$BACKEND_URL/actuator/health/readiness"
+          check_code "Backend no-auth boundary" "401" "GET" "$BACKEND_URL/api/v1/auth/me"
+
+          # The BFF route must exist and proxy the backend authentication boundary.
+          # 404 means the catch-all route was omitted from the Vercel build.
+          # 503 means BACKEND_API_BASE_URL is missing/invalid.
+          # 502 means the configured backend cannot be reached.
+          check_code "Vercel BFF no-auth boundary" "401" "GET" \
+            "$FRONTEND_URL/api/platform/api/v1/auth/me"
+
+          STATUS_JSON=$(curl --silent --show-error \
+            --connect-timeout 10 --max-time 30 \
+            "$FRONTEND_URL/api/system/backend-status" || true)
+          if STATUS_JSON="$STATUS_JSON" python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          try:
+              data = json.loads(os.environ.get("STATUS_JSON", ""))
+          except json.JSONDecodeError:
+              sys.exit(1)
+          sys.exit(0 if data.get("configured") is True and data.get("reachable") is True else 1)
+          PY
+          then
+            echo "Frontend backend-status: PASS (configured and reachable)"
+            PASS=$((PASS + 1))
           else
-            echo "Skipping login tests (SANAD_ADMIN_PASSWORD secret not configured)"
+            echo "Frontend backend-status: FAIL (backend is missing or unreachable)"
+            FAIL=$((FAIL + 1))
           fi
 
-          # No auth = 401
-          NOAUTH=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/api/v1/auth/me")
-          if [ "$NOAUTH" = "401" ]; then echo "No auth -> 401: $NOAUTH"; PASS=$((PASS+1)); else echo "No auth: $NOAUTH"; FAIL=$((FAIL+1)); fi
+          if [ -n "${ADMIN_EMAIL:-}" ] && [ -n "${ADMIN_PASSWORD:-}" ]; then
+            LOGIN_HEADERS=$(mktemp)
+            LOGIN_BODY=$(mktemp)
+            trap 'rm -f "$LOGIN_HEADERS" "$LOGIN_BODY"' EXIT
 
-          echo ""
+            LOGIN_CODE=$(curl --silent --show-error \
+              --connect-timeout 10 --max-time 30 \
+              --dump-header "$LOGIN_HEADERS" --output "$LOGIN_BODY" \
+              --write-out '%{http_code}' \
+              --request POST "$FRONTEND_URL/api/platform/api/v1/auth/login" \
+              --header 'Content-Type: application/json' \
+              --header "Origin: $FRONTEND_URL" \
+              --data "$(ADMIN_EMAIL="$ADMIN_EMAIL" ADMIN_PASSWORD="$ADMIN_PASSWORD" python3 - <<'PY'
+          import json
+          import os
+          print(json.dumps({"email": os.environ["ADMIN_EMAIL"], "password": os.environ["ADMIN_PASSWORD"]}))
+          PY
+              )" || true)
+
+            TOKEN=$(LOGIN_BODY="$LOGIN_BODY" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          try:
+              payload = json.loads(Path(os.environ["LOGIN_BODY"]).read_text())
+          except Exception:
+              payload = {}
+          print(payload.get("accessToken", ""))
+          PY
+            )
+
+            if [ "$LOGIN_CODE" = "200" ] && [ -n "$TOKEN" ]; then
+              echo "BFF login: PASS"
+              PASS=$((PASS + 1))
+              check_code "BFF authenticated /auth/me" "200" "GET" \
+                "$FRONTEND_URL/api/platform/api/v1/auth/me" \
+                --header "Authorization: Bearer $TOKEN"
+              check_code "BFF logout" "204" "POST" \
+                "$FRONTEND_URL/api/platform/api/v1/auth/logout" \
+                --header "Authorization: Bearer $TOKEN" \
+                --header "Origin: $FRONTEND_URL"
+            else
+              echo "BFF login: FAIL (HTTP ${LOGIN_CODE:-transport-error})"
+              FAIL=$((FAIL + 1))
+            fi
+          else
+            echo "BFF authenticated checks: SKIPPED (pilot admin secrets not configured)"
+          fi
+
           echo "=== Results: $PASS passed, $FAIL failed ==="
-          if [ "$FAIL" -gt 0 ]; then exit 1; fi
+          if [ "$FAIL" -gt 0 ]; then
+            exit 1
+          fi

@@ -52,7 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       against the same container, with prod profile and
  *       validate-on-migrate=true.</li>
  *   <li>Shut down the ApplicationContext after successful startup.</li>
- *   <li>Assert V20260702_1 reconciler applied exactly once as SQL.</li>
+ *   <li>Assert V20260702_2 reconciler applied exactly once as SQL.</li>
  *   <li>Assert no failed migrations.</li>
  *   <li>Assert sentinel data preserved (tenant, role, capability,
  *       role_capability).</li>
@@ -171,7 +171,7 @@ class FlywayV15UpgradeTestcontainersIntegrationTest {
     void phaseB_newArtifactStartsSuccessfully() {
         // Start the SANAD application programmatically against the
         // container database. The prod profile applies all pending
-        // migrations (V17–V36 + V20260702_1 reconciler) with
+        // migrations (V17–V36 + V20260702_2 reconciler) with
         // validate-on-migrate=true. If validation fails (e.g. V15
         // type mismatch), the startup throws and the test fails.
         ConfigurableApplicationContext ctx = new SpringApplication(SanadPlatformApplication.class)
@@ -218,14 +218,14 @@ class FlywayV15UpgradeTestcontainersIntegrationTest {
     @DisplayName("§4b_v20260702_1AppliedOnce: reconciler applied exactly once as SQL")
     void phaseB_reconcilerAppliedOnce() throws Exception {
         String type = querySingleValue(
-                "SELECT type FROM flyway_schema_history WHERE version = '20260702.1'");
+                "SELECT type FROM flyway_schema_history WHERE version = '20260702.2'");
         assertThat(type)
-                .as("V20260702_1 must be type=SQL")
+                .as("V20260702_2 must be type=SQL")
                 .isEqualTo("SQL");
         String count = querySingleValue(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '20260702.1' AND success = true");
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '20260702.2' AND success = true");
         assertThat(count)
-                .as("V20260702_1 must be applied exactly once with success=true")
+                .as("V20260702_2 must be applied exactly once with success=true")
                 .isEqualTo("1");
     }
 

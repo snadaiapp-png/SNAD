@@ -121,6 +121,22 @@ if [ -n "$DUPLICATES" ]; then
 fi
 info "No cross-directory duplicate versions (OK)"
 
+# --- 4b. No duplicate versions globally (across ALL directories) ---
+info "Checking for global duplicate versions across all directories..."
+ALL_VERSIONS_FILE="$(mktemp)"
+# Extract version from ALL migration files (SQL + Java) in ALL dirs
+# Pattern: V<version>__<description>.sql or V<version>__<description>.java
+find "${SRC_MIGRATION_DIR}" "${SRC_PG_ONLY_DIR}" "${APP_DIR}/src/main/java" \
+     -type f \( -name 'V*__*.sql' -o -name 'V*__*.java' \) \
+     -printf '%f\n' 2>/dev/null | \
+     sed -n 's/^V\(.*\)__.*/\1/p' | sort > "$ALL_VERSIONS_FILE"
+GLOBAL_DUPS="$(uniq -d "$ALL_VERSIONS_FILE" 2>/dev/null || true)"
+rm -f "$ALL_VERSIONS_FILE"
+if [ -n "$GLOBAL_DUPS" ]; then
+    fail "Global duplicate migration versions found: $(echo "$GLOBAL_DUPS" | tr '\n' ' ')"
+fi
+info "No global duplicate versions (OK)"
+
 # --- 5. application-prod.yml must be in JAR ---
 info "Checking application-prod.yml in JAR..."
 set +o pipefail
@@ -169,15 +185,15 @@ fi
 info "Both migration directories present in JAR (OK)"
 
 # --- 8. Verify reconciler migration V20260702_1 is in JAR ---
-info "Checking V20260702_1 reconciler in JAR..."
+info "Checking V20260702_2 reconciler in JAR..."
 set +o pipefail
-list_jar | grep -q 'V20260702_1__reconcile_admin_role_and_capabilities.sql'
+list_jar | grep -q 'V20260702_2__reconcile_admin_role_and_capabilities.sql'
 RECONCILER_FOUND=$?
 set -o pipefail
 if [ "$RECONCILER_FOUND" -ne 0 ]; then
-    fail "V20260702_1 reconciler migration not found in JAR."
+    fail "V20260702_2 reconciler migration not found in JAR."
 fi
-info "V20260702_1 reconciler present (OK)"
+info "V20260702_2 reconciler present (OK)"
 
 echo ""
 echo -e "${GREEN}========================================${NC}"

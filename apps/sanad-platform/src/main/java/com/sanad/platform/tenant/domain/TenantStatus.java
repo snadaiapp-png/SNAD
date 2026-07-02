@@ -1,24 +1,26 @@
 package com.sanad.platform.tenant.domain;
 
-/**
- * Lifecycle status of a {@link Tenant}.
- *
- * <p>The state machine is intentionally minimal at this stage of the platform.
- * Future stages will introduce explicit transitions (e.g. PENDING to ACTIVE
- * on verification, ACTIVE to SUSPENDED on billing failure, etc.) enforced by
- * the application layer.</p>
- */
+/** Lifecycle state of a SNAD tenant. */
 public enum TenantStatus {
 
-    /** Tenant is fully operational and can be used by end-users. */
-    ACTIVE,
-
-    /** Tenant is temporarily disabled (e.g. billing issue, admin action). */
-    SUSPENDED,
-
-    /** Tenant has been created but not yet provisioned / verified. */
+    /** Tenant has been created but provisioning is incomplete. */
     PENDING,
 
-    /** Tenant is permanently retired; data retained for audit only. */
+    /** Tenant is operating inside a time-limited evaluation period. */
+    TRIAL,
+
+    /** Tenant is fully operational. */
+    ACTIVE,
+
+    /** Tenant remains retained but financial or contractual action is required. */
+    PAST_DUE,
+
+    /** Tenant access is temporarily disabled by an authorized operator. */
+    SUSPENDED,
+
+    /** Tenant subscription or service relationship has been cancelled. */
+    CANCELLED,
+
+    /** Tenant is retired and retained only for audit and retention obligations. */
     ARCHIVED
 }

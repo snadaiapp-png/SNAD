@@ -194,17 +194,17 @@ jobs:
             exit 1
           fi
           echo "V15 type and description: PASS"
-      - name: Verify reconciler V20260702_1 applied
+      - name: Verify reconciler V20260702_2 applied
         run: |
           sudo apt-get install -y postgresql-client > /dev/null 2>&1 || true
           RECONCILER_COUNT=$(PGPASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} psql -h localhost -U sanad -d sanad_flyway -tAc \
-              "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '20260702.1' AND success = true")
-          echo "V20260702_1 applied count: $RECONCILER_COUNT"
+              "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '20260702.2' AND success = true")
+          echo "V20260702_2 applied count: $RECONCILER_COUNT"
           if [ "$RECONCILER_COUNT" -ne 1 ]; then
-            echo "FAIL: V20260702_1 reconciler not applied exactly once (got $RECONCILER_COUNT)"
+            echo "FAIL: V20260702_2 reconciler not applied exactly once (got $RECONCILER_COUNT)"
             exit 1
           fi
-          echo "V20260702_1 reconciler: PASS"
+          echo "V20260702_2 reconciler: PASS"
       - name: Run Flyway V15 Testcontainers integration tests (both empty-DB and upgrade)
         working-directory: apps/sanad-platform
         env:

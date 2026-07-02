@@ -4,8 +4,14 @@ import { ApiConfigurationError } from "./errors";
 export const DEFAULT_API_TIMEOUT_MS = 60_000;
 const ALLOWED_PROTOCOLS = new Set(["https:", "http:"]);
 const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
+const PRODUCTION_BFF_BASE_URL = "/api/platform";
 
 function readBaseUrl(): string {
+  // Production browser traffic must use the same-origin Next.js BFF. This keeps
+  // refresh tokens in an HttpOnly first-party cookie and avoids cross-site
+  // cookie/CORS failures between Vercel and the Render API.
+  if (process.env.NODE_ENV === "production") return PRODUCTION_BFF_BASE_URL;
+
   const raw = process.env.NEXT_PUBLIC_API_BASE_URL || "";
   return raw ? raw.replace(/\/+$/, "") : "";
 }
@@ -15,6 +21,17 @@ export const IS_API_CONFIGURED = API_BASE_URL.length > 0;
 
 export function validateBaseUrl(baseUrl: string): void {
   if (!baseUrl) throw new ApiConfigurationError("NEXT_PUBLIC_API_BASE_URL is not set.");
+
+  if (baseUrl.startsWith("/")) {
+    if (baseUrl.startsWith("//") || baseUrl.includes("?") || baseUrl.includes("#")) {
+      throw new ApiConfigurationError("Relative API base URL must be a safe same-origin path.");
+    }
+    if (!baseUrl.startsWith("/api/")) {
+      throw new ApiConfigurationError("Relative API base URL must be under /api/.");
+    }
+    return;
+  }
+
   let parsed: URL;
   try { parsed = new URL(baseUrl); }
   catch { throw new ApiConfigurationError("NEXT_PUBLIC_API_BASE_URL is not a valid URL."); }

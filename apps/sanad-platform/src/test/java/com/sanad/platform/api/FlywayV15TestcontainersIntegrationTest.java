@@ -28,7 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ol type="a">
  *   <li><b>Empty database (§5a):</b> All migrations apply successfully,
  *       V15 is recorded as type=JDBC with description="seed rbac roles
- *       and capabilities", V20260702_1 is recorded as type=SQL, flyway
+ *       and capabilities", V20260702_2 is recorded as type=SQL, flyway
  *       validate succeeds, and no duplicate roles/capabilities/role_capabilities
  *       exist.</li>
  * </ol>
@@ -94,9 +94,9 @@ class FlywayV15TestcontainersIntegrationTest {
     @DisplayName("§5a_emptyDb_v20260702_1_recordedAsSql: reconciler applied as SQL")
     void emptyDb_v20260702_1_recordedAsSql() throws Exception {
         String row = queryFlywayHistory(
-                "SELECT type FROM flyway_schema_history WHERE version = '20260702.1'");
+                "SELECT type FROM flyway_schema_history WHERE version = '20260702.2'");
         assertThat(row)
-                .as("V20260702_1 reconciler must be recorded as SQL")
+                .as("V20260702_2 reconciler must be recorded as SQL")
                 .isEqualTo("SQL");
     }
 
@@ -104,9 +104,9 @@ class FlywayV15TestcontainersIntegrationTest {
     @DisplayName("§5a_emptyDb_v20260702_1_appliedExactlyOnce: count=1, success=true")
     void emptyDb_v20260702_1_appliedExactlyOnce() throws Exception {
         String count = queryFlywayHistory(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '20260702.1' AND success = true");
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '20260702.2' AND success = true");
         assertThat(count)
-                .as("V20260702_1 must be applied exactly once with success=true")
+                .as("V20260702_2 must be applied exactly once with success=true")
                 .isEqualTo("1");
     }
 

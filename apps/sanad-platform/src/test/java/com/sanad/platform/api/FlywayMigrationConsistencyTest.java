@@ -83,12 +83,12 @@ class FlywayMigrationConsistencyTest {
     }
 
     @Test
-    @DisplayName("reconcilerV20260702_1Exists: reconciler migration present")
-    void reconcilerV20260702_1Exists() throws IOException {
+    @DisplayName("reconcilerV20260702_2Exists: reconciler migration present")
+    void reconcilerV20260702_2Exists() throws IOException {
         List<String> reconciler = listFiles(MIGRATION_DIR,
-                "V20260702_1__reconcile_admin_role_and_capabilities.sql");
+                "V20260702_2__reconcile_admin_role_and_capabilities.sql");
         assertThat(reconciler)
-                .as("V20260702_1 reconciler migration must exist in db/migration/")
+                .as("V20260702_2 reconciler migration must exist in db/migration/")
                 .hasSize(1);
     }
 
@@ -116,6 +116,47 @@ class FlywayMigrationConsistencyTest {
     }
 
     @Test
+    @DisplayName("noDuplicateVersionsGlobally: no version appears more than once across ALL directories")
+    void noDuplicateVersionsGlobally() throws IOException {
+        // Stage 05A.2.9.1 §4 — Global duplicate version detection.
+        // Collect ALL versions from ALL migration directories (SQL + Java)
+        // and assert no version appears more than once. This catches the
+        // V20260702_1 conflict between CRM and reconciler that would
+        // otherwise cause Flyway to fail at runtime.
+        Set<String> allVersions = new HashSet<>();
+        Set<String> duplicates = new java.util.TreeSet<>();
+
+        collectVersions(MIGRATION_DIR, SQL_VERSION_PATTERN, allVersions, duplicates);
+        collectVersions(PG_ONLY_DIR, SQL_VERSION_PATTERN, allVersions, duplicates);
+        collectVersions(JAVA_MIGRATION_DIR, JAVA_VERSION_PATTERN, allVersions, duplicates);
+
+        assertThat(duplicates)
+                .as("No migration version may appear more than once across ALL directories. "
+                        + "Duplicates found: %s", duplicates)
+                .isEmpty();
+    }
+
+    private void collectVersions(Path dir, Pattern pattern, Set<String> seen, Set<String> duplicates)
+            throws IOException {
+        if (!Files.isDirectory(dir)) {
+            return;
+        }
+        try (Stream<Path> stream = Files.list(dir)) {
+            stream.filter(Files::isRegularFile)
+                    .map(p -> p.getFileName().toString())
+                    .forEach(name -> {
+                        Matcher m = pattern.matcher(name);
+                        if (m.matches()) {
+                            String version = m.group(1);
+                            if (!seen.add(version)) {
+                                duplicates.add(version);
+                            }
+                        }
+                    });
+        }
+    }
+
+    @Test
     @DisplayName("v15_java_migration_isComponentAnnotated: @Component present for Spring discovery")
     void v15_javaMigrationIsComponentAnnotated() throws IOException {
         List<String> javaV15 = listFiles(JAVA_MIGRATION_DIR,
@@ -136,11 +177,11 @@ class FlywayMigrationConsistencyTest {
     @DisplayName("reconcilerMigrationIsIdempotent: uses WHERE NOT EXISTS")
     void reconcilerMigrationIsIdempotent() throws IOException {
         List<String> reconciler = listFiles(MIGRATION_DIR,
-                "V20260702_1__reconcile_admin_role_and_capabilities.sql");
+                "V20260702_2__reconcile_admin_role_and_capabilities.sql");
         assertThat(reconciler).hasSize(1);
 
         String content = Files.readString(MIGRATION_DIR.resolve(
-                "V20260702_1__reconcile_admin_role_and_capabilities.sql"));
+                "V20260702_2__reconcile_admin_role_and_capabilities.sql"));
         assertThat(content)
                 .as("Reconciler must be idempotent (use WHERE NOT EXISTS)")
                 .contains("WHERE NOT EXISTS");

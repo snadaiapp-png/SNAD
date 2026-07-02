@@ -88,3 +88,8 @@ services:
         value: "15000"
       - key: SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT
         value: "15000"
+
+      # Control Plane tenant — a dedicated control tenant, NOT a client tenant.
+      # The UUID is set in Render as a secret and is never committed to Git.
+      - key: SANAD_CONTROL_PLANE_TENANT_ID
+        sync: false
