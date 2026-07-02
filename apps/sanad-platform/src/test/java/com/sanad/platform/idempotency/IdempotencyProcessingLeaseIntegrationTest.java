@@ -226,7 +226,7 @@ class IdempotencyProcessingLeaseIntegrationTest {
         try {
             result = idempotencyService.reserveOrReplay(
                     key, "ORGANIZATION.CREATE", "/api/v1/organizations",
-                    "Organization", "POST", body, null);
+                    "Organization", "POST", body, null, "test-req-" + java.util.UUID.randomUUID());
         } finally {
             contextProvider.clear();
         }
@@ -265,7 +265,7 @@ class IdempotencyProcessingLeaseIntegrationTest {
         try {
             result = idempotencyService.reserveOrReplay(
                     key, "ORGANIZATION.CREATE", "/api/v1/organizations",
-                    "Organization", "POST", body, null);
+                    "Organization", "POST", body, null, "test-req-" + java.util.UUID.randomUUID());
         } finally {
             contextProvider.clear();
         }
@@ -350,7 +350,7 @@ class IdempotencyProcessingLeaseIntegrationTest {
                 try {
                     IdempotencyService.ReservationResult r = idempotencyService.reserveOrReplay(
                             key, "ORGANIZATION.CREATE", "/api/v1/organizations",
-                            "Organization", "POST", body, null);
+                            "Organization", "POST", body, null, "test-req-" + java.util.UUID.randomUUID());
                     return r.type();
                 } finally {
                     contextProvider.clear();

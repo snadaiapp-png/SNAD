@@ -1,6 +1,7 @@
 package com.sanad.platform.idempotency;
 
 import com.sanad.platform.idempotency.service.IdempotencyReservationStore;
+import com.sanad.platform.idempotency.service.LeaseGrant;
 import com.sanad.platform.idempotency.service.IdempotencyService;
 import com.sanad.platform.idempotency.service.RequestFingerprintService;
 import com.sanad.platform.security.service.JwtTokenProvider;
@@ -176,17 +177,17 @@ class IdempotencyResponseRedactionIntegrationTest {
         Instant expiresAt = Instant.now().plusSeconds(3600);
         Instant leaseExpiresAt = Instant.now().plusSeconds(300);
         String ownerRequestId = "redact-owner-" + UUID.randomUUID();
-        Optional<UUID> id = store.atomicReserve(
+        Optional<LeaseGrant> grant = store.atomicReserve(
                 fixture.tenantAId(), key, "ORGANIZATION.CREATE",
                 "/api/v1/organizations", "Organization", fingerprint,
                 expiresAt, ownerRequestId, leaseExpiresAt);
-        assertThat(id)
+        assertThat(grant)
                 .as("reservation must succeed for key %s", key)
                 .isPresent();
-        return new ReservedRecord(id.get(), ownerRequestId, 1L);
+        return new ReservedRecord(grant.get().recordId(), grant.get().tenantId(), ownerRequestId, 1L);
     }
 
-    private record ReservedRecord(UUID id, String ownerRequestId, long leaseVersion) {}
+    private record ReservedRecord(UUID id, UUID tenantId, String ownerRequestId, long leaseVersion) {}
 
     /**
      * Reads the stored response_body for the given record ID.
@@ -259,8 +260,8 @@ class IdempotencyResponseRedactionIntegrationTest {
                     + "\"password\":\"hunter2\"},"
                     + "\"token\":\"should-be-redacted\"}";
 
-            idempotencyService.complete(
-                    reserved.id(), reserved.ownerRequestId(), reserved.leaseVersion(),
+            store.atomicComplete(
+                    reserved.id(), reserved.tenantId(), reserved.ownerRequestId(), reserved.leaseVersion(),
                     201, "Content-Type: application/json", nestedJson);
         } finally {
             contextProvider.clear();
@@ -298,8 +299,7 @@ class IdempotencyResponseRedactionIntegrationTest {
             // redactErrorDetail() helper (Stage 05A.2.1 §15).
             String errorDetail = "Upstream rejected Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature";
 
-            idempotencyService.fail(
-                    reserved.id(), reserved.ownerRequestId(), reserved.leaseVersion(),
+            idempotencyService.fail(reserved.id(), reserved.tenantId(), reserved.ownerRequestId(), reserved.leaseVersion(),
                     "SANAD-IDEMP-EXEC", errorDetail, true);
         } finally {
             contextProvider.clear();
@@ -330,8 +330,7 @@ class IdempotencyResponseRedactionIntegrationTest {
 
             String errorDetail = "Invalid Authorization: Bearer secret-token-12345 in upstream call";
 
-            idempotencyService.fail(
-                    reserved.id(), reserved.ownerRequestId(), reserved.leaseVersion(),
+            idempotencyService.fail(reserved.id(), reserved.tenantId(), reserved.ownerRequestId(), reserved.leaseVersion(),
                     "SANAD-IDEMP-EXEC", errorDetail, true);
         } finally {
             contextProvider.clear();
@@ -361,8 +360,7 @@ class IdempotencyResponseRedactionIntegrationTest {
             // The error detail contains a plaintext password= pattern.
             String errorDetail = "Connection failed: password=hunter2; host=db.example.com";
 
-            idempotencyService.fail(
-                    reserved.id(), reserved.ownerRequestId(), reserved.leaseVersion(),
+            idempotencyService.fail(reserved.id(), reserved.tenantId(), reserved.ownerRequestId(), reserved.leaseVersion(),
                     "SANAD-IDEMP-EXEC", errorDetail, true);
         } finally {
             contextProvider.clear();

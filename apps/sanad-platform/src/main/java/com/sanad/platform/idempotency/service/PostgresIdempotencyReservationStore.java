@@ -3,27 +3,30 @@ package com.sanad.platform.idempotency.service;
 import com.sanad.platform.idempotency.domain.IdempotencyRecord;
 import com.sanad.platform.idempotency.domain.IdempotencyStatus;
 import com.sanad.platform.idempotency.repository.IdempotencyRecordRepository;
+import jakarta.persistence.EntityManager;
+import org.hibernate.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Component;
 
-import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Stage 05A.2.1 §5 — PostgreSQL-specific reservation store.
+ * Stage 05A.2.6 §2 — PostgreSQL reservation store that executes native SQL
+ * through the EntityManager's transaction-bound connection.
  *
- * <p>Uses native INSERT ... ON CONFLICT DO NOTHING RETURNING and
- * UPDATE ... RETURNING for atomic reservation and lease takeover.
- * Active under {@code prod} and {@code tenant-postgres-test} profiles.</p>
+ * <p>This ensures the INSERT/UPDATE runs on the SAME connection that
+ * TenantAwareJpaTransactionManager has already bound to the transaction
+ * (with app.current_tenant_id set via SET LOCAL). Using a separate
+ * NamedParameterJdbcTemplate would grab a different connection from the
+ * pool — one without the tenant setting — causing RLS violations.</p>
  */
 @Component
 @Profile({"prod", "tenant-postgres-test"})
@@ -31,158 +34,181 @@ public class PostgresIdempotencyReservationStore implements IdempotencyReservati
 
     private static final Logger log = LoggerFactory.getLogger(PostgresIdempotencyReservationStore.class);
 
-    private final NamedParameterJdbcTemplate jdbc;
+    private final EntityManager entityManager;
     private final IdempotencyRecordRepository repository;
 
-    public PostgresIdempotencyReservationStore(DataSource dataSource,
+    public PostgresIdempotencyReservationStore(EntityManager entityManager,
                                                   IdempotencyRecordRepository repository) {
-        this.jdbc = new NamedParameterJdbcTemplate(dataSource);
+        this.entityManager = entityManager;
         this.repository = repository;
     }
 
     @Override
-    public Optional<UUID> atomicReserve(
+    public Optional<LeaseGrant> atomicReserve(
             UUID tenantId, String idempotencyKey, String operation,
             String route, String resourceType, String requestFingerprint,
             Instant expiresAt, String leaseOwnerRequestId, Instant leaseExpiresAt) {
 
         UUID newId = UUID.randomUUID();
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("id", newId)
-                .addValue("tenantId", tenantId)
-                .addValue("key", idempotencyKey)
-                .addValue("operation", operation)
-                .addValue("route", route)
-                .addValue("resourceType", resourceType)
-                .addValue("fingerprint", requestFingerprint)
-                .addValue("expiresAt", Timestamp.from(expiresAt))
-                .addValue("leaseOwner", leaseOwnerRequestId)
-                .addValue("leaseExpiresAt", Timestamp.from(leaseExpiresAt));
+        Session session = entityManager.unwrap(Session.class);
 
-        List<UUID> ids = jdbc.queryForList(
-                "INSERT INTO idempotency_records "
-                + "(id, tenant_id, idempotency_key, operation, route, resource_type, "
-                + " request_fingerprint, status, expires_at, created_at, updated_at, "
-                + " lease_owner_request_id, lease_expires_at, attempt_count, last_attempt_at, "
-                + " lease_version) "
-                + "VALUES (:id, :tenantId, :key, :operation, :route, :resourceType, "
-                + " :fingerprint, 'PROCESSING', :expiresAt, NOW(), NOW(), "
-                + " :leaseOwner, :leaseExpiresAt, 1, NOW(), 1) "
-                + "ON CONFLICT (tenant_id, operation, route, idempotency_key) DO NOTHING "
-                + "RETURNING id",
-                params, UUID.class);
+        Boolean[] inserted = {Boolean.FALSE};
+        session.doWork(connection -> {
+            String sql = "INSERT INTO idempotency_records " +
+                    "(id, tenant_id, idempotency_key, operation, route, resource_type, " +
+                    " request_fingerprint, status, expires_at, created_at, updated_at, " +
+                    " lease_owner_request_id, lease_expires_at, attempt_count, last_attempt_at, " +
+                    " lease_version) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'PROCESSING', ?, NOW(), NOW(), " +
+                    " ?, ?, 1, NOW(), 1) " +
+                    "ON CONFLICT (tenant_id, operation, route, idempotency_key) DO NOTHING " +
+                    "RETURNING id";
 
-        if (ids.isEmpty()) {
-            return Optional.empty();
+            try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                ps.setObject(1, newId);
+                ps.setObject(2, tenantId);
+                ps.setString(3, idempotencyKey);
+                ps.setString(4, operation);
+                ps.setString(5, route);
+                ps.setString(6, resourceType);
+                ps.setString(7, requestFingerprint);
+                ps.setTimestamp(8, Timestamp.from(expiresAt));
+                ps.setString(9, leaseOwnerRequestId);
+                ps.setTimestamp(10, Timestamp.from(leaseExpiresAt));
+
+                try (ResultSet rs = ps.executeQuery()) {
+                    inserted[0] = rs.next();
+                }
+            }
+        });
+
+        if (Boolean.TRUE.equals(inserted[0])) {
+            return Optional.of(new LeaseGrant(
+                    newId, tenantId, leaseOwnerRequestId, 1L,
+                    "PROCESSING", requestFingerprint, leaseExpiresAt));
         }
-        return Optional.of(ids.get(0));
+        return Optional.empty();
     }
 
     @Override
-    public Optional<IdempotencyRecord> atomicTakeoverLease(
+    public Optional<LeaseGrant> atomicTakeoverLease(
             UUID recordId, String newOwnerRequestId, Instant newLeaseExpiresAt) {
 
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("recordId", recordId)
-                .addValue("newOwner", newOwnerRequestId)
-                .addValue("newLeaseExpiry", Timestamp.from(newLeaseExpiresAt));
+        Session session = entityManager.unwrap(Session.class);
+        LeaseGrant[] result = {null};
 
-        // Update with RETURNING — returns the updated row if the WHERE matched.
-        List<Map<String, Object>> rows = jdbc.queryForList(
-                "UPDATE idempotency_records "
-                + "SET status = 'PROCESSING', "
-                + "    lease_owner_request_id = :newOwner, "
-                + "    lease_expires_at = :newLeaseExpiry, "
-                + "    lease_version = lease_version + 1, "
-                + "    attempt_count = attempt_count + 1, "
-                + "    last_attempt_at = NOW(), "
-                + "    updated_at = NOW() "
-                + "WHERE id = :recordId "
-                + "AND (status = 'FAILED_RETRYABLE' OR lease_expires_at < NOW()) "
-                + "RETURNING id, tenant_id, idempotency_key, operation, route, "
-                + "resource_type, request_fingerprint, status, response_status, "
-                + "response_headers, response_body, locked_at, processing_started_at, "
-                + "completed_at, expires_at, created_at, updated_at, owner_request_id, "
-                + "error_code, error_detail, lease_owner_request_id, lease_expires_at, "
-                + "attempt_count, last_attempt_at, lease_version",
-                params);
+        session.doWork(connection -> {
+            String sql = "UPDATE idempotency_records " +
+                    "SET status = 'PROCESSING', " +
+                    "    lease_owner_request_id = ?, " +
+                    "    lease_expires_at = ?, " +
+                    "    lease_version = lease_version + 1, " +
+                    "    attempt_count = attempt_count + 1, " +
+                    "    last_attempt_at = NOW(), " +
+                    "    updated_at = NOW() " +
+                    "WHERE id = ? " +
+                    "AND (status = 'FAILED_RETRYABLE' OR lease_expires_at < NOW()) " +
+                    "RETURNING id, tenant_id, lease_owner_request_id, lease_version, " +
+                    "status, request_fingerprint, lease_expires_at";
 
-        if (rows.isEmpty()) {
-            return Optional.empty();
-        }
-        // Re-read via JPA to get a managed entity
-        return repository.findById(recordId);
+            try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                ps.setString(1, newOwnerRequestId);
+                ps.setTimestamp(2, Timestamp.from(newLeaseExpiresAt));
+                ps.setObject(3, recordId);
+
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        result[0] = new LeaseGrant(
+                                rs.getObject("id", UUID.class),
+                                rs.getObject("tenant_id", UUID.class),
+                                rs.getString("lease_owner_request_id"),
+                                rs.getLong("lease_version"),
+                                rs.getString("status"),
+                                rs.getString("request_fingerprint"),
+                                rs.getTimestamp("lease_expires_at") != null
+                                        ? rs.getTimestamp("lease_expires_at").toInstant() : null);
+                    }
+                }
+            }
+        });
+
+        return Optional.ofNullable(result[0]);
     }
 
     @Override
     public void atomicComplete(
-            UUID recordId, String leaseOwnerRequestId, long leaseVersion,
+            UUID recordId, UUID tenantId, String leaseOwnerRequestId, long leaseVersion,
             int responseStatus, String responseHeaders, String responseBody) {
 
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("recordId", recordId)
-                .addValue("leaseOwner", leaseOwnerRequestId)
-                .addValue("leaseVersion", leaseVersion)
-                .addValue("responseStatus", responseStatus)
-                .addValue("responseHeaders", responseHeaders)
-                .addValue("responseBody", responseBody);
+        Session session = entityManager.unwrap(Session.class);
+        int[] updated = {0};
 
-        List<UUID> updated = jdbc.queryForList(
-                "UPDATE idempotency_records "
-                + "SET status = 'COMPLETED', "
-                + "    response_status = :responseStatus, "
-                + "    response_headers = :responseHeaders, "
-                + "    response_body = :responseBody, "
-                + "    completed_at = NOW(), "
-                + "    updated_at = NOW() "
-                + "WHERE id = :recordId "
-                + "AND status = 'PROCESSING' "
-                + "AND lease_owner_request_id = :leaseOwner "
-                + "AND lease_version = :leaseVersion "
-                + "RETURNING id",
-                params, UUID.class);
+        session.doWork(connection -> {
+            String sql = "UPDATE idempotency_records " +
+                    "SET status = 'COMPLETED', " +
+                    "    response_status = ?, " +
+                    "    response_headers = ?, " +
+                    "    response_body = ?, " +
+                    "    completed_at = NOW(), " +
+                    "    updated_at = NOW() " +
+                    "WHERE id = ? " +
+                    "AND tenant_id = ? " +
+                    "AND status = 'PROCESSING' " +
+                    "AND lease_owner_request_id = ? " +
+                    "AND lease_version = ?";
 
-        if (updated.isEmpty()) {
-            // Read the actual state to provide a useful error
-            IdempotencyRecord rec = repository.findById(recordId).orElse(null);
-            long actualVersion = rec != null && rec.getLeaseVersion() != null
-                    ? rec.getLeaseVersion() : -1;
-            throw new StaleIdempotencyLeaseException(recordId, leaseVersion, actualVersion);
+            try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                ps.setInt(1, responseStatus);
+                ps.setString(2, responseHeaders);
+                ps.setString(3, responseBody);
+                ps.setObject(4, recordId);
+                ps.setObject(5, tenantId);
+                ps.setString(6, leaseOwnerRequestId);
+                ps.setLong(7, leaseVersion);
+                updated[0] = ps.executeUpdate();
+            }
+        });
+
+        if (updated[0] == 0) {
+            throw new StaleIdempotencyLeaseException(recordId, leaseVersion, -1);
         }
     }
 
     @Override
     public void atomicFail(
-            UUID recordId, String leaseOwnerRequestId, long leaseVersion,
+            UUID recordId, UUID tenantId, String leaseOwnerRequestId, long leaseVersion,
             String errorCode, String errorDetail, boolean retryable) {
 
         String newStatus = retryable ? "FAILED_RETRYABLE" : "FAILED_FINAL";
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("recordId", recordId)
-                .addValue("leaseOwner", leaseOwnerRequestId)
-                .addValue("leaseVersion", leaseVersion)
-                .addValue("newStatus", newStatus)
-                .addValue("errorCode", errorCode)
-                .addValue("errorDetail", errorDetail);
+        Session session = entityManager.unwrap(Session.class);
+        int[] updated = {0};
 
-        List<UUID> updated = jdbc.queryForList(
-                "UPDATE idempotency_records "
-                + "SET status = :newStatus, "
-                + "    error_code = :errorCode, "
-                + "    error_detail = :errorDetail, "
-                + "    completed_at = NOW(), "
-                + "    updated_at = NOW() "
-                + "WHERE id = :recordId "
-                + "AND lease_owner_request_id = :leaseOwner "
-                + "AND lease_version = :leaseVersion "
-                + "RETURNING id",
-                params, UUID.class);
+        session.doWork(connection -> {
+            String sql = "UPDATE idempotency_records " +
+                    "SET status = ?, " +
+                    "    error_code = ?, " +
+                    "    error_detail = ?, " +
+                    "    completed_at = NOW(), " +
+                    "    updated_at = NOW() " +
+                    "WHERE id = ? " +
+                    "AND tenant_id = ? " +
+                    "AND lease_owner_request_id = ? " +
+                    "AND lease_version = ?";
 
-        if (updated.isEmpty()) {
-            IdempotencyRecord rec = repository.findById(recordId).orElse(null);
-            long actualVersion = rec != null && rec.getLeaseVersion() != null
-                    ? rec.getLeaseVersion() : -1;
-            throw new StaleIdempotencyLeaseException(recordId, leaseVersion, actualVersion);
+            try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                ps.setString(1, newStatus);
+                ps.setString(2, errorCode);
+                ps.setString(3, errorDetail);
+                ps.setObject(4, recordId);
+                ps.setObject(5, tenantId);
+                ps.setString(6, leaseOwnerRequestId);
+                ps.setLong(7, leaseVersion);
+                updated[0] = ps.executeUpdate();
+            }
+        });
+
+        if (updated[0] == 0) {
+            throw new StaleIdempotencyLeaseException(recordId, leaseVersion, -1);
         }
     }
 

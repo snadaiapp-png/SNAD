@@ -20,12 +20,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Stage 05A.2.1 — Idempotency service using profile-selected persistence
- * adapter.
- *
- * <p>No more catch(Exception) H2 fallback — the correct store is selected
- * by Spring profile at startup. PostgreSQL failures propagate; they are
- * never masked by H2 fallback logic.</p>
+ * Stage 05A.2.6 — Idempotency service using profile-selected store
+ * with LeaseGrant (no JPA re-read after RETURNING).
  */
 @Service
 public class IdempotencyService {
@@ -58,14 +54,11 @@ public class IdempotencyService {
             ReservationType type,
             IdempotencyRecord record,
             String message,
-            long leaseVersion
+            long leaseVersion,
+            LeaseGrant leaseGrant
     ) {
         public boolean shouldExecute() { return type == ReservationType.NEW; }
         public boolean shouldReplay() { return type == ReservationType.REPLAY; }
-        public ReservationResult(ReservationType type, IdempotencyRecord record, String message) {
-            this(type, record, message, record != null && record.getLeaseVersion() != null
-                    ? record.getLeaseVersion() : 0);
-        }
     }
 
     @Transactional(propagation = Propagation.REQUIRED)
@@ -76,25 +69,29 @@ public class IdempotencyService {
             String resourceType,
             String method,
             String body,
-            String queryString) {
+            String queryString,
+            String verifiedRequestId) {
+
         UUID tenantId = requireTenantId();
         String fingerprint = fingerprintService.compute(method, route, body, queryString, tenantId, operation);
         Instant now = Instant.now();
         Instant expiresAt = now.plus(DEFAULT_TTL);
         Instant leaseExpiresAt = now.plus(LEASE_DURATION);
-        String requestId = MDC.get(RequestIdFilter.MDC_KEY);
 
-        // Stage 05A.2.1 §5 — Atomic reservation via profile-selected store.
-        Optional<UUID> insertedId = store.atomicReserve(
+        // Stage 05A.2.6 §4 — Use verified request identity (passed explicitly, never null)
+        String leaseOwner = verifiedRequestId;
+
+        Optional<LeaseGrant> insertedGrant = store.atomicReserve(
                 tenantId, idempotencyKey, operation, route, resourceType,
-                fingerprint, expiresAt, requestId, leaseExpiresAt);
+                fingerprint, expiresAt, leaseOwner, leaseExpiresAt);
 
-        if (insertedId.isPresent()) {
-            IdempotencyRecord rec = repository.findById(insertedId.get()).orElseThrow();
-            return new ReservationResult(ReservationType.NEW, rec, "New reservation created");
+        if (insertedGrant.isPresent()) {
+            LeaseGrant grant = insertedGrant.get();
+            IdempotencyRecord rec = repository.findById(grant.recordId()).orElseThrow();
+            return new ReservationResult(ReservationType.NEW, rec, "New reservation created",
+                    grant.leaseVersion(), grant);
         }
 
-        // The row already exists — re-read.
         Optional<IdempotencyRecord> existing = store.findByTenantOperationRouteKey(
                 tenantId, operation, route, idempotencyKey);
 
@@ -102,81 +99,63 @@ public class IdempotencyService {
             IdempotencyRecord rec = existing.get();
             if (rec.getExpiresAt().isBefore(now)) {
                 return new ReservationResult(ReservationType.EXPIRED, rec,
-                        "Idempotency record expired at " + rec.getExpiresAt());
+                        "Idempotency record expired at " + rec.getExpiresAt(), 0, null);
             }
             if (!rec.getRequestFingerprint().equals(fingerprint)) {
                 return new ReservationResult(ReservationType.CONFLICT, rec,
-                        "Idempotency key reused with a different payload");
+                        "Idempotency key reused with a different payload", 0, null);
             }
             if (rec.getStatus() == IdempotencyStatus.COMPLETED) {
                 return new ReservationResult(ReservationType.REPLAY, rec,
-                        "Replaying completed response");
+                        "Replaying completed response", 0, null);
             }
             if (rec.getStatus() == IdempotencyStatus.PROCESSING) {
                 if (rec.getLeaseExpiresAt() != null && rec.getLeaseExpiresAt().isBefore(now)) {
-                    Optional<IdempotencyRecord> taken = store.atomicTakeoverLease(
-                            rec.getId(), requestId, leaseExpiresAt);
-                    if (taken.isPresent()) {
-                        return new ReservationResult(ReservationType.NEW, taken.get(),
-                                "Lease takeover — re-executing after expired processing lease");
+                    Optional<LeaseGrant> takeoverGrant = store.atomicTakeoverLease(
+                            rec.getId(), leaseOwner, leaseExpiresAt);
+                    if (takeoverGrant.isPresent()) {
+                        return new ReservationResult(ReservationType.NEW, rec,
+                                "Lease takeover", takeoverGrant.get().leaseVersion(),
+                                takeoverGrant.get());
                     }
                 }
                 return new ReservationResult(ReservationType.IN_PROGRESS, rec,
-                        "Request is still processing — retry later");
+                        "Request is still processing — retry later", 0, null);
             }
             if (rec.getStatus() == IdempotencyStatus.FAILED_RETRYABLE) {
-                Optional<IdempotencyRecord> taken = store.atomicTakeoverLease(
-                        rec.getId(), requestId, leaseExpiresAt);
-                if (taken.isPresent()) {
-                    return new ReservationResult(ReservationType.NEW, taken.get(),
-                            "Re-executing after retryable failure");
+                Optional<LeaseGrant> takeoverGrant = store.atomicTakeoverLease(
+                        rec.getId(), leaseOwner, leaseExpiresAt);
+                if (takeoverGrant.isPresent()) {
+                    return new ReservationResult(ReservationType.NEW, rec,
+                            "Re-executing after retryable failure",
+                            takeoverGrant.get().leaseVersion(), takeoverGrant.get());
                 }
                 return new ReservationResult(ReservationType.IN_PROGRESS, rec,
-                        "Concurrent retry detected — retry later");
+                        "Concurrent retry detected", 0, null);
             }
             if (rec.getStatus() == IdempotencyStatus.FAILED_FINAL) {
                 return new ReservationResult(ReservationType.CONFLICT, rec,
-                        "Idempotency key previously failed permanently");
+                        "Idempotency key previously failed permanently", 0, null);
             }
         }
 
         return new ReservationResult(ReservationType.IN_PROGRESS, null,
-                "Unexpected state — retry later");
+                "Unexpected state", 0, null);
     }
 
-    /**
-     * Stage 05A.2.1 §7 — Atomic completion with lease fencing.
-     * Throws StaleIdempotencyLeaseException if the lease doesn't match.
-     * Uses REQUIRES_NEW for standalone completion (Transaction C path).
-     */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void complete(UUID recordId, String leaseOwnerRequestId, long leaseVersion,
-                          int responseStatus, String responseHeaders, String responseBody) {
-        store.atomicComplete(recordId, leaseOwnerRequestId, leaseVersion,
-                responseStatus, sanitizeHeaders(responseHeaders),
-                redactionService.redactJson(responseBody));
-    }
-
-    /**
-     * Stage 05A.2.3 §10 — Completion within an existing transaction (Transaction B).
-     * Uses MANDATORY propagation — must be called within an active transaction.
-     * This ensures business mutation, audit, and completion all commit together.
-     */
     @Transactional(propagation = Propagation.MANDATORY)
-    public void completeInTransaction(UUID recordId, String leaseOwnerRequestId, long leaseVersion,
-                          int responseStatus, String responseHeaders, String responseBody) {
-        store.atomicComplete(recordId, leaseOwnerRequestId, leaseVersion,
+    public void completeInTransaction(UUID recordId, UUID tenantId,
+            String leaseOwnerRequestId, long leaseVersion,
+            int responseStatus, String responseHeaders, String responseBody) {
+        store.atomicComplete(recordId, tenantId, leaseOwnerRequestId, leaseVersion,
                 responseStatus, sanitizeHeaders(responseHeaders),
                 redactionService.redactJson(responseBody));
     }
 
-    /**
-     * Stage 05A.2.1 §7 — Atomic failure with lease fencing.
-     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void fail(UUID recordId, String leaseOwnerRequestId, long leaseVersion,
+    public void fail(UUID recordId, UUID tenantId, String leaseOwnerRequestId, long leaseVersion,
                       String errorCode, String errorDetail, boolean retryable) {
-        store.atomicFail(recordId, leaseOwnerRequestId, leaseVersion,
+        store.atomicFail(recordId, tenantId, leaseOwnerRequestId, leaseVersion,
                 errorCode, redactErrorDetail(errorDetail), retryable);
     }
 
@@ -193,7 +172,8 @@ public class IdempotencyService {
         StringBuilder sb = new StringBuilder();
         for (String line : headers.split("\n")) {
             String lower = line.toLowerCase();
-            if (lower.startsWith("set-cookie:") || lower.startsWith("authorization:")) {
+            if (lower.startsWith("set-cookie:") || lower.startsWith("authorization:")
+                    || lower.startsWith("proxy-authorization:")) {
                 continue;
             }
             sb.append(line).append("\n");
@@ -206,7 +186,6 @@ public class IdempotencyService {
         if (detail.trim().startsWith("{")) {
             return redactionService.redactJson(detail);
         }
-        // Stage 05A.2.1 §15 — Redact plaintext patterns
         String redacted = detail;
         redacted = redacted.replaceAll("(?i)(password=)[^\\s,;]+", "$1[REDACTED]");
         redacted = redacted.replaceAll("(?i)(token=)[^\\s,;]+", "$1[REDACTED]");

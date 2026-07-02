@@ -1,6 +1,7 @@
 package com.sanad.platform.idempotency;
 
 import com.sanad.platform.idempotency.service.IdempotencyReservationStore;
+import com.sanad.platform.idempotency.service.LeaseGrant;
 import com.sanad.platform.idempotency.service.RequestFingerprintService;
 import com.sanad.platform.idempotency.service.StaleIdempotencyLeaseException;
 import com.sanad.platform.security.tenant.support.TenantFixtureDataSourceConfig;
@@ -136,14 +137,14 @@ class IdempotencyLeaseFencingIntegrationTest {
         String ownerB = "owner-B-" + UUID.randomUUID();
 
         // === Step 1: Worker A reserves the key (lease_version = 1) ===
-        Optional<UUID> reservedA = store.atomicReserve(
+        Optional<LeaseGrant> reservedA = store.atomicReserve(
                 fixture.tenantAId(), key, "ORGANIZATION.CREATE",
                 "/api/v1/organizations", "Organization", fingerprint,
                 expiresAt, ownerA, leaseExpiresAtA);
         assertThat(reservedA)
                 .as("Worker A's reservation must succeed (first reservation)")
                 .isPresent();
-        UUID recordId = reservedA.get();
+        UUID recordId = reservedA.get().recordId();
 
         long[] stateAfterReserve = readLeaseState(fixture.tenantAId(), key);
         assertThat(stateAfterReserve[0])
@@ -164,7 +165,7 @@ class IdempotencyLeaseFencingIntegrationTest {
 
         // === Step 3: Worker B takes over (lease_version becomes 2) ===
         Instant leaseExpiresAtB = Instant.now().plusSeconds(3600);
-        Optional<com.sanad.platform.idempotency.domain.IdempotencyRecord> takenOver =
+        Optional<LeaseGrant> takenOver =
                 store.atomicTakeoverLease(recordId, ownerB, leaseExpiresAtB);
         assertThat(takenOver)
                 .as("Worker B's takeover must succeed (lease was expired)")
@@ -177,7 +178,7 @@ class IdempotencyLeaseFencingIntegrationTest {
 
         // === Step 4: Worker A attempts completion with stale lease_version = 1 → StaleIdempotencyLeaseException ===
         assertThatThrownBy(() -> store.atomicComplete(
-                recordId, ownerA, 1L, 201,
+                recordId, fixture.tenantAId(), ownerA, 1L, 201,
                 "Content-Type: application/json", "{\"id\":\"" + recordId + "\"}"))
                 .as("Worker A's completion with stale lease_version=1 must be rejected")
                 .isInstanceOf(StaleIdempotencyLeaseException.class);
@@ -197,7 +198,7 @@ class IdempotencyLeaseFencingIntegrationTest {
 
         // === Step 5: Worker B completes with lease_version = 2 → success ===
         store.atomicComplete(
-                recordId, ownerB, 2L, 201,
+                recordId, fixture.tenantAId(), ownerB, 2L, 201,
                 "Content-Type: application/json",
                 "{\"id\":\"" + UUID.randomUUID() + "\",\"name\":\"Lease Fence Org\"}");
 
@@ -226,12 +227,12 @@ class IdempotencyLeaseFencingIntegrationTest {
         String ownerB = "owner-B-fail-" + UUID.randomUUID();
 
         // Step 1: Worker A reserves.
-        Optional<UUID> reservedA = store.atomicReserve(
+        Optional<LeaseGrant> reservedA = store.atomicReserve(
                 fixture.tenantAId(), key, "ORGANIZATION.CREATE",
                 "/api/v1/organizations", "Organization", fingerprint,
                 expiresAt, ownerA, leaseExpiresAtA);
         assertThat(reservedA).isPresent();
-        UUID recordId = reservedA.get();
+        UUID recordId = reservedA.get().recordId();
 
         // Step 2: Manually expire Worker A's lease.
         String expireLeaseSql = "UPDATE idempotency_records "
@@ -249,14 +250,14 @@ class IdempotencyLeaseFencingIntegrationTest {
 
         // Step 4: Worker A attempts fail with stale lease_version = 1 → rejected.
         assertThatThrownBy(() -> store.atomicFail(
-                recordId, ownerA, 1L,
+                recordId, fixture.tenantAId(), ownerA, 1L,
                 "SANAD-IDEMP-EXEC", "Worker A's stale failure", true))
                 .as("Worker A's fail with stale lease_version=1 must be rejected")
                 .isInstanceOf(StaleIdempotencyLeaseException.class);
 
         // Step 5: Worker B fails with lease_version = 2 → success (FAILED_RETRYABLE).
         store.atomicFail(
-                recordId, ownerB, 2L,
+                recordId, fixture.tenantAId(), ownerB, 2L,
                 "SANAD-IDEMP-EXEC", "Worker B's failure", true);
 
         // Verify the record is now FAILED_RETRYABLE.

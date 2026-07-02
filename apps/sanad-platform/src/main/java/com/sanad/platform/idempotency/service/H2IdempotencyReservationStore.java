@@ -4,21 +4,17 @@ import com.sanad.platform.idempotency.domain.IdempotencyRecord;
 import com.sanad.platform.idempotency.domain.IdempotencyStatus;
 import com.sanad.platform.idempotency.repository.IdempotencyRecordRepository;
 import org.springframework.context.annotation.Profile;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import javax.sql.DataSource;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Stage 05A.2.1 §5 — H2-compatible reservation store.
- *
- * <p>H2 does not support ON CONFLICT or RETURNING clauses. This store
- * uses find-or-insert with the JPA repository. It is safe for
- * single-threaded local development but MUST NOT be used in production
- * or CI (which uses PostgreSQL with the Postgres store).</p>
- *
- * <p>Active under {@code local} and {@code test-local} profiles.</p>
+ * Stage 05A.2.6 — H2-compatible reservation store for local development.
+ * Uses JPA repository (no ON CONFLICT, no RETURNING).
  */
 @Component
 @Profile({"local", "test-local"})
@@ -31,12 +27,11 @@ public class H2IdempotencyReservationStore implements IdempotencyReservationStor
     }
 
     @Override
-    public Optional<UUID> atomicReserve(
+    public Optional<LeaseGrant> atomicReserve(
             UUID tenantId, String idempotencyKey, String operation,
             String route, String resourceType, String requestFingerprint,
             Instant expiresAt, String leaseOwnerRequestId, Instant leaseExpiresAt) {
 
-        // H2 fallback: check existing, insert if not found.
         Optional<IdempotencyRecord> existing = repository
                 .findByTenantOperationRouteKey(tenantId, operation, route, idempotencyKey);
         if (existing.isPresent()) {
@@ -56,11 +51,12 @@ public class H2IdempotencyReservationStore implements IdempotencyReservationStor
         newRec.setLastAttemptAt(Instant.now());
         newRec.setLeaseVersion(1L);
         repository.save(newRec);
-        return Optional.of(newRec.getId());
+        return Optional.of(new LeaseGrant(newRec.getId(), tenantId, leaseOwnerRequestId,
+                1L, "PROCESSING", requestFingerprint, leaseExpiresAt));
     }
 
     @Override
-    public Optional<IdempotencyRecord> atomicTakeoverLease(
+    public Optional<LeaseGrant> atomicTakeoverLease(
             UUID recordId, String newOwnerRequestId, Instant newLeaseExpiresAt) {
 
         IdempotencyRecord rec = repository.findById(recordId).orElse(null);
@@ -75,16 +71,18 @@ public class H2IdempotencyReservationStore implements IdempotencyReservationStor
         rec.setStatus(IdempotencyStatus.PROCESSING);
         rec.setLeaseOwnerRequestId(newOwnerRequestId);
         rec.setLeaseExpiresAt(newLeaseExpiresAt);
-        rec.setLeaseVersion((rec.getLeaseVersion() == null ? 0 : rec.getLeaseVersion()) + 1);
+        long newVersion = (rec.getLeaseVersion() == null ? 0 : rec.getLeaseVersion()) + 1;
+        rec.setLeaseVersion(newVersion);
         rec.setAttemptCount((rec.getAttemptCount() == null ? 0 : rec.getAttemptCount()) + 1);
         rec.setLastAttemptAt(Instant.now());
         repository.save(rec);
-        return Optional.of(rec);
+        return Optional.of(new LeaseGrant(rec.getId(), rec.getTenantId(), newOwnerRequestId,
+                newVersion, "PROCESSING", rec.getRequestFingerprint(), newLeaseExpiresAt));
     }
 
     @Override
     public void atomicComplete(
-            UUID recordId, String leaseOwnerRequestId, long leaseVersion,
+            UUID recordId, UUID tenantId, String leaseOwnerRequestId, long leaseVersion,
             int responseStatus, String responseHeaders, String responseBody) {
 
         IdempotencyRecord rec = repository.findById(recordId).orElse(null);
@@ -106,7 +104,7 @@ public class H2IdempotencyReservationStore implements IdempotencyReservationStor
 
     @Override
     public void atomicFail(
-            UUID recordId, String leaseOwnerRequestId, long leaseVersion,
+            UUID recordId, UUID tenantId, String leaseOwnerRequestId, long leaseVersion,
             String errorCode, String errorDetail, boolean retryable) {
 
         IdempotencyRecord rec = repository.findById(recordId).orElse(null);

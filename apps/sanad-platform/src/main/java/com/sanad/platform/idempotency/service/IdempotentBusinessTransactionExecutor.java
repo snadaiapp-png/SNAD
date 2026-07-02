@@ -11,18 +11,14 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
-import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
- * Stage 05A.2.3 §9 — Separate bean for Transaction B (business execution).
+ * Stage 05A.2.6 §6 — Separate bean for Transaction B.
  *
- * <p>This bean is called by {@link IdempotentCommandExecutor} to execute the
- * business mutation, write the SUCCESS audit event, and mark the idempotency
- * record as COMPLETED — all within a single transaction.</p>
- *
- * <p>Being a separate bean ensures that Spring's transaction proxy intercepts
- * the call (no self-invocation issue).</p>
+ * <p>Executes business mutation + audit + completion atomically in one
+ * transaction. Uses MANDATORY propagation for completion (must join
+ * the existing transaction).</p>
  */
 @Component
 public class IdempotentBusinessTransactionExecutor {
@@ -41,18 +37,9 @@ public class IdempotentBusinessTransactionExecutor {
         this.serializer = serializer;
     }
 
-    /**
-     * Transaction B — executes business mutation + audit + completion atomically.
-     *
-     * <p>Uses {@code Propagation.REQUIRED} to join the caller's transaction
-     * or start a new one. All three operations (business, audit, completion)
-     * commit together or roll back together.</p>
-     */
     @Transactional(propagation = Propagation.REQUIRED)
     public <T> IdempotentHttpResult<T> executeBusinessTransaction(
-            IdempotencyRecord rec,
-            String leaseOwner,
-            long leaseVersion,
+            LeaseGrant grant,
             String operation,
             String resourceType,
             Supplier<T> businessAction) {
@@ -62,41 +49,40 @@ public class IdempotentBusinessTransactionExecutor {
 
         // Serialize the approved response
         String responseBody = serializer.serializeResponse(result);
-        int httpStatus = 201; // Default for create operations
+        int httpStatus = 201;
         Map<String, String> headers = Map.of();
 
-        // Write SUCCESS audit event (in the same transaction)
+        // Write SUCCESS audit event (same transaction)
+        java.util.UUID resourceId = extractResourceId(result);
         auditService.record(AuditContext.builder(
                         operation, resourceType, "CREATE")
-                .resourceId(extractResourceId(result) != null ? extractResourceId(result).toString() : null)
+                .resourceId(resourceId != null ? resourceId.toString() : null)
                 .outcome(AuditOutcome.SUCCESS)
                 .httpStatus(httpStatus)
                 .afterState(responseBody)
                 .build());
 
-        // Complete the idempotency record (in the same transaction)
-        // Stage 05A.2.3 §10 — Complete uses MANDATORY propagation (must be
-        // called within an existing transaction). The store's atomicComplete
-        // runs the UPDATE directly within this transaction.
+        // Complete the idempotency record (same transaction, MANDATORY)
         idempotencyService.completeInTransaction(
-                rec.getId(), leaseOwner, leaseVersion,
+                grant.recordId(), grant.tenantId(),
+                grant.leaseOwnerRequestId(), grant.leaseVersion(),
                 httpStatus, serializer.serializeHeaders(headers), responseBody);
 
         return new IdempotentHttpResult<>(
                 httpStatus, headers, responseBody,
-                extractResourceId(result), false, leaseVersion, result);
+                resourceId, false, grant.leaseVersion(), result);
     }
 
     @SuppressWarnings("unchecked")
-    private <T> UUID extractResourceId(T result) {
+    private <T> java.util.UUID extractResourceId(T result) {
         if (result == null) return null;
         try {
             var method = result.getClass().getMethod("getId");
             Object id = method.invoke(result);
-            if (id instanceof UUID uuid) return uuid;
-            if (id instanceof String s) return UUID.fromString(s);
+            if (id instanceof java.util.UUID uuid) return uuid;
+            if (id instanceof String s) return java.util.UUID.fromString(s);
         } catch (Exception e) {
-            // No getId() method — return null
+            // No getId() method
         }
         return null;
     }

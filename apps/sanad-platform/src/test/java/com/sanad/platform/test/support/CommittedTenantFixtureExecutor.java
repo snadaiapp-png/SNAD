@@ -1,5 +1,7 @@
 package com.sanad.platform.test.support;
 
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -9,33 +11,23 @@ import javax.sql.DataSource;
 import java.util.UUID;
 
 /**
- * Stage 05A.2.5 §7.1 — Test-only fixture executor that creates and commits
+ * Stage 05A.2.6 §1 — Test-only fixture executor that creates and commits
  * tenant/user/membership/organization data in a REQUIRES_NEW transaction.
  *
- * <p>This ensures fixture data is committed to the database BEFORE any
- * REQUIRES_NEW transaction (like IdempotencyReservationTransactionExecutor)
- * attempts to read it. Without this, tests that create fixture data in
- * the test transaction would fail because REQUIRES_NEW transactions
- * cannot see uncommitted data.</p>
- *
- * <p>Also provides cleanup that deletes in the correct FK order to avoid
- * referential integrity violations from audit_events (append-only, FK
- * ON DELETE RESTRICT).</p>
+ * <p>Uses the FIXTURE DataSource (sanad_fixture_ci, BYPASSRLS) explicitly
+ * via @Qualifier to avoid DataSource ambiguity.</p>
  */
 @Component
+@ConditionalOnBean(name = "tenantFixtureDataSource")
 public class CommittedTenantFixtureExecutor {
 
     private final JdbcTemplate jdbc;
 
-    public CommittedTenantFixtureExecutor(DataSource dataSource) {
-        this.jdbc = new JdbcTemplate(dataSource);
+    public CommittedTenantFixtureExecutor(
+            @Qualifier("tenantFixtureDataSource") DataSource fixtureDataSource) {
+        this.jdbc = new JdbcTemplate(fixtureDataSource);
     }
 
-    /**
-     * Creates and commits a tenant, user, organization, and membership.
-     * Returns a record with all created IDs.
-     * Uses REQUIRES_NEW to ensure the data is committed independently.
-     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public FixtureData createFullFixture(String tenantName, String userEmail, String orgName) {
         UUID tenantId = UUID.randomUUID();
@@ -43,26 +35,22 @@ public class CommittedTenantFixtureExecutor {
         UUID orgId = UUID.randomUUID();
         UUID membershipId = UUID.randomUUID();
 
-        // Tenant
         jdbc.update(
                 "INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) " +
                 "VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())",
                 tenantId, tenantName, "test-" + tenantId.toString().substring(0, 8));
 
-        // User
         jdbc.update(
                 "INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, session_version, created_at, updated_at) " +
                 "VALUES (?, ?, ?, ?, 'ACTIVE', ?, 0, NOW(), NOW())",
                 userId, tenantId, userEmail, "Test User",
                 "$2a$10$dummyhashvaluereplacedinrealusecase1234567890123456");
 
-        // Organization
         jdbc.update(
                 "INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at) " +
                 "VALUES (?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
                 orgId, tenantId, orgName, "Test org");
 
-        // Membership
         jdbc.update(
                 "INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, email, display_name, status, created_at, updated_at) " +
                 "VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
@@ -71,18 +59,8 @@ public class CommittedTenantFixtureExecutor {
         return new FixtureData(tenantId, userId, orgId, membershipId);
     }
 
-    /**
-     * Cleans up ALL test data in the correct FK order.
-     * audit_events and audit_chain_heads have FK ON DELETE RESTRICT,
-     * so they must be deleted FIRST (before tenants).
-     * audit_events has append-only triggers that block DELETE on PostgreSQL,
-     * but on H2 (local profile) the triggers are not present.
-     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void cleanupAll() {
-        // Delete in reverse dependency order
-        // audit_events is append-only on PostgreSQL — DELETE will fail.
-        // On H2 (local), there are no triggers, so DELETE succeeds.
         try { jdbc.execute("DELETE FROM audit_events"); } catch (Exception ignored) {}
         try { jdbc.execute("DELETE FROM audit_chain_heads"); } catch (Exception ignored) {}
         try { jdbc.execute("DELETE FROM idempotency_records"); } catch (Exception ignored) {}

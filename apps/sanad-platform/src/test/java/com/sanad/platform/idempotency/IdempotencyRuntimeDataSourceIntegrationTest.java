@@ -3,6 +3,7 @@ package com.sanad.platform.idempotency;
 import com.sanad.platform.security.tenant.support.TenantFixtureDataSourceConfig;
 import com.sanad.platform.security.tenant.support.TenantFixtureSeederConfig;
 import com.sanad.platform.security.tenant.support.TenantMigrationOwnerDataSourceConfig;
+import com.sanad.platform.security.tenant.support.TenantRuntimeDataSourceConfig;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,7 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Stage 05A.1 §13 — Each assertion uses {@link PreparedStatement}.</p>
  */
 @SpringBootTest
-@Import({TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class,
+@Import({TenantRuntimeDataSourceConfig.class, TenantFixtureDataSourceConfig.class, TenantFixtureSeederConfig.class,
         TenantMigrationOwnerDataSourceConfig.class})
 @AutoConfigureMockMvc
 @ActiveProfiles("tenant-postgres-test")
@@ -56,6 +57,7 @@ class IdempotencyRuntimeDataSourceIntegrationTest {
 
     /** Runtime DataSource — subject to FORCE RLS (sanad_runtime_app, no BYPASSRLS). */
     @Autowired
+    @Qualifier("tenantRuntimeDataSource")
     private DataSource runtimeDataSource;
 
     @Autowired

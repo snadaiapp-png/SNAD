@@ -1,6 +1,7 @@
 package com.sanad.platform.idempotency;
 
 import com.sanad.platform.idempotency.service.IdempotencyReservationStore;
+import com.sanad.platform.idempotency.service.LeaseGrant;
 import com.sanad.platform.idempotency.service.RequestFingerprintService;
 import com.sanad.platform.security.tenant.support.TenantFixtureDataSourceConfig;
 import com.sanad.platform.security.tenant.support.TenantRuntimeDataSourceConfig;
@@ -133,7 +134,7 @@ class IdempotencyAtomicReservationIntegrationTest {
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
         CountDownLatch startLatch = new CountDownLatch(1);
-        List<CompletableFuture<Optional<UUID>>> futures = new ArrayList<>();
+        List<CompletableFuture<Optional<LeaseGrant>>> futures = new ArrayList<>();
 
         for (int i = 0; i < 2; i++) {
             final String ownerRequestId = "owner-2-" + i + "-" + UUID.randomUUID();
@@ -156,8 +157,8 @@ class IdempotencyAtomicReservationIntegrationTest {
                 .get(60, TimeUnit.SECONDS);
         executor.shutdown();
 
-        List<Optional<UUID>> results = new ArrayList<>();
-        for (CompletableFuture<Optional<UUID>> f : futures) {
+        List<Optional<LeaseGrant>> results = new ArrayList<>();
+        for (CompletableFuture<Optional<LeaseGrant>> f : futures) {
             results.add(f.get());
         }
 
@@ -172,13 +173,13 @@ class IdempotencyAtomicReservationIntegrationTest {
                 .isEqualTo(1L);
 
         // The winner's UUID must be non-null.
-        UUID winnerId = results.stream()
+        LeaseGrant winnerGrant = results.stream()
                 .filter(Optional::isPresent)
                 .map(Optional::get)
                 .findFirst()
                 .orElse(null);
-        assertThat(winnerId)
-                .as("winner UUID must be non-null")
+        assertThat(winnerGrant)
+                .as("winner LeaseGrant must be non-null")
                 .isNotNull();
 
         // Exactly 1 record must exist in the DB.
@@ -201,7 +202,7 @@ class IdempotencyAtomicReservationIntegrationTest {
                 UUID storedId = (UUID) rs.getObject("id");
                 assertThat(storedId)
                         .as("stored row id must equal the winner's returned UUID")
-                        .isEqualTo(winnerId);
+                        .isEqualTo(winnerGrant);
             }
         }
     }
@@ -218,7 +219,7 @@ class IdempotencyAtomicReservationIntegrationTest {
         int threadCount = 20;
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
         CountDownLatch startLatch = new CountDownLatch(1);
-        List<CompletableFuture<Optional<UUID>>> futures = new ArrayList<>();
+        List<CompletableFuture<Optional<LeaseGrant>>> futures = new ArrayList<>();
 
         for (int i = 0; i < threadCount; i++) {
             final String ownerRequestId = "owner-20-" + i + "-" + UUID.randomUUID();
@@ -241,8 +242,8 @@ class IdempotencyAtomicReservationIntegrationTest {
                 .get(120, TimeUnit.SECONDS);
         executor.shutdown();
 
-        List<Optional<UUID>> results = new ArrayList<>();
-        for (CompletableFuture<Optional<UUID>> f : futures) {
+        List<Optional<LeaseGrant>> results = new ArrayList<>();
+        for (CompletableFuture<Optional<LeaseGrant>> f : futures) {
             results.add(f.get());
         }
 
