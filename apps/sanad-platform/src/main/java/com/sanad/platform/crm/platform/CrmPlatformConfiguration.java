@@ -13,6 +13,7 @@ import org.springframework.amqp.rabbit.annotation.EnableRabbit;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
@@ -24,6 +25,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableCaching
 @EnableRabbit
 @EnableConfigurationProperties(CrmPlatformProperties.class)
+@ConditionalOnProperty(prefix = "sanad.crm.platform.messaging", name = "enabled", havingValue = "true")
 public class CrmPlatformConfiguration {
 
     public static final String EVENT_EXCHANGE = "snad.crm.events";
