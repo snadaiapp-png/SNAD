@@ -112,7 +112,7 @@ public class IdempotencyService {
             if (rec.getStatus() == IdempotencyStatus.PROCESSING) {
                 if (rec.getLeaseExpiresAt() != null && rec.getLeaseExpiresAt().isBefore(now)) {
                     Optional<LeaseGrant> takeoverGrant = store.atomicTakeoverLease(
-                            rec.getId(), leaseOwner, leaseExpiresAt);
+                            rec.getId(), tenantId, leaseOwner, leaseExpiresAt);
                     if (takeoverGrant.isPresent()) {
                         return new ReservationResult(ReservationType.NEW, rec,
                                 "Lease takeover", takeoverGrant.get().leaseVersion(),
@@ -124,7 +124,7 @@ public class IdempotencyService {
             }
             if (rec.getStatus() == IdempotencyStatus.FAILED_RETRYABLE) {
                 Optional<LeaseGrant> takeoverGrant = store.atomicTakeoverLease(
-                        rec.getId(), leaseOwner, leaseExpiresAt);
+                        rec.getId(), tenantId, leaseOwner, leaseExpiresAt);
                 if (takeoverGrant.isPresent()) {
                     return new ReservationResult(ReservationType.NEW, rec,
                             "Re-executing after retryable failure",

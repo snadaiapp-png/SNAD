@@ -1,10 +1,9 @@
 package com.sanad.platform.idempotency.service;
 
 import com.sanad.platform.idempotency.domain.IdempotencyRecord;
-import com.sanad.platform.idempotency.domain.IdempotencyStatus;
 import com.sanad.platform.idempotency.repository.IdempotencyRecordRepository;
+import com.sanad.platform.security.tenant.TenantContextProvider;
 import jakarta.persistence.EntityManager;
-import org.hibernate.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
@@ -19,14 +18,12 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Stage 05A.2.6 §2 — PostgreSQL reservation store that executes native SQL
- * through the EntityManager's transaction-bound connection.
+ * Stage 05A.2.7 §7.2 — PostgreSQL reservation store using
+ * TenantBoundNativeSqlExecutor for all native SQL.
  *
- * <p>This ensures the INSERT/UPDATE runs on the SAME connection that
- * TenantAwareJpaTransactionManager has already bound to the transaction
- * (with app.current_tenant_id set via SET LOCAL). Using a separate
- * NamedParameterJdbcTemplate would grab a different connection from the
- * pool — one without the tenant setting — causing RLS violations.</p>
+ * <p>Every INSERT/UPDATE/RETURNING goes through the executor which
+ * explicitly sets and verifies app.current_tenant_id on the
+ * transaction-bound connection before executing any SQL.</p>
  */
 @Component
 @Profile({"prod", "tenant-postgres-test"})
@@ -34,12 +31,12 @@ public class PostgresIdempotencyReservationStore implements IdempotencyReservati
 
     private static final Logger log = LoggerFactory.getLogger(PostgresIdempotencyReservationStore.class);
 
-    private final EntityManager entityManager;
+    private final TenantBoundNativeSqlExecutor sqlExecutor;
     private final IdempotencyRecordRepository repository;
 
-    public PostgresIdempotencyReservationStore(EntityManager entityManager,
+    public PostgresIdempotencyReservationStore(TenantBoundNativeSqlExecutor sqlExecutor,
                                                   IdempotencyRecordRepository repository) {
-        this.entityManager = entityManager;
+        this.sqlExecutor = sqlExecutor;
         this.repository = repository;
     }
 
@@ -50,10 +47,10 @@ public class PostgresIdempotencyReservationStore implements IdempotencyReservati
             Instant expiresAt, String leaseOwnerRequestId, Instant leaseExpiresAt) {
 
         UUID newId = UUID.randomUUID();
-        Session session = entityManager.unwrap(Session.class);
 
-        Boolean[] inserted = {Boolean.FALSE};
-        session.doWork(connection -> {
+        LeaseGrant[] result = {null};
+
+        sqlExecutor.execute(tenantId, connection -> {
             String sql = "INSERT INTO idempotency_records " +
                     "(id, tenant_id, idempotency_key, operation, route, resource_type, " +
                     " request_fingerprint, status, expires_at, created_at, updated_at, " +
@@ -62,7 +59,8 @@ public class PostgresIdempotencyReservationStore implements IdempotencyReservati
                     "VALUES (?, ?, ?, ?, ?, ?, ?, 'PROCESSING', ?, NOW(), NOW(), " +
                     " ?, ?, 1, NOW(), 1) " +
                     "ON CONFLICT (tenant_id, operation, route, idempotency_key) DO NOTHING " +
-                    "RETURNING id";
+                    "RETURNING id, tenant_id, lease_owner_request_id, lease_version, " +
+                    "status, request_fingerprint, lease_expires_at";
 
             try (PreparedStatement ps = connection.prepareStatement(sql)) {
                 ps.setObject(1, newId);
@@ -75,46 +73,6 @@ public class PostgresIdempotencyReservationStore implements IdempotencyReservati
                 ps.setTimestamp(8, Timestamp.from(expiresAt));
                 ps.setString(9, leaseOwnerRequestId);
                 ps.setTimestamp(10, Timestamp.from(leaseExpiresAt));
-
-                try (ResultSet rs = ps.executeQuery()) {
-                    inserted[0] = rs.next();
-                }
-            }
-        });
-
-        if (Boolean.TRUE.equals(inserted[0])) {
-            return Optional.of(new LeaseGrant(
-                    newId, tenantId, leaseOwnerRequestId, 1L,
-                    "PROCESSING", requestFingerprint, leaseExpiresAt));
-        }
-        return Optional.empty();
-    }
-
-    @Override
-    public Optional<LeaseGrant> atomicTakeoverLease(
-            UUID recordId, String newOwnerRequestId, Instant newLeaseExpiresAt) {
-
-        Session session = entityManager.unwrap(Session.class);
-        LeaseGrant[] result = {null};
-
-        session.doWork(connection -> {
-            String sql = "UPDATE idempotency_records " +
-                    "SET status = 'PROCESSING', " +
-                    "    lease_owner_request_id = ?, " +
-                    "    lease_expires_at = ?, " +
-                    "    lease_version = lease_version + 1, " +
-                    "    attempt_count = attempt_count + 1, " +
-                    "    last_attempt_at = NOW(), " +
-                    "    updated_at = NOW() " +
-                    "WHERE id = ? " +
-                    "AND (status = 'FAILED_RETRYABLE' OR lease_expires_at < NOW()) " +
-                    "RETURNING id, tenant_id, lease_owner_request_id, lease_version, " +
-                    "status, request_fingerprint, lease_expires_at";
-
-            try (PreparedStatement ps = connection.prepareStatement(sql)) {
-                ps.setString(1, newOwnerRequestId);
-                ps.setTimestamp(2, Timestamp.from(newLeaseExpiresAt));
-                ps.setObject(3, recordId);
 
                 try (ResultSet rs = ps.executeQuery()) {
                     if (rs.next()) {
@@ -130,6 +88,55 @@ public class PostgresIdempotencyReservationStore implements IdempotencyReservati
                     }
                 }
             }
+            return null; // void work
+        });
+
+        return Optional.ofNullable(result[0]);
+    }
+
+    @Override
+    public Optional<LeaseGrant> atomicTakeoverLease(
+            UUID recordId, UUID tenantId,
+            String newOwnerRequestId, Instant newLeaseExpiresAt) {
+
+        LeaseGrant[] result = {null};
+
+        sqlExecutor.execute(tenantId, connection -> {
+            String sql = "UPDATE idempotency_records " +
+                    "SET status = 'PROCESSING', " +
+                    "    lease_owner_request_id = ?, " +
+                    "    lease_expires_at = ?, " +
+                    "    lease_version = lease_version + 1, " +
+                    "    attempt_count = attempt_count + 1, " +
+                    "    last_attempt_at = NOW(), " +
+                    "    updated_at = NOW() " +
+                    "WHERE id = ? " +
+                    "AND tenant_id = ? " +
+                    "AND (status = 'FAILED_RETRYABLE' OR lease_expires_at < NOW()) " +
+                    "RETURNING id, tenant_id, lease_owner_request_id, lease_version, " +
+                    "status, request_fingerprint, lease_expires_at";
+
+            try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                ps.setString(1, newOwnerRequestId);
+                ps.setTimestamp(2, Timestamp.from(newLeaseExpiresAt));
+                ps.setObject(3, recordId);
+                ps.setObject(4, tenantId);
+
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        result[0] = new LeaseGrant(
+                                rs.getObject("id", UUID.class),
+                                rs.getObject("tenant_id", UUID.class),
+                                rs.getString("lease_owner_request_id"),
+                                rs.getLong("lease_version"),
+                                rs.getString("status"),
+                                rs.getString("request_fingerprint"),
+                                rs.getTimestamp("lease_expires_at") != null
+                                        ? rs.getTimestamp("lease_expires_at").toInstant() : null);
+                    }
+                }
+            }
+            return null;
         });
 
         return Optional.ofNullable(result[0]);
@@ -140,10 +147,9 @@ public class PostgresIdempotencyReservationStore implements IdempotencyReservati
             UUID recordId, UUID tenantId, String leaseOwnerRequestId, long leaseVersion,
             int responseStatus, String responseHeaders, String responseBody) {
 
-        Session session = entityManager.unwrap(Session.class);
         int[] updated = {0};
 
-        session.doWork(connection -> {
+        sqlExecutor.execute(tenantId, connection -> {
             String sql = "UPDATE idempotency_records " +
                     "SET status = 'COMPLETED', " +
                     "    response_status = ?, " +
@@ -167,6 +173,7 @@ public class PostgresIdempotencyReservationStore implements IdempotencyReservati
                 ps.setLong(7, leaseVersion);
                 updated[0] = ps.executeUpdate();
             }
+            return null;
         });
 
         if (updated[0] == 0) {
@@ -180,10 +187,9 @@ public class PostgresIdempotencyReservationStore implements IdempotencyReservati
             String errorCode, String errorDetail, boolean retryable) {
 
         String newStatus = retryable ? "FAILED_RETRYABLE" : "FAILED_FINAL";
-        Session session = entityManager.unwrap(Session.class);
         int[] updated = {0};
 
-        session.doWork(connection -> {
+        sqlExecutor.execute(tenantId, connection -> {
             String sql = "UPDATE idempotency_records " +
                     "SET status = ?, " +
                     "    error_code = ?, " +
@@ -205,6 +211,7 @@ public class PostgresIdempotencyReservationStore implements IdempotencyReservati
                 ps.setLong(7, leaseVersion);
                 updated[0] = ps.executeUpdate();
             }
+            return null;
         });
 
         if (updated[0] == 0) {

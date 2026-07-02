@@ -26,6 +26,7 @@ public interface IdempotencyReservationStore {
 
     Optional<LeaseGrant> atomicTakeoverLease(
             UUID recordId,
+            UUID tenantId,
             String newOwnerRequestId,
             Instant newLeaseExpiresAt);
 

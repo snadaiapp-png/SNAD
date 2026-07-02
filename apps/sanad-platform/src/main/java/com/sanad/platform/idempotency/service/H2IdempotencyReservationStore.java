@@ -4,17 +4,14 @@ import com.sanad.platform.idempotency.domain.IdempotencyRecord;
 import com.sanad.platform.idempotency.domain.IdempotencyStatus;
 import com.sanad.platform.idempotency.repository.IdempotencyRecordRepository;
 import org.springframework.context.annotation.Profile;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-import javax.sql.DataSource;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Stage 05A.2.6 — H2-compatible reservation store for local development.
- * Uses JPA repository (no ON CONFLICT, no RETURNING).
+ * Stage 05A.2.7 — H2-compatible store. No RLS, no ON CONFLICT.
  */
 @Component
 @Profile({"local", "test-local"})
@@ -34,33 +31,33 @@ public class H2IdempotencyReservationStore implements IdempotencyReservationStor
 
         Optional<IdempotencyRecord> existing = repository
                 .findByTenantOperationRouteKey(tenantId, operation, route, idempotencyKey);
-        if (existing.isPresent()) {
-            return Optional.empty();
-        }
+        if (existing.isPresent()) return Optional.empty();
 
-        IdempotencyRecord newRec = new IdempotencyRecord(
+        IdempotencyRecord rec = new IdempotencyRecord(
                 tenantId, idempotencyKey, operation, route, requestFingerprint,
                 IdempotencyStatus.PROCESSING, expiresAt);
-        newRec.setResourceType(resourceType);
-        newRec.setLockedAt(Instant.now());
-        newRec.setProcessingStartedAt(Instant.now());
-        newRec.setOwnerRequestId(leaseOwnerRequestId);
-        newRec.setLeaseOwnerRequestId(leaseOwnerRequestId);
-        newRec.setLeaseExpiresAt(leaseExpiresAt);
-        newRec.setAttemptCount(1);
-        newRec.setLastAttemptAt(Instant.now());
-        newRec.setLeaseVersion(1L);
-        repository.save(newRec);
-        return Optional.of(new LeaseGrant(newRec.getId(), tenantId, leaseOwnerRequestId,
+        rec.setResourceType(resourceType);
+        rec.setLockedAt(Instant.now());
+        rec.setProcessingStartedAt(Instant.now());
+        rec.setOwnerRequestId(leaseOwnerRequestId);
+        rec.setLeaseOwnerRequestId(leaseOwnerRequestId);
+        rec.setLeaseExpiresAt(leaseExpiresAt);
+        rec.setAttemptCount(1);
+        rec.setLastAttemptAt(Instant.now());
+        rec.setLeaseVersion(1L);
+        repository.save(rec);
+        return Optional.of(new LeaseGrant(rec.getId(), tenantId, leaseOwnerRequestId,
                 1L, "PROCESSING", requestFingerprint, leaseExpiresAt));
     }
 
     @Override
     public Optional<LeaseGrant> atomicTakeoverLease(
-            UUID recordId, String newOwnerRequestId, Instant newLeaseExpiresAt) {
+            UUID recordId, UUID tenantId,
+            String newOwnerRequestId, Instant newLeaseExpiresAt) {
 
         IdempotencyRecord rec = repository.findById(recordId).orElse(null);
         if (rec == null) return Optional.empty();
+        if (!rec.getTenantId().equals(tenantId)) return Optional.empty();
 
         if (rec.getStatus() != IdempotencyStatus.FAILED_RETRYABLE
                 && (rec.getLeaseExpiresAt() == null
@@ -86,14 +83,11 @@ public class H2IdempotencyReservationStore implements IdempotencyReservationStor
             int responseStatus, String responseHeaders, String responseBody) {
 
         IdempotencyRecord rec = repository.findById(recordId).orElse(null);
-        if (rec == null) {
-            throw new StaleIdempotencyLeaseException(recordId, leaseVersion, -1);
-        }
-        long actualVersion = rec.getLeaseVersion() == null ? 0 : rec.getLeaseVersion();
-        if (!leaseOwnerRequestId.equals(rec.getLeaseOwnerRequestId())
-                || actualVersion != leaseVersion) {
-            throw new StaleIdempotencyLeaseException(recordId, leaseVersion, actualVersion);
-        }
+        if (rec == null) throw new StaleIdempotencyLeaseException(recordId, leaseVersion, -1);
+        long actual = rec.getLeaseVersion() == null ? 0 : rec.getLeaseVersion();
+        if (!leaseOwnerRequestId.equals(rec.getLeaseOwnerRequestId()) || actual != leaseVersion)
+            throw new StaleIdempotencyLeaseException(recordId, leaseVersion, actual);
+
         rec.setStatus(IdempotencyStatus.COMPLETED);
         rec.setResponseStatus(responseStatus);
         rec.setResponseHeaders(responseHeaders);
@@ -108,14 +102,11 @@ public class H2IdempotencyReservationStore implements IdempotencyReservationStor
             String errorCode, String errorDetail, boolean retryable) {
 
         IdempotencyRecord rec = repository.findById(recordId).orElse(null);
-        if (rec == null) {
-            throw new StaleIdempotencyLeaseException(recordId, leaseVersion, -1);
-        }
-        long actualVersion = rec.getLeaseVersion() == null ? 0 : rec.getLeaseVersion();
-        if (!leaseOwnerRequestId.equals(rec.getLeaseOwnerRequestId())
-                || actualVersion != leaseVersion) {
-            throw new StaleIdempotencyLeaseException(recordId, leaseVersion, actualVersion);
-        }
+        if (rec == null) throw new StaleIdempotencyLeaseException(recordId, leaseVersion, -1);
+        long actual = rec.getLeaseVersion() == null ? 0 : rec.getLeaseVersion();
+        if (!leaseOwnerRequestId.equals(rec.getLeaseOwnerRequestId()) || actual != leaseVersion)
+            throw new StaleIdempotencyLeaseException(recordId, leaseVersion, actual);
+
         rec.setStatus(retryable ? IdempotencyStatus.FAILED_RETRYABLE : IdempotencyStatus.FAILED_FINAL);
         rec.setErrorCode(errorCode);
         rec.setErrorDetail(errorDetail);
