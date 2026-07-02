@@ -143,7 +143,7 @@ public class IdempotencyService {
                 "Unexpected state", 0, null);
     }
 
-    @Transactional(propagation = Propagation.MANDATORY)
+    @Transactional(propagation = Propagation.REQUIRED)
     public void completeInTransaction(UUID recordId, UUID tenantId,
             String leaseOwnerRequestId, long leaseVersion,
             int responseStatus, String responseHeaders, String responseBody) {

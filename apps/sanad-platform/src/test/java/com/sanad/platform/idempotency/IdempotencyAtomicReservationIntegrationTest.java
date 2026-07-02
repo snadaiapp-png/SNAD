@@ -156,10 +156,16 @@ class IdempotencyAtomicReservationIntegrationTest {
                     Thread.currentThread().interrupt();
                     throw new RuntimeException(e);
                 }
-                return store.atomicReserve(
-                        fixture.tenantAId(), key, "ORGANIZATION.CREATE",
-                        "/api/v1/organizations", "Organization", fingerprint,
-                        expiresAt, ownerRequestId, leaseExpiresAt);
+                // Set TenantContext on worker thread — TenantBoundNativeSqlExecutor requires it
+                setTenantContext(fixture.tenantAId());
+                try {
+                    return store.atomicReserve(
+                            fixture.tenantAId(), key, "ORGANIZATION.CREATE",
+                            "/api/v1/organizations", "Organization", fingerprint,
+                            expiresAt, ownerRequestId, leaseExpiresAt);
+                } finally {
+                    contextProvider.clear();
+                }
             }, executor));
         }
 
@@ -241,10 +247,16 @@ class IdempotencyAtomicReservationIntegrationTest {
                     Thread.currentThread().interrupt();
                     throw new RuntimeException(e);
                 }
-                return store.atomicReserve(
-                        fixture.tenantAId(), key, "ORGANIZATION.CREATE",
-                        "/api/v1/organizations", "Organization", fingerprint,
-                        expiresAt, ownerRequestId, leaseExpiresAt);
+                // Set TenantContext on worker thread — TenantBoundNativeSqlExecutor requires it
+                setTenantContext(fixture.tenantAId());
+                try {
+                    return store.atomicReserve(
+                            fixture.tenantAId(), key, "ORGANIZATION.CREATE",
+                            "/api/v1/organizations", "Organization", fingerprint,
+                            expiresAt, ownerRequestId, leaseExpiresAt);
+                } finally {
+                    contextProvider.clear();
+                }
             }, executor));
         }
 

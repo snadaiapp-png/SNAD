@@ -260,7 +260,7 @@ class IdempotencyResponseRedactionIntegrationTest {
                     + "\"password\":\"hunter2\"},"
                     + "\"token\":\"should-be-redacted\"}";
 
-            store.atomicComplete(
+            idempotencyService.completeInTransaction(
                     reserved.id(), reserved.tenantId(), reserved.ownerRequestId(), reserved.leaseVersion(),
                     201, "Content-Type: application/json", nestedJson);
         } finally {
