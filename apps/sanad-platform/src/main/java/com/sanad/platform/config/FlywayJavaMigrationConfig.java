@@ -1,26 +1,29 @@
 package com.sanad.platform.config;
 
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
-import org.flywaydb.core.api.configuration.FlywayConfigurationCustomizer;
+import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.migration.JavaMigration;
+import org.springframework.boot.autoconfigure.flyway.FlywayProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration;
+
+import javax.sql.DataSource;
 
 /**
- * Explicitly registers the Java V15 migration with Flyway via
- * FlywayConfigurationCustomizer — the official Spring Boot extension
- * point for customizing Flyway configuration.
+ * Nuclear option: manually create the Flyway bean with V15 Java migration
+ * explicitly registered. This completely bypasses Spring Boot's
+ * FlywayAutoConfiguration bean discovery which may not work in all
+ * Docker/Render environments.
  *
- * <p>This bypasses any bean discovery or classpath scanning issues
- * that may occur in Docker/Render environments where Flyway 11.x
- * with flyway-database-postgresql might not auto-discover Java
- * migrations.</p>
+ * <p>This configuration is @ConditionalOnMissingBean to avoid conflicts
+ * if Spring Boot's auto-configuration also tries to create a Flyway bean.</p>
  */
 @Configuration
 public class FlywayJavaMigrationConfig {
 
     @Bean
-    public FlywayConfigurationCustomizer flywayJavaMigrationCustomizer() {
-        return configuration -> configuration.javaMigrations(
-                new V15__seed_rbac_roles_and_capabilities());
+    public JavaMigration v15SeedRbacRolesAndCapabilities() {
+        return new V15__seed_rbac_roles_and_capabilities();
     }
 }
