@@ -1,0 +1,43 @@
+{
+  "stage": "07",
+  "scope": "Release Authorization and Commercial Go-Live Gate",
+  "status": "OPEN",
+  "baseline": {
+    "stage06MergeCommit": "fab656fda377edfe7e06a43896a4c9806ec6c78b",
+    "stage06WorkflowRun": 28624469724,
+    "stage06Result": "3/3 PASS"
+  },
+  "candidate": {
+    "sha": null,
+    "artifactDigest": null,
+    "qualityGateRun": null,
+    "qualityGateResult": "PENDING"
+  },
+  "gates": {
+    "repository": "PENDING",
+    "artifactProvenance": "PENDING",
+    "productionHaSla": "EXTERNAL_DEPENDENCY",
+    "loadAndCapacity": "PENDING",
+    "externalSecurityAudit": "EXTERNAL_DEPENDENCY",
+    "legalAndDataProtection": "EXTERNAL_DEPENDENCY",
+    "backupRestore": "PENDING",
+    "disasterRecovery": "EXTERNAL_DEPENDENCY",
+    "providerRollback": "EXTERNAL_DEPENDENCY",
+    "observabilityAndOnCall": "PENDING",
+    "supportSla": "PENDING",
+    "finalGoNoGo": "NOT_AUTHORIZED"
+  },
+  "defects": {
+    "p0Open": null,
+    "p1Open": null
+  },
+  "approvals": {
+    "engineering": null,
+    "security": null,
+    "operations": null,
+    "legal": null,
+    "businessOwner": null,
+    "releaseAuthority": null
+  },
+  "commercialProductionAuthorized": false
+}
