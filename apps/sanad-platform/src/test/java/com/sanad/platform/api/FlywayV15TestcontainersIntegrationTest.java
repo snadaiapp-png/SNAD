@@ -103,11 +103,11 @@ class FlywayV15TestcontainersIntegrationTest {
     @Test
     @DisplayName("§5a_emptyDb_v20260702_1_appliedExactlyOnce: count=1, success=true")
     void emptyDb_v20260702_1_appliedExactlyOnce() throws Exception {
-        String row = queryFlywayHistory(
-                "SELECT COUNT(*) || '|' || BOOL(success) FROM flyway_schema_history WHERE version = '20260702.1'");
-        assertThat(row)
+        String count = queryFlywayHistory(
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '20260702.1' AND success = true");
+        assertThat(count)
                 .as("V20260702_1 must be applied exactly once with success=true")
-                .isEqualTo("1|t");
+                .isEqualTo("1");
     }
 
     @Test

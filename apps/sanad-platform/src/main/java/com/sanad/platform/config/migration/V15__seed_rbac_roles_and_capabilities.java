@@ -99,12 +99,17 @@ public class V15__seed_rbac_roles_and_capabilities extends BaseJavaMigration {
         try (PreparedStatement ps = context.getConnection().prepareStatement(insertRoleSql)) {
             for (UUID tenantId : tenantIds) {
                 for (String[] role : PREDEFINED_ROLES) {
-                    ps.setString(1, UUID.randomUUID().toString());
-                    ps.setString(2, tenantId.toString());
-                    ps.setString(3, role[0]); // code
-                    ps.setString(4, role[1]); // name
-                    ps.setString(5, role[2]); // description
-                    ps.setString(6, tenantId.toString());
+                    // Use setObject with Types.OTHER for UUID columns —
+                    // setString sends character varying which fails on
+                    // PostgreSQL with "operator does not exist: uuid =
+                    // character varying". Types.OTHER lets the JDBC driver
+                    // send the value as a PostgreSQL uuid literal.
+                    ps.setObject(1, UUID.randomUUID().toString(), java.sql.Types.OTHER);
+                    ps.setObject(2, tenantId.toString(), java.sql.Types.OTHER);
+                    ps.setString(3, role[0]); // code (VARCHAR column)
+                    ps.setString(4, role[1]); // name (VARCHAR column)
+                    ps.setString(5, role[2]); // description (VARCHAR column)
+                    ps.setObject(6, tenantId.toString(), java.sql.Types.OTHER);
                     ps.setString(7, role[0]); // code for NOT EXISTS check
                     ps.addBatch();
                 }
@@ -149,9 +154,9 @@ public class V15__seed_rbac_roles_and_capabilities extends BaseJavaMigration {
 
         try (PreparedStatement ps = context.getConnection().prepareStatement(sql)) {
             for (UUID tenantId : tenantIds) {
-                ps.setString(1, UUID.randomUUID().toString());
+                ps.setObject(1, UUID.randomUUID().toString(), java.sql.Types.OTHER);
                 ps.setString(2, roleCode);
-                ps.setString(3, tenantId.toString());
+                ps.setObject(3, tenantId.toString(), java.sql.Types.OTHER);
                 ps.addBatch();
             }
             int[] results = ps.executeBatch();
@@ -186,12 +191,12 @@ public class V15__seed_rbac_roles_and_capabilities extends BaseJavaMigration {
         try (PreparedStatement ps = context.getConnection().prepareStatement(sql)) {
             for (UUID tenantId : tenantIds) {
                 int paramIdx = 1;
-                ps.setString(paramIdx++, UUID.randomUUID().toString());
+                ps.setObject(paramIdx++, UUID.randomUUID().toString(), java.sql.Types.OTHER);
                 ps.setString(paramIdx++, roleCode);
                 for (String code : capabilityCodes) {
                     ps.setString(paramIdx++, code);
                 }
-                ps.setString(paramIdx, tenantId.toString());
+                ps.setObject(paramIdx, tenantId.toString(), java.sql.Types.OTHER);
                 ps.addBatch();
             }
             int[] results = ps.executeBatch();
