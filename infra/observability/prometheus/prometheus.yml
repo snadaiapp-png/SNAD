@@ -5,6 +5,9 @@ global:
     system: snad
     environment: local
 
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
 scrape_configs:
   - job_name: snad-backend
     metrics_path: /actuator/prometheus
@@ -14,3 +17,10 @@ scrape_configs:
           - backend:8080
         labels:
           service: sanad-platform
+
+  - job_name: otel-collector
+    static_configs:
+      - targets:
+          - otel-collector:8889
+        labels:
+          service: otel-collector
