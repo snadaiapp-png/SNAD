@@ -1,6 +1,7 @@
 -- Unified CRM core migration.
--- This intentionally uses V70 to avoid the existing V16/V17 conflicts in the CRM draft branches.
--- It installs the real application tables used by /api/v1/crm/** instead of relying on crm_benchmark tables.
+-- Uses V70 to avoid the V16/V17 conflicts in the superseded CRM draft branches.
+-- Installs the real application tables used by /api/v1/crm/**.
+-- Compatible with PostgreSQL and H2 PostgreSQL mode.
 
 CREATE TABLE crm_accounts (
     id UUID NOT NULL,
@@ -23,6 +24,7 @@ CREATE TABLE crm_accounts (
     archived_at TIMESTAMP WITH TIME ZONE,
     CONSTRAINT pk_crm_accounts PRIMARY KEY (id),
     CONSTRAINT uk_crm_accounts_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT fk_crm_accounts_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
     CONSTRAINT fk_crm_accounts_parent_same_tenant FOREIGN KEY (tenant_id, parent_account_id) REFERENCES crm_accounts (tenant_id, id),
     CONSTRAINT ck_crm_accounts_type CHECK (account_type IN ('BUSINESS','PERSON','PARTNER','PROSPECT','OTHER')),
     CONSTRAINT ck_crm_accounts_status CHECK (lifecycle_status IN ('ACTIVE','INACTIVE','ARCHIVED')),
@@ -57,13 +59,14 @@ CREATE TABLE crm_contacts (
     archived_at TIMESTAMP WITH TIME ZONE,
     CONSTRAINT pk_crm_contacts PRIMARY KEY (id),
     CONSTRAINT uk_crm_contacts_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT fk_crm_contacts_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
     CONSTRAINT fk_crm_contacts_account_same_tenant FOREIGN KEY (tenant_id, account_id) REFERENCES crm_accounts (tenant_id, id),
     CONSTRAINT ck_crm_contacts_status CHECK (lifecycle_status IN ('ACTIVE','INACTIVE','ARCHIVED')),
     CONSTRAINT ck_crm_contacts_consent CHECK (consent_summary IN ('UNKNOWN','GRANTED','DENIED','WITHDRAWN'))
 );
 CREATE INDEX idx_crm_contacts_tenant_account ON crm_contacts (tenant_id, account_id, updated_at DESC);
 CREATE INDEX idx_crm_contacts_name ON crm_contacts (tenant_id, normalized_name, id);
-CREATE INDEX idx_crm_contacts_email ON crm_contacts (tenant_id, normalized_email) WHERE normalized_email IS NOT NULL;
+CREATE INDEX idx_crm_contacts_email ON crm_contacts (tenant_id, normalized_email);
 CREATE INDEX idx_crm_contacts_owner ON crm_contacts (tenant_id, owner_user_id, lifecycle_status);
 
 CREATE TABLE crm_pipelines (
@@ -77,7 +80,9 @@ CREATE TABLE crm_pipelines (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT pk_crm_pipelines PRIMARY KEY (id),
     CONSTRAINT uk_crm_pipelines_tenant_id UNIQUE (tenant_id, id),
-    CONSTRAINT uk_crm_pipelines_tenant_name UNIQUE (tenant_id, name)
+    CONSTRAINT fk_crm_pipelines_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
+    CONSTRAINT uk_crm_pipelines_tenant_name UNIQUE (tenant_id, name),
+    CONSTRAINT ck_crm_pipelines_currency CHECK (currency_code IS NULL OR CHAR_LENGTH(currency_code) = 3)
 );
 
 CREATE TABLE crm_pipeline_stages (
@@ -91,9 +96,12 @@ CREATE TABLE crm_pipeline_stages (
     active BOOLEAN NOT NULL DEFAULT TRUE,
     CONSTRAINT pk_crm_pipeline_stages PRIMARY KEY (id),
     CONSTRAINT uk_crm_pipeline_stages_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT fk_crm_pipeline_stages_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
     CONSTRAINT fk_crm_pipeline_stages_pipeline_same_tenant FOREIGN KEY (tenant_id, pipeline_id) REFERENCES crm_pipelines (tenant_id, id),
     CONSTRAINT uk_crm_pipeline_stages_sequence UNIQUE (tenant_id, pipeline_id, sequence),
     CONSTRAINT uk_crm_pipeline_stages_name UNIQUE (tenant_id, pipeline_id, name),
+    CONSTRAINT ck_crm_pipeline_stage_sequence CHECK (sequence >= 0),
+    CONSTRAINT ck_crm_pipeline_stage_probability CHECK (probability BETWEEN 0 AND 100),
     CONSTRAINT ck_crm_pipeline_stage_terminal CHECK (terminal_state IS NULL OR terminal_state IN ('WON','LOST'))
 );
 
@@ -121,12 +129,13 @@ CREATE TABLE crm_leads (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT pk_crm_leads PRIMARY KEY (id),
     CONSTRAINT uk_crm_leads_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT fk_crm_leads_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
     CONSTRAINT fk_crm_leads_converted_account_same_tenant FOREIGN KEY (tenant_id, converted_account_id) REFERENCES crm_accounts (tenant_id, id),
     CONSTRAINT fk_crm_leads_converted_contact_same_tenant FOREIGN KEY (tenant_id, converted_contact_id) REFERENCES crm_contacts (tenant_id, id),
     CONSTRAINT ck_crm_leads_status CHECK (status IN ('NEW','ASSIGNED','CONTACTED','QUALIFIED','DISQUALIFIED','CONVERTED','ARCHIVED'))
 );
 CREATE INDEX idx_crm_leads_tenant_status_owner ON crm_leads (tenant_id, status, owner_user_id, updated_at DESC);
-CREATE INDEX idx_crm_leads_email ON crm_leads (tenant_id, normalized_email) WHERE normalized_email IS NOT NULL;
+CREATE INDEX idx_crm_leads_email ON crm_leads (tenant_id, normalized_email);
 
 CREATE TABLE crm_opportunities (
     id UUID NOT NULL,
@@ -151,10 +160,13 @@ CREATE TABLE crm_opportunities (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT pk_crm_opportunities PRIMARY KEY (id),
     CONSTRAINT uk_crm_opportunities_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT fk_crm_opportunities_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
     CONSTRAINT fk_crm_opportunities_account_same_tenant FOREIGN KEY (tenant_id, account_id) REFERENCES crm_accounts (tenant_id, id),
     CONSTRAINT fk_crm_opportunities_contact_same_tenant FOREIGN KEY (tenant_id, contact_id) REFERENCES crm_contacts (tenant_id, id),
     CONSTRAINT fk_crm_opportunities_pipeline_same_tenant FOREIGN KEY (tenant_id, pipeline_id) REFERENCES crm_pipelines (tenant_id, id),
     CONSTRAINT fk_crm_opportunities_stage_same_tenant FOREIGN KEY (tenant_id, stage_id) REFERENCES crm_pipeline_stages (tenant_id, id),
+    CONSTRAINT ck_crm_opportunities_currency CHECK (CHAR_LENGTH(currency_code) = 3),
+    CONSTRAINT ck_crm_opportunities_probability CHECK (probability BETWEEN 0 AND 100),
     CONSTRAINT ck_crm_opportunities_status CHECK (status IN ('OPEN','WON','LOST','CANCELLED','ARCHIVED'))
 );
 CREATE INDEX idx_crm_opportunities_pipeline ON crm_opportunities (tenant_id, pipeline_id, stage_id, status, updated_at DESC);
@@ -173,9 +185,12 @@ CREATE TABLE crm_opportunity_stage_history (
     changed_at TIMESTAMP WITH TIME ZONE NOT NULL,
     reason VARCHAR(500),
     CONSTRAINT pk_crm_opportunity_stage_history PRIMARY KEY (id),
+    CONSTRAINT fk_crm_stage_history_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
     CONSTRAINT fk_crm_stage_history_opportunity_same_tenant FOREIGN KEY (tenant_id, opportunity_id) REFERENCES crm_opportunities (tenant_id, id),
+    CONSTRAINT fk_crm_stage_history_from_stage_same_tenant FOREIGN KEY (tenant_id, from_stage_id) REFERENCES crm_pipeline_stages (tenant_id, id),
     CONSTRAINT fk_crm_stage_history_to_stage_same_tenant FOREIGN KEY (tenant_id, to_stage_id) REFERENCES crm_pipeline_stages (tenant_id, id)
 );
+CREATE INDEX idx_crm_stage_history_timeline ON crm_opportunity_stage_history (tenant_id, opportunity_id, changed_at DESC);
 
 CREATE TABLE crm_activities (
     id UUID NOT NULL,
@@ -198,8 +213,10 @@ CREATE TABLE crm_activities (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT pk_crm_activities PRIMARY KEY (id),
     CONSTRAINT uk_crm_activities_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT fk_crm_activities_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
     CONSTRAINT ck_crm_activities_type CHECK (activity_type IN ('TASK','CALL','MEETING','EMAIL','NOTE','MESSAGE','OTHER')),
-    CONSTRAINT ck_crm_activities_status CHECK (status IN ('OPEN','IN_PROGRESS','COMPLETED','CANCELLED','ARCHIVED'))
+    CONSTRAINT ck_crm_activities_status CHECK (status IN ('OPEN','IN_PROGRESS','COMPLETED','CANCELLED','ARCHIVED')),
+    CONSTRAINT ck_crm_activities_priority CHECK (priority BETWEEN 0 AND 100)
 );
 CREATE INDEX idx_crm_activities_timeline ON crm_activities (tenant_id, related_type, related_id, created_at DESC);
 CREATE INDEX idx_crm_activities_owner_due ON crm_activities (tenant_id, owner_user_id, status, due_at);
@@ -215,7 +232,8 @@ CREATE TABLE crm_timeline_events (
     source_id UUID NOT NULL,
     occurred_at TIMESTAMP WITH TIME ZONE NOT NULL,
     created_by UUID NOT NULL,
-    CONSTRAINT pk_crm_timeline_events PRIMARY KEY (id)
+    CONSTRAINT pk_crm_timeline_events PRIMARY KEY (id),
+    CONSTRAINT fk_crm_timeline_events_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id)
 );
 CREATE INDEX idx_crm_timeline_subject ON crm_timeline_events (tenant_id, subject_type, subject_id, occurred_at DESC);
 
@@ -233,7 +251,9 @@ CREATE TABLE crm_import_jobs (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     last_error TEXT,
     CONSTRAINT pk_crm_import_jobs PRIMARY KEY (id),
-    CONSTRAINT ck_crm_import_jobs_status CHECK (status IN ('UPLOADED','VALIDATING','READY','RUNNING','COMPLETED','FAILED','CANCELLED'))
+    CONSTRAINT fk_crm_import_jobs_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
+    CONSTRAINT ck_crm_import_jobs_status CHECK (status IN ('UPLOADED','VALIDATING','READY','RUNNING','COMPLETED','FAILED','CANCELLED')),
+    CONSTRAINT ck_crm_import_jobs_counts CHECK (total_rows >= 0 AND processed_rows >= 0 AND succeeded_rows >= 0 AND failed_rows >= 0)
 );
 
 CREATE TABLE crm_custom_field_definitions (
@@ -250,6 +270,7 @@ CREATE TABLE crm_custom_field_definitions (
     active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT pk_crm_custom_field_definitions PRIMARY KEY (id),
+    CONSTRAINT fk_crm_custom_fields_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
     CONSTRAINT uk_crm_custom_fields_tenant_entity_key UNIQUE (tenant_id, entity_type, field_key)
 );
 
