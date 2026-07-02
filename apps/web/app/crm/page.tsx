@@ -1,5 +1,5 @@
-import { CrmWorkspace } from "./crm-workspace";
+import { CrmWorkspaceV2 } from "./crm-workspace-v2";
 
 export default function CrmPage() {
-  return <CrmWorkspace />;
+  return <CrmWorkspaceV2 />;
 }
