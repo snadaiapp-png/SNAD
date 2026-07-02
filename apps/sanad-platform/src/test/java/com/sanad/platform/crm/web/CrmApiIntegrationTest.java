@@ -108,11 +108,11 @@ class CrmApiIntegrationTest {
         String opportunityId = opportunity.path("id").asText();
         assertThat(opportunity.path("probability").decimalValue()).isEqualByComparingTo("0");
 
-        perform(patch("/api/v1/crm/opportunities/{id}/stage", opportunityId)
+        JsonNode wonOpportunity = perform(patch("/api/v1/crm/opportunities/{id}/stage", opportunityId)
                 .with(authentication(auth(TENANT_A, USER_A)))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"stageId":"%s","reason":"Contract signed"}""".formatted(wonStage)), 200)
-                .path("status").asText();
+                .content("""{"stageId":"%s","reason":"Contract signed"}""".formatted(wonStage)), 200);
+        assertThat(wonOpportunity.path("status").asText()).isEqualTo("WON");
 
         JsonNode activity = perform(post("/api/v1/crm/activities")
                 .with(authentication(auth(TENANT_A, USER_A)))
@@ -189,12 +189,12 @@ class CrmApiIntegrationTest {
         return authentication;
     }
 
-    private void seedTenant(UUID id, String slug, String name, Instant now) {
-        jdbc.update("INSERT INTO tenants (id,slug,name,status,locale,timezone,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh',?,?)", id, slug, name, now, now);
+    private void seedTenant(UUID id, String subdomain, String name, Instant now) {
+        jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?)", id, subdomain, name, now, now);
     }
 
     private void seedUser(UUID id, UUID tenantId, String email, Instant now) {
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,locale,timezone,status,created_at,updated_at) VALUES (?,?,?,?,'ar-SA','Asia/Riyadh','ACTIVE',?,?)", id, tenantId, email, "CRM Test User", now, now);
+        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)", id, tenantId, email, "CRM Test User", now, now);
     }
 
     private void seedRole(UUID id, UUID tenantId, Instant now) {
@@ -202,10 +202,13 @@ class CrmApiIntegrationTest {
     }
 
     private void seedRoleAssignment(UUID tenantId, UUID roleId, UUID userId, Instant now) {
-        jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,scope_type,scope_id,status,assigned_by,assigned_at,expires_at,revoked_at,revoked_by,revocation_reason,created_at,updated_at) VALUES (?,?,?,?, 'TENANT',NULL,'ACTIVE',?,?,NULL,NULL,NULL,NULL,?,?)", UUID.randomUUID(), tenantId, userId, roleId, userId, now, now, now);
+        jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?)", UUID.randomUUID(), tenantId, userId, roleId, now, now);
     }
 
     private void grantCrmCapabilities(UUID tenantId, UUID roleId, Instant now) {
-        jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) SELECT RANDOM_UUID(), ?, ?, id, ? FROM access_capabilities WHERE code LIKE 'CRM.%'", tenantId, roleId, now);
+        List<UUID> capabilityIds = jdbc.queryForList("SELECT id FROM access_capabilities WHERE code LIKE 'CRM.%'", UUID.class);
+        for (UUID capabilityId : capabilityIds) {
+            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?)", UUID.randomUUID(), tenantId, roleId, capabilityId, now);
+        }
     }
 }
