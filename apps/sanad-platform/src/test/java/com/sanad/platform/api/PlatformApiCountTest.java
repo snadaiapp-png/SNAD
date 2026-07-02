@@ -39,9 +39,12 @@ class PlatformApiCountTest {
 
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
-        assertThat(count(paths, null)).isEqualTo(53);
+        assertThat(count(paths, "/api/v1/control-plane")).isEqualTo(8);
+        assertThat(count(paths, null)).isEqualTo(61);
         assertThat(paths.path("/api/v1/auth/change-credential").has("post")).isTrue();
         assertThat(paths.path("/api/v1/access/evaluation").has("get")).isTrue();
+        assertThat(paths.path("/api/v1/control-plane/dashboard").has("get")).isTrue();
+        assertThat(paths.path("/api/v1/control-plane/tenants").has("post")).isTrue();
     }
 
     private static long count(JsonNode paths, String prefix) {

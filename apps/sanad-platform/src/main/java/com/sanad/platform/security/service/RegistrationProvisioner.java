@@ -24,8 +24,9 @@ import org.springframework.stereotype.Component;
 
 import java.util.UUID;
 
+/** Shared transactional tenant provisioning component. */
 @Component
-final class RegistrationProvisioner {
+public final class RegistrationProvisioner {
 
     private final TenantRepository tenants;
     private final OrganizationRepository organizations;
@@ -56,7 +57,7 @@ final class RegistrationProvisioner {
         this.roleCapabilities = roleCapabilities;
     }
 
-    ProvisionedRegistration provision(
+    public ProvisionedRegistration provision(
             String email,
             String displayName,
             String organizationName,
@@ -87,8 +88,12 @@ final class RegistrationProvisioner {
                 .forEach(capability -> roleCapabilities.save(new RoleCapability(
                         tenant.getId(), roleId, capability.getId())));
 
+        // Required before a caller performs direct JDBC metadata updates in the
+        // same transaction. JpaRepository.flush() flushes the shared persistence context.
+        tenants.flush();
+
         return new ProvisionedRegistration(tenant.getId(), administrator.getId(), subdomain);
     }
 
-    record ProvisionedRegistration(UUID tenantId, UUID userId, String subdomain) {}
+    public record ProvisionedRegistration(UUID tenantId, UUID userId, String subdomain) {}
 }

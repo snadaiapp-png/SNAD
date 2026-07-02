@@ -41,6 +41,9 @@ export default function WorkspacePage() {
 
   const displayName = me?.displayName || user?.email || "المستخدم";
   const tenantId = user?.tenantId ?? "";
+  const hasAdministrativeRole = me?.roleGrants.some(
+    (grant) => grant.status === "ACTIVE" && grant.roleCode === "ADMIN",
+  ) ?? false;
 
   return (
     <div className={styles.workspaceRoot}>
@@ -77,6 +80,16 @@ export default function WorkspacePage() {
             <span className={styles.workspaceInfoValue}>نشطة</span>
           </div>
         </div>
+
+        {hasAdministrativeRole ? (
+          <button
+            type="button"
+            className={styles.workspaceLogoutButton}
+            onClick={() => router.push("/control-plane")}
+          >
+            فتح مركز الإدارة العليا
+          </button>
+        ) : null}
 
         <button
           type="button"

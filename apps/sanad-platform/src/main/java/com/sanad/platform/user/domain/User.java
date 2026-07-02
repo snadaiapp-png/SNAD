@@ -91,9 +91,15 @@ public class User {
     private boolean mustChangePassword;
 
     /**
+     * Explicit platform control-plane privilege. This flag is separate from
+     * tenant roles so a tenant ADMIN cannot cross tenant boundaries.
+     */
+    @Column(name = "platform_admin", nullable = false)
+    private boolean platformAdmin;
+
+    /**
      * Monotonically-increasing session version for immediate token revocation.
      * Incremented on logout, password change, and password reset.
-     * Embedded in JWT at mint time; mismatch triggers 401.
      */
     @Column(name = "session_version", nullable = false)
     private long sessionVersion;
@@ -157,12 +163,14 @@ public class User {
         this.mustChangePassword = mustChangePassword;
     }
 
+    public boolean isPlatformAdmin() { return platformAdmin; }
+    public void setPlatformAdmin(boolean platformAdmin) { this.platformAdmin = platformAdmin; }
+
     public long getSessionVersion() { return sessionVersion; }
     public void setSessionVersion(long sessionVersion) {
         this.sessionVersion = sessionVersion;
     }
 
-    /** Increments and returns the new session version. */
     public long incrementSessionVersion() {
         return ++this.sessionVersion;
     }
@@ -194,6 +202,7 @@ public class User {
                 ", status=" + status +
                 ", lastLoginAt=" + lastLoginAt +
                 ", mustChangePassword=" + mustChangePassword +
+                ", platformAdmin=" + platformAdmin +
                 ", sessionVersion=" + sessionVersion +
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +
