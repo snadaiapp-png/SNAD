@@ -18,6 +18,12 @@ COMPOSE=(
   -f compose.crm.tracing.yaml
   -f compose.crm.logging.yaml
   -f compose.crm.gateway.yaml
+  --profile devtools
+  --profile crm-scale
+  --profile crm-storage
+  --profile crm-search
+  --profile observability
+  --profile crm-platform
 )
 FAILURES=0
 
@@ -48,7 +54,7 @@ else
   fail 'Merged CRM platform Compose contract'
 fi
 
-required_services=(postgres backend web valkey clamav opensearch rabbitmq minio otel-collector tempo loki api-gateway)
+required_services=(postgres backend web valkey clamav opensearch rabbitmq minio otel-collector tempo loki promtail api-gateway)
 for service in "${required_services[@]}"; do
   running "$service" && pass "Service running: $service" || fail "Service missing: $service"
 done
@@ -90,8 +96,9 @@ if running valkey; then
 fi
 
 if running minio; then
-  url_check 'MinIO health' "http://localhost:${CRM_STORAGE_API_PORT:-9000}/minio/health/live" 20 || true
-  if "${COMPOSE[@]}" run --rm minio-init >/dev/null; then
+  "${COMPOSE[@]}" exec -T minio curl --fail --silent http://localhost:9000/minio/health/live >/dev/null \
+    && pass 'MinIO health' || fail 'MinIO health'
+  if "${COMPOSE[@]}" run --rm --no-deps minio-init >/dev/null; then
     pass 'S3 bucket exists, is private, and versioning is enabled'
   else
     fail 'S3 bucket initialization and versioning'
@@ -124,12 +131,12 @@ fi
 
 if running tempo; then
   "${COMPOSE[@]}" exec -T tempo wget -q -O- http://localhost:3200/ready >/dev/null 2>&1 \
-    && pass 'Tempo trace store' || warn 'Tempo image does not expose wget readiness; inspect container health'
+    && pass 'Tempo trace store' || warn 'Tempo image does not expose wget readiness; service is running'
 fi
 
 if running loki; then
   "${COMPOSE[@]}" exec -T loki wget -q -O- http://localhost:3100/ready >/dev/null 2>&1 \
-    && pass 'Loki log store' || warn 'Loki image does not expose wget readiness; inspect container health'
+    && pass 'Loki log store' || warn 'Loki image does not expose wget readiness; service is running'
 fi
 
 printf '\nCRM platform readiness: %d failure(s)\n' "$FAILURES"
