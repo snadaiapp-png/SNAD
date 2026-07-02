@@ -43,35 +43,46 @@ public class CrmNotificationOutboxDispatcher {
             for (Map<String, Object> message : messages) {
                 UUID id = (UUID) message.get("id");
                 UUID tenantId = (UUID) message.get("tenant_id");
-                jdbc.update("""
+                int inserted = jdbc.update("""
                     INSERT INTO crm_platform.event_outbox
                         (tenant_id, aggregate_type, aggregate_id, event_type,
                          routing_key, payload, headers, correlation_id)
-                    VALUES (?, 'NOTIFICATION', ?, 'NotificationDeliveryRequested',
-                            'crm.notification.delivery.requested',
-                            jsonb_build_object(
-                                'notificationId', ?,
-                                'channel', ?,
-                                'recipient', ?,
-                                'locale', ?,
-                                'subject', ?,
-                                'body', ?,
-                                'templateKey', ?,
-                                'variables', ?::jsonb,
-                                'idempotencyKey', ?),
-                            '{}'::jsonb, ?)
-                    ON CONFLICT DO NOTHING
+                    SELECT ?, 'NOTIFICATION', ?, 'NotificationDeliveryRequested',
+                           'crm.notification.delivery.requested',
+                           jsonb_build_object(
+                               'notificationId', ?,
+                               'channel', ?,
+                               'recipient', ?,
+                               'locale', ?,
+                               'subject', ?,
+                               'body', ?,
+                               'templateKey', ?,
+                               'variables', ?::jsonb,
+                               'idempotencyKey', ?),
+                           '{}'::jsonb, ?
+                     WHERE NOT EXISTS (
+                         SELECT 1
+                           FROM crm_platform.event_outbox existing
+                          WHERE existing.tenant_id=?
+                            AND existing.aggregate_type='NOTIFICATION'
+                            AND existing.aggregate_id=?
+                            AND existing.event_type='NotificationDeliveryRequested'
+                            AND existing.status IN ('PENDING','PROCESSING','PUBLISHED')
+                     )
                     """,
                     tenantId, id, id,
                     message.get("channel"), message.get("recipient"), message.get("locale"),
                     message.get("subject"), message.get("body"), message.get("template_key"),
-                    String.valueOf(message.get("variables")), message.get("idempotency_key"), id);
-                jdbc.update("""
-                    UPDATE crm_platform.notification_message
-                       SET status='PROCESSING', attempts=attempts+1,
-                           available_at=now() + interval '5 minutes'
-                     WHERE id=?
-                    """, id);
+                    String.valueOf(message.get("variables")), message.get("idempotency_key"), id,
+                    tenantId, id);
+                if (inserted == 1) {
+                    jdbc.update("""
+                        UPDATE crm_platform.notification_message
+                           SET status='PROCESSING', attempts=attempts+1,
+                               available_at=now() + interval '5 minutes'
+                         WHERE id=?
+                        """, id);
+                }
             }
         });
     }
