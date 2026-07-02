@@ -10,4 +10,27 @@
         <packageUrl regex="true">^pkg:maven/io\.micrometer/micrometer-registry-prometheus@.*$</packageUrl>
         <cve>CVE-2026-42154</cve>
     </suppress>
+
+    <suppress until="2026-10-01Z">
+        <notes><![CDATA[
+            JetBrains documents CVE-2020-29582 as resolved in Kotlin 1.4.21.
+            The scanned component is kotlin-stdlib 1.9.25. The current generic
+            Kotlin CPE range over-matches this fixed version. The correction is
+            restricted to the exact package/version and CVE.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/kotlin-stdlib@1\.9\.25$</packageUrl>
+        <cve>CVE-2020-29582</cve>
+    </suppress>
+
+    <suppress until="2026-10-01Z">
+        <notes><![CDATA[
+            GHSA-2c5c-chwr-9hqw affects io.netty:netty-codec-http3 from
+            4.2.0.Final through 4.2.12.Final. The scanned component is the
+            distinct io.netty:netty-transport module on the 4.1 branch. The
+            generic Netty CPE association is therefore corrected only for this
+            exact package/version and CVE.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.netty/netty-transport@4\.1\.135\.Final$</packageUrl>
+        <cve>CVE-2026-42582</cve>
+    </suppress>
 </suppressions>
