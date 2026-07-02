@@ -23,6 +23,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -66,6 +67,17 @@ public class WorkshopResource {
         UUID userId = tenants.requireUserId();
         return run(request, "WORKSHOP.CREATE", "Workshop", body,
                 () -> lifecycle.create(tenantId, userId, body));
+    }
+
+    @PatchMapping("/{workshopId}/status")
+    @RequireCapability("WORKSHOP.UPDATE")
+    @IdempotentOperation(operation = "WORKSHOP.STATUS", resourceType = "Workshop")
+    public ResponseEntity<?> transitionWorkshop(HttpServletRequest request,
+                                                @PathVariable UUID workshopId,
+                                                @Valid @RequestBody WorkshopDtos.TransitionWorkshopRequest body) {
+        UUID tenantId = tenants.requireTenantId();
+        return run(request, "WORKSHOP.STATUS", "Workshop", body,
+                () -> lifecycle.transition(tenantId, workshopId, body.status()));
     }
 
     @GetMapping
