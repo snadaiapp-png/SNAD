@@ -32,10 +32,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li><b>Duplicate versions within a directory</b> — two files in the
  *       same directory claim the same version number.</li>
  *   <li><b>V15 is Java</b> — V15 must be a Java migration
- *       ({@code V15__seed_rbac_roles_and_capabilities.java}), not SQL.
+ *       ({@code V15__seed_admin_role_and_capabilities.sql}), not SQL.
  *       This matches the production database's
- *       {@code flyway_schema_history} record (type=JDBC,
- *       description=seed_rbac_roles_and_capabilities).</li>
+ *       {@code flyway_schema_history} record (type=SQL,
+ *       description=seed admin role and capabilities).</li>
  *   <li><b>SQL V15 is absent</b> — the removed
  *       {@code V15__seed_admin_role_and_capabilities.sql} must NOT
  *       reappear in the source tree.</li>
@@ -62,24 +62,24 @@ class FlywayMigrationConsistencyTest {
             Pattern.compile("^V(.+?)__.+\\.java$");
 
     @Test
-    @DisplayName("noDuplicateV15: exactly one V15 migration (Java, not SQL)")
+    @DisplayName("noDuplicateV15: exactly one V15 migration (SQL, matching production)")
     void noDuplicateV15() throws IOException {
         List<String> sqlV15 = listFiles(MIGRATION_DIR, "V15__.*\\.sql");
         sqlV15.addAll(listFiles(PG_ONLY_DIR, "V15__.*\\.sql"));
         List<String> javaV15 = listFiles(JAVA_MIGRATION_DIR, "V15__.*\\.java");
 
-        assertThat(sqlV15)
-                .as("SQL V15 must NOT exist (removed in Stage 05A.2.9.1 — "
-                        + "would conflict with the Java V15 in flyway_schema_history)")
+        // V15 must be SQL (matching production). Java V15 was removed.
+        assertThat(javaV15)
+                .as("Java V15 must NOT exist (removed — production has SQL V15)")
                 .isEmpty();
 
-        assertThat(javaV15)
-                .as("Java V15 must exist (restored to match production DB record)")
+        assertThat(sqlV15)
+                .as("SQL V15 must exist (matching production)")
                 .hasSize(1);
 
-        assertThat(javaV15.get(0))
-                .as("Java V15 must be the original seed_rbac_roles_and_capabilities")
-                .contains("V15__seed_rbac_roles_and_capabilities.java");
+        assertThat(sqlV15.get(0))
+                .as("SQL V15 must be the production seed_admin_role_and_capabilities")
+                .contains("V15__seed_admin_role_and_capabilities.sql");
     }
 
     @Test
@@ -157,20 +157,13 @@ class FlywayMigrationConsistencyTest {
     }
 
     @Test
-    @DisplayName("v15_java_migration_isComponentAnnotated: @Component present for Spring discovery")
-    void v15_javaMigrationIsComponentAnnotated() throws IOException {
-        List<String> javaV15 = listFiles(JAVA_MIGRATION_DIR,
-                "V15__seed_rbac_roles_and_capabilities.java");
-        assertThat(javaV15).hasSize(1);
-
-        String content = Files.readString(JAVA_MIGRATION_DIR.resolve(
-                javaV15.get(0).substring(javaV15.get(0).lastIndexOf('/') + 1)));
-        assertThat(content)
-                .as("Java V15 must have @Component for Spring Boot Flyway discovery")
-                .contains("@Component");
-        assertThat(content)
-                .as("Java V15 must extend BaseJavaMigration")
-                .contains("BaseJavaMigration");
+    @DisplayName("v15_sqlMigrationExists: SQL V15 exists in db/migration (matching production)")
+    void v15_sqlMigrationExists() throws IOException {
+        List<String> sqlV15 = listFiles(MIGRATION_DIR,
+                "V15__seed_admin_role_and_capabilities.sql");
+        assertThat(sqlV15)
+                .as("SQL V15 must exist in db/migration/ (matching production)")
+                .hasSize(1);
     }
 
     @Test

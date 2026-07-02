@@ -104,7 +104,7 @@ V15_COUNT=0
 [ -n "$V15_SQL_SOURCE" ] && V15_COUNT=$((V15_COUNT + 1))
 [ -n "$V15_JAVA_SOURCE" ] && V15_COUNT=$((V15_COUNT + 1))
 if [ "$V15_COUNT" -gt 1 ]; then
-    fail "Duplicate V15: found both SQL and Java V15 migrations. Only one V15 is allowed."
+    fail "Duplicate V15: found both SQL and SQL V15 migrations. Only one V15 is allowed."
 fi
 info "V15 count: ${V15_COUNT} (OK)"
 

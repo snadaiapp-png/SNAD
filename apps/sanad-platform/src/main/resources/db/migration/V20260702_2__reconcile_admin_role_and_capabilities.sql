@@ -7,7 +7,7 @@
 -- This migration replaces the removed SQL V15
 -- (V15__seed_admin_role_and_capabilities.sql) which was a
 -- non-equivalent re-write of the original Java V15
--- (V15__seed_rbac_roles_and_capabilities.java).
+-- (V15__seed_admin_role_and_capabilities.sql).
 --
 -- The original Java V15 creates 5 predefined roles (SUPER_ADMIN,
 -- ORG_ADMIN, MANAGER, MEMBER, VIEWER) and assigns all capabilities

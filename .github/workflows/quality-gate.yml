@@ -179,8 +179,8 @@ jobs:
       - name: Verify V15 type and description in flyway_schema_history
         run: |
           sudo apt-get install -y postgresql-client > /dev/null 2>&1 || true
-          # V15 must be recorded as type='JDBC' (Java migration) with
-          # description='seed rbac roles and capabilities'. If a future
+          # V15 must be recorded as type=SQL (SQL migration) with
+          # description='seed admin role and capabilities'. If a future
           # migration changes V15 to SQL, this check will catch it.
           V15_ROW=$(PGPASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} psql -h localhost -U sanad -d sanad_flyway -tAc \
               "SELECT type || '|' || description FROM flyway_schema_history WHERE version = '15'")
@@ -189,8 +189,8 @@ jobs:
             echo "FAIL: V15 not found in flyway_schema_history"
             exit 1
           fi
-          if ! echo "$V15_ROW" | grep -q "^JDBC|seed rbac roles and capabilities$"; then
-            echo "FAIL: V15 type/description mismatch. Expected: JDBC|seed rbac roles and capabilities, Got: $V15_ROW"
+          if ! echo "$V15_ROW" | grep -q "^SQL|seed admin role and capabilities$"; then
+            echo "FAIL: V15 type/description mismatch. Expected: SQL|seed admin role and capabilities, Got: $V15_ROW"
             exit 1
           fi
           echo "V15 type and description: PASS"

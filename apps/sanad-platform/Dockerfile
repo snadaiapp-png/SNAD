@@ -35,7 +35,7 @@ RUN mvn -B -ntp -q clean package -DskipTests \
       -Dgit.commit="${RENDER_GIT_COMMIT}"
 
 # --- Verify V15 is resolved inside the built JAR ---
-# The JAR must contain BOTH the Java V15 class (JDBC migration)
+# The JAR must contain BOTH the SQL V15 migration
 # AND the reconciler SQL migration. If either is missing, the
 # Docker build fails immediately — preventing a stale-artifact
 # deploy that would trigger "Detected applied migration not
@@ -46,10 +46,10 @@ RUN JAR_FILE="$(find target -maxdepth 1 -name 'sanad-platform-*.jar' ! -name '*.
     jar tf "$JAR_FILE" | grep -q 'BOOT-INF/classes/db/migration/V20260702_2__reconcile_admin_role_and_capabilities.sql' || { \
         echo "FAIL: V20260702_2 reconciler SQL not found in JAR"; exit 1; \
     } && \
-    jar tf "$JAR_FILE" | grep -q 'BOOT-INF/classes/com/sanad/platform/config/migration/V15__seed_rbac_roles_and_capabilities.class' || { \
-        echo "FAIL: V15 Java migration class not found in JAR"; exit 1; \
+    jar tf "$JAR_FILE" | grep -q 'BOOT-INF/classes/db/migration/V15__seed_admin_role_and_capabilities.sql' || { \
+        echo "FAIL: V15 SQL migration not found in JAR"; exit 1; \
     } && \
-    echo "V15 verification PASS: both Java V15 class and reconciler SQL present in JAR"
+    echo "V15 verification PASS: both SQL V15 migration and reconciler SQL present in JAR"
 
 # ---------- Stage 2: Runtime ----------
 FROM eclipse-temurin:21-jre-alpine

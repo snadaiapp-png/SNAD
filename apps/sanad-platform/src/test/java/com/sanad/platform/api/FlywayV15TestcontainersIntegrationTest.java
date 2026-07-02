@@ -11,7 +11,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 
@@ -22,20 +21,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * for the Flyway V15 reconciliation.
  *
  * <p>These tests spin up a REAL PostgreSQL 16 container and apply all
- * Flyway migrations from scratch using the production profile. They
- * prove:</p>
+ * Flyway migrations from scratch using the production profile.</p>
  *
- * <ol type="a">
- *   <li><b>Empty database (§5a):</b> All migrations apply successfully,
- *       V15 is recorded as type=JDBC with description="seed rbac roles
- *       and capabilities", V20260702_2 is recorded as type=SQL, flyway
- *       validate succeeds, and no duplicate roles/capabilities/role_capabilities
- *       exist.</li>
- * </ol>
- *
- * <p>These tests require Docker at runtime. In environments without
- * Docker (local dev without Docker), they are skipped via
- * {@code @EnabledIfEnvironmentVariable}.</p>
+ * <p><b>CRITICAL:</b> V15 is an SQL migration ({@code seed_admin_role_and_capabilities}),
+ * NOT a Java migration. This matches the production database which was
+ * deployed from main. The Java V15 was removed because it never matched production
+ * was removed because it was never applied to production.</p>
  */
 @Testcontainers
 @SpringBootTest
@@ -64,7 +55,6 @@ class FlywayV15TestcontainersIntegrationTest {
         registry.add("spring.flyway.clean-disabled", () -> "true");
         registry.add("spring.flyway.baseline-on-migrate", () -> "false");
         registry.add("spring.profiles.active", () -> "prod");
-        // JWT secret for context load — not a production secret
         registry.add("sanad.security.jwt.secret",
                 () -> "testcontainers-test-only-non-production-key-1234567890");
     }
@@ -73,36 +63,41 @@ class FlywayV15TestcontainersIntegrationTest {
     private DataSource dataSource;
 
     @Test
-    @DisplayName("§5a_emptyDb_v15_recordedAsJdbc: type=JDBC, description=seed rbac roles and capabilities")
-    void emptyDb_v15_recordedAsJdbc() throws Exception {
-        String row = queryFlywayHistory("SELECT type || '|' || description FROM flyway_schema_history WHERE version = '15'");
-        assertThat(row)
-                .as("V15 must be recorded as JDBC|seed rbac roles and capabilities")
-                .isEqualTo("JDBC|seed rbac roles and capabilities");
-    }
-
-    @Test
-    @DisplayName("§5a_emptyDb_v15_typeIsJdbc: type column must be JDBC (not SQL)")
-    void emptyDb_v15_typeIsJdbc() throws Exception {
+    @DisplayName("§5a_emptyDb_v15_recordedAsSql: type=SQL, description=seed admin role and capabilities")
+    void emptyDb_v15_recordedAsSql() throws Exception {
         String type = queryFlywayHistory("SELECT type FROM flyway_schema_history WHERE version = '15'");
         assertThat(type)
-                .as("V15 type must be JDBC (Java migration), not SQL")
-                .isEqualTo("JDBC");
+                .as("V15 must be type=SQL (matching production)")
+                .isEqualTo("SQL");
+        String desc = queryFlywayHistory("SELECT description FROM flyway_schema_history WHERE version = '15'");
+        assertThat(desc)
+                .as("V15 description must be 'seed admin role and capabilities'")
+                .isEqualTo("seed admin role and capabilities");
     }
 
     @Test
-    @DisplayName("§5a_emptyDb_v20260702_1_recordedAsSql: reconciler applied as SQL")
-    void emptyDb_v20260702_1_recordedAsSql() throws Exception {
-        String row = queryFlywayHistory(
+    @DisplayName("§5a_emptyDb_v15_successTrue: V15 row has success=true")
+    void emptyDb_v15_successTrue() throws Exception {
+        String count = queryFlywayHistory(
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '15' AND success = true");
+        assertThat(count)
+                .as("V15 must have success=true")
+                .isEqualTo("1");
+    }
+
+    @Test
+    @DisplayName("§5a_emptyDb_v20260702_2_recordedAsSql: reconciler applied as SQL")
+    void emptyDb_v20260702_2_recordedAsSql() throws Exception {
+        String type = queryFlywayHistory(
                 "SELECT type FROM flyway_schema_history WHERE version = '20260702.2'");
-        assertThat(row)
+        assertThat(type)
                 .as("V20260702_2 reconciler must be recorded as SQL")
                 .isEqualTo("SQL");
     }
 
     @Test
-    @DisplayName("§5a_emptyDb_v20260702_1_appliedExactlyOnce: count=1, success=true")
-    void emptyDb_v20260702_1_appliedExactlyOnce() throws Exception {
+    @DisplayName("§5a_emptyDb_v20260702_2_appliedExactlyOnce: count=1, success=true")
+    void emptyDb_v20260702_2_appliedExactlyOnce() throws Exception {
         String count = queryFlywayHistory(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '20260702.2' AND success = true");
         assertThat(count)
@@ -113,9 +108,9 @@ class FlywayV15TestcontainersIntegrationTest {
     @Test
     @DisplayName("§5a_emptyDb_noFailedMigrations: all migrations success=true")
     void emptyDb_noFailedMigrations() throws Exception {
-        String row = queryFlywayHistory(
+        String count = queryFlywayHistory(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE success = false");
-        assertThat(row)
+        assertThat(count)
                 .as("No failed migrations allowed")
                 .isEqualTo("0");
     }
@@ -123,10 +118,6 @@ class FlywayV15TestcontainersIntegrationTest {
     @Test
     @DisplayName("§5a_emptyDb_flywayValidateSucceeds: validate-on-migrate=true passes")
     void emptyDb_flywayValidateSucceeds() throws Exception {
-        // If the Spring context loaded successfully, Flyway validation
-        // passed (validate-on-migrate=true). This test asserts the context
-        // loaded by virtue of the @SpringBootTest annotation.
-        // Additionally, verify the migration count is correct.
         String count = queryFlywayHistory(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE success = true");
         int migrationCount = Integer.parseInt(count);
@@ -153,18 +144,6 @@ class FlywayV15TestcontainersIntegrationTest {
         assertThat(dupCount)
                 .as("No duplicate role_capabilities allowed after V15 + reconciler")
                 .isEqualTo("0");
-    }
-
-    @Test
-    @DisplayName("§5a_emptyDb_v15_successTrue: V15 row has success=true")
-    void emptyDb_v15_successTrue() throws Exception {
-        // Use COUNT filter instead of BOOL() to avoid driver-dependent
-        // 't'/'true' format differences between HikariCP and raw JDBC.
-        String count = queryFlywayHistory(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '15' AND success = true");
-        assertThat(count)
-                .as("V15 must have success=true (count of success=true rows must be 1)")
-                .isEqualTo("1");
     }
 
     // === Helpers ===
