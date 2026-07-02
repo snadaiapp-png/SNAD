@@ -169,6 +169,42 @@ jobs:
         run: |
           ./mvnw -B -ntp test -Dtest="FlywayValidationTest" -Dspring.profiles.active=prod -Ddatabase.url="${DATABASE_URL}" -Ddatabase.username="${DATABASE_USERNAME}" -Ddatabase.password="${DATABASE_PASSWORD}" -Ddatabase.driver="${DATABASE_DRIVER}"
           echo "Flyway first startup: PASS"
+      - name: Verify Flyway artifact (Stage 05A.2.9.1 §4)
+        working-directory: apps/sanad-platform
+        run: |
+          # Build the JAR (skip tests — CI runs them separately)
+          ./mvnw -B -ntp clean package -DskipTests -Dgit.commit="${GITHUB_SHA:-unknown}"
+          # Run the artifact verification script
+          bash "${{ github.workspace }}/scripts/verify-flyway-artifact.sh"
+      - name: Verify V15 type and description in flyway_schema_history
+        run: |
+          sudo apt-get install -y postgresql-client > /dev/null 2>&1 || true
+          # V15 must be recorded as type='JDBC' (Java migration) with
+          # description='seed_rbac_roles_and_capabilities'. If a future
+          # migration changes V15 to SQL, this check will catch it.
+          V15_ROW=$(PGPASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} psql -h localhost -U sanad -d sanad_flyway -tAc \
+              "SELECT type || '|' || description FROM flyway_schema_history WHERE version = '15'")
+          echo "V15 row (type|description): $V15_ROW"
+          if [ -z "$V15_ROW" ]; then
+            echo "FAIL: V15 not found in flyway_schema_history"
+            exit 1
+          fi
+          if ! echo "$V15_ROW" | grep -q "^JDBC|seed rbac roles and capabilities$"; then
+            echo "FAIL: V15 type/description mismatch. Expected: JDBC|seed rbac roles and capabilities, Got: $V15_ROW"
+            exit 1
+          fi
+          echo "V15 type and description: PASS"
+      - name: Verify reconciler V20260702_1 applied
+        run: |
+          sudo apt-get install -y postgresql-client > /dev/null 2>&1 || true
+          RECONCILER_COUNT=$(PGPASSWORD=${{ format('ci-pg-run-{0}-attempt-{1}', github.run_id, github.run_attempt) }} psql -h localhost -U sanad -d sanad_flyway -tAc \
+              "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '20260702.1' AND success = true")
+          echo "V20260702_1 applied count: $RECONCILER_COUNT"
+          if [ "$RECONCILER_COUNT" -ne 1 ]; then
+            echo "FAIL: V20260702_1 reconciler not applied exactly once (got $RECONCILER_COUNT)"
+            exit 1
+          fi
+          echo "V20260702_1 reconciler: PASS"
       - name: Verify flyway_schema_history (Stage 03A — no empty-history bypass)
         run: |
           sudo apt-get install -y postgresql-client > /dev/null 2>&1 || true
@@ -753,6 +789,28 @@ jobs:
             TO sanad_fixture_ci;
             GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sanad_fixture_ci;
           "
+      - name: Restore platform_security_audit_events immutability privileges
+        # Stage 05A.2.9.1 §12 — V36 grants INSERT-only to runtime and
+        # nothing to fixture, but the previous GRANT step re-grants
+        # SELECT/INSERT/UPDATE/DELETE on ALL tables to both roles. This
+        # step re-applies the immutability constraint AFTER the bulk
+        # grant so the runtime role is INSERT-only and the fixture role
+        # is SELECT-only on platform_security_audit_events.
+        run: |
+          psql -h localhost -U postgres -d sanad_tenant_isolation -c "
+            REVOKE SELECT, UPDATE, DELETE, TRUNCATE
+            ON platform_security_audit_events
+            FROM sanad_runtime_app;
+            GRANT INSERT
+            ON platform_security_audit_events
+            TO sanad_runtime_app;
+            REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+            ON platform_security_audit_events
+            FROM sanad_fixture_ci;
+            GRANT SELECT
+            ON platform_security_audit_events
+            TO sanad_fixture_ci;
+          "
       - name: Run mandatory tenant isolation tests (15 classes, PostgreSQL 16)
         working-directory: apps/sanad-platform
         env:
@@ -909,7 +967,27 @@ jobs:
             TO sanad_fixture_ci;
             GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sanad_fixture_ci;
           "
-      - name: Run mandatory audit and idempotency tests (16 classes, PostgreSQL 16)
+      - name: Restore platform_security_audit_events immutability privileges
+        # Stage 05A.2.9.1 §12 — Re-apply INSERT-only runtime / SELECT-only
+        # fixture privileges after the bulk GRANT step. V36 establishes
+        # these privileges initially but the workflow's GRANT ALL step
+        # overrides them.
+        run: |
+          psql -h localhost -U postgres -d sanad_audit_idempotency -c "
+            REVOKE SELECT, UPDATE, DELETE, TRUNCATE
+            ON platform_security_audit_events
+            FROM sanad_runtime_app;
+            GRANT INSERT
+            ON platform_security_audit_events
+            TO sanad_runtime_app;
+            REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+            ON platform_security_audit_events
+            FROM sanad_fixture_ci;
+            GRANT SELECT
+            ON platform_security_audit_events
+            TO sanad_fixture_ci;
+          "
+      - name: Run mandatory audit and idempotency tests (18 classes, PostgreSQL 16)
         working-directory: apps/sanad-platform
         env:
           DATABASE_USERNAME: sanad_runtime_app
@@ -925,7 +1003,7 @@ jobs:
           TENANT_MIGRATION_DATABASE_DRIVER: ${{ env.DATABASE_DRIVER }}
         run: |
           ./mvnw -B -ntp test \
-            -Dtest="CapabilityDenialRegressionIntegrationTest,AuditMigrationUpgradeIntegrationTest,AuditAutomaticDenialPersistenceIntegrationTest,AuditHashCanonicalizationIntegrationTest,AuditFirstWriteConcurrencyIntegrationTest,AuditHashChainConcurrencyIntegrationTest,AuditTransactionBoundaryIntegrationTest,IdempotencyRuntimeDataSourceIntegrationTest,IdempotencyAtomicReservationIntegrationTest,IdempotencyLeaseFencingIntegrationTest,IdempotencyProcessingLeaseIntegrationTest,IdempotencyAtomicBusinessCompletionIntegrationTest,IdempotencyProductionResponseCaptureIntegrationTest,IdempotencySameRequestReplayIntegrationTest,IdempotencyConcurrentExecutionIntegrationTest,IdempotencyRlsIntegrationTest,IdempotencyResponseRedactionIntegrationTest" \
+            -Dtest="CapabilityDenialRegressionIntegrationTest,AuditMigrationUpgradeIntegrationTest,AuditAutomaticDenialPersistenceIntegrationTest,AuditHashCanonicalizationIntegrationTest,AuditFirstWriteConcurrencyIntegrationTest,AuditHashChainConcurrencyIntegrationTest,AuditTransactionBoundaryIntegrationTest,IdempotencyRuntimeDataSourceIntegrationTest,IdempotencyAtomicReservationIntegrationTest,IdempotencyLeaseFencingIntegrationTest,IdempotencyProcessingLeaseIntegrationTest,IdempotencyAtomicBusinessCompletionIntegrationTest,IdempotencyProductionResponseCaptureIntegrationTest,IdempotencySameRequestReplayIntegrationTest,IdempotencyConcurrentExecutionIntegrationTest,IdempotencyRlsIntegrationTest,IdempotencyResponseRedactionIntegrationTest,PlatformSecurityAuditPrivilegeIntegrationTest" \
             -Dspring.profiles.active=tenant-postgres-test \
             -Ddatabase.url="${DATABASE_URL}" \
             -Ddatabase.username="${DATABASE_USERNAME}" \

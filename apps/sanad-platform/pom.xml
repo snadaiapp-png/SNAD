@@ -25,6 +25,10 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
+        <!-- Git commit injected by Docker build via -Dgit.commit=${GIT_COMMIT}.
+             Defaults to "unknown" for local builds. -->
+        <git.commit>unknown</git.commit>
+
         <java.version>17</java.version>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
@@ -202,6 +206,18 @@
                          the release flag. source/target produce the same
                          Java 17 bytecode without that dependency. -->
                     <release></release>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Implementation-Version>${project.version}</Implementation-Version>
+                            <Implementation-Git-Commit>${git.commit}</Implementation-Git-Commit>
+                        </manifestEntries>
+                    </archive>
                 </configuration>
             </plugin>
             <plugin>
