@@ -6,6 +6,7 @@ import com.sanad.platform.admin.api.AdminDtos.DashboardResponse;
 import com.sanad.platform.admin.api.AdminDtos.SystemServiceResponse;
 import com.sanad.platform.admin.api.AdminDtos.TenantResponse;
 import com.sanad.platform.admin.api.AdminDtos.UpdateSystemStatusRequest;
+import com.sanad.platform.security.service.RegistrationProvisioner;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
@@ -47,10 +48,16 @@ public class AdminPlatformService {
 
     private final JdbcTemplate jdbcTemplate;
     private final PlatformAuditService auditService;
+    private final RegistrationProvisioner registrationProvisioner;
 
-    public AdminPlatformService(JdbcTemplate jdbcTemplate, PlatformAuditService auditService) {
+    public AdminPlatformService(
+            JdbcTemplate jdbcTemplate,
+            PlatformAuditService auditService,
+            RegistrationProvisioner registrationProvisioner
+    ) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
+        this.registrationProvisioner = registrationProvisioner;
     }
 
     @Transactional(readOnly = true)
@@ -126,20 +133,25 @@ public class AdminPlatformService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "trialDays must be between 0 and 365");
         }
 
-        UUID tenantId = UUID.randomUUID();
         Instant now = Instant.now();
         Instant trialEndsAt = trialDays > 0 ? now.plus(trialDays, ChronoUnit.DAYS) : null;
         String status = trialDays > 0 ? "TRIAL" : "ACTIVE";
+        RegistrationProvisioner.ProvisionedRegistration provisioned = registrationProvisioner.provision(
+                request.adminEmail(),
+                request.adminDisplayName(),
+                request.name(),
+                subdomain,
+                null,
+                upperOrNull(request.countryCode())
+        );
+        UUID tenantId = provisioned.tenantId();
 
         jdbcTemplate.update(
-                "INSERT INTO tenants "
-                        + "(id, name, legal_name, subdomain, status, billing_email, country_code, locale, timezone, "
-                        + "currency_code, trial_ends_at, suspension_reason, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)",
-                tenantId,
+                "UPDATE tenants SET name = ?, legal_name = ?, status = ?, billing_email = ?, country_code = ?, "
+                        + "locale = ?, timezone = ?, currency_code = ?, trial_ends_at = ?, "
+                        + "suspension_reason = NULL, updated_at = ? WHERE id = ?",
                 request.name().trim(),
                 blankToNull(request.legalName()),
-                subdomain,
                 status,
                 lowerOrNull(request.billingEmail()),
                 upperOrNull(request.countryCode()),
@@ -148,13 +160,18 @@ public class AdminPlatformService {
                 defaultValue(upperOrNull(request.currencyCode()), "SAR"),
                 trialEndsAt,
                 now,
-                now
+                tenantId
         );
 
         TenantResponse created = getTenant(tenantId);
         auditService.success(
-                authentication, tenantId, "TENANT.CREATE", "TENANT", tenantId.toString(),
-                "Control-plane tenant creation", null, created);
+                authentication, tenantId, "TENANT.PROVISION", "TENANT", tenantId.toString(),
+                "Control-plane tenant provisioning with administrator and default organization",
+                null,
+                Map.of(
+                        "tenant", created,
+                        "administratorUserId", provisioned.userId()
+                ));
         return created;
     }
 
