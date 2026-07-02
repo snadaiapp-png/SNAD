@@ -24,9 +24,6 @@ spring:
         dialect: org.hibernate.dialect.H2Dialect
         format_sql: true
 
-  # Flyway stays enabled so we exercise the migration engine even
-  # though no migration files exist yet. It will simply create the
-  # flyway_schema_history table and report "No migrations found".
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -34,7 +31,6 @@ spring:
     clean-disabled: false
     validate-on-migrate: false
 
-  # H2 console (dev-only convenience)
   h2:
     console:
       enabled: true
@@ -43,10 +39,6 @@ spring:
 sanad:
   security:
     jwt:
-      # No committed secret — JwtTokenProvider generates an ephemeral HMAC key
-      # at startup when the secret is empty. This is safe for local development
-      # because tokens are not shared across restarts or between machines.
-      # Production must set JWT_SECRET via environment variable.
       secret: ${JWT_SECRET:}
 
 logging:
@@ -66,7 +58,6 @@ management:
       exposure:
         include: health,info,beans,env,loggers,metrics
 
-# Expose the H2 console via Actuator's web exposure
 springdoc:
   swagger-ui:
     enabled: true
