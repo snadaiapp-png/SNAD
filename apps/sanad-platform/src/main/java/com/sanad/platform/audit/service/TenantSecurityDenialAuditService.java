@@ -118,17 +118,36 @@ public class TenantSecurityDenialAuditService {
             default -> "SECURITY_DENIAL";
         };
 
-        // Stage 05A.2.9.1 §10 — errorCode stores the canonical SANAD error
-        // code (e.g. SANAD-SEC-001, SANAD-TEN-002, SANAD-ROT-001) so the
-        // HTTP response code and the audit row error_code match. The
-        // category name is stored in failureReason for classification.
-        auditService.recordDenied(AuditContext.builder(action, "Security", "ACCESS")
-                .actorType(AuditActorType.USER)
-                .actorUserId(userId)
-                .outcome(AuditOutcome.DENIED)
-                .httpStatus(context.httpStatus())
-                .errorCode(context.errorCode())
-                .failureReason("Security denial category: " + category.name())
-                .build());
+        // Establish a provisional TenantContext from the verified JWT
+        // claims so AuditService.record() does not throw
+        // AuditContextMissingException. The TenantContextFilter may not
+        // have run (TENANT_SELECTOR_MISMATCH fires before it) or may
+        // have already cleared the context.
+        TenantContext provisionalCtx = new TenantContext(
+                tenantId,
+                userId,
+                null,
+                0L,
+                java.util.Set.of(),
+                TenantContext.TenantContextSource.PROVISIONAL_TOKEN_VALIDATION,
+                requestId);
+        contextProvider.setContext(provisionalCtx);
+
+        try {
+            // Stage 05A.2.9.1 §10 — errorCode stores the canonical SANAD
+            // error code (e.g. SANAD-SEC-001, SANAD-TEN-002, SANAD-ROT-001)
+            // so the HTTP response code and the audit row error_code match.
+            // The category name is stored in failureReason.
+            auditService.recordDenied(AuditContext.builder(action, "Security", "ACCESS")
+                    .actorType(AuditActorType.USER)
+                    .actorUserId(userId)
+                    .outcome(AuditOutcome.DENIED)
+                    .httpStatus(context.httpStatus())
+                    .errorCode(context.errorCode())
+                    .failureReason("Security denial category: " + category.name())
+                    .build());
+        } finally {
+            contextProvider.clear();
+        }
     }
 }
