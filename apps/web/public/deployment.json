@@ -1,0 +1,6 @@
+{
+  "application": "SNAD Control Plane",
+  "sourceCommit": "5d51b4ddb8d3997aba6f5d19c2f238fccfdc0d06",
+  "deploymentRequestedAt": "2026-07-02T20:54:01+03:00",
+  "environment": "production"
+}
