@@ -80,6 +80,30 @@ public class WorkshopResource {
                 () -> lifecycle.transition(tenantId, workshopId, body.status()));
     }
 
+    @PostMapping("/{workshopId}/items")
+    @RequireCapability("WORKSHOP.EXECUTE")
+    @IdempotentOperation(operation = "WORKSHOP.ITEM.CREATE", resourceType = "WorkshopWorkItem")
+    public ResponseEntity<?> createItem(HttpServletRequest request,
+                                        @PathVariable UUID workshopId,
+                                        @Valid @RequestBody WorkshopDtos.CreateWorkItemRequest body) {
+        UUID tenantId = tenants.requireTenantId();
+        UUID userId = tenants.requireUserId();
+        return run(request, "WORKSHOP.ITEM.CREATE", "WorkshopWorkItem", body,
+                () -> workItems.create(tenantId, userId, workshopId, body));
+    }
+
+    @PatchMapping("/{workshopId}/items/{itemId}/status")
+    @RequireCapability("WORKSHOP.EXECUTE")
+    @IdempotentOperation(operation = "WORKSHOP.ITEM.STATUS", resourceType = "WorkshopWorkItem")
+    public ResponseEntity<?> transitionItem(HttpServletRequest request,
+                                            @PathVariable UUID workshopId,
+                                            @PathVariable UUID itemId,
+                                            @Valid @RequestBody WorkshopDtos.TransitionWorkItemRequest body) {
+        UUID tenantId = tenants.requireTenantId();
+        return run(request, "WORKSHOP.ITEM.STATUS", "WorkshopWorkItem", body,
+                () -> workItems.transition(tenantId, workshopId, itemId, body));
+    }
+
     @GetMapping
     @RequireCapability("WORKSHOP.READ")
     public PageResponse<WorkshopDtos.WorkshopResponse> list(
