@@ -58,7 +58,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(SecurityPermitAllTestConfig.class)
 @AutoConfigureMockMvc
 @ActiveProfiles("local")
-@Transactional
+@org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class OrganizationTenantIsolationTest {
 
     @Autowired
@@ -87,6 +87,16 @@ class OrganizationTenantIsolationTest {
         tenantBId = tenantRepository.save(tenantB).getId();
 
         assertThat(tenantAId).isNotEqualTo(tenantBId);
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void tearDown() {
+        // Clean up all test data (no @Transactional rollback)
+        try {
+            tenantRepository.deleteAll();
+        } catch (Exception e) {
+            // Ignore cleanup errors
+        }
     }
 
     // ============================================================

@@ -74,7 +74,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(SecurityPermitAllTestConfig.class)
 @AutoConfigureMockMvc
 @ActiveProfiles("local")
-@Transactional
+@org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class OrganizationApiIntegrationTest {
 
     @Autowired
@@ -89,15 +89,32 @@ class OrganizationApiIntegrationTest {
     @Autowired
     private OrganizationRepository organizationRepository;
 
+    @Autowired
+    private javax.sql.DataSource dataSource;
+
     private UUID tenantId;
 
     @BeforeEach
     void setUp() {
-        // Create a real Tenant row that subsequent API calls can reference
-        Tenant tenant = new Tenant("Acme Integration Corp", "acme-integ-" + UUID.randomUUID(),
-                TenantStatus.ACTIVE);
-        Tenant saved = tenantRepository.save(tenant);
-        this.tenantId = saved.getId();
+        // Create a real Tenant row that subsequent API calls can reference.
+        // Use JDBC directly to ensure the tenant is committed before any
+        // REQUIRES_NEW transaction (IdempotencyService.reserveOrReplay).
+        this.tenantId = UUID.randomUUID();
+        org.springframework.jdbc.core.JdbcTemplate jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+        jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                tenantId, "Acme Integration Corp", "acme-integ-" + UUID.randomUUID());
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void tearDown() {
+        // Clean up all test data (no @Transactional rollback).
+        // Must delete child tables first due to FK constraints.
+        org.springframework.jdbc.core.JdbcTemplate jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+        try { jdbc.update("DELETE FROM idempotency_records"); } catch (Exception ignored) {}
+        try { jdbc.update("DELETE FROM audit_chain_heads"); } catch (Exception ignored) {}
+        try { jdbc.update("DELETE FROM audit_events"); } catch (Exception ignored) {}
+        try { jdbc.update("DELETE FROM organizations"); } catch (Exception ignored) {}
+        try { jdbc.update("DELETE FROM tenants"); } catch (Exception ignored) {}
     }
 
     // ============================================================

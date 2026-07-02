@@ -13,6 +13,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,17 +50,20 @@ public class AuditService {
     private final AuditRedactionService redactionService;
     private final AuditHashChainService hashChainService;
     private final TenantContextProvider contextProvider;
+    private final Environment environment;
 
     public AuditService(AuditEventRepository repository,
                          AuditChainHeadRepository chainHeadRepository,
                          AuditRedactionService redactionService,
                          AuditHashChainService hashChainService,
-                         TenantContextProvider contextProvider) {
+                         TenantContextProvider contextProvider,
+                         Environment environment) {
         this.repository = repository;
         this.chainHeadRepository = chainHeadRepository;
         this.redactionService = redactionService;
         this.hashChainService = hashChainService;
         this.contextProvider = contextProvider;
+        this.environment = environment;
     }
 
     @Transactional(propagation = Propagation.REQUIRED)
@@ -85,16 +89,14 @@ public class AuditService {
         Instant now = Instant.now();
         String requestId = MDC.get(RequestIdFilter.MDC_KEY);
 
-        // Stage 05A.2 §7 — Atomic chain-head initialization (no save-on-empty race).
-        // atomicInit uses PostgreSQL ON CONFLICT syntax. On H2 (local profile),
-        // this will throw — catch and fall back to find-or-create.
-        try {
-            chainHeadRepository.atomicInit(tenantId);
-        } catch (Exception e) {
-            // H2 fallback: check if the row exists, create if not.
-            // This is safe under H2 (single-threaded local dev). Under PostgreSQL
-            // (production), atomicInit succeeds and this branch is never reached.
-            if (!chainHeadRepository.findByTenantId(tenantId).isPresent()) {
+        // Stage 05A.2.4 §3 — Chain-head initialization.
+        // On PostgreSQL (prod/tenant-postgres-test), use atomic INSERT ON CONFLICT.
+        // On H2 (local), use find-or-create (no ON CONFLICT — it poisons the tx).
+        boolean isPostgres = environment.matchesProfiles("prod", "tenant-postgres-test");
+        if (!chainHeadRepository.findByTenantId(tenantId).isPresent()) {
+            if (isPostgres) {
+                chainHeadRepository.atomicInit(tenantId);
+            } else {
                 chainHeadRepository.save(new com.sanad.platform.audit.domain.AuditChainHead(tenantId));
             }
         }
@@ -102,7 +104,7 @@ public class AuditService {
         AuditChainHead chainHead = chainHeadRepository.findByTenantIdForUpdate(tenantId)
                 .orElseThrow(() -> new IllegalStateException(
                         "audit_chain_heads row not found for tenant " + tenantId
-                        + " after atomicInit — this should never happen"));
+                        + " after init — this should never happen"));
 
         long nextSequence = (chainHead.getHeadSequence() == null ? 0 : chainHead.getHeadSequence()) + 1;
         String previousHash = chainHead.getHeadHash() != null ? chainHead.getHeadHash() : hashChainService.getGenesisHash();
