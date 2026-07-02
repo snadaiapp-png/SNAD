@@ -1,0 +1,10 @@
+services:
+  ai-gateway:
+    image: wiremock/wiremock:3.13.1
+    profiles: ["crm-ai"]
+    restart: unless-stopped
+    command: ["--disable-gzip", "--port", "8080"]
+    volumes:
+      - ./infra/crm/ai-gateway:/home/wiremock:ro
+    networks:
+      - data
