@@ -242,7 +242,7 @@
                             <autoUpdate>false</autoUpdate>
                             <failOnError>true</failOnError>
                             <failBuildOnCVSS>11</failBuildOnCVSS>
-                            <ossindexAnalyzerEnabled>false</ossindexAnalyzerEnabled>
+                            <ossIndexAnalyzerEnabled>false</ossIndexAnalyzerEnabled>
                             <centralAnalyzerEnabled>false</centralAnalyzerEnabled>
                             <retireJsAnalyzerEnabled>false</retireJsAnalyzerEnabled>
                             <knownExploitedEnabled>false</knownExploitedEnabled>
