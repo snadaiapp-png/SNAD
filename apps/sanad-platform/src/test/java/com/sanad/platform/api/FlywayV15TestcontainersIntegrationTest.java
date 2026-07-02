@@ -162,7 +162,7 @@ class FlywayV15TestcontainersIntegrationTest {
                 "SELECT BOOL(success) FROM flyway_schema_history WHERE version = '15'");
         assertThat(row)
                 .as("V15 must have success=true")
-                .isEqualTo("t");
+                .isEqualTo("true");
     }
 
     // === Helpers ===

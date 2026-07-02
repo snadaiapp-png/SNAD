@@ -148,12 +148,13 @@ class FlywayV15UpgradeTestcontainersIntegrationTest {
         flywayV15.migrate();
 
         // Step 5: Assert V15 is recorded as JDBC
+        // PostgreSQL BOOL() returns 'true'/'false' (not 't'/'f')
         String v15Row = querySingleValue(
                 "SELECT type || '|' || description || '|' || BOOL(success) " +
                 "FROM flyway_schema_history WHERE version = '15'");
         assertThat(v15Row)
                 .as("V15 must be type=JDBC, description='seed rbac roles and capabilities', success=true")
-                .isEqualTo("JDBC|seed rbac roles and capabilities|t");
+                .isEqualTo("JDBC|seed rbac roles and capabilities|true");
     }
 
     // === Phase B: Run new artifact ===
@@ -198,20 +199,23 @@ class FlywayV15UpgradeTestcontainersIntegrationTest {
                 "FROM flyway_schema_history WHERE version = '15'");
         assertThat(v15Row)
                 .as("V15 must remain type=JDBC after new artifact startup")
-                .isEqualTo("JDBC|seed rbac roles and capabilities|t");
+                .isEqualTo("JDBC|seed rbac roles and capabilities|true");
     }
 
     @Test
     @Order(3)
     @DisplayName("§4b_v20260702_1AppliedOnce: reconciler applied exactly once as SQL")
     void phaseB_reconcilerAppliedOnce() throws Exception {
-        String row = querySingleValue(
-                "SELECT type || '|' || BOOL(success) || '|' || COUNT(*) " +
-                "FROM flyway_schema_history WHERE version = '20260702.1' " +
-                "GROUP BY type, success");
-        assertThat(row)
-                .as("V20260702_1 must be type=SQL, success=true, count=1")
-                .isEqualTo("SQL|t|1");
+        String type = querySingleValue(
+                "SELECT type FROM flyway_schema_history WHERE version = '20260702.1'");
+        assertThat(type)
+                .as("V20260702_1 must be type=SQL")
+                .isEqualTo("SQL");
+        String count = querySingleValue(
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '20260702.1' AND success = true");
+        assertThat(count)
+                .as("V20260702_1 must be applied exactly once with success=true")
+                .isEqualTo("1");
     }
 
     @Test
