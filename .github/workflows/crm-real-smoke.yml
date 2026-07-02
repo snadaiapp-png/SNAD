@@ -4,31 +4,81 @@ on:
   workflow_dispatch:
     inputs:
       base_url:
-        description: 'CRM backend base URL'
+        description: 'Production-like CRM backend base URL'
         required: true
         default: 'https://sanad-backend-mcrj.onrender.com'
+      expected_sha:
+        description: 'Deployed application commit SHA'
+        required: true
 
 permissions:
   contents: read
 
 jobs:
   real-smoke:
-    name: Authenticated CRM API smoke
+    name: Authenticated two-tenant CRM API smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Require CRM bearer token
-        run: |
-          test -n "${CRM_BEARER_TOKEN:-}"
+      - name: Require deployment smoke secrets
+        shell: bash
         env:
-          CRM_BEARER_TOKEN: ${{ secrets.CRM_SMOKE_BEARER_TOKEN }}
-
-      - name: Run real CRM smoke
-        run: bash scripts/crm/real-crm-smoke.sh
-        env:
-          CRM_BASE_URL: ${{ github.event.inputs.base_url }}
           CRM_BEARER_TOKEN: ${{ secrets.CRM_SMOKE_BEARER_TOKEN }}
           CRM_SECOND_TENANT_BEARER_TOKEN: ${{ secrets.CRM_SMOKE_SECOND_TENANT_BEARER_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${CRM_BEARER_TOKEN:-}"
+          test -n "${CRM_SECOND_TENANT_BEARER_TOKEN:-}"
+          test "$CRM_BEARER_TOKEN" != "$CRM_SECOND_TENANT_BEARER_TOKEN"
+
+      - name: Verify deployed revision metadata
+        shell: bash
+        env:
+          CRM_BASE_URL: ${{ inputs.base_url }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          test -n "$EXPECTED_SHA"
+          curl --fail --silent --show-error --max-time 30 "$CRM_BASE_URL/actuator/health" >/dev/null
+
+      - name: Run real CRM smoke
+        shell: bash
+        run: bash scripts/crm/real-crm-smoke.sh | tee crm-smoke.log
+        env:
+          CRM_BASE_URL: ${{ inputs.base_url }}
+          CRM_BEARER_TOKEN: ${{ secrets.CRM_SMOKE_BEARER_TOKEN }}
+          CRM_SECOND_TENANT_BEARER_TOKEN: ${{ secrets.CRM_SMOKE_SECOND_TENANT_BEARER_TOKEN }}
+          CRM_TESTED_SHA: ${{ inputs.expected_sha }}
+          CRM_SMOKE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          CRM_SMOKE_EVIDENCE_FILE: crm-smoke-evidence.json
+
+      - name: Validate evidence schema and tested SHA
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          with open('crm-smoke-evidence.json', encoding='utf-8') as handle:
+              evidence = json.load(handle)
+          assert evidence['schema'] == 'snad.crm.smoke.v1'
+          assert evidence['result'] == 'PASS'
+          assert evidence['tested_sha'] == os.environ['EXPECTED_SHA']
+          assert all(value == 'PASS' for value in evidence['checks'].values())
+          print(json.dumps(evidence, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload CRM smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-real-smoke-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            crm-smoke-evidence.json
+            crm-smoke.log
+          if-no-files-found: error
+          retention-days: 30

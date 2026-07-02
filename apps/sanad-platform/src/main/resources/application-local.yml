@@ -14,7 +14,9 @@ spring:
   datasource:
     # PostgreSQL mode plus lower-case identifiers keeps JDBC column labels
     # identical to PostgreSQL, so JSON contracts do not vary between gates.
-    url: jdbc:h2:mem:sanad;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE
+    # VALUE is a valid PostgreSQL alias used by the CRM custom-field queries;
+    # H2 reserves it unless explicitly listed as a non-keyword.
+    url: jdbc:h2:mem:sanad;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;NON_KEYWORDS=VALUE
     username: sa
     password:
     driver-class-name: org.h2.Driver
@@ -49,6 +51,12 @@ sanad:
       # because tokens are not shared across restarts or between machines.
       # Production must set JWT_SECRET via environment variable.
       secret: ${JWT_SECRET:}
+  crm:
+    # Tests invoke the import worker explicitly to avoid scheduler races.
+    import-worker-enabled: false
+    # Test-only AES-256 key (32 zero bytes). Production must set a distinct
+    # CRM_CUSTOM_FIELD_ENCRYPTION_KEY secret through the deployment secret manager.
+    custom-field-encryption-key: ${CRM_CUSTOM_FIELD_ENCRYPTION_KEY:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
 
 logging:
   level:

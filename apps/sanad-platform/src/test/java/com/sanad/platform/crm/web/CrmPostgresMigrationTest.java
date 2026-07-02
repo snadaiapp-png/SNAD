@@ -18,65 +18,93 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @Testcontainers
 class CrmPostgresMigrationTest {
-
     private static final String MAIN_SCHEMA_VERSION = "20260629.2";
-    private static final String CRM_SCHEMA_VERSION = "20260702.1";
-    private static final String RECONCILER_SCHEMA_VERSION = "20260702.2";
-    private static final List<String> CRM_TABLES = List.of(
+    private static final String CRM_CORE_VERSION = "20260702.1";
+    private static final String RECONCILER_VERSION = "20260702.2";
+    private static final String CRM_COMPLETION_VERSION = "20260702.3";
+    private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
             "crm_pipeline_stages", "crm_opportunities", "crm_opportunity_stage_history",
             "crm_activities", "crm_timeline_events", "crm_import_jobs",
-            "crm_custom_field_definitions"
-    );
+            "crm_custom_field_definitions");
+    private static final List<String> CRM_COMPLETION_TABLES = List.of(
+            "crm_import_files", "crm_import_errors", "crm_custom_field_values");
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
     @Test
-    void upgradesExistingPlatformSchemaThroughCrmAndRbacReconciliation() {
+    void upgradesExistingPlatformThroughCrmRbacAndCompletion() {
         Flyway baseline = flyway(MigrationVersion.fromVersion(MAIN_SCHEMA_VERSION));
         baseline.clean();
         baseline.migrate();
-
         JdbcTemplate jdbc = jdbc();
         assertThat(latestVersion(jdbc)).isEqualTo(MAIN_SCHEMA_VERSION);
-        assertThat(existingTables(jdbc)).doesNotContainAnyElementsOf(CRM_TABLES);
+        assertThat(existingTables(jdbc)).doesNotContainAnyElementsOf(allCrmTables());
         assertMigration(jdbc, "15", "JDBC", "seed rbac roles and capabilities");
 
         Flyway upgrade = flyway(null);
-        assertThat(Arrays.stream(upgrade.info().pending())
-                .map(MigrationInfo::getVersion))
+        assertThat(Arrays.stream(upgrade.info().pending()).map(MigrationInfo::getVersion))
                 .containsExactly(
-                        MigrationVersion.fromVersion(CRM_SCHEMA_VERSION),
-                        MigrationVersion.fromVersion(RECONCILER_SCHEMA_VERSION));
-
+                        MigrationVersion.fromVersion(CRM_CORE_VERSION),
+                        MigrationVersion.fromVersion(RECONCILER_VERSION),
+                        MigrationVersion.fromVersion(CRM_COMPLETION_VERSION));
         upgrade.migrate();
         upgrade.validate();
-
-        assertMigration(jdbc, CRM_SCHEMA_VERSION, "SQL", "create unified crm core");
-        assertMigration(jdbc, RECONCILER_SCHEMA_VERSION, "SQL", "reconcile admin role and capabilities");
-        assertThat(latestVersion(jdbc)).isEqualTo(RECONCILER_SCHEMA_VERSION);
-        assertCrmTables(jdbc);
-        assertNoDuplicateVersions(jdbc);
-        assertThat(constraintExists(jdbc, "fk_crm_contacts_account_same_tenant")).isTrue();
-        assertThat(constraintExists(jdbc, "fk_crm_opportunities_pipeline_same_tenant")).isTrue();
-        assertThat(constraintExists(jdbc, "fk_crm_leads_converted_opportunity_same_tenant")).isTrue();
+        assertCompletedSchema(jdbc);
     }
 
     @Test
-    void installsCurrentSchemaOnCleanPostgresDatabase() {
+    void upgradesUnifiedCrmCoreThroughReconciliationAndCompletion() {
+        Flyway core = flyway(MigrationVersion.fromVersion(CRM_CORE_VERSION));
+        core.clean();
+        core.migrate();
+        JdbcTemplate jdbc = jdbc();
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_CORE_VERSION);
+        assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(CRM_CORE_TABLES);
+        assertThat(existingTables(jdbc)).doesNotContainAnyElementsOf(CRM_COMPLETION_TABLES);
+
+        Flyway completion = flyway(null);
+        assertThat(Arrays.stream(completion.info().pending()).map(MigrationInfo::getVersion))
+                .containsExactly(
+                        MigrationVersion.fromVersion(RECONCILER_VERSION),
+                        MigrationVersion.fromVersion(CRM_COMPLETION_VERSION));
+        completion.migrate();
+        completion.validate();
+        assertCompletedSchema(jdbc);
+    }
+
+    @Test
+    void installsCompletedCrmOnCleanPostgresDatabase() {
         Flyway flyway = flyway(null);
         flyway.clean();
         flyway.migrate();
         flyway.validate();
+        assertCompletedSchema(jdbc());
+    }
 
-        JdbcTemplate jdbc = jdbc();
+    private void assertCompletedSchema(JdbcTemplate jdbc) {
         assertMigration(jdbc, "15", "JDBC", "seed rbac roles and capabilities");
-        assertMigration(jdbc, CRM_SCHEMA_VERSION, "SQL", "create unified crm core");
-        assertMigration(jdbc, RECONCILER_SCHEMA_VERSION, "SQL", "reconcile admin role and capabilities");
-        assertThat(latestVersion(jdbc)).isEqualTo(RECONCILER_SCHEMA_VERSION);
-        assertCrmTables(jdbc);
+        assertMigration(jdbc, CRM_CORE_VERSION, "SQL", "create unified crm core");
+        assertMigration(jdbc, RECONCILER_VERSION, "SQL", "reconcile admin role and capabilities");
+        assertMigration(jdbc, CRM_COMPLETION_VERSION, "SQL", "complete crm imports custom fields");
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_COMPLETION_VERSION);
+        assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
+        assertThat(constraintExists(jdbc, "fk_crm_contacts_account_same_tenant")).isTrue();
+        assertThat(constraintExists(jdbc, "fk_crm_import_files_job_same_tenant")).isTrue();
+        assertThat(constraintExists(jdbc, "fk_crm_import_errors_job_same_tenant")).isTrue();
+        assertThat(constraintExists(jdbc, "fk_crm_custom_field_values_definition_same_tenant")).isTrue();
+        assertThat(constraintExists(jdbc, "ck_crm_custom_field_value_exactly_one")).isTrue();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.%' AND status='ACTIVE'",
+                Long.class)).isEqualTo(18L);
+    }
+
+    private List<String> allCrmTables() {
+        return java.util.stream.Stream.concat(
+                        CRM_CORE_TABLES.stream(), CRM_COMPLETION_TABLES.stream())
+                .sorted().toList();
     }
 
     private Flyway flyway(MigrationVersion target) {
@@ -86,9 +114,7 @@ class CrmPostgresMigrationTest {
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true);
-        if (target != null) {
-            configuration.target(target);
-        }
+        if (target != null) configuration.target(target);
         return configuration.load();
     }
 
@@ -103,10 +129,6 @@ class CrmPostgresMigrationTest {
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE version=? AND type=? AND description=? AND success=TRUE",
                 Long.class, version, type, description)).isOne();
-    }
-
-    private void assertCrmTables(JdbcTemplate jdbc) {
-        assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(CRM_TABLES);
     }
 
     private void assertNoDuplicateVersions(JdbcTemplate jdbc) {

@@ -1,0 +1,78 @@
+name: CRM Deployment Readiness
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/**'
+      - 'apps/sanad-platform/src/main/resources/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/**'
+      - 'apps/web/app/crm/**'
+      - 'apps/web/package.json'
+      - 'apps/web/package-lock.json'
+      - 'scripts/crm/**'
+      - 'docs/crm/**'
+      - '.github/workflows/crm-deployment-readiness.yml'
+      - '.github/workflows/crm-real-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    name: Deployment package preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate CRM shell scripts
+        run: |
+          bash -n scripts/crm/deployment-preflight.sh
+          bash -n scripts/crm/real-crm-smoke.sh
+
+      - name: Exercise deployment configuration preflight
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://database.internal:5432/snad
+          SPRING_DATASOURCE_USERNAME: snad_app
+          SPRING_DATASOURCE_PASSWORD: ci-placeholder-not-a-real-secret
+          JWT_SECRET: ci-placeholder-not-a-real-secret
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          SPRING_PROFILES_ACTIVE: staging
+          FLYWAY_ENABLED: 'true'
+          JPA_DDL_AUTO: none
+        run: bash scripts/crm/deployment-preflight.sh
+
+      - name: Verify no new CRM UI runtime dependency
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base_sha="${PR_BASE_SHA:-}"
+          if [ -z "$base_sha" ]; then
+            base_sha="$(git rev-parse origin/main)"
+          fi
+          git cat-file -e "$base_sha^{commit}"
+          git diff --exit-code "$base_sha" HEAD -- apps/web/package.json apps/web/package-lock.json
+
+      - name: Verify deployment documentation
+        run: |
+          test -s docs/crm/CRM-DEPLOYMENT-READINESS.md
+          test -s docs/crm/CRM-UI-LICENSE-REVIEW.md
+          grep -q 'PRODUCTION DEPLOYMENT: NOT EXECUTED' docs/crm/CRM-DEPLOYMENT-READINESS.md
+          grep -q 'NEW THIRD-PARTY UI DEPENDENCIES: NONE' docs/crm/CRM-UI-LICENSE-REVIEW.md
+
+      - name: Publish readiness summary
+        run: |
+          {
+            echo '## CRM deployment package preflight'
+            echo '- Shell validation: PASS'
+            echo '- Deployment variables contract: PASS'
+            echo '- New UI runtime dependencies: NONE'
+            echo '- License review document: PRESENT'
+            echo '- Production deployment: NOT EXECUTED'
+          } >> "$GITHUB_STEP_SUMMARY"
