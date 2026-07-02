@@ -1,11 +1,8 @@
 # ============================================================
 # SANAD Platform — Set Control Plane Tenant ID in Render
 # ------------------------------------------------------------
-# This workflow:
-# 1. Connects to production database using the full JDBC URL
-# 2. Finds a valid Control Plane tenant (first ACTIVE tenant with ADMIN role)
-# 3. Sets SANAD_CONTROL_PLANE_TENANT_ID in Render via Render API
-# 4. Triggers a new deploy to apply the env var change
+# Uses BOOTSTRAP_TENANT_ID from GitHub production secrets
+# and sets it as SANAD_CONTROL_PLANE_TENANT_ID in Render.
 # ============================================================
 
 name: Set Control Plane Tenant ID
@@ -32,102 +29,43 @@ jobs:
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-      PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
-      DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-      DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+      CONTROL_PLANE_TENANT_ID: ${{ secrets.BOOTSTRAP_TENANT_ID }}
 
     steps:
       - name: Validate prerequisites
         shell: bash
         run: |
           set -euo pipefail
-          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_DATABASE_URL DATABASE_USERNAME DATABASE_PASSWORD; do
+          for name in RENDER_API_KEY RENDER_SERVICE_ID CONTROL_PLANE_TENANT_ID; do
             test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
           done
-          echo "All prerequisites validated."
-
-      - name: Install PostgreSQL client
-        shell: bash
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client jq curl > /dev/null 2>&1
-          echo "PostgreSQL client installed."
-
-      - name: Find valid Control Plane tenant
-        shell: bash
-        run: |
-          set -euo pipefail
           
-          # Convert JDBC URL to psql-compatible connection string
-          # Input:  jdbc:postgresql://host:port/dbname?params
-          # Output: host=host port=port dbname=dbname
-          RAW_URL="$PRODUCTION_DATABASE_URL"
-          # Strip jdbc: prefix
-          RAW_URL="${RAW_URL#jdbc:}"
-          # Strip postgresql:// prefix
-          RAW_URL="${RAW_URL#postgresql://}"
-          # Extract host:port (everything before first /)
-          HOST_PORT="${RAW_URL%%/*}"
-          # Extract dbname (everything after first /, before ?)
-          DB_PART="${RAW_URL#*/}"
-          DB_NAME="${DB_PART%%\?*}"
-          PGHOST="${HOST_PORT%%:*}"
-          PGPORT="${HOST_PORT#*:}"
-          PGPORT="${PGPORT:-5432}"
-          
-          echo "Connecting to: host=$PGHOST port=$PGPORT dbname=$DB_NAME"
-          
-          TENANT_ID=$(PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$DB_NAME" -t -A -c "
-            SELECT t.id::text
-            FROM tenants t
-            WHERE t.status = 'ACTIVE'
-            AND EXISTS (
-              SELECT 1 FROM roles r
-              WHERE r.tenant_id = t.id
-              AND r.code = 'ADMIN'
-              AND r.status = 'ACTIVE'
-            )
-            AND EXISTS (
-              SELECT 1 FROM users u
-              WHERE u.tenant_id = t.id
-              AND u.status = 'ACTIVE'
-            )
-            ORDER BY t.created_at ASC
-            LIMIT 1
-          " 2>&1) || {
-            echo "::error::Failed to query production database for Control Plane tenant"
-            echo "Output: $TENANT_ID"
+          # Validate UUID format
+          [[ "$CONTROL_PLANE_TENANT_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]] || {
+            echo "::error::CONTROL_PLANE_TENANT_ID is not a valid UUID"
             exit 1
           }
           
-          # Validate it's a UUID
-          [[ "$TENANT_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]] || {
-            echo "::error::Queried tenant ID is not a valid UUID: $TENANT_ID"
-            exit 1
-          }
-          
-          echo "Found valid Control Plane tenant UUID (masked for security)"
-          echo "CONTROL_PLANE_TENANT_ID=$TENANT_ID" >> $GITHUB_ENV
+          echo "All prerequisites validated. Tenant UUID is valid."
 
       - name: Set SANAD_CONTROL_PLANE_TENANT_ID in Render
         shell: bash
         run: |
           set -euo pipefail
-          
           echo "Setting SANAD_CONTROL_PLANE_TENANT_ID in Render..."
           
-          # First, get current env vars
+          # Get current env vars
           CURRENT_ENV=$(curl --fail-with-body --silent --show-error \
             --header "Authorization: Bearer $RENDER_API_KEY" \
             --header "Accept: application/json" \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100")
           
-          # Build the new env var list: update existing or add new
+          # Update or add SANAD_CONTROL_PLANE_TENANT_ID
           NEW_ENV=$(echo "$CURRENT_ENV" | jq --arg tenantId "$CONTROL_PLANE_TENANT_ID" \
             'map(if .key == "SANAD_CONTROL_PLANE_TENANT_ID" then .value = $tenantId else . end) + 
              (if any(.key == "SANAD_CONTROL_PLANE_TENANT_ID") then [] else [{"key": "SANAD_CONTROL_PLANE_TENANT_ID", "value": $tenantId}] end)')
           
-          # Update env vars via Render API
+          # Push updated env vars
           curl --fail-with-body --silent --show-error \
             --request PUT \
             --header "Authorization: Bearer $RENDER_API_KEY" \
@@ -136,7 +74,25 @@ jobs:
             --data "$NEW_ENV" \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars" > /dev/null
           
-          echo "Render env vars updated."
+          echo "Render env vars updated successfully."
+
+      - name: Verify env var was set
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERIFY=$(curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100")
+          
+          CONTROL_TENANT=$(echo "$VERIFY" | jq -r '.[] | select(.key == "SANAD_CONTROL_PLANE_TENANT_ID") | .value // empty')
+          
+          test -n "$CONTROL_TENANT" || {
+            echo "::error::SANAD_CONTROL_PLANE_TENANT_ID not found in Render after update"
+            exit 1
+          }
+          
+          echo "::notice::SANAD_CONTROL_PLANE_TENANT_ID verified in Render."
 
       - name: Trigger new deploy
         shell: bash
