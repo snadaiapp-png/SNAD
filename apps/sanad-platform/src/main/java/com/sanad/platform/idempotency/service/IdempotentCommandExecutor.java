@@ -7,12 +7,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
 
-/**
- * Stage 05A.2.6 — Transactional idempotent command executor.
- *
- * <p>Uses VerifiedRequestIdentityProvider to resolve identity BEFORE
- * any transaction. Passes the identity explicitly through A/B/C.</p>
- */
 @Component
 public class IdempotentCommandExecutor {
 
@@ -39,10 +33,7 @@ public class IdempotentCommandExecutor {
             String queryString,
             Supplier<T> businessAction) {
 
-        // Stage 05A.2.6 §4 — Resolve verified identity BEFORE Transaction A
         String verifiedRequestId = identityProvider.requireCurrent();
-
-        // Transaction A: Reserve (REQUIRES_NEW, commits independently)
         IdempotencyService.ReservationResult reservation = reservationExecutor.reserve(
                 idempotencyKey,
                 operationMetadata.operation(),
@@ -53,9 +44,7 @@ public class IdempotentCommandExecutor {
                 queryString,
                 verifiedRequestId);
 
-        if (reservation.shouldReplay()) {
-            return buildReplayResult(reservation.record());
-        }
+        if (reservation.shouldReplay()) return buildReplayResult(reservation.record());
         if (reservation.type() == IdempotencyService.ReservationType.CONFLICT) {
             throw new IdempotencyPayloadConflictException(reservation.message());
         }
@@ -67,11 +56,8 @@ public class IdempotentCommandExecutor {
         }
 
         LeaseGrant grant = reservation.leaseGrant();
-        if (grant == null) {
-            throw new IllegalStateException("NEW reservation but leaseGrant is null");
-        }
+        if (grant == null) throw new IllegalStateException("NEW reservation but leaseGrant is null");
 
-        // Transaction B: Business + audit + completion (REQUIRED, atomic)
         try {
             return businessTxExecutor.executeBusinessTransaction(
                     grant,
@@ -79,7 +65,6 @@ public class IdempotentCommandExecutor {
                     operationMetadata.resourceType(),
                     businessAction);
         } catch (Exception e) {
-            // Transaction C: Mark FAILED_RETRYABLE (REQUIRES_NEW)
             try {
                 failureExecutor.failReservation(
                         grant.recordId(), grant.tenantId(),
@@ -110,8 +95,13 @@ public class IdempotentCommandExecutor {
     public record OperationMetadata(
             String operation,
             String route,
-            String resourceType
-    ) {}
+            String resourceType,
+            int successStatus
+    ) {
+        public OperationMetadata(String operation, String route, String resourceType) {
+            this(operation, route, resourceType, 201);
+        }
+    }
 
     public static class IdempotencyPayloadConflictException extends RuntimeException {
         public IdempotencyPayloadConflictException(String message) { super(message); }
