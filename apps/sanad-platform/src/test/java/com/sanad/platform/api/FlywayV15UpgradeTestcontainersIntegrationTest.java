@@ -147,14 +147,20 @@ class FlywayV15UpgradeTestcontainersIntegrationTest {
                 .load();
         flywayV15.migrate();
 
-        // Step 5: Assert V15 is recorded as JDBC
-        // PostgreSQL BOOL() returns 'true'/'false' (not 't'/'f')
-        String v15Row = querySingleValue(
-                "SELECT type || '|' || description || '|' || BOOL(success) " +
+        // Step 5: Assert V15 is recorded as JDBC with success=true
+        // Use COUNT filter instead of BOOL() to avoid driver-dependent
+        // 't'/'true' format differences.
+        String v15TypeDesc = querySingleValue(
+                "SELECT type || '|' || description " +
                 "FROM flyway_schema_history WHERE version = '15'");
-        assertThat(v15Row)
-                .as("V15 must be type=JDBC, description='seed rbac roles and capabilities', success=true")
-                .isEqualTo("JDBC|seed rbac roles and capabilities|true");
+        assertThat(v15TypeDesc)
+                .as("V15 must be type=JDBC, description='seed rbac roles and capabilities'")
+                .isEqualTo("JDBC|seed rbac roles and capabilities");
+        String v15Success = querySingleValue(
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '15' AND success = true");
+        assertThat(v15Success)
+                .as("V15 must have success=true")
+                .isEqualTo("1");
     }
 
     // === Phase B: Run new artifact ===
@@ -194,12 +200,17 @@ class FlywayV15UpgradeTestcontainersIntegrationTest {
     @Order(2)
     @DisplayName("§4b_v15Preserved: V15 remains type=JDBC after new artifact startup")
     void phaseB_v15Preserved() throws Exception {
-        String v15Row = querySingleValue(
-                "SELECT type || '|' || description || '|' || BOOL(success) " +
+        String v15TypeDesc = querySingleValue(
+                "SELECT type || '|' || description " +
                 "FROM flyway_schema_history WHERE version = '15'");
-        assertThat(v15Row)
+        assertThat(v15TypeDesc)
                 .as("V15 must remain type=JDBC after new artifact startup")
-                .isEqualTo("JDBC|seed rbac roles and capabilities|true");
+                .isEqualTo("JDBC|seed rbac roles and capabilities");
+        String v15Success = querySingleValue(
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '15' AND success = true");
+        assertThat(v15Success)
+                .as("V15 must have success=true after new artifact startup")
+                .isEqualTo("1");
     }
 
     @Test

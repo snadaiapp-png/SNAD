@@ -158,11 +158,13 @@ class FlywayV15TestcontainersIntegrationTest {
     @Test
     @DisplayName("§5a_emptyDb_v15_successTrue: V15 row has success=true")
     void emptyDb_v15_successTrue() throws Exception {
-        String row = queryFlywayHistory(
-                "SELECT BOOL(success) FROM flyway_schema_history WHERE version = '15'");
-        assertThat(row)
-                .as("V15 must have success=true")
-                .isEqualTo("true");
+        // Use COUNT filter instead of BOOL() to avoid driver-dependent
+        // 't'/'true' format differences between HikariCP and raw JDBC.
+        String count = queryFlywayHistory(
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '15' AND success = true");
+        assertThat(count)
+                .as("V15 must have success=true (count of success=true rows must be 1)")
+                .isEqualTo("1");
     }
 
     // === Helpers ===
