@@ -9,8 +9,6 @@ import com.sanad.platform.shared.api.exceptions.TypedBusinessException;
 import com.sanad.platform.security.denial.SecurityDenialContext;
 import com.sanad.platform.security.denial.SecurityDenialCoordinator;
 import com.sanad.platform.security.denial.SecurityDenialCategory;
-import com.sanad.platform.security.tenant.TenantContext;
-import com.sanad.platform.security.tenant.TenantContextProvider;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
@@ -64,17 +62,10 @@ public class GlobalExceptionHandler {
     // The previous @Autowired(required=false) field injection with a
     // null-check is removed — the bean is mandatory and Spring will fail
     // fast if it is not wired.
-    private final com.sanad.platform.audit.service.TenantSecurityDenialAuditService tenantDenialAuditService;
     private final SecurityDenialCoordinator denialCoordinator;
-    private final TenantContextProvider tenantContextProvider;
 
-    public GlobalExceptionHandler(
-            com.sanad.platform.audit.service.TenantSecurityDenialAuditService tenantDenialAuditService,
-            SecurityDenialCoordinator denialCoordinator,
-            TenantContextProvider tenantContextProvider) {
-        this.tenantDenialAuditService = tenantDenialAuditService;
+    public GlobalExceptionHandler(SecurityDenialCoordinator denialCoordinator) {
         this.denialCoordinator = denialCoordinator;
-        this.tenantContextProvider = tenantContextProvider;
     }
 
     /** Safe generic detail returned for unexpected exceptions. */

@@ -189,8 +189,8 @@ jobs:
             echo "FAIL: V15 not found in flyway_schema_history"
             exit 1
           fi
-          if ! echo "$V15_ROW" | grep -q "^JDBC|seed_rbac_roles_and_capabilities$"; then
-            echo "FAIL: V15 type/description mismatch. Expected: JDBC|seed_rbac_roles_and_capabilities, Got: $V15_ROW"
+          if ! echo "$V15_ROW" | grep -q "^JDBC|seed rbac roles and capabilities$"; then
+            echo "FAIL: V15 type/description mismatch. Expected: JDBC|seed rbac roles and capabilities, Got: $V15_ROW"
             exit 1
           fi
           echo "V15 type and description: PASS"

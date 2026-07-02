@@ -118,13 +118,17 @@ public class TenantSecurityDenialAuditService {
             default -> "SECURITY_DENIAL";
         };
 
+        // Stage 05A.2.9.1 §10 — errorCode stores the canonical SANAD error
+        // code (e.g. SANAD-SEC-001, SANAD-TEN-002, SANAD-ROT-001) so the
+        // HTTP response code and the audit row error_code match. The
+        // category name is stored in failureReason for classification.
         auditService.recordDenied(AuditContext.builder(action, "Security", "ACCESS")
                 .actorType(AuditActorType.USER)
                 .actorUserId(userId)
                 .outcome(AuditOutcome.DENIED)
                 .httpStatus(context.httpStatus())
-                .errorCode(category.name())
-                .failureReason("Security denial: " + category.name())
+                .errorCode(context.errorCode())
+                .failureReason("Security denial category: " + category.name())
                 .build());
     }
 }
