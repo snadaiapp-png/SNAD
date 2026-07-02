@@ -31,3 +31,4 @@ jobs:
         env:
           CRM_BASE_URL: ${{ github.event.inputs.base_url }}
           CRM_BEARER_TOKEN: ${{ secrets.CRM_SMOKE_BEARER_TOKEN }}
+          CRM_SECOND_TENANT_BEARER_TOKEN: ${{ secrets.CRM_SMOKE_SECOND_TENANT_BEARER_TOKEN }}
