@@ -77,6 +77,7 @@ class IdempotencyAtomicReservationIntegrationTest {
 
     @Autowired private IdempotencyReservationStore store;
     @Autowired private TenantFixtureSeeder fixtureSeeder;
+    @Autowired private com.sanad.platform.security.tenant.TenantContextProvider contextProvider;
 
     @Autowired
     @Qualifier("tenantFixtureDataSource")
@@ -89,11 +90,21 @@ class IdempotencyAtomicReservationIntegrationTest {
     void setUp() {
         fixture = fixtureSeeder.seedCrudFixture();
         fixtureJdbc = new JdbcTemplate(fixtureDataSource);
+        setTenantContext(fixture.tenantAId());
     }
 
     @AfterEach
     void tearDown() {
+        contextProvider.clear();
         fixtureSeeder.cleanup(fixture);
+    }
+
+    private void setTenantContext(UUID tenantId) {
+        contextProvider.setContext(new com.sanad.platform.security.tenant.TenantContext(
+                tenantId, fixture.userAId(), "test-jti-" + UUID.randomUUID(),
+                0L, java.util.Set.of(),
+                com.sanad.platform.security.tenant.TenantContext.TenantContextSource.JWT_CLAIM,
+                "test-req-" + UUID.randomUUID()));
     }
 
     /**
