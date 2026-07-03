@@ -1,4 +1,4 @@
-name: Render Deployment Status Probe 3
+name: Render Deployment Status Probe 3 Refresh
 
 on:
   pull_request:
