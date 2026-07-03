@@ -28,8 +28,8 @@
     "finalGoNoGo": "NOT_AUTHORIZED"
   },
   "defects": {
-    "p0Open": null,
-    "p1Open": null
+    "p0Open": 2,
+    "p1Open": 2
   },
   "approvals": {
     "engineering": null,
