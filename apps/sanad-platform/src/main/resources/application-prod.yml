@@ -146,6 +146,12 @@ management:
           include: livenessState
         readiness:
           include: readinessState,db
+  health:
+    # SMTP delivery is an optional downstream capability and must not prevent
+    # the core API from becoming healthy when provider credentials are absent.
+    # Mail sending remains available whenever Spring Mail is configured.
+    mail:
+      enabled: ${MANAGEMENT_HEALTH_MAIL_ENABLED:false}
   info:
     env:
       enabled: false
