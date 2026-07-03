@@ -28,7 +28,10 @@ export default function () {
 
   check(response, {
     'health returns 200': (r) => r.status === 200,
-    'health content type is JSON': (r) => String(r.headers['Content-Type'] || '').includes('application/json'),
+    'health content type is JSON': (r) => {
+      const contentType = String(r.headers['Content-Type'] || '').toLowerCase();
+      return contentType.includes('application/json') || contentType.includes('+json');
+    },
     'health reports UP': (r) => r.body && r.body.includes('"status":"UP"'),
   });
 
