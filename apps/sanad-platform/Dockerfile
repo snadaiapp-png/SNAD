@@ -1,5 +1,5 @@
 # ============================================================
-# SANAD Platform - Production Dockerfile (Render optimized) - Build #1db644f
+# SANAD Platform - Production Dockerfile (Render optimized)
 # ============================================================
 
 FROM maven:3.9-eclipse-temurin-21 AS builder
@@ -11,11 +11,8 @@ WORKDIR /workspace
 COPY pom.xml ./
 RUN mvn -B -ntp -q dependency:go-offline -DskipTests || true
 
-# Cache-bust: copy a file that changes every commit to invalidate the Docker layer cache
-ARG RENDER_GIT_COMMIT=unknown
 COPY src ./src
 RUN mvn -B -ntp -q clean package -DskipTests -Dgit.commit="${RENDER_GIT_COMMIT}"
-
 
 FROM eclipse-temurin:21-jre-alpine
 
@@ -27,7 +24,7 @@ RUN addgroup -S sanad && adduser -S sanad -G sanad
 
 WORKDIR /app
 
-COPY --from=builder /workspace/target/sanad-platform-*.jar app.jar
+COPY --from=builder /workspace/target/sanad-platform-0.1.0-SNAPSHOT.jar /app/app.jar
 
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -Dfile.encoding=UTF-8"
 ENV SPRING_PROFILES_ACTIVE=prod
@@ -37,6 +34,6 @@ USER sanad
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8080/actuator/health || exit 1
+  CMD curl -fsS http://localhost:8080/actuator/health || exit 1
 
-ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]
