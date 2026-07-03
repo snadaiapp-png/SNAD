@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  inspect-render-cli:
-    name: Discover Render runtime log command
+  collect-render-logs:
+    name: Collect redacted Render startup errors
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 10
@@ -26,24 +26,31 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/render-oss/cli/main/bin/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Inspect available log commands
+      - name: Query and redact failed startup logs
         shell: bash
         run: |
           set -euo pipefail
-          {
-            echo '=== render --help ==='
-            render --help || true
-            echo '=== render logs --help ==='
-            render logs --help || true
-            echo '=== render services --help ==='
-            render services --help || true
-            echo '=== render deploys --help ==='
-            render deploys --help || true
-          } | tee render-cli-help.txt
+          render logs \
+            --resources "$RENDER_SERVICE_ID" \
+            --start 2026-07-03T21:10:40Z \
+            --end 2026-07-03T21:29:10Z \
+            --level error \
+            --limit 500 \
+            --output text \
+            > /tmp/render-errors.txt
 
-      - name: Upload CLI help
+          sed -E \
+            -e 's#(jdbc:postgresql://|postgresql://)[^[:space:]]+#\1[REDACTED]#Ig' \
+            -e 's#(password|secret|token|authorization|api[_-]?key)([=:][^[:space:]]*)#\1=[REDACTED]#Ig' \
+            -e 's#Bearer[[:space:]]+[A-Za-z0-9._~+/-]+=*#Bearer [REDACTED]#Ig' \
+            /tmp/render-errors.txt > render-startup-errors-redacted.txt
+
+          test -s render-startup-errors-redacted.txt || echo 'No error-level logs returned for the selected window.' > render-startup-errors-redacted.txt
+          wc -l render-startup-errors-redacted.txt
+
+      - name: Upload redacted startup diagnostics
         uses: actions/upload-artifact@v4
         with:
-          name: render-cli-help-${{ github.run_id }}
-          path: render-cli-help.txt
-          retention-days: 7
+          name: render-startup-errors-${{ github.run_id }}
+          path: render-startup-errors-redacted.txt
+          retention-days: 30
