@@ -1,6 +1,8 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
+// Stage 07 repository acceptance baseline. This is a regression gate,
+// not a substitute for the production-like commercial capacity test.
 export const options = {
   scenarios: {
     baseline: {
