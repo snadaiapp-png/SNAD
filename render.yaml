@@ -1,8 +1,8 @@
 # Render Blueprint for SANAD Backend
 # ============================================================
-# GitHub is the release authority. Render stores runtime secrets.
-# Automatic deploy is intentionally disabled; the protected production
-# workflow deploys an exact, reviewed main commit.
+# Uses pre-built Docker image from GitHub Container Registry.
+# This bypasses Maven build on Render (which fails due to 512MB RAM limit).
+# The image is built and pushed by .github/workflows/build-and-deploy.yml
 # ============================================================
 
 services:
@@ -14,8 +14,8 @@ services:
     region: frankfurt
     plan: free
     rootDir: apps/sanad-platform
-    dockerfilePath: Dockerfile
-    dockerContext: .
+    image: ghcr.io/snadaiapp-png/sanad-backend:latest
+    
     healthCheckPath: /actuator/health
     autoDeployTrigger: "off"
     envVars:
@@ -41,6 +41,8 @@ services:
         value: https://snad-app.vercel.app
       - key: BOOTSTRAP_ENABLED
         value: "false"
+      - key: SANAD_CONTROL_PLANE_TENANT_ID
+        sync: false
       - key: LOG_LEVEL_ROOT
         value: INFO
       - key: LOG_LEVEL_SANAD
@@ -55,9 +57,6 @@ services:
         value: "1"
       - key: DATABASE_POOL_TIMEOUT
         value: "30000"
-
-      # Secure account-recovery email. The Gmail App Password is entered
-      # only in Render as a secret and is never committed to GitHub.
       - key: SECURITY_NOTIFICATION_PROVIDER
         value: smtp
       - key: SECURITY_NOTIFICATION_FROM
@@ -84,8 +83,3 @@ services:
         value: "15000"
       - key: SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT
         value: "15000"
-
-      # Control Plane tenant — a dedicated control tenant, NOT a client tenant.
-      # The UUID is set in Render as a secret and is never committed to Git.
-      - key: SANAD_CONTROL_PLANE_TENANT_ID
-        sync: false
