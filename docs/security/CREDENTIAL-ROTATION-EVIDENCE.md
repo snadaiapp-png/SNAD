@@ -1,56 +1,58 @@
 # Credential Rotation Evidence
 
-**Status:** OWNER ACTION REQUIRED
-**Last Updated:** 2026-06-25T21:20:00Z
+**Status:** OWNER ACTION REQUIRED  
+**Last Updated:** 2026-07-03  
+**Controlled Issues:** #109 and #173
 
----
+## Non-secret evidence rule
 
-## Rotation Requirements
+No credential value, hash, connection string, recovery code, token fragment, or screenshot containing a secret may be committed. Evidence records only provider action identifiers, timestamps, actors, rejection results, deployment SHA and reviewer approval.
 
-The unsafe workflow (Run 28191175591) had access to Production environment secrets while installing unpinned Python packages. All credentials accessible during the workflow run must be considered potentially exposed.
+## Required rotations
 
-| Credential Category | Rotation Required | Rotation Status | Completed Timestamp | Actor Role | Old Credential Revoked | Post-Rotation Health | Evidence Reference |
-|---------------------|-------------------|-----------------|---------------------|------------|----------------------|---------------------|-------------------|
+| Control | Required | Status | Completion time | Actor | Old value rejected | Runtime health | Evidence reference |
+|---|---:|---|---|---|---:|---:|---|
 | Render API credential | YES | OWNER ACTION REQUIRED | — | — | — | — | — |
 | Production database password | YES | OWNER ACTION REQUIRED | — | — | — | — | — |
 | Administrative login credential | YES | OWNER ACTION REQUIRED | — | — | — | — | — |
-| Administrative sessions | YES | COMPLETED (by workflow) | 2026-06-25T18:18:07Z | workflow | N/A (session_version incremented) | Backend UP | Run 28191175591 logs |
-| Refresh tokens | YES | COMPLETED (by workflow) | 2026-06-25T18:18:07Z | workflow | N/A (all deleted) | N/A | Run 28191175591 logs |
-| Production environment access config | REVIEW | OWNER ACTION REQUIRED | — | — | — | — | — |
+| Administrative sessions | YES | COMPLETE | 2026-06-25T18:18:07Z | controlled workflow | N/A | PASS | Run 28191175591 |
+| Refresh-token families | YES | COMPLETE | 2026-06-25T18:18:07Z | controlled workflow | N/A | N/A | Run 28191175591 |
+| Resend API credential | YES | OWNER ACTION REQUIRED | — | — | — | — | — |
+| Email-proxy bearer token | YES | OWNER ACTION REQUIRED | — | — | — | — | — |
+| Verified email sender configuration | YES | OWNER ACTION REQUIRED | — | — | N/A | — | — |
+| Production environment access review | YES | OWNER ACTION REQUIRED | — | — | N/A | N/A | — |
+| Provider audit-log review | YES | OWNER ACTION REQUIRED | — | — | N/A | N/A | — |
 
-## Approved Rotation Mechanisms
+## Approved execution locations
 
-Do NOT use GitHub Actions workflows for credential rotation. Use:
+- Render credentials and environment settings: Render dashboard.
+- Database password and recovery controls: production database provider dashboard.
+- Resend credential and verified sender: Resend dashboard.
+- Vercel runtime secret configuration: Vercel project environment settings.
+- Administrator password: approved application or break-glass process.
 
-1. **Render API:** Render Dashboard → Account or Workspace → API Keys
-2. **Production Database:** Supabase Dashboard → Database → Reset password
-3. **Admin Credential:** Application login + password change (or break-glass per docs/security/BREAK-GLASS-ACCESS-POLICY.md)
-4. **Sessions:** Application-supported session revocation (already completed via session_version increment)
-5. **Refresh Tokens:** Application-supported token-family invalidation (already completed via DELETE FROM refresh_tokens)
+GitHub Actions must not be used to rotate production credentials.
 
-## Post-Rotation Verification (To Be Performed After Rotation)
+## Mandatory post-rotation verification
 
-After owner confirms rotation:
-1. Backend health = UP (verify via /actuator/health)
-2. Frontend health = UP (verify via HTTP 200)
-3. Approved admin login = SUCCESS (verify via /api/v1/auth/login with new credential)
-4. Old admin credential = REJECTED (verify old password fails)
-5. New session creation = SUCCESS
-6. Tenant binding = CORRECT (verify via /api/v1/auth/me)
-7. No cross-tenant access = VERIFIED (verify tenant isolation tests pass)
+1. Previous Render credential is rejected.
+2. Previous database password is rejected.
+3. Previous administrator password is rejected.
+4. Previously issued administrator sessions are rejected.
+5. Previous Resend credential is rejected.
+6. Previous email-proxy bearer token is rejected.
+7. Backend health and readiness return success on the reviewed deployment SHA.
+8. Frontend production deployment is healthy on the same release candidate.
+9. Approved administrator login succeeds with the replacement credential.
+10. Tenant binding and cross-tenant denial checks pass.
+11. Password-recovery delivery succeeds through the approved sender.
+12. Unauthorized email-proxy requests are rejected.
+13. Provider logs show no unexplained use during the exposure window.
 
-## Closure Criteria for Issue #109
+## Closure requirements
 
-Issue #109 may be closed when:
-- All required rotations complete with evidence: PENDING
-- Old credentials revoked: PENDING
-- Post-rotation validation passed: PENDING
-- Scanner required CI passed: COMPLETE ✅
-- Equivalent workflows = 0: COMPLETE ✅ (27/27 pass)
-- Owner acknowledges closure: PENDING
+Issue #109 may close only after the Render, database and administrator controls above are complete and reviewed.
 
-## Evidence Classification
+Issue #173 may close only after the Resend/email-proxy controls, rejection verification, reviewed deployment and authorized recovery-delivery evidence are complete.
 
-All evidence must be recorded without exposing credential values.
-Use "COMPLETED" or "OWNER ACTION REQUIRED" status only.
-No credential values, hashes, or connection strings are recorded in this document.
+Stage 07 remains fail-closed while either issue is open.

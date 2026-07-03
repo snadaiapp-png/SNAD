@@ -1,0 +1,36 @@
+name: Stage 07 Artifact Provenance
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Build release artifact
+        working-directory: apps/sanad-platform
+        run: mvn -B -ntp clean package -DskipTests -Dgit.commit="$GITHUB_SHA"
+      - name: Create provenance manifest
+        run: |
+          mkdir -p release-provenance
+          cp apps/sanad-platform/target/sanad-platform-0.1.0-SNAPSHOT.jar release-provenance/backend.jar
+          sha256sum release-provenance/backend.jar > release-provenance/SHA256SUMS
+          printf 'candidate_sha=%s\nworkflow_run=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > release-provenance/RELEASE-PROVENANCE.txt
+          cat release-provenance/SHA256SUMS >> release-provenance/RELEASE-PROVENANCE.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stage07-mainline-provenance
+          path: release-provenance/
+          retention-days: 90
