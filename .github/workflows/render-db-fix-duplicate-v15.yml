@@ -1,0 +1,109 @@
+name: Render DB Fix Duplicate V15
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "DELETE_DUPLICATE_V15" to confirm deletion of the duplicate SQL V15 record from flyway_schema_history'
+        required: true
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  fix-duplicate-v15:
+    name: Delete duplicate V15 SQL record from flyway_schema_history
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    if: github.event.inputs.confirm == 'DELETE_DUPLICATE_V15'
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+    steps:
+      - name: Install PostgreSQL client
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+
+      - name: Fetch DB credentials from Render
+        shell: bash
+        run: |
+          set -euo pipefail
+          RENDER_ENV=$(curl --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100")
+          echo "DATABASE_URL=$(echo "$RENDER_ENV" | jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "DATABASE_URL") | .value // empty')" >> $GITHUB_ENV
+          echo "DATABASE_PASSWORD=$(echo "$RENDER_ENV" | jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "DATABASE_PASSWORD") | .value // empty')" >> $GITHUB_ENV
+
+      - name: Parse DATABASE_URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          RAW_URL="$DATABASE_URL"
+          RAW_URL="${RAW_URL#jdbc:}"
+          RAW_URL="${RAW_URL#postgresql://}"
+          RAW_URL="${RAW_URL#https://}"
+          HOST_PORT="${RAW_URL%%/*}"
+          DB_PART="${RAW_URL#*/}"
+          DB_NAME="${DB_PART%%\?*}"
+          PGHOST="${HOST_PORT%%:*}"
+          PGPORT="${HOST_PORT#*:}"
+          PGPORT="${PGPORT:-5432}"
+          echo "PGHOST=$PGHOST" >> $GITHUB_ENV
+          echo "PGPORT=$PGPORT" >> $GITHUB_ENV
+          echo "PGDATABASE=$DB_NAME" >> $GITHUB_ENV
+          echo "Connecting to: host=$PGHOST port=$PGPORT dbname=$DB_NAME"
+
+      - name: Show current V15 records BEFORE deletion
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== V15 records BEFORE deletion ==="
+          PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$PGDATABASE" \
+            --no-psqlrc --set=ON_ERROR_STOP=1 --pset="format=aligned" \
+            --command="SELECT installed_rank, version, description, type, script, success, installed_on FROM flyway_schema_history WHERE version = '15' ORDER BY installed_rank;"
+
+      - name: Delete duplicate V15 SQL record (installed_rank 16)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Deleting installed_rank=16 (V15 SQL: seed admin role and capabilities) ==="
+          PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$PGDATABASE" \
+            --no-psqlrc --set=ON_ERROR_STOP=1 \
+            --command="DELETE FROM flyway_schema_history WHERE version = '15' AND type = 'SQL' AND script = 'V15__seed_admin_role_and_capabilities.sql' RETURNING installed_rank, version, description, type, script;"
+
+      - name: Show V15 records AFTER deletion
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== V15 records AFTER deletion ==="
+          PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$PGDATABASE" \
+            --no-psqlrc --set=ON_ERROR_STOP=1 --pset="format=aligned" \
+            --command="SELECT installed_rank, version, description, type, script, success, installed_on FROM flyway_schema_history WHERE version = '15' ORDER BY installed_rank;"
+
+      - name: Show full flyway_schema_history AFTER deletion
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Full flyway_schema_history AFTER deletion ==="
+          PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$PGDATABASE" \
+            --no-psqlrc --set=ON_ERROR_STOP=1 --pset="format=aligned" \
+            --command="SELECT installed_rank, version, description, type, script, success FROM flyway_schema_history ORDER BY installed_rank;"
+
+      - name: Verify no duplicate versions remain
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Duplicate version check ==="
+          DUP=$(PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$PGDATABASE" \
+            --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+            --command="SELECT COUNT(*) FROM (SELECT version FROM flyway_schema_history WHERE version IS NOT NULL GROUP BY version HAVING COUNT(*) > 1) d;")
+          echo "Duplicate count: $DUP"
+          [ "$(tr -d '[:space:]' <<< "$DUP")" = "0" ] || { echo "::error::Duplicate versions still exist"; exit 1; }
+          echo "No duplicate versions remain."
