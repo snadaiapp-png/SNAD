@@ -10,56 +10,50 @@ permissions:
   contents: read
 
 jobs:
-  collect-render-logs:
-    name: Collect redacted Render startup errors
+  deploy-render:
+    name: Deploy merged fix to Render
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 10
+    timeout-minutes: 50
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      TARGET_SHA: 689f4216c7bb2caf602c043c17147591fc66ad26
     steps:
-      - name: Install Render CLI and select workspace
+      - name: Verify exact current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RENDER_API_KEY"
+          test -n "$RENDER_SERVICE_ID"
+          remote_main=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')
+          [ "$remote_main" = "$TARGET_SHA" ] || { echo "::error::main moved from the approved fix"; exit 1; }
+
+      - name: Install Render CLI
         shell: bash
         run: |
           set -euo pipefail
           curl -fsSL https://raw.githubusercontent.com/render-oss/cli/main/bin/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.local/bin:$PATH"
 
-          curl --fail-with-body --silent --show-error \
-            --header "Authorization: Bearer $RENDER_API_KEY" \
-            --header "Accept: application/json" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID" \
-            > /tmp/render-service.json
-          workspace_id=$(jq -r '.ownerId // .workspaceId // .workspace.id // empty' /tmp/render-service.json)
-          test -n "$workspace_id" || { echo "::error::Render workspace ID was not found."; exit 1; }
-          render workspace set "$workspace_id" --confirm
-
-      - name: Query failed startup window
+      - name: Deploy exact commit and wait
         shell: bash
         run: |
           set -euo pipefail
-          render logs \
-            --resources "$RENDER_SERVICE_ID" \
-            --start 2026-07-03T21:10:40Z \
-            --end 2026-07-03T21:29:10Z \
-            --limit 1000 \
-            --output text > /tmp/render-runtime.txt
+          render deploys create "$RENDER_SERVICE_ID" \
+            --clear-cache \
+            --commit "$TARGET_SHA" \
+            --wait \
+            --output json \
+            --confirm > render-deployment.json
+          jq -e '(.status // "") == "live"' render-deployment.json >/dev/null
+          jq '{id,status,commit:(.commit.id // .commitId // null),createdAt,startedAt,finishedAt}' render-deployment.json
 
-          sed -E \
-            -e 's#(jdbc:postgresql://|postgresql://)[^[:space:]]+#\1[REDACTED]#Ig' \
-            -e 's#(password|secret|token|authorization|api[_-]?key)([=:][^[:space:]]*)#\1=[REDACTED]#Ig' \
-            /tmp/render-runtime.txt \
-            | grep -Ei 'error|exception|failed|fatal|flyway|migration|startup|applicationcontext|outofmemory|oom|killed|health|hikari|database|postgres|beancreation|shutdown' \
-            > render-startup-errors-redacted.txt || true
-
-          test -s render-startup-errors-redacted.txt || echo 'No matching diagnostics returned.' > render-startup-errors-redacted.txt
-          wc -l render-startup-errors-redacted.txt
-
-      - name: Upload redacted diagnostics
+      - name: Upload deployment evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: render-startup-errors-${{ github.run_id }}
-          path: render-startup-errors-redacted.txt
-          retention-days: 30
+          name: render-deployment-${{ github.run_id }}
+          path: render-deployment.json
+          if-no-files-found: warn
+          retention-days: 90
