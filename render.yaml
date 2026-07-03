@@ -1,8 +1,6 @@
 # Render Blueprint for SANAD Backend
 # ============================================================
-# Uses pre-built Docker image from GitHub Container Registry.
-# This bypasses Maven build on Render (which fails due to 512MB RAM limit).
-# The image is built and pushed by .github/workflows/build-and-deploy.yml
+# GitHub is the release authority. Render stores runtime secrets.
 # ============================================================
 
 services:
@@ -16,7 +14,6 @@ services:
     rootDir: apps/sanad-platform
     dockerfilePath: Dockerfile
     dockerContext: .
-    
     healthCheckPath: /actuator/health
     autoDeployTrigger: "off"
     envVars:
@@ -68,13 +65,3 @@ services:
         sync: false
       - key: APPLICATION_BASE_URL
         value: https://snad-app.vercel.app
-        value: http.gmail.com
-        value: "587"
-        sync: false
-        sync: false
-        value: "true"
-        value: "true"
-        value: "true"
-        value: "10000"
-        value: "15000"
-        value: "15000"
