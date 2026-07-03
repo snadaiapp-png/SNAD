@@ -29,6 +29,11 @@ jobs:
           python-version: '3.12'
       - name: Validate Stage 06 governance package
         run: python3 scripts/ci/check_stage06_readiness.py
+      - name: Validate Stage 07 release authorization package
+        run: |
+          if [ -f scripts/ci/check_stage07_release_authorization.py ]; then
+            python3 scripts/ci/check_stage07_release_authorization.py
+          fi
 
   stage06-doc-integrity:
     name: stage06-doc-integrity
