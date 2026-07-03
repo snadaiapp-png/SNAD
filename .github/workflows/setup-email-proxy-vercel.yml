@@ -1,0 +1,249 @@
+name: Setup Email Proxy Vercel
+
+# ============================================================
+# SANAD Platform — Setup Email Proxy env vars on Vercel
+# ------------------------------------------------------------
+# This workflow sets the required env vars on Vercel:
+#   - RESEND_API_KEY
+#   - EMAIL_PROXY_BEARER_TOKEN
+#   - EMAIL_PROXY_FROM
+#
+# After setup, the email-proxy endpoint will work and the
+# backend can send password reset emails via Resend.
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      vercel_token:
+        description: 'Vercel API token (get from https://vercel.com/account/tokens)'
+        required: true
+        type: string
+      resend_api_key:
+        description: 'Resend API key (get from https://resend.com/api-keys)'
+        required: true
+        type: string
+      email_from:
+        description: 'Verified sender email (e.g. SANAD <noreply@yourdomain.com>)'
+        required: true
+        type: string
+      vercel_project_id:
+        description: 'Vercel project ID (optional — auto-detected if empty)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    name: Setup Vercel email proxy env vars
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VERCEL_TOKEN: ${{ inputs.vercel_token }}
+      RESEND_API_KEY: ${{ inputs.resend_api_key }}
+      EMAIL_FROM: ${{ inputs.email_from }}
+      PROJECT_ID: ${{ inputs.vercel_project_id }}
+    steps:
+      - name: Install Vercel CLI
+        shell: bash
+        run: npm install -g vercel
+
+      - name: Verify Vercel token
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Verifying Vercel token ==="
+          vercel whoami --token "$VERCEL_TOKEN" 2>&1 | tail -3
+
+      - name: Find Vercel project ID
+        id: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$PROJECT_ID" ]; then
+            echo "Using provided project ID: $PROJECT_ID"
+            echo "id=$PROJECT_ID" >> "$GITHUB_OUTPUT"
+          else
+            echo "=== Finding SNAD project on Vercel ==="
+            # List projects and find the one matching snad-app
+            PROJECTS=$(curl --silent --show-error \
+              --header "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v9/projects")
+            FOUND_ID=$(echo "$PROJECTS" | jq -r '.projects[]? | select(.name | test("snad"; "i")) | .id' | head -1)
+            if [ -z "$FOUND_ID" ]; then
+              echo "::error::No Vercel project found with 'snad' in name"
+              echo "Available projects:"
+              echo "$PROJECTS" | jq -r '.projects[]? | .name'
+              exit 1
+            fi
+            echo "Found project ID: $FOUND_ID"
+            echo "id=$FOUND_ID" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate bearer token
+        id: bearer
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Generate a secure random bearer token
+          BEARER=$(openssl rand -hex 24)
+          echo "::add-mask::$BEARER"
+          echo "token=$BEARER" >> "$GITHUB_OUTPUT"
+          echo "Generated new bearer token (48 hex chars)"
+
+      - name: Set RESEND_API_KEY on Vercel
+        shell: bash
+        run: |
+          set -euo pipefail
+          PID=${{ steps.project.outputs.id }}
+          echo "=== Setting RESEND_API_KEY ==="
+          RESPONSE=$(curl --silent --show-error --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "[{\"key\":\"RESEND_API_KEY\",\"value\":\"$RESEND_API_KEY\",\"type\":\"encrypted\",\"target\":[\"production\"]}]" \
+            "https://api.vercel.com/v10/projects/$PID/env")
+          HTTP_CODE="${RESPONSE: -3}"
+          BODY="${RESPONSE%???}"
+          echo "HTTP: $HTTP_CODE"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Response: $BODY"
+            echo "::error::Failed to set RESEND_API_KEY"
+            exit 1
+          fi
+          echo "RESEND_API_KEY set successfully"
+
+      - name: Set EMAIL_PROXY_BEARER_TOKEN on Vercel
+        shell: bash
+        env:
+          BEARER: ${{ steps.bearer.outputs.token }}
+        run: |
+          set -euo pipefail
+          PID=${{ steps.project.outputs.id }}
+          echo "=== Setting EMAIL_PROXY_BEARER_TOKEN ==="
+          RESPONSE=$(curl --silent --show-error --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "[{\"key\":\"EMAIL_PROXY_BEARER_TOKEN\",\"value\":\"$BEARER\",\"type\":\"encrypted\",\"target\":[\"production\"]}]" \
+            "https://api.vercel.com/v10/projects/$PID/env")
+          HTTP_CODE="${RESPONSE: -3}"
+          BODY="${RESPONSE%???}"
+          echo "HTTP: $HTTP_CODE"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Response: $BODY"
+            echo "::error::Failed to set EMAIL_PROXY_BEARER_TOKEN"
+            exit 1
+          fi
+          echo "EMAIL_PROXY_BEARER_TOKEN set successfully"
+
+      - name: Set EMAIL_PROXY_FROM on Vercel
+        shell: bash
+        run: |
+          set -euo pipefail
+          PID=${{ steps.project.outputs.id }}
+          echo "=== Setting EMAIL_PROXY_FROM ==="
+          RESPONSE=$(curl --silent --show-error --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "[{\"key\":\"EMAIL_PROXY_FROM\",\"value\":\"$EMAIL_FROM\",\"type\":\"encrypted\",\"target\":[\"production\"]}]" \
+            "https://api.vercel.com/v10/projects/$PID/env")
+          HTTP_CODE="${RESPONSE: -3}"
+          BODY="${RESPONSE%???}"
+          echo "HTTP: $HTTP_CODE"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Response: $BODY"
+            echo "::error::Failed to set EMAIL_PROXY_FROM"
+            exit 1
+          fi
+          echo "EMAIL_PROXY_FROM set successfully"
+
+      - name: Update Render SECURITY_NOTIFICATION_BEARER_TOKEN
+        env:
+          BEARER: ${{ steps.bearer.outputs.token }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Updating Render SECURITY_NOTIFICATION_BEARER_TOKEN ==="
+          RESPONSE=$(curl --silent --show-error --write-out '%{http_code}' \
+            --request PUT \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Content-Type: application/json" \
+            --header "Accept: application/json" \
+            --data "[{\"key\":\"SECURITY_NOTIFICATION_BEARER_TOKEN\",\"value\":\"$BEARER\"}]" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars")
+          HTTP_CODE="${RESPONSE: -3}"
+          echo "HTTP: $HTTP_CODE"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Failed to update Render env var"
+            exit 1
+          fi
+          echo "Render SECURITY_NOTIFICATION_BEARER_TOKEN updated"
+
+      - name: Update Render SECURITY_NOTIFICATION_FROM
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Updating Render SECURITY_NOTIFICATION_FROM ==="
+          RESPONSE=$(curl --silent --show-error --write-out '%{http_code}' \
+            --request PUT \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Content-Type: application/json" \
+            --header "Accept: application/json" \
+            --data "[{\"key\":\"SECURITY_NOTIFICATION_FROM\",\"value\":\"$EMAIL_FROM\"}]" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars")
+          HTTP_CODE="${RESPONSE: -3}"
+          echo "HTTP: $HTTP_CODE"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Failed to update Render env var"
+            exit 1
+          fi
+          echo "Render SECURITY_NOTIFICATION_FROM updated"
+
+      - name: Trigger Render deploy to apply new env vars
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Triggering Render deploy ==="
+          RESPONSE=$(curl --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Content-Type: application/json" \
+            --header "Accept: application/json" \
+            --data '{}' \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys")
+          DEPLOY_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
+          echo "Deploy triggered: $DEPLOY_ID"
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo "=== SETUP COMPLETE ==="
+          echo ""
+          echo "Vercel env vars set:"
+          echo "  - RESEND_API_KEY ✓"
+          echo "  - EMAIL_PROXY_BEARER_TOKEN ✓ (newly generated)"
+          echo "  - EMAIL_PROXY_FROM ✓ ($EMAIL_FROM)"
+          echo ""
+          echo "Render env vars updated:"
+          echo "  - SECURITY_NOTIFICATION_BEARER_TOKEN ✓ (matches Vercel)"
+          echo "  - SECURITY_NOTIFICATION_FROM ✓ (matches Vercel)"
+          echo ""
+          echo "Render deploy triggered to apply changes."
+          echo ""
+          echo "After deploy completes (~5 min), test forgot-password:"
+          echo "  curl -X POST -H 'Content-Type: application/json' \\"
+          echo "    -d '{\"email\":\"your@email.com\"}' \\"
+          echo "    https://sanad-backend-mcrj.onrender.com/api/v1/auth/forgot-password"
