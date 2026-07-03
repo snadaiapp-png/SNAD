@@ -1,0 +1,51 @@
+name: Live Health Check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/live-health-check.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify backend health
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -L -o /tmp/health.json -w '%{http_code}' --max-time 60 https://sanad-backend-mcrj.onrender.com/actuator/health)
+          [ "$code" = "200" ]
+          jq -e '.status == "UP"' /tmp/health.json >/dev/null
+          echo "BACKEND_HEALTH=UP"
+
+      - name: Verify backend readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -L -o /tmp/readiness.json -w '%{http_code}' --max-time 60 https://sanad-backend-mcrj.onrender.com/actuator/health/readiness)
+          [ "$code" = "200" ]
+          jq -e '.status == "UP"' /tmp/readiness.json >/dev/null
+          echo "BACKEND_READINESS=UP"
+
+      - name: Verify Control Plane page
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -L -o /tmp/control-plane.html -w '%{http_code}' --max-time 60 https://snad-app.vercel.app/control-plane)
+          [ "$code" = "200" ]
+          echo "CONTROL_PLANE_HTTP=200"
+
+      - name: Verify unauthenticated BFF boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/bff.json -w '%{http_code}' --max-time 90 https://snad-app.vercel.app/api/platform/api/v1/control-plane/dashboard || true)
+          case "$code" in
+            401|403) echo "BFF_BOUNDARY=PASS" ;;
+            *) echo "BFF returned HTTP $code"; exit 1 ;;
+          esac
