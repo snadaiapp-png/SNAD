@@ -13,17 +13,12 @@ jobs:
   logs:
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 15
+    timeout-minutes: 10
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      RENDER_CLI_VERSION: '2.21.0'
     steps:
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26.0'
-          cache: false
-
       - name: Mask Render environment values
         shell: bash
         run: |
@@ -32,26 +27,23 @@ jobs:
             -H "Authorization: Bearer $RENDER_API_KEY" \
             -H "Accept: application/json" \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" > env.json
-          jq -r '.[]? | (.envVar // .) | .value // empty' env.json | while IFS= read -r value; do
-            [ -z "$value" ] || echo "::add-mask::$value"
+          jq -r '.[]? | (.envVar // .) | .value // empty | select(length >= 8)' env.json | while IFS= read -r value; do
+            echo "::add-mask::$value"
           done
 
-      - name: Install pinned Render CLI
+      - name: Install pinned Render CLI release
         shell: bash
         run: |
           set -euo pipefail
-          if ! go install github.com/render-oss/cli@ecbf8c98b30e95df4545d70b23a256e8d8a81461 > install.log 2>&1; then
-            tail -n 80 install.log
-            exit 1
-          fi
-          binary="$(go env GOPATH)/bin/cli"
-          if [ ! -x "$binary" ]; then
-            binary="$(go env GOPATH)/bin/render"
-          fi
-          ls -la "$(go env GOPATH)/bin"
-          test -x "$binary"
-          echo "RENDER_CLI=$binary" >> "$GITHUB_ENV"
-          "$binary" version
+          asset="cli_${RENDER_CLI_VERSION}_linux_amd64.zip"
+          url="https://github.com/render-oss/cli/releases/download/v${RENDER_CLI_VERSION}/${asset}"
+          curl --fail-with-body --location --silent --show-error "$url" -o render-cli.zip
+          unzip -q render-cli.zip -d render-cli
+          binary=$(find render-cli -type f -name 'cli_v*' | head -n 1)
+          test -n "$binary"
+          chmod +x "$binary"
+          echo "RENDER_CLI=$PWD/$binary" >> "$GITHUB_ENV"
+          "$binary" --version
 
       - name: Fetch failed deployment runtime logs
         shell: bash
@@ -87,7 +79,7 @@ jobs:
               lines.append((ts, level, message))
 
           print(f'LOG_RECORDS={len(lines)}')
-          important = re.compile(r'(?i)(error|exception|caused by|failed|fatal|killed|outofmemory|oom|cannot|refused|timeout|port|flyway|database|postgres|startup)')
+          important = re.compile(r'(?i)(error|exception|caused by|failed|fatal|killed|outofmemory|oom|cannot|refused|timeout|port|flyway|database|postgres|startup|terminated|exit)')
           selected = [row for row in lines if important.search(row[2]) or important.search(row[1])]
           if not selected:
               selected = lines[-120:]
