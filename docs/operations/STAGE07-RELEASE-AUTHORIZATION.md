@@ -93,7 +93,27 @@ Support SLA approval: PASS
 Final Go/No-Go approvals: COMPLETE
 ```
 
-## 7. Current Decision
+## 7. Machine-Readable Evidence State
+
+```text
+STAGE=07
+STATUS=OPEN
+STAGE06_MERGE=fab656fda377edfe7e06a43896a4c9806ec6c78b
+STAGE06_RUN=28624469724
+STAGE06_RESULT=PASS
+CANDIDATE_SHA=UNLOCKED
+ARTIFACT_DIGEST=UNLOCKED
+QUALITY_GATE_RUN=PENDING
+QUALITY_GATE_RESULT=PENDING
+P0_OPEN=2
+P1_OPEN=2
+COMMERCIAL_PRODUCTION_AUTHORIZED=false
+FINAL_GO_NO_GO=NOT_AUTHORIZED
+```
+
+Open P0 blockers are Issues #109 and #173. Open P1 items are Issues #127 and #128. Production workstreams #30 through #37 remain evidence-gated.
+
+## 8. Current Decision
 
 ```text
 Stage 07: OPEN
