@@ -1,7 +1,6 @@
 name: Compile Diagnostics
 
 on:
-  # This workflow is a required status check and must report on every pull request.
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -16,7 +15,7 @@ concurrency:
 jobs:
   compile:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,12 +24,27 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Compile and capture diagnostics
+          cache: maven
+      - name: Package and capture diagnostics
         working-directory: apps/sanad-platform
         shell: bash
         run: |
-          set -o pipefail
-          mvn -B -ntp clean compile 2>&1 | tee compile.log
+          set -euo pipefail
+          mvn -B -ntp clean package -DskipTests -Dgit.commit="$GITHUB_SHA" 2>&1 | tee compile.log
+          test -s target/sanad-platform-0.1.0-SNAPSHOT.jar
+      - name: Create immutable provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-provenance
+          cp apps/sanad-platform/target/sanad-platform-0.1.0-SNAPSHOT.jar release-provenance/backend.jar
+          sha256sum release-provenance/backend.jar > release-provenance/SHA256SUMS
+          {
+            echo "candidate_sha=$GITHUB_SHA"
+            echo "workflow_run=$GITHUB_RUN_ID"
+            echo "workflow_attempt=$GITHUB_RUN_ATTEMPT"
+            cat release-provenance/SHA256SUMS
+          } > release-provenance/RELEASE-PROVENANCE.txt
       - name: Upload compiler log
         if: always()
         uses: actions/upload-artifact@v4
@@ -38,4 +52,11 @@ jobs:
           name: compile-diagnostics
           path: apps/sanad-platform/compile.log
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
+      - name: Upload release provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage07-backend-release-provenance
+          path: release-provenance/
+          if-no-files-found: error
+          retention-days: 90
