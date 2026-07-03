@@ -22,5 +22,5 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --ref main \
             -f commit_sha="$GITHUB_SHA" \
-            -f pull_request_number=222 \
+            -f pull_request_number=227 \
             -f rollback_on_failure=true
