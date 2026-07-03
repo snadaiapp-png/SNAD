@@ -1,4 +1,4 @@
-target/*.original
+target/
 .git/
 *.md
 *.log

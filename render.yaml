@@ -14,7 +14,8 @@ services:
     region: frankfurt
     plan: free
     rootDir: apps/sanad-platform
-    image: ghcr.io/snadaiapp-png/sanad-backend:latest
+    dockerfilePath: Dockerfile
+    dockerContext: .
     
     healthCheckPath: /actuator/health
     autoDeployTrigger: "off"
