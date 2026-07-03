@@ -4,30 +4,26 @@
 
 FROM maven:3.9-eclipse-temurin-21 AS builder
 
-ARG RENDER_GIT_COMMIT=unknown
+WORKDIR /app
 
-WORKDIR /workspace
+# Set strict memory limits for Render free tier (512MB total)
+ENV MAVEN_OPTS="-Xmx256m -XX:+UseG1GC -XX:MaxMetaspaceSize=128m"
 
-# Set Maven memory limits for Render free tier (512MB RAM)
-ENV MAVEN_OPTS="-Xmx384m -XX:+UseG1GC"
-
-COPY pom.xml ./
-RUN mvn -B -ntp dependency:go-offline -DskipTests || true
-
+COPY pom.xml .
 COPY src ./src
-RUN mvn -B -ntp clean package -DskipTests -Dgit.commit="${RENDER_GIT_COMMIT:-unknown}"
+
+# Single Maven command: resolve dependencies + compile + package
+# No separate dependency:go-offline step (saves memory)
+RUN mvn -B -ntp clean package -DskipTests -Dmaven.test.skip=true
 
 FROM eclipse-temurin:21-jre-alpine
-
-ARG RENDER_GIT_COMMIT=unknown
-ENV RENDER_GIT_COMMIT=${RENDER_GIT_COMMIT}
 
 RUN apk add --no-cache curl
 RUN addgroup -S sanad && adduser -S sanad -G sanad
 
 WORKDIR /app
 
-COPY --from=builder /workspace/target/sanad-platform-*.jar app.jar
+COPY --from=builder /app/target/sanad-platform-*.jar app.jar
 
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -Dfile.encoding=UTF-8"
 ENV SPRING_PROFILES_ACTIVE=prod
