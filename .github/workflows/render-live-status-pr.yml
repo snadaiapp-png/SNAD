@@ -17,6 +17,7 @@ jobs:
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
     steps:
       - name: Read current Render state
         shell: bash
@@ -30,10 +31,30 @@ jobs:
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=10" \
             > deploys.json
           jq '[.[]? | (.deploy // .) | {id,status,commitId:(.commit.id // .commitId // null),createdAt,finishedAt,trigger}]' deploys.json
+          latest_id=$(jq -r '.[0] | (.deploy // .).id // empty' deploys.json)
           latest_status=$(jq -r '.[0] | (.deploy // .).status // "unknown"' deploys.json)
           latest_commit=$(jq -r '.[0] | (.deploy // .).commit.id // (.deploy // .).commitId // "unknown"' deploys.json)
+          test -n "$latest_id"
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$latest_id" \
+            > deploy-detail.json
+          echo '=== Latest deploy detail ==='
+          jq '(.deploy // .) | {id,status,commit,createdAt,finishedAt,trigger,reason}' deploy-detail.json
+          health_code=not_configured
+          readiness_code=not_configured
+          if [ -n "${PRODUCTION_BASE_URL:-}" ]; then
+            health_code=$(curl --silent --show-error --output health.json --write-out '%{http_code}' --max-time 20 "$PRODUCTION_BASE_URL/actuator/health" || true)
+            readiness_code=$(curl --silent --show-error --output readiness.json --write-out '%{http_code}' --max-time 20 "$PRODUCTION_BASE_URL/actuator/health/readiness" || true)
+          fi
+          echo "Health HTTP: $health_code"
+          echo "Readiness HTTP: $readiness_code"
           {
             echo "## Render Live Status"
+            echo "- Deploy: $latest_id"
             echo "- Latest status: $latest_status"
             echo "- Latest commit: $latest_commit"
+            echo "- Health HTTP: $health_code"
+            echo "- Readiness HTTP: $readiness_code"
           } >> "$GITHUB_STEP_SUMMARY"
