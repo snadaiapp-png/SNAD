@@ -1,0 +1,55 @@
+name: Render Email Config Check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check email configuration
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+    steps:
+      - name: Fetch Render env vars (values masked)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Email-related env vars on Render ==="
+          curl --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" \
+            | jq '[.[]? | (.envVar // .) | select(.key | test("NOTIFICATION|MAIL|RESEND|EMAIL"; "i")) | {key, valueLength: ((.value // "") | length), valuePreview: ((.value // "") | .[0:8] + "..." // empty)}]'
+
+      - name: Test forgot-password endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Testing forgot-password on Render ==="
+          RESPONSE=$(curl --silent --show-error --max-time 30 \
+            -X POST -H "Content-Type: application/json" \
+            -d '{"email":"snad.ai.app@gmail.com"}' \
+            https://sanad-backend-mcrj.onrender.com/api/v1/auth/forgot-password)
+          echo "Response: $RESPONSE"
+
+      - name: Test Vercel email-proxy endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Testing Vercel email-proxy (no auth) ==="
+          STATUS=$(curl --silent --show-error --max-time 30 -o /tmp/proxy-resp.json -w '%{http_code}' \
+            -X POST -H "Content-Type: application/json" \
+            -d '{"destination":"test@example.com","subject":"Test","htmlBody":"<p>Test</p>"}' \
+            https://snad-app.vercel.app/api/email-proxy)
+          echo "Status: $STATUS"
+          echo "Response: $(cat /tmp/proxy-resp.json)"
+          echo ""
+          echo "If status=503 → Vercel env vars missing (RESEND_API_KEY, EMAIL_PROXY_BEARER_TOKEN, EMAIL_PROXY_FROM)"
+          echo "If status=401 → Vercel env vars are set but Bearer token is wrong"
+          echo "If status=200 → Email proxy is working"
