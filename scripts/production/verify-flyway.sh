@@ -27,6 +27,7 @@ test -n "$DATABASE_PASSWORD" || {
 # Parse PRODUCTION_DATABASE_URL
 RAW_URL="$PRODUCTION_DATABASE_URL"
 RAW_URL="${RAW_URL#jdbc:}"
+RAW_URL="${RAW_URL#https://}"
 RAW_URL="${RAW_URL#postgresql://}"
 HOST_PORT="${RAW_URL%%/*}"
 DB_PART="${RAW_URL#*/}"
