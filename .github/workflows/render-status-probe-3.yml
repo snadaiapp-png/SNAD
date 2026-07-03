@@ -1,0 +1,33 @@
+name: Render Deployment Status Probe 3
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/render-status-probe-3.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Read current Render deployment state
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+    steps:
+      - name: Read current provider state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RENDER_API_KEY"
+          test -n "$RENDER_SERVICE_ID"
+          curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=5" \
+            > /tmp/deploys.json
+          jq -r '[.[]? | (.deploy // .)][0] | "LATEST_DEPLOYMENT_ID=\(.id)\nLATEST_STATUS=\(.status)\nLATEST_COMMIT=\(.commit.id // .commitId // \"unknown\")\nUPDATED_AT=\(.updatedAt // \"unknown\")\nFINISHED_AT=\(.finishedAt // \"unknown\")"' /tmp/deploys.json
