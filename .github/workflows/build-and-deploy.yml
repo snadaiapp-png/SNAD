@@ -77,6 +77,8 @@ jobs:
         working-directory: apps/sanad-platform
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-12)
+          export DOCKER_BUILDKIT=0
+          ls -la target/sanad-platform-*.jar || echo "JAR NOT FOUND"
           docker build --no-cache -t ${{ env.IMAGE_NAME }}:latest -t ${{ env.IMAGE_NAME }}:${SHORT_SHA} .
           docker push ${{ env.IMAGE_NAME }}:latest
           docker push ${{ env.IMAGE_NAME }}:${SHORT_SHA}
