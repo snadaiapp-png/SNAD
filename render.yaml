@@ -42,15 +42,17 @@ services:
       - key: SANAD_CONTROL_PLANE_TENANT_ID
         sync: false
       - key: LOG_LEVEL_ROOT
-        value: INFO
+        value: WARN
       - key: LOG_LEVEL_SANAD
         value: INFO
+      - key: LAZY_INIT
+        value: "true"
       - key: MANAGEMENT_ENDPOINTS
         value: health
       - key: SHUTDOWN_TIMEOUT
         value: 30s
       - key: DATABASE_POOL_MAX
-        value: "5"
+        value: "3"
       - key: DATABASE_POOL_MIN
         value: "1"
       - key: DATABASE_POOL_TIMEOUT

@@ -1,0 +1,115 @@
+name: Railway Deploy
+
+# ============================================================
+# SANAD Platform — Deploy to Railway (alternative to Render)
+# ------------------------------------------------------------
+# Railway free tier: $5 credit/month, 500MB RAM, shared CPU
+# Faster builds and deploys than Render
+#
+# PREREQUISITES (one-time setup by user):
+# 1. Sign up at https://railway.app
+# 2. Install Railway CLI: npm install -g @railway/cli
+# 3. Login: railway login
+# 4. Create project: railway init
+# 5. Get API token: https://railway.app/account/tokens
+# 6. Add GitHub secret: RAILWAY_TOKEN
+# 7. Set env vars in Railway dashboard (DATABASE_URL, DATABASE_USERNAME,
+#    DATABASE_PASSWORD, JWT_SECRET, SANAD_CONTROL_PLANE_TENANT_ID,
+#    SECURITY_NOTIFICATION_*, etc.)
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to confirm Railway deployment'
+        required: true
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: github.event.inputs.confirm == 'deploy'
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - name: Validate prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RAILWAY_TOKEN:-}" || { echo "::error::RAILWAY_TOKEN secret is required. Get it from: https://railway.app/account/tokens"; exit 1; }
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        shell: bash
+        run: |
+          npm install -g @railway/cli
+          railway --version
+
+      - name: Link to Railway project
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Railway will use RAILWAY_TOKEN to link automatically
+          railway link || true
+
+      - name: Deploy to Railway
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Deploying to Railway ==="
+          railway up --detach
+
+      - name: Get Railway deployment URL
+        id: url
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Railway generates a domain like sanad-backend.up.railway.app
+          APP_URL="https://sanad-backend.up.railway.app"
+          echo "url=$APP_URL" >> "$GITHUB_OUTPUT"
+          echo "App URL: $APP_URL"
+
+      - name: Wait for health check
+        shell: bash
+        env:
+          APP_URL: ${{ steps.url.outputs.url }}
+        run: |
+          set -euo pipefail
+          echo "Waiting for $APP_URL/actuator/health to become UP..."
+          for attempt in $(seq 1 48); do
+            status=$(curl --silent --show-error --output /tmp/health.json --write-out '%{http_code}' \
+              --max-time 15 "$APP_URL/actuator/health" || true)
+            if [ "$status" = "200" ]; then
+              echo "Health UP after ${attempt} attempts"
+              jq '.' /tmp/health.json
+              exit 0
+            fi
+            echo "Attempt ${attempt}: HTTP ${status}; waiting 15s..."
+            sleep 15
+          done
+          echo "::error::Railway app did not become healthy within 12 minutes"
+          exit 1
+
+      - name: Verify security boundary
+        shell: bash
+        env:
+          APP_URL: ${{ steps.url.outputs.url }}
+        run: |
+          set -euo pipefail
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$APP_URL/actuator/health")
+          [ "$code" = "200" ] || { echo "::error::Health check failed: $code"; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$APP_URL/actuator/env")
+          [ "$code" = "404" ] || { echo "::error::Env endpoint should be 404 but got $code"; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$APP_URL/api/v1/auth/me")
+          [ "$code" = "401" ] || { echo "::error::Auth endpoint should be 401 but got $code"; exit 1; }
+          echo "=== Railway deployment verified ==="
+          echo "App URL: $APP_URL"
