@@ -10,10 +10,17 @@ permissions:
   actions: write
   contents: read
 
+concurrency:
+  group: stage07-render-dispatch
+  cancel-in-progress: false
+
 jobs:
   dispatch:
     runs-on: ubuntu-latest
     steps:
+      - name: Allow Render repository mirror to synchronize
+        run: sleep 120
+
       - name: Dispatch protected production workflow
         env:
           GH_TOKEN: ${{ github.token }}
