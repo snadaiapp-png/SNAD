@@ -1,0 +1,61 @@
+name: Render Runtime Log Query
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/render-runtime-log-query.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  query:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      RENDER_CLI_CONFIG_PATH: ${{ github.workspace }}/render-cli.yaml
+    steps:
+      - name: Install pinned CLI and configure workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth=(-H "Authorization: Bearer $RENDER_API_KEY" -H "Accept: application/json")
+          curl -fsS "${auth[@]}" "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" > env.json
+          jq -r '.[]? | (.envVar // .) | .value // empty | select(length >= 8)' env.json | while IFS= read -r value; do echo "::add-mask::$value"; done
+          curl -fsS "${auth[@]}" "https://api.render.com/v1/services/$RENDER_SERVICE_ID" > service.json
+          owner=$(jq -r '.ownerId // .service.ownerId // .owner.id // .service.owner.id // empty' service.json)
+          test -n "$owner"
+          echo "::add-mask::$owner"
+          curl -fsSL "https://github.com/render-oss/cli/releases/download/v2.21.0/cli_2.21.0_linux_amd64.zip" -o cli.zip
+          unzip -q cli.zip -d cli
+          binary=$(find cli -type f -name 'cli_v*' | head -n1)
+          chmod +x "$binary"
+          echo "RENDER_CLI=$PWD/$binary" >> "$GITHUB_ENV"
+          "$binary" workspace set "$owner" --output text
+
+      - name: Print sanitized startup errors
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RENDER_CLI" logs --resources "$RENDER_SERVICE_ID" \
+            --start 2026-07-03T21:10:00Z --end 2026-07-03T21:29:30Z \
+            --type app --limit 1000 --direction forward --output json > logs.jsonl
+          python3 - <<'PY'
+          import json,re
+          from pathlib import Path
+          key=re.compile(r'(?i)(error|exception|caused by|failed|fatal|killed|outofmemory|oom|cannot|refused|timeout|flyway|database|postgres|startup|terminated|exit|port)')
+          found=[]
+          for raw in Path('logs.jsonl').read_text(errors='replace').splitlines():
+              try:
+                  o=json.loads(raw); m=str(o.get('message','')); ts=str(o.get('timestamp','')); level=str(o.get('level',''))
+              except Exception:
+                  m,ts,level=raw,'',''
+              m=re.sub(r'(?i)(jdbc:postgresql|postgresql|https?)://[^\s"\']+',r'\1://[REDACTED]',m)
+              m=re.sub(r'(?i)(password|secret|token|api[_-]?key)\s*[=:]\s*\S+',r'\1=[REDACTED]',m)
+              if key.search(m) or key.search(level): found.append((ts,level,m))
+          print('MATCHED_LOGS='+str(len(found)))
+          for row in found[-250:]: print(*row)
+          PY
