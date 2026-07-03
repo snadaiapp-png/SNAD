@@ -115,6 +115,7 @@ snad:
       from-address: ${SECURITY_NOTIFICATION_FROM:}
       endpoint: ${SECURITY_NOTIFICATION_ENDPOINT:}
       bearer-token: ${SECURITY_NOTIFICATION_BEARER_TOKEN:}
+      resend-api-key: ${SECURITY_NOTIFICATION_RESEND_API_KEY:}
 
 logging:
   level:

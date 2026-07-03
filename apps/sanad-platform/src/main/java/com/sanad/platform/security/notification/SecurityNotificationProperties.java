@@ -9,6 +9,7 @@ public class SecurityNotificationProperties {
     private String fromAddress = "";
     private String endpoint = "";
     private String bearerToken = "";
+    private String resendApiKey = "";
 
     public String getProvider() { return provider; }
     public void setProvider(String provider) { this.provider = provider; }
@@ -20,4 +21,6 @@ public class SecurityNotificationProperties {
     public void setEndpoint(String endpoint) { this.endpoint = endpoint; }
     public String getBearerToken() { return bearerToken; }
     public void setBearerToken(String bearerToken) { this.bearerToken = bearerToken; }
+    public String getResendApiKey() { return resendApiKey; }
+    public void setResendApiKey(String resendApiKey) { this.resendApiKey = resendApiKey; }
 }

@@ -58,9 +58,12 @@ services:
       - key: DATABASE_POOL_TIMEOUT
         value: "30000"
       - key: SECURITY_NOTIFICATION_PROVIDER
-        value: http
+        value: resend
       - key: SECURITY_NOTIFICATION_FROM
         sync: false
+      - key: SECURITY_NOTIFICATION_RESEND_API_KEY
+        sync: false
+      # Legacy HTTP proxy settings (kept for backward compatibility)
       - key: SECURITY_NOTIFICATION_ENDPOINT
         value: https://snad-app.vercel.app/api/email-proxy
       - key: SECURITY_NOTIFICATION_BEARER_TOKEN
