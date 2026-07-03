@@ -2,19 +2,43 @@
 set -euo pipefail
 
 : "${PRODUCTION_DATABASE_URL:?PRODUCTION_DATABASE_URL is required}"
+: "${DATABASE_USERNAME:?DATABASE_USERNAME is required}"
+: "${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}"
 
 cleanup() {
   rm -f /tmp/flyway-history.tsv /tmp/flyway-failures.txt /tmp/flyway-duplicates.txt
 }
 trap cleanup EXIT
 
-psql "$PRODUCTION_DATABASE_URL" \
-  --no-psqlrc \
-  --set=ON_ERROR_STOP=1 \
-  --tuples-only \
-  --no-align \
-  --field-separator=$'\t' \
-  --command="
+# Parse PRODUCTION_DATABASE_URL into host, port, dbname
+# Handles both jdbc:postgresql://host:port/db?params and postgresql://host:port/db?params
+RAW_URL="$PRODUCTION_DATABASE_URL"
+RAW_URL="${RAW_URL#jdbc:}"
+RAW_URL="${RAW_URL#postgresql://}"
+HOST_PORT="${RAW_URL%%/*}"
+DB_PART="${RAW_URL#*/}"
+DB_NAME="${DB_PART%%\?*}"
+PGHOST="${HOST_PORT%%:*}"
+PGPORT="${HOST_PORT#*:}"
+PGPORT="${PGPORT:-5432}"
+
+echo "Connecting to: host=$PGHOST port=$PGPORT dbname=$DB_NAME user=$DATABASE_USERNAME"
+
+run_sql() {
+  PGPASSWORD="$DATABASE_PASSWORD" psql \
+    -h "$PGHOST" \
+    -p "$PGPORT" \
+    -U "$DATABASE_USERNAME" \
+    -d "$DB_NAME" \
+    --no-psqlrc \
+    --set=ON_ERROR_STOP=1 \
+    --tuples-only \
+    --no-align \
+    --field-separator=$'\t' \
+    --command="$1"
+}
+
+run_sql "
     SELECT version, type, description, success
     FROM flyway_schema_history
     WHERE version IN ('15', '20260702.1', '20260702.2')
@@ -42,25 +66,13 @@ require_migration "15" "JDBC" "seed rbac roles and capabilities"
 require_migration "20260702.1" "SQL" "create unified crm core"
 require_migration "20260702.2" "SQL" "reconcile admin role and capabilities"
 
-psql "$PRODUCTION_DATABASE_URL" \
-  --no-psqlrc \
-  --set=ON_ERROR_STOP=1 \
-  --tuples-only \
-  --no-align \
-  --command="SELECT COUNT(*) FROM flyway_schema_history WHERE success = FALSE;" \
-  > /tmp/flyway-failures.txt
-
-if [ "$(tr -d '[:space:]' < /tmp/flyway-failures.txt)" != "0" ]; then
+FAILED_COUNT=$(run_sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = FALSE;")
+if [ "$(tr -d '[:space:]' <<< "$FAILED_COUNT")" != "0" ]; then
   echo "::error::Production Flyway history contains failed migrations."
   exit 1
 fi
 
-psql "$PRODUCTION_DATABASE_URL" \
-  --no-psqlrc \
-  --set=ON_ERROR_STOP=1 \
-  --tuples-only \
-  --no-align \
-  --command="
+DUP_COUNT=$(run_sql "
     SELECT COUNT(*)
     FROM (
       SELECT version
@@ -69,9 +81,8 @@ psql "$PRODUCTION_DATABASE_URL" \
       GROUP BY version
       HAVING COUNT(*) > 1
     ) duplicate_versions;
-  " > /tmp/flyway-duplicates.txt
-
-if [ "$(tr -d '[:space:]' < /tmp/flyway-duplicates.txt)" != "0" ]; then
+  ")
+if [ "$(tr -d '[:space:]' <<< "$DUP_COUNT")" != "0" ]; then
   echo "::error::Production Flyway history contains duplicate version rows."
   exit 1
 fi
