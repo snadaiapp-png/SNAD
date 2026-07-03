@@ -13,7 +13,7 @@ RUN addgroup -S sanad && adduser -S sanad -G sanad
 WORKDIR /app
 
 # The JAR is COPY'd during GitHub Actions Docker build
-COPY target/sanad-platform-*.jar app.jar
+COPY target/sanad-platform-0.1.0-SNAPSHOT.jar app.jar
 
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -Dfile.encoding=UTF-8"
 ENV SPRING_PROFILES_ACTIVE=prod
