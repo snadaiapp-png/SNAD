@@ -19,14 +19,24 @@ jobs:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
     steps:
-      - name: Install Render CLI
+      - name: Install Render CLI and select workspace
         shell: bash
         run: |
           set -euo pipefail
           curl -fsSL https://raw.githubusercontent.com/render-oss/cli/main/bin/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
 
-      - name: Query and redact failed startup logs
+          curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID" \
+            > /tmp/render-service.json
+          workspace_id=$(jq -r '.ownerId // .workspaceId // .workspace.id // empty' /tmp/render-service.json)
+          test -n "$workspace_id" || { echo "::error::Render workspace ID was not found."; exit 1; }
+          render workspace set "$workspace_id" --confirm
+
+      - name: Query failed startup window
         shell: bash
         run: |
           set -euo pipefail
@@ -34,21 +44,20 @@ jobs:
             --resources "$RENDER_SERVICE_ID" \
             --start 2026-07-03T21:10:40Z \
             --end 2026-07-03T21:29:10Z \
-            --level error \
-            --limit 500 \
-            --output text \
-            > /tmp/render-errors.txt
+            --limit 1000 \
+            --output text > /tmp/render-runtime.txt
 
           sed -E \
             -e 's#(jdbc:postgresql://|postgresql://)[^[:space:]]+#\1[REDACTED]#Ig' \
             -e 's#(password|secret|token|authorization|api[_-]?key)([=:][^[:space:]]*)#\1=[REDACTED]#Ig' \
-            -e 's#Bearer[[:space:]]+[A-Za-z0-9._~+/-]+=*#Bearer [REDACTED]#Ig' \
-            /tmp/render-errors.txt > render-startup-errors-redacted.txt
+            /tmp/render-runtime.txt \
+            | grep -Ei 'error|exception|failed|fatal|flyway|migration|startup|applicationcontext|outofmemory|oom|killed|health|hikari|database|postgres|beancreation|shutdown' \
+            > render-startup-errors-redacted.txt || true
 
-          test -s render-startup-errors-redacted.txt || echo 'No error-level logs returned for the selected window.' > render-startup-errors-redacted.txt
+          test -s render-startup-errors-redacted.txt || echo 'No matching diagnostics returned.' > render-startup-errors-redacted.txt
           wc -l render-startup-errors-redacted.txt
 
-      - name: Upload redacted startup diagnostics
+      - name: Upload redacted diagnostics
         uses: actions/upload-artifact@v4
         with:
           name: render-startup-errors-${{ github.run_id }}
