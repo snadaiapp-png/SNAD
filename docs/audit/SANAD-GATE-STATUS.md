@@ -56,6 +56,12 @@ Stage 06 is certified for controlled release preparation and merged through comm
 | Compliance | EXTERNAL-DEPENDENCY | External audit and DPA required |
 | Disaster recovery | CONTROLLED-BASELINE | Live exercise is a Stage 07 requirement |
 
+Compatibility marker required by the certified Stage 06 workflow:
+
+```text
+Stage 07 / Release Authorization: REQUIRED
+```
+
 ---
 
 ## Stage 07 Release Authorization Gate
