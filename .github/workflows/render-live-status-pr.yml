@@ -54,5 +54,5 @@ jobs:
           echo "HEALTH_HTTP=$health_code"
           echo "READINESS_HTTP=$readiness_code"
           echo 'EVENTS_BEGIN'
-          jq -c '.[0:10] | map({id,type,timestamp,details})' service-events.json
+          jq -c '.[0:10] | map((.event // .) | {id,type,timestamp,details})' service-events.json
           echo 'EVENTS_END'
