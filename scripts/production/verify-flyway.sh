@@ -22,7 +22,7 @@ PGHOST="${HOST_PORT%%:*}"
 PGPORT="${HOST_PORT#*:}"
 PGPORT="${PGPORT:-5432}"
 
-echo "Connecting to: host=$PGHOST port=$PGPORT dbname=$DB_NAME user=$DATABASE_USERNAME"
+echo "Connecting to protected production database for Flyway verification."
 
 run_sql() {
   PGPASSWORD="$DATABASE_PASSWORD" psql \
@@ -41,7 +41,7 @@ run_sql() {
 run_sql "
     SELECT version, type, description, success
     FROM flyway_schema_history
-    WHERE version IN ('15', '20260702.1', '20260702.2')
+    WHERE version IN ('15', '20260702.1', '20260702.2', '20260702.3')
     ORDER BY installed_rank;
   " > /tmp/flyway-history.tsv
 
@@ -65,6 +65,7 @@ require_migration() {
 require_migration "15" "JDBC" "seed rbac roles and capabilities"
 require_migration "20260702.1" "SQL" "create unified crm core"
 require_migration "20260702.2" "SQL" "reconcile admin role and capabilities"
+require_migration "20260702.3" "SQL" "complete crm imports custom fields"
 
 FAILED_COUNT=$(run_sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = FALSE;")
 if [ "$(tr -d '[:space:]' <<< "$FAILED_COUNT")" != "0" ]; then
@@ -87,4 +88,4 @@ if [ "$(tr -d '[:space:]' <<< "$DUP_COUNT")" != "0" ]; then
   exit 1
 fi
 
-echo "Flyway production compatibility verified: V15 JDBC, CRM V20260702.1, RBAC V20260702.2, no failures, no duplicate versions."
+echo "Flyway production compatibility verified through V20260702.3: no failures and no duplicate versions."

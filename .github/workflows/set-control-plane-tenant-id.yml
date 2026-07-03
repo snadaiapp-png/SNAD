@@ -1,11 +1,3 @@
-# ============================================================
-# SANAD Platform — Set Control Plane Tenant ID in Render
-# ------------------------------------------------------------
-# Uses BOOTSTRAP_TENANT_ID from GitHub production secrets
-# and sets it as SANAD_CONTROL_PLANE_TENANT_ID in Render.
-# Setting env vars on Render triggers an automatic deploy.
-# ============================================================
-
 name: Set Control Plane Tenant ID
 
 on:
@@ -22,7 +14,7 @@ permissions:
 
 jobs:
   set-control-plane-tenant:
-    name: Set SANAD_CONTROL_PLANE_TENANT_ID in Render
+    name: Validate and set SANAD_CONTROL_PLANE_TENANT_ID
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 25
@@ -30,88 +22,122 @@ jobs:
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-      CONTROL_PLANE_TENANT_ID: ${{ secrets.BOOTSTRAP_TENANT_ID }}
+      CONTROL_PLANE_TENANT_ID: ${{ secrets.SANAD_CONTROL_PLANE_TENANT_ID }}
+      PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+      DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+      BACKEND_URL: ${{ vars.PRODUCTION_BASE_URL }}
 
     steps:
-      - name: Validate prerequisites
+      - name: Checkout production contract
+        uses: actions/checkout@v4
+
+      - name: Validate protected prerequisites
         shell: bash
         run: |
           set -euo pipefail
-          for name in RENDER_API_KEY RENDER_SERVICE_ID CONTROL_PLANE_TENANT_ID; do
+          for name in RENDER_API_KEY RENDER_SERVICE_ID CONTROL_PLANE_TENANT_ID PRODUCTION_DATABASE_URL DATABASE_USERNAME DATABASE_PASSWORD BACKEND_URL; do
             test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
           done
-          [[ "$CONTROL_PLANE_TENANT_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]] || {
-            echo "::error::CONTROL_PLANE_TENANT_ID is not a valid UUID"
-            exit 1
-          }
-          echo "All prerequisites validated. Tenant UUID is valid."
+          [[ "$BACKEND_URL" == https://* ]]
+          echo "::add-mask::$CONTROL_PLANE_TENANT_ID"
 
-      - name: Set SANAD_CONTROL_PLANE_TENANT_ID in Render
+      - name: Install PostgreSQL client
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+
+      - name: Verify Control Plane tenant in production database
+        shell: bash
+        run: bash scripts/production/verify-control-plane-tenant.sh
+
+      - name: Update Render environment and verify read-back
         shell: bash
         run: |
           set -euo pipefail
-          echo "Setting SANAD_CONTROL_PLANE_TENANT_ID in Render..."
-          
-          # Get current env vars — Render returns [{envVar: {key, value}}] format
-          CURRENT_ENV=$(curl --silent --show-error \
+          trap 'rm -f /tmp/render-current.json /tmp/render-flat.json /tmp/render-updated.json /tmp/render-response.json /tmp/render-verify.json /tmp/render-verify-flat.json' EXIT
+
+          curl --fail-with-body --silent --show-error \
             --header "Authorization: Bearer $RENDER_API_KEY" \
             --header "Accept: application/json" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100")
-          
-          # Normalize to flat [{key, value}] format, update/add our key
-          NEW_ENV=$(echo "$CURRENT_ENV" | jq '[.[]? | (.envVar // .)]' | jq --arg tenantId "$CONTROL_PLANE_TENANT_ID" \
-            'map(if .key == "SANAD_CONTROL_PLANE_TENANT_ID" then .value = $tenantId else . end) +
-             (if any(.key == "SANAD_CONTROL_PLANE_TENANT_ID") then [] else [{"key": "SANAD_CONTROL_PLANE_TENANT_ID", "value": $tenantId}] end)')
-          
-          echo "Sending $(echo "$NEW_ENV" | jq 'length') env vars to Render..."
-          
-          # Push updated env vars — this triggers an automatic deploy on Render
-          HTTP_CODE=$(curl --silent --output /tmp/put-response.json --write-out '%{http_code}' \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" \
+            > /tmp/render-current.json
+
+          [ "$(jq 'length' /tmp/render-current.json)" -lt 100 ] || {
+            echo "::error::Cannot prove complete Render environment pagination."
+            exit 1
+          }
+
+          jq '[.[]? | (.envVar // .) | {key, value}] | sort_by(.key)' \
+            /tmp/render-current.json > /tmp/render-flat.json
+
+          previous_count=$(jq 'length' /tmp/render-flat.json)
+          jq --arg tenant "$CONTROL_PLANE_TENANT_ID" '
+            map(select(.key != "SANAD_CONTROL_PLANE_TENANT_ID"))
+            + [{key:"SANAD_CONTROL_PLANE_TENANT_ID",value:$tenant}]
+            | sort_by(.key)
+          ' /tmp/render-flat.json > /tmp/render-updated.json
+
+          [ "$(jq 'length' /tmp/render-updated.json)" -ge "$previous_count" ] || {
+            echo "::error::Render environment keys would be removed."
+            exit 1
+          }
+
+          status=$(curl --silent --show-error \
+            --output /tmp/render-response.json \
+            --write-out '%{http_code}' \
             --request PUT \
             --header "Authorization: Bearer $RENDER_API_KEY" \
             --header "Content-Type: application/json" \
-            --header "Accept: application/json" \
-            --data "$NEW_ENV" \
+            --data @/tmp/render-updated.json \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars")
-          
-          echo "Render PUT env-vars HTTP status: $HTTP_CODE"
-          echo "Response body: $(cat /tmp/put-response.json | head -c 500)"
-          
-          if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "202" ]; then
-            echo "::error::Failed to set env var in Render (HTTP $HTTP_CODE)"
-            cat /tmp/put-response.json
-            exit 1
-          fi
-          
-          echo "::notice::SANAD_CONTROL_PLANE_TENANT_ID set in Render successfully."
-          echo "Render will automatically deploy with the new env var."
 
-      - name: Wait for automatic deploy and verify health
+          case "$status" in
+            200|201|202) ;;
+            *) echo "::error::Render environment update failed with HTTP $status"; exit 1 ;;
+          esac
+
+          curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" \
+            > /tmp/render-verify.json
+          jq '[.[]? | (.envVar // .) | {key, value}] | sort_by(.key)' \
+            /tmp/render-verify.json > /tmp/render-verify-flat.json
+
+          jq -e --arg tenant "$CONTROL_PLANE_TENANT_ID" '
+            any(.[]; .key == "SANAD_CONTROL_PLANE_TENANT_ID" and .value == $tenant)
+          ' /tmp/render-verify-flat.json >/dev/null || {
+            echo "::error::Control Plane tenant read-back verification failed."
+            exit 1
+          }
+
+          jq -e --slurpfile verified /tmp/render-verify-flat.json '
+            all(.[]; .key as $key | any($verified[0][]; .key == $key))
+          ' /tmp/render-flat.json >/dev/null || {
+            echo "::error::Render environment key preservation failed."
+            exit 1
+          }
+
+          echo "SANAD_CONTROL_PLANE_TENANT_ID: VERIFIED"
+          echo "Render environment key preservation: VERIFIED"
+
+      - name: Verify backend health after update
         shell: bash
-        env:
-          BACKEND_URL: ${{ vars.PRODUCTION_BASE_URL }}
         run: |
           set -euo pipefail
-          echo "Waiting 60s for Render to start automatic deploy..."
-          sleep 60
-          
-          echo "Checking backend health at $BACKEND_URL..."
-          for i in $(seq 1 20); do
-            sleep 30
-            HTTP_CODE=$(curl --silent --output /tmp/health.json --write-out '%{http_code}' \
-              --max-time 30 "${BACKEND_URL}/actuator/health" || true)
-            
-            echo "[$i] HTTP $HTTP_CODE"
-            if [ "$HTTP_CODE" = "200" ]; then
-              STATUS=$(jq -r '.status // empty' /tmp/health.json)
-              echo "Status: $STATUS"
-              if [ "$STATUS" = "UP" ]; then
-                echo "::notice::Backend is UP after env var update!"
-                exit 0
-              fi
+          for attempt in $(seq 1 24); do
+            status=$(curl --silent --show-error --location \
+              --connect-timeout 10 --max-time 30 \
+              --output /tmp/health.json --write-out '%{http_code}' \
+              "${BACKEND_URL%/}/actuator/health" || true)
+            if [ "$status" = "200" ] && jq -e '.status == "UP"' /tmp/health.json >/dev/null 2>&1; then
+              echo "Backend health: UP"
+              exit 0
             fi
+            echo "Health attempt $attempt/24 returned HTTP ${status:-000}."
+            sleep 15
           done
-          echo "::warning::Backend health check did not return UP within 10 minutes."
-          echo "The env var was set successfully. Render may still be deploying."
-          echo "Check Render dashboard for deploy status."
-          exit 0
+          echo "::error::Backend did not become healthy after the Render environment update."
+          exit 1
