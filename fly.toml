@@ -1,0 +1,54 @@
+# ============================================================
+# SANAD Platform — Fly.io configuration
+# ============================================================
+# Deploy with:
+#   flyctl deploy --app sanad-backend --dockerfile apps/sanad-platform/Dockerfile
+#
+# First-time setup:
+#   flyctl apps create sanad-backend
+#   flyctl secrets set DATABASE_URL="jdbc:postgresql://..." \
+#     DATABASE_USERNAME="..." DATABASE_PASSWORD="..." \
+#     JWT_SECRET="..." SANAD_CONTROL_PLANE_TENANT_ID="..." \
+#     SECURITY_NOTIFICATION_PROVIDER="http" \
+#     SECURITY_NOTIFICATION_ENDPOINT="https://snad-app.vercel.app/api/email-proxy" \
+#     SECURITY_NOTIFICATION_BEARER_TOKEN="..." \
+#     SECURITY_NOTIFICATION_FROM="..."
+# ============================================================
+
+app = "sanad-backend"
+primary_region = "fra"
+
+[build]
+  dockerfile = "apps/sanad-platform/Dockerfile"
+
+[deploy]
+  strategy = "rolling"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 100
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "4m"
+    method = "GET"
+    path = "/actuator/health"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
+
+[[metrics]]
+  port = 8080
+  path = "/actuator/prometheus"
+  https = false

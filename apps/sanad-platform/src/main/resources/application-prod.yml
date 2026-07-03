@@ -37,6 +37,8 @@ sanad:
       audit-actor: ${BOOTSTRAP_AUDIT_ACTOR:credential-bootstrap}
 
 spring:
+  main:
+    lazy-initialization: ${LAZY_INIT:true}
   datasource:
     url: ${DATABASE_URL:}
     username: ${DATABASE_USERNAME:}
@@ -44,11 +46,12 @@ spring:
     driver-class-name: ${DATABASE_DRIVER:org.postgresql.Driver}
     hikari:
       pool-name: SanadProdHikariCP
-      maximum-pool-size: ${DATABASE_POOL_MAX:20}
-      minimum-idle: ${DATABASE_POOL_MIN:5}
+      maximum-pool-size: ${DATABASE_POOL_MAX:5}
+      minimum-idle: ${DATABASE_POOL_MIN:1}
       connection-timeout: ${DATABASE_POOL_TIMEOUT:30000}
       idle-timeout: 600000
       max-lifetime: 1800000
+      initialization-fail-timeout: 0
 
   jpa:
     open-in-view: false
@@ -60,6 +63,8 @@ spring:
         jdbc:
           time_zone: UTC
         format_sql: false
+        boot.allow_jdbc_metadata_access: false
+        temp.use_jdbc_metadata_defaults: false
     show-sql: false
 
   flyway:
@@ -70,7 +75,7 @@ spring:
     clean-disabled: true
 
   lifecycle:
-    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:30s}
+    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:20s}
 
 server:
   port: ${SERVER_PORT:8080}
