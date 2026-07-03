@@ -14,48 +14,86 @@ jobs:
     name: Verify final Render release state
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 10
+    timeout-minutes: 30
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
       WEB_PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
+      EXPECTED_DEPLOYMENT_ID: dep-d9422pjenl3c73eq1g40
+      EXPECTED_COMMIT: 343915e52ae1a9dac8b18b5bdfb633f80fb89884
     steps:
-      - name: Read latest Render deployment
+      - name: Poll exact Render deployment to terminal state
         id: deployment
         shell: bash
         run: |
           set -euo pipefail
           test -n "$RENDER_API_KEY"
           test -n "$RENDER_SERVICE_ID"
-          curl --fail-with-body --silent --show-error \
-            --header "Authorization: Bearer $RENDER_API_KEY" \
-            --header "Accept: application/json" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=5" \
-            > /tmp/deploys.json
-          jq '[.[]? | (.deploy // .)] | .[0]' /tmp/deploys.json > /tmp/latest.json
-          deployment_id=$(jq -r '.id // "unknown"' /tmp/latest.json)
-          deployment_status=$(jq -r '.status // "unknown"' /tmp/latest.json)
-          deployment_commit=$(jq -r '.commit.id // .commitId // "unknown"' /tmp/latest.json)
-          echo "id=$deployment_id" >> "$GITHUB_OUTPUT"
-          echo "status=$deployment_status" >> "$GITHUB_OUTPUT"
-          echo "commit=$deployment_commit" >> "$GITHUB_OUTPUT"
-          echo "LATEST_DEPLOYMENT_ID=$deployment_id"
-          echo "LATEST_STATUS=$deployment_status"
-          echo "LATEST_COMMIT=$deployment_commit"
-          case "$deployment_status" in
-            live) ;;
-            *) echo "::error::Latest Render deployment is not live: $deployment_status"; exit 1 ;;
-          esac
+
+          for attempt in $(seq 1 90); do
+            curl --fail-with-body --silent --show-error \
+              --header "Authorization: Bearer $RENDER_API_KEY" \
+              --header "Accept: application/json" \
+              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=20" \
+              > /tmp/deploys.json
+
+            jq '[.[]? | (.deploy // .)]' /tmp/deploys.json > /tmp/deploys-flat.json
+            jq -e --arg id "$EXPECTED_DEPLOYMENT_ID" 'any(.[]; .id == $id)' /tmp/deploys-flat.json >/dev/null || {
+              echo "::error::Expected Render deployment was not found."
+              exit 1
+            }
+
+            jq --arg id "$EXPECTED_DEPLOYMENT_ID" '.[] | select(.id == $id)' /tmp/deploys-flat.json > /tmp/target.json
+            deployment_status=$(jq -r '.status // "unknown"' /tmp/target.json)
+            deployment_commit=$(jq -r '.commit.id // .commitId // "unknown"' /tmp/target.json)
+            echo "Render attempt $attempt/90: $deployment_status"
+
+            [ "$deployment_commit" = "$EXPECTED_COMMIT" ] || {
+              echo "::error::Render deployment commit mismatch."
+              exit 1
+            }
+
+            case "$deployment_status" in
+              live)
+                echo "id=$EXPECTED_DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+                echo "status=$deployment_status" >> "$GITHUB_OUTPUT"
+                echo "commit=$deployment_commit" >> "$GITHUB_OUTPUT"
+                exit 0
+                ;;
+              build_failed|update_failed|canceled|pre_deploy_failed)
+                echo "::error::Render deployment reached terminal failure state: $deployment_status"
+                exit 1
+                ;;
+              queued|build_in_progress|update_in_progress|pre_deploy_in_progress)
+                sleep 15
+                ;;
+              *)
+                echo "::error::Unknown Render deployment state: $deployment_status"
+                exit 1
+                ;;
+            esac
+          done
+
+          echo "::error::Render deployment did not reach a terminal state within the verification window."
+          exit 1
 
       - name: Verify backend health and readiness
         shell: bash
         run: |
           set -euo pipefail
           for endpoint in health health/readiness; do
-            status=$(curl --silent --show-error --output /tmp/health.json --write-out '%{http_code}' --max-time 60 "${PRODUCTION_BASE_URL%/}/actuator/$endpoint" || true)
-            [ "$status" = "200" ] && jq -e '.status == "UP"' /tmp/health.json >/dev/null || {
-              echo "::error::$endpoint is not UP; HTTP $status"
+            passed=false
+            for attempt in $(seq 1 24); do
+              status=$(curl --silent --show-error --output /tmp/health.json --write-out '%{http_code}' --max-time 30 "${PRODUCTION_BASE_URL%/}/actuator/$endpoint" || true)
+              if [ "$status" = "200" ] && jq -e '.status == "UP"' /tmp/health.json >/dev/null 2>&1; then
+                passed=true
+                break
+              fi
+              sleep 10
+            done
+            [ "$passed" = "true" ] || {
+              echo "::error::$endpoint did not become UP."
               exit 1
             }
           done
