@@ -18,7 +18,7 @@ jobs:
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       RENDER_CLI_CONFIG_PATH: ${{ github.workspace }}/render-cli.yaml
     steps:
-      - name: Install pinned CLI and configure workspace
+      - name: Configure pinned Render CLI
         shell: bash
         run: |
           set -euo pipefail
@@ -36,26 +36,10 @@ jobs:
           echo "RENDER_CLI=$PWD/$binary" >> "$GITHUB_ENV"
           "$binary" workspace set "$owner" --output text
 
-      - name: Print sanitized startup errors
+      - name: Print post-build application logs
         shell: bash
         run: |
           set -euo pipefail
           "$RENDER_CLI" logs --resources "$RENDER_SERVICE_ID" \
-            --start 2026-07-03T21:10:00Z --end 2026-07-03T21:29:30Z \
-            --type app --limit 1000 --direction forward --output json > logs.jsonl
-          python3 - <<'PY'
-          import json,re
-          from pathlib import Path
-          key=re.compile(r'(?i)(error|exception|caused by|failed|fatal|killed|outofmemory|oom|cannot|refused|timeout|flyway|database|postgres|startup|terminated|exit|port)')
-          found=[]
-          for raw in Path('logs.jsonl').read_text(errors='replace').splitlines():
-              try:
-                  o=json.loads(raw); m=str(o.get('message','')); ts=str(o.get('timestamp','')); level=str(o.get('level',''))
-              except Exception:
-                  m,ts,level=raw,'',''
-              m=re.sub(r'(?i)(jdbc:postgresql|postgresql|https?)://[^\s"\']+',r'\1://[REDACTED]',m)
-              m=re.sub(r'(?i)(password|secret|token|api[_-]?key)\s*[=:]\s*\S+',r'\1=[REDACTED]',m)
-              if key.search(m) or key.search(level): found.append((ts,level,m))
-          print('MATCHED_LOGS='+str(len(found)))
-          for row in found[-250:]: print(*row)
-          PY
+            --start 2026-07-03T21:10:47Z --end 2026-07-03T21:29:30Z \
+            --type app --limit 400 --direction forward --output text
