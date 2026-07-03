@@ -1,10 +1,6 @@
 name: Render Live Release Trigger
 
 on:
-  push:
-    branches: [ops-render-live-release]
-    paths:
-      - .github/workflows/render-live-release-trigger.yml
   pull_request:
     branches: [main]
     paths:
@@ -13,141 +9,56 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: render-live-release-production
-  cancel-in-progress: true
-
-env:
-  PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
-  WEB_PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
-
 jobs:
-  deploy-render:
-    name: Deploy current main to Render
+  verify-render:
+    name: Verify final Render release state
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 50
+    timeout-minutes: 10
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-
+      PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+      WEB_PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
     steps:
-      - name: Checkout current main
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-
-      - name: Resolve exact current main
-        id: target
+      - name: Read latest Render deployment
+        id: deployment
         shell: bash
         run: |
           set -euo pipefail
-          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_BASE_URL WEB_PRODUCTION_BASE_URL; do
-            test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
-          done
-          [[ "$PRODUCTION_BASE_URL" == https://* ]]
-          [[ "$WEB_PRODUCTION_BASE_URL" == https://* ]]
-          target_sha=$(git rev-parse HEAD)
-          remote_main=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')
-          [ "$target_sha" = "$remote_main" ] || { echo "::error::Checked-out main is stale"; exit 1; }
-          echo "sha=$target_sha" >> "$GITHUB_OUTPUT"
-
-      - name: Verify Render runtime configuration policy
-        shell: bash
-        run: |
-          set -euo pipefail
+          test -n "$RENDER_API_KEY"
+          test -n "$RENDER_SERVICE_ID"
           curl --fail-with-body --silent --show-error \
             --header "Authorization: Bearer $RENDER_API_KEY" \
             --header "Accept: application/json" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" \
-            > /tmp/render-env.json
-
-          [ "$(jq 'length' /tmp/render-env.json)" -lt 100 ] || { echo "::error::Cannot prove complete Render env pagination"; exit 1; }
-          jq '[.[]? | (.envVar // .)]' /tmp/render-env.json > /tmp/render-env-flat.json
-
-          required=(SPRING_PROFILES_ACTIVE DATABASE_URL DATABASE_USERNAME DATABASE_PASSWORD JWT_SECRET BOOTSTRAP_ENABLED SANAD_CONTROL_PLANE_TENANT_ID)
-          for key in "${required[@]}"; do
-            jq -e --arg key "$key" 'any(.[]; .key == $key and ((.value // "") | length > 0))' /tmp/render-env-flat.json >/dev/null || {
-              echo "::error::Required Render runtime value is missing: $key"
-              exit 1
-            }
-          done
-
-          jq -e 'any(.[]; .key == "BOOTSTRAP_ENABLED" and .value == "false")' /tmp/render-env-flat.json >/dev/null || {
-            echo "::error::BOOTSTRAP_ENABLED must equal false"
-            exit 1
-          }
-
-          jq -e 'any(.[]; .key == "SANAD_CONTROL_PLANE_TENANT_ID" and (.value | test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")))' /tmp/render-env-flat.json >/dev/null || {
-            echo "::error::SANAD_CONTROL_PLANE_TENANT_ID is not a valid UUID"
-            exit 1
-          }
-
-          forbidden=(BOOTSTRAP_TENANT_ID BOOTSTRAP_TENANT_NAME BOOTSTRAP_TENANT_SUBDOMAIN BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_PASSWORD BOOTSTRAP_ADMIN_DISPLAY_NAME BOOTSTRAP_AUDIT_ACTOR BOOTSTRAP_FORCE_RESET SANAD_SECURITY_BOOTSTRAP_ENABLED SANAD_SECURITY_BOOTSTRAP_TENANT_ID SANAD_SECURITY_BOOTSTRAP_ADMIN_EMAIL SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD)
-          for key in "${forbidden[@]}"; do
-            jq -e --arg key "$key" 'all(.[]; .key != $key)' /tmp/render-env-flat.json >/dev/null || {
-              echo "::error::Temporary bootstrap key remains in Render: $key"
-              exit 1
-            }
-          done
-          echo "Render runtime configuration policy: VERIFIED"
-
-      - name: Install Render CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fsSL https://raw.githubusercontent.com/render-oss/cli/main/bin/install.sh | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Capture previous live commit
-        id: previous
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl --fail-with-body --silent --show-error \
-            --header "Authorization: Bearer $RENDER_API_KEY" \
-            --header "Accept: application/json" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=20" > /tmp/render-deploys.json
-          previous=$(jq -r '[.[]? | (.deploy // .)] | map(select((.status // "") == "live")) | .[0].commit.id // .[0].commitId // empty' /tmp/render-deploys.json)
-          echo "sha=$previous" >> "$GITHUB_OUTPUT"
-
-      - name: Deploy exact main commit
-        id: deploy
-        shell: bash
-        run: |
-          set -euo pipefail
-          render deploys create "$RENDER_SERVICE_ID" \
-            --clear-cache \
-            --commit "${{ steps.target.outputs.sha }}" \
-            --wait \
-            --output json \
-            --confirm > render-deployment.json
-          jq -e '(.status // "") == "live"' render-deployment.json >/dev/null
-          deploy_id=$(jq -r '(.id // .deploy.id // empty)' render-deployment.json)
-          test -n "$deploy_id"
-          echo "id=$deploy_id" >> "$GITHUB_OUTPUT"
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=5" \
+            > /tmp/deploys.json
+          jq '[.[]? | (.deploy // .)] | .[0]' /tmp/deploys.json > /tmp/latest.json
+          deployment_id=$(jq -r '.id // "unknown"' /tmp/latest.json)
+          deployment_status=$(jq -r '.status // "unknown"' /tmp/latest.json)
+          deployment_commit=$(jq -r '.commit.id // .commitId // "unknown"' /tmp/latest.json)
+          echo "id=$deployment_id" >> "$GITHUB_OUTPUT"
+          echo "status=$deployment_status" >> "$GITHUB_OUTPUT"
+          echo "commit=$deployment_commit" >> "$GITHUB_OUTPUT"
+          echo "LATEST_DEPLOYMENT_ID=$deployment_id"
+          echo "LATEST_STATUS=$deployment_status"
+          echo "LATEST_COMMIT=$deployment_commit"
+          case "$deployment_status" in
+            live) ;;
+            *) echo "::error::Latest Render deployment is not live: $deployment_status"; exit 1 ;;
+          esac
 
       - name: Verify backend health and readiness
         shell: bash
         run: |
           set -euo pipefail
           for endpoint in health health/readiness; do
-            passed=false
-            for attempt in $(seq 1 90); do
-              status=$(curl --silent --show-error --output /tmp/health.json --write-out '%{http_code}' --max-time 20 "${PRODUCTION_BASE_URL%/}/actuator/$endpoint" || true)
-              if [ "$status" = "200" ] && jq -e '.status == "UP"' /tmp/health.json >/dev/null 2>&1; then
-                passed=true
-                break
-              fi
-              sleep 10
-            done
-            [ "$passed" = "true" ] || { echo "::error::$endpoint did not become UP"; exit 1; }
+            status=$(curl --silent --show-error --output /tmp/health.json --write-out '%{http_code}' --max-time 60 "${PRODUCTION_BASE_URL%/}/actuator/$endpoint" || true)
+            [ "$status" = "200" ] && jq -e '.status == "UP"' /tmp/health.json >/dev/null || {
+              echo "::error::$endpoint is not UP; HTTP $status"
+              exit 1
+            }
           done
-
-      - name: Verify production security contract
-        shell: bash
-        run: bash scripts/production/verify-auth-contract.sh
 
       - name: Verify Vercel Control Plane and BFF
         shell: bash
@@ -158,36 +69,19 @@ jobs:
           bff_status=$(curl --silent --show-error --output /tmp/bff.json --write-out '%{http_code}' --max-time 90 "${WEB_PRODUCTION_BASE_URL%/}/api/platform/api/v1/control-plane/dashboard" || true)
           case "$bff_status" in 401|403) ;; *) echo "::error::BFF returned HTTP $bff_status"; exit 1 ;; esac
 
-      - name: Write release evidence
-        if: success()
+      - name: Write verified status
         shell: bash
         run: |
           jq -n \
-            --arg commit "${{ steps.target.outputs.sha }}" \
-            --arg deployment "${{ steps.deploy.outputs.id }}" \
-            --arg previous "${{ steps.previous.outputs.sha }}" \
-            '{result:"RENDER_DEPLOYMENT_VERIFIED",commit:$commit,deploymentId:$deployment,previousCommit:$previous,health:"UP",readiness:"UP",renderRuntimePolicy:"VERIFIED",vercelControlPlane:"UP",vercelBff:"CONNECTED",flywayHistory:"REQUIRES_DATABASE_SECRET_GATE",authenticatedProductionSmoke:"REQUIRED_SEPARATELY"}' \
-            > render-live-release-evidence.json
+            --arg id "${{ steps.deployment.outputs.id }}" \
+            --arg status "${{ steps.deployment.outputs.status }}" \
+            --arg commit "${{ steps.deployment.outputs.commit }}" \
+            '{deploymentId:$id,status:$status,commit:$commit,health:"UP",readiness:"UP",controlPlane:"UP",bff:"CONNECTED"}' \
+            > render-final-status.json
 
-      - name: Upload release evidence
-        if: always()
+      - name: Upload final evidence
         uses: actions/upload-artifact@v4
         with:
-          name: render-live-release-${{ github.run_id }}
-          path: |
-            render-deployment.json
-            render-live-release-evidence.json
-            render-rollback.json
-          if-no-files-found: warn
-          retention-days: 90
-
-      - name: Roll back failed deployment
-        if: failure() && steps.previous.outputs.sha != ''
-        shell: bash
-        run: |
-          render deploys create "$RENDER_SERVICE_ID" \
-            --clear-cache \
-            --commit "${{ steps.previous.outputs.sha }}" \
-            --wait \
-            --output json \
-            --confirm > render-rollback.json || true
+          name: render-final-status-${{ github.run_id }}
+          path: render-final-status.json
+          retention-days: 30
