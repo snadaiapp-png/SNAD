@@ -7,11 +7,13 @@ export const options = {
       executor: 'constant-vus',
       vus: 10,
       duration: '60s',
+      gracefulStop: '10s',
     },
   },
   thresholds: {
-    http_req_failed: ['rate<0.01'],
+    http_req_failed: [{ threshold: 'rate<0.01', abortOnFail: false }],
     http_req_duration: ['p(95)<500', 'p(99)<1000'],
+    'http_req_duration{endpoint:actuator-health}': ['p(95)<500', 'p(99)<1000'],
     checks: ['rate>0.99'],
   },
 };
@@ -26,6 +28,7 @@ export default function () {
 
   check(response, {
     'health returns 200': (r) => r.status === 200,
+    'health content type is JSON': (r) => String(r.headers['Content-Type'] || '').includes('application/json'),
     'health reports UP': (r) => r.body && r.body.includes('"status":"UP"'),
   });
 
