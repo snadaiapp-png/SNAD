@@ -35,13 +35,12 @@ jobs:
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
       DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-      DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
     steps:
       - name: Validate protected release inputs
         shell: bash
         run: |
           set -euo pipefail
-          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_DATABASE_URL DATABASE_USERNAME DATABASE_PASSWORD PRODUCTION_BASE_URL WEB_PRODUCTION_BASE_URL; do
+          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_DATABASE_URL PRODUCTION_BASE_URL WEB_PRODUCTION_BASE_URL; do
             test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
           done
           [[ "${{ inputs.commit_sha }}" =~ ^[0-9a-f]{40}$ ]]
