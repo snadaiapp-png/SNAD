@@ -8,12 +8,14 @@ ARG RENDER_GIT_COMMIT=unknown
 
 WORKDIR /workspace
 
-COPY pom.xml ./
-RUN mvn -B -ntp -q dependency:go-offline -DskipTests || true
+# Set Maven memory limits for Render free tier (512MB RAM)
+ENV MAVEN_OPTS="-Xmx384m -XX:+UseG1GC"
 
-ARG RENDER_GIT_COMMIT=unknown
+COPY pom.xml ./
+RUN mvn -B -ntp dependency:go-offline -DskipTests || true
+
 COPY src ./src
-RUN mvn -B -ntp -q clean package -DskipTests -Dgit.commit="${RENDER_GIT_COMMIT}"
+RUN mvn -B -ntp clean package -DskipTests -Dgit.commit="${RENDER_GIT_COMMIT:-unknown}"
 
 FROM eclipse-temurin:21-jre-alpine
 
@@ -34,7 +36,7 @@ USER sanad
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
   CMD curl -f http://localhost:8080/actuator/health || exit 1
 
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
