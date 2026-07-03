@@ -30,4 +30,19 @@ jobs:
             --header "Accept: application/json" \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=5" \
             > /tmp/deploys.json
-          jq -r '[.[]? | (.deploy // .)][0] | "LATEST_DEPLOYMENT_ID=\(.id)\nLATEST_STATUS=\(.status)\nLATEST_COMMIT=\(.commit.id // .commitId // \"unknown\")\nUPDATED_AT=\(.updatedAt // \"unknown\")\nFINISHED_AT=\(.finishedAt // \"unknown\")"' /tmp/deploys.json
+
+          jq '[.[]? | (.deploy // .)]' /tmp/deploys.json > /tmp/deploys-flat.json
+          jq -e 'length > 0' /tmp/deploys-flat.json >/dev/null
+          jq '.[0]' /tmp/deploys-flat.json > /tmp/latest.json
+
+          deployment_id=$(jq -r '.id // "unknown"' /tmp/latest.json)
+          deployment_status=$(jq -r '.status // "unknown"' /tmp/latest.json)
+          deployment_commit=$(jq -r '.commit.id // .commitId // "unknown"' /tmp/latest.json)
+          updated_at=$(jq -r '.updatedAt // "unknown"' /tmp/latest.json)
+          finished_at=$(jq -r '.finishedAt // "unknown"' /tmp/latest.json)
+
+          echo "LATEST_DEPLOYMENT_ID=$deployment_id"
+          echo "LATEST_STATUS=$deployment_status"
+          echo "LATEST_COMMIT=$deployment_commit"
+          echo "UPDATED_AT=$updated_at"
+          echo "FINISHED_AT=$finished_at"
