@@ -16,6 +16,8 @@ jobs:
   compile:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,7 +32,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mvn -B -ntp clean package -DskipTests -Dgit.commit="$GITHUB_SHA" 2>&1 | tee compile.log
+          test "$CANDIDATE_SHA" = "$(git rev-parse HEAD^2 2>/dev/null || git rev-parse HEAD)" || {
+            echo "Checked out merge ref; binding artifact metadata to PR head $CANDIDATE_SHA"
+          }
+          mvn -B -ntp clean package -DskipTests -Dgit.commit="$CANDIDATE_SHA" 2>&1 | tee compile.log
           test -s target/sanad-platform-0.1.0-SNAPSHOT.jar
       - name: Create immutable provenance
         shell: bash
@@ -40,7 +45,8 @@ jobs:
           cp apps/sanad-platform/target/sanad-platform-0.1.0-SNAPSHOT.jar release-provenance/backend.jar
           sha256sum release-provenance/backend.jar > release-provenance/SHA256SUMS
           {
-            echo "candidate_sha=$GITHUB_SHA"
+            echo "candidate_sha=$CANDIDATE_SHA"
+            echo "tested_checkout_sha=$(git rev-parse HEAD)"
             echo "workflow_run=$GITHUB_RUN_ID"
             echo "workflow_attempt=$GITHUB_RUN_ATTEMPT"
             cat release-provenance/SHA256SUMS
