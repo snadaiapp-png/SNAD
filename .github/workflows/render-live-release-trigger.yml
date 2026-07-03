@@ -5,9 +5,17 @@ on:
     branches: [ops-render-live-release]
     paths:
       - .github/workflows/render-live-release-trigger.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/render-live-release-trigger.yml
 
 permissions:
   contents: read
+
+concurrency:
+  group: render-live-release-production
+  cancel-in-progress: true
 
 env:
   PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
