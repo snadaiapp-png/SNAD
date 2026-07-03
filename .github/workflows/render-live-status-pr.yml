@@ -1,0 +1,39 @@
+name: Render Live Status PR
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/render-live-status-pr.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+    steps:
+      - name: Read current Render state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RENDER_API_KEY"
+          test -n "$RENDER_SERVICE_ID"
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=10" \
+            > deploys.json
+          jq '[.[]? | (.deploy // .) | {id,status,commitId:(.commit.id // .commitId // null),createdAt,finishedAt,trigger}]' deploys.json
+          latest_status=$(jq -r '.[0] | (.deploy // .).status // "unknown"' deploys.json)
+          latest_commit=$(jq -r '.[0] | (.deploy // .).commit.id // (.deploy // .).commitId // "unknown"' deploys.json)
+          {
+            echo "## Render Live Status"
+            echo "- Latest status: $latest_status"
+            echo "- Latest commit: $latest_commit"
+          } >> "$GITHUB_STEP_SUMMARY"
