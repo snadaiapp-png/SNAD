@@ -1,0 +1,96 @@
+name: Render DB Diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      check_flyway:
+        description: 'Check Flyway schema history'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostics:
+    name: Render DB Diagnostics
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+    steps:
+      - name: Install PostgreSQL client
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+
+      - name: Fetch DB credentials from Render
+        shell: bash
+        run: |
+          set -euo pipefail
+          RENDER_ENV=$(curl --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100")
+          echo "DATABASE_URL=$(echo "$RENDER_ENV" | jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "DATABASE_URL") | .value // empty')" >> $GITHUB_ENV
+          echo "DATABASE_PASSWORD=$(echo "$RENDER_ENV" | jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "DATABASE_PASSWORD") | .value // empty')" >> $GITHUB_ENV
+
+      - name: Parse DATABASE_URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          RAW_URL="$DATABASE_URL"
+          RAW_URL="${RAW_URL#jdbc:}"
+          RAW_URL="${RAW_URL#postgresql://}"
+          RAW_URL="${RAW_URL#https://}"
+          HOST_PORT="${RAW_URL%%/*}"
+          DB_PART="${RAW_URL#*/}"
+          DB_NAME="${DB_PART%%\?*}"
+          PGHOST="${HOST_PORT%%:*}"
+          PGPORT="${HOST_PORT#*:}"
+          PGPORT="${PGPORT:-5432}"
+          echo "PGHOST=$PGHOST" >> $GITHUB_ENV
+          echo "PGPORT=$PGPORT" >> $GITHUB_ENV
+          echo "PGDATABASE=$DB_NAME" >> $GITHUB_ENV
+          echo "Connecting to: host=$PGHOST port=$PGPORT dbname=$DB_NAME"
+
+      - name: List Flyway schema history
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== flyway_schema_history ==="
+          PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$PGDATABASE" \
+            --no-psqlrc --set=ON_ERROR_STOP=1 --pset="format=aligned" \
+            --command="SELECT installed_rank, version, description, type, script, success, installed_on FROM flyway_schema_history ORDER BY installed_rank;"
+
+      - name: Check tables count
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Table count ==="
+          PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$PGDATABASE" \
+            --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+            --command="SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';"
+
+      - name: Check tenants
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Tenants (id, status, name) ==="
+          PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$PGDATABASE" \
+            --no-psqlrc --set=ON_ERROR_STOP=1 --pset="format=aligned" \
+            --command="SELECT id, status, name FROM tenants ORDER BY created_at LIMIT 10;"
+
+      - name: Check roles
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Roles (code, status, tenant_id) ==="
+          PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$PGDATABASE" \
+            --no-psqlrc --set=ON_ERROR_STOP=1 --pset="format=aligned" \
+            --command="SELECT code, status, tenant_id FROM roles ORDER BY created_at LIMIT 20;"
