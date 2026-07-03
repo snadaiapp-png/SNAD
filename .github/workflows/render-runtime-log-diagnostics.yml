@@ -40,15 +40,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go install github.com/render-oss/cli@ecbf8c98b30e95df4545d70b23a256e8d8a81461
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          "$(go env GOPATH)/bin/render" version
+          if ! go install github.com/render-oss/cli@ecbf8c98b30e95df4545d70b23a256e8d8a81461 > install.log 2>&1; then
+            tail -n 80 install.log
+            exit 1
+          fi
+          binary="$(go env GOPATH)/bin/cli"
+          if [ ! -x "$binary" ]; then
+            binary="$(go env GOPATH)/bin/render"
+          fi
+          ls -la "$(go env GOPATH)/bin"
+          test -x "$binary"
+          echo "RENDER_CLI=$binary" >> "$GITHUB_ENV"
+          "$binary" version
 
       - name: Fetch failed deployment runtime logs
         shell: bash
         run: |
           set -euo pipefail
-          "$(go env GOPATH)/bin/render" logs \
+          "$RENDER_CLI" logs \
             --resources "$RENDER_SERVICE_ID" \
             --start 2026-07-03T21:10:00Z \
             --end 2026-07-03T21:29:30Z \
