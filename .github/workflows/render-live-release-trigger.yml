@@ -10,69 +10,40 @@ permissions:
   contents: read
 
 jobs:
-  diagnose-render:
-    name: Diagnose failed Render release
+  inspect-render-cli:
+    name: Discover Render runtime log command
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 10
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-      DEPLOYMENT_ID: dep-d9422pjenl3c73eq1g40
     steps:
-      - name: Read failed deployment details
+      - name: Install Render CLI
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$RENDER_API_KEY"
-          test -n "$RENDER_SERVICE_ID"
+          curl -fsSL https://raw.githubusercontent.com/render-oss/cli/main/bin/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-          curl --fail-with-body --silent --show-error \
-            --header "Authorization: Bearer $RENDER_API_KEY" \
-            --header "Accept: application/json" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$DEPLOYMENT_ID" \
-            > /tmp/deployment.json
-
-          jq '{
-            id,
-            status,
-            trigger,
-            commit: (.commit.id // .commitId // null),
-            createdAt,
-            startedAt,
-            updatedAt,
-            finishedAt
-          }' /tmp/deployment.json | tee render-deployment-diagnostics.json
-
-      - name: Read recent service events
+      - name: Inspect available log commands
         shell: bash
         run: |
           set -euo pipefail
-          status=$(curl --silent --show-error \
-            --output /tmp/events.json \
-            --write-out '%{http_code}' \
-            --header "Authorization: Bearer $RENDER_API_KEY" \
-            --header "Accept: application/json" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/events?limit=30")
-          if [ "$status" = "200" ]; then
-            jq '[.[]? | (.event // .) | {
-              id,
-              type,
-              timestamp: (.timestamp // .createdAt // null),
-              details: (.details // .message // null)
-            }]' /tmp/events.json | tee render-service-events.json
-          else
-            echo "Render events endpoint returned HTTP $status" | tee render-service-events.txt
-          fi
+          {
+            echo '=== render --help ==='
+            render --help || true
+            echo '=== render logs --help ==='
+            render logs --help || true
+            echo '=== render services --help ==='
+            render services --help || true
+            echo '=== render deploys --help ==='
+            render deploys --help || true
+          } | tee render-cli-help.txt
 
-      - name: Upload diagnostics
-        if: always()
+      - name: Upload CLI help
         uses: actions/upload-artifact@v4
         with:
-          name: render-failure-diagnostics-${{ github.run_id }}
-          path: |
-            render-deployment-diagnostics.json
-            render-service-events.json
-            render-service-events.txt
-          if-no-files-found: warn
-          retention-days: 30
+          name: render-cli-help-${{ github.run_id }}
+          path: render-cli-help.txt
+          retention-days: 7
