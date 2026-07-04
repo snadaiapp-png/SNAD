@@ -1,0 +1,73 @@
+name: Control Plane DB Diagnostics
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/control-plane-db-diagnostics.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+    steps:
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+
+      - name: Diagnose fail-closed database gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS -H "Authorization: Bearer $RENDER_API_KEY" -H "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" > env.json
+          value() { jq -r --arg k "$1" '[.[]? | (.envVar // .)] | .[] | select(.key==$k) | .value // empty' env.json; }
+          url=$(value DATABASE_URL)
+          user=$(value DATABASE_USERNAME)
+          password=$(value DATABASE_PASSWORD)
+          tenant=$(value SANAD_CONTROL_PLANE_TENANT_ID)
+          for secret in "$url" "$user" "$password" "$tenant"; do [ -z "$secret" ] || echo "::add-mask::$secret"; done
+          test -n "$url" && test -n "$user" && test -n "$password" && test -n "$tenant"
+          raw=${url#jdbc:}; raw=${raw#postgresql://}; raw=${raw#postgres://}
+          host_port=${raw%%/*}; db_part=${raw#*/}; db=${db_part%%\?*}
+          host=${host_port%%:*}; port=${host_port#*:}; [ "$port" = "$host_port" ] && port=5432
+          echo "::add-mask::$host"
+          echo "DB_SCHEME=$(printf '%s' "$url" | sed 's,:.*,,')"
+          echo "DB_PORT=$port"
+          echo "DNS_RESOLUTION=$(getent hosts "$host" >/dev/null 2>&1 && echo PASS || echo FAIL)"
+          export PGPASSWORD="$password" PGCONNECT_TIMEOUT=15
+          set +e
+          psql -h "$host" -p "$port" -U "$user" -d "$db" --no-psqlrc --set=ON_ERROR_STOP=1 \
+            --tuples-only --no-align --command='SELECT 1;' > connect.out 2> connect.err
+          connect_rc=$?
+          set -e
+          if [ "$connect_rc" -ne 0 ]; then
+            if grep -qi 'password authentication failed' connect.err; then reason=AUTH_FAILED;
+            elif grep -qi 'no pg_hba.conf entry\|SSL' connect.err; then reason=TLS_OR_ACCESS_POLICY;
+            elif grep -qi 'could not translate host name' connect.err; then reason=DNS_FAILED;
+            elif grep -qi 'timeout\|could not connect\|connection refused' connect.err; then reason=NETWORK_UNREACHABLE;
+            else reason=DATABASE_CONNECT_FAILED; fi
+            echo "DATABASE_CONNECT=FAIL"
+            echo "DATABASE_CONNECT_REASON=$reason"
+            exit 1
+          fi
+          echo "DATABASE_CONNECT=PASS"
+          tables=$(psql -h "$host" -p "$port" -U "$user" -d "$db" --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+            --command="SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('tenants','roles');")
+          echo "REQUIRED_TABLE_COUNT=$tables"
+          test "$tables" = "2"
+          tenant_count=$(psql -h "$host" -p "$port" -U "$user" -d "$db" --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+            --command="SELECT COUNT(*) FROM tenants WHERE id='${tenant}' AND status='ACTIVE';")
+          admin_count=$(psql -h "$host" -p "$port" -U "$user" -d "$db" --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+            --command="SELECT COUNT(*) FROM roles WHERE tenant_id='${tenant}' AND code='ADMIN' AND status='ACTIVE';")
+          echo "ACTIVE_CONTROL_PLANE_TENANT_COUNT=$tenant_count"
+          echo "ACTIVE_ADMIN_ROLE_COUNT=$admin_count"
+          test "$tenant_count" -ge 1
+          test "$admin_count" -ge 1
