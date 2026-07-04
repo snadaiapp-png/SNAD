@@ -3,31 +3,20 @@ name: Restore Render Critical Env
 on:
   workflow_dispatch:
     inputs:
-      database_url:
-        description: 'DATABASE_URL (PostgreSQL connection string)'
-        required: true
-        type: string
-      database_username:
-        description: 'DATABASE_USERNAME'
-        required: true
-        type: string
       database_password:
-        description: 'DATABASE_PASSWORD'
+        description: 'DATABASE_PASSWORD (Supabase database password)'
         required: true
         type: string
       resend_api_key:
         description: 'RESEND_API_KEY (re_xxxxxxxx)'
         required: true
         type: string
+        default: 're_U8j7VFTu_L8HCjaEMrNv1KExX1ny6QtyU'
       email_from:
         description: 'SECURITY_NOTIFICATION_FROM'
         required: true
         type: string
         default: 'SANAD <onboarding@resend.dev>'
-      control_plane_tenant_id:
-        description: 'SANAD_CONTROL_PLANE_TENANT_ID (UUID)'
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -41,13 +30,24 @@ jobs:
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-      DATABASE_URL: ${{ inputs.database_url }}
-      DATABASE_USERNAME: ${{ inputs.database_username }}
+      # From GitHub Production secrets
+      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+      CONTROL_PLANE_TENANT_ID: ${{ secrets.BOOTSTRAP_TENANT_ID }}
+      # From user inputs
       DATABASE_PASSWORD: ${{ inputs.database_password }}
       RESEND_API_KEY: ${{ inputs.resend_api_key }}
       EMAIL_FROM: ${{ inputs.email_from }}
-      CONTROL_PLANE_TENANT_ID: ${{ inputs.control_plane_tenant_id }}
     steps:
+      - name: Validate secrets are available
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DATABASE_URL" || { echo "::error::PRODUCTION_DATABASE_URL secret is missing"; exit 1; }
+          test -n "$DATABASE_USERNAME" || { echo "::error::DATABASE_USERNAME secret is missing"; exit 1; }
+          test -n "$CONTROL_PLANE_TENANT_ID" || { echo "::error::BOOTSTRAP_TENANT_ID secret is missing"; exit 1; }
+          echo "All required GitHub secrets are available"
+
       - name: Set DATABASE_URL
         shell: bash
         run: |
@@ -199,16 +199,12 @@ jobs:
         run: |
           echo "=== ENV VARS RESTORED ==="
           echo "The following env vars have been set on Render:"
-          echo "  - DATABASE_URL ✓"
-          echo "  - DATABASE_USERNAME ✓"
-          echo "  - DATABASE_PASSWORD ✓"
-          echo "  - SANAD_CONTROL_PLANE_TENANT_ID ✓"
+          echo "  - DATABASE_URL ✓ (from GitHub secret)"
+          echo "  - DATABASE_USERNAME ✓ (from GitHub secret)"
+          echo "  - DATABASE_PASSWORD ✓ (from user input)"
+          echo "  - SANAD_CONTROL_PLANE_TENANT_ID ✓ (from GitHub secret)"
           echo "  - SECURITY_NOTIFICATION_RESEND_API_KEY ✓"
           echo "  - SECURITY_NOTIFICATION_FROM ✓"
           echo "  - SECURITY_NOTIFICATION_PROVIDER=resend ✓"
           echo ""
           echo "Deploy triggered. Check Render dashboard for build status."
-          echo "After deploy (~5 min), test:"
-          echo "  curl -X POST -H 'Content-Type: application/json' \\"
-          echo "    -d '{\"email\":\"your@email.com\"}' \\"
-          echo "    https://sanad-backend-mcrj.onrender.com/api/v1/auth/forgot-password"
