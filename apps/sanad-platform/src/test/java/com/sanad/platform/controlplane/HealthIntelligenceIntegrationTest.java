@@ -1,5 +1,7 @@
 package com.sanad.platform.controlplane;
 
+import com.sanad.platform.admin.api.AdminDtos.CreateTenantRequest;
+import com.sanad.platform.admin.service.AdminPlatformService;
 import com.sanad.platform.health.api.HealthDtos.HealthActionRequest;
 import com.sanad.platform.health.api.HealthDtos.HealthActionResult;
 import com.sanad.platform.health.api.HealthDtos.PlatformHealthResponse;
@@ -26,9 +28,28 @@ import static org.assertj.core.api.Assertions.assertThat;
 class HealthIntelligenceIntegrationTest {
 
     @Autowired private HealthIntelligenceService healthService;
+    @Autowired private AdminPlatformService platformService;
 
     @Test
     void producesPlatformServiceTenantPressureAndForecastSignals() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        platformService.createTenant(
+                new CreateTenantRequest(
+                        "Health Tenant " + suffix,
+                        "Health Tenant Legal " + suffix,
+                        "health-" + suffix,
+                        "billing-" + suffix + "@example.test",
+                        "admin-" + suffix + "@example.test",
+                        "Health Administrator",
+                        "SA",
+                        "ar-SA",
+                        "Asia/Riyadh",
+                        "SAR",
+                        14
+                ),
+                authentication()
+        );
+
         PlatformHealthResponse snapshot = healthService.snapshot();
 
         assertThat(snapshot.generatedAt()).isNotNull();
@@ -54,13 +75,6 @@ class HealthIntelligenceIntegrationTest {
 
     @Test
     void executesAllowListedDiagnosticAndReturnsAuditedFreshSnapshot() {
-        UsernamePasswordAuthenticationToken authentication =
-                UsernamePasswordAuthenticationToken.authenticated("operator", "n/a", List.of());
-        authentication.setDetails(Map.of(
-                "tenant_id", UUID.randomUUID().toString(),
-                "user_id", UUID.randomUUID().toString()
-        ));
-
         HealthActionResult result = healthService.execute(
                 new HealthActionRequest(
                         "PLATFORM",
@@ -68,12 +82,22 @@ class HealthIntelligenceIntegrationTest {
                         "RUN_DIAGNOSTICS",
                         "Integration test controlled diagnostic"
                 ),
-                authentication
+                authentication()
         );
 
         assertThat(result.status()).isEqualTo("SUCCESS");
         assertThat(result.message()).contains("database latency");
         assertThat(result.snapshot()).isNotNull();
         assertThat(result.snapshot().healthScore()).isBetween(0, 100);
+    }
+
+    private static UsernamePasswordAuthenticationToken authentication() {
+        UsernamePasswordAuthenticationToken authentication =
+                UsernamePasswordAuthenticationToken.authenticated("operator", "n/a", List.of());
+        authentication.setDetails(Map.of(
+                "tenant_id", UUID.randomUUID().toString(),
+                "user_id", UUID.randomUUID().toString()
+        ));
+        return authentication;
     }
 }
