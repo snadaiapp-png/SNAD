@@ -448,7 +448,7 @@ jobs:
               "https://api.resend.com/emails?limit=10")
             # Find email matching admin email + "Reset" subject
             MATCH=$(echo "$EMAILS" | jq -c --arg email "$SANAD_ADMIN_EMAIL" \
-              '[.data // [] | .[] | select(.to[0] == $email and (.subject // "") | test("Reset|إعادة"; "i"))] | .[0] // empty')
+              '[.data // [] | .[] | select(.to[0] == $email and ((.subject // "") | test("Reset|إعادة"; "i")))] | .[0] // empty')
             if [ "$MATCH" != "null" ] && [ -n "$MATCH" ]; then
               EMAIL_ID=$(echo "$MATCH" | jq -r '.id // empty')
               EMAIL_SUBJECT=$(echo "$MATCH" | jq -r '.subject // empty')
