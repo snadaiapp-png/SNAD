@@ -1,0 +1,131 @@
+name: Fetch Render Runtime Logs
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_id:
+        description: 'Deploy ID (leave empty to use latest)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    name: Fetch Render runtime logs
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      DEPLOY_ID_INPUT: ${{ inputs.deploy_id }}
+    steps:
+      - name: Install Render CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Installing Render CLI ==="
+          curl -fsSL https://raw.githubusercontent.com/render-oss/cli/main/install.sh | sh || true
+          export PATH="$HOME/.local/bin:$PATH"
+          render version 2>&1 | head -3 || echo "Render CLI install failed, will use API only"
+
+      - name: Get latest deploy ID
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$DEPLOY_ID_INPUT" ]; then
+            DEPLOY_ID="$DEPLOY_ID_INPUT"
+          else
+            echo "=== Getting latest deploys ==="
+            DEPLOY_ID=$(curl --silent --show-error \
+              --header "Authorization: Bearer $RENDER_API_KEY" \
+              --header "Accept: application/json" \
+              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=5" \
+              | jq -r '.[0].deploy.id // empty')
+          fi
+          echo "Deploy ID: $DEPLOY_ID"
+          echo "id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch deploy details
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Deploy details ==="
+          curl --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/${{ steps.deploy.outputs.id }}" \
+            | jq '.'
+
+      - name: Fetch service events (last 50)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Service events (last 50) ==="
+          curl --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/events?limit=50" \
+            > /tmp/events.json
+          jq '[.[] | .event | {id: .id[0:25], type, timestamp, details: {instanceID: .details.instanceID, deployId: .details.deployId, deployStatus: .details.deployStatus, buildStatus: .details.buildStatus, reason: .details.reason}}]' /tmp/events.json
+
+      - name: Try to get runtime logs via Render CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "=== Trying Render CLI logs ==="
+          render logs --service "$RENDER_SERVICE_ID" --token "$RENDER_API_KEY" 2>&1 | tail -100 || echo "CLI logs failed"
+
+      - name: List ALL env vars with full details
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== ALL Render env vars ==="
+          curl --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" \
+            | jq '[.[]? | (.envVar // .) | {key, valueLength: ((.value // "") | length), valuePreview: ((.value // "") | .[0:30] + "..." // empty)}] | sort_by(.key)'
+
+      - name: Test backend endpoints with full error details
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Testing backend endpoints ==="
+          echo ""
+          echo "--- Health ---"
+          curl --max-time 30 -v https://sanad-backend-mcrj.onrender.com/actuator/health 2>&1 | tail -10
+          echo ""
+          echo "--- Login (expect detailed error) ---"
+          curl --max-time 30 -v \
+            -X POST -H "Content-Type: application/json" \
+            -d '{"email":"test@example.com","password":"wrong"}' \
+            https://sanad-backend-mcrj.onrender.com/api/v1/auth/login 2>&1 | tail -15
+          echo ""
+          echo "--- Forgot-password (expect detailed error) ---"
+          curl --max-time 30 -v \
+            -X POST -H "Content-Type: application/json" \
+            -d '{"email":"test@example.com"}' \
+            https://sanad-backend-mcrj.onrender.com/api/v1/auth/forgot-password 2>&1 | tail -15
+          echo ""
+          echo "--- Register (expect detailed error) ---"
+          curl --max-time 30 -v \
+            -X POST -H "Content-Type: application/json" \
+            -d '{"email":"newuser@example.com","password":"TestPass123!","tenantName":"Test","tenantSubdomain":"test"}' \
+            https://sanad-backend-mcrj.onrender.com/api/v1/auth/register 2>&1 | tail -15
+
+      - name: Check service status
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Service details ==="
+          curl --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID" \
+            | jq '{id, name, status, createdAt, updatedAt, serviceDetails: {disk: .serviceDetails.disk, plan: .serviceDetails.plan, region: .region, dockerfilePath: .dockerfilePath, dockerContext: .dockerContext, numInstances: .numInstances, envSpecificDetails: .envSpecificDetails}}'
