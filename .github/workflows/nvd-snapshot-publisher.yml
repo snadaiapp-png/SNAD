@@ -56,6 +56,10 @@ jobs:
           python3 -m pip install --quiet pyyaml pytest
           sudo apt-get install -y zstd || true
 
+      - name: Verify GitHub Releases idempotency regression tests
+        shell: bash
+        run: python3 -m pytest tests/security/test_nvd_github_releases_idempotency.py -q
+
       - name: Run Incremental Publisher (Datafeed Mode)
         shell: bash
         env:
@@ -71,7 +75,7 @@ jobs:
           rm -rf "$WORK_DIR" "$CANONICAL_DIR" "$LKG_DIR"
           mkdir -p "$WORK_DIR" "$CANONICAL_DIR" "$LKG_DIR"
 
-          python3 scripts/security/publish_nvd_snapshot.py \
+          python3 -c 'from scripts.security.nvd_github_releases_idempotency import install_github_releases_idempotency_patch as install; install(); import runpy; runpy.run_path("scripts/security/publish_nvd_snapshot.py", run_name="__main__")' \
             --mode incremental \
             --source-mode datafeed \
             --update-timeout-minutes 180 \
@@ -92,5 +96,6 @@ jobs:
             echo "**SHA:** \`${{ github.sha }}\`"
             echo "**Mode:** Incremental (datafeed source)"
             echo "**Backend:** GitHub Releases"
+            echo "**Latest pointer promotion:** retry-safe and payload-verified"
             echo "**NVD_API_KEY:** NOT USED"
           } >> "$GITHUB_STEP_SUMMARY"
