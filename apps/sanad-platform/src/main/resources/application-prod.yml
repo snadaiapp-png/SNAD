@@ -46,12 +46,13 @@ sanad:
 
 spring:
   # ============================================================
-  # LAZY INITIALIZATION — biggest startup optimization
+  # LAZY INITIALIZATION — startup optimization
   # Beans are created on first use instead of at startup.
   # Reduces startup time by 40-60% on constrained VMs.
+  # Set LAZY_INIT=false to disable (e.g., for debugging bean issues).
   # ============================================================
   main:
-    lazy-initialization: ${LAZY_INIT:true}
+    lazy-initialization: ${LAZY_INIT:false}
 
   datasource:
     url: ${DATABASE_URL:}
@@ -81,15 +82,12 @@ spring:
           time_zone: UTC
         format_sql: false
         # ============================================================
-        # STARTUP OPTIMIZATIONS — skip JDBC metadata access at boot
+        # STARTUP OPTIMIZATIONS — keep JPA functional but minimal
         # ============================================================
-        boot.allow_jdbc_metadata_access: false
         temp.use_jdbc_metadata_defaults: false
-        # Disable bytecode manipulation at startup (faster boot)
-        bytecode.provider: none
         # Skip JMX bean registration (saves ~2s + memory)
         session_factory.statement_cache.size: 0
-        # Batch fetching disabled at startup
+        # Batch fetching for better performance
         default_batch_fetch_size: 8
     show-sql: false
 
@@ -107,6 +105,9 @@ spring:
 
   # ============================================================
   # DISABLED AUTO-CONFIGURATIONS — saves memory + startup time
+  # Only disable configurations that are truly unused.
+  # NOTE: TaskExecutionAutoConfiguration is REQUIRED for Spring MVC
+  # (async request handling), so it must NOT be excluded.
   # ============================================================
   autoconfigure:
     exclude:
@@ -114,10 +115,6 @@ spring:
       - org.springdoc.core.autoconfigure.SpringDocConfiguration
       # Disable JMX (not needed in containerized deployment)
       - org.springframework.boot.autoconfigure.jmx.JmxAutoConfiguration
-      # Disable TaskExecutor auto-config (we use @EnableScheduling manually)
-      - org.springframework.boot.autoconfigure.task.TaskExecutionAutoConfiguration
-      # Disable WebSocket (not used)
-      - org.springframework.boot.autoconfigure.websocket.servlet.WebSocketServletAutoConfiguration
 
 server:
   port: ${SERVER_PORT:8080}
