@@ -22,6 +22,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "STATUS_CHECK=stage07-final-candidate"
           auth=(-H "Authorization: Bearer $RENDER_API_KEY" -H "Accept: application/json")
           curl -fsS "${auth[@]}" "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=10" > deploys.json
           jq -c '.[] | (.deploy // .) | {id,status,commit:(.commit.id // .commitId),createdAt,finishedAt,trigger}' deploys.json
