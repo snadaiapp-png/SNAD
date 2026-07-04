@@ -1,0 +1,45 @@
+name: Stage 07 Security Diagnostics
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/stage07-security-diagnostics.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Current-tree secret report
+        shell: bash
+        run: |
+          mkdir -p security-diagnostics
+          docker run --rm \
+            -v "$PWD:/repo" \
+            -v "$PWD/security-diagnostics:/report" \
+            zricethezav/gitleaks:v8.24.3 detect \
+            --source=/repo \
+            --config=/repo/.gitleaks.toml \
+            --no-git \
+            --redact \
+            --report-format=json \
+            --report-path=/report/gitleaks.json \
+            --exit-code=0
+      - name: Workflow policy report
+        shell: bash
+        run: |
+          pip install pyyaml -q
+          python3 scripts/ci/check_workflow_security.py > security-diagnostics/workflow-policy.txt 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stage07-security-diagnostics
+          path: security-diagnostics
+          retention-days: 7
