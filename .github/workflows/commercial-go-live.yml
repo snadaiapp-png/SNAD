@@ -215,17 +215,25 @@ jobs:
           RELEASE_SHA="${{ steps.sha.outputs.release_sha }}"
           echo "=== Triggering Render deploy for $RELEASE_SHA ==="
 
-          # Trigger deploy
-          RESPONSE=$(curl --silent --show-error \
-            --request POST \
-            --header "Authorization: Bearer $RENDER_API_KEY" \
-            --header "Content-Type: application/json" \
-            --header "Accept: application/json" \
-            --data "{\"clearCache\":false,\"commitId\":\"$RELEASE_SHA\"}" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys")
-          DEPLOY_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
+          # Trigger deploy (Render API: empty body triggers deploy of latest commit on branch)
+          DEPLOY_ID=""
+          for attempt in 1 2 3 4 5; do
+            echo "Attempt $attempt..."
+            RESPONSE=$(curl --silent --show-error --max-time 30 \
+              --request POST \
+              --header "Authorization: Bearer $RENDER_API_KEY" \
+              --header "Content-Type: application/json" \
+              --header "Accept: application/json" \
+              --data '{}' \
+              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys")
+            DEPLOY_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
+            if [ -n "$DEPLOY_ID" ]; then
+              break
+            fi
+            sleep 5
+          done
           test -n "$DEPLOY_ID" || {
-            echo "::error::Failed to trigger deploy"
+            echo "::error::Failed to trigger deploy after 5 attempts"
             exit 1
           }
           echo "Deploy ID: $DEPLOY_ID"
