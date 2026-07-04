@@ -443,13 +443,15 @@ jobs:
             curl --fail-with-body --silent --show-error \
               --header "Authorization: Bearer $RESEND_API_KEY" \
               --header "Accept: application/json" \
-              "https://api.resend.com/emails?limit=100" > "$RUNNER_TEMP/resend-emails.json"
+              "https://api.resend.com/emails" > "$RUNNER_TEMP/resend-emails.json"
             match="$(jq -c \
               --arg recipient "$RECOVERY_TEST_EMAIL" \
               --argjson started "$request_started_epoch" '
                 def normalized_epoch:
                   (.created_at // .createdAt // "")
-                  | sub("\\.[0-9]+Z$"; "Z")
+                  | sub(" "; "T")
+                  | sub("\\.[0-9]+\\+00$"; "Z")
+                  | sub("\\+00:00$"; "Z")
                   | try fromdateiso8601 catch 0;
                 def recipient_match:
                   if ((.to // null) | type) == "array"
@@ -558,9 +560,11 @@ jobs:
 
           deployment_id=""
           for attempt in $(seq 1 60); do
-            api_get "/v6/deployments" \
+            api_get "/v7/deployments" \
               --data-urlencode "projectId=$VERCEL_PROJECT_ID" \
               --data-urlencode "target=production" \
+              --data-urlencode "state=READY" \
+              --data-urlencode "sha=$RELEASE_SHA" \
               --data-urlencode "limit=100" > "$RUNNER_TEMP/vercel-deployments.json"
             deployment_id="$(jq -r --arg sha "$RELEASE_SHA" '
               [
@@ -580,7 +584,8 @@ jobs:
             sleep 10
           done
 
-          api_get "/v13/deployments/$deployment_id" > "$RUNNER_TEMP/vercel-deployment-detail.json"
+          api_get "/v13/deployments/$deployment_id" \
+            --data-urlencode "withGitRepoInfo=true" > "$RUNNER_TEMP/vercel-deployment-detail.json"
           detail_sha="$(jq -r '.meta.githubCommitSha // empty' "$RUNNER_TEMP/vercel-deployment-detail.json")"
           detail_target="$(jq -r '.target // empty' "$RUNNER_TEMP/vercel-deployment-detail.json")"
           detail_state="$(jq -r '.readyState // .state // empty' "$RUNNER_TEMP/vercel-deployment-detail.json")"
