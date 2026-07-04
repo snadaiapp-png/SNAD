@@ -78,25 +78,39 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Verifying PR #222 merge state ==="
-          PR_STATE=$(gh pr view 222 --repo ${{ github.repository }} --json state,merged,mergeCommit -q '.state + "," + (.merged | tostring) + "," + .mergeCommit.oid')
-          echo "PR #222: $PR_STATE"
-          echo "$PR_STATE" | grep -q "^closed,true,e0bdb2e" || {
-            echo "::error::PR #222 is not properly merged"
+          # Use GitHub API directly for reliable merge state
+          PR222=$(curl --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/222")
+          PR222_STATE=$(echo "$PR222" | jq -r '.state')
+          PR222_MERGED=$(echo "$PR222" | jq -r '.merged')
+          PR222_MERGE_SHA=$(echo "$PR222" | jq -r '.merge_commit_sha')
+          echo "PR #222: state=$PR222_STATE merged=$PR222_MERGED merge_sha=$PR222_MERGE_SHA"
+          if [ "$PR222_STATE" = "closed" ] && [ "$PR222_MERGED" = "true" ] && [ "$PR222_MERGE_SHA" = "e0bdb2e7afbcf953bd22038c7f2ce20023d2b952" ]; then
+            echo "✓ PR #222 confirmed merged at e0bdb2e"
+          else
+            echo "::error::PR #222 merge state invalid"
             exit 1
-          }
-          echo "✓ PR #222 confirmed merged at e0bdb2e"
+          fi
 
       - name: Verify PR #220 is closed without merge
         shell: bash
         run: |
           set -euo pipefail
           echo "=== Verifying PR #220 closure ==="
-          PR220=$(gh pr view 220 --repo ${{ github.repository }} --json state,merged -q '.state + "," + (.merged | tostring)')
-          echo "PR #220: $PR220"
-          echo "$PR220" | grep -q "^closed,false" || {
-            echo "::warning::PR #220 state unexpected: $PR220"
-          }
-          echo "✓ PR #220 confirmed closed without merge"
+          PR220=$(curl --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/220")
+          PR220_STATE=$(echo "$PR220" | jq -r '.state')
+          PR220_MERGED=$(echo "$PR220" | jq -r '.merged')
+          echo "PR #220: state=$PR220_STATE merged=$PR220_MERGED"
+          if [ "$PR220_STATE" = "closed" ] && [ "$PR220_MERGED" = "false" ]; then
+            echo "✓ PR #220 confirmed closed without merge"
+          else
+            echo "::warning::PR #220 state unexpected: state=$PR220_STATE merged=$PR220_MERGED"
+          fi
 
       - name: Document current production state
         shell: bash
