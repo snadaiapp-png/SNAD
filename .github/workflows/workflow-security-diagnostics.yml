@@ -1,0 +1,29 @@
+name: Workflow Security Diagnostics
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/workflow-security-diagnostics.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pyyaml -q
+      - name: Print policy violations only
+        shell: bash
+        run: |
+          set +e
+          python3 scripts/ci/check_workflow_security.py > scanner.log 2>&1
+          rc=$?
+          grep -E '❌|\[[a-z_]+\]|FAILED:' scanner.log || true
+          exit "$rc"
