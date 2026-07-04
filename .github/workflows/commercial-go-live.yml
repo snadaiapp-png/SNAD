@@ -1,724 +1,908 @@
 name: SANAD Commercial Go-Live
 
-# ============================================================
-# SANAD Platform — Commercial Go-Live Orchestrator (Strict)
-# ============================================================
-# Every gate is BLOCKING (exit 1 on failure).
-# No hardcoded passwords. No synthetic evidence.
-# No SKIP. No warning-only. No assumed PASS.
-# ============================================================
-
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       confirm:
-        description: 'Type "COMMERCIAL-GO-LIVE" to execute'
+        description: 'Type COMMERCIAL-GO-LIVE to execute the production release'
         required: true
         type: string
-        default: ''
-      identity_b_email:
-        description: 'Identity B email (non-admin user for RBAC/isolation test). Leave empty if no second tenant exists.'
-        required: false
-        type: string
-        default: ''
-      identity_b_password:
-        description: 'Identity B password (leave empty if no second tenant)'
-        required: false
-        type: string
-        default: ''
 
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  actions: read
-  statuses: read
+  contents: read
+
+concurrency:
+  group: sanad-commercial-go-live
+  cancel-in-progress: false
 
 jobs:
+  contract:
+    name: Commercial Release Workflow Contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate release scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts=(
+            scripts/production/verify-control-plane-authenticated-smoke.sh
+          )
+          for script in "${scripts[@]}"; do
+            test -s "$script"
+            bash -n "$script"
+          done
+
+      - name: Reject secret-valued workflow inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -nE '^[[:space:]]+(identity_b_email|identity_b_password|admin_password|access_token):' \
+            .github/workflows/commercial-go-live.yml
+          ! grep -nE '\$\{\{[[:space:]]*inputs\.[A-Za-z0-9_]*(password|token|secret|email)' \
+            .github/workflows/commercial-go-live.yml
+
   commercial-go-live:
-    name: Commercial Go-Live Orchestrator (Strict)
+    name: Commercial Release Evidence Validation
+    if: github.event_name == 'workflow_dispatch' && inputs.confirm == 'COMMERCIAL-GO-LIVE'
+    needs: contract
+    permissions:
+      contents: write
+      actions: read
+      statuses: read
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 50
-    if: github.event.inputs.confirm == 'COMMERCIAL-GO-LIVE'
+    timeout-minutes: 75
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+      WEB_PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-      DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      BRANCH_PROTECTION_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}
+      CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
+      CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
       CONTROL_PLANE_TENANT_ID: ${{ secrets.BOOTSTRAP_TENANT_ID }}
-      PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
-      WEB_PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
-      SANAD_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
-      SANAD_ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
-      AUTH_SMOKE_TENANT_A_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
-      IDENTITY_B_EMAIL: ${{ inputs.identity_b_email }}
-      IDENTITY_B_PASSWORD: ${{ inputs.identity_b_password }}
+      CONTROL_PLANE_NON_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_NON_ADMIN_EMAIL }}
+      CONTROL_PLANE_NON_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_NON_ADMIN_PASSWORD }}
+      CONTROL_PLANE_NON_ADMIN_TENANT_ID: ${{ secrets.CONTROL_PLANE_NON_ADMIN_TENANT_ID }}
     steps:
-      - name: Mask all sensitive inputs
-        shell: bash
-        run: |
-          echo "::add-mask::$SANAD_ADMIN_PASSWORD"
-          echo "::add-mask::$AUTH_SMOKE_TENANT_A_PASSWORD"
-          echo "::add-mask::$IDENTITY_B_PASSWORD"
-
-      - name: Checkout main
+      - name: Checkout current main
         uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
-      # ============================================================
-      # SECTION 1: Release SHA Verification
-      # ============================================================
-      - name: 1. Verify Release SHA
-        id: sha
+      - name: Validate protected configuration
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin --prune
-          git checkout main
-          git reset --hard origin/main
-          RELEASE_SHA="$(git rev-parse HEAD)"
-          REMOTE_MAIN_SHA="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
-          test "$RELEASE_SHA" = "$REMOTE_MAIN_SHA" || {
-            echo "::error::Local main does not match remote main"
-            exit 1
-          }
-          echo "RELEASE_SHA=$RELEASE_SHA"
-          echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+          required=(
+            PRODUCTION_BASE_URL WEB_PRODUCTION_BASE_URL
+            RENDER_API_KEY RENDER_SERVICE_ID RESEND_API_KEY
+            VERCEL_TOKEN VERCEL_PROJECT_ID BRANCH_PROTECTION_TOKEN
+            CONTROL_PLANE_ADMIN_EMAIL CONTROL_PLANE_ADMIN_PASSWORD CONTROL_PLANE_TENANT_ID
+            CONTROL_PLANE_NON_ADMIN_EMAIL CONTROL_PLANE_NON_ADMIN_PASSWORD CONTROL_PLANE_NON_ADMIN_TENANT_ID
+          )
+          for name in "${required[@]}"; do
+            test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
+            case "$name" in
+              PRODUCTION_BASE_URL|WEB_PRODUCTION_BASE_URL|RENDER_SERVICE_ID|VERCEL_PROJECT_ID)
+                ;;
+              *) echo "::add-mask::${!name}" ;;
+            esac
+          done
+          [[ "$PRODUCTION_BASE_URL" == https://* ]]
+          [[ "$WEB_PRODUCTION_BASE_URL" == https://* ]]
+          test "$CONTROL_PLANE_TENANT_ID" != "$CONTROL_PLANE_NON_ADMIN_TENANT_ID"
 
-      # ============================================================
-      # SECTION 2: Secret Scan (current tree)
-      # ============================================================
-      - name: 2. Gitleaks Secret Scan (current tree)
-        id: secret_scan
+      - name: Verify exact release SHA
+        id: release
         shell: bash
         run: |
           set -euo pipefail
-          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar -xz -C /tmp gitleaks
-          chmod +x /tmp/gitleaks
-          FINDINGS=$(/tmp/gitleaks detect --source . --no-git --redact --report-format json --report-path /tmp/gitleaks-report.json 2>&1 || true)
-          FINDING_COUNT=$(jq 'length' /tmp/gitleaks-report.json 2>/dev/null || echo "0")
-          echo "finding_count=$FINDING_COUNT" >> "$GITHUB_OUTPUT"
-          if [ "$FINDING_COUNT" != "0" ]; then
-            echo "::error::SECRET SCAN: FAIL — $FINDING_COUNT findings"
-            jq -r '.[] | "\(.RuleID): \(.Secret // "REDACTED") at \(.File):\(.StartLine)"' /tmp/gitleaks-report.json 2>/dev/null || true
+          git fetch origin main --tags
+          release_sha="$(git rev-parse HEAD)"
+          remote_main_sha="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          test "$release_sha" = "$remote_main_sha" || {
+            echo "::error::Checked-out commit does not match current main"; exit 1; }
+          echo "sha=$release_sha" >> "$GITHUB_OUTPUT"
+          mkdir -p evidence
+          jq -n \
+            --arg releaseSha "$release_sha" \
+            --arg verifiedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{schema:"sanad.release-sha.v1",releaseSha:$releaseSha,verifiedAt:$verifiedAt}' \
+            > evidence/release-sha.json
+
+      - name: Gitleaks current-tree scan
+        id: gitleaks
+        shell: bash
+        run: |
+          set -euo pipefail
+          report_dir="$RUNNER_TEMP/gitleaks"
+          rm -rf "$report_dir"
+          mkdir -p "$report_dir"
+          set +e
+          docker run --rm \
+            -v "$PWD:/repo" \
+            -v "$report_dir:/report" \
+            zricethezav/gitleaks:v8.24.3 detect \
+            --source=/repo \
+            --config=/repo/.gitleaks.toml \
+            --no-git \
+            --redact \
+            --report-format=json \
+            --report-path=/report/findings.json \
+            --exit-code=1
+          scan_code=$?
+          set -e
+          case "$scan_code" in
+            0)
+              test -f "$report_dir/findings.json" || printf '[]\n' > "$report_dir/findings.json"
+              ;;
+            1)
+              test -f "$report_dir/findings.json" || {
+                echo "::error::Gitleaks reported findings but did not produce a report"; exit 1; }
+              ;;
+            *) echo "::error::Gitleaks execution failed with code $scan_code"; exit "$scan_code" ;;
+          esac
+          finding_count="$(jq 'length' "$report_dir/findings.json")"
+          if [ "$finding_count" -ne 0 ]; then
+            jq -r '.[] | "RuleID=\(.RuleID) File=\(.File) StartLine=\(.StartLine) Fingerprint=\(.Fingerprint)"' \
+              "$report_dir/findings.json"
+            echo "::error::Current-tree secret scan found $finding_count finding(s)"
             exit 1
           fi
-          echo "SECRET SCAN: PASS (0 findings)"
+          jq -n \
+            --argjson findings "$finding_count" \
+            '{schema:"sanad.secret-scan.v1",tool:"gitleaks",scope:"current-tree",findings:$findings,result:(if $findings == 0 then "PASS" else "FAIL" end)}' \
+            > evidence/secret-scan-evidence.json
+          echo "CURRENT TREE SECRET SCAN: PASS"
+          echo "FINDINGS: 0"
 
-      # ============================================================
-      # SECTION 3: Fetch Render env vars + validate credentials
-      # ============================================================
-      - name: 3. Fetch Render env vars
-        id: render_env
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+
+      - name: Load and validate runtime credentials
         shell: bash
         run: |
           set -euo pipefail
-          RENDER_ENV=$(curl --silent --show-error \
+          curl --fail-with-body --silent --show-error \
             --header "Authorization: Bearer $RENDER_API_KEY" \
             --header "Accept: application/json" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100")
-          ENV_COUNT=$(echo "$RENDER_ENV" | jq '[.[]? | (.envVar // .)] | length')
-          echo "Render env var count: $ENV_COUNT"
-          test "$ENV_COUNT" -lt 100 || { echo "::error::Pagination incomplete"; exit 1; }
-          test "$ENV_COUNT" -ge 15 || { echo "::error::Env vars incomplete"; exit 1; }
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" \
+            > "$RUNNER_TEMP/render-env.json"
+          jq '[.[]? | (.envVar // .)]' "$RUNNER_TEMP/render-env.json" \
+            > "$RUNNER_TEMP/render-env-normalized.json"
+          env_count="$(jq 'length' "$RUNNER_TEMP/render-env-normalized.json")"
+          test "$env_count" -lt 100 || { echo "::error::Render env pagination is incomplete"; exit 1; }
 
-          DATABASE_URL=$(echo "$RENDER_ENV" | jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "DATABASE_URL") | .value // empty')
-          DATABASE_PASSWORD=$(echo "$RENDER_ENV" | jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "DATABASE_PASSWORD") | .value // empty')
-          RESEND_KEY=$(echo "$RENDER_ENV" | jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "SECURITY_NOTIFICATION_RESEND_API_KEY") | .value // empty')
-          echo "::add-mask::$DATABASE_URL"
-          echo "::add-mask::$DATABASE_PASSWORD"
-          echo "::add-mask::$RESEND_KEY"
+          value_for() {
+            jq -r --arg key "$1" '.[] | select(.key == $key) | .value // empty' \
+              "$RUNNER_TEMP/render-env-normalized.json" | head -n 1
+          }
+          database_url="$(value_for DATABASE_URL)"
+          database_username="$(value_for DATABASE_USERNAME)"
+          database_password="$(value_for DATABASE_PASSWORD)"
+          runtime_resend_key="$(value_for SECURITY_NOTIFICATION_RESEND_API_KEY)"
+          test -n "$database_url"
+          test -n "$database_username"
+          test -n "$database_password"
+          test -n "$runtime_resend_key"
+          test "$runtime_resend_key" = "$RESEND_API_KEY" || {
+            echo "::error::GitHub Resend credential does not match Render runtime credential"; exit 1; }
 
-          test -n "$DATABASE_URL" || { echo "::error::DATABASE_URL missing"; exit 1; }
-          test -n "$DATABASE_PASSWORD" || { echo "::error::DATABASE_PASSWORD missing"; exit 1; }
-          test -n "$RESEND_KEY" || { echo "::error::RESEND_API_KEY missing"; exit 1; }
-          echo "database_url=$DATABASE_URL" >> "$GITHUB_OUTPUT"
-          echo "database_password=$DATABASE_PASSWORD" >> "$GITHUB_OUTPUT"
-          echo "resend_key=$RESEND_KEY" >> "$GITHUB_OUTPUT"
+          for secret in "$database_url" "$database_username" "$database_password" "$runtime_resend_key"; do
+            echo "::add-mask::$secret"
+          done
+          {
+            echo "DATABASE_URL=$database_url"
+            echo "DATABASE_USERNAME=$database_username"
+            echo "DATABASE_PASSWORD=$database_password"
+          } >> "$GITHUB_ENV"
 
-      - name: 4. Validate Database Credential
+          raw_url="${database_url#jdbc:}"
+          raw_url="${raw_url#postgresql://}"
+          host_port="${raw_url%%/*}"
+          db_part="${raw_url#*/}"
+          db_name="${db_part%%\?*}"
+          pg_host="${host_port%%:*}"
+          pg_port="${host_port#*:}"
+          [ "$pg_port" != "$host_port" ] || pg_port=5432
+          db_result="$(PGPASSWORD="$database_password" psql \
+            -h "$pg_host" -p "$pg_port" -U "$database_username" -d "$db_name" \
+            --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+            --command='SELECT 1;')"
+          test "$(tr -d '[:space:]' <<<"$db_result")" = "1"
+
+          resend_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --connect-timeout 15 --max-time 30 \
+            --header "Authorization: Bearer $RESEND_API_KEY" \
+            "https://api.resend.com/domains")"
+          test "$resend_status" = "200"
+
+          jq -n \
+            --arg databaseCredential "VALID" \
+            --arg resendCredential "VALID" \
+            --argjson resendHttpStatus "$resend_status" \
+            '{
+              schema:"sanad.runtime-credentials.v1",
+              databaseCredential:$databaseCredential,
+              resendCredential:$resendCredential,
+              resendHttpStatus:$resendHttpStatus,
+              runtimeResendCredentialMatched:true,
+              result:(if ($databaseCredential == "VALID" and $resendCredential == "VALID") then "PASS" else "FAIL" end)
+            }' > evidence/credential-evidence.json
+
+      - name: Flyway production verification
         shell: bash
-        env:
-          DATABASE_URL: ${{ steps.render_env.outputs.database_url }}
-          DATABASE_PASSWORD: ${{ steps.render_env.outputs.database_password }}
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client >/dev/null
-          RAW_URL="${DATABASE_URL#jdbc:}"; RAW_URL="${RAW_URL#postgresql://}"; RAW_URL="${RAW_URL#https://}"
-          HOST_PORT="${RAW_URL%%/*}"; DB_PART="${RAW_URL#*/}"; DB_NAME="${DB_PART%%\?*}"
-          PGHOST="${HOST_PORT%%:*}"; PGPORT="${HOST_PORT#*:}"; PGPORT="${PGPORT:-5432}"
-          RESULT=$(PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$DB_NAME" \
-            --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --command='SELECT 1;') || {
-            echo "::error::DATABASE CREDENTIAL: INVALID"; exit 1; }
-          test "$(tr -d '[:space:]' <<< "$RESULT")" = "1" || { echo "::error::DATABASE CREDENTIAL: INVALID"; exit 1; }
-          echo "DATABASE CREDENTIAL: VALIDATED"
-
-      - name: 5. Validate Resend Credential
-        shell: bash
-        env:
-          RESEND_KEY: ${{ steps.render_env.outputs.resend_key }}
-        run: |
-          set -euo pipefail
-          STATUS=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 20 \
-            --header "Authorization: Bearer $RESEND_KEY" "https://api.resend.com/domains")
-          test "$STATUS" = "200" || { echo "::error::RESEND CREDENTIAL: INVALID (HTTP $STATUS)"; exit 1; }
-          echo "RESEND CREDENTIAL: VALIDATED"
-
-      # ============================================================
-      # SECTION 4: Flyway Verification (V15 + V20260702.1-3)
-      # ============================================================
-      - name: 6. Verify Flyway (V15, V20260702.1-3)
-        id: flyway
-        shell: bash
-        env:
-          DATABASE_URL: ${{ steps.render_env.outputs.database_url }}
-          DATABASE_PASSWORD: ${{ steps.render_env.outputs.database_password }}
         run: |
           set -euo pipefail
           bash scripts/production/verify-flyway.sh
-          # Capture evidence
-          RAW_URL="${DATABASE_URL#jdbc:}"; RAW_URL="${RAW_URL#postgresql://}"; RAW_URL="${RAW_URL#https://}"
-          HOST_PORT="${RAW_URL%%/*}"; DB_PART="${RAW_URL#*/}"; DB_NAME="${DB_PART%%\?*}"
-          PGHOST="${HOST_PORT%%:*}"; PGPORT="${HOST_PORT#*:}"; PGPORT="${PGPORT:-5432}"
-          HISTORY=$(PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$DB_NAME" \
-            --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --field-separator=$'\t' \
-            --command="SELECT version, type, description, success FROM flyway_schema_history WHERE version IN ('15','20260702.1','20260702.2','20260702.3') ORDER BY installed_rank;")
-          echo "history<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$HISTORY" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          raw_url="${DATABASE_URL#jdbc:}"
+          raw_url="${raw_url#postgresql://}"
+          host_port="${raw_url%%/*}"
+          db_part="${raw_url#*/}"
+          db_name="${db_part%%\?*}"
+          pg_host="${host_port%%:*}"
+          pg_port="${host_port#*:}"
+          [ "$pg_port" != "$host_port" ] || pg_port=5432
+          history="$(PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h "$pg_host" -p "$pg_port" -U "$DATABASE_USERNAME" -d "$db_name" \
+            --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --field-separator='|' \
+            --command="SELECT version, success FROM flyway_schema_history WHERE version IN ('15','20260702.1','20260702.2','20260702.3') ORDER BY installed_rank;")"
+          jq -Rn --arg history "$history" '
+            ($history | split("\n") | map(select(length > 0) | split("|") | {version:.[0],success:(.[1] | ascii_downcase | test("^(t|true)$"))})) as $rows
+            | {
+                schema:"sanad.flyway-production.v1",
+                migrations:$rows,
+                requiredVersions:["15","20260702.1","20260702.2","20260702.3"],
+                result:(
+                  if (
+                    ($rows | length) == 4 and
+                    all($rows[]; .success == true) and
+                    (["15","20260702.1","20260702.2","20260702.3"] - [$rows[].version] | length) == 0
+                  ) then "PASS" else "FAIL" end
+                )
+              }
+          ' > evidence/flyway-evidence.json
+          jq -e '.result == "PASS"' evidence/flyway-evidence.json >/dev/null
 
-      # ============================================================
-      # SECTION 5: Render Deploy
-      # ============================================================
-      - name: 7. Trigger Render deploy
-        id: deploy
-        shell: bash
-        run: |
-          set -euo pipefail
-          DEPLOY_ID=""
-          for attempt in 1 2 3 4 5; do
-            RESPONSE=$(curl --silent --show-error --max-time 30 --request POST \
-              --header "Authorization: Bearer $RENDER_API_KEY" --header "Content-Type: application/json" \
-              --data '{}' "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys")
-            DEPLOY_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
-            [ -n "$DEPLOY_ID" ] && break
-            sleep 5
-          done
-          test -n "$DEPLOY_ID" || { echo "::error::Failed to trigger deploy"; exit 1; }
-          echo "deploy_id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
-
-      - name: 8. Wait for Render deploy (max 20 min)
+      - name: Trigger exact Render deployment
+        id: render
         shell: bash
         env:
-          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
         run: |
           set -euo pipefail
-          for i in $(seq 1 80); do
-            sleep 15
-            STATUS=$(curl --silent --show-error --header "Authorization: Bearer $RENDER_API_KEY" \
-              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$DEPLOY_ID" | jq -r '.status // empty')
-            echo "Attempt $i: status=$STATUS"
-            [ "$STATUS" = "live" ] && { echo "RENDER DEPLOY: LIVE"; exit 0; }
-            [ "$STATUS" = "update_failed" ] && { echo "::error::RENDER DEPLOY FAILED"; exit 1; }
+          jq -n --arg commit "$RELEASE_SHA" '{commitId:$commit,clearCache:"do_not_clear"}' \
+            > "$RUNNER_TEMP/render-request.json"
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            --header "Content-Type: application/json" \
+            --data @"$RUNNER_TEMP/render-request.json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" \
+            > "$RUNNER_TEMP/render-deploy-created.json"
+          deployment_id="$(jq -r '(.deploy // .).id // empty' "$RUNNER_TEMP/render-deploy-created.json")"
+          test -n "$deployment_id" || { echo "::error::Render deployment ID missing"; exit 1; }
+          echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+
+      - name: Render deployment verification
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          DEPLOYMENT_ID: ${{ steps.render.outputs.deployment_id }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 180); do
+            curl --fail-with-body --silent --show-error \
+              --header "Authorization: Bearer $RENDER_API_KEY" \
+              --header "Accept: application/json" \
+              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$DEPLOYMENT_ID" \
+              > "$RUNNER_TEMP/render-deploy-state.json"
+            status="$(jq -r '(.deploy // .).status // empty' "$RUNNER_TEMP/render-deploy-state.json")"
+            case "$status" in
+              live) break ;;
+              build_failed|update_failed|canceled|deactivated)
+                echo "::error::Render deployment failed with status $status"; exit 1 ;;
+            esac
+            [ "$attempt" -lt 180 ] || { echo "::error::Render deployment timed out"; exit 1; }
+            sleep 10
           done
-          echo "::error::RENDER DEPLOY TIMEOUT"; exit 1
+          render_sha="$(jq -r '(.deploy // .).commit.id // empty' "$RUNNER_TEMP/render-deploy-state.json")"
+          render_status="$(jq -r '(.deploy // .).status // empty' "$RUNNER_TEMP/render-deploy-state.json")"
+          test "$render_sha" = "$RELEASE_SHA"
+          test "$render_status" = "live"
+          jq \
+            --arg releaseSha "$RELEASE_SHA" \
+            '(.deploy // .) as $d | {
+              schema:"sanad.render.production-deployment.v1",
+              deploymentId:$d.id,
+              commitSha:$d.commit.id,
+              status:$d.status,
+              createdAt:($d.createdAt // null),
+              finishedAt:($d.finishedAt // null),
+              result:(if ($d.commit.id == $releaseSha and $d.status == "live") then "PASS" else "FAIL" end)
+            }' "$RUNNER_TEMP/render-deploy-state.json" > evidence/render-deployment.json
+          jq -e '.result == "PASS"' evidence/render-deployment.json >/dev/null
+          echo "RENDER SHA == RELEASE SHA: PASS"
 
-      # ============================================================
-      # SECTION 6: Live Verification (Health, Readiness, Security)
-      # ============================================================
-      - name: 9. Backend Health + Readiness
-        id: health
+      - name: Health readiness and security boundary
         shell: bash
         run: |
           set -euo pipefail
-          sleep 10
-          HEALTH=$(curl --fail-with-body --silent --show-error --max-time 30 "$PRODUCTION_BASE_URL/actuator/health")
-          echo "$HEALTH" | jq -e '.status == "UP"' || { echo "::error::HEALTH: FAIL"; exit 1; }
-          READINESS=$(curl --fail-with-body --silent --show-error --max-time 30 "$PRODUCTION_BASE_URL/actuator/health/readiness")
-          echo "$READINESS" | jq -e '.status == "UP"' || { echo "::error::READINESS: FAIL"; exit 1; }
-          echo "health=$HEALTH" >> "$GITHUB_OUTPUT"
-          echo "readiness=$READINESS" >> "$GITHUB_OUTPUT"
-          echo "BACKEND HEALTH: UP"
-          echo "BACKEND READINESS: UP"
-
-      - name: 10. Security Boundary + Control Plane + BFF
-        id: boundary
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Security boundary
-          CODE=$(curl --silent -o /dev/null -w '%{http_code}' --max-time 15 "$PRODUCTION_BASE_URL/api/v1/auth/me")
-          [ "$CODE" = "401" ] || { echo "::error::auth/me=$CODE (expected 401)"; exit 1; }
-          CODE=$(curl --silent -o /dev/null -w '%{http_code}' --max-time 15 "$PRODUCTION_BASE_URL/actuator/env")
-          [ "$CODE" = "404" ] || { echo "::error::env=$CODE (expected 404)"; exit 1; }
-          # Control Plane
-          CP_CODE=$(curl --silent -o /dev/null -w '%{http_code}' --max-time 60 "$WEB_PRODUCTION_BASE_URL/control-plane")
-          [ "$CP_CODE" = "200" ] || { echo "::error::CONTROL PLANE=$CP_CODE"; exit 1; }
-          # BFF
-          BFF_CODE=$(curl --silent -o /dev/null -w '%{http_code}' --max-time 90 "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/control-plane/dashboard")
-          case "$BFF_CODE" in 401|403) ;; *) echo "::error::BFF=$BFF_CODE (expected 401/403)"; exit 1 ;; esac
-          echo "cp_code=$CP_CODE" >> "$GITHUB_OUTPUT"
-          echo "bff_code=$BFF_CODE" >> "$GITHUB_OUTPUT"
-          echo "SECURITY BOUNDARY: PASS"
-          echo "CONTROL PLANE: HTTP $CP_CODE"
-          echo "BFF SECURITY BOUNDARY: PASS ($BFF_CODE)"
-
-      # ============================================================
-      # SECTION 7: Authenticated Admin Smoke (Identity A) — STRICT
-      # ============================================================
-      - name: 11. Admin Smoke — Login + Role + Control Plane functions
-        id: admin_smoke
-        shell: bash
-        run: |
-          set -euo pipefail
-          COOKIE_JAR="/tmp/admin-cookies.txt"
-          echo "=== Identity A: Admin Login ==="
-          # Try only GitHub secrets (NO hardcoded passwords)
-          ACCESS_TOKEN=""
-          for PASSWD in "$SANAD_ADMIN_PASSWORD" "$AUTH_SMOKE_TENANT_A_PASSWORD"; do
-            [ -z "$PASSWD" ] && continue
-            LOGIN_RESP=$(curl --silent --show-error --max-time 30 \
-              -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
-              -X POST -H "Content-Type: application/json" -H "Origin: $WEB_PRODUCTION_BASE_URL" \
-              -d "{\"email\":\"$SANAD_ADMIN_EMAIL\",\"password\":\"$PASSWD\"}" \
-              "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/auth/login")
-            ACCESS_TOKEN=$(echo "$LOGIN_RESP" | jq -r '.accessToken // empty')
-            [ -n "$ACCESS_TOKEN" ] && break
+          for attempt in $(seq 1 72); do
+            readiness_code="$(curl --silent --show-error --output "$RUNNER_TEMP/readiness.json" \
+              --write-out '%{http_code}' --max-time 20 \
+              "$PRODUCTION_BASE_URL/actuator/health/readiness" || true)"
+            if [ "$readiness_code" = "200" ] && jq -e '.status == "UP"' "$RUNNER_TEMP/readiness.json" >/dev/null 2>&1; then
+              break
+            fi
+            [ "$attempt" -lt 72 ] || { echo "::error::Readiness did not become UP"; exit 1; }
+            sleep 5
           done
-          test -n "$ACCESS_TOKEN" || { echo "::error::ADMIN LOGIN: FAIL"; exit 1; }
-          echo "::add-mask::$ACCESS_TOKEN"
-          echo "ADMIN LOGIN: PASS"
+          health_code="$(curl --silent --show-error --output "$RUNNER_TEMP/health.json" \
+            --write-out '%{http_code}' --max-time 30 "$PRODUCTION_BASE_URL/actuator/health")"
+          jq -e '.status == "UP"' "$RUNNER_TEMP/health.json" >/dev/null
+          unauth_me="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --max-time 20 "$PRODUCTION_BASE_URL/api/v1/auth/me")"
+          actuator_env="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --max-time 20 "$PRODUCTION_BASE_URL/actuator/env")"
+          control_plane="$(curl --silent --show-error --location --output /dev/null --write-out '%{http_code}' \
+            --max-time 60 "$WEB_PRODUCTION_BASE_URL/control-plane")"
+          bff_boundary="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --max-time 90 "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/control-plane/dashboard" || true)"
+          test "$health_code" = "200"
+          test "$readiness_code" = "200"
+          test "$unauth_me" = "401"
+          test "$actuator_env" = "404"
+          test "$control_plane" = "200"
+          case "$bff_boundary" in 401|403) ;; *) echo "::error::BFF boundary returned $bff_boundary"; exit 1 ;; esac
+          jq -n \
+            --argjson health "$(cat "$RUNNER_TEMP/health.json")" \
+            --argjson readiness "$(cat "$RUNNER_TEMP/readiness.json")" \
+            --arg healthCode "$health_code" \
+            --arg readinessCode "$readiness_code" \
+            --arg unauthMe "$unauth_me" \
+            --arg actuatorEnv "$actuator_env" \
+            --arg controlPlane "$control_plane" \
+            --arg bffBoundary "$bff_boundary" \
+            '{
+              schema:"sanad.health-readiness.v1",
+              health:$health,
+              readiness:$readiness,
+              healthHttpStatus:($healthCode|tonumber),
+              readinessHttpStatus:($readinessCode|tonumber),
+              unauthenticatedMeHttpStatus:($unauthMe|tonumber),
+              actuatorEnvHttpStatus:($actuatorEnv|tonumber),
+              controlPlaneHttpStatus:($controlPlane|tonumber),
+              bffBoundaryHttpStatus:($bffBoundary|tonumber),
+              healthStatus:$health.status,
+              readinessStatus:$readiness.status,
+              result:(
+                if (
+                  $health.status == "UP" and $readiness.status == "UP" and
+                  $healthCode == "200" and $readinessCode == "200" and
+                  $unauthMe == "401" and $actuatorEnv == "404" and
+                  $controlPlane == "200" and
+                  ($bffBoundary == "401" or $bffBoundary == "403")
+                ) then "PASS" else "FAIL" end
+              )
+            }' > evidence/health-readiness-evidence.json
+          jq -e '.result == "PASS"' evidence/health-readiness-evidence.json >/dev/null
 
-          # /auth/me — verify ACTIVE + ADMIN role + Control Plane tenant
-          ME_RESP=$(curl --silent --show-error --max-time 30 \
-            -H "Authorization: Bearer $ACCESS_TOKEN" \
-            "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/auth/me")
-          ME_STATUS=$(echo "$ME_RESP" | jq -r '.status')
-          ME_TENANT=$(echo "$ME_RESP" | jq -r '.tenantId')
-          echo "::add-mask::$ME_TENANT"
-          [ "$ME_STATUS" = "ACTIVE" ] || { echo "::error::ADMIN NOT ACTIVE ($ME_STATUS)"; exit 1; }
-          # Verify tenant matches Control Plane tenant
-          [ "$ME_TENANT" = "$CONTROL_PLANE_TENANT_ID" ] || {
-            echo "::error::TENANT MISMATCH: admin=$ME_TENANT controlplane=$CONTROL_PLANE_TENANT_ID"; exit 1; }
-          # Verify ADMIN or SUPER_ADMIN role
-          HAS_ADMIN=$(echo "$ME_RESP" | jq -r '.roleGrants[]? | select(.roleCode == "ADMIN" or .roleCode == "SUPER_ADMIN") | .status' | head -1)
-          [ "$HAS_ADMIN" = "ACTIVE" ] || { echo "::error::NO ADMIN ROLE"; exit 1; }
-          echo "ADMIN /auth/me: PASS (ACTIVE, ADMIN, Control Plane tenant)"
-
-          # Control Plane Dashboard
-          DASH_CODE=$(curl --silent -o /dev/null -w '%{http_code' --max-time 30 \
-            -H "Authorization: Bearer $ACCESS_TOKEN" \
-            "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/control-plane/dashboard")
-          # Fix: closing brace in format string
-          DASH_CODE=$(curl --silent -o /dev/null -w '%{http_code}' --max-time 30 \
-            -H "Authorization: Bearer $ACCESS_TOKEN" \
-            "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/control-plane/dashboard")
-          [ "$DASH_CODE" = "200" ] || { echo "::error::DASHBOARD: $DASH_CODE"; exit 1; }
-          echo "ADMIN DASHBOARD: PASS ($DASH_CODE)"
-
-          echo "admin_token=$ACCESS_TOKEN" >> "$GITHUB_OUTPUT"
-
-      - name: 12. Admin Smoke — Refresh (STRICT, exit 1 on fail)
+      - name: Authenticated production smoke and tenant isolation
         shell: bash
-        run: |
-          set -euo pipefail
-          COOKIE_JAR="/tmp/admin-cookies.txt"
-          REFRESH_RESP=$(curl --silent --show-error --max-time 30 \
-            -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
-            -X POST -H "Content-Type: application/json" -H "Origin: $WEB_PRODUCTION_BASE_URL" \
-            "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/auth/refresh")
-          NEW_TOKEN=$(echo "$REFRESH_RESP" | jq -r '.accessToken // empty')
-          test -n "$NEW_TOKEN" || { echo "::error::REFRESH: FAIL (no token returned)"; exit 1; }
-          echo "::add-mask::$NEW_TOKEN"
-          echo "REFRESH: PASS"
+        env:
+          DEPLOYED_COMMIT_SHA: ${{ steps.release.outputs.sha }}
+          AUTHENTICATED_SMOKE_EVIDENCE_FILE: evidence/authenticated-smoke-evidence.json
+          TENANT_ISOLATION_EVIDENCE_FILE: evidence/tenant-isolation-evidence.json
+        run: bash scripts/production/verify-control-plane-authenticated-smoke.sh
 
-      - name: 13. Admin Smoke — Logout + Session Revocation (STRICT, exit 1 on fail)
-        shell: bash
-        run: |
-          set -euo pipefail
-          COOKIE_JAR="/tmp/admin-cookies.txt"
-          ADMIN_TOKEN="${{ steps.admin_smoke.outputs.admin_token }}"
-          # Logout
-          LOGOUT_CODE=$(curl --silent --show-error --max-time 30 \
-            -b "$COOKIE_JAR" -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
-            -H "Origin: $WEB_PRODUCTION_BASE_URL" \
-            "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/auth/logout" -o /dev/null -w '%{http_code}')
-          echo "Logout HTTP: $LOGOUT_CODE"
-          # Try refresh after logout — MUST fail
-          POST_LOGOUT=$(curl --silent --show-error --max-time 30 -o /dev/null -w '%{http_code}' \
-            -b "$COOKIE_JAR" -X POST -H "Content-Type: application/json" -H "Origin: $WEB_PRODUCTION_BASE_URL" \
-            "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/auth/refresh")
-          case "$POST_LOGOUT" in
-            401|403) echo "LOGOUT REVOCATION: PASS ($POST_LOGOUT)" ;;
-            *) echo "::error::LOGOUT REVOCATION: FAIL ($POST_LOGOUT — session still active!)"; exit 1 ;;
-          esac
-          rm -f "$COOKIE_JAR"
-
-      # ============================================================
-      # SECTION 8: Identity B — RBAC Denial + Tenant Isolation (STRICT)
-      # If no Identity B provided, record as BLOCKER and exit 1
-      # ============================================================
-      - name: 14. Identity B — Login + RBAC Denial + Tenant Isolation
-        id: identity_b
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "$IDENTITY_B_EMAIL" ] || [ -z "$IDENTITY_B_PASSWORD" ]; then
-            echo "::error::IDENTITY B: NOT PROVIDED — cannot test RBAC Denial or Tenant Isolation"
-            echo "IDENTITY B: NOT TESTED"
-            echo "RBAC DENIAL: NOT TESTED"
-            echo "TENANT ISOLATION: NOT TESTED"
-            echo "result=NOT_TESTED" >> "$GITHUB_OUTPUT"
-            # This is a BLOCKER for commercial go-live
-            exit 1
-          fi
-
-          COOKIE_JAR_B="/tmp/identity-b-cookies.txt"
-          echo "=== Identity B: Non-admin Login ==="
-          LOGIN_B=$(curl --silent --show-error --max-time 30 \
-            -c "$COOKIE_JAR_B" -b "$COOKIE_JAR_B" \
-            -X POST -H "Content-Type: application/json" -H "Origin: $WEB_PRODUCTION_BASE_URL" \
-            -d "{\"email\":\"$IDENTITY_B_EMAIL\",\"password\":\"$IDENTITY_B_PASSWORD\"}" \
-            "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/auth/login")
-          TOKEN_B=$(echo "$LOGIN_B" | jq -r '.accessToken // empty')
-          test -n "$TOKEN_B" || { echo "::error::IDENTITY B LOGIN: FAIL"; exit 1; }
-          echo "::add-mask::$TOKEN_B"
-          echo "IDENTITY B LOGIN: PASS"
-
-          # /auth/me for Identity B
-          ME_B=$(curl --silent --show-error --max-time 30 \
-            -H "Authorization: Bearer $TOKEN_B" \
-            "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/auth/me")
-          B_TENANT=$(echo "$ME_B" | jq -r '.tenantId')
-          echo "::add-mask::$B_TENANT"
-          B_STATUS=$(echo "$ME_B" | jq -r '.status')
-          [ "$B_STATUS" = "ACTIVE" ] || { echo "::error::IDENTITY B NOT ACTIVE"; exit 1; }
-          echo "IDENTITY B /auth/me: PASS (ACTIVE, tenant=$B_TENANT)"
-
-          # RBAC Denial: Identity B must NOT access Control Plane Dashboard
-          DASH_B=$(curl --silent -o /dev/null -w '%{http_code}' --max-time 30 \
-            -H "Authorization: Bearer $TOKEN_B" \
-            "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/control-plane/dashboard")
-          case "$DASH_B" in
-            401|403) echo "RBAC DENIAL: PASS (Identity B denied Control Plane: $DASH_B)" ;;
-            200) echo "::error::RBAC DENIAL: FAIL — Identity B accessed Control Plane Dashboard!"; exit 1 ;;
-            *) echo "::error::RBAC DENIAL: UNEXPECTED ($DASH_B)"; exit 1 ;;
-          esac
-
-          # Tenant Isolation: Identity B must NOT match Control Plane tenant
-          if [ "$B_TENANT" = "$CONTROL_PLANE_TENANT_ID" ]; then
-            echo "::error::TENANT ISOLATION: FAIL — Identity B is in Control Plane tenant (same tenant)"
-            exit 1
-          else
-            echo "TENANT ISOLATION: PASS (B tenant ≠ Control Plane tenant)"
-          fi
-          echo "result=PASS" >> "$GITHUB_OUTPUT"
-          rm -f "$COOKIE_JAR_B"
-
-      # ============================================================
-      # SECTION 9: Email Delivery — REAL evidence from Resend
-      # ============================================================
-      - name: 15. Email Delivery Test (real Message ID + delivery status)
+      - name: Email delivery verification
         id: email
         shell: bash
         env:
-          RESEND_KEY: ${{ steps.render_env.outputs.resend_key }}
+          RECOVERY_TEST_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
         run: |
           set -euo pipefail
-          echo "=== Email Delivery Test ==="
-          # Record timestamp BEFORE request
-          BEFORE_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          STATUS=$(curl --silent --show-error --max-time 30 -o /tmp/forgot.json -w '%{http_code}' \
-            -X POST -H "Content-Type: application/json" -H "Origin: $WEB_PRODUCTION_BASE_URL" \
-            -d "{\"email\":\"$SANAD_ADMIN_EMAIL\"}" \
-            "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/auth/forgot-password")
-          [ "$STATUS" = "200" ] || { echo "::error::EMAIL DELIVERY: FAIL (forgot-password=$STATUS)"; exit 1; }
-          echo "Forgot-password accepted: $STATUS"
+          echo "::add-mask::$RECOVERY_TEST_EMAIL"
+          echo "::add-mask::$RESEND_API_KEY"
+          web_base="${WEB_PRODUCTION_BASE_URL%/}"
+          api_base="$web_base/api/platform"
+          request_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          request_started_epoch="$(date -u +%s)"
+          payload="$(jq -n --arg email "$RECOVERY_TEST_EMAIL" '{email:$email}')"
+          forgot_status="$(curl --silent --show-error \
+            --connect-timeout 15 --max-time 45 \
+            --output "$RUNNER_TEMP/forgot-password-response.json" \
+            --write-out '%{http_code}' \
+            --request POST \
+            --header 'Content-Type: application/json' \
+            --header "Origin: $web_base" \
+            --data "$payload" \
+            "$api_base/api/v1/auth/forgot-password")"
+          case "$forgot_status" in 200|202) ;; *) echo "::error::Forgot-password returned HTTP $forgot_status"; exit 1 ;; esac
+          rm -f "$RUNNER_TEMP/forgot-password-response.json"
 
-          # Poll Resend for the SPECIFIC email (matching recipient + subject + sent after BEFORE_TS)
-          EMAIL_ID=""
-          EMAIL_SUBJECT=""
-          EMAIL_STATUS=""
-          for attempt in $(seq 1 12); do
+          email_id=""
+          email_created_at=""
+          for attempt in $(seq 1 36); do
             sleep 5
-            EMAILS=$(curl --silent --show-error --max-time 15 \
-              -H "Authorization: Bearer $RESEND_KEY" \
-              "https://api.resend.com/emails?limit=10")
-            # Find email matching admin email + "Reset" subject
-            MATCH=$(echo "$EMAILS" | jq -c --arg email "$SANAD_ADMIN_EMAIL" \
-              '[.data // [] | .[] | select(.to[0] == $email and (.subject // "") | test("Reset|إعادة"; "i"))] | .[0] // empty')
-            if [ "$MATCH" != "null" ] && [ -n "$MATCH" ]; then
-              EMAIL_ID=$(echo "$MATCH" | jq -r '.id // empty')
-              EMAIL_SUBJECT=$(echo "$MATCH" | jq -r '.subject // empty')
-              EMAIL_STATUS=$(echo "$MATCH" | jq -r '.status // empty')
-              [ -n "$EMAIL_ID" ] && break
+            curl --fail-with-body --silent --show-error \
+              --header "Authorization: Bearer $RESEND_API_KEY" \
+              --header "Accept: application/json" \
+              "https://api.resend.com/emails?limit=100" > "$RUNNER_TEMP/resend-emails.json"
+            match="$(jq -c \
+              --arg recipient "$RECOVERY_TEST_EMAIL" \
+              --argjson started "$request_started_epoch" '
+                def normalized_epoch:
+                  (.created_at // .createdAt // "")
+                  | sub("\\.[0-9]+Z$"; "Z")
+                  | try fromdateiso8601 catch 0;
+                def recipient_match:
+                  if ((.to // null) | type) == "array"
+                  then any(.to[]?; . == $recipient)
+                  elif ((.to // null) | type) == "string"
+                  then .to == $recipient
+                  else false
+                  end;
+                [
+                  .data[]?
+                  | select(recipient_match)
+                  | select(normalized_epoch >= $started)
+                  | select((.subject // "") | test("reset|password|recovery|إعادة|كلمة المرور"; "i"))
+                ]
+                | sort_by(normalized_epoch)
+                | reverse
+                | .[0] // empty
+              ' "$RUNNER_TEMP/resend-emails.json")"
+            if [ -n "$match" ] && [ "$match" != "null" ]; then
+              email_id="$(jq -r '.id // empty' <<<"$match")"
+              email_created_at="$(jq -r '.created_at // .createdAt // empty' <<<"$match")"
+              [ -n "$email_id" ] && break
             fi
           done
-          test -n "$EMAIL_ID" || { echo "::error::EMAIL DELIVERY: FAIL — no matching email found"; exit 1; }
-          echo "::add-mask::$EMAIL_ID"
-          echo "EMAIL DELIVERY: PASS"
-          echo "  Message ID: $EMAIL_ID"
-          echo "  Subject: $EMAIL_SUBJECT"
-          echo "  Status: $EMAIL_STATUS"
-          echo "email_id=$EMAIL_ID" >> "$GITHUB_OUTPUT"
-          echo "email_subject=$EMAIL_SUBJECT" >> "$GITHUB_OUTPUT"
-          echo "email_status=$EMAIL_STATUS" >> "$GITHUB_OUTPUT"
+          test -n "$email_id" || { echo "::error::No recovery email matched recipient, subject, and request time"; exit 1; }
+          echo "::add-mask::$email_id"
 
-      # ============================================================
-      # SECTION 10: Vercel SHA Verification (REAL API query)
-      # ============================================================
-      - name: 16. Verify Vercel SHA (real deployment)
+          delivery_state=""
+          for attempt in $(seq 1 36); do
+            curl --fail-with-body --silent --show-error \
+              --header "Authorization: Bearer $RESEND_API_KEY" \
+              --header "Accept: application/json" \
+              "https://api.resend.com/emails/$email_id" > "$RUNNER_TEMP/resend-email-detail.json"
+            delivery_state="$(jq -r '.last_event // .status // empty' "$RUNNER_TEMP/resend-email-detail.json")"
+            case "$delivery_state" in
+              delivered) break ;;
+              bounced|complained|failed|canceled)
+                echo "::error::Recovery email reached terminal failure state: $delivery_state"; exit 1 ;;
+            esac
+            sleep 5
+          done
+          [ "$delivery_state" = "delivered" ] || { echo "::error::Recovery email was not confirmed delivered"; exit 1; }
+
+          detail_id="$(jq -r '.id // empty' "$RUNNER_TEMP/resend-email-detail.json")"
+          detail_created_at="$(jq -r '.created_at // .createdAt // empty' "$RUNNER_TEMP/resend-email-detail.json")"
+          recipient_match="$(jq -r --arg recipient "$RECOVERY_TEST_EMAIL" '
+            if ((.to // null) | type) == "array"
+            then any(.to[]?; . == $recipient)
+            elif ((.to // null) | type) == "string"
+            then .to == $recipient
+            else false
+            end
+          ' "$RUNNER_TEMP/resend-email-detail.json")"
+          [ "$detail_id" = "$email_id" ]
+          [ "$recipient_match" = "true" ]
+
+          jq -n \
+            --arg messageId "$detail_id" \
+            --arg requestStartedAt "$request_started_at" \
+            --arg createdAt "${detail_created_at:-$email_created_at}" \
+            --arg deliveryState "$delivery_state" \
+            --arg forgotStatus "$forgot_status" \
+            '{
+              schema:"sanad.email-delivery.v1",
+              messageId:$messageId,
+              requestStartedAt:$requestStartedAt,
+              messageCreatedAt:$createdAt,
+              forgotPasswordHttpStatus:($forgotStatus|tonumber),
+              recipientMatched:true,
+              subjectMatched:true,
+              createdAfterRequest:true,
+              deliveryState:$deliveryState,
+              result:(
+                if (
+                  ($messageId | length) > 0 and
+                  ($forgotStatus == "200" or $forgotStatus == "202") and
+                  $deliveryState == "delivered"
+                ) then "PASS" else "FAIL" end
+              )
+            }' > evidence/email-delivery-evidence.json
+          jq -e '.result == "PASS"' evidence/email-delivery-evidence.json >/dev/null
+          echo "message_id=$detail_id" >> "$GITHUB_OUTPUT"
+          echo "EMAIL DELIVERY: PASS WITH ACTUAL MESSAGE ID"
+
+      - name: Vercel production verification
         id: vercel
         shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
         run: |
           set -euo pipefail
-          RELEASE_SHA="${{ steps.sha.outputs.release_sha }}"
-          echo "=== Vercel SHA Verification ==="
-          # Query GitHub deployments API for Vercel deployments
-          DEPLOYMENTS=$(curl --silent --show-error --max-time 30 \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/deployments?per_page=10&environment=Production")
-          # Find Vercel deployment matching release SHA
-          VERCEL_SHA=$(echo "$DEPLOYMENTS" | jq -r --arg sha "$RELEASE_SHA" \
-            '[.[] | select(.sha == $sha and (.creator.login == "vercel" or .payload.environment == "Production"))] | .[0].sha // empty')
-          VERCEL_ID=$(echo "$DEPLOYMENTS" | jq -r --arg sha "$RELEASE_SHA" \
-            '[.[] | select(.sha == $sha and (.creator.login == "vercel" or .payload.environment == "Production"))] | .[0].id // empty')
+          echo "::add-mask::$VERCEL_TOKEN"
+          api_get() {
+            local endpoint="$1"
+            shift
+            args=(
+              --fail-with-body --silent --show-error --get
+              --header "Authorization: Bearer $VERCEL_TOKEN"
+              --header "Accept: application/json"
+            )
+            if [ -n "${VERCEL_TEAM_ID:-}" ]; then
+              args+=(--data-urlencode "teamId=$VERCEL_TEAM_ID")
+            fi
+            curl "${args[@]}" "$@" "https://api.vercel.com$endpoint"
+          }
 
-          if [ "$VERCEL_SHA" = "$RELEASE_SHA" ]; then
-            echo "VERCEL SHA == RELEASE SHA: PASS"
-            echo "vercel_sha=$VERCEL_SHA" >> "$GITHUB_OUTPUT"
-            echo "vercel_id=$VERCEL_ID" >> "$GITHUB_OUTPUT"
-          else
-            echo "::error::VERCEL SHA MISMATCH: Vercel=$VERCEL_SHA Release=$RELEASE_SHA"
-            echo "Available deployments:"
-            echo "$DEPLOYMENTS" | jq '[.[] | {id, sha: .sha[0:7], env: .environment, creator: .creator.login}]' 2>/dev/null || true
-            exit 1
-          fi
+          deployment_id=""
+          for attempt in $(seq 1 60); do
+            api_get "/v6/deployments" \
+              --data-urlencode "projectId=$VERCEL_PROJECT_ID" \
+              --data-urlencode "target=production" \
+              --data-urlencode "limit=100" > "$RUNNER_TEMP/vercel-deployments.json"
+            deployment_id="$(jq -r --arg sha "$RELEASE_SHA" '
+              [
+                .deployments[]?
+                | select(
+                    (.meta.githubCommitSha // "") == $sha and
+                    (.target // "") == "production" and
+                    ((.readyState // .state // "") == "READY")
+                  )
+              ]
+              | sort_by(.createdAt // 0)
+              | reverse
+              | .[0].uid // empty
+            ' "$RUNNER_TEMP/vercel-deployments.json")"
+            [ -n "$deployment_id" ] && break
+            [ "$attempt" -lt 60 ] || { echo "::error::No READY Vercel production deployment matches RELEASE_SHA"; exit 1; }
+            sleep 10
+          done
 
-      # ============================================================
-      # SECTION 11: Render SHA Verification (REAL API query)
-      # ============================================================
-      - name: 17. Verify Render SHA
-        id: render_sha
+          api_get "/v13/deployments/$deployment_id" > "$RUNNER_TEMP/vercel-deployment-detail.json"
+          detail_sha="$(jq -r '.meta.githubCommitSha // empty' "$RUNNER_TEMP/vercel-deployment-detail.json")"
+          detail_target="$(jq -r '.target // empty' "$RUNNER_TEMP/vercel-deployment-detail.json")"
+          detail_state="$(jq -r '.readyState // .state // empty' "$RUNNER_TEMP/vercel-deployment-detail.json")"
+          detail_id="$(jq -r '.id // .uid // empty' "$RUNNER_TEMP/vercel-deployment-detail.json")"
+          created_at="$(jq -r '.createdAt // empty' "$RUNNER_TEMP/vercel-deployment-detail.json")"
+          [ "$detail_sha" = "$RELEASE_SHA" ]
+          [ "$detail_target" = "production" ]
+          [ "$detail_state" = "READY" ]
+          [ -n "$detail_id" ]
+
+          jq -n \
+            --arg deploymentId "$detail_id" \
+            --arg commitSha "$detail_sha" \
+            --arg target "$detail_target" \
+            --arg readyState "$detail_state" \
+            --arg createdAt "$created_at" \
+            --arg releaseSha "$RELEASE_SHA" \
+            '{
+              schema:"sanad.vercel.production-deployment.v1",
+              deploymentId:$deploymentId,
+              githubCommitSha:$commitSha,
+              target:$target,
+              readyState:$readyState,
+              createdAt:(if ($createdAt | test("^[0-9]+$")) then ($createdAt|tonumber) else $createdAt end),
+              shaMatch:($commitSha == $releaseSha),
+              result:(
+                if (
+                  $commitSha == $releaseSha and
+                  $target == "production" and
+                  $readyState == "READY" and
+                  ($deploymentId | length) > 0
+                ) then "PASS" else "FAIL" end
+              )
+            }' > evidence/vercel-deployment.json
+          jq -e '.result == "PASS"' evidence/vercel-deployment.json >/dev/null
+          echo "deployment_id=$detail_id" >> "$GITHUB_OUTPUT"
+          echo "VERCEL_DEPLOYMENT_ID: VERIFIED"
+          echo "VERCEL_SHA == RELEASE_SHA: PASS"
+
+      - name: Update and verify main branch protection
         shell: bash
         run: |
           set -euo pipefail
-          RELEASE_SHA="${{ steps.sha.outputs.release_sha }}"
-          RENDER_DEPLOY=$(curl --silent --show-error \
-            --header "Authorization: Bearer $RENDER_API_KEY" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=1")
-          RENDER_SHA=$(echo "$RENDER_DEPLOY" | jq -r '.[0].deploy.commit.id // empty')
-          RENDER_STATUS=$(echo "$RENDER_DEPLOY" | jq -r '.[0].deploy.status // empty')
-          echo "Render SHA: $RENDER_SHA"
-          echo "Render status: $RENDER_STATUS"
-          [ "$RENDER_SHA" = "$RELEASE_SHA" ] || { echo "::error::SHA MISMATCH: Render=$RENDER_SHA"; exit 1; }
-          [ "$RENDER_STATUS" = "live" ] || { echo "::error::RENDER NOT LIVE"; exit 1; }
-          echo "render_sha=$RENDER_SHA" >> "$GITHUB_OUTPUT"
-          echo "RENDER SHA == RELEASE SHA: PASS"
-          echo "RENDER STATUS == LIVE: PASS"
+          echo "::add-mask::$BRANCH_PROTECTION_TOKEN"
+          required_contexts='[
+            "Maven Test Suite",
+            "Build Next.js Web",
+            "Current Tree Secret Scan",
+            "Frontend Production Dependency Audit",
+            "Backend Container Hardening",
+            "Workflow Security Policy",
+            "Security Gate Summary",
+            "PostgreSQL Logical Backup and Restore",
+            "Commercial Release Workflow Contract",
+            "provenance"
+          ]'
+          jq -n --argjson contexts "$required_contexts" '{
+            required_status_checks:{strict:true,contexts:$contexts},
+            enforce_admins:true,
+            required_pull_request_reviews:{
+              dismiss_stale_reviews:true,
+              require_code_owner_reviews:false,
+              required_approving_review_count:1,
+              require_last_push_approval:false
+            },
+            restrictions:null,
+            required_linear_history:false,
+            allow_force_pushes:false,
+            allow_deletions:false,
+            block_creations:false,
+            required_conversation_resolution:true,
+            lock_branch:false,
+            allow_fork_syncing:false
+          }' > "$RUNNER_TEMP/branch-protection-request.json"
 
-      # ============================================================
-      # SECTION 12: Generate Evidence (from REAL outputs only)
-      # ============================================================
-      - name: 18. Generate Evidence Artifacts (from real outputs)
+          curl --fail-with-body --silent --show-error \
+            --request PUT \
+            --header "Authorization: Bearer $BRANCH_PROTECTION_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --header "Content-Type: application/json" \
+            --data @"$RUNNER_TEMP/branch-protection-request.json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/branches/main/protection" \
+            > "$RUNNER_TEMP/branch-protection-response.json"
+
+          curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $BRANCH_PROTECTION_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/branches/main/protection" \
+            > "$RUNNER_TEMP/branch-protection-verified.json"
+
+          jq -e --argjson required "$required_contexts" '
+            (.required_status_checks.strict == true) and
+            ((.required_status_checks.contexts // []) as $actual
+              | all($required[] as $ctx; $actual | index($ctx) != null)) and
+            (.enforce_admins.enabled == true) and
+            (.required_pull_request_reviews.dismiss_stale_reviews == true) and
+            (.required_pull_request_reviews.required_approving_review_count >= 1) and
+            (.required_conversation_resolution.enabled == true) and
+            (.allow_force_pushes.enabled == false) and
+            (.allow_deletions.enabled == false)
+          ' "$RUNNER_TEMP/branch-protection-verified.json" >/dev/null
+
+          jq --argjson required "$required_contexts" '{
+            schema:"sanad.branch-protection.v1",
+            branch:"main",
+            strictStatusChecks:.required_status_checks.strict,
+            requiredStatusChecks:(.required_status_checks.contexts // []),
+            requiredApprovals:.required_pull_request_reviews.required_approving_review_count,
+            dismissStaleReviews:.required_pull_request_reviews.dismiss_stale_reviews,
+            enforceAdmins:.enforce_admins.enabled,
+            conversationResolution:.required_conversation_resolution.enabled,
+            forcePushesBlocked:(.allow_force_pushes.enabled == false),
+            deletionBlocked:(.allow_deletions.enabled == false),
+            requiredChecksComplete:(
+              (.required_status_checks.contexts // []) as $actual
+              | all($required[] as $ctx; $actual | index($ctx) != null)
+            ),
+            result:(
+              if (
+                .required_status_checks.strict == true and
+                ((.required_status_checks.contexts // []) as $actual
+                  | all($required[] as $ctx; $actual | index($ctx) != null)) and
+                .enforce_admins.enabled == true and
+                .required_pull_request_reviews.dismiss_stale_reviews == true and
+                .required_pull_request_reviews.required_approving_review_count >= 1 and
+                .required_conversation_resolution.enabled == true and
+                .allow_force_pushes.enabled == false and
+                .allow_deletions.enabled == false
+              ) then "PASS" else "FAIL" end
+            )
+          }' "$RUNNER_TEMP/branch-protection-verified.json" > evidence/branch-protection-evidence.json
+          jq -e '.result == "PASS"' evidence/branch-protection-evidence.json >/dev/null
+          echo "MAIN BRANCH FREEZE: ACTIVE"
+          echo "REQUIRED STATUS CHECKS: COMPLETE"
+
+      - name: Validate evidence and prepare release tag
+        id: evidence
         shell: bash
         env:
-          RELEASE_SHA: ${{ steps.sha.outputs.release_sha }}
-          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
-          EMAIL_ID: ${{ steps.email.outputs.email_id }}
-          EMAIL_SUBJECT: ${{ steps.email.outputs.email_subject }}
-          EMAIL_STATUS: ${{ steps.email.outputs.email_status }}
-          VERCEL_SHA: ${{ steps.vercel.outputs.vercel_sha }}
-          VERCEL_ID: ${{ steps.vercel.outputs.vercel_id }}
-          RENDER_SHA: ${{ steps.render_sha.outputs.render_sha }}
-          HEALTH: ${{ steps.health.outputs.health }}
-          READINESS: ${{ steps.health.outputs.readiness }}
-          CP_CODE: ${{ steps.boundary.outputs.cp_code }}
-          BFF_CODE: ${{ steps.boundary.outputs.bff_code }}
-          FLYWAY_HISTORY: ${{ steps.flyway.outputs.history }}
-          SECRET_FINDINGS: ${{ steps.secret_scan.outputs.finding_count }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
         run: |
           set -euo pipefail
-          mkdir -p evidence
+          short_sha="${RELEASE_SHA:0:12}"
+          release_tag="sanad-commercial-$(date -u +%Y%m%d)-${short_sha}-${GITHUB_RUN_NUMBER}"
+          if git rev-parse "$release_tag" >/dev/null 2>&1 || git ls-remote --tags origin "refs/tags/$release_tag" | grep -q .; then
+            echo "::error::Release tag already exists"; exit 1
+          fi
 
-          # release-sha.json — real values
-          jq -n --arg sha "$RELEASE_SHA" \
-            '{releaseSha: $sha, verifiedAt: (now | todateiso8601)}' > evidence/release-sha.json
+          required_files=(
+            release-sha.json render-deployment.json vercel-deployment.json
+            flyway-evidence.json health-readiness-evidence.json
+            authenticated-smoke-evidence.json tenant-isolation-evidence.json
+            email-delivery-evidence.json branch-protection-evidence.json
+            secret-scan-evidence.json credential-evidence.json
+          )
+          for file in "${required_files[@]}"; do
+            test -s "evidence/$file"
+            jq -e . "evidence/$file" >/dev/null
+          done
 
-          # render-deployment.json — real API response
-          curl --silent --header "Authorization: Bearer $RENDER_API_KEY" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$DEPLOY_ID" \
-            | jq '{deployId: .id, commitSha: .commit.id, status: .status, startedAt: .startedAt, finishedAt: .finishedAt}' \
-            > evidence/render-deployment.json
+          release_file_sha="$(jq -r '.releaseSha // empty' evidence/release-sha.json)"
+          render_sha="$(jq -r '.commitSha // empty' evidence/render-deployment.json)"
+          vercel_sha="$(jq -r '.githubCommitSha // empty' evidence/vercel-deployment.json)"
+          smoke_sha="$(jq -r '.testedSha // empty' evidence/authenticated-smoke-evidence.json)"
+          isolation_sha="$(jq -r '.testedSha // empty' evidence/tenant-isolation-evidence.json)"
+          for candidate in "$release_file_sha" "$render_sha" "$vercel_sha" "$smoke_sha" "$isolation_sha"; do
+            [ "$candidate" = "$RELEASE_SHA" ] || { echo "::error::Evidence SHA mismatch"; exit 1; }
+          done
 
-          # vercel-deployment.json — real values
-          jq -n --arg sha "$VERCEL_SHA" --arg id "$VERCEL_ID" \
-            '{vercelSha: $sha, deploymentId: $id, source: "GitHub Deployments API"}' \
-            > evidence/vercel-deployment.json
+          result_files=(
+            render-deployment.json vercel-deployment.json flyway-evidence.json
+            health-readiness-evidence.json authenticated-smoke-evidence.json
+            tenant-isolation-evidence.json email-delivery-evidence.json
+            branch-protection-evidence.json secret-scan-evidence.json credential-evidence.json
+          )
+          for file in "${result_files[@]}"; do
+            jq -e '.result == "PASS"' "evidence/$file" >/dev/null || {
+              echo "::error::Evidence gate did not pass: $file"; exit 1; }
+          done
 
-          # health-readiness-evidence.json — real responses
-          jq -n --argjson health "$HEALTH" --argjson readiness "$READINESS" \
-            '{health: $health, readiness: $readiness}' > evidence/health-readiness-evidence.json
+          if grep -RniE '"[^"]*(password|token|cookie|authorization|api[_-]?key)[^"]*"[[:space:]]*:' evidence; then
+            echo "::error::Sensitive key name found in evidence"; exit 1
+          fi
+          if grep -RniE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' evidence; then
+            echo "::error::Email address found in evidence"; exit 1
+          fi
+          if grep -RniE '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}' evidence; then
+            echo "::error::Tenant/user UUID found in evidence"; exit 1
+          fi
+          if grep -RniE '\b(SKIP|WARNING|NOT[_ -]?EXECUTED|NOT[_ -]?TESTED)\b' evidence; then
+            echo "::error::Non-passing state found in evidence"; exit 1
+          fi
 
-          # control-plane-smoke.json — real HTTP codes
-          jq -n --arg cp "$CP_CODE" --arg bff "$BFF_CODE" \
-            '{controlPlane: {httpStatus: $cp, result: (if $cp == "200" then "PASS" else "FAIL" end)},
-              bffSecurity: {httpStatus: $bff, result: (if ($bff == "401" or $bff == "403") then "PASS" else "FAIL" end)}}' \
-            > evidence/control-plane-smoke.json
-
-          # secret-scan-evidence.json — real finding count
-          jq -n --argjson findings "$SECRET_FINDINGS" \
-            '{tool: "gitleaks", mode: "no-git --redact", findings: $findings, result: (if $findings == 0 then "PASS" else "FAIL" end)}' \
-            > evidence/secret-scan-evidence.json
-
-          # flyway-evidence.json — real DB query result
-          jq -Rn --arg history "$FLYWAY_HISTORY" \
-            '{rawHistory: $history, result: "PASS"}' > evidence/flyway-evidence.json
-
-          # email-delivery-evidence.json — REAL message ID + status from Resend
-          jq -n --arg id "$EMAIL_ID" --arg subject "$EMAIL_SUBJECT" --arg status "$EMAIL_STATUS" \
-            '{messageId: $id, subject: $subject, deliveryStatus: $status, source: "Resend API"}' \
-            > evidence/email-delivery-evidence.json
-
-          # commercial-release-summary.json — computed from real results
           jq -n \
-            --arg sha "$RELEASE_SHA" \
-            --arg deployId "$DEPLOY_ID" \
-            --arg vercelSha "$VERCEL_SHA" \
-            --arg renderSha "$RENDER_SHA" \
-            --arg emailId "$EMAIL_ID" \
+            --arg releaseSha "$RELEASE_SHA" \
+            --arg releaseTag "$release_tag" \
+            --slurpfile render evidence/render-deployment.json \
+            --slurpfile vercel evidence/vercel-deployment.json \
+            --slurpfile flyway evidence/flyway-evidence.json \
+            --slurpfile health evidence/health-readiness-evidence.json \
+            --slurpfile smoke evidence/authenticated-smoke-evidence.json \
+            --slurpfile isolation evidence/tenant-isolation-evidence.json \
+            --slurpfile email evidence/email-delivery-evidence.json \
+            --slurpfile branch evidence/branch-protection-evidence.json \
+            --slurpfile secretScan evidence/secret-scan-evidence.json \
+            --slurpfile credentials evidence/credential-evidence.json \
             '{
-              releaseSha: $sha,
-              renderDeploymentId: $deployId,
-              vercelSha: $vercelSha,
-              renderSha: $renderSha,
-              shaMatch: (if ($sha == $renderSha and $sha == $vercelSha) then "PASS" else "FAIL" end),
-              emailMessageId: $emailId,
-              finalDecision: "PENDING — see workflow conclusion"
+              schema:"sanad.commercial-release.v2",
+              releaseSha:$releaseSha,
+              releaseTag:$releaseTag,
+              renderDeploymentId:$render[0].deploymentId,
+              vercelDeploymentId:$vercel[0].deploymentId,
+              emailMessageId:$email[0].messageId,
+              gates:{
+                repositorySecretScan:$secretScan[0].result,
+                databaseCredential:$credentials[0].databaseCredential,
+                resendCredential:$credentials[0].resendCredential,
+                flyway:$flyway[0].result,
+                backendHealth:$health[0].healthStatus,
+                backendReadiness:$health[0].readinessStatus,
+                authenticatedSmoke:$smoke[0].result,
+                tenantIsolation:$isolation[0].result,
+                emailDelivery:$email[0].result,
+                renderShaMatch:$render[0].result,
+                vercelShaMatch:$vercel[0].result,
+                branchProtection:$branch[0].result
+              },
+              finalDecision:(
+                if (
+                  $secretScan[0].result == "PASS" and
+                  $credentials[0].result == "PASS" and
+                  $flyway[0].result == "PASS" and
+                  $health[0].result == "PASS" and
+                  $smoke[0].result == "PASS" and
+                  $isolation[0].result == "PASS" and
+                  $email[0].result == "PASS" and
+                  $render[0].result == "PASS" and
+                  $vercel[0].result == "PASS" and
+                  $branch[0].result == "PASS"
+                ) then "COMMERCIAL GO-LIVE — GO"
+                else "COMMERCIAL GO-LIVE — NO-GO"
+                end
+              )
             }' > evidence/commercial-release-summary.json
+          jq -e '.finalDecision == "COMMERCIAL GO-LIVE — GO"' evidence/commercial-release-summary.json >/dev/null
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "COMMERCIAL RELEASE EVIDENCE: VALIDATED"
 
-      - name: 19. Upload Evidence Artifacts
+      - name: Create verified release tag
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          RELEASE_TAG: ${{ steps.evidence.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "SANAD Release Bot"
+          git config user.email "noreply@snad.ai"
+          git tag -a "$RELEASE_TAG" "$RELEASE_SHA" \
+            -m "SANAD Commercial Release — all fail-closed gates passed"
+          git push origin "refs/tags/$RELEASE_TAG"
+          tagged_sha="$(git rev-list -n 1 "$RELEASE_TAG")"
+          test "$tagged_sha" = "$RELEASE_SHA"
+
+      - name: Upload commercial release evidence
         uses: actions/upload-artifact@v4
         with:
           name: commercial-release-evidence-${{ github.run_id }}
           path: evidence/
+          if-no-files-found: error
           retention-days: 365
 
-      # ============================================================
-      # SECTION 13: Release Tag (only if ALL gates passed)
-      # ============================================================
-      - name: 20. Create Release Tag
-        id: tag
+      - name: Publish final decision
         shell: bash
         run: |
           set -euo pipefail
-          RELEASE_SHA="${{ steps.sha.outputs.release_sha }}"
-          SHORT_SHA="$(git rev-parse --short=12 "$RELEASE_SHA")"
-          UTC_DATE="$(date -u +%Y%m%d)"
-          RELEASE_TAG="sanad-commercial-${UTC_DATE}-${SHORT_SHA}"
-          git config user.name "SANAD Release Bot"
-          git config user.email "noreply@snad.ai"
-          git tag -a "$RELEASE_TAG" "$RELEASE_SHA" \
-            -m "SANAD Commercial Release — ALL gates passed (strict mode)
+          jq -e '.finalDecision == "COMMERCIAL GO-LIVE — GO"' evidence/commercial-release-summary.json >/dev/null
+          {
+            echo "## SANAD COMMERCIAL RELEASE REPORT"
+            echo
+            echo "- Release SHA: \`$(jq -r '.releaseSha' evidence/commercial-release-summary.json)\`"
+            echo "- Release Tag: \`$(jq -r '.releaseTag' evidence/commercial-release-summary.json)\`"
+            echo "- Render Deployment ID: \`$(jq -r '.renderDeploymentId' evidence/commercial-release-summary.json)\`"
+            echo "- Vercel Deployment ID: \`$(jq -r '.vercelDeploymentId' evidence/commercial-release-summary.json)\`"
+            echo "- Email Message ID: \`$(jq -r '.emailMessageId' evidence/commercial-release-summary.json)\`"
+            echo "- Final Decision: **$(jq -r '.finalDecision' evidence/commercial-release-summary.json)**"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          Release SHA: $RELEASE_SHA
-          Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-          All gates BLOCKING — no SKIP, no warning-only"
-          git push "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "$RELEASE_TAG"
-          TAGGED_SHA=$(git rev-list -n 1 "$RELEASE_TAG")
-          [ "$TAGGED_SHA" = "$RELEASE_SHA" ] || { echo "::error::TAG SHA MISMATCH"; exit 1; }
-          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-
-      # ============================================================
-      # SECTION 14: Update Branch Protection — add ALL critical checks
-      # ============================================================
-      - name: 21. Update Branch Protection (all critical checks)
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "=== Updating Branch Protection ==="
-          # Get all check run names that exist on the repo
-          CHECKS=$(curl --silent --show-error --max-time 20 \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/${{ github.repository }}/commits/main/check-runs?per_page=100" \
-            | jq -r '[.check_runs[]? | .name] | unique')
-          echo "Available checks: $CHECKS"
-
-          # Apply protection with all available critical checks
-          curl --silent --show-error --max-time 30 -X PUT \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/branches/main/protection" \
-            -d "{
-              \"required_status_checks\": {
-                \"strict\": true,
-                \"contexts\": [\"Build Next.js Web\", \"provenance\"]
-              },
-              \"enforce_admins\": true,
-              \"required_pull_request_reviews\": {
-                \"required_approving_review_count\": 1,
-                \"dismiss_stale_reviews\": true
-              },
-              \"restrictions\": null,
-              \"allow_force_pushes\": false,
-              \"allow_deletions\": false,
-              \"required_conversation_resolution\": true
-            }" -o /dev/null -w '%{http_code}' > /tmp/bp-code.txt
-          BP_CODE=$(cat /tmp/bp-code.txt)
-          [ "$BP_CODE" = "200" ] || { echo "::error::BRANCH PROTECTION: FAIL ($BP_CODE)"; exit 1; }
-          echo "BRANCH PROTECTION: PASS"
-
-      # ============================================================
-      # SECTION 15: Final Report — computed from REAL results
-      # ============================================================
-      - name: 22. Final Report
+      - name: Roll back release tag when a later gate fails
+        if: failure() && steps.evidence.outputs.tag != ''
         shell: bash
         env:
-          RELEASE_SHA: ${{ steps.sha.outputs.release_sha }}
-          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
-          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
-          EMAIL_ID: ${{ steps.email.outputs.email_id }}
-          VERCEL_SHA: ${{ steps.vercel.outputs.vercel_sha }}
-          RENDER_SHA: ${{ steps.render_sha.outputs.render_sha }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          RELEASE_TAG: ${{ steps.evidence.outputs.tag }}
         run: |
-          echo "============================================"
-          echo "SANAD COMMERCIAL RELEASE REPORT (STRICT)"
-          echo "============================================"
-          echo ""
-          echo "Release SHA: $RELEASE_SHA"
-          echo "Release Tag: $RELEASE_TAG"
-          echo "Render Deployment ID: $DEPLOY_ID"
-          echo "Render SHA: $RENDER_SHA"
-          echo "Vercel SHA: $VERCEL_SHA"
-          echo "Email Message ID: $EMAIL_ID"
-          echo ""
-          echo "Repository Secret Scan: PASS (0 findings)"
-          echo "Database Credential: VALID"
-          echo "Resend Credential: VALID"
-          echo "Flyway History: PASS THROUGH V20260702.3"
-          echo "Backend Health: UP"
-          echo "Backend Readiness: UP"
-          echo "Security Boundary: PASS"
-          echo "Control Plane: HTTP 200"
-          echo "BFF Security Boundary: PASS"
-          echo "Admin Login: PASS"
-          echo "Admin Role (ADMIN/SUPER_ADMIN): PASS"
-          echo "Admin Tenant == Control Plane: PASS"
-          echo "Control Plane Dashboard: PASS"
-          echo "Refresh: PASS (STRICT — blocking)"
-          echo "Logout Revocation: PASS (STRICT — blocking)"
-          echo "Identity B Login: PASS"
-          echo "RBAC Denial: PASS"
-          echo "Tenant Isolation: PASS"
-          echo "Email Delivery: PASS (real Message ID: $EMAIL_ID)"
-          echo "Render SHA == Release SHA: PASS"
-          echo "Vercel SHA == Release SHA: PASS (verified via API)"
-          echo "Release Tag: CREATED"
-          echo "Branch Protection: ACTIVE"
-          echo "Rollback Plan: VERIFIED"
-          echo ""
-          echo "Final Decision: COMMERCIAL GO-LIVE — GO"
-          echo "============================================"
+          set -euo pipefail
+          remote_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG^{}" | awk '{print $1}')"
+          if [ -z "$remote_sha" ]; then
+            remote_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" | awk '{print $1}')"
+          fi
+          if [ "$remote_sha" = "$RELEASE_SHA" ]; then
+            git push origin ":refs/tags/$RELEASE_TAG"
+            echo "Rolled back failed commercial release tag: $RELEASE_TAG"
+          fi
+
+      - name: Remove temporary credential material
+        if: always()
+        shell: bash
+        run: |
+          rm -f \
+            "$RUNNER_TEMP/render-env.json" \
+            "$RUNNER_TEMP/render-env-normalized.json" \
+            "$RUNNER_TEMP/render-request.json" \
+            "$RUNNER_TEMP/render-deploy-created.json" \
+            "$RUNNER_TEMP/render-deploy-state.json" \
+            "$RUNNER_TEMP/health.json" \
+            "$RUNNER_TEMP/readiness.json" \
+            "$RUNNER_TEMP/vercel-deployments.json" \
+            "$RUNNER_TEMP/vercel-deployment-detail.json" \
+            "$RUNNER_TEMP/resend-emails.json" \
+            "$RUNNER_TEMP/resend-email-detail.json" \
+            "$RUNNER_TEMP/branch-protection-request.json" \
+            "$RUNNER_TEMP/branch-protection-response.json" \
+            "$RUNNER_TEMP/branch-protection-verified.json"
