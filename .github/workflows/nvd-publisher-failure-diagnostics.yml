@@ -1,0 +1,25 @@
+name: NVD Publisher Failure Diagnostics
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/nvd-publisher-failure-diagnostics.yml'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Print failed publisher lines
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run view 28690555375 --repo "$GITHUB_REPOSITORY" --log-failed > publisher-failure.log
+          grep -Ei 'error|exception|failed|fatal|traceback|not found|timed out|rate limit|403|404|422' publisher-failure.log | tail -n 120 || true
