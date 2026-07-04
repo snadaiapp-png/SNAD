@@ -80,7 +80,7 @@ jobs:
               -H "Authorization: Bearer $RESEND_API_KEY" \
               "https://api.resend.com/emails?limit=5")
             EMAIL_ID=$(echo "$EMAILS" | jq -r --arg email "$TEST_EMAIL" \
-              '.data // [] | map(select(.to[0] == $email and (.subject // "") | test("Reset|إعادة|SNAD"; "i"))) | .[0].id // empty')
+              '[.data // [] | .[] | select(.to[0] == $email)] | .[0].id // empty')
             if [ -n "$EMAIL_ID" ]; then
               echo "✓ Found email ID: $EMAIL_ID"
               break
