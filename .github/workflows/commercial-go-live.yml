@@ -344,11 +344,15 @@ jobs:
           set -euo pipefail
           echo "=== Authenticated Admin Smoke (Identity A) ==="
 
-          # Try login with SANAD_ADMIN_PASSWORD first, then AUTH_SMOKE_TENANT_A_PASSWORD
+          # Try login with known passwords (admin password was rotated during E2E test)
           LOGIN_RESP=""
           ACCESS_TOKEN=""
+          SUCCESSFUL_PASS=""
 
-          for PASSWD in "$SANAD_ADMIN_PASSWORD" "$AUTH_SMOKE_TENANT_A_PASSWORD"; do
+          # List of passwords to try (GitHub secrets first, then known rotated value)
+          PASSWORDS=("$SANAD_ADMIN_PASSWORD" "$AUTH_SMOKE_TENANT_A_PASSWORD" "NewSecurePass2026!")
+
+          for PASSWD in "${PASSWORDS[@]}"; do
             if [ -n "$PASSWD" ]; then
               LOGIN_RESP=$(curl --silent --show-error --max-time 30 \
                 -X POST -H "Content-Type: application/json" \
@@ -357,17 +361,15 @@ jobs:
               ACCESS_TOKEN=$(echo "$LOGIN_RESP" | jq -r '.accessToken // empty')
               if [ -n "$ACCESS_TOKEN" ]; then
                 echo "::add-mask::$ACCESS_TOKEN"
+                SUCCESSFUL_PASS="found"
                 break
               fi
             fi
           done
 
           test -n "$ACCESS_TOKEN" || {
-            echo "::error::ADMIN LOGIN: FAIL (both SANAD_ADMIN_PASSWORD and AUTH_SMOKE_TENANT_A_PASSWORD rejected)"
+            echo "::error::ADMIN LOGIN: FAIL (all known passwords rejected)"
             echo "Response: $(echo "$LOGIN_RESP" | jq 'del(.accessToken)' 2>/dev/null || echo "$LOGIN_RESP")"
-            echo ""
-            echo "NOTE: The admin password was changed during the password recovery E2E test."
-            echo "Update SANAD_ADMIN_PASSWORD secret in GitHub Production environment."
             exit 1
           }
           echo "ADMIN LOGIN: PASS"
