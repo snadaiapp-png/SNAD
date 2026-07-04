@@ -39,12 +39,14 @@ class PlatformApiCountTest {
 
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
-        assertThat(count(paths, "/api/v1/control-plane")).isEqualTo(32);
+        assertThat(count(paths, "/api/v1/control-plane")).isEqualTo(34);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(44);
-        assertThat(count(paths, null)).isEqualTo(129);
+        assertThat(count(paths, null)).isEqualTo(131);
         assertThat(has(paths, "/api/v1/auth/change-credential", "post")).isTrue();
         assertThat(has(paths, "/api/v1/access/evaluation", "get")).isTrue();
         assertThat(has(paths, "/api/v1/control-plane/dashboard", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/control-plane/health", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/control-plane/health/actions", "post")).isTrue();
         assertThat(has(paths, "/api/v1/crm/dashboard", "get")).isTrue();
         assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/customer-360", "get")).isTrue();
         assertThat(has(paths, "/api/v1/crm/leads/{leadId}/convert", "post")).isTrue();
