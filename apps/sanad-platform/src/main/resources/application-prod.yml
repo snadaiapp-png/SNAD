@@ -1,13 +1,5 @@
 # ============================================================
-# SANAD Platform — production profile (optimized for 512MB)
-# ============================================================
-# Optimizations for constrained environments (Render free tier,
-# Fly.io shared-cpu-1x, Railway 500MB):
-# - Lazy bean initialization (faster startup)
-# - Minimal HikariCP pool (1-2 connections)
-# - Disabled unused auto-configurations
-# - Reduced Hibernate overhead
-# - CDS (Class Data Sharing) archive for faster class loading
+# SANAD Platform — production profile (simple, reliable)
 # ============================================================
 
 sanad:
@@ -45,15 +37,6 @@ sanad:
       audit-actor: ${BOOTSTRAP_AUDIT_ACTOR:credential-bootstrap}
 
 spring:
-  # ============================================================
-  # LAZY INITIALIZATION — startup optimization
-  # Beans are created on first use instead of at startup.
-  # Reduces startup time by 40-60% on constrained VMs.
-  # Set LAZY_INIT=false to disable (e.g., for debugging bean issues).
-  # ============================================================
-  main:
-    lazy-initialization: ${LAZY_INIT:false}
-
   datasource:
     url: ${DATABASE_URL:}
     username: ${DATABASE_USERNAME:}
@@ -61,15 +44,11 @@ spring:
     driver-class-name: ${DATABASE_DRIVER:org.postgresql.Driver}
     hikari:
       pool-name: SanadProdHikariCP
-      # Minimal pool for low-traffic deployment — saves ~5MB per connection
-      maximum-pool-size: ${DATABASE_POOL_MAX:3}
+      maximum-pool-size: ${DATABASE_POOL_MAX:5}
       minimum-idle: ${DATABASE_POOL_MIN:1}
       connection-timeout: ${DATABASE_POOL_TIMEOUT:30000}
       idle-timeout: 600000
       max-lifetime: 1800000
-      initialization-fail-timeout: 0
-      # Leak detection — fail fast in case of connection issues
-      leak-detection-threshold: 60000
 
   jpa:
     open-in-view: false
@@ -81,14 +60,6 @@ spring:
         jdbc:
           time_zone: UTC
         format_sql: false
-        # ============================================================
-        # STARTUP OPTIMIZATIONS — keep JPA functional but minimal
-        # ============================================================
-        temp.use_jdbc_metadata_defaults: false
-        # Skip JMX bean registration (saves ~2s + memory)
-        session_factory.statement_cache.size: 0
-        # Batch fetching for better performance
-        default_batch_fetch_size: 8
     show-sql: false
 
   flyway:
@@ -97,32 +68,13 @@ spring:
     baseline-on-migrate: false
     validate-on-migrate: true
     clean-disabled: true
-    # Faster Flyway startup — skip duplicate checks
-    check-location: false
 
   lifecycle:
-    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:20s}
-
-  # ============================================================
-  # DISABLED AUTO-CONFIGURATIONS — saves memory + startup time
-  # Only disable configurations that are truly unused.
-  # NOTE: TaskExecutionAutoConfiguration is REQUIRED for Spring MVC
-  # (async request handling), so it must NOT be excluded.
-  # ============================================================
-  autoconfigure:
-    exclude:
-      # Disable SpringDoc/OpenAPI in production (not exposed anyway)
-      - org.springdoc.core.autoconfigure.SpringDocConfiguration
-      # Disable JMX (not needed in containerized deployment)
-      - org.springframework.boot.autoconfigure.jmx.JmxAutoConfiguration
+    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:30s}
 
 server:
   port: ${SERVER_PORT:8080}
   shutdown: graceful
-  # Faster startup — skip unnecessary servlet initialization
-  servlet:
-    encoding:
-      force: false
 
 management:
   server:
@@ -137,18 +89,6 @@ management:
       show-details: never
       probes:
         enabled: true
-      # Faster health check — skip database check on liveness
-      group:
-        liveness:
-          include: livenessState
-        readiness:
-          include: readinessState,db
-  health:
-    # SMTP delivery is an optional downstream capability and must not prevent
-    # the core API from becoming healthy when provider credentials are absent.
-    # Mail sending remains available whenever Spring Mail is configured.
-    mail:
-      enabled: ${MANAGEMENT_HEALTH_MAIL_ENABLED:false}
   info:
     env:
       enabled: false
@@ -159,20 +99,14 @@ management:
 
 logging:
   level:
-    root: ${LOG_LEVEL_ROOT:WARN}
+    root: ${LOG_LEVEL_ROOT:INFO}
     com.sanad.platform: ${LOG_LEVEL_SANAD:INFO}
     org.springframework.web: WARN
     org.hibernate.SQL: WARN
-    org.hibernate: WARN
-    org.flywaydb: WARN
-    org.springframework: WARN
-    # Only show startup errors
-    org.springframework.boot.web.embedded: INFO
-    org.springframework.boot.StartupInfoLogger: INFO
+    org.flywaydb: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
 
-# Disabled in production (already disabled, kept for clarity)
 springdoc:
   api-docs:
     enabled: false
