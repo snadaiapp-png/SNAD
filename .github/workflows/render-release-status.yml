@@ -18,13 +18,16 @@ jobs:
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
     steps:
-      - name: Inspect recent releases
+      - name: Inspect Render configuration and releases
         shell: bash
         run: |
           set -euo pipefail
-          echo "STATUS_CHECK=stage07-final-candidate"
           auth=(-H "Authorization: Bearer $RENDER_API_KEY" -H "Accept: application/json")
+          curl -fsS "${auth[@]}" "https://api.render.com/v1/services/$RENDER_SERVICE_ID" > service.json
+          curl -fsS "${auth[@]}" "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" > env.json
           curl -fsS "${auth[@]}" "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=10" > deploys.json
+          jq -c '(.service // .) | {id,name,repo,branch,autoDeploy,autoDeployTrigger,rootDir,serviceDetails}' service.json
+          jq -r '[.[]? | (.envVar // .)] as $e | "NOTIFICATION_PROVIDER=" + (($e[] | select(.key=="SECURITY_NOTIFICATION_PROVIDER") | .value) // "<missing>"), "RESEND_KEY_PRESENT=" + (if any($e[]; .key=="SECURITY_NOTIFICATION_RESEND_API_KEY" and ((.value // "")|length>0)) then "true" else "false" end), "MAIL_HEALTH=" + (($e[] | select(.key=="MANAGEMENT_HEALTH_MAIL_ENABLED") | .value) // "false")' env.json
           jq -c '.[] | (.deploy // .) | {id,status,commit:(.commit.id // .commitId),createdAt,finishedAt,trigger}' deploys.json
           echo "HEALTH_HTTP=$(curl -sS -o health.json -w '%{http_code}' --max-time 20 "$PRODUCTION_BASE_URL/actuator/health" || true)"
           echo "READINESS_HTTP=$(curl -sS -o readiness.json -w '%{http_code}' --max-time 20 "$PRODUCTION_BASE_URL/actuator/health/readiness" || true)"
