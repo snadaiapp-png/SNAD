@@ -344,17 +344,30 @@ jobs:
           set -euo pipefail
           echo "=== Authenticated Admin Smoke (Identity A) ==="
 
-          # Login as admin
-          LOGIN_RESP=$(curl --silent --show-error --max-time 30 \
-            -X POST -H "Content-Type: application/json" \
-            -d "{\"email\":\"$SANAD_ADMIN_EMAIL\",\"password\":\"$SANAD_ADMIN_PASSWORD\"}" \
-            "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/auth/login")
+          # Try login with SANAD_ADMIN_PASSWORD first, then AUTH_SMOKE_TENANT_A_PASSWORD
+          LOGIN_RESP=""
+          ACCESS_TOKEN=""
 
-          ACCESS_TOKEN=$(echo "$LOGIN_RESP" | jq -r '.accessToken // empty')
-          echo "::add-mask::$ACCESS_TOKEN"
+          for PASSWD in "$SANAD_ADMIN_PASSWORD" "$AUTH_SMOKE_TENANT_A_PASSWORD"; do
+            if [ -n "$PASSWD" ]; then
+              LOGIN_RESP=$(curl --silent --show-error --max-time 30 \
+                -X POST -H "Content-Type: application/json" \
+                -d "{\"email\":\"$SANAD_ADMIN_EMAIL\",\"password\":\"$PASSWD\"}" \
+                "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/auth/login")
+              ACCESS_TOKEN=$(echo "$LOGIN_RESP" | jq -r '.accessToken // empty')
+              if [ -n "$ACCESS_TOKEN" ]; then
+                echo "::add-mask::$ACCESS_TOKEN"
+                break
+              fi
+            fi
+          done
+
           test -n "$ACCESS_TOKEN" || {
-            echo "::error::ADMIN LOGIN: FAIL"
-            echo "$LOGIN_RESP" | jq 'del(.accessToken)' 2>/dev/null || echo "$LOGIN_RESP"
+            echo "::error::ADMIN LOGIN: FAIL (both SANAD_ADMIN_PASSWORD and AUTH_SMOKE_TENANT_A_PASSWORD rejected)"
+            echo "Response: $(echo "$LOGIN_RESP" | jq 'del(.accessToken)' 2>/dev/null || echo "$LOGIN_RESP")"
+            echo ""
+            echo "NOTE: The admin password was changed during the password recovery E2E test."
+            echo "Update SANAD_ADMIN_PASSWORD secret in GitHub Production environment."
             exit 1
           }
           echo "ADMIN LOGIN: PASS"
@@ -368,7 +381,6 @@ jobs:
           echo "::add-mask::$ME_TENANT"
 
           echo "Admin status: $ME_STATUS"
-          echo "Admin tenant matches control plane: $([ -n "$ME_TENANT" ] && echo "YES" || echo "NO")"
           [ "$ME_STATUS" = "ACTIVE" ] || { echo "::error::ADMIN NOT ACTIVE"; exit 1; }
           echo "ADMIN /auth/me: PASS"
 
