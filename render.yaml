@@ -46,7 +46,7 @@ services:
       - key: LOG_LEVEL_SANAD
         value: INFO
       - key: LAZY_INIT
-        value: "true"
+        value: "false"
       - key: MANAGEMENT_ENDPOINTS
         value: health
       - key: SHUTDOWN_TIMEOUT
