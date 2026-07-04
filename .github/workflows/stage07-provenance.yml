@@ -3,6 +3,8 @@ name: Stage 07 Artifact Provenance
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
