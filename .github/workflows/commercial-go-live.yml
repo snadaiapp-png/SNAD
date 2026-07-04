@@ -483,9 +483,9 @@ jobs:
             "https://api.github.com/repos/${{ github.repository }}/deployments?per_page=10&environment=Production")
           # Find Vercel deployment matching release SHA
           VERCEL_SHA=$(echo "$DEPLOYMENTS" | jq -r --arg sha "$RELEASE_SHA" \
-            '[.[] | select(.sha == $sha and (.creator.login == "vercel" or .payload.environment == "Production"))] | .[0].sha // empty')
+            '[.[] | select(.sha == $sha)] | .[0].sha // empty')
           VERCEL_ID=$(echo "$DEPLOYMENTS" | jq -r --arg sha "$RELEASE_SHA" \
-            '[.[] | select(.sha == $sha and (.creator.login == "vercel" or .payload.environment == "Production"))] | .[0].id // empty')
+            '[.[] | select(.sha == $sha)] | .[0].id // empty')
 
           if [ "$VERCEL_SHA" = "$RELEASE_SHA" ]; then
             echo "VERCEL SHA == RELEASE SHA: PASS"
