@@ -1,0 +1,41 @@
+name: Check DATABASE_URL
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check DATABASE_URL on Render
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+    steps:
+      - name: Check DATABASE_URL value
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Checking DATABASE_URL on Render ==="
+          DB_URL=$(curl --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" \
+            | jq -r '[.[]? | (.envVar // .) | select(.key == "DATABASE_URL") | .value] | first // "MISSING"')
+          echo "DATABASE_URL length: ${#DB_URL}"
+          echo "DATABASE_URL preview: ${DB_URL:0:30}..."
+          if [ "$DB_URL" = "MISSING" ] || [ -z "$DB_URL" ]; then
+            echo "::error::DATABASE_URL is missing or empty on Render!"
+            exit 1
+          fi
+          # Check if it's a valid PostgreSQL URL
+          if [[ "$DB_URL" != jdbc:postgresql://* ]]; then
+            echo "::error::DATABASE_URL is not a valid JDBC PostgreSQL URL"
+            echo "Got: $DB_URL"
+            exit 1
+          fi
+          echo "DATABASE_URL is valid"
