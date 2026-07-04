@@ -18,6 +18,10 @@ on:
         required: true
         type: string
         default: 'NewSecurePass2026!'
+      resend_api_key:
+        description: 'Resend API key (to fetch reset email)'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -31,8 +35,14 @@ jobs:
     env:
       TEST_EMAIL: ${{ inputs.test_email }}
       NEW_PASSWORD: ${{ inputs.new_password }}
-      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      RESEND_API_KEY: ${{ inputs.resend_api_key }}
     steps:
+      - name: Mask sensitive values
+        shell: bash
+        run: |
+          echo "::add-mask::$RESEND_API_KEY"
+          echo "::add-mask::$NEW_PASSWORD"
+
       - name: Install jq
         shell: bash
         run: sudo apt-get update -qq && sudo apt-get install -y -qq jq >/dev/null
