@@ -139,13 +139,25 @@ jobs:
           set -euo pipefail
           CURRENT_HEAD=$(git rev-parse HEAD)
           echo "=== Triggering production-release.yml on $CURRENT_HEAD ==="
-          gh workflow run production-release.yml \
-            --repo ${{ github.repository }} \
-            --ref main \
-            -f commit_sha="$CURRENT_HEAD" \
-            -f pull_request_number="222" \
-            -f rollback_on_failure="true"
-          echo "✓ production-release workflow triggered"
+          # Use GitHub API directly (GITHUB_TOKEN may not have workflow_dispatch scope)
+          RESPONSE=$(curl --silent --show-error --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github.v3+json" \
+            --data "{\"ref\":\"main\",\"inputs\":{\"commit_sha\":\"$CURRENT_HEAD\",\"pull_request_number\":\"222\",\"rollback_on_failure\":\"true\"}}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/299848180/dispatches")
+          HTTP_CODE="${RESPONSE: -3}"
+          if [ "$HTTP_CODE" = "204" ]; then
+            echo "✓ production-release workflow triggered"
+          else
+            echo "::warning::Could not trigger production-release (HTTP $HTTP_CODE)"
+            echo "The GITHUB_TOKEN may not have workflow_dispatch scope."
+            echo "Trigger manually at: https://github.com/${{ github.repository }}/actions/workflows/production-release.yml"
+            echo "With inputs:"
+            echo "  commit_sha: $CURRENT_HEAD"
+            echo "  pull_request_number: 222"
+            echo "  rollback_on_failure: true"
+          fi
           echo "Monitor at: https://github.com/${{ github.repository }}/actions/workflows/production-release.yml"
 
       - name: Comment on PR #222 with closure status
