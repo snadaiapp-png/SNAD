@@ -1,0 +1,241 @@
+name: Fix DATABASE_URL and Deploy
+
+# ============================================================
+# CRITICAL FIX: DATABASE_URL on Render is wrong!
+# It's set to 'https://sanad-backend-mcrj.onrender.com' (Render URL)
+# instead of the PostgreSQL connection string.
+#
+# Correct: jdbc:postgresql://aws-1-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      database_url:
+        description: 'DATABASE_URL (PostgreSQL JDBC connection string)'
+        required: true
+        type: string
+        default: 'jdbc:postgresql://aws-1-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require'
+      database_username:
+        description: 'DATABASE_USERNAME'
+        required: true
+        type: string
+        default: 'postgres.eyoupksefusnslvdnflt'
+      database_password:
+        description: 'DATABASE_PASSWORD'
+        required: true
+        type: string
+        default: 'Senen@001985'
+      control_plane_tenant_id:
+        description: 'SANAD_CONTROL_PLANE_TENANT_ID (UUID) — leave empty to auto-detect from DB'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    name: Fix DATABASE_URL and deploy
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      DATABASE_URL: ${{ inputs.database_url }}
+      DATABASE_USERNAME: ${{ inputs.database_username }}
+      DATABASE_PASSWORD: ${{ inputs.database_password }}
+      CONTROL_PLANE_TENANT_ID: ${{ inputs.control_plane_tenant_id }}
+      RESEND_API_KEY: 're_U8j7VFTu_L8HCjaEMrNv1KExX1ny6QtyU'
+    steps:
+      - name: Validate DATABASE_URL format
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Validating DATABASE_URL ==="
+          echo "DATABASE_URL: $DATABASE_URL"
+          [[ "$DATABASE_URL" == jdbc:postgresql://* ]] || {
+            echo "::error::DATABASE_URL must start with 'jdbc:postgresql://'"
+            echo "Got: $DATABASE_URL"
+            exit 1
+          }
+          echo "✓ DATABASE_URL format is correct"
+
+      - name: Test database connection and get tenant ID
+        id: tenant
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Testing database connection ==="
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+
+          # Parse JDBC URL
+          RAW_URL="${DATABASE_URL#jdbc:}"
+          RAW_URL="${RAW_URL#postgresql://}"
+          HOST_PORT="${RAW_URL%%/*}"
+          DB_PART="${RAW_URL#*/}"
+          DB_NAME="${DB_PART%%\?*}"
+          PGHOST="${HOST_PORT%%:*}"
+          PGPORT="${HOST_PORT#*:}"
+          PGPORT="${PGPORT:-5432}"
+
+          echo "Connecting to: host=$PGHOST port=$PGPORT dbname=$DB_NAME user=$DATABASE_USERNAME"
+
+          PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$DB_NAME" \
+            --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+            --command="SELECT COUNT(*) FROM flyway_schema_history;" \
+            && echo "✓ Database connection successful" \
+            || { echo "::error::Database connection failed"; exit 1; }
+
+          # If tenant ID not provided, get it from DB
+          if [ -z "$CONTROL_PLANE_TENANT_ID" ]; then
+            echo "=== Auto-detecting tenant ID ==="
+            TENANT_ID=$(PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$DB_NAME" \
+              --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+              --command="SELECT id FROM tenants WHERE status = 'ACTIVE' ORDER BY created_at LIMIT 1;")
+            echo "Found tenant ID: $TENANT_ID"
+            echo "tenant_id=$TENANT_ID" >> "$GITHUB_OUTPUT"
+          else
+            echo "Using provided tenant ID: $CONTROL_PLANE_TENANT_ID"
+            echo "tenant_id=$CONTROL_PLANE_TENANT_ID" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set ALL env vars with correct DATABASE_URL
+        shell: bash
+        env:
+          TENANT_ID: ${{ steps.tenant.outputs.tenant_id }}
+        run: |
+          set -euo pipefail
+          echo "=== Setting ALL env vars with correct DATABASE_URL ==="
+          echo "Using tenant ID: $TENANT_ID"
+          JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')
+
+          jq -n \
+            --arg url "$DATABASE_URL" \
+            --arg username "$DATABASE_USERNAME" \
+            --arg password "$DATABASE_PASSWORD" \
+            --arg tenant "$TENANT_ID" \
+            --arg resend "$RESEND_API_KEY" \
+            --arg jwt "$JWT_SECRET" \
+            '[
+              {"key":"SPRING_PROFILES_ACTIVE","value":"prod"},
+              {"key":"SERVER_PORT","value":"8080"},
+              {"key":"DATABASE_DRIVER","value":"org.postgresql.Driver"},
+              {"key":"DATABASE_URL","value":$url},
+              {"key":"DATABASE_USERNAME","value":$username},
+              {"key":"DATABASE_PASSWORD","value":$password},
+              {"key":"JPA_DDL_AUTO","value":"validate"},
+              {"key":"FLYWAY_ENABLED","value":"true"},
+              {"key":"SANAD_CORS_ALLOWED_ORIGINS","value":"https://snad-app.vercel.app"},
+              {"key":"BOOTSTRAP_ENABLED","value":"false"},
+              {"key":"SANAD_CONTROL_PLANE_TENANT_ID","value":$tenant},
+              {"key":"LOG_LEVEL_ROOT","value":"INFO"},
+              {"key":"LOG_LEVEL_SANAD","value":"INFO"},
+              {"key":"MANAGEMENT_ENDPOINTS","value":"health"},
+              {"key":"SHUTDOWN_TIMEOUT","value":"30s"},
+              {"key":"DATABASE_POOL_MAX","value":"5"},
+              {"key":"DATABASE_POOL_MIN","value":"1"},
+              {"key":"DATABASE_POOL_TIMEOUT","value":"30000"},
+              {"key":"SECURITY_NOTIFICATION_PROVIDER","value":"resend"},
+              {"key":"SECURITY_NOTIFICATION_FROM","value":"SANAD <onboarding@resend.dev>"},
+              {"key":"SECURITY_NOTIFICATION_RESEND_API_KEY","value":$resend},
+              {"key":"APPLICATION_BASE_URL","value":"https://snad-app.vercel.app"},
+              {"key":"JWT_SECRET","value":$jwt}
+            ]' > /tmp/env-vars.json
+
+          echo "Env vars count: $(jq length /tmp/env-vars.json)"
+
+          RESPONSE=$(curl --silent --show-error --write-out '%{http_code}' \
+            --request PUT \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Content-Type: application/json" \
+            --header "Accept: application/json" \
+            --data @/tmp/env-vars.json \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars")
+          HTTP_CODE="${RESPONSE: -3}"
+          echo "HTTP: $HTTP_CODE"
+          [ "$HTTP_CODE" = "200" ] || { echo "::error::Failed"; exit 1; }
+          echo "✓ All env vars set with correct DATABASE_URL"
+
+      - name: Verify env vars
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Verifying env vars ==="
+          curl --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" \
+            | jq '[.[]? | (.envVar // .) | {key, valuePreview: ((.value // "") | .[0:30] + "..." // empty)}] | sort_by(.key)'
+
+      - name: Trigger deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Triggering deploy ==="
+          for attempt in 1 2 3 4 5; do
+            RESPONSE=$(curl --silent --show-error --max-time 30 \
+              --request POST \
+              --header "Authorization: Bearer $RENDER_API_KEY" \
+              --header "Content-Type: application/json" \
+              --header "Accept: application/json" \
+              --data '{}' \
+              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys")
+            DEPLOY_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
+            if [ -n "$DEPLOY_ID" ]; then
+              echo "Deploy ID: $DEPLOY_ID"
+              echo "deploy_id=$DEPLOY_ID" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Could not trigger deploy"
+          exit 1
+
+      - name: Wait for deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Waiting for deploy $deploy_id ==="
+          for i in $(seq 1 72); do
+            sleep 15
+            STATUS=$(curl --silent --show-error \
+              --header "Authorization: Bearer $RENDER_API_KEY" \
+              --header "Accept: application/json" \
+              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$deploy_id" \
+              | jq -r '.status // .deploy.status // empty')
+            echo "Attempt $i: status=$STATUS"
+            if [ "$STATUS" = "live" ]; then
+              echo "✅ Deploy is LIVE!"
+              exit 0
+            fi
+            if [ "$STATUS" = "update_failed" ] || [ "$STATUS" = "deactivated" ]; then
+              echo "::error::Deploy failed with status: $STATUS"
+              exit 1
+            fi
+          done
+          echo "::error::Deploy did not complete"
+          exit 1
+
+      - name: Test endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 15
+          echo "=== Testing endpoints ==="
+          echo "--- Health ---"
+          curl --silent --max-time 30 https://sanad-backend-mcrj.onrender.com/actuator/health | jq '.'
+          echo "--- Login ---"
+          curl --silent --max-time 30 -X POST -H "Content-Type: application/json" \
+            -d '{"email":"test@example.com","password":"wrong"}' \
+            https://sanad-backend-mcrj.onrender.com/api/v1/auth/login
+          echo ""
+          echo "--- Forgot-password ---"
+          curl --silent --max-time 30 -X POST -H "Content-Type: application/json" \
+            -d '{"email":"snad.ai.app@gmail.com"}' \
+            https://sanad-backend-mcrj.onrender.com/api/v1/auth/forgot-password
+          echo ""
+          echo "=== DONE ==="
