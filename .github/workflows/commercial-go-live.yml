@@ -17,13 +17,15 @@ on:
         type: string
         default: ''
       identity_b_email:
-        description: 'Identity B email (non-admin user for RBAC/isolation test)'
-        required: true
+        description: 'Identity B email (non-admin user for RBAC/isolation test). Leave empty if no second tenant exists.'
+        required: false
         type: string
+        default: ''
       identity_b_password:
-        description: 'Identity B password'
-        required: true
+        description: 'Identity B password (leave empty if no second tenant)'
+        required: false
         type: string
+        default: ''
 
 permissions:
   contents: write
@@ -356,12 +358,23 @@ jobs:
 
       # ============================================================
       # SECTION 8: Identity B — RBAC Denial + Tenant Isolation (STRICT)
+      # If no Identity B provided, record as BLOCKER and exit 1
       # ============================================================
       - name: 14. Identity B — Login + RBAC Denial + Tenant Isolation
         id: identity_b
         shell: bash
         run: |
           set -euo pipefail
+          if [ -z "$IDENTITY_B_EMAIL" ] || [ -z "$IDENTITY_B_PASSWORD" ]; then
+            echo "::error::IDENTITY B: NOT PROVIDED — cannot test RBAC Denial or Tenant Isolation"
+            echo "IDENTITY B: NOT TESTED"
+            echo "RBAC DENIAL: NOT TESTED"
+            echo "TENANT ISOLATION: NOT TESTED"
+            echo "result=NOT_TESTED" >> "$GITHUB_OUTPUT"
+            # This is a BLOCKER for commercial go-live
+            exit 1
+          fi
+
           COOKIE_JAR_B="/tmp/identity-b-cookies.txt"
           echo "=== Identity B: Non-admin Login ==="
           LOGIN_B=$(curl --silent --show-error --max-time 30 \
@@ -396,11 +409,12 @@ jobs:
 
           # Tenant Isolation: Identity B must NOT match Control Plane tenant
           if [ "$B_TENANT" = "$CONTROL_PLANE_TENANT_ID" ]; then
-            echo "::warning::Identity B is in Control Plane tenant — cannot test isolation"
-            echo "TENANT ISOLATION: SKIP (same tenant)"
+            echo "::error::TENANT ISOLATION: FAIL — Identity B is in Control Plane tenant (same tenant)"
+            exit 1
           else
             echo "TENANT ISOLATION: PASS (B tenant ≠ Control Plane tenant)"
           fi
+          echo "result=PASS" >> "$GITHUB_OUTPUT"
           rm -f "$COOKIE_JAR_B"
 
       # ============================================================
