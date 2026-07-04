@@ -95,9 +95,12 @@ export function ExecutiveHealthPanel() {
 
   useEffect(() => {
     if (state !== "AUTHENTICATED") return;
-    void load();
-    const timer = window.setInterval(() => void load(), 30_000);
-    return () => window.clearInterval(timer);
+    const initialTimer = window.setTimeout(() => void load(), 0);
+    const refreshTimer = window.setInterval(() => void load(), 30_000);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(refreshTimer);
+    };
   }, [load, state]);
 
   const execute = useCallback(async (input: Omit<HealthActionInput, "reason">) => {
