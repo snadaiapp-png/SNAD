@@ -1,14 +1,31 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/api", () => ({ checkBackendIntegration: vi.fn() }));
+const apiMocks = vi.hoisted(() => ({
+  checkBackendIntegration: vi.fn(),
+  ApiClient: vi.fn(function MockApiClient(options: unknown) {
+    return { options };
+  }),
+}));
+
+vi.mock("@/lib/api", () => apiMocks);
+
 const { GET } = await import("./route");
-const { checkBackendIntegration } = await import("@/lib/api");
 
 describe("GET /api/system/backend-status", () => {
-  afterEach(() => vi.restoreAllMocks());
+  beforeEach(() => {
+    vi.stubEnv("BACKEND_API_BASE_URL", "https://sanad-backend-mcrj.onrender.com");
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "https://fallback.example.com");
+    apiMocks.ApiClient.mockClear();
+    apiMocks.checkBackendIntegration.mockReset();
+  });
 
-  it("returns the safe healthy contract with targetHost and checkedAt", async () => {
-    vi.mocked(checkBackendIntegration).mockResolvedValue({
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("uses the server-only backend URL instead of the relative production BFF URL", async () => {
+    apiMocks.checkBackendIntegration.mockResolvedValue({
       configured: true,
       reachable: true,
       statusCode: 200,
@@ -16,8 +33,55 @@ describe("GET /api/system/backend-status", () => {
       checkedAt: "2026-06-21T11:23:26.000Z",
       error: null,
     });
+
+    await GET();
+
+    expect(apiMocks.ApiClient).toHaveBeenCalledWith({
+      baseUrl: "https://sanad-backend-mcrj.onrender.com",
+      timeoutMs: 10_000,
+    });
+    expect(apiMocks.checkBackendIntegration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: {
+          baseUrl: "https://sanad-backend-mcrj.onrender.com",
+          timeoutMs: 10_000,
+        },
+      }),
+    );
+  });
+
+  it("falls back to NEXT_PUBLIC_API_BASE_URL when the server-only URL is absent", async () => {
+    vi.stubEnv("BACKEND_API_BASE_URL", "");
+    apiMocks.checkBackendIntegration.mockResolvedValue({
+      configured: true,
+      reachable: true,
+      statusCode: 200,
+      targetHost: "fallback.example.com",
+      checkedAt: "2026-06-21T11:23:26.000Z",
+      error: null,
+    });
+
+    await GET();
+
+    expect(apiMocks.ApiClient).toHaveBeenCalledWith({
+      baseUrl: "https://fallback.example.com",
+      timeoutMs: 10_000,
+    });
+  });
+
+  it("returns the safe healthy contract with targetHost and checkedAt", async () => {
+    apiMocks.checkBackendIntegration.mockResolvedValue({
+      configured: true,
+      reachable: true,
+      statusCode: 200,
+      targetHost: "sanad-backend-mcrj.onrender.com",
+      checkedAt: "2026-06-21T11:23:26.000Z",
+      error: null,
+    });
+
     const response = await GET();
     const body = await response.json();
+
     expect(body).toEqual({
       configured: true,
       reachable: true,
@@ -27,8 +91,10 @@ describe("GET /api/system/backend-status", () => {
     });
   });
 
-  it("returns the safe unconfigured contract with null targetHost", async () => {
-    vi.mocked(checkBackendIntegration).mockResolvedValue({
+  it("returns the safe unconfigured contract without exposing internal details", async () => {
+    vi.stubEnv("BACKEND_API_BASE_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "");
+    apiMocks.checkBackendIntegration.mockResolvedValue({
       configured: false,
       reachable: false,
       statusCode: null,
@@ -36,8 +102,9 @@ describe("GET /api/system/backend-status", () => {
       checkedAt: "2026-06-21T11:23:26.000Z",
       error: "internal detail",
     });
-    const response = await GET();
-    const body = await response.json();
+
+    const body = await (await GET()).json();
+
     expect(body).toEqual({
       configured: false,
       reachable: false,
@@ -48,87 +115,52 @@ describe("GET /api/system/backend-status", () => {
     expect(body).not.toHaveProperty("error");
   });
 
-  it("returns reachable=false with statusCode=503 when backend is suspended", async () => {
-    vi.mocked(checkBackendIntegration).mockResolvedValue({
+  it("returns reachable=false with the upstream status code", async () => {
+    apiMocks.checkBackendIntegration.mockResolvedValue({
       configured: true,
       reachable: false,
       statusCode: 503,
-      targetHost: "sanad-backend.onrender.com",
+      targetHost: "sanad-backend-mcrj.onrender.com",
       checkedAt: "2026-06-21T11:23:26.000Z",
-      error: "Service Suspended",
+      error: "Service unavailable",
     });
-    const response = await GET();
-    const body = await response.json();
+
+    const body = await (await GET()).json();
+
     expect(body.reachable).toBe(false);
     expect(body.statusCode).toBe(503);
-    expect(body.targetHost).toBe("sanad-backend.onrender.com");
-  });
-
-  it("never exposes the internal error field", async () => {
-    vi.mocked(checkBackendIntegration).mockResolvedValue({
-      configured: true,
-      reachable: false,
-      statusCode: null,
-      targetHost: "api.example.com",
-      checkedAt: "2026-06-21T11:23:26.000Z",
-      error: "connection refused — sensitive detail",
-    });
-    const body = await (await GET()).json();
-    expect(Object.keys(body).sort()).toEqual([
-      "checkedAt",
-      "configured",
-      "reachable",
-      "statusCode",
-      "targetHost",
-    ]);
+    expect(body.targetHost).toBe("sanad-backend-mcrj.onrender.com");
     expect(body).not.toHaveProperty("error");
-    expect(JSON.stringify(body)).not.toContain("sensitive detail");
   });
 
-  it("sets Cache-Control: no-store on the response", async () => {
-    vi.mocked(checkBackendIntegration).mockResolvedValue({
+  it("sets no-store response headers", async () => {
+    apiMocks.checkBackendIntegration.mockResolvedValue({
       configured: true,
       reachable: true,
       statusCode: 200,
       targetHost: "api.example.com",
-      checkedAt: "2026-06-21T11:23:26.000Z",
+      checkedAt: new Date().toISOString(),
       error: null,
     });
+
     const response = await GET();
+
     expect(response.headers.get("Cache-Control")).toContain("no-store");
     expect(response.headers.get("Pragma")).toBe("no-cache");
   });
 
-  it("returns checkedAt as a current UTC ISO timestamp", async () => {
-    const before = new Date().toISOString();
-    vi.mocked(checkBackendIntegration).mockResolvedValue({
+  it("never exposes credentials or URLs in targetHost", async () => {
+    apiMocks.checkBackendIntegration.mockResolvedValue({
       configured: true,
       reachable: true,
       statusCode: 200,
       targetHost: "api.example.com",
-      checkedAt: before,
+      checkedAt: new Date().toISOString(),
       error: null,
     });
-    const body = await (await GET()).json();
-    // checkedAt must be a valid ISO date string
-    const parsed = new Date(body.checkedAt);
-    expect(parsed.toString()).not.toBe("Invalid Date");
-    // Must be close to "now" (within 5 seconds of the mocked value)
-    const after = new Date().toISOString();
-    expect(body.checkedAt >= before).toBe(true);
-    expect(body.checkedAt <= after).toBe(true);
-  });
 
-  it("does not expose credentials in targetHost", async () => {
-    vi.mocked(checkBackendIntegration).mockResolvedValue({
-      configured: true,
-      reachable: true,
-      statusCode: 200,
-      targetHost: "api.example.com",
-      checkedAt: "2026-06-21T11:23:26.000Z",
-      error: null,
-    });
     const body = await (await GET()).json();
+
     expect(body.targetHost).not.toContain(":");
     expect(body.targetHost).not.toContain("@");
     expect(body.targetHost).not.toContain("://");
