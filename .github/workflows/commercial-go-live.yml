@@ -493,6 +493,10 @@ jobs:
           UTC_DATE="$(date -u +%Y%m%d)"
           RELEASE_TAG="sanad-commercial-${UTC_DATE}-${SHORT_SHA}"
 
+          # Configure git identity for tag creation
+          git config user.name "SANAD Release Bot"
+          git config user.email "noreply@snad.ai"
+
           echo "=== Creating release tag: $RELEASE_TAG ==="
           git tag -a "$RELEASE_TAG" "$RELEASE_SHA" \
             -m "SANAD Commercial Release — verified production deployment
@@ -501,7 +505,7 @@ jobs:
           Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)
           Verified: backend health, readiness, Flyway, security boundary, Control Plane, BFF, admin smoke, email delivery"
 
-          git push origin "$RELEASE_TAG"
+          git push "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "$RELEASE_TAG"
           echo "RELEASE TAG: $RELEASE_TAG"
 
           # Verify tag points to correct SHA
