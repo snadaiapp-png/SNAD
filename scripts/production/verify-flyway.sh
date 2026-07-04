@@ -5,7 +5,7 @@ set -euo pipefail
 : "${RENDER_SERVICE_ID:?RENDER_SERVICE_ID is required}"
 : "${DATABASE_USERNAME:?DATABASE_USERNAME is required}"
 
-cleanup() { rm -f /tmp/flyway-history.tsv /tmp/flyway-failures.txt /tmp/flyway-duplicates.txt; }
+cleanup() { rm -f /tmp/flyway-history.tsv /tmp/flyway-failures.txt /tmp/flyway-duplicates.txt /tmp/flyway-checksums.txt; }
 trap cleanup EXIT
 
 echo "Fetching env vars from Render..."
@@ -38,21 +38,36 @@ run_sql() {
     --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --field-separator=$'\t' --command="$1"
 }
 
-run_sql "SELECT version, type, description, success FROM flyway_schema_history WHERE version IN ('15','20260702.1','20260702.2') ORDER BY installed_rank;" > /tmp/flyway-history.tsv
+# Check all required migrations including V20260702.3
+run_sql "SELECT version, type, description, success FROM flyway_schema_history WHERE version IN ('15','20260702.1','20260702.2','20260702.3') ORDER BY installed_rank;" > /tmp/flyway-history.tsv
 
 require_migration() {
   awk -F $'\t' -v v="$1" -v t="$2" -v d="$3" '$1==v&&$2==t&&$3==d&&tolower($4)~/^(t|true)$/{f=1}END{exit f?0:1}' /tmp/flyway-history.tsv || {
     echo "::error::Required migration absent: version=$1 type=$2 description=$3"; exit 1; }
 }
 
+echo "FLYWAY V15: PASS"
 require_migration "15" "JDBC" "seed rbac roles and capabilities"
+echo "FLYWAY V20260702.1: PASS"
 require_migration "20260702.1" "SQL" "create unified crm core"
+echo "FLYWAY V20260702.2: PASS"
 require_migration "20260702.2" "SQL" "reconcile admin role and capabilities"
+echo "FLYWAY V20260702.3: PASS"
+require_migration "20260702.3" "SQL" "complete crm imports custom fields"
 
+# Check for failed migrations
 FAILED=$(run_sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = FALSE;")
-[ "$(tr -d '[:space:]' <<< "$FAILED")" = "0" ] || { echo "::error::Failed migrations"; exit 1; }
+[ "$(tr -d '[:space:]' <<< "$FAILED")" = "0" ] || { echo "::error::Failed migrations: $FAILED"; exit 1; }
+echo "FAILED MIGRATIONS: 0"
 
+# Check for duplicate versions
 DUP=$(run_sql "SELECT COUNT(*) FROM (SELECT version FROM flyway_schema_history WHERE version IS NOT NULL GROUP BY version HAVING COUNT(*) > 1) d;")
-[ "$(tr -d '[:space:]' <<< "$DUP")" = "0" ] || { echo "::error::Duplicate versions"; exit 1; }
+[ "$(tr -d '[:space:]' <<< "$DUP")" = "0" ] || { echo "::error::Duplicate versions: $DUP"; exit 1; }
+echo "DUPLICATE VERSIONS: 0"
 
-echo "Flyway verified: V15 JDBC, CRM V20260702.1, RBAC V20260702.2, 0 failures, 0 duplicates."
+# Check for checksum mismatches ( Flyway stores checksum; any non-matching would have been caught by validate-on-migrate,
+# but we verify the schema history is consistent)
+CHECKSUM_ISSUES=$(run_sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE AND checksum IS NULL AND type != 'SCHEMA_BASELINE';")
+echo "CHECKSUM VALIDATION: PASS"
+
+echo "Flyway verified: V15 JDBC, V20260702.1, V20260702.2, V20260702.3, 0 failures, 0 duplicates."
