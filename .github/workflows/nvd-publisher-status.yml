@@ -1,0 +1,21 @@
+name: NVD Publisher Status
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/nvd-publisher-status.yml'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Print latest publisher run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run list --repo "$GITHUB_REPOSITORY" --workflow nvd-snapshot-publisher.yml --event workflow_dispatch --limit 1 --json databaseId,status,conclusion,headSha,createdAt
