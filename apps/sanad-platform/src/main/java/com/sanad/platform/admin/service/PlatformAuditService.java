@@ -56,7 +56,7 @@ public class PlatformAuditService {
                 json(beforeState),
                 json(afterState),
                 correlationId(),
-                Instant.now()
+                java.sql.Timestamp.from(Instant.now())
         );
     }
 
@@ -83,7 +83,7 @@ public class PlatformAuditService {
                 resultSet.getString("reason"),
                 resultSet.getString("result"),
                 resultSet.getString("correlation_id"),
-                resultSet.getObject("created_at", Instant.class)
+                instantFromResultSet(resultSet, "created_at")
         );
     }
 
@@ -133,6 +133,17 @@ public class PlatformAuditService {
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static Instant instantFromResultSet(ResultSet resultSet, String column) throws SQLException {
+        Object value = resultSet.getObject(column);
+        if (value == null) return null;
+        if (value instanceof Instant instant) return instant;
+        if (value instanceof java.time.OffsetDateTime odt) return odt.toInstant();
+        if (value instanceof java.sql.Timestamp ts) return ts.toInstant();
+        if (value instanceof java.time.LocalDateTime ldt) return ldt.atOffset(java.time.ZoneOffset.UTC).toInstant();
+        if (value instanceof java.util.Date date) return date.toInstant();
+        return null;
     }
 
     private record PrincipalIds(UUID tenantId, UUID userId) {
