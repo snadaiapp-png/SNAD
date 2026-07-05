@@ -15,7 +15,7 @@ services:
     dockerfilePath: Dockerfile
     dockerContext: .
     healthCheckPath: /actuator/health
-    autoDeployTrigger: "commit"
+    autoDeployTrigger: "off"
     envVars:
       - key: SPRING_PROFILES_ACTIVE
         value: prod
