@@ -102,3 +102,56 @@ Stage Summary:
   7. ✅ لا يؤثر على زر تسجيل الدخول (الرابط قبل الزر، ولم يُمَس منطق onLogin)
   8. ✅ WCAG: aria-label، focus-visible، tap target 36px، contrast tokens
 
+
+---
+Task ID: final-closure-execution
+Agent: main (Super Z)
+Task: تنفيذ الأمر التنفيذي الموحد للإغلاق النهائي (Health + Commercial)
+
+Work Log:
+- تأكيد origin/main SHA = ee1d18fd (مطابق للمطلوب)
+- إنشاء فرع hotfix/health-verification-hardening مبنيّ مباشرةً على origin/main (وليس على main المحلي الذي يحتوي على frontend changes غير مرتبطة)
+- استخدام git commit-tree لإنشاء commit نظيف يحتوي فقط على 5 ملفات (بدون commercial-go-live.yml, بدون PlatformAuditService.java, بدون frontend changes):
+  * .github/workflows/health-production-verification.yml
+  * SANAD-GO-VERIFICATION-REVIEW.md
+  * scripts/validate_workflow_yaml.py
+  * scripts/workflow_security_scanner.py
+  * scripts/gitleaks-sanad.toml
+- Health PR commit SHA: 60c13974c6fee5c51aca66630f8777209f017eda (مبنيّ على ee1d18fd)
+- Health PR commit محدّث: 0eece325772716f744ce35c4f397ce7eafabab93 (يُضمّن تحديث review report)
+- جلب فرع fix/commercial-go-live-hardening-20260705 من origin (PR #244 موجود عن بعد، مبنيّ على ee1d18fd)
+- فحص commercial-go-live.yml على PR #244: تم إزالة identity_b_email/password من workflow_dispatch.inputs، لكن لا يزال يستخدم ${{ inputs.confirm }} و ${{ inputs.release_sha }} مباشرةً في shell (مخالفة §8.2)
+- تطبيق إصلاحات §8.2: إضافة RELEASE_CONFIRMATION و REQUESTED_RELEASE_SHA env vars، استبدال ${{ inputs.* }} بـ $VAR_NAME
+- التحقق من §8.1: لا credential inputs في workflow_dispatch
+- التحقق من §8.4: permissions = contents:write (لازمة لـ release tag) + actions/deployments/statuses:read، لا pull-requests/issues:write
+- Commercial hardened commit SHA: c8d90b7d6119c7bfa16baed23f8f4dbd5609920a (مبنيّ على 13aa55a رأس PR #244 السابق)
+- إنشاء scripts/check_single_workflow.py — scanner لملف واحد
+- إنشاء scripts/review_artifact_security.py — فاحص أمن artifacts (لـ §16)
+- إنشاء scripts/apply_commercial_hardening.py — script يُطبّق إصلاحات §8 على commercial-go-live.yml
+- إنشاء scripts/final-closure.sh — script كامل للمعامل ينفّذ:
+  * Push hotfix/health-verification-hardening
+  * فتح Health PR
+  * Push (force-with-lease) لـ fix/commercial-go-live-hardening-20260705
+  * gh pr ready 244
+  * Watch + squash-merge Health PR
+  * Rebase commercial على أحدث main + watch checks
+  * Squash-merge PR #244
+  * Run Executive Health Production Verification workflow
+  * Run SANAD Commercial Go-Live workflow
+  * Download artifacts + review security
+- تحديث SANAD-GO-VERIFICATION-REVIEW.md بالكامل ليعكس فصل النطاق بين PR الصحة و PR #244
+- التحقق النهائي:
+  * git diff --name-only origin/main hotfix/health-verification-hardening: 5 ملفات فقط ✅
+  * git diff --check origin/main hotfix/health-verification-hardening: PASS (no whitespace errors) ✅
+  * YAML validation: 45/45 PASS ✅
+  * Gitleaks (مع gitleaks-sanad.toml): 0 active credential findings ✅
+  * check_single_workflow.py على health-production-verification.yml: 0 critical, 0 warnings ✅
+  * check_single_workflow.py على commercial-go-live-hardened.yml: 0 critical, 0 warnings ✅
+- البيئة المعزولة لا تملك GitHub credentials — push + PR + merge + workflow run تحتاج تنفيذاً من قبل المعامل عبر scripts/final-closure.sh
+
+Stage Summary:
+- Health PR جاهز: hotfix/health-verification-hardening @ 0eece325 (مبنيّ على ee1d18fd, 5 ملفات فقط)
+- Commercial hardened commit جاهز: fix/commercial-go-live-hardening-20260705 @ c8d90b7d (مبنيّ على PR #244 base, 1 ملف فقط)
+- كل validation محلي PASS
+- scripts/final-closure.sh جاهز للتنفيذ من قبل المعامل
+- الخطوة الوحيدة المتبقية: المعامل ينفّذ bash scripts/final-closure.sh بعد gh auth login
