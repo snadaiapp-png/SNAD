@@ -1,0 +1,24 @@
+name: Check Render Deploy Status
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    name: Check Render deploy
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+    steps:
+      - name: Check latest deploys
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Latest 5 deploys ==="
+          curl -s --header "Authorization: Bearer $RENDER_API_KEY" "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=5" | jq '[.[]? | (.deploy // .) | {id: .id, status: .status, commit: .commit.id[0:7], created: .createdAt, finished: .finishedAt}]'
+          
+          echo "=== Service details ==="
+          curl -s --header "Authorization: Bearer $RENDER_API_KEY" "https://api.render.com/v1/services/$RENDER_SERVICE_ID" | jq '{id, name, status, autoDeploy: .autoDeploy}'
