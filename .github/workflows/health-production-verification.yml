@@ -1,11 +1,37 @@
 name: Executive Health Production Verification
+
+# ============================================================
+# SANAD Platform — Controlled Production Verification
+# ============================================================
+# This workflow performs RUN_DIAGNOSTICS which writes an audit
+# record. It is therefore NOT read-only. Job name reflects that.
+#
+# Blocking gates enforced:
+#   1. Admin Login (200)
+#   2. Health API Contract (HEALTHY, partial=false, completeness=100,
+#      no degraded components, no collection errors)
+#   3. RBAC Unauthenticated (401)
+#   4. Identity B Login + Read RBAC (403)
+#   5. Identity B Write RBAC (403) on RUN_DIAGNOSTICS
+#   6. RUN_DIAGNOSTICS Contract (200 + status=SUCCESS + snapshot valid)
+#   7. Audit Record Verification (1 record matching correlation ID)
+#   8. Negative tests: Invalid Action (400), Missing Reason (400)
+#   9. Frontend /control-plane reachable (200)
+# ============================================================
+
 on:
   workflow_dispatch:
+
 permissions:
   contents: read
+
+concurrency:
+  group: executive-health-production-verification
+  cancel-in-progress: false
+
 jobs:
   verify:
-    name: Read-Only Production Verification
+    name: Controlled Production Verification
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 10
@@ -16,84 +42,279 @@ jobs:
       SANAD_ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
       IDENTITY_B_EMAIL: ${{ secrets.IDENTITY_B_EMAIL }}
       IDENTITY_B_PASSWORD: ${{ secrets.IDENTITY_B_PASSWORD }}
+      RUN_ID: ${{ github.run_id }}
+      RUN_ATTEMPT: ${{ github.run_attempt }}
     steps:
       - name: Admin Login
         shell: bash
         run: |
           set -euo pipefail
-          LOGIN=$(curl -s --max-time 30 -X POST -H "Content-Type: application/json" -d "{\"email\":\"$SANAD_ADMIN_EMAIL\",\"password\":\"$SANAD_ADMIN_PASSWORD\"}" "$BACKEND_URL/api/v1/auth/login")
+          LOGIN=$(curl -fsS --max-time 30 -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"$SANAD_ADMIN_EMAIL\",\"password\":\"$SANAD_ADMIN_PASSWORD\"}" \
+            "$BACKEND_URL/api/v1/auth/login")
           TOKEN=$(echo "$LOGIN" | jq -r '.accessToken // empty')
           echo "::add-mask::$TOKEN"
           test -n "$TOKEN" || { echo "::error::Admin login failed"; exit 1; }
           echo "ADMIN_LOGIN=PASS"
-          echo "ADMIN_TOKEN=$TOKEN" >> $GITHUB_ENV
-      - name: Health API GET
+          echo "ADMIN_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      - name: Health API Contract and Completeness
         shell: bash
         run: |
           set -euo pipefail
-          CODE=$(curl -s --max-time 30 -H "Authorization: Bearer $ADMIN_TOKEN" -o /tmp/health.json -w '%{http_code}' "$BACKEND_URL/api/v1/control-plane/health")
+          CODE=$(curl -fsS --max-time 30 \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            -o /tmp/health.json \
+            -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/control-plane/health")
           echo "Health API HTTP: $CODE"
-          test "$CODE" = "200" || { echo "::error::Health API failed"; cat /tmp/health.json; exit 1; }
-          echo "HEALTH_API=PASS"
-      - name: RBAC Unauth
+          test "$CODE" = "200" || { echo "::error::Health API failed with HTTP $CODE"; cat /tmp/health.json; exit 1; }
+
+          # Contract enforcement — every assertion is BLOCKING.
+          jq -e '.overallStatus == "HEALTHY"' /tmp/health.json \
+            || { echo "::error::overallStatus is not HEALTHY"; jq . /tmp/health.json; exit 1; }
+          jq -e '(.healthScore | tonumber) >= 0 and (.healthScore | tonumber) <= 100' /tmp/health.json \
+            || { echo "::error::healthScore out of [0,100]"; jq .healthScore /tmp/health.json; exit 1; }
+          jq -e '.partial == false' /tmp/health.json \
+            || { echo "::error::partial=true — incomplete snapshot"; jq .partial /tmp/health.json; exit 1; }
+          jq -e '.dataCompletenessScore == 100' /tmp/health.json \
+            || { echo "::error::dataCompletenessScore != 100"; jq .dataCompletenessScore /tmp/health.json; exit 1; }
+          jq -e '(.degradedComponents | length) == 0' /tmp/health.json \
+            || { echo "::error::degradedComponents is not empty"; jq .degradedComponents /tmp/health.json; exit 1; }
+          jq -e '(.collectionErrors | length) == 0' /tmp/health.json \
+            || { echo "::error::collectionErrors is not empty"; jq .collectionErrors /tmp/health.json; exit 1; }
+          jq -e '.runtime != null' /tmp/health.json \
+            || { echo "::error::runtime missing"; exit 1; }
+          jq -e '.dataPressure != null' /tmp/health.json \
+            || { echo "::error::dataPressure missing"; exit 1; }
+          jq -e '(.services | type) == "array"' /tmp/health.json \
+            || { echo "::error::services is not an array"; exit 1; }
+          jq -e '(.tenants | type) == "array"' /tmp/health.json \
+            || { echo "::error::tenants is not an array"; exit 1; }
+          jq -e '(.forecast | type) == "array"' /tmp/health.json \
+            || { echo "::error::forecast is not an array"; exit 1; }
+          jq -e '(.availableActions | type) == "array"' /tmp/health.json \
+            || { echo "::error::availableActions is not an array"; exit 1; }
+          jq -e '.generatedAt != null' /tmp/health.json \
+            || { echo "::error::generatedAt missing"; exit 1; }
+
+          echo "OVERALL_STATUS=$(jq -r .overallStatus /tmp/health.json)" >> "$GITHUB_ENV"
+          echo "HEALTH_SCORE=$(jq -r .healthScore /tmp/health.json)" >> "$GITHUB_ENV"
+          echo "DATA_COMPLETENESS=$(jq -r .dataCompletenessScore /tmp/health.json)" >> "$GITHUB_ENV"
+          echo "DEGRADED_COUNT=$(jq '.degradedComponents | length' /tmp/health.json)" >> "$GITHUB_ENV"
+          echo "COLLECTION_ERRORS=$(jq '.collectionErrors | length' /tmp/health.json)" >> "$GITHUB_ENV"
+          echo "HEALTH_CONTRACT=PASS"
+
+      - name: RBAC Unauthenticated
         shell: bash
         run: |
           set -euo pipefail
-          CODE=$(curl -s --max-time 15 -o /dev/null -w '%{http_code}' "$BACKEND_URL/api/v1/control-plane/health")
+          CODE=$(curl -s --max-time 15 -o /dev/null -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/control-plane/health")
+          echo "Unauthenticated Health: $CODE (expected 401)"
           test "$CODE" = "401" || { echo "::error::Expected 401 got $CODE"; exit 1; }
           echo "RBAC_UNAUTH=PASS"
-      - name: RBAC Identity B
+
+      - name: Identity B Login and Read RBAC
         shell: bash
         run: |
           set -euo pipefail
-          LOGIN_B=$(curl -s --max-time 30 -X POST -H "Content-Type: application/json" -d "{\"email\":\"$IDENTITY_B_EMAIL\",\"password\":\"$IDENTITY_B_PASSWORD\"}" "$BACKEND_URL/api/v1/auth/login")
+          LOGIN_B=$(curl -fsS --max-time 30 -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"$IDENTITY_B_EMAIL\",\"password\":\"$IDENTITY_B_PASSWORD\"}" \
+            "$BACKEND_URL/api/v1/auth/login")
           TOKEN_B=$(echo "$LOGIN_B" | jq -r '.accessToken // empty')
-          test -n "$TOKEN_B" || { echo "::error::Identity B login failed"; exit 1; }
+          test -n "$TOKEN_B" || { echo "::error::Identity B login failed — credentials rejected"; exit 1; }
           echo "::add-mask::$TOKEN_B"
-          CODE=$(curl -s --max-time 15 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN_B" "$BACKEND_URL/api/v1/control-plane/health")
-          test "$CODE" = "403" || { echo "::error::Expected 403 got $CODE"; exit 1; }
-          echo "RBAC_IDENTITY_B=PASS"
-      - name: RUN_DIAGNOSTICS
+          echo "IDENTITY_B_LOGIN=PASS"
+          echo "IDENTITY_B_TOKEN=$TOKEN_B" >> "$GITHUB_ENV"
+
+          CODE=$(curl -s --max-time 15 -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $TOKEN_B" \
+            "$BACKEND_URL/api/v1/control-plane/health")
+          echo "Identity B Health GET: $CODE (expected 403)"
+          test "$CODE" = "403" || { echo "::error::Expected 403 got $CODE — Identity B has unauthorized read access"; exit 1; }
+          echo "RBAC_IDENTITY_B_READ=PASS"
+
+      - name: Identity B Write RBAC
         shell: bash
         run: |
           set -euo pipefail
-          CODE=$(curl -s --max-time 30 -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"scope":"PLATFORM","action":"RUN_DIAGNOSTICS","reason":"Production verification"}' -o /tmp/action.json -w '%{http_code}' "$BACKEND_URL/api/v1/control-plane/health/actions")
-          echo "RUN_DIAGNOSTICS: $CODE"
+          CODE=$(curl -s --max-time 15 -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $IDENTITY_B_TOKEN" \
+            -d '{"scope":"PLATFORM","action":"RUN_DIAGNOSTICS","reason":"Unauthorized production verification"}' \
+            -o /dev/null -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/control-plane/health/actions")
+          echo "Identity B RUN_DIAGNOSTICS: $CODE (expected 403)"
+          test "$CODE" = "403" || { echo "::error::Expected 403 got $CODE — Identity B has unauthorized write access"; exit 1; }
+          echo "RBAC_IDENTITY_B_WRITE=PASS"
+
+      - name: RUN_DIAGNOSTICS Contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          CORRELATION_ID="executive-health-${RUN_ID}-${RUN_ATTEMPT}"
+          echo "CORRELATION_ID=$CORRELATION_ID" >> "$GITHUB_ENV"
+          REASON="Production verification run ${RUN_ID}"
+
+          CODE=$(curl -fsS --max-time 30 -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            -H "X-Correlation-ID: $CORRELATION_ID" \
+            -d "{\"scope\":\"PLATFORM\",\"action\":\"RUN_DIAGNOSTICS\",\"reason\":\"$REASON\"}" \
+            -o /tmp/action.json \
+            -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/control-plane/health/actions")
+          echo "RUN_DIAGNOSTICS: $CODE (expected 200)"
           test "$CODE" = "200" || { echo "::error::Expected 200 got $CODE"; cat /tmp/action.json; exit 1; }
-          echo "HEALTH_ACTION=PASS"
+
+          jq -e '.action == "RUN_DIAGNOSTICS"' /tmp/action.json \
+            || { echo "::error::action mismatch"; jq .action /tmp/action.json; exit 1; }
+          jq -e '.scope == "PLATFORM"' /tmp/action.json \
+            || { echo "::error::scope mismatch"; jq .scope /tmp/action.json; exit 1; }
+          jq -e '.status == "SUCCESS"' /tmp/action.json \
+            || { echo "::error::status != SUCCESS"; jq .status /tmp/action.json; exit 1; }
+          jq -e '.message != null and (.message | length) > 0' /tmp/action.json \
+            || { echo "::error::message empty"; jq .message /tmp/action.json; exit 1; }
+          jq -e '.executedAt != null' /tmp/action.json \
+            || { echo "::error::executedAt missing"; exit 1; }
+          jq -e '.snapshot != null' /tmp/action.json \
+            || { echo "::error::snapshot missing"; exit 1; }
+          jq -e '.snapshot.partial == false' /tmp/action.json \
+            || { echo "::error::snapshot.partial=true"; jq .snapshot.partial /tmp/action.json; exit 1; }
+          jq -e '.snapshot.dataCompletenessScore == 100' /tmp/action.json \
+            || { echo "::error::snapshot.dataCompletenessScore != 100"; jq .snapshot.dataCompletenessScore /tmp/action.json; exit 1; }
+          jq -e '(.snapshot.collectionErrors | length) == 0' /tmp/action.json \
+            || { echo "::error::snapshot.collectionErrors not empty"; jq .snapshot.collectionErrors /tmp/action.json; exit 1; }
+
+          echo "DIAGNOSTICS_REASON=$REASON" >> "$GITHUB_ENV"
+          echo "RUN_DIAGNOSTICS=PASS"
+
+      - name: Audit Record Verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 2  # Allow audit record write to flush
+
+          CODE=$(curl -fsS --max-time 30 \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            -o /tmp/audit.json \
+            -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/control-plane/audit?limit=200")
+          test "$CODE" = "200" || { echo "::error::Audit API returned $CODE"; exit 1; }
+
+          # Audit records may be wrapped in different shapes across releases;
+          # support both raw array and {records:[]} envelope.
+          RECORDS=$(jq 'if type == "array" then . else (.records // .items // .auditRecords // []) end' /tmp/audit.json)
+
+          MATCHING=$(echo "$RECORDS" | jq --arg cid "$CORRELATION_ID" \
+                                          --arg action "HEALTH.ACTION.RUN_DIAGNOSTICS" \
+                                          --arg rtype "HEALTH_PLATFORM" \
+                                          --arg rid "PLATFORM" \
+                                          --arg reason "$DIAGNOSTICS_REASON" \
+                                          --arg result "SUCCESS" \
+            '[.[] | select(
+                (.correlationId // .correlation_id // "") == $cid and
+                (.action // "") == $action and
+                (.resourceType // .resource_type // "") == $rtype and
+                (.resourceId // .resource_id // "") == $rid and
+                (.reason // "") == $reason and
+                (.result // .status // "") == $result
+              )] | length')
+
+          echo "Audit records matching correlation ID: $MATCHING (expected exactly 1)"
+          test "$MATCHING" = "1" \
+            || {
+              echo "::error::Expected exactly 1 audit record matching correlation ID, found $MATCHING"
+              echo "Correlation ID: $CORRELATION_ID"
+              echo "Reason: $DIAGNOSTICS_REASON"
+              echo "--- Last 5 audit records for inspection ---"
+              echo "$RECORDS" | jq '.[:5] | map({correlationId, action, resourceType, resourceId, reason, result})'
+              exit 1
+            }
+          echo "AUDIT_VERIFICATION=PASS"
+
       - name: Invalid Action
         shell: bash
         run: |
           set -euo pipefail
-          CODE=$(curl -s --max-time 15 -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"scope":"PLATFORM","action":"INVALID","reason":"Test"}' -o /dev/null -w '%{http_code}' "$BACKEND_URL/api/v1/control-plane/health/actions")
+          CODE=$(curl -s --max-time 15 -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            -d '{"scope":"PLATFORM","action":"INVALID","reason":"Test"}' \
+            -o /dev/null -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/control-plane/health/actions")
+          echo "Invalid Action: $CODE (expected 400)"
           test "$CODE" = "400" || { echo "::error::Expected 400 got $CODE"; exit 1; }
           echo "INVALID_ACTION=PASS"
+
       - name: Missing Reason
         shell: bash
         run: |
           set -euo pipefail
-          CODE=$(curl -s --max-time 15 -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"scope":"PLATFORM","action":"RUN_DIAGNOSTICS"}' -o /dev/null -w '%{http_code}' "$BACKEND_URL/api/v1/control-plane/health/actions")
+          CODE=$(curl -s --max-time 15 -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            -d '{"scope":"PLATFORM","action":"RUN_DIAGNOSTICS"}' \
+            -o /dev/null -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/control-plane/health/actions")
+          echo "Missing Reason: $CODE (expected 400)"
           test "$CODE" = "400" || { echo "::error::Expected 400 got $CODE"; exit 1; }
           echo "MISSING_REASON=PASS"
+
       - name: Frontend
         shell: bash
         run: |
           set -euo pipefail
-          CODE=$(curl -s --max-time 30 -o /dev/null -w '%{http_code}' "$WEB_URL/control-plane")
+          CODE=$(curl -fsS --max-time 30 -o /dev/null -w '%{http_code}' \
+            "$WEB_URL/control-plane")
+          echo "Frontend /control-plane: $CODE (expected 200)"
           test "$CODE" = "200" || { echo "::error::Expected 200 got $CODE"; exit 1; }
           echo "FRONTEND=PASS"
+
       - name: Summary
+        if: always()
         shell: bash
         run: |
           echo "============================================"
           echo "EXECUTIVE HEALTH PRODUCTION VERIFICATION"
+          echo "Run ID:        ${RUN_ID}"
+          echo "Attempt:       ${RUN_ATTEMPT}"
+          echo "Correlation:   ${CORRELATION_ID:-N/A}"
           echo "============================================"
-          echo "Admin Login: PASS"
-          echo "Health API: PASS"
-          echo "RBAC Unauth: PASS"
-          echo "RBAC Identity B: PASS"
-          echo "RUN_DIAGNOSTICS: PASS"
-          echo "Invalid Action: PASS"
-          echo "Missing Reason: PASS"
-          echo "Frontend: PASS"
-          echo "ALL GATES: PASS"
+          echo "Admin Login:                 ${ADMIN_LOGIN:-FAIL}"
+          echo "Health API contract:         ${HEALTH_CONTRACT:-FAIL}"
+          echo "  overallStatus:             ${OVERALL_STATUS:-N/A}"
+          echo "  healthScore:               ${HEALTH_SCORE:-N/A}"
+          echo "  partial:                   $([ "${HEALTH_CONTRACT:-}" = "PASS" ] && echo "false" || echo "N/A")"
+          echo "  dataCompletenessScore:     ${DATA_COMPLETENESS:-N/A}"
+          echo "  degradedComponents:        ${DEGRADED_COUNT:-N/A}"
+          echo "  collectionErrors:          ${COLLECTION_ERRORS:-N/A}"
+          echo "RBAC Unauthenticated (401):  ${RBAC_UNAUTH:-FAIL}"
+          echo "Identity B login:            ${IDENTITY_B_LOGIN:-FAIL}"
+          echo "Identity B read (403):       ${RBAC_IDENTITY_B_READ:-FAIL}"
+          echo "Identity B write (403):      ${RBAC_IDENTITY_B_WRITE:-FAIL}"
+          echo "RUN_DIAGNOSTICS contract:    ${RUN_DIAGNOSTICS:-FAIL}"
+          echo "Audit Record verification:   ${AUDIT_VERIFICATION:-FAIL}"
+          echo "Invalid Action (400):        ${INVALID_ACTION:-FAIL}"
+          echo "Missing Reason (400):        ${MISSING_REASON:-FAIL}"
+          echo "Frontend (200):              ${FRONTEND:-FAIL}"
+          echo "============================================"
+          if [ "${ADMIN_LOGIN:-}" = "PASS" ] && \
+             [ "${HEALTH_CONTRACT:-}" = "PASS" ] && \
+             [ "${RBAC_UNAUTH:-}" = "PASS" ] && \
+             [ "${IDENTITY_B_LOGIN:-}" = "PASS" ] && \
+             [ "${RBAC_IDENTITY_B_READ:-}" = "PASS" ] && \
+             [ "${RBAC_IDENTITY_B_WRITE:-}" = "PASS" ] && \
+             [ "${RUN_DIAGNOSTICS:-}" = "PASS" ] && \
+             [ "${AUDIT_VERIFICATION:-}" = "PASS" ] && \
+             [ "${INVALID_ACTION:-}" = "PASS" ] && \
+             [ "${MISSING_REASON:-}" = "PASS" ] && \
+             [ "${FRONTEND:-}" = "PASS" ]; then
+            echo "ALL GATES: PASS"
+          else
+            echo "ALL GATES: FAIL"
+            exit 1
+          fi

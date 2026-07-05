@@ -1,0 +1,22 @@
+# Gitleaks configuration for SANAD Platform
+# Scan only the live repository source — exclude build artifacts, submodules, and tooling.
+
+title = "SANAD Platform — Production Scan"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "SANAD allowlist — excludes submodules, test fixtures, and CI placeholders"
+paths = [
+  'SNAD-https/.*',
+  'tests/ci/fixtures/workflows/.*',
+  'apps/sanad-platform/target/.*',
+  'apps/web/.next/.*',
+  'apps/web/node_modules/.*',
+  'node_modules/.*',
+]
+regexes = [
+  'recovery_ci_only',
+  'perf_ci_only',
+]

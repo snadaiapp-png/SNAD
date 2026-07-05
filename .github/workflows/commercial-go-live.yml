@@ -16,21 +16,15 @@ on:
         required: true
         type: string
         default: ''
-      identity_b_email:
-        description: 'Identity B email (non-admin user for RBAC/isolation test). Leave empty if no second tenant exists.'
-        required: false
-        type: string
-        default: ''
-      identity_b_password:
-        description: 'Identity B password (leave empty if no second tenant)'
-        required: false
-        type: string
-        default: ''
+
+# ============================================================
+# Security hardening:
+#   - Identity B credentials come from GitHub Secrets only
+#   - Never accept passwords via workflow_dispatch.inputs
+# ============================================================
 
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
   actions: read
   statuses: read
 
@@ -52,8 +46,8 @@ jobs:
       SANAD_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
       SANAD_ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
       AUTH_SMOKE_TENANT_A_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
-      IDENTITY_B_EMAIL: ${{ inputs.identity_b_email }}
-      IDENTITY_B_PASSWORD: ${{ inputs.identity_b_password }}
+      IDENTITY_B_EMAIL: ${{ secrets.IDENTITY_B_EMAIL }}
+      IDENTITY_B_PASSWORD: ${{ secrets.IDENTITY_B_PASSWORD }}
     steps:
       - name: Mask all sensitive inputs
         shell: bash
