@@ -182,9 +182,24 @@ describe("ResetPasswordPage", () => {
       }),
     ).toBeInTheDocument();
 
+    // Success message is shown
+    expect(screen.getByText(/تم تحديث كلمة المرور بنجاح/)).toBeInTheDocument();
+
+    // "Back to login" link points to root
     expect(
-      screen.getByRole("link"),
+      screen.getByRole("link", { name: "العودة إلى تسجيل الدخول" }),
     ).toHaveAttribute("href", "/");
+  });
+
+  it("renders a link to request a new recovery link (canonical /auth route)", async () => {
+    setLocation("?token=recovery-token");
+
+    render(<ResetPasswordPage />);
+
+    const retryLink = screen.getByRole("link", {
+      name: "طلب رابط استعادة جديد",
+    });
+    expect(retryLink).toHaveAttribute("href", "/auth/forgot-password");
   });
 
   it("renders an error when the reset API rejects the request", async () => {

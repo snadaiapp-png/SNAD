@@ -31,6 +31,12 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+vi.mock("lucide-react", () => ({
+  KeyRound: (props: React.SVGProps<SVGSVGElement>) => (
+    <svg data-testid="key-round-icon" {...props} />
+  ),
+}));
+
 describe("ForgotPasswordPage", () => {
   beforeEach(() => {
     forgotPasswordMock.mockReset();
@@ -58,6 +64,11 @@ describe("ForgotPasswordPage", () => {
         name: "إرسال رابط الاستعادة",
       }),
     ).toBeEnabled();
+  });
+
+  it("renders the brand icon for visual identity", () => {
+    render(<ForgotPasswordPage />);
+    expect(screen.getByTestId("key-round-icon")).toBeInTheDocument();
   });
 
   it("renders a back-to-login link", () => {

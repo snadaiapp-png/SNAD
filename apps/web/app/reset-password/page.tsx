@@ -86,7 +86,7 @@ export default function ResetPasswordPage() {
             <button disabled={busy || !token} className="snad-reset-submit">
               {busy ? "جارٍ الحفظ…" : "تحديث كلمة المرور"}
             </button>
-            <Link href="/forgot-password" className="snad-reset-secondary">
+            <Link href="/auth/forgot-password" className="snad-reset-secondary">
               طلب رابط استعادة جديد
             </Link>
           </form>

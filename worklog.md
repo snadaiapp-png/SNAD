@@ -42,3 +42,63 @@ Stage Summary:
   2. Vercel سيعيد النشر تلقائياً (auto-deploy)
   3. اختبار التدفق على https://snad-app.vercel.app/forgot-password
   4. التأكد من إعدادات SMTP على Render (MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD) ليصل البريد فعلياً
+
+---
+Task ID: forgot-password-fix-v2
+Agent: main (Super Z)
+Task: تحسين شاشة تسجيل الدخول — إضافة رابط "نسيت كلمة المرور؟" بأيقونة + نقل المسار إلى /auth/forgot-password
+
+Work Log:
+- تثبيت `lucide-react` (v1.23.0) في apps/web — لم يكن مثبتاً سابقاً
+- نقل صفحة استعادة كلمة المرور إلى المسار الكنسي `/auth/forgot-password` (المسار المطلوب في التذكرة الجديدة)
+- إبقاء `/forgot-password` كـ redirect فقط (HTTP 308 دائم) للتوافق الخلفي مع الروابط المرسلة سابقاً عبر البريد أو المحفوظة في المفضلة
+- تعديل `login-form.tsx`:
+  - نقل رابط "نسيت كلمة المرور؟" ليصبح **مباشرة أسفل حقل كلمة المرور، وقبل زر تسجيل الدخول** (مطابق لمتطلبات التذكرة)
+  - إضافة أيقونة `KeyRound` من lucide-react بجانب النص
+  - إضافة `aria-label="نسيت كلمة المرور؟ استعادة كلمة المرور"` للوصولية
+- إعادة تصميم تنسيقات `auth.module.css` للرابط الجديد:
+  - `display: inline-flex` لمحاذاة الأيقونة مع النص عمودياً
+  - `gap: 0.4375rem` بين الأيقونة والنص
+  - `min-height: 36px` لضمان حجم لمس كافٍ (WCAG 2.5.5)
+  - حالات Hover: تغيير اللون + خلفية شفافة + تغيير لون الأيقونة
+  - حالة Focus-visible: outline واضح بـ `--snad-focus-ring`
+  - حالة Active: تأثير بصري خفيف للضغط
+  - دعم RTL عبر `margin-inline-start` لمحاذاة الحافة
+  - دعم الوضع الداكن عبر `prefers-color-scheme: dark`
+- تحديث `globals.css` بإضافة styles لـ brand header في صفحة الاستعادة (أيقونة KeyRound + شعار SNAD)
+- تحديث `reset-password/page.tsx`: رابط "طلب رابط استعادة جديد" يشير الآن إلى `/auth/forgot-password`
+- تحديث الاختبارات:
+  - `app/auth/forgot-password/page.test.tsx`: 9 اختبارات (8 سابقة + اختبار الأيقونة)
+  - `components/auth/login-form.test.tsx`: 13 اختباراً (11 سابقاً + 2 جديدان للأيقونة وترتيب الرابط)
+  - `app/reset-password/page.test.tsx`: 7 اختبارات (6 سابقة + اختبار رابط إعادة الطلب)
+  - mock جديد لـ `lucide-react` في الاختبارات لإرجاع `<svg data-testid="key-round-icon">`
+- التحقق النهائي:
+  - TypeScript: ✅ بلا أخطاء
+  - ESLint: ✅ بلا أخطاء
+  - كل اختبارات web: ✅ 266/266 نجحت
+  - بناء Next.js للإنتاج: ✅ نجح، `/auth/forgot-password` و `/forgot-password` (redirect) ظاهرتان في الـ routes
+
+Stage Summary:
+- الملفات المُنشأة:
+  - `apps/web/app/auth/forgot-password/page.tsx` (الصفحة الكاملة في المسار الكنسي)
+  - `apps/web/app/auth/forgot-password/page.test.tsx` (9 اختبارات)
+- الملفات المُعدّلة:
+  - `apps/web/app/forgot-password/page.tsx` (أصبح redirect فقط إلى /auth/forgot-password)
+  - `apps/web/app/forgot-password/page.test.tsx` (حُذف — الصفحة أصبحت redirect)
+  - `apps/web/app/reset-password/page.tsx` (تحديث رابط "طلب جديد" للمسار الكنسي)
+  - `apps/web/app/reset-password/page.test.tsx` (تحديث اختبار النجاح + اختبار جديد لرابط الإعادة)
+  - `apps/web/components/auth/login-form.tsx` (نقل الرابط + إضافة أيقونة + aria-label)
+  - `apps/web/components/auth/login-form.test.tsx` (mock لـ lucide + 3 اختبارات جديدة للأيقونة والترتيب)
+  - `apps/web/components/auth/auth.module.css` (تنسيقات شاملة: RTL, dark mode, hover/focus/active, tap target)
+  - `apps/web/app/globals.css` (styles لـ brand header مع أيقونة)
+  - `apps/web/package.json` (إضافة lucide-react v1.23.0)
+- معايير القبول المُنفّذة (مطابقة لمتطلبات التذكرة):
+  1. ✅ الرابط يظهر لجميع المستخدمين
+  2. ✅ أيقونة KeyRound بجانب النص
+  3. ✅ Next.js Link — لا إعادة تحميل للصفحة
+  4. ✅ التوجيه إلى `/auth/forgot-password`
+  5. ✅ Responsive — يعمل على الجوال والكمبيوتر
+  6. ✅ يدعم الوضعين الفاتح والداكن (via prefers-color-scheme)
+  7. ✅ لا يؤثر على زر تسجيل الدخول (الرابط قبل الزر، ولم يُمَس منطق onLogin)
+  8. ✅ WCAG: aria-label، focus-visible، tap target 36px، contrast tokens
+

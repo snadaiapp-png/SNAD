@@ -173,3 +173,22 @@ select {
   color: #16a34a;
   font-size: 0.875rem;
 }
+
+.snad-reset-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.snad-reset-brand-icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: var(--snad-brand-primary);
+}
+
+.snad-reset-brand-mark {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--snad-brand-primary);
+}

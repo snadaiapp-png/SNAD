@@ -22,6 +22,12 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+vi.mock("lucide-react", () => ({
+  KeyRound: (props: React.SVGProps<SVGSVGElement>) => (
+    <svg data-testid="key-round-icon" {...props} />
+  ),
+}));
+
 function renderLoginForm(overrides: Partial<React.ComponentProps<typeof LoginForm>> = {}) {
   return render(
     <LoginForm
@@ -126,14 +132,35 @@ describe("LoginForm", () => {
     expect(alert.textContent).not.toMatch(/https?:\/\//);
   });
 
-  it("shows help panel and renders a forgot-password link", async () => {
+  it("shows help panel and renders a forgot-password link with icon", async () => {
     const user = userEvent.setup();
     renderLoginForm();
     await user.click(screen.getByRole("button", { name: "تحتاج مساعدة في الدخول؟" }));
     // Help panel appears
     expect(screen.getByText(/تواصل مع مسؤول النظام/)).toBeInTheDocument();
-    // The forgot-password link is rendered (not a generic /reset-password link)
-    const forgotLink = screen.getByRole("link", { name: "نسيت كلمة المرور؟" });
-    expect(forgotLink).toHaveAttribute("href", "/forgot-password");
+    // The forgot-password link is rendered with the canonical /auth/* route
+    const forgotLink = screen.getByRole("link", { name: /نسيت كلمة المرور؟/ });
+    expect(forgotLink).toHaveAttribute("href", "/auth/forgot-password");
+    // The KeyRound icon is rendered alongside the text
+    expect(screen.getByTestId("key-round-icon")).toBeInTheDocument();
+  });
+
+  it("renders the forgot-password link above the submit button (directly below password field)", () => {
+    renderLoginForm();
+    const forgotLink = screen.getByRole("link", { name: /نسيت كلمة المرور؟/ });
+    const submitButton = screen.getByRole("button", { name: /تسجيل الدخول/ });
+    // Verify visual order: link comes before submit button in DOM
+    expect(forgotLink.compareDocumentPosition(submitButton)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it("provides an accessible aria-label on the forgot-password link", () => {
+    renderLoginForm();
+    const forgotLink = screen.getByRole("link", { name: /نسيت كلمة المرور؟/ });
+    expect(forgotLink).toHaveAttribute(
+      "aria-label",
+      "نسيت كلمة المرور؟ استعادة كلمة المرور",
+    );
   });
 });

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
+import { KeyRound } from "lucide-react";
 import styles from "./auth.module.css";
 import { AuthErrorAlert } from "./auth-error-alert";
 import type { UserFacingError } from "@/lib/api/user-facing-errors";
@@ -143,6 +144,21 @@ export function LoginForm({
           )}
         </div>
 
+        <div className={styles.authForgotLinkRow}>
+          <Link
+            href="/auth/forgot-password"
+            className={styles.authForgotLink}
+            aria-label="نسيت كلمة المرور؟ استعادة كلمة المرور"
+          >
+            <KeyRound
+              aria-hidden="true"
+              className={styles.authForgotLinkIcon}
+              size={16}
+            />
+            <span>نسيت كلمة المرور؟</span>
+          </Link>
+        </div>
+
         <button
           type="submit"
           className={styles.authSubmit}
@@ -152,12 +168,6 @@ export function LoginForm({
           {authenticating ? "جارٍ تسجيل الدخول…" : "تسجيل الدخول"}
         </button>
       </form>
-
-      <div className={styles.authForgotLinkRow}>
-        <Link href="/forgot-password" className={styles.authForgotLink}>
-          نسيت كلمة المرور؟
-        </Link>
-      </div>
 
       <button
         type="button"
