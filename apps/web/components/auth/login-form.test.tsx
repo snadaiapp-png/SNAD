@@ -126,13 +126,14 @@ describe("LoginForm", () => {
     expect(alert.textContent).not.toMatch(/https?:\/\//);
   });
 
-  it("shows help panel without a generic /reset-password link", async () => {
+  it("shows help panel and renders a forgot-password link", async () => {
     const user = userEvent.setup();
     renderLoginForm();
     await user.click(screen.getByRole("button", { name: "تحتاج مساعدة في الدخول؟" }));
     // Help panel appears
     expect(screen.getByText(/تواصل مع مسؤول النظام/)).toBeInTheDocument();
-    // No generic /reset-password link is rendered
-    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    // The forgot-password link is rendered (not a generic /reset-password link)
+    const forgotLink = screen.getByRole("link", { name: "نسيت كلمة المرور؟" });
+    expect(forgotLink).toHaveAttribute("href", "/forgot-password");
   });
 });

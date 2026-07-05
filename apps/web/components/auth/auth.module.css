@@ -429,6 +429,34 @@
   font-weight: 600;
 }
 
+/* ── Forgot Password Link ── */
+
+.authForgotLinkRow {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.authForgotLink {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--snad-text-secondary);
+  text-decoration: none;
+  padding: 0.375rem 0.5rem;
+  border-radius: var(--snad-radius-sm);
+  transition: color var(--snad-motion-fast);
+}
+
+.authForgotLink:hover {
+  color: var(--snad-brand-primary);
+  text-decoration: underline;
+}
+
+.authForgotLink:focus-visible {
+  outline: 2px solid var(--snad-focus-ring);
+  outline-offset: 2px;
+}
+
 /* ── Tenant Picker ── */
 
 .tenantList {

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import styles from "./auth.module.css";
 import { AuthErrorAlert } from "./auth-error-alert";
@@ -151,6 +152,12 @@ export function LoginForm({
           {authenticating ? "جارٍ تسجيل الدخول…" : "تسجيل الدخول"}
         </button>
       </form>
+
+      <div className={styles.authForgotLinkRow}>
+        <Link href="/forgot-password" className={styles.authForgotLink}>
+          نسيت كلمة المرور؟
+        </Link>
+      </div>
 
       <button
         type="button"

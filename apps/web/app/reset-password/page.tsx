@@ -46,9 +46,14 @@ export default function ResetPasswordPage() {
             : "استخدم الرابط أحادي الاستخدام لإكمال إعداد الحساب."}
         </p>
         {success ? (
-          <Link href="/" className="snad-reset-submit">
-            العودة إلى الصفحة الرئيسية
-          </Link>
+          <div className="snad-reset-form">
+            <div className="snad-reset-success" role="status">
+              تم تحديث كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول.
+            </div>
+            <Link href="/" className="snad-reset-submit">
+              العودة إلى تسجيل الدخول
+            </Link>
+          </div>
         ) : (
           <form onSubmit={submit} className="snad-reset-form">
             {error && (
@@ -81,6 +86,9 @@ export default function ResetPasswordPage() {
             <button disabled={busy || !token} className="snad-reset-submit">
               {busy ? "جارٍ الحفظ…" : "تحديث كلمة المرور"}
             </button>
+            <Link href="/forgot-password" className="snad-reset-secondary">
+              طلب رابط استعادة جديد
+            </Link>
           </form>
         )}
       </div>
