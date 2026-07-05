@@ -1,0 +1,79 @@
+name: Fix Health Provider and Test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fix:
+    name: Fix provider and test health API
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 25
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      BACKEND_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+      SANAD_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
+      SANAD_ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
+      IDENTITY_B_EMAIL: identity-b@sanad-pilot.com
+      IDENTITY_B_PASSWORD: PilotB2026!Secure
+    steps:
+      - name: Check and fix SECURITY_NOTIFICATION_PROVIDER
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT=$(curl -s --header "Authorization: Bearer $RENDER_API_KEY" "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100")
+          PROVIDER=$(echo "$CURRENT" | jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "SECURITY_NOTIFICATION_PROVIDER") | .value // empty')
+          echo "Current provider: $PROVIDER"
+          if [ "$PROVIDER" != "resend" ]; then
+            echo "Fixing provider to resend..."
+            UPDATED=$(echo "$CURRENT" | jq '[.[]? | (.envVar // .) | if .key == "SECURITY_NOTIFICATION_PROVIDER" then .value = "resend" else . end]')
+            curl -s --write-out '%{http_code}' --request PUT --header "Authorization: Bearer $RENDER_API_KEY" --header "Content-Type: application/json" --data "$UPDATED" "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars" -o /dev/null | tail -c 4 | grep -q "200" || exit 1
+            echo "Provider fixed to resend"
+            # Trigger deploy
+            DEPLOY_ID=$(curl -s --request POST --header "Authorization: Bearer $RENDER_API_KEY" --header "Content-Type: application/json" --data '{}' "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" | jq -r '.id')
+            echo "Deploy ID: $DEPLOY_ID"
+            for i in $(seq 1 80); do
+              sleep 15
+              STATUS=$(curl -s --header "Authorization: Bearer $RENDER_API_KEY" "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$DEPLOY_ID" | jq -r '.status')
+              echo "Attempt $i: $STATUS"
+              [ "$STATUS" = "live" ] && break
+              [ "$STATUS" = "update_failed" ] && exit 1
+            done
+          else
+            echo "Provider already resend"
+          fi
+      - name: Test Health API
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 15
+          # Login as admin
+          LOGIN=$(curl -s --max-time 30 -X POST -H "Content-Type: application/json" -d "{\"email\":\"$SANAD_ADMIN_EMAIL\",\"password\":\"$SANAD_ADMIN_PASSWORD\"}" "$BACKEND_URL/api/v1/auth/login")
+          TOKEN=$(echo "$LOGIN" | jq -r '.accessToken // empty')
+          test -n "$TOKEN" || { echo "::error::Admin login failed"; exit 1; }
+          echo "Admin login: PASS"
+          
+          # Test health API
+          HEALTH_CODE=$(curl -s --max-time 30 -H "Authorization: Bearer $TOKEN" -o /tmp/health.json -w '%{http_code}' "$BACKEND_URL/api/v1/control-plane/health")
+          echo "Health API HTTP: $HEALTH_CODE"
+          if [ "$HEALTH_CODE" = "200" ]; then
+            echo "✅ HEALTH API: SUCCESS"
+            cat /tmp/health.json | jq '{healthScore, status: .overallStatus, riskLevel, services: (.services | length), tenants: (.tenants | length)}'
+          else
+            echo "❌ HEALTH API: FAILED ($HEALTH_CODE)"
+            cat /tmp/health.json | head -c 500
+            exit 1
+          fi
+          
+          # RBAC tests
+          echo "Unauth: $(curl -s --max-time 15 -o /dev/null -w '%{http_code}' "$BACKEND_URL/api/v1/control-plane/health")"
+          LOGIN_B=$(curl -s --max-time 30 -X POST -H "Content-Type: application/json" -d "{\"email\":\"$IDENTITY_B_EMAIL\",\"password\":\"$IDENTITY_B_PASSWORD\"}" "$BACKEND_URL/api/v1/auth/login")
+          TOKEN_B=$(echo "$LOGIN_B" | jq -r '.accessToken // empty')
+          echo "Identity B: $(curl -s --max-time 15 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN_B" "$BACKEND_URL/api/v1/control-plane/health")"
+          
+          # Test health actions
+          echo "=== Health Action: RUN_DIAGNOSTICS ==="
+          ACTION=$(curl -s --max-time 30 -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"scope":"PLATFORM","action":"RUN_DIAGNOSTICS","reason":"Production smoke test"}' "$BACKEND_URL/api/v1/control-plane/health/actions" -w '\n%{http_code}')
+          echo "Action: $(echo "$ACTION" | tail -1)"
+          echo "$ACTION" | head -n -1 | jq '{status: .status, message: .message}' 2>/dev/null || echo "$ACTION" | head -c 300
