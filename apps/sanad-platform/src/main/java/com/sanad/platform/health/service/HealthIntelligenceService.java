@@ -380,7 +380,7 @@ public class HealthIntelligenceService {
         long started = System.nanoTime();
         jdbcTemplate.queryForObject("SELECT 1", Integer.class);
         long latencyMs = Math.max(0, (System.nanoTime() - started) / 1_000_000);
-        RuntimeMetricsResponse runtime = safeRuntimeMetrics();
+        RuntimeMetricsResponse runtime = collectRuntimeMetrics().value;
         String apiStatus = runtime.memoryUsagePercent() >= 92 || runtime.cpuLoadPercent() >= 92
                 ? "DEGRADED" : "OPERATIONAL";
         jdbcTemplate.update(
@@ -404,7 +404,7 @@ public class HealthIntelligenceService {
         long started = System.nanoTime();
         jdbcTemplate.queryForObject("SELECT 1", Integer.class);
         long latencyMs = Math.max(0, (System.nanoTime() - started) / 1_000_000);
-        RuntimeMetricsResponse runtime = safeRuntimeMetrics();
+        RuntimeMetricsResponse runtime = collectRuntimeMetrics().value;
         if ("API".equals(target.code())
                 && (runtime.memoryUsagePercent() >= 95 || runtime.cpuLoadPercent() >= 95)) {
             return updateServiceState(serviceId, "DEGRADED", latencyMs,
