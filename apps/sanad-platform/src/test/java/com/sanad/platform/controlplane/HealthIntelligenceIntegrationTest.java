@@ -69,6 +69,10 @@ class HealthIntelligenceIntegrationTest {
         });
         assertThat(snapshot.forecast()).extracting(point -> point.horizonMinutes())
                 .containsExactly(0, 15, 30, 60);
+        assertThat(snapshot.partial()).isFalse();
+        assertThat(snapshot.dataCompletenessScore()).isEqualTo(100);
+        assertThat(snapshot.degradedComponents()).isEmpty();
+        assertThat(snapshot.collectionErrors()).isEmpty();
         assertThat(snapshot.availableActions()).extracting(action -> action.code())
                 .contains("RUN_DIAGNOSTICS", "AUTO_HEAL", "REFRESH_TENANT_HEALTH");
     }

@@ -19,12 +19,25 @@ public final class HealthDtos {
             int healthScore,
             String riskLevel,
             String predictionSummary,
+            boolean partial,
+            int dataCompletenessScore,
+            List<String> degradedComponents,
+            List<CollectionError> collectionErrors,
             RuntimeMetricsResponse runtime,
             DataPressureResponse dataPressure,
             List<ServiceHealthResponse> services,
             List<TenantHealthResponse> tenants,
             List<RiskForecastPoint> forecast,
             List<HealthActionDescriptor> availableActions
+    ) {
+    }
+
+    public record CollectionError(
+            String component,
+            String code,
+            String message,
+            String correlationId,
+            Instant timestamp
     ) {
     }
 

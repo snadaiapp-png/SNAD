@@ -1,6 +1,7 @@
 package com.sanad.platform.health.service;
 
 import com.sanad.platform.admin.service.PlatformAuditService;
+import com.sanad.platform.health.api.HealthDtos.CollectionError;
 import com.sanad.platform.health.api.HealthDtos.DataPressureResponse;
 import com.sanad.platform.health.api.HealthDtos.HealthActionDescriptor;
 import com.sanad.platform.health.api.HealthDtos.HealthActionRequest;
@@ -10,6 +11,8 @@ import com.sanad.platform.health.api.HealthDtos.RiskForecastPoint;
 import com.sanad.platform.health.api.HealthDtos.RuntimeMetricsResponse;
 import com.sanad.platform.health.api.HealthDtos.ServiceHealthResponse;
 import com.sanad.platform.health.api.HealthDtos.TenantHealthResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
@@ -41,6 +44,7 @@ public class HealthIntelligenceService {
             "RUN_DIAGNOSTICS", "AUTO_HEAL", "MARK_MAINTENANCE",
             "RESTORE_OPERATION", "REFRESH_TENANT_HEALTH");
 
+    private static final Logger log = LoggerFactory.getLogger(HealthIntelligenceService.class);
     private final JdbcTemplate jdbcTemplate;
     private final PlatformAuditService auditService;
 
@@ -50,71 +54,134 @@ public class HealthIntelligenceService {
     }
 
 
+    private static final Set<String> METRIC_COMPONENTS = Set.of(
+            "RUNTIME_METRICS", "DATA_PRESSURE", "SERVICE_METRICS", "TENANT_METRICS");
+
+    private static class MetricResult<T> {
+        final T value;
+        final boolean failed;
+        final String component;
+        final String errorMessage;
+        MetricResult(T value, boolean failed, String component, String errorMessage) {
+            this.value = value;
+            this.failed = failed;
+            this.component = component;
+            this.errorMessage = errorMessage;
+        }
+        static <T> MetricResult<T> ok(T value, String component) {
+            return new MetricResult<>(value, false, component, null);
+        }
+        static <T> MetricResult<T> fail(T fallback, String component, String errorMessage) {
+            return new MetricResult<>(fallback, true, component, errorMessage);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public PlatformHealthResponse snapshot() {
+        List<String> degradedComponents = new java.util.ArrayList<>();
+        List<CollectionError> collectionErrors = new java.util.ArrayList<>();
+
+        MetricResult<RuntimeMetricsResponse> runtimeResult = collectRuntimeMetrics();
+        MetricResult<DataPressureResponse> pressureResult = collectDataPressure(runtimeResult.value);
+        MetricResult<List<ServiceHealthResponse>> servicesResult = collectServiceHealth();
+        MetricResult<List<TenantHealthResponse>> tenantsResult = collectTenantHealth();
+
+        if (runtimeResult.failed) { degradedComponents.add("RUNTIME_METRICS"); collectionErrors.add(new CollectionError("RUNTIME_METRICS", "HEALTH-METRIC-001", "Runtime metrics unavailable", UUID.randomUUID().toString(), Instant.now())); }
+        if (pressureResult.failed) { degradedComponents.add("DATA_PRESSURE"); collectionErrors.add(new CollectionError("DATA_PRESSURE", "HEALTH-METRIC-002", "Data pressure unavailable", UUID.randomUUID().toString(), Instant.now())); }
+        if (servicesResult.failed) { degradedComponents.add("SERVICE_METRICS"); collectionErrors.add(new CollectionError("SERVICE_METRICS", "HEALTH-METRIC-003", "Service metrics unavailable", UUID.randomUUID().toString(), Instant.now())); }
+        if (tenantsResult.failed) { degradedComponents.add("TENANT_METRICS"); collectionErrors.add(new CollectionError("TENANT_METRICS", "HEALTH-METRIC-004", "Tenant metrics unavailable", UUID.randomUUID().toString(), Instant.now())); }
+
+        int totalComponents = METRIC_COMPONENTS.size();
+        int successfulComponents = totalComponents - degradedComponents.size();
+        int dataCompletenessScore = clamp((successfulComponents * 100) / totalComponents);
+        boolean partial = !degradedComponents.isEmpty();
+
+        RuntimeMetricsResponse runtime = runtimeResult.value;
+        DataPressureResponse dataPressure = pressureResult.value;
+        List<ServiceHealthResponse> services = servicesResult.value;
+        List<TenantHealthResponse> tenants = tenantsResult.value;
+
+        // Use neutral score (50) for failed components, not 100 (prevents false green)
+        int serviceScore = servicesResult.failed ? 50 : average(services.stream().map(ServiceHealthResponse::healthScore).toList(), 50);
+        int tenantScore = tenantsResult.failed ? 50 : average(tenants.stream().map(TenantHealthResponse::healthScore).toList(), 50);
+        int runtimeScore = runtimeResult.failed ? 50 : clamp((int) Math.round(100 - Math.max(runtime.cpuLoadPercent(), runtime.memoryUsagePercent()) * 0.55));
+        int pressurePenalty = pressureResult.failed ? 50 : (100 - dataPressure.pressureScore());
+
+        int rawScore = (serviceScore * 45 + tenantScore * 30 + runtimeScore * 15 + pressurePenalty * 10) / 100;
+        // Apply completeness factor: degraded data reduces confidence
+        double completenessFactor = dataCompletenessScore / 100.0;
+        int healthScore = clamp((int) Math.round(rawScore * completenessFactor));
+
+        String riskLevel = riskLevel(100 - healthScore);
+        String status;
+        if (partial) {
+            status = healthScore >= 65 ? "DEGRADED" : "CRITICAL";
+        } else {
+            status = healthScore >= 85 ? "HEALTHY" : healthScore >= 65 ? "DEGRADED" : "CRITICAL";
+        }
+        int pressureTrend = Math.max(
+                pressureResult.failed ? 0 : dataPressure.pressureScore(),
+                servicesResult.failed ? 0 : services.stream().mapToInt(ServiceHealthResponse::pressureScore).max().orElse(0));
+
+        return new PlatformHealthResponse(
+                Instant.now(), status, healthScore, riskLevel,
+                predictionSummary(healthScore, pressureTrend),
+                partial, dataCompletenessScore, degradedComponents, collectionErrors,
+                runtime, dataPressure, services, tenants,
+                forecast(healthScore, pressureTrend), availableActions());
+    }
+
     private PlatformHealthResponse safeSnapshot() {
         try {
             return snapshot();
         } catch (Exception e) {
+            log.error("Health snapshot completely failed correlationId={}", UUID.randomUUID(), e);
             return new PlatformHealthResponse(
                     Instant.now(), "UNKNOWN", 0, "HIGH",
-                    "Health snapshot partially unavailable",
+                    "Health snapshot unavailable",
+                    true, 0,
+                    List.of("RUNTIME_METRICS", "DATA_PRESSURE", "SERVICE_METRICS", "TENANT_METRICS"),
+                    List.of(new CollectionError("SNAPSHOT", "HEALTH-SNAPSHOT-001", "Complete snapshot failure", UUID.randomUUID().toString(), Instant.now())),
                     new RuntimeMetricsResponse(0, 0, 0, 0, 0, 1),
                     new DataPressureResponse(0, "UNKNOWN", 0, 0, 0, 0, 0, "Unavailable"),
                     List.of(), List.of(), List.of(), List.of());
         }
     }
 
-    private RuntimeMetricsResponse safeRuntimeMetrics() {
+    private MetricResult<RuntimeMetricsResponse> collectRuntimeMetrics() {
         try {
-            return runtimeMetrics();
+            return MetricResult.ok(runtimeMetrics(), "RUNTIME_METRICS");
         } catch (Exception e) {
-            return new RuntimeMetricsResponse(0, 0, 0, 0, 0, 1);
+            log.error("Runtime metrics collection failed component=RUNTIME_METRICS", e);
+            return MetricResult.fail(new RuntimeMetricsResponse(0, 0, 0, 0, 0, 1), "RUNTIME_METRICS", e.getMessage());
         }
     }
 
-    private DataPressureResponse safeDataPressure(RuntimeMetricsResponse runtime) {
+    private MetricResult<DataPressureResponse> collectDataPressure(RuntimeMetricsResponse runtime) {
         try {
-            return dataPressure(runtime);
+            return MetricResult.ok(dataPressure(runtime), "DATA_PRESSURE");
         } catch (Exception e) {
-            return new DataPressureResponse(0, "UNKNOWN", 0, 0, 0, 0, 0, "Data pressure unavailable");
+            log.error("Data pressure collection failed component=DATA_PRESSURE", e);
+            return MetricResult.fail(new DataPressureResponse(0, "UNKNOWN", 0, 0, 0, 0, 0, "Unavailable"), "DATA_PRESSURE", e.getMessage());
         }
     }
 
-    private List<ServiceHealthResponse> safeServiceHealth() {
+    private MetricResult<List<ServiceHealthResponse>> collectServiceHealth() {
         try {
-            return serviceHealth();
+            return MetricResult.ok(serviceHealth(), "SERVICE_METRICS");
         } catch (Exception e) {
-            return List.of();
+            log.error("Service health collection failed component=SERVICE_METRICS", e);
+            return MetricResult.fail(List.of(), "SERVICE_METRICS", e.getMessage());
         }
     }
 
-    private List<TenantHealthResponse> safeTenantHealth() {
+    private MetricResult<List<TenantHealthResponse>> collectTenantHealth() {
         try {
-            return tenantHealth();
+            return MetricResult.ok(tenantHealth(), "TENANT_METRICS");
         } catch (Exception e) {
-            return List.of();
+            log.error("Tenant health collection failed component=TENANT_METRICS", e);
+            return MetricResult.fail(List.of(), "TENANT_METRICS", e.getMessage());
         }
-    }
-
-    @Transactional(readOnly = true)
-    public PlatformHealthResponse snapshot() {
-        RuntimeMetricsResponse runtime = safeRuntimeMetrics();
-        DataPressureResponse dataPressure = safeDataPressure(runtime);
-        List<ServiceHealthResponse> services = safeServiceHealth();
-        List<TenantHealthResponse> tenants = safeTenantHealth();
-        int serviceScore = average(services.stream().map(ServiceHealthResponse::healthScore).toList(), 100);
-        int tenantScore = average(tenants.stream().map(TenantHealthResponse::healthScore).toList(), 100);
-        int runtimeScore = clamp((int) Math.round(
-                100 - Math.max(runtime.cpuLoadPercent(), runtime.memoryUsagePercent()) * 0.55));
-        int healthScore = clamp((serviceScore * 45 + tenantScore * 30 + runtimeScore * 15
-                + (100 - dataPressure.pressureScore()) * 10) / 100);
-        String riskLevel = riskLevel(100 - healthScore);
-        String status = healthScore >= 85 ? "HEALTHY" : healthScore >= 65 ? "DEGRADED" : "CRITICAL";
-        int pressureTrend = Math.max(dataPressure.pressureScore(),
-                services.stream().mapToInt(ServiceHealthResponse::pressureScore).max().orElse(0));
-        return new PlatformHealthResponse(
-                Instant.now(), status, healthScore, riskLevel,
-                predictionSummary(healthScore, pressureTrend), runtime, dataPressure,
-                services, tenants, forecast(healthScore, pressureTrend), availableActions());
     }
 
     @Transactional
@@ -130,6 +197,7 @@ public class HealthIntelligenceService {
         validateTarget(scope, request.targetId());
         validateAction(scope, action);
         PlatformHealthResponse before = safeSnapshot();
+        // before is used for audit comparison
         String message = switch (action) {
             case "RUN_DIAGNOSTICS" -> runDiagnostics(scope, request.targetId());
             case "AUTO_HEAL" -> autoHeal(scope, request.targetId());
