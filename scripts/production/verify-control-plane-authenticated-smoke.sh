@@ -8,13 +8,14 @@ set -euo pipefail
 : "${CONTROL_PLANE_NON_ADMIN_EMAIL:?CONTROL_PLANE_NON_ADMIN_EMAIL is required}"
 : "${CONTROL_PLANE_NON_ADMIN_PASSWORD:?CONTROL_PLANE_NON_ADMIN_PASSWORD is required}"
 : "${CONTROL_PLANE_NON_ADMIN_TENANT_ID:?CONTROL_PLANE_NON_ADMIN_TENANT_ID is required}"
+: "${DEPLOYED_COMMIT_SHA:?DEPLOYED_COMMIT_SHA is required}"
 
 BASE_URL="${PRODUCTION_BASE_URL%/}"
 EVIDENCE_FILE="${CONTROL_PLANE_SMOKE_EVIDENCE_FILE:-control-plane-authenticated-smoke.json}"
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
-for secret in \
+for value in \
   "$CONTROL_PLANE_ADMIN_EMAIL" \
   "$CONTROL_PLANE_ADMIN_PASSWORD" \
   "$CONTROL_PLANE_TENANT_ID" \
@@ -22,10 +23,12 @@ for secret in \
   "$CONTROL_PLANE_NON_ADMIN_PASSWORD" \
   "$CONTROL_PLANE_NON_ADMIN_TENANT_ID"
 do
-  echo "::add-mask::$secret"
+  echo "::add-mask::$value"
 done
 
 uuid_regex='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+sha_regex='^[0-9a-f]{40}$'
+
 [[ "$CONTROL_PLANE_TENANT_ID" =~ $uuid_regex ]] || {
   echo "::error::CONTROL_PLANE_TENANT_ID is not a valid UUID."
   exit 1
@@ -34,8 +37,12 @@ uuid_regex='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-
   echo "::error::CONTROL_PLANE_NON_ADMIN_TENANT_ID is not a valid UUID."
   exit 1
 }
+[[ "$DEPLOYED_COMMIT_SHA" =~ $sha_regex ]] || {
+  echo "::error::DEPLOYED_COMMIT_SHA is not a full lowercase SHA."
+  exit 1
+}
 [ "$CONTROL_PLANE_TENANT_ID" != "$CONTROL_PLANE_NON_ADMIN_TENANT_ID" ] || {
-  echo "::error::The non-admin smoke identity must belong to a different tenant."
+  echo "::error::Identity B must belong to a different tenant."
   exit 1
 }
 
@@ -90,30 +97,35 @@ expect_denied() {
 }
 
 admin_login_payload="$(jq -n \
-  --arg email "$CONTROL_PLANE_ADMIN_EMAIL" \
-  --arg password "$CONTROL_PLANE_ADMIN_PASSWORD" \
-  --arg tenantId "$CONTROL_PLANE_TENANT_ID" \
-  '{email:$email,password:$password,tenantId:$tenantId}')"
+  --arg address "$CONTROL_PLANE_ADMIN_EMAIL" \
+  --arg pass "$CONTROL_PLANE_ADMIN_PASSWORD" \
+  --arg tenant "$CONTROL_PLANE_TENANT_ID" \
+  '{email:$address,password:$pass,tenantId:$tenant}')"
 
 admin_login_status="$(request POST "$BASE_URL/api/v1/auth/login" "$WORK_DIR/admin-login.json" \
   --cookie-jar "$WORK_DIR/admin.cookies" \
   --header 'Content-Type: application/json' \
   --data "$admin_login_payload")"
 expect_status "$admin_login_status" "200" "Admin login"
+
 ADMIN_TOKEN="$(jq -r '.accessToken // empty' "$WORK_DIR/admin-login.json")"
-test -n "$ADMIN_TOKEN" || { echo "::error::Admin login did not return an access token."; exit 1; }
+test -n "$ADMIN_TOKEN" || {
+  echo "::error::Admin login did not return an access token."
+  exit 1
+}
 echo "::add-mask::$ADMIN_TOKEN"
 
 admin_me_status="$(request GET "$BASE_URL/api/v1/auth/me" "$WORK_DIR/admin-me.json" \
   --header "Authorization: Bearer $ADMIN_TOKEN")"
-expect_status "$admin_me_status" "200" "Secure admin session identity"
+expect_status "$admin_me_status" "200" "Admin identity"
+
 admin_identity_valid="$(jq -r --arg tenant "$CONTROL_PLANE_TENANT_ID" '
   .tenantId == $tenant and
   .status == "ACTIVE" and
   any(.roleGrants[]?; .status == "ACTIVE" and (.roleCode == "ADMIN" or .roleCode == "SUPER_ADMIN"))
 ' "$WORK_DIR/admin-me.json")"
 [ "$admin_identity_valid" = "true" ] || {
-  echo "::error::The authenticated admin identity is not an active Control Plane administrator in the expected tenant."
+  echo "::error::Admin is inactive, lacks ADMIN/SUPER_ADMIN, or belongs to the wrong tenant."
   exit 1
 }
 
@@ -129,7 +141,7 @@ tenant_directory_valid="$(jq -r --arg tenant "$CONTROL_PLANE_TENANT_ID" '
   any(.[]?; .id == $tenant and .status == "ACTIVE")
 ' "$WORK_DIR/admin-tenants.json")"
 [ "$tenant_directory_valid" = "true" ] || {
-  echo "::error::The Control Plane tenant was not returned as ACTIVE by the tenant directory."
+  echo "::error::Control Plane tenant was not returned as ACTIVE."
   exit 1
 }
 
@@ -146,46 +158,65 @@ refresh_status="$(request POST "$BASE_URL/api/v1/auth/refresh" "$WORK_DIR/admin-
   --cookie-jar "$WORK_DIR/admin.cookies" \
   --header 'Content-Type: application/json' \
   --data '{}')"
-expect_status "$refresh_status" "200" "Refresh flow"
+expect_status "$refresh_status" "200" "Refresh"
+
 REFRESHED_ADMIN_TOKEN="$(jq -r '.accessToken // empty' "$WORK_DIR/admin-refresh.json")"
-test -n "$REFRESHED_ADMIN_TOKEN" || { echo "::error::Refresh did not return an access token."; exit 1; }
+refresh_token_returned=false
+if [ -n "$REFRESHED_ADMIN_TOKEN" ]; then
+  refresh_token_returned=true
+else
+  echo "::error::Refresh did not return a new access token."
+  exit 1
+fi
 echo "::add-mask::$REFRESHED_ADMIN_TOKEN"
 
-non_admin_payload="$(jq -n \
-  --arg email "$CONTROL_PLANE_NON_ADMIN_EMAIL" \
-  --arg password "$CONTROL_PLANE_NON_ADMIN_PASSWORD" \
-  --arg tenantId "$CONTROL_PLANE_NON_ADMIN_TENANT_ID" \
-  '{email:$email,password:$password,tenantId:$tenantId}')"
+identity_b_payload="$(jq -n \
+  --arg address "$CONTROL_PLANE_NON_ADMIN_EMAIL" \
+  --arg pass "$CONTROL_PLANE_NON_ADMIN_PASSWORD" \
+  --arg tenant "$CONTROL_PLANE_NON_ADMIN_TENANT_ID" \
+  '{email:$address,password:$pass,tenantId:$tenant}')"
 
-non_admin_login_status="$(request POST "$BASE_URL/api/v1/auth/login" "$WORK_DIR/non-admin-login.json" \
-  --cookie-jar "$WORK_DIR/non-admin.cookies" \
+identity_b_login_status="$(request POST "$BASE_URL/api/v1/auth/login" "$WORK_DIR/identity-b-login.json" \
+  --cookie-jar "$WORK_DIR/identity-b.cookies" \
   --header 'Content-Type: application/json' \
-  --data "$non_admin_payload")"
-expect_status "$non_admin_login_status" "200" "Non-admin login"
-NON_ADMIN_TOKEN="$(jq -r '.accessToken // empty' "$WORK_DIR/non-admin-login.json")"
-test -n "$NON_ADMIN_TOKEN" || { echo "::error::Non-admin login did not return an access token."; exit 1; }
-echo "::add-mask::$NON_ADMIN_TOKEN"
+  --data "$identity_b_payload")"
+expect_status "$identity_b_login_status" "200" "Identity B login"
 
-non_admin_me_status="$(request GET "$BASE_URL/api/v1/auth/me" "$WORK_DIR/non-admin-me.json" \
-  --header "Authorization: Bearer $NON_ADMIN_TOKEN")"
-expect_status "$non_admin_me_status" "200" "Secure non-admin session identity"
-non_admin_identity_valid="$(jq -r --arg tenant "$CONTROL_PLANE_NON_ADMIN_TENANT_ID" '
+IDENTITY_B_TOKEN="$(jq -r '.accessToken // empty' "$WORK_DIR/identity-b-login.json")"
+test -n "$IDENTITY_B_TOKEN" || {
+  echo "::error::Identity B login did not return an access token."
+  exit 1
+}
+echo "::add-mask::$IDENTITY_B_TOKEN"
+
+identity_b_me_status="$(request GET "$BASE_URL/api/v1/auth/me" "$WORK_DIR/identity-b-me.json" \
+  --header "Authorization: Bearer $IDENTITY_B_TOKEN")"
+expect_status "$identity_b_me_status" "200" "Identity B identity"
+
+identity_b_valid="$(jq -r --arg tenant "$CONTROL_PLANE_NON_ADMIN_TENANT_ID" '
   .tenantId == $tenant and
   .status == "ACTIVE" and
   (any(.roleGrants[]?; .status == "ACTIVE" and (.roleCode == "ADMIN" or .roleCode == "SUPER_ADMIN")) | not)
-' "$WORK_DIR/non-admin-me.json")"
-[ "$non_admin_identity_valid" = "true" ] || {
-  echo "::error::Identity B is inactive, belongs to the wrong tenant, or has an administrative role."
+' "$WORK_DIR/identity-b-me.json")"
+[ "$identity_b_valid" = "true" ] || {
+  echo "::error::Identity B is inactive, administrative, or belongs to the wrong tenant."
   exit 1
 }
 
-rbac_status="$(request GET "$BASE_URL/api/v1/control-plane/tenants" "$WORK_DIR/rbac-denial.json" \
-  --header "Authorization: Bearer $NON_ADMIN_TOKEN")"
-expect_denied "$rbac_status" "Control Plane RBAC denial"
+rbac_dashboard_status="$(request GET "$BASE_URL/api/v1/control-plane/dashboard" \
+  "$WORK_DIR/rbac-dashboard-denial.json" \
+  --header "Authorization: Bearer $IDENTITY_B_TOKEN")"
+expect_denied "$rbac_dashboard_status" "Dashboard RBAC denial"
 
-isolation_status="$(request GET "$BASE_URL/api/v1/control-plane/tenants/$CONTROL_PLANE_TENANT_ID/organizations" \
-  "$WORK_DIR/tenant-isolation.json" \
-  --header "Authorization: Bearer $NON_ADMIN_TOKEN")"
+rbac_tenants_status="$(request GET "$BASE_URL/api/v1/control-plane/tenants" \
+  "$WORK_DIR/rbac-tenants-denial.json" \
+  --header "Authorization: Bearer $IDENTITY_B_TOKEN")"
+expect_denied "$rbac_tenants_status" "Tenant Directory RBAC denial"
+
+isolation_status="$(request GET \
+  "$BASE_URL/api/v1/control-plane/tenants/$CONTROL_PLANE_TENANT_ID/organizations" \
+  "$WORK_DIR/cross-tenant-denial.json" \
+  --header "Authorization: Bearer $IDENTITY_B_TOKEN")"
 expect_denied "$isolation_status" "Cross-tenant denial"
 
 logout_status="$(request POST "$BASE_URL/api/v1/auth/logout" "$WORK_DIR/admin-logout.json" \
@@ -199,16 +230,16 @@ case "$logout_status" in
   *) echo "::error::Logout returned HTTP ${logout_status:-000}."; exit 1 ;;
 esac
 
-post_logout_refresh_status="$(request POST "$BASE_URL/api/v1/auth/refresh" "$WORK_DIR/post-logout-refresh.json" \
+post_logout_refresh_status="$(request POST "$BASE_URL/api/v1/auth/refresh" \
+  "$WORK_DIR/post-logout-refresh.json" \
   --cookie "$WORK_DIR/admin.cookies" \
   --cookie-jar "$WORK_DIR/admin.cookies" \
   --header 'Content-Type: application/json' \
   --data '{}')"
-expect_denied "$post_logout_refresh_status" "Refresh revocation after logout"
+expect_denied "$post_logout_refresh_status" "Post-logout refresh rejection"
 
 jq -n \
-  --arg testedSha "${DEPLOYED_COMMIT_SHA:-unknown}" \
-  --arg runId "${GITHUB_RUN_ID:-local}" \
+  --arg releaseSha "$DEPLOYED_COMMIT_SHA" \
   --arg adminLogin "$admin_login_status" \
   --arg adminMe "$admin_me_status" \
   --argjson adminIdentityValid "$admin_identity_valid" \
@@ -218,31 +249,31 @@ jq -n \
   --arg systems "$systems_status" \
   --arg audit "$audit_status" \
   --arg refresh "$refresh_status" \
-  --arg identityBLogin "$non_admin_login_status" \
-  --arg identityBMe "$non_admin_me_status" \
-  --argjson identityBValid "$non_admin_identity_valid" \
-  --arg rbac "$rbac_status" \
+  --argjson refreshTokenReturned "$refresh_token_returned" \
+  --arg identityBLogin "$identity_b_login_status" \
+  --arg identityBMe "$identity_b_me_status" \
+  --argjson identityBValid "$identity_b_valid" \
+  --arg rbacDashboard "$rbac_dashboard_status" \
+  --arg rbacTenants "$rbac_tenants_status" \
   --arg isolation "$isolation_status" \
   --arg logout "$logout_status" \
   --arg postLogoutRefresh "$post_logout_refresh_status" \
   '
-  def ok200($s): $s == "200";
-  def denied($s): $s == "401" or $s == "403";
-  def logout_ok($s): $s == "200" or $s == "204";
+  def ok200($value): $value == "200";
+  def denied($value): $value == "401" or $value == "403";
+  def logout_ok($value): $value == "200" or $value == "204";
   def verdict($condition): if $condition then "PASS" else "FAIL" end;
   (
     ok200($adminLogin) and ok200($adminMe) and $adminIdentityValid and
     ok200($dashboard) and ok200($tenants) and $tenantDirectoryValid and
     ok200($systems) and ok200($audit) and ok200($refresh) and
     ok200($identityBLogin) and ok200($identityBMe) and $identityBValid and
-    denied($rbac) and denied($isolation) and logout_ok($logout) and
-    denied($postLogoutRefresh)
+    denied($rbacDashboard) and denied($rbacTenants) and denied($isolation) and
+    logout_ok($logout) and denied($postLogoutRefresh)
   ) as $allPassed |
   {
-    schema:"sanad.control-plane.production-smoke.v2",
-    result:verdict($allPassed),
-    testedSha:$testedSha,
-    runId:$runId,
+    releaseSha:$releaseSha,
+    schema:"sanad.control-plane.production-smoke.v3",
     checks:{
       adminLogin:{httpStatus:$adminLogin,result:verdict(ok200($adminLogin))},
       adminIdentity:{httpStatus:$adminMe,result:verdict(ok200($adminMe) and $adminIdentityValid)},
@@ -250,13 +281,30 @@ jq -n \
       tenantDirectory:{httpStatus:$tenants,result:verdict(ok200($tenants) and $tenantDirectoryValid)},
       systems:{httpStatus:$systems,result:verdict(ok200($systems))},
       audit:{httpStatus:$audit,result:verdict(ok200($audit))},
-      refresh:{httpStatus:$refresh,result:verdict(ok200($refresh))},
-      identityB:{loginHttpStatus:$identityBLogin,meHttpStatus:$identityBMe,result:verdict(ok200($identityBLogin) and ok200($identityBMe) and $identityBValid)},
-      rbacDenial:{httpStatus:$rbac,result:verdict(denied($rbac))},
+      refresh:{
+        httpStatus:$refresh,
+        newAccessTokenReturned:$refreshTokenReturned,
+        result:verdict(ok200($refresh) and $refreshTokenReturned)
+      },
+      identityB:{
+        loginHttpStatus:$identityBLogin,
+        identityHttpStatus:$identityBMe,
+        activeNonAdminDifferentTenant:$identityBValid,
+        result:verdict(ok200($identityBLogin) and ok200($identityBMe) and $identityBValid)
+      },
+      rbacDenial:{
+        dashboardHttpStatus:$rbacDashboard,
+        tenantDirectoryHttpStatus:$rbacTenants,
+        result:verdict(denied($rbacDashboard) and denied($rbacTenants))
+      },
       tenantIsolation:{httpStatus:$isolation,result:verdict(denied($isolation))},
       logout:{httpStatus:$logout,result:verdict(logout_ok($logout))},
-      postLogoutRefreshRejection:{httpStatus:$postLogoutRefresh,result:verdict(denied($postLogoutRefresh))}
-    }
+      postLogoutRefreshRejection:{
+        httpStatus:$postLogoutRefresh,
+        result:verdict(denied($postLogoutRefresh))
+      }
+    },
+    result:verdict($allPassed)
   }
   ' > "$EVIDENCE_FILE"
 
