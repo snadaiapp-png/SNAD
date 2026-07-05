@@ -141,16 +141,20 @@ public class HealthIntelligenceService {
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported health action");
         };
         PlatformHealthResponse after = safeSnapshot();
-        auditService.success(
-                authentication,
-                "TENANT".equals(scope) ? request.targetId() : null,
-                "HEALTH.ACTION." + action,
-                "HEALTH_" + scope,
-                request.targetId() == null ? "PLATFORM" : request.targetId().toString(),
-                request.reason(),
-                Map.of("healthScore", before.healthScore(), "status", before.overallStatus()),
-                Map.of("healthScore", after.healthScore(), "status", after.overallStatus(), "message", message)
-        );
+        try {
+            auditService.success(
+                    authentication,
+                    "TENANT".equals(scope) ? request.targetId() : null,
+                    "HEALTH.ACTION." + action,
+                    "HEALTH_" + scope,
+                    request.targetId() == null ? "PLATFORM" : request.targetId().toString(),
+                    request.reason(),
+                    Map.of("healthScore", before.healthScore(), "status", before.overallStatus()),
+                    Map.of("healthScore", after.healthScore(), "status", after.overallStatus(), "message", message)
+            );
+        } catch (Exception auditException) {
+            // Audit failure should not block the action result
+        }
         return new HealthActionResult(action, scope, request.targetId(), "SUCCESS", message, Instant.now(), after);
     }
 
@@ -302,7 +306,7 @@ public class HealthIntelligenceService {
             jdbcTemplate.update(
                     "UPDATE system_services SET last_checked_at = ?, last_latency_ms = ?, "
                             + "last_message = ?, updated_at = ? WHERE id = ?",
-                    Instant.now(), latencyMs, "Controlled diagnostic completed", Instant.now(), targetId);
+                    Timestamp.from(Instant.now()), latencyMs, "Controlled diagnostic completed", Instant.now(), targetId);
         }
         return "Controlled diagnostics completed; database latency " + latencyMs + " ms";
     }
@@ -318,12 +322,12 @@ public class HealthIntelligenceService {
         jdbcTemplate.update(
                 "UPDATE system_services SET status = 'OPERATIONAL', last_checked_at = ?, "
                         + "last_latency_ms = ?, last_message = ?, updated_at = ? WHERE code = 'DATABASE'",
-                Instant.now(), latencyMs, "Database probe passed during platform auto-heal", Instant.now());
+                Timestamp.from(Instant.now()), latencyMs, "Database probe passed during platform auto-heal", Instant.now());
         jdbcTemplate.update(
                 "UPDATE system_services SET status = ?, last_checked_at = ?, last_latency_ms = ?, "
                         + "last_message = ?, updated_at = ? WHERE code = 'API'",
-                apiStatus, Instant.now(), latencyMs,
-                "Runtime and database checks completed during platform auto-heal", Instant.now());
+                apiStatus, Timestamp.from(Instant.now()), latencyMs,
+                "Runtime and database checks completed during platform auto-heal", Timestamp.from(Instant.now()));
         return "Platform auto-heal completed; API status " + apiStatus + ", database operational";
     }
 
@@ -350,7 +354,7 @@ public class HealthIntelligenceService {
         int updated = jdbcTemplate.update(
                 "UPDATE system_services SET status = ?, last_checked_at = ?, last_latency_ms = ?, "
                         + "last_message = ?, updated_at = ? WHERE id = ?",
-                status, Instant.now(), latencyMs, message, Instant.now(), serviceId);
+                status, Timestamp.from(Instant.now()), latencyMs, message, Instant.now(), serviceId);
         if (updated == 0) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "System service not found");
         }
