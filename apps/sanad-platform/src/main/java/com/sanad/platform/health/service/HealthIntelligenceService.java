@@ -49,12 +49,58 @@ public class HealthIntelligenceService {
         this.auditService = auditService;
     }
 
+
+    private PlatformHealthResponse safeSnapshot() {
+        try {
+            return snapshot();
+        } catch (Exception e) {
+            return new PlatformHealthResponse(
+                    Instant.now(), "UNKNOWN", 0, "HIGH",
+                    "Health snapshot partially unavailable",
+                    new RuntimeMetricsResponse(0, 0, 0, 0, 0, 1),
+                    new DataPressureResponse(0, "UNKNOWN", 0, 0, 0, 0, 0, "Unavailable"),
+                    List.of(), List.of(), List.of(), List.of());
+        }
+    }
+
+    private RuntimeMetricsResponse safeRuntimeMetrics() {
+        try {
+            return runtimeMetrics();
+        } catch (Exception e) {
+            return new RuntimeMetricsResponse(0, 0, 0, 0, 0, 1);
+        }
+    }
+
+    private DataPressureResponse safeDataPressure(RuntimeMetricsResponse runtime) {
+        try {
+            return dataPressure(runtime);
+        } catch (Exception e) {
+            return new DataPressureResponse(0, "UNKNOWN", 0, 0, 0, 0, 0, "Data pressure unavailable");
+        }
+    }
+
+    private List<ServiceHealthResponse> safeServiceHealth() {
+        try {
+            return serviceHealth();
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    private List<TenantHealthResponse> safeTenantHealth() {
+        try {
+            return tenantHealth();
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
     @Transactional(readOnly = true)
     public PlatformHealthResponse snapshot() {
-        RuntimeMetricsResponse runtime = runtimeMetrics();
-        DataPressureResponse dataPressure = dataPressure(runtime);
-        List<ServiceHealthResponse> services = serviceHealth();
-        List<TenantHealthResponse> tenants = tenantHealth();
+        RuntimeMetricsResponse runtime = safeRuntimeMetrics();
+        DataPressureResponse dataPressure = safeDataPressure(runtime);
+        List<ServiceHealthResponse> services = safeServiceHealth();
+        List<TenantHealthResponse> tenants = safeTenantHealth();
         int serviceScore = average(services.stream().map(ServiceHealthResponse::healthScore).toList(), 100);
         int tenantScore = average(tenants.stream().map(TenantHealthResponse::healthScore).toList(), 100);
         int runtimeScore = clamp((int) Math.round(
@@ -83,7 +129,7 @@ public class HealthIntelligenceService {
         }
         validateTarget(scope, request.targetId());
         validateAction(scope, action);
-        PlatformHealthResponse before = snapshot();
+        PlatformHealthResponse before = safeSnapshot();
         String message = switch (action) {
             case "RUN_DIAGNOSTICS" -> runDiagnostics(scope, request.targetId());
             case "AUTO_HEAL" -> autoHeal(scope, request.targetId());
@@ -94,7 +140,7 @@ public class HealthIntelligenceService {
             case "REFRESH_TENANT_HEALTH" -> "Tenant health signals recalculated successfully";
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported health action");
         };
-        PlatformHealthResponse after = snapshot();
+        PlatformHealthResponse after = safeSnapshot();
         auditService.success(
                 authentication,
                 "TENANT".equals(scope) ? request.targetId() : null,
@@ -133,9 +179,9 @@ public class HealthIntelligenceService {
                 + count("SELECT COUNT(*) FROM billing_invoices")
                 + count("SELECT COUNT(*) FROM platform_audit_logs");
         Instant oneHourAgo = Instant.now().minus(1, ChronoUnit.HOURS);
-        long auditEvents = count("SELECT COUNT(*) FROM platform_audit_logs WHERE created_at >= ?", oneHourAgo);
+        long auditEvents = count("SELECT COUNT(*) FROM platform_audit_logs WHERE created_at >= ?", java.sql.Timestamp.from(oneHourAgo));
         long failedEvents = count(
-                "SELECT COUNT(*) FROM platform_audit_logs WHERE created_at >= ? AND result = 'FAILURE'", oneHourAgo);
+                "SELECT COUNT(*) FROM platform_audit_logs WHERE created_at >= ? AND result = 'FAILURE'", java.sql.Timestamp.from(oneHourAgo));
         long openInvoices = count("SELECT COUNT(*) FROM billing_invoices WHERE status = 'OPEN'");
         long activeUsers = count("SELECT COUNT(*) FROM users WHERE status = 'ACTIVE'");
         int rowPressure = clamp((int) Math.round(Math.min(100, trackedRows / 5000.0 * 100)));
@@ -266,7 +312,7 @@ public class HealthIntelligenceService {
         long started = System.nanoTime();
         jdbcTemplate.queryForObject("SELECT 1", Integer.class);
         long latencyMs = Math.max(0, (System.nanoTime() - started) / 1_000_000);
-        RuntimeMetricsResponse runtime = runtimeMetrics();
+        RuntimeMetricsResponse runtime = safeRuntimeMetrics();
         String apiStatus = runtime.memoryUsagePercent() >= 92 || runtime.cpuLoadPercent() >= 92
                 ? "DEGRADED" : "OPERATIONAL";
         jdbcTemplate.update(
@@ -290,7 +336,7 @@ public class HealthIntelligenceService {
         long started = System.nanoTime();
         jdbcTemplate.queryForObject("SELECT 1", Integer.class);
         long latencyMs = Math.max(0, (System.nanoTime() - started) / 1_000_000);
-        RuntimeMetricsResponse runtime = runtimeMetrics();
+        RuntimeMetricsResponse runtime = safeRuntimeMetrics();
         if ("API".equals(target.code())
                 && (runtime.memoryUsagePercent() >= 95 || runtime.cpuLoadPercent() >= 95)) {
             return updateServiceState(serviceId, "DEGRADED", latencyMs,
@@ -431,7 +477,10 @@ public class HealthIntelligenceService {
         if (value == null) return null;
         if (value instanceof Instant instant) return instant;
         if (value instanceof OffsetDateTime offsetDateTime) return offsetDateTime.toInstant();
+        if (value instanceof java.time.LocalDateTime ldt) return ldt.atOffset(java.time.ZoneOffset.UTC).toInstant();
         if (value instanceof Timestamp timestamp) return timestamp.toInstant();
+        if (value instanceof java.time.ZonedDateTime zdt) return zdt.toInstant();
+        if (value instanceof java.util.Date date) return date.toInstant();
         throw new SQLException("Unsupported timestamp value for " + column + ": " + value.getClass());
     }
 
