@@ -22,10 +22,10 @@ jobs:
       WEB_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
       CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
       CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
-      CONTROL_PLANE_TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
-      CONTROL_PLANE_NON_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_NON_ADMIN_EMAIL }}
-      CONTROL_PLANE_NON_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_NON_ADMIN_PASSWORD }}
-      CONTROL_PLANE_NON_ADMIN_TENANT_ID: ${{ secrets.CONTROL_PLANE_NON_ADMIN_TENANT_ID }}
+      CONTROL_PLANE_TENANT_ID: ${{ secrets.BOOTSTRAP_TENANT_ID }}
+      CONTROL_PLANE_NON_ADMIN_EMAIL: ${{ secrets.IDENTITY_B_EMAIL }}
+      CONTROL_PLANE_NON_ADMIN_PASSWORD: ${{ secrets.IDENTITY_B_PASSWORD }}
+      CONTROL_PLANE_NON_ADMIN_TENANT_ID: ${{ secrets.IDENTITY_B_TENANT_ID }}
       VERIFY_CORRELATION_ID: executive-health-${{ github.run_id }}-${{ github.run_attempt }}
       VERIFY_REASON: Production verification run ${{ github.run_id }} attempt ${{ github.run_attempt }}
 
