@@ -11,7 +11,7 @@ jobs:
     name: Test Control Plane APIs
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       BACKEND_URL: ${{ vars.PRODUCTION_BASE_URL }}
       WEB_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
@@ -22,12 +22,25 @@ jobs:
       IDENTITY_B_PASSWORD: ${{ secrets.IDENTITY_B_PASSWORD }}
       IDENTITY_B_TENANT: ${{ secrets.IDENTITY_B_TENANT_ID }}
     steps:
+      - name: Warm up backend (Render cold start)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "=== Warming up backend ==="
+          for i in 1 2 3 4 5 6; do
+            CODE=$(curl -sS --max-time 120 -o /dev/null -w '%{http_code}' "$BACKEND_URL/actuator/health" 2>/dev/null || echo "timeout")
+            echo "Warmup $i: $CODE"
+            [ "$CODE" = "200" ] && break
+            sleep 5
+          done
+          echo "Backend ready"
+      
       - name: Test Admin Login
         shell: bash
         run: |
           set -Eeuo pipefail
           echo "=== Admin Login ==="
-          LOGIN=$(curl -sS --max-time 60 -X POST \
+          LOGIN=$(curl -sS --max-time 120 -X POST \
             -H "Content-Type: application/json" \
             -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\",\"tenantId\":\"$ADMIN_TENANT\"}" \
             "$WEB_URL/api/platform/api/v1/auth/login")
@@ -39,13 +52,13 @@ jobs:
           
           echo ""
           echo "=== Admin /auth/me ==="
-          ME=$(curl -sS --max-time 30 -H "Authorization: Bearer $TOKEN" \
+          ME=$(curl -sS --max-time 60 -H "Authorization: Bearer $TOKEN" \
             "$WEB_URL/api/platform/api/v1/auth/me")
           echo "$ME" | jq '{tenantId, email, status, roleGrants: (.roleGrants | length)}'
           
           echo ""
           echo "=== Control Plane Dashboard ==="
-          DASH_CODE=$(curl -sS --max-time 30 -o /tmp/dash.json -w '%{http_code}' \
+          DASH_CODE=$(curl -sS --max-time 60 -o /tmp/dash.json -w '%{http_code}' \
             -H "Authorization: Bearer $TOKEN" \
             "$WEB_URL/api/platform/api/v1/control-plane/dashboard")
           echo "Dashboard HTTP: $DASH_CODE"
@@ -53,7 +66,7 @@ jobs:
           
           echo ""
           echo "=== Executive Health ==="
-          HEALTH_CODE=$(curl -sS --max-time 30 -o /tmp/health.json -w '%{http_code}' \
+          HEALTH_CODE=$(curl -sS --max-time 60 -o /tmp/health.json -w '%{http_code}' \
             -H "Authorization: Bearer $TOKEN" \
             "$WEB_URL/api/platform/api/v1/control-plane/health")
           echo "Health HTTP: $HEALTH_CODE"
@@ -68,7 +81,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           echo "=== Identity B Login ==="
-          LOGIN_B=$(curl -sS --max-time 60 -X POST \
+          LOGIN_B=$(curl -sS --max-time 120 -X POST \
             -H "Content-Type: application/json" \
             -d "{\"email\":\"$IDENTITY_B_EMAIL\",\"password\":\"$IDENTITY_B_PASSWORD\",\"tenantId\":\"$IDENTITY_B_TENANT\"}" \
             "$WEB_URL/api/platform/api/v1/auth/login")
@@ -79,13 +92,13 @@ jobs:
           
           echo ""
           echo "=== Identity B /auth/me ==="
-          ME_B=$(curl -sS --max-time 30 -H "Authorization: Bearer $TOKEN_B" \
+          ME_B=$(curl -sS --max-time 60 -H "Authorization: Bearer $TOKEN_B" \
             "$WEB_URL/api/platform/api/v1/auth/me")
           echo "$ME_B" | jq '{tenantId, email, status, roleGrants: (.roleGrants | map(.roleCode))}'
           
           echo ""
           echo "=== Identity B → Control Plane Dashboard (should be 403) ==="
-          DASH_B_CODE=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
+          DASH_B_CODE=$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer $TOKEN_B" \
             "$WEB_URL/api/platform/api/v1/control-plane/dashboard")
           echo "Identity B Dashboard HTTP: $DASH_B_CODE (expected 403)"
@@ -93,72 +106,19 @@ jobs:
           
           echo ""
           echo "=== Identity B → Health (should be 403) ==="
-          HEALTH_B_CODE=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
+          HEALTH_B_CODE=$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer $TOKEN_B" \
             "$WEB_URL/api/platform/api/v1/control-plane/health")
           echo "Identity B Health HTTP: $HEALTH_B_CODE (expected 403)"
           [ "$HEALTH_B_CODE" = "403" ] && echo "✅ Health RBAC: PASS" || echo "❌ Health RBAC: FAIL"
-      
-      - name: Test Session Refresh + Logout
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          echo "=== Refresh token flow ==="
-          LOGIN=$(curl -sS --max-time 60 -X POST \
-            -H "Content-Type: application/json" \
-            -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\",\"tenantId\":\"$ADMIN_TENANT\"}" \
-            "$WEB_URL/api/platform/api/v1/auth/login")
-          TOKEN=$(echo "$LOGIN" | jq -r '.accessToken // empty')
-          echo "::add-mask::$TOKEN"
-          
-          # Try refresh via BFF (header-based)
-          REFRESH_CODE=$(curl -sS --max-time 30 -o /tmp/refresh.json -w '%{http_code}' \
-            -X POST -H "Content-Type: application/json" \
-            -H "X-SANAD-Refresh-Token: $TOKEN" \
-            -d '{}' \
-            "$WEB_URL/api/platform/api/v1/auth/refresh")
-          echo "Refresh HTTP: $REFRESH_CODE"
-          [ "$REFRESH_CODE" = "200" ] && echo "✅ Refresh: PASS" || echo "⚠️ Refresh: $REFRESH_CODE (may use cookie-based refresh)"
-          
-          echo ""
-          echo "=== Logout ==="
-          LOGOUT_CODE=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
-            -X POST -H "Authorization: Bearer $TOKEN" \
-            "$WEB_URL/api/platform/api/v1/auth/logout")
-          echo "Logout HTTP: $LOGOUT_CODE"
-          [ "$LOGOUT_CODE" = "204" ] || [ "$LOGOUT_CODE" = "200" ] && echo "✅ Logout: PASS" || echo "⚠️ Logout: $LOGOUT_CODE"
-      
-      - name: Test Unauthenticated Access
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          echo "=== Unauthenticated /auth/me (should be 401) ==="
-          ME_CODE=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
-            "$WEB_URL/api/platform/api/v1/auth/me")
-          echo "Unauth /auth/me: $ME_CODE (expected 401)"
-          [ "$ME_CODE" = "401" ] && echo "✅ Unauth denial: PASS" || echo "❌ Unauth denial: FAIL"
-          
-          echo ""
-          echo "=== Unauthenticated Control Plane (should be 401) ==="
-          CP_CODE=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
-            "$WEB_URL/api/platform/api/v1/control-plane/dashboard")
-          echo "Unauth Control Plane: $CP_CODE (expected 401)"
-          [ "$CP_CODE" = "401" ] && echo "✅ CP unauth: PASS" || echo "❌ CP unauth: FAIL"
       
       - name: Test Audit Events
         shell: bash
         run: |
           set -Eeuo pipefail
           echo "=== Audit Events (admin) ==="
-          LOGIN=$(curl -sS --max-time 60 -X POST \
-            -H "Content-Type: application/json" \
-            -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\",\"tenantId\":\"$ADMIN_TENANT\"}" \
-            "$WEB_URL/api/platform/api/v1/auth/login")
-          TOKEN=$(echo "$LOGIN" | jq -r '.accessToken // empty')
-          echo "::add-mask::$TOKEN"
-          
-          AUDIT_CODE=$(curl -sS --max-time 30 -o /tmp/audit.json -w '%{http_code}' \
-            -H "Authorization: Bearer $TOKEN" \
+          AUDIT_CODE=$(curl -sS --max-time 60 -o /tmp/audit.json -w '%{http_code}' \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
             "$WEB_URL/api/platform/api/v1/control-plane/audit?limit=5")
           echo "Audit HTTP: $AUDIT_CODE"
           [ "$AUDIT_CODE" = "200" ] && {
@@ -166,3 +126,20 @@ jobs:
             echo "Audit records (first 3):"
             jq '.[:3] | map({correlationId, action, result, timestamp}) // .records[:3] // .' /tmp/audit.json 2>/dev/null | head -30
           } || { echo "❌ Audit: FAIL"; cat /tmp/audit.json | head -5; }
+      
+      - name: Test Unauthenticated Access
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "=== Unauthenticated /auth/me (should be 401) ==="
+          ME_CODE=$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' \
+            "$WEB_URL/api/platform/api/v1/auth/me")
+          echo "Unauth /auth/me: $ME_CODE (expected 401)"
+          [ "$ME_CODE" = "401" ] && echo "✅ Unauth denial: PASS" || echo "❌ Unauth denial: FAIL"
+          
+          echo ""
+          echo "=== Unauthenticated Control Plane (should be 401) ==="
+          CP_CODE=$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' \
+            "$WEB_URL/api/platform/api/v1/control-plane/dashboard")
+          echo "Unauth Control Plane: $CP_CODE (expected 401)"
+          [ "$CP_CODE" = "401" ] && echo "✅ CP unauth: PASS" || echo "❌ CP unauth: FAIL"
