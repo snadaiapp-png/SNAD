@@ -25,6 +25,9 @@ description = "Gitignored generated build outputs excluded from tracked-source s
 paths = [
   '''^apps/sanad-platform/target/''',
   '''^apps/web/\.next/''',
+  '''^SNAD-https/''',
+  '''^node_modules/''',
+  '''^apps/web/node_modules/''',
 ]
 
 # No global regex exclusions.

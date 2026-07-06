@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -uo pipefail
 
 # ---- Initialize evidence workspace ----
 ACTUAL_SHA="$(git rev-parse HEAD)"
@@ -62,11 +62,11 @@ INPUT_PREFIX='$'"{{ inputs."
 CONFIRM_BINDING='RELEASE_CONFIRMATION: $'"{{ inputs.confirm }}"
 SHA_BINDING='REQUESTED_RELEASE_SHA: $'"{{ inputs.release_sha }}"
 
-DIRECT_INPUT_COUNT="$(grep -F "$INPUT_PREFIX" "$WORKFLOW_FILE" | wc -l | tr -d '[:space:]')"
-CONFIRM_BINDING_COUNT="$(grep -F "$CONFIRM_BINDING" "$WORKFLOW_FILE" | wc -l | tr -d '[:space:]')"
-SHA_BINDING_COUNT="$(grep -F "$SHA_BINDING" "$WORKFLOW_FILE" | wc -l | tr -d '[:space:]')"
+DIRECT_INPUT_COUNT=$(grep -Fc "$INPUT_PREFIX" "$WORKFLOW_FILE" || true)
+CONFIRM_BINDING_COUNT=$(grep -Fc "$CONFIRM_BINDING" "$WORKFLOW_FILE" || true)
+SHA_BINDING_COUNT=$(grep -Fc "$SHA_BINDING" "$WORKFLOW_FILE" || true)
 LEGACY_PREFIX='github.event.'
-LEGACY_INPUT_COUNT="$(grep -F "${LEGACY_PREFIX}inputs" "$WORKFLOW_FILE" | wc -l | tr -d '[:space:]')"
+LEGACY_INPUT_COUNT=$(grep -Fc "${LEGACY_PREFIX}inputs" "$WORKFLOW_FILE" || true)
 SHELL_INPUT_COUNT=$((DIRECT_INPUT_COUNT - CONFIRM_BINDING_COUNT - SHA_BINDING_COUNT))
 
 [ "$DIRECT_INPUT_COUNT" -eq 2 ] || {
