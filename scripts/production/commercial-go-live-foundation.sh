@@ -318,7 +318,7 @@ curl --fail-with-body --silent --show-error --max-time 30 \
   > "$RUNNER_TEMP/repo-secrets-metadata.json"
 
 # Merge both lists for checking
-jq -s '[.secrets[]?] | unique_by(.name)' \
+jq -s '[.[].secrets[]?] | unique_by(.name)' \
   "$RUNNER_TEMP/production-secrets-metadata.json" \
   "$RUNNER_TEMP/repo-secrets-metadata.json" \
   > "$RUNNER_TEMP/all-secrets-metadata.json"
