@@ -9,6 +9,40 @@ ACTUAL_SHA="$(git rev-parse HEAD)"
 }
 rm -rf evidence
 mkdir -p evidence
+
+# ---- Initialize NO-GO summary (updated on failure by trap, replaced by GO on success) ----
+jq -n \
+  --arg releaseSha "$RELEASE_SHA" \
+  --arg runId "$GITHUB_RUN_ID" \
+  '{
+    releaseSha:$releaseSha,
+    runId:$runId,
+    finalDecision:"COMMERCIAL GO-LIVE — NO-GO",
+    status:"STARTED"
+  }' > evidence/commercial-release-summary.json
+
+# ---- Trap to update summary on failure (§7 of final closure order) ----
+CURRENT_GATE="INIT"
+on_failure() {
+  STATUS=$?
+  jq \
+    --arg gate "${CURRENT_GATE:-UNKNOWN}" \
+    --argjson exitCode "$STATUS" \
+    '
+      .status = "FAILED" |
+      .failedGate = $gate |
+      .exitCode = $exitCode |
+      .finalDecision = "COMMERCIAL GO-LIVE — NO-GO"
+    ' \
+    evidence/commercial-release-summary.json \
+    > evidence/commercial-release-summary.tmp
+  mv evidence/commercial-release-summary.tmp evidence/commercial-release-summary.json
+  exit "$STATUS"
+}
+trap on_failure ERR
+
+CURRENT_GATE="RELEASE_SHA_VERIFICATION"
+
 jq -n \
   --arg releaseSha "$RELEASE_SHA" \
   --arg actualSha "$ACTUAL_SHA" \
@@ -78,40 +112,92 @@ jq -n \
   }' > evidence/workflow-input-security-evidence.json
 
 # ---- Repository current-tree secret scan ----
+# Replace Docker-based gitleaks with pinned binary + checksum verification
+# per §6 of final closure executive order.
 REPORT_DIR="$RUNNER_TEMP/gitleaks-commercial"
 rm -rf "$REPORT_DIR"
 mkdir -p "$REPORT_DIR"
 
+GITLEAKS_VERSION="8.24.3"
+ARCHIVE="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+GITLEAKS_BIN="$RUNNER_TEMP/gitleaks"
+
+# Download archive
+curl --fail-with-body --silent --show-error --location \
+  "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${ARCHIVE}" \
+  --output "$RUNNER_TEMP/$ARCHIVE"
+
+# Download checksums
+curl --fail-with-body --silent --show-error --location \
+  "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt" \
+  --output "$RUNNER_TEMP/gitleaks-checksums.txt"
+
+# Verify checksum (sha256)
+(
+  cd "$RUNNER_TEMP"
+  grep " ${ARCHIVE}$" gitleaks-checksums.txt | sha256sum --check -
+) || {
+  echo "::error::Gitleaks binary checksum verification FAILED."
+  jq -n \
+    --arg releaseSha "$RELEASE_SHA" \
+    --arg reason "gitleaks checksum verification failed" \
+    '{releaseSha:$releaseSha, tool:"gitleaks", result:"FAIL", reason:$reason}' \
+    > evidence/secret-scan-evidence.json
+  exit 1
+}
+
+# Extract binary
+tar -xzf "$RUNNER_TEMP/$ARCHIVE" -C "$RUNNER_TEMP" gitleaks
+chmod +x "$GITLEAKS_BIN"
+
+# Verify binary is executable
+"$GITLEAKS_BIN" version >/dev/null 2>&1 || {
+  echo "::error::Gitleaks binary failed to execute."
+  jq -n \
+    --arg releaseSha "$RELEASE_SHA" \
+    --arg reason "gitleaks binary execution failed" \
+    '{releaseSha:$releaseSha, tool:"gitleaks", result:"FAIL", reason:$reason}' \
+    > evidence/secret-scan-evidence.json
+  exit 1
+}
+
+# Run scan (distinguish execution failure from findings)
 set +e
-docker run --rm \
-  -v "$PWD:/repo" \
-  -v "$REPORT_DIR:/report" \
-  zricethezav/gitleaks:v8.24.3 detect \
-  --source=/repo \
-  --config=/repo/.gitleaks.toml \
+"$GITLEAKS_BIN" detect \
+  --source="$GITHUB_WORKSPACE" \
+  --config="$GITHUB_WORKSPACE/.gitleaks.toml" \
   --no-git \
   --redact \
   --report-format=json \
-  --report-path=/report/findings.json \
+  --report-path="$REPORT_DIR/findings.json" \
   --exit-code=1
 SCAN_STATUS=$?
 set -e
 
-[ "$SCAN_STATUS" -eq 0 ] || {
+# Distinguish: scanner could not execute vs. secrets detected vs. clean pass
+if [ "$SCAN_STATUS" -eq 0 ]; then
+  # Clean pass — no secrets found
   FINDING_COUNT=0
-  [ ! -f "$REPORT_DIR/findings.json" ] || FINDING_COUNT="$(jq 'length' "$REPORT_DIR/findings.json")"
-  echo "::error::Current-tree secret scan failed with $FINDING_COUNT finding(s)."
+elif [ -f "$REPORT_DIR/findings.json" ]; then
+  # Secrets were detected — count them
+  FINDING_COUNT="$(jq 'length' "$REPORT_DIR/findings.json" 2>/dev/null || echo 0)"
+  echo "::error::Current-tree secret scan detected $FINDING_COUNT finding(s)."
+  jq -n \
+    --arg releaseSha "$RELEASE_SHA" \
+    --argjson findings "$FINDING_COUNT" \
+    '{releaseSha:$releaseSha, tool:"gitleaks", mode:"current-tree", findings:$findings, result:"FAIL"}' \
+    > evidence/secret-scan-evidence.json
   exit 1
-}
-
-if [ -f "$REPORT_DIR/findings.json" ]; then
-  jq -e 'type == "array"' "$REPORT_DIR/findings.json" >/dev/null
-  FINDING_COUNT="$(jq 'length' "$REPORT_DIR/findings.json")"
 else
-  FINDING_COUNT=0
+  # Scanner could not execute (not a "findings" issue)
+  echo "::error::Gitleaks scanner failed to execute (exit $SCAN_STATUS). This is an infrastructure issue, not a findings issue."
+  jq -n \
+    --arg releaseSha "$RELEASE_SHA" \
+    --argjson exitCode "$SCAN_STATUS" \
+    '{releaseSha:$releaseSha, tool:"gitleaks", mode:"current-tree", result:"ERROR", exitCode:$exitCode, reason:"scanner execution failed"}' \
+    > evidence/secret-scan-evidence.json
+  exit 1
 fi
-
-[ "$FINDING_COUNT" -eq 0 ] || exit 1
 
 jq -n \
   --arg releaseSha "$RELEASE_SHA" \
