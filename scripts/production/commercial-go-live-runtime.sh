@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -uo pipefail
 
 # ---- Capture previous live Render commit ----
 curl --fail-with-body --silent --show-error --max-time 30 \
