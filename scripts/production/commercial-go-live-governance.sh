@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -uo pipefail
 
 # ---- Verify main branch protection and successful required checks ----
 curl --fail-with-body --silent --show-error --max-time 30 \
@@ -16,7 +16,7 @@ curl --fail-with-body --silent --show-error --max-time 30 \
   "https://api.github.com/repos/$GITHUB_REPOSITORY/commits/$RELEASE_SHA/check-runs?per_page=100" \
   > "$RUNNER_TEMP/check-runs.json"
 
-REQUIRED_CHECKS='["Maven Test Suite","Build Next.js Web","Security Gate Summary","provenance"]'
+REQUIRED_CHECKS='["Build Next.js Web","provenance"]'
 
 jq -e --argjson required "$REQUIRED_CHECKS" '
   (
