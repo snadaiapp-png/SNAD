@@ -105,12 +105,14 @@ jobs:
           echo "RELEASE_SHA=$RELEASE_SHA" >> "$GITHUB_ENV"
 
       - name: Checkout exact release SHA
+        id: checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.target.outputs.release_sha }}
           fetch-depth: 0
 
       - name: Foundation gates
+        id: foundation
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -131,6 +133,7 @@ jobs:
           bash scripts/production/commercial-go-live-governance.sh
 
       - name: Roll back failed Render release and verify exact rollback SHA
+        id: rollback
         if: failure() && env.PREVIOUS_RENDER_SHA != '' && env.PREVIOUS_RENDER_SHA != env.RELEASE_SHA && env.RELEASE_TAG_CREATED != 'true'
         shell: bash
         run: |
@@ -166,6 +169,75 @@ jobs:
           ROLLED_BACK_SHA="$(jq -r '(.deploy // .).commit.id // empty' "$RUNNER_TEMP/render-rollback-state.json")"
           [ "$STATUS" = "live" ] && [ "$ROLLED_BACK_SHA" = "$PREVIOUS_RENDER_SHA" ] || exit 1
           echo "Render rollback verified at $ROLLED_BACK_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Finalize mandatory NO-GO evidence
+        id: no_go_evidence
+        if: failure()
+        shell: bash
+        env:
+          TARGET_OUTCOME: ${{ steps.target.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          FOUNDATION_OUTCOME: ${{ steps.foundation.outcome }}
+          RUNTIME_OUTCOME: ${{ steps.runtime.outcome }}
+          GOVERNANCE_OUTCOME: ${{ steps.governance.outcome }}
+          ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence
+
+          FAILED_GATE="UNKNOWN"
+          if [ "$TARGET_OUTCOME" = "failure" ]; then
+            FAILED_GATE="AUTHORIZATION_CONFIGURATION_SHA"
+          elif [ "$CHECKOUT_OUTCOME" = "failure" ]; then
+            FAILED_GATE="CHECKOUT_EXACT_SHA"
+          elif [ "$FOUNDATION_OUTCOME" = "failure" ]; then
+            FAILED_GATE="FOUNDATION"
+          elif [ "$RUNTIME_OUTCOME" = "failure" ]; then
+            FAILED_GATE="RUNTIME_DEPLOYMENT_IDENTITY"
+          elif [ "$GOVERNANCE_OUTCOME" = "failure" ]; then
+            FAILED_GATE="GOVERNANCE_EVIDENCE_RELEASE_TAG"
+          elif [ "$ROLLBACK_OUTCOME" = "failure" ]; then
+            FAILED_GATE="ROLLBACK"
+          fi
+
+          RELEASE_EVIDENCE_SHA="${RELEASE_SHA:-${REQUESTED_RELEASE_SHA:-UNKNOWN}}"
+          SUMMARY_FILE="evidence/commercial-release-summary.json"
+
+          if ! jq -e 'type == "object"' "$SUMMARY_FILE" >/dev/null 2>&1; then
+            jq -n \
+              --arg releaseSha "$RELEASE_EVIDENCE_SHA" \
+              --arg runId "$GITHUB_RUN_ID" \
+              '{releaseSha:$releaseSha,runId:$runId}' \
+              > "$SUMMARY_FILE"
+          fi
+
+          jq \
+            --arg releaseSha "$RELEASE_EVIDENCE_SHA" \
+            --arg runId "$GITHUB_RUN_ID" \
+            --arg failedGate "$FAILED_GATE" \
+            --arg target "$TARGET_OUTCOME" \
+            --arg checkout "$CHECKOUT_OUTCOME" \
+            --arg foundation "$FOUNDATION_OUTCOME" \
+            --arg runtime "$RUNTIME_OUTCOME" \
+            --arg governance "$GOVERNANCE_OUTCOME" \
+            --arg rollback "$ROLLBACK_OUTCOME" \
+            '
+              .releaseSha = $releaseSha |
+              .runId = $runId |
+              .status = "FAILED" |
+              .failedGate = $failedGate |
+              .finalDecision = "COMMERCIAL GO-LIVE — NO-GO" |
+              .stepOutcomes = {
+                target:$target,
+                checkout:$checkout,
+                foundation:$foundation,
+                runtime:$runtime,
+                governance:$governance,
+                rollback:$rollback
+              }
+            ' "$SUMMARY_FILE" > "$SUMMARY_FILE.tmp"
+
+          mv "$SUMMARY_FILE.tmp" "$SUMMARY_FILE"
 
       - name: Publish mandatory NO-GO decision on failure
         if: failure()
