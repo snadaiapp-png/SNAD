@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import styles from "./auth.module.css";
 import { AuthErrorAlert } from "./auth-error-alert";
@@ -140,6 +141,30 @@ export function LoginForm({
               {passwordError}
             </span>
           )}
+        </div>
+
+        <div className={styles.authForgotLinkRow}>
+          <Link
+            href="/auth/forgot-password"
+            className={styles.authForgotLink}
+            aria-label="نسيت كلمة المرور؟ استعادة كلمة المرور"
+          >
+            <svg
+              className={styles.authForgotLinkIcon}
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4" />
+            </svg>
+            <span>نسيت كلمة المرور؟</span>
+          </Link>
         </div>
 
         <button
