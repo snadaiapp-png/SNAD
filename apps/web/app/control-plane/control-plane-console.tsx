@@ -116,7 +116,9 @@ export function ControlPlaneConsole() {
       if (!cancelled) {
         setOrganizations(orgs); setOrganizationId(selected); setMemberships(members);
       }
-    }).catch(() => { if (!cancelled) setMessage("تعذر تحميل دليل الشركات."); });
+    }).catch(() => { if (!cancelled) {
+      setOrganizations([]); setOrganizationId(""); setMemberships([]);
+    } });
     return () => { cancelled = true; };
   }, [organizationId, state, tenantId]);
 
@@ -132,10 +134,14 @@ export function ControlPlaneConsole() {
   const organization = organizations.find((item) => item.id === organizationId);
 
   const addTenant = () => {
-    const name = ask("اسم المستأجر");
-    const subdomain = ask("النطاق الفرعي");
-    const adminEmail = ask("بريد المدير");
+    const name = ask("اسم المستأجر (بالعربية أو الإنجليزية)");
+    const subdomain = ask("النطاق الفرعي (أحرف لاتينية صغيرة وأرقام فقط، مثال: my-company)").toLowerCase().replace(/[^a-z0-9-]/g, "");
+    const adminEmail = ask("بريد المدير (example@sanad.com)");
     if (!name || !subdomain || !adminEmail) return;
+    if (!/^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/.test(subdomain)) {
+      setMessage("النطاق الفرعي غير صالح. استخدم أحرف لاتينية صغيرة وأرقام وواصلات فقط.");
+      return;
+    }
     void execute("تم إنشاء المستأجر.", () => platformOperationsApi.createTenant({
       name, subdomain, adminEmail,
       legalName: ask("الاسم القانوني", name),
@@ -209,7 +215,12 @@ export function ControlPlaneConsole() {
               platformOperationsApi.createOrganization(tenantId, { name, description: ask("الوصف") }));
           }}>إضافة شركة</button>
         </Buttons></div>
-        <div className={styles.cards}>{organizations.map((item) => <article key={item.id}>
+        <div className={styles.cards}>
+          {organizations.length === 0 ? (
+            <p style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>
+              لا توجد شركات بعد. اضغط "إضافة شركة" لإنشاء أول شركة.
+            </p>
+          ) : organizations.map((item) => <article key={item.id}>
           <Badge value={item.status} /><h3>{item.name}</h3><p>{item.description || "بلا وصف"}</p>
           <Buttons>
             <button type="button" onClick={() => setOrganizationId(item.id)}>العضويات</button>
