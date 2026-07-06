@@ -1,0 +1,8 @@
+{
+  "releaseSha": "beb6e18c19c8fb5809c77f63de0344ff0430b576",
+  "runId": "test",
+  "finalDecision": "COMMERCIAL GO-LIVE — NO-GO",
+  "status": "FAILED",
+  "failedGate": "RELEASE_SHA_VERIFICATION",
+  "exitCode": 1
+}
