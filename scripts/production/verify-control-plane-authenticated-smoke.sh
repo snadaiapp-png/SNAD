@@ -103,7 +103,7 @@ admin_login_payload="$(jq -n \
   '{email:$address,password:$pass,tenantId:$tenant}')"
 
 admin_login_status="$(request POST "$BASE_URL/api/v1/auth/login" "$WORK_DIR/admin-login.json" \
-  --cookie-jar "$WORK_DIR/admin.cookies" \
+  --dump-header "$WORK_DIR/admin-login-headers.txt" \
   --header 'Content-Type: application/json' \
   --data "$admin_login_payload")"
 expect_status "$admin_login_status" "200" "Admin login"
@@ -114,6 +114,10 @@ test -n "$ADMIN_TOKEN" || {
   exit 1
 }
 echo "::add-mask::$ADMIN_TOKEN"
+
+# Extract refresh token from response headers (backend sends X-SANAD-Refresh-Token header)
+ADMIN_REFRESH_TOKEN="$(grep -i '^x-sanad-refresh-token:' "$WORK_DIR/admin-login-headers.txt" | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r\n')"
+echo "::add-mask::$ADMIN_REFRESH_TOKEN"
 
 admin_me_status="$(request GET "$BASE_URL/api/v1/auth/me" "$WORK_DIR/admin-me.json" \
   --header "Authorization: Bearer $ADMIN_TOKEN")"
@@ -154,9 +158,8 @@ audit_status="$(request GET "$BASE_URL/api/v1/control-plane/audit" "$WORK_DIR/ad
 expect_status "$audit_status" "200" "Control Plane audit"
 
 refresh_status="$(request POST "$BASE_URL/api/v1/auth/refresh" "$WORK_DIR/admin-refresh.json" \
-  --cookie "$WORK_DIR/admin.cookies" \
-  --cookie-jar "$WORK_DIR/admin.cookies" \
   --header 'Content-Type: application/json' \
+  --header "X-SANAD-Refresh-Token: $ADMIN_REFRESH_TOKEN" \
   --data '{}')"
 expect_status "$refresh_status" "200" "Refresh"
 
@@ -177,7 +180,7 @@ identity_b_payload="$(jq -n \
   '{email:$address,password:$pass,tenantId:$tenant}')"
 
 identity_b_login_status="$(request POST "$BASE_URL/api/v1/auth/login" "$WORK_DIR/identity-b-login.json" \
-  --cookie-jar "$WORK_DIR/identity-b.cookies" \
+  --dump-header "$WORK_DIR/identity-b-login-headers.txt" \
   --header 'Content-Type: application/json' \
   --data "$identity_b_payload")"
 expect_status "$identity_b_login_status" "200" "Identity B login"
@@ -220,9 +223,8 @@ isolation_status="$(request GET \
 expect_denied "$isolation_status" "Cross-tenant denial"
 
 logout_status="$(request POST "$BASE_URL/api/v1/auth/logout" "$WORK_DIR/admin-logout.json" \
-  --cookie "$WORK_DIR/admin.cookies" \
-  --cookie-jar "$WORK_DIR/admin.cookies" \
   --header "Authorization: Bearer $REFRESHED_ADMIN_TOKEN" \
+  --header "X-SANAD-Refresh-Token: $ADMIN_REFRESH_TOKEN" \
   --header 'Content-Type: application/json' \
   --data '{}')"
 case "$logout_status" in
@@ -232,9 +234,8 @@ esac
 
 post_logout_refresh_status="$(request POST "$BASE_URL/api/v1/auth/refresh" \
   "$WORK_DIR/post-logout-refresh.json" \
-  --cookie "$WORK_DIR/admin.cookies" \
-  --cookie-jar "$WORK_DIR/admin.cookies" \
   --header 'Content-Type: application/json' \
+  --header "X-SANAD-Refresh-Token: $ADMIN_REFRESH_TOKEN" \
   --data '{}')"
 expect_denied "$post_logout_refresh_status" "Post-logout refresh rejection"
 
