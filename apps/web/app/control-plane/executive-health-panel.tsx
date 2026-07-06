@@ -77,7 +77,7 @@ function ForecastChart({ points }: { points: RiskForecastPoint[] }) {
 }
 
 export function ExecutiveHealthPanel() {
-  const { state } = useAuth();
+  const { state, refresh } = useAuth();
   const [health, setHealth] = useState<PlatformHealth | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -97,11 +97,16 @@ export function ExecutiveHealthPanel() {
     if (state !== "AUTHENTICATED") return;
     const initialTimer = window.setTimeout(() => void load(), 0);
     const refreshTimer = window.setInterval(() => void load(), 30_000);
+    // Proactively refresh the token every 14 minutes (TTL is 15 min) to prevent
+    // 401 errors on the polling interval. This complements the auto-refresh-on-401
+    // handler in the API client.
+    const tokenRefreshTimer = window.setInterval(() => void refresh(), 14 * 60 * 1000);
     return () => {
       window.clearTimeout(initialTimer);
       window.clearInterval(refreshTimer);
+      window.clearInterval(tokenRefreshTimer);
     };
-  }, [load, state]);
+  }, [load, state, refresh]);
 
   const execute = useCallback(async (input: Omit<HealthActionInput, "reason">) => {
     const reason = window.prompt(

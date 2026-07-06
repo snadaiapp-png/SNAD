@@ -100,6 +100,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshPromiseRef = useRef<Promise<void> | null>(null);
   const session = useInMemorySession();
 
+  // Register auto-refresh handler: when any API call receives 401, attempt to
+  // refresh the token. Return true if refresh succeeded (caller retries), false otherwise.
+  // This prevents 401 errors when the 15-minute access token expires mid-session.
+  useEffect(() => {
+    apiClient.setUnauthorizedHandler(async () => {
+      // If already refreshing, wait for that to complete.
+      if (refreshPromiseRef.current) {
+        try {
+          await refreshPromiseRef.current;
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      try {
+        const res = await authApi.refresh();
+        session.setSession(res.accessToken, res.expiresAt);
+        setUser(res.user);
+        setState("AUTHENTICATED");
+        return true;
+      } catch {
+        session.clearSession();
+        setUser(null);
+        setMe(null);
+        setState("EXPIRED");
+        return false;
+      }
+    });
+    return () => { apiClient.setUnauthorizedHandler(null); };
+  }, [session]);
+
   // Bootstrap: attempt silent refresh via HttpOnly refresh cookie to restore session.
   // If refresh succeeds, load /me for full profile. If it fails, go to ANONYMOUS.
   useEffect(() => {

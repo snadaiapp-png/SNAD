@@ -98,10 +98,14 @@ function createRequestSignal(timeoutMs: number, externalSignal?: AbortSignal): {
   };
 }
 
+/** Path prefixes that should NOT trigger automatic token refresh on 401. */
+const NO_REFRESH_PATHS = ["/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password"];
+
 export class ApiClient {
   private readonly baseUrl: string;
   private readonly defaultTimeoutMs: number;
   private defaultHeaders: Record<string, string> = {};
+  private unauthorizedHandler: (() => Promise<boolean>) | null = null;
 
   constructor(options?: { baseUrl?: string; timeoutMs?: number }) {
     this.baseUrl = options?.baseUrl ?? API_BASE_URL;
@@ -116,6 +120,16 @@ export class ApiClient {
   /** Remove a default header. */
   removeDefaultHeader(name: string): void {
     delete this.defaultHeaders[name];
+  }
+
+  /**
+   * Register a handler invoked when a request receives HTTP 401.
+   * The handler should attempt to refresh the token and return true on success
+   * (so the caller can retry) or false on failure (so the caller can propagate).
+   * Set to null to disable auto-refresh.
+   */
+  setUnauthorizedHandler(handler: (() => Promise<boolean>) | null): void {
+    this.unauthorizedHandler = handler;
   }
 
   buildUrl(path: string, query?: QueryParams): string {
@@ -147,7 +161,23 @@ export class ApiClient {
       const init: RequestInit = { method: req.method, headers, credentials: "include", signal: requestSignal.signal };
       if (req.cache !== undefined) init.cache = req.cache;
       if (serializedBody !== undefined) init.body = serializedBody;
-      const response = await fetch(fullUrl, init);
+      let response = await fetch(fullUrl, init);
+
+      // Auto-refresh on 401: if the token expired, attempt to refresh and retry once.
+      if (response.status === 401
+          && this.unauthorizedHandler
+          && !NO_REFRESH_PATHS.some((p) => req.path.startsWith(p))) {
+        const refreshed = await this.unauthorizedHandler();
+        if (refreshed) {
+          // Rebuild headers with the new Authorization token and retry.
+          const retryHeaders = mergeHeaders(hasBody, req.context?.headers, this.defaultHeaders);
+          const retryInit: RequestInit = { method: req.method, headers: retryHeaders, credentials: "include", signal: requestSignal.signal };
+          if (req.cache !== undefined) retryInit.cache = req.cache;
+          if (serializedBody !== undefined) retryInit.body = serializedBody;
+          response = await fetch(fullUrl, retryInit);
+        }
+      }
+
       if (response.status === 204) return undefined as TResponse;
       if (!response.ok) {
         const details = await extractErrorDetails(response);
