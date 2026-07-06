@@ -1,9 +1,10 @@
 package com.sanad.platform.scale.config;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
-import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.Test;
+
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -32,7 +33,7 @@ class CircuitBreakerPolicyConfigTest {
 
         // Record 5 failures (minimumNumberOfCalls=5, failureRateThreshold=50%)
         for (int i = 0; i < 5; i++) {
-            db.onError(0, new RuntimeException("test failure"));
+            db.onError(0, TimeUnit.NANOSECONDS, new RuntimeException("test failure"));
         }
 
         // After 5 failures (100% failure rate > 50% threshold), breaker should open
@@ -46,8 +47,10 @@ class CircuitBreakerPolicyConfigTest {
         CircuitBreaker ai = registry.circuitBreaker(CircuitBreakerPolicyConfig.AI_INFERENCE_BREAKER);
 
         // AI breaker should wait 60s in open state (vs 30s for DB)
-        CircuitBreakerConfig aiConfig = ai.getCircuitBreakerConfig();
-        assertThat(aiConfig.getWaitDurationInOpenState().getSeconds()).isEqualTo(60);
+        // CircuitBreakerConfig.getWaitIntervalFunctionInOpenState() returns the wait interval in ms
+        long waitMs = ai.getCircuitBreakerConfig()
+                .getWaitIntervalFunctionInOpenState().apply(1);
+        assertThat(waitMs).isEqualTo(60_000L);
     }
 
     @Test
