@@ -47,6 +47,9 @@ jobs:
       CONTROL_PLANE_NON_ADMIN_PASSWORD: ${{ secrets.IDENTITY_B_PASSWORD }}
       CONTROL_PLANE_NON_ADMIN_TENANT_ID: ${{ secrets.IDENTITY_B_TENANT_ID }}
       BRANCH_PROTECTION_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}
+      DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      EMAIL_PROXY_BEARER_TOKEN: ${{ secrets.EMAIL_PROXY_BEARER_TOKEN }}
 
     steps:
       - name: Validate authorization, configuration and release SHA
