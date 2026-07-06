@@ -1,0 +1,73 @@
+ID,Epic,Type,Title,Estimate,Priority,Dependency,Owner,Sprint
+ST8-01-F1-S1,ST8-EPIC-01,Story,Capacity baseline instrumentation,5,P0,-,Infra Owner,S1
+ST8-01-F1-S2,ST8-EPIC-01,Story,Tenant quota enforcement at gateway,8,P0,S1,Infra Owner,S1
+ST8-01-F2-S1,ST8-EPIC-01,Story,Horizontal autoscaling policy,5,P0,S1,Infra Owner,S1
+ST8-01-F3-S1,ST8-EPIC-01,Story,DB connection pool governance,3,P0,S1,Infra Owner,S1
+ST8-01-F4-S1,ST8-EPIC-01,Story,Per-tenant rate limit,5,P0,S2,Infra Owner,S1
+ST8-01-F5-S1,ST8-EPIC-01,Story,Circuit breakers per downstream,5,P0,S2,Infra Owner,S1
+ST8-01-F6-S1,ST8-EPIC-01,Story,Backpressure on AI agent queue,5,P0,S2,Infra Owner,S2
+ST8-01-F7-S1,ST8-EPIC-01,Story,Graceful degradation mode,5,P1,S5,Infra Owner,S2
+ST8-01-F8-S1,ST8-EPIC-01,Story,Load-shedding policy,3,P1,S5,Infra Owner,S2
+ST8-02-F1-S1,ST8-EPIC-02,Story,Locale model + Arabic/English baseline,8,P0,-,System Owner,S2
+ST8-02-F2-S1,ST8-EPIC-02,Story,Multi-currency model,5,P0,S1,System Owner,S2
+ST8-02-F3-S1,ST8-EPIC-02,Story,Time-zone support,3,P0,S1,System Owner,S2
+ST8-02-F4-S1,ST8-EPIC-02,Story,Country profile model,5,P0,S2,System Owner,S2
+ST8-02-F5-S1,ST8-EPIC-02,Story,Localization framework,5,P0,S1,System Owner,S2
+ST8-02-F6-S1,ST8-EPIC-02,Story,Data-residency zone routing,8,P0,S4,Infra Owner,S3
+ST8-03-F1-S1,ST8-EPIC-03,Story,Publisher onboarding + identity verification,8,P1,-,System Owner,S3
+ST8-03-F2-S1,ST8-EPIC-03,Story,Product submission + version management,5,P1,S1,System Owner,S3
+ST8-03-F3-S1,ST8-EPIC-03,Story,Security review + technical certification,8,P0,S2,Security Owner,S3
+ST8-03-F4-S1,ST8-EPIC-03,Story,Listing publication + trial support,5,P1,S3,System Owner,S3
+ST8-03-F5-S1,ST8-EPIC-03,Story,Tenant installation + entitlements,8,P0,S4,System Owner,S3
+ST8-03-F6-S1,ST8-EPIC-03,Story,Update + rollback,5,P0,S5,System Owner,S4
+ST8-03-F7-S1,ST8-EPIC-03,Story,Usage metering + revenue sharing,8,P1,S6,PM,S4
+ST8-03-F8-S1,ST8-EPIC-03,Story,Review moderation + abuse reporting,5,P1,S7,System Owner,S4
+ST8-03-F9-S1,ST8-EPIC-03,Story,Emergency revocation + kill switch,8,P0,S8,Security Owner,S4
+ST8-04-F1-S1,ST8-EPIC-04,Story,Industry metadata schema,8,P1,-,System Owner,S4
+ST8-04-F2-S1,ST8-EPIC-04,Story,Install/upgrade lifecycle,8,P1,S1,System Owner,S4
+ST8-04-F3-S1,ST8-EPIC-04,Story,Reference pack: Retail,8,P2,S2,System Owner,S5
+ST8-04-F4-S1,ST8-EPIC-04,Story,Reference pack: Professional Services,8,P2,S2,System Owner,S5
+ST8-04-F5-S1,ST8-EPIC-04,Story,Reference pack: Contracting,5,P2,S2,System Owner,S5
+ST8-05-F1-S1,ST8-EPIC-05,Story,Agent registry + version,8,P0,-,System Owner,S5
+ST8-05-F2-S1,ST8-EPIC-05,Story,Skills tools permissions,8,P0,S1,System Owner,S5
+ST8-05-F3-S1,ST8-EPIC-05,Story,Execution records + audit,8,P0,S2,System Owner,S5
+ST8-05-F4-S1,ST8-EPIC-05,Story,Human approval workflow (L2),5,P0,S3,System Owner,S5
+ST8-05-F5-S1,ST8-EPIC-05,Story,Evaluation harness,8,P0,S4,System Owner,S6
+ST8-05-F6-S1,ST8-EPIC-05,Story,Cost budgets + rate limits,5,P0,S5,System Owner,S6
+ST8-05-F7-S1,ST8-EPIC-05,Story,Emergency agent disablement,5,P0,S6,Security Owner,S6
+ST8-06-F1-S1,ST8-EPIC-06,Story,Enterprise hierarchy + multi legal entity,8,P1,-,Infra Owner,S6
+ST8-06-F2-S1,ST8-EPIC-06,Story,Delegated administration,5,P1,S1,Infra Owner,S6
+ST8-06-F3-S1,ST8-EPIC-06,Story,SSO (SAML OIDC),8,P1,S2,Infra Owner,S6
+ST8-06-F4-S1,ST8-EPIC-06,Story,SCIM user provisioning,5,P2,S3,Infra Owner,S7
+ST8-06-F5-S1,ST8-EPIC-06,Story,Segregation of duties,5,P1,S4,Security Owner,S7
+ST8-06-F6-S1,ST8-EPIC-06,Story,Privileged access review + recertification,5,P1,S5,Security Owner,S7
+ST8-07-F1-S1,ST8-EPIC-07,Story,Partner registration + due diligence,5,P2,-,PM,S7
+ST8-07-F2-S1,ST8-EPIC-07,Story,Deal registration,5,P2,S1,PM,S7
+ST8-07-F3-S1,ST8-EPIC-07,Story,Partner portal + analytics,8,P2,S2,PM,S7
+ST8-07-F4-S1,ST8-EPIC-07,Story,Partner certification + training,5,P2,S3,PM,S8
+ST8-08-F1-S1,ST8-EPIC-08,Story,Developer portal + OpenAPI docs,5,P1,-,System Owner,S7
+ST8-08-F2-S1,ST8-EPIC-08,Story,API keys + OAuth clients,8,P1,S1,System Owner,S7
+ST8-08-F3-S1,ST8-EPIC-08,Story,Webhooks signed replay-protected,8,P0,S2,System Owner,S7
+ST8-08-F4-S1,ST8-EPIC-08,Story,Sandbox tenants + test credentials,5,P1,S3,System Owner,S7
+ST8-08-F5-S1,ST8-EPIC-08,Story,Rate limits + quotas + analytics,5,P1,S4,System Owner,S8
+ST8-08-F6-S1,ST8-EPIC-08,Story,Versioning + deprecation policy,3,P1,S5,System Owner,S8
+ST8-09-F1-S1,ST8-EPIC-09,Story,Usage metering + metered billing,8,P1,-,PM,S8
+ST8-09-F2-S1,ST8-EPIC-09,Story,Trial lifecycle + conversion,5,P1,S1,PM,S8
+ST8-09-F3-S1,ST8-EPIC-09,Story,Customer health score,5,P1,S2,PM,S8
+ST8-09-F4-S1,ST8-EPIC-09,Story,Pricing experiments + promotion governance,5,P2,S3,PM,S9
+ST8-10-F1-S1,ST8-EPIC-10,Story,Tenant-isolated analytics warehouse,8,P1,-,System Owner,S8
+ST8-10-F2-S1,ST8-EPIC-10,Story,Metric catalog + semantic layer,5,P1,S1,System Owner,S8
+ST8-10-F3-S1,ST8-EPIC-10,Story,Executive dashboards,5,P1,S2,System Owner,S9
+ST8-10-F4-S1,ST8-EPIC-10,Story,Data lineage + retention,5,P1,S3,System Owner,S9
+ST8-11-F1-S1,ST8-EPIC-11,Story,Production dashboards,5,P0,-,Infra Owner,S1
+ST8-11-F2-S1,ST8-EPIC-11,Story,On-call + escalation matrix,3,P0,S1,Infra Owner,S1
+ST8-11-F3-S1,ST8-EPIC-11,Story,Incident response runbooks,5,P0,S2,Infra Owner,S2
+ST8-11-F4-S1,ST8-EPIC-11,Story,Synthetic uptime monitoring,3,P0,S3,Infra Owner,S2
+ST8-12-F1-S1,ST8-EPIC-12,Story,TD-07-001 OWASP final assessment,13,P0,-,Security Owner,S0-S9
+ST8-12-F2-S1,ST8-EPIC-12,Story,TD-07-002 Production backup/restore,8,P0,-,Infra Owner,S0-S9
+ST8-12-F3-S1,ST8-EPIC-12,Story,TD-07-003 Monitoring + alerting + IR,8,P0,-,Infra Owner,S0-S9
+ST8-12-F4-S1,ST8-EPIC-12,Story,TD-07-004 Commercial paid plan,8,P0,-,Infra Owner + PM,S0-S9
+ST8-12-F5-S1,ST8-EPIC-12,Story,TD-07-005 Fail-closed workflow completion,8,P0,-,QA & Release Owner,S0-S9
+ST8-12-F6-S1,ST8-EPIC-12,Story,TD-07-006 Email evidence hardening,5,P0,-,QA & Release Owner,S0-S9
+ST8-12-F7-S1,ST8-EPIC-12,Story,TD-07-007 Independent human approvals,5,P0,-,PM,S0-S9
+ST8-12-F8-S1,ST8-EPIC-12,Story,TD-07-008 Issue evidence reconciliation,5,P0,-,PM,S0-S9
