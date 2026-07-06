@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -40,10 +41,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(RateLimitFilter.class);
 
-    private final TenantQuotaService quotaService;
+    private final ObjectProvider<TenantQuotaService> quotaServiceProvider;
 
-    public RateLimitFilter(TenantQuotaService quotaService) {
-        this.quotaService = quotaService;
+    public RateLimitFilter(ObjectProvider<TenantQuotaService> quotaServiceProvider) {
+        this.quotaServiceProvider = quotaServiceProvider;
     }
 
     @Override
@@ -59,6 +60,13 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
         String path = request.getRequestURI();
         if (isExcluded(path)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        TenantQuotaService quotaService = quotaServiceProvider.getIfAvailable();
+        if (quotaService == null) {
+            // Quota service unavailable (e.g., test profile without DB) — bypass.
             filterChain.doFilter(request, response);
             return;
         }
