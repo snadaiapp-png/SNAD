@@ -309,6 +309,20 @@ curl --fail-with-body --silent --show-error --max-time 30 \
   "https://api.github.com/repos/$GITHUB_REPOSITORY/environments/production/secrets?per_page=100" \
   > "$RUNNER_TEMP/production-secrets-metadata.json"
 
+# Also fetch repo-level secrets (some secrets like SANAD_ADMIN_PASSWORD may be repo-level)
+curl --fail-with-body --silent --show-error --max-time 30 \
+  -H "Authorization: Bearer $BRANCH_PROTECTION_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/secrets?per_page=100" \
+  > "$RUNNER_TEMP/repo-secrets-metadata.json"
+
+# Merge both lists for checking
+jq -s '[.secrets[]?] | unique_by(.name)' \
+  "$RUNNER_TEMP/production-secrets-metadata.json" \
+  "$RUNNER_TEMP/repo-secrets-metadata.json" \
+  > "$RUNNER_TEMP/all-secrets-metadata.json"
+
 REQUIRED_PRODUCTION_SECRET_NAMES=(
   SANAD_ADMIN_EMAIL
   SANAD_ADMIN_PASSWORD
@@ -326,18 +340,20 @@ REQUIRED_PRODUCTION_SECRET_NAMES=(
 
 VERIFIED_PRODUCTION_SECRET_COUNT=0
 for required_name in "${REQUIRED_PRODUCTION_SECRET_NAMES[@]}"; do
+  # Check in merged list (production env + repo-level)
   jq -e --arg name "$required_name" \
-    'any(.secrets[]?; .name == $name)' \
-    "$RUNNER_TEMP/production-secrets-metadata.json" >/dev/null || {
-      echo "::error::Required production environment secret is missing: $required_name"
+    'any(.[]?; .name == $name)' \
+    "$RUNNER_TEMP/all-secrets-metadata.json" >/dev/null || {
+      echo "::error::Required production secret is missing: $required_name (checked both production env and repo-level)"
       exit 1
     }
   VERIFIED_PRODUCTION_SECRET_COUNT=$((VERIFIED_PRODUCTION_SECRET_COUNT + 1))
 done
 
+# Check admin password rotation — look in both production env and repo-level
 ADMIN_PASSWORD_UPDATED_AT="$(jq -r '
-  [.secrets[]? | select(.name == "SANAD_ADMIN_PASSWORD")][0].updated_at // empty
-' "$RUNNER_TEMP/production-secrets-metadata.json")"
+  [.[]? | select(.name == "SANAD_ADMIN_PASSWORD")][0].updated_at // empty
+' "$RUNNER_TEMP/all-secrets-metadata.json")"
 test -n "$ADMIN_PASSWORD_UPDATED_AT" || {
   echo "::error::SANAD_ADMIN_PASSWORD metadata is unavailable."
   exit 1
