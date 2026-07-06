@@ -115,26 +115,12 @@ for file in "${REQUIRED_FILES[@]}"; do
   # For email-delivery-evidence, allow result to be "FAIL" if email delivery
   # was attempted but Resend API didn't confirm "delivered" status yet
   # (email delivery is async and may take time)
-  if [ "$file" = "email-delivery-evidence.json" ]; then
-    jq -e --arg sha "$RELEASE_SHA" \
-      '.releaseSha == $sha' \
-      "evidence/$file" >/dev/null || {
-        echo "::error::Evidence is invalid or linked to another SHA: $file"
-        exit 1
-      }
-    # Check if result is PASS or if email was attempted
-    RESULT=$(jq -r '.result // "FAIL"' "evidence/$file" 2>/dev/null)
-    if [ "$RESULT" != "PASS" ]; then
-      echo "::warning::Email delivery evidence result is $RESULT (email may still be in transit)"
-    fi
-  else
-    jq -e --arg sha "$RELEASE_SHA" \
-      '.releaseSha == $sha and .result == "PASS"' \
-      "evidence/$file" >/dev/null || {
-        echo "::error::Evidence is invalid or linked to another SHA: $file"
-        exit 1
-      }
-  fi
+  jq -e --arg sha "$RELEASE_SHA" \
+    '.releaseSha == $sha and .result == "PASS"' \
+    "evidence/$file" >/dev/null || {
+      echo "::error::Evidence is invalid or linked to another SHA: $file"
+      exit 1
+    }
   VALID_COUNT=$((VALID_COUNT + 1))
 done
 
