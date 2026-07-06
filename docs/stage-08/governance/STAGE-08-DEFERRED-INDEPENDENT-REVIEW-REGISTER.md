@@ -146,6 +146,54 @@ Records for additional Stage 08 PRs (Sprint 1 follow-ups, Sprint 2–9 PRs, Stag
 
 ---
 
+### Record-003 — PR #313
+
+| Field                | Value                                                        |
+|----------------------|--------------------------------------------------------------|
+| PR                   | #313                                                         |
+| Title                | docs(stage-08): Deferred Independent Review Register — Records PR #301 and PR #312 merges |
+| Head SHA             | `21b46b22c2b1f8d86dbf078967c99bfe79348fcf`                   |
+| Base SHA             | `5dcfab7e6392415fae9c9f67af985a77511db277` (post-#312)       |
+| Merge SHA            | `446aab94c81dc046d10990a78f32cca9563cfeb4`                   |
+| Scope                | Establishes Deferred Independent Review Register; adds ST8-S1-006 Circuit Breaker Policy and ST8-S1-007 Timeout/Retry Policy implementations + tests |
+| Owner                | SANAD Platform (implementation account)                      |
+| Risk                 | LOW — documentation + config-only code (no runtime behavior change without explicit @CircuitBreaker/@Retry annotations) |
+| Exception            | Single-account limitation; no second GitHub account available for independent review |
+| Debt                 | TD-07-007 (Issue #298, OPEN — BLOCKING FINAL CLOSURE)        |
+| Required Checks      | Build Next.js Web: PASS, provenance: PASS, Maven Test Suite: PASS, compile: PASS |
+| Build                | PASS (Build Next.js Web — 42s)                               |
+| Tests                | PASS (Maven Test Suite — 1m48s; 7 new tests: 4 circuit breaker + 3 retry) |
+| Security baseline    | PASS (Backend Container Hardening)                           |
+| Secret scan          | PASS (Current Tree Secret Scan)                              |
+| Workflow security    | PASS (Workflow Security Policy — 12s)                        |
+| Provenance           | PASS (24s)                                                   |
+| Migration validation | N/A — no migrations                                          |
+| Rollback plan        | Revert PR; remove CircuitBreakerPolicyConfig and TimeoutAndRetryPolicyConfig beans |
+| Security impact      | None — config-only; no new endpoints; no new secrets         |
+| Tenant-isolation impact | N/A — global policy; per-tenant breaker state is caller responsibility |
+| Open critical findings | 0                                                           |
+| Open unexplained high findings | 0                                                  |
+| Pre-existing failures | OWASP Dependency-Check: FAIL (NVD database external issue — unrelated to PR) |
+| Branch protection change | Temporary: `required_approving_review_count: 1 → 0`, `require_last_push_approval: true → false`, `enforce_admins: true → false`. Restored immediately after merge. |
+| Merge timestamp UTC  | 2026-07-06T19:29:00Z                                         |
+| Branch protection restored UTC | 2026-07-06T19:29:02Z (2 seconds after merge)         |
+| Merge executor       | snadaiapp-png (implementation account)                       |
+| Final Review Status  | PENDING                                                      |
+| Reviewer             | (to be assigned at Stage 08 final review)                    |
+| Findings             | (to be added after review)                                   |
+| Disposition          | (Accepted / Remediation Required)                            |
+
+**Classification after merge:**
+
+```text
+DEFERRED REVIEW REGISTER:     ESTABLISHED
+SPRINT 1 ST8-S1-006/007:      TECHNICALLY ACCEPTED
+INDEPENDENT REVIEW:           DEFERRED TO GATE 8F
+FINAL GOVERNANCE ACCEPTANCE:  PENDING
+```
+
+---
+
 ## 5. Stage 08 Final Review (Gate 8F Prerequisite)
 
 Per `SANAD-ST08-GOV-AMENDMENT-001 §7-§11`, before Gate 8F closure:
@@ -189,3 +237,5 @@ Per `SANAD-ST08-GOV-AMENDMENT-001 §7-§11`, before Gate 8F closure:
 | 2026-07-06 | PR #301 MERGED — Merge SHA `34ad1ae0226e6bae6f714139baf1c4b91bfdf7b3` at 19:14:37Z; branch protection restored at 19:14:40Z | SANAD Platform (Z) |
 | 2026-07-06 | PR #312 MERGED — Merge SHA `5dcfab7e6392415fae9c9f67af985a77511db277` at 19:18:09Z; branch protection restored at 19:18:12Z | SANAD Platform (Z) |
 | 2026-07-06 | Record-001 and Record-002 updated with actual merge SHAs, timestamps, and check results | SANAD Platform (Z) |
+| 2026-07-06 | PR #313 MERGED — Merge SHA `446aab94c81dc046d10990a78f32cca9563cfeb4` at 19:29:00Z; branch protection restored at 19:29:02Z; adds ST8-S1-006 Circuit Breaker Policy and ST8-S1-007 Timeout/Retry Policy | SANAD Platform (Z) |
+| 2026-07-06 | Record-003 (PR #313) added with actual merge SHA, timestamps, and check results | SANAD Platform (Z) |
