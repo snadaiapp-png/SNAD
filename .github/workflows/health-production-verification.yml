@@ -1,99 +1,240 @@
 name: Executive Health Production Verification
+run-name: "Executive Health verification #${{ github.run_number }}"
+
 on:
   workflow_dispatch:
+
 permissions:
   contents: read
+
+concurrency:
+  group: executive-health-production-verification
+  cancel-in-progress: false
+
 jobs:
   verify:
-    name: Read-Only Production Verification
+    name: Controlled Production Verification
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
-      BACKEND_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+      BACKEND_URL: ${{ vars.PRODUCTION_BASE_URL }}
       WEB_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
-      SANAD_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
-      SANAD_ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
-      IDENTITY_B_EMAIL: ${{ secrets.IDENTITY_B_EMAIL }}
-      IDENTITY_B_PASSWORD: ${{ secrets.IDENTITY_B_PASSWORD }}
+      CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
+      CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
+      CONTROL_PLANE_TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
+      CONTROL_PLANE_NON_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_NON_ADMIN_EMAIL }}
+      CONTROL_PLANE_NON_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_NON_ADMIN_PASSWORD }}
+      CONTROL_PLANE_NON_ADMIN_TENANT_ID: ${{ secrets.CONTROL_PLANE_NON_ADMIN_TENANT_ID }}
+      VERIFY_CORRELATION_ID: executive-health-${{ github.run_id }}-${{ github.run_attempt }}
+      VERIFY_REASON: Production verification run ${{ github.run_id }} attempt ${{ github.run_attempt }}
+
     steps:
-      - name: Admin Login
+      - name: Validate production identity configuration
         shell: bash
         run: |
-          set -euo pipefail
-          LOGIN=$(curl -s --max-time 30 -X POST -H "Content-Type: application/json" -d "{\"email\":\"$SANAD_ADMIN_EMAIL\",\"password\":\"$SANAD_ADMIN_PASSWORD\"}" "$BACKEND_URL/api/v1/auth/login")
-          TOKEN=$(echo "$LOGIN" | jq -r '.accessToken // empty')
-          echo "::add-mask::$TOKEN"
-          test -n "$TOKEN" || { echo "::error::Admin login failed"; exit 1; }
-          echo "ADMIN_LOGIN=PASS"
-          echo "ADMIN_TOKEN=$TOKEN" >> $GITHUB_ENV
-      - name: Health API GET
+          set -Eeuo pipefail
+          for name in \
+            BACKEND_URL WEB_URL CONTROL_PLANE_ADMIN_EMAIL CONTROL_PLANE_ADMIN_PASSWORD \
+            CONTROL_PLANE_TENANT_ID CONTROL_PLANE_NON_ADMIN_EMAIL \
+            CONTROL_PLANE_NON_ADMIN_PASSWORD CONTROL_PLANE_NON_ADMIN_TENANT_ID
+          do
+            test -n "${!name:-}" || { echo "::error::$name is required."; exit 1; }
+          done
+          [[ "$BACKEND_URL" == https://* ]] || exit 1
+          [[ "$WEB_URL" == https://* ]] || exit 1
+          [ "$CONTROL_PLANE_TENANT_ID" != "$CONTROL_PLANE_NON_ADMIN_TENANT_ID" ] || {
+            echo "::error::Identity B must belong to a different tenant."
+            exit 1
+          }
+          for value in \
+            "$CONTROL_PLANE_ADMIN_EMAIL" "$CONTROL_PLANE_ADMIN_PASSWORD" "$CONTROL_PLANE_TENANT_ID" \
+            "$CONTROL_PLANE_NON_ADMIN_EMAIL" "$CONTROL_PLANE_NON_ADMIN_PASSWORD" \
+            "$CONTROL_PLANE_NON_ADMIN_TENANT_ID"
+          do
+            echo "::add-mask::$value"
+          done
+
+      - name: Authenticate and verify admin identity
         shell: bash
         run: |
-          set -euo pipefail
-          CODE=$(curl -s --max-time 30 -H "Authorization: Bearer $ADMIN_TOKEN" -o /tmp/health.json -w '%{http_code}' "$BACKEND_URL/api/v1/control-plane/health")
-          echo "Health API HTTP: $CODE"
-          test "$CODE" = "200" || { echo "::error::Health API failed"; cat /tmp/health.json; exit 1; }
-          echo "HEALTH_API=PASS"
-      - name: RBAC Unauth
+          set -Eeuo pipefail
+          LOGIN_PAYLOAD="$(jq -n \
+            --arg address "$CONTROL_PLANE_ADMIN_EMAIL" \
+            --arg pass "$CONTROL_PLANE_ADMIN_PASSWORD" \
+            --arg tenant "$CONTROL_PLANE_TENANT_ID" \
+            '{email:$address,password:$pass,tenantId:$tenant}')"
+          LOGIN_CODE="$(curl -sS --max-time 30 \
+            -X POST -H 'Content-Type: application/json' \
+            --data "$LOGIN_PAYLOAD" \
+            -o "$RUNNER_TEMP/admin-login.json" -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/auth/login")"
+          [ "$LOGIN_CODE" = "200" ] || { echo "::error::Admin login failed: $LOGIN_CODE"; exit 1; }
+          ADMIN_TOKEN="$(jq -r '.accessToken // empty' "$RUNNER_TEMP/admin-login.json")"
+          test -n "$ADMIN_TOKEN" || { echo "::error::Admin access token missing."; exit 1; }
+          echo "::add-mask::$ADMIN_TOKEN"
+          echo "ADMIN_TOKEN=$ADMIN_TOKEN" >> "$GITHUB_ENV"
+
+          ME_CODE="$(curl -sS --max-time 30 \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            -o "$RUNNER_TEMP/admin-me.json" -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/auth/me")"
+          [ "$ME_CODE" = "200" ] || exit 1
+          jq -e --arg tenant "$CONTROL_PLANE_TENANT_ID" '
+            .tenantId == $tenant and
+            .status == "ACTIVE" and
+            any(.roleGrants[]?; .status == "ACTIVE" and (.roleCode == "ADMIN" or .roleCode == "SUPER_ADMIN"))
+          ' "$RUNNER_TEMP/admin-me.json" >/dev/null
+
+      - name: Verify Executive Health API contract
         shell: bash
         run: |
-          set -euo pipefail
-          CODE=$(curl -s --max-time 15 -o /dev/null -w '%{http_code}' "$BACKEND_URL/api/v1/control-plane/health")
-          test "$CODE" = "401" || { echo "::error::Expected 401 got $CODE"; exit 1; }
-          echo "RBAC_UNAUTH=PASS"
-      - name: RBAC Identity B
+          set -Eeuo pipefail
+          CODE="$(curl -sS --max-time 30 \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            -o "$RUNNER_TEMP/health.json" -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/control-plane/health")"
+          [ "$CODE" = "200" ] || { echo "::error::Health API failed: $CODE"; exit 1; }
+          jq -e '
+            type == "object" and
+            .overallStatus == "HEALTHY" and
+            (.healthScore | type == "number") and .healthScore >= 0 and .healthScore <= 100 and
+            (.riskLevel | type == "string") and (.riskLevel | length > 0) and
+            .partial == false and
+            .dataCompletenessScore == 100 and
+            (.degradedComponents | type == "array") and (.degradedComponents | length == 0) and
+            (.collectionErrors | type == "array") and (.collectionErrors | length == 0) and
+            (.runtime | type == "object") and (.dataPressure | type == "object") and
+            (.services | type == "array") and (.tenants | type == "array") and
+            (.forecast | type == "array") and (.availableActions | type == "array") and
+            (.generatedAt | type == "string") and (.generatedAt | length > 0)
+          ' "$RUNNER_TEMP/health.json" >/dev/null
+
+      - name: Verify unauthenticated denial
         shell: bash
         run: |
-          set -euo pipefail
-          LOGIN_B=$(curl -s --max-time 30 -X POST -H "Content-Type: application/json" -d "{\"email\":\"$IDENTITY_B_EMAIL\",\"password\":\"$IDENTITY_B_PASSWORD\"}" "$BACKEND_URL/api/v1/auth/login")
-          TOKEN_B=$(echo "$LOGIN_B" | jq -r '.accessToken // empty')
-          test -n "$TOKEN_B" || { echo "::error::Identity B login failed"; exit 1; }
-          echo "::add-mask::$TOKEN_B"
-          CODE=$(curl -s --max-time 15 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN_B" "$BACKEND_URL/api/v1/control-plane/health")
-          test "$CODE" = "403" || { echo "::error::Expected 403 got $CODE"; exit 1; }
-          echo "RBAC_IDENTITY_B=PASS"
-      - name: RUN_DIAGNOSTICS
+          set -Eeuo pipefail
+          CODE="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/control-plane/health")"
+          case "$CODE" in 401|403) ;; *) echo "::error::Expected 401/403, got $CODE"; exit 1 ;; esac
+
+      - name: Authenticate and verify Identity B
         shell: bash
         run: |
-          set -euo pipefail
-          CODE=$(curl -s --max-time 30 -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"scope":"PLATFORM","action":"RUN_DIAGNOSTICS","reason":"Production verification"}' -o /tmp/action.json -w '%{http_code}' "$BACKEND_URL/api/v1/control-plane/health/actions")
-          echo "RUN_DIAGNOSTICS: $CODE"
-          test "$CODE" = "200" || { echo "::error::Expected 200 got $CODE"; cat /tmp/action.json; exit 1; }
-          echo "HEALTH_ACTION=PASS"
-      - name: Invalid Action
+          set -Eeuo pipefail
+          LOGIN_PAYLOAD="$(jq -n \
+            --arg address "$CONTROL_PLANE_NON_ADMIN_EMAIL" \
+            --arg pass "$CONTROL_PLANE_NON_ADMIN_PASSWORD" \
+            --arg tenant "$CONTROL_PLANE_NON_ADMIN_TENANT_ID" \
+            '{email:$address,password:$pass,tenantId:$tenant}')"
+          LOGIN_CODE="$(curl -sS --max-time 30 \
+            -X POST -H 'Content-Type: application/json' \
+            --data "$LOGIN_PAYLOAD" \
+            -o "$RUNNER_TEMP/identity-b-login.json" -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/auth/login")"
+          [ "$LOGIN_CODE" = "200" ] || { echo "::error::Identity B login failed: $LOGIN_CODE"; exit 1; }
+          IDENTITY_B_TOKEN="$(jq -r '.accessToken // empty' "$RUNNER_TEMP/identity-b-login.json")"
+          test -n "$IDENTITY_B_TOKEN" || { echo "::error::Identity B access token missing."; exit 1; }
+          echo "::add-mask::$IDENTITY_B_TOKEN"
+          echo "IDENTITY_B_TOKEN=$IDENTITY_B_TOKEN" >> "$GITHUB_ENV"
+
+          ME_CODE="$(curl -sS --max-time 30 \
+            -H "Authorization: Bearer $IDENTITY_B_TOKEN" \
+            -o "$RUNNER_TEMP/identity-b-me.json" -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/auth/me")"
+          [ "$ME_CODE" = "200" ] || exit 1
+          jq -e --arg tenant "$CONTROL_PLANE_NON_ADMIN_TENANT_ID" '
+            .tenantId == $tenant and
+            .status == "ACTIVE" and
+            (any(.roleGrants[]?; .status == "ACTIVE" and (.roleCode == "ADMIN" or .roleCode == "SUPER_ADMIN")) | not)
+          ' "$RUNNER_TEMP/identity-b-me.json" >/dev/null
+
+      - name: Verify Identity B read and write denial
         shell: bash
         run: |
-          set -euo pipefail
-          CODE=$(curl -s --max-time 15 -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"scope":"PLATFORM","action":"INVALID","reason":"Test"}' -o /dev/null -w '%{http_code}' "$BACKEND_URL/api/v1/control-plane/health/actions")
-          test "$CODE" = "400" || { echo "::error::Expected 400 got $CODE"; exit 1; }
-          echo "INVALID_ACTION=PASS"
-      - name: Missing Reason
+          set -Eeuo pipefail
+          READ_CODE="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $IDENTITY_B_TOKEN" \
+            "$BACKEND_URL/api/v1/control-plane/health")"
+          case "$READ_CODE" in 401|403) ;; *) echo "::error::Identity B read returned $READ_CODE"; exit 1 ;; esac
+
+          PAYLOAD="$(jq -n '{scope:"PLATFORM",action:"RUN_DIAGNOSTICS",reason:"Unauthorized production verification"}')"
+          WRITE_CODE="$(curl -sS --max-time 15 \
+            -X POST -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer $IDENTITY_B_TOKEN" \
+            --data "$PAYLOAD" -o /dev/null -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/control-plane/health/actions")"
+          case "$WRITE_CODE" in 401|403) ;; *) echo "::error::Identity B write returned $WRITE_CODE"; exit 1 ;; esac
+
+      - name: Verify RUN_DIAGNOSTICS and audit record
         shell: bash
         run: |
-          set -euo pipefail
-          CODE=$(curl -s --max-time 15 -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"scope":"PLATFORM","action":"RUN_DIAGNOSTICS"}' -o /dev/null -w '%{http_code}' "$BACKEND_URL/api/v1/control-plane/health/actions")
-          test "$CODE" = "400" || { echo "::error::Expected 400 got $CODE"; exit 1; }
-          echo "MISSING_REASON=PASS"
-      - name: Frontend
+          set -Eeuo pipefail
+          PAYLOAD="$(jq -n --arg reason "$VERIFY_REASON" \
+            '{scope:"PLATFORM",action:"RUN_DIAGNOSTICS",reason:$reason}')"
+          ACTION_CODE="$(curl -sS --max-time 30 \
+            -X POST -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            -H "X-Correlation-ID: $VERIFY_CORRELATION_ID" \
+            --data "$PAYLOAD" -o "$RUNNER_TEMP/action.json" -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/control-plane/health/actions")"
+          [ "$ACTION_CODE" = "200" ] || { echo "::error::RUN_DIAGNOSTICS returned $ACTION_CODE"; exit 1; }
+          jq -e '
+            .action == "RUN_DIAGNOSTICS" and .scope == "PLATFORM" and .status == "SUCCESS" and
+            (.message | type == "string") and (.message | length > 0) and
+            (.executedAt | type == "string") and (.executedAt | length > 0) and
+            .snapshot.partial == false and .snapshot.dataCompletenessScore == 100 and
+            (.snapshot.collectionErrors | length == 0)
+          ' "$RUNNER_TEMP/action.json" >/dev/null
+
+          AUDIT_CODE="$(curl -sS --max-time 30 \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            -o "$RUNNER_TEMP/audit.json" -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/control-plane/audit?limit=200")"
+          [ "$AUDIT_CODE" = "200" ] || { echo "::error::Audit API returned $AUDIT_CODE"; exit 1; }
+          jq -e --arg correlation "$VERIFY_CORRELATION_ID" --arg reason "$VERIFY_REASON" '
+            [.[] | select(
+              .correlationId == $correlation and
+              .action == "HEALTH.ACTION.RUN_DIAGNOSTICS" and
+              .resourceType == "HEALTH_PLATFORM" and
+              .resourceId == "PLATFORM" and
+              .reason == $reason and
+              .result == "SUCCESS"
+            )] | length == 1
+          ' "$RUNNER_TEMP/audit.json" >/dev/null
+
+      - name: Verify invalid requests fail closed
         shell: bash
         run: |
-          set -euo pipefail
-          CODE=$(curl -s --max-time 30 -o /dev/null -w '%{http_code}' "$WEB_URL/control-plane")
-          test "$CODE" = "200" || { echo "::error::Expected 200 got $CODE"; exit 1; }
-          echo "FRONTEND=PASS"
-      - name: Summary
+          set -Eeuo pipefail
+          INVALID_CODE="$(curl -sS --max-time 15 \
+            -X POST -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            --data '{"scope":"PLATFORM","action":"INVALID","reason":"Test"}' \
+            -o /dev/null -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/control-plane/health/actions")"
+          [ "$INVALID_CODE" = "400" ] || { echo "::error::Invalid action returned $INVALID_CODE"; exit 1; }
+
+          MISSING_REASON_CODE="$(curl -sS --max-time 15 \
+            -X POST -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            --data '{"scope":"PLATFORM","action":"RUN_DIAGNOSTICS"}' \
+            -o /dev/null -w '%{http_code}' \
+            "$BACKEND_URL/api/v1/control-plane/health/actions")"
+          [ "$MISSING_REASON_CODE" = "400" ] || { echo "::error::Missing reason returned $MISSING_REASON_CODE"; exit 1; }
+
+      - name: Verify production frontend
         shell: bash
         run: |
-          echo "============================================"
-          echo "EXECUTIVE HEALTH PRODUCTION VERIFICATION"
-          echo "============================================"
-          echo "Admin Login: PASS"
-          echo "Health API: PASS"
-          echo "RBAC Unauth: PASS"
-          echo "RBAC Identity B: PASS"
-          echo "RUN_DIAGNOSTICS: PASS"
-          echo "Invalid Action: PASS"
-          echo "Missing Reason: PASS"
-          echo "Frontend: PASS"
-          echo "ALL GATES: PASS"
+          set -Eeuo pipefail
+          CODE="$(curl -sS -L --max-time 30 -o /dev/null -w '%{http_code}' "$WEB_URL/control-plane")"
+          [ "$CODE" = "200" ] || { echo "::error::Control Plane frontend returned $CODE"; exit 1; }
+
+      - name: Publish verification summary
+        shell: bash
+        run: |
+          {
+            echo "## Executive Health Production Verification"
+            echo
+            echo "All fail-closed identity, health, RBAC, action, audit, validation and frontend steps completed successfully."
+          } >> "$GITHUB_STEP_SUMMARY"

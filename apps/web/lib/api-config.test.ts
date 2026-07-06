@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 
 describe("legacy API compatibility", () => {
-  const originalEnv = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const originalPublicBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const originalBackendBaseUrl = process.env.BACKEND_API_BASE_URL;
 
   afterEach(() => {
-    if (originalEnv === undefined) delete process.env.NEXT_PUBLIC_API_BASE_URL;
-    else process.env.NEXT_PUBLIC_API_BASE_URL = originalEnv;
+    if (originalPublicBaseUrl === undefined) delete process.env.NEXT_PUBLIC_API_BASE_URL;
+    else process.env.NEXT_PUBLIC_API_BASE_URL = originalPublicBaseUrl;
+
+    if (originalBackendBaseUrl === undefined) delete process.env.BACKEND_API_BASE_URL;
+    else process.env.BACKEND_API_BASE_URL = originalBackendBaseUrl;
+
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.resetModules();
@@ -26,8 +31,15 @@ describe("legacy API compatibility", () => {
   });
 
   it("keeps the integration health check compatible", async () => {
+    delete process.env.BACKEND_API_BASE_URL;
     process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.example.com";
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ status: "UP" }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    )));
     const integration = await import("./api-integration");
     const result = await integration.checkBackendIntegration();
     expect(result).toMatchObject({ configured: true, reachable: true, statusCode: 200 });
@@ -35,6 +47,7 @@ describe("legacy API compatibility", () => {
 
   it("keeps unconfigured integration behavior compatible", async () => {
     delete process.env.NEXT_PUBLIC_API_BASE_URL;
+    delete process.env.BACKEND_API_BASE_URL;
     const integration = await import("./api-integration");
     const result = await integration.checkBackendIntegration();
     expect(result).toMatchObject({ configured: false, reachable: false, statusCode: null });

@@ -5,6 +5,8 @@ import type { HealthCheckResult } from "./types";
 
 interface ActuatorHealthResponse { status: string; }
 
+const SERVER_HEALTH_TIMEOUT_MS = 60_000;
+
 /**
  * Extract a safe hostname (with non-standard port if present) from a base URL.
  * Returns `null` if the URL cannot be parsed.
@@ -13,10 +15,9 @@ interface ActuatorHealthResponse { status: string; }
  * path, query, or credentials.
  */
 function extractTargetHost(baseUrl: string): string | null {
-  if (!baseUrl) return null;
+  if (!baseUrl || baseUrl.startsWith("/")) return null;
   try {
     const parsed = new URL(baseUrl);
-    // Include port only if it's non-standard for the protocol.
     const isStandardPort =
       (parsed.protocol === "https:" && parsed.port === "443") ||
       (parsed.protocol === "http:" && parsed.port === "80");
@@ -26,41 +27,95 @@ function extractTargetHost(baseUrl: string): string | null {
   }
 }
 
+function readServerBackendBaseUrl(): string {
+  const raw = process.env.BACKEND_API_BASE_URL?.trim() || "";
+  if (!raw || raw.startsWith("/")) return "";
+
+  try {
+    const parsed = new URL(raw);
+    const isLocal = ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname);
+    if (parsed.protocol !== "https:" && !(isLocal && parsed.protocol === "http:")) return "";
+    if (parsed.username || parsed.password) return "";
+    parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+}
+
 /** Current UTC timestamp in ISO-8601 format. */
 function nowUtcIso(): string {
   return new Date().toISOString();
 }
 
+function isHealthyResponse(value: ActuatorHealthResponse): boolean {
+  return value?.status === "UP";
+}
+
+async function checkDirectBackend(baseUrl: string): Promise<{ statusCode: number; body: ActuatorHealthResponse }> {
+  const response = await fetch(`${baseUrl}/actuator/health`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+    signal: AbortSignal.timeout(SERVER_HEALTH_TIMEOUT_MS),
+  });
+
+  let body: ActuatorHealthResponse = { status: "UNKNOWN" };
+  try {
+    body = await response.json() as ActuatorHealthResponse;
+  } catch {
+    // A non-JSON or malformed response is not a valid Actuator health contract.
+  }
+
+  return { statusCode: response.status, body };
+}
+
 export async function checkBackendIntegration(client: ApiClient = apiClient): Promise<HealthCheckResult> {
   const checkedAt = nowUtcIso();
+  const serverBaseUrl = readServerBackendBaseUrl();
+  const effectiveBaseUrl = client.baseUrlValue.startsWith("/") && serverBaseUrl
+    ? serverBaseUrl
+    : client.baseUrlValue;
+  const configured = client.isConfigured || Boolean(serverBaseUrl);
 
-  if (!client.isConfigured) {
+  if (!configured) {
     return {
       configured: false,
       reachable: false,
       statusCode: null,
       targetHost: null,
       checkedAt,
-      error: "NEXT_PUBLIC_API_BASE_URL is not set",
+      error: "Backend API base URL is not set",
     };
   }
 
-  const targetHost = extractTargetHost(client.baseUrlValue);
+  const targetHost = extractTargetHost(effectiveBaseUrl);
 
   try {
-    // Use cache: "no-store" to prevent any caching of the health response
-    // by fetch layers, CDNs, or Next.js fetch cache.
-    await client.get<ActuatorHealthResponse>("/actuator/health", {
-      timeoutMs: 10_000,
-      cache: "no-store",
-    });
+    let statusCode = 200;
+    let health: ActuatorHealthResponse;
+
+    if (serverBaseUrl && client.baseUrlValue.startsWith("/")) {
+      const direct = await checkDirectBackend(serverBaseUrl);
+      statusCode = direct.statusCode;
+      health = direct.body;
+    } else {
+      health = await client.get<ActuatorHealthResponse>("/actuator/health", {
+        timeoutMs: SERVER_HEALTH_TIMEOUT_MS,
+        cache: "no-store",
+      });
+    }
+
+    const healthy = statusCode === 200 && isHealthyResponse(health);
     return {
       configured: true,
-      reachable: true,
-      statusCode: 200,
+      reachable: healthy,
+      statusCode,
       targetHost,
       checkedAt,
-      error: null,
+      error: healthy ? null : `Backend health contract returned ${health.status || "UNKNOWN"}`,
     };
   } catch (err) {
     if (err instanceof ApiConfigurationError) {
@@ -75,6 +130,13 @@ export async function checkBackendIntegration(client: ApiClient = apiClient): Pr
     if (isApiClientError(err)) {
       return { configured: true, reachable: false, statusCode: null, targetHost, checkedAt, error: err.toSafeSummary() };
     }
-    return { configured: true, reachable: false, statusCode: null, targetHost, checkedAt, error: err instanceof Error ? err.message : String(err) };
+    return {
+      configured: true,
+      reachable: false,
+      statusCode: null,
+      targetHost,
+      checkedAt,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }

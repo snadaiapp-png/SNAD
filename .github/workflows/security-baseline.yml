@@ -78,9 +78,6 @@ jobs:
           rm -rf "$CANARY_DIR"
           mkdir -p "$CANARY_DIR"
 
-          # Construct a synthetic AWS access key ID that is NOT in gitleaks' allowlist.
-          # AKIA prefix + 16 alphanumeric chars triggers the aws-access-token rule.
-          # Split across variables so the canary itself is not committed as a literal.
           PREFIX='AKIA'
           SUFFIX='XSCQAUTO81234567'
           printf '%s%s\n' "$PREFIX" "$SUFFIX" > "$CANARY_DIR/canary.txt"
@@ -164,7 +161,19 @@ jobs:
         run: python3 -m pytest tests/ci/test_workflow_security_policy.py -q
 
       - name: Run workflow security scanner
-        run: python3 scripts/ci/check_workflow_security.py
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/ci/check_workflow_security.py | tee workflow-security-report.txt
+
+      - name: Upload workflow security report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-security-report-${{ github.run_id }}
+          path: workflow-security-report.txt
+          if-no-files-found: error
+          retention-days: 7
 
   security-gate-summary:
     name: Security Gate Summary
