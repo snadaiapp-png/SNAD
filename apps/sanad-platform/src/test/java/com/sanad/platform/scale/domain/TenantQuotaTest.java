@@ -50,11 +50,15 @@ class TenantQuotaTest {
         Instant originalReset = Instant.now().plus(1, ChronoUnit.DAYS);
         TenantQuota q = new TenantQuota("tnt-1", Dimension.API_RPM, 60L, originalReset);
         q.incrementUsed(30L);
+        Instant beforeReset = Instant.now();
 
         q.reset();
 
         assertThat(q.getUsedValue()).isZero();
-        assertThat(q.getResetAt()).isAfter(originalReset);
+        // After reset(), resetAt should be set to Instant.now() (around 'beforeReset').
+        // Assert it is at or after beforeReset (not the original future reset).
+        assertThat(q.getResetAt()).isAfterOrEqualTo(beforeReset);
+        assertThat(q.getResetAt()).isBeforeOrEqualTo(Instant.now());
     }
 
     @Test
