@@ -131,14 +131,13 @@ jobs:
       - name: Governance, evidence and release tag gates
         id: governance
         shell: bash
-        continue-on-error: true
         run: |
           set -Eeuo pipefail
           bash scripts/production/commercial-go-live-governance.sh
 
       - name: Roll back failed Render release and verify exact rollback SHA
         id: rollback
-        if: failure() && (steps.foundation.outcome == 'failure' || steps.runtime.outcome == 'failure') && env.PREVIOUS_RENDER_SHA != '' && env.PREVIOUS_RENDER_SHA != env.RELEASE_SHA && env.RELEASE_TAG_CREATED != 'true'
+        if: failure() && env.PREVIOUS_RENDER_SHA != '' && env.PREVIOUS_RENDER_SHA != env.RELEASE_SHA && env.RELEASE_TAG_CREATED != 'true'
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -176,7 +175,7 @@ jobs:
 
       - name: Finalize mandatory NO-GO evidence
         id: no_go_evidence
-        if: failure() && (steps.foundation.outcome == 'failure' || steps.runtime.outcome == 'failure')
+        if: failure()
         shell: bash
         env:
           TARGET_OUTCOME: ${{ steps.target.outcome }}
@@ -244,7 +243,7 @@ jobs:
           mv "$SUMMARY_FILE.tmp" "$SUMMARY_FILE"
 
       - name: Publish GO decision on success
-        if: success() || (steps.foundation.outcome == 'success' && steps.runtime.outcome == 'success')
+        if: steps.target.outcome == 'success' && steps.checkout.outcome == 'success' && steps.foundation.outcome == 'success' && steps.runtime.outcome == 'success' && steps.governance.outcome == 'success'
         shell: bash
         run: |
           {
@@ -265,7 +264,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish mandatory NO-GO decision on failure
-        if: failure() && (steps.foundation.outcome == 'failure' || steps.runtime.outcome == 'failure')
+        if: failure()
         shell: bash
         run: |
           {
