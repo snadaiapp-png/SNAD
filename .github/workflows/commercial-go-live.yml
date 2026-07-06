@@ -145,7 +145,7 @@ jobs:
           jq -n --arg commit "$PREVIOUS_RENDER_SHA" \
             '{commitId:$commit,clearCache:"do_not_clear"}' \
             > "$RUNNER_TEMP/render-rollback-request.json"
-          curl --fail-with-body --silent --show-error --max-time 30 \
+          curl -sS --show-error --max-time 45 \
             -X POST \
             -H "Authorization: Bearer $RENDER_API_KEY" \
             -H "Accept: application/json" \
@@ -156,7 +156,7 @@ jobs:
           ROLLBACK_ID="$(jq -r '(.deploy // .).id // empty' "$RUNNER_TEMP/render-rollback-created.json")"
           test -n "$ROLLBACK_ID" || exit 1
           for attempt in $(seq 1 180); do
-            curl --fail-with-body --silent --show-error --max-time 30 \
+            curl -sS --show-error --max-time 45 \
               -H "Authorization: Bearer $RENDER_API_KEY" \
               -H "Accept: application/json" \
               "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$ROLLBACK_ID" \
