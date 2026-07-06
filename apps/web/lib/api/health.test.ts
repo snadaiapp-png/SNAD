@@ -47,7 +47,7 @@ describe("checkBackendIntegration", () => {
       reachable: false,
       statusCode: 200,
       targetHost: "api.example.com",
-      error: "Backend health contract returned DOWN",
+      error: "Backend health check failed (status: DOWN)",
     });
   });
 
@@ -151,5 +151,54 @@ describe("checkBackendIntegration", () => {
     const checkedAtMs = new Date(result.checkedAt).getTime();
     expect(checkedAtMs).toBeGreaterThanOrEqual(before);
     expect(checkedAtMs).toBeLessThanOrEqual(after);
+  });
+
+  it("BFF mode: reports reachable=true when /api/v1/auth/me returns 401", async () => {
+    const client = new ApiClient({ baseUrl: "/api/platform" });
+    vi.spyOn(client, "get").mockRejectedValue(new ApiHttpError("unauthorized", {
+      status: 401,
+      error: "Unauthorized",
+      message: "Authentication required",
+      path: "/api/v1/auth/me",
+      requestId: null,
+      body: null,
+    }));
+    const result = await checkBackendIntegration(client);
+    expect(result).toMatchObject({
+      configured: true,
+      reachable: true,
+      statusCode: 401,
+      targetHost: null,
+    });
+  });
+
+  it("BFF mode: reports reachable=false on network error", async () => {
+    const client = new ApiClient({ baseUrl: "/api/platform" });
+    vi.spyOn(client, "get").mockRejectedValue(new ApiNetworkError("offline"));
+    const result = await checkBackendIntegration(client);
+    expect(result).toMatchObject({
+      configured: true,
+      reachable: false,
+      statusCode: null,
+      targetHost: null,
+    });
+  });
+
+  it("BFF mode: reports reachable=false on 5xx error", async () => {
+    const client = new ApiClient({ baseUrl: "/api/platform" });
+    vi.spyOn(client, "get").mockRejectedValue(new ApiHttpError("server error", {
+      status: 502,
+      error: "Bad Gateway",
+      message: null,
+      path: "/api/v1/auth/me",
+      requestId: null,
+      body: null,
+    }));
+    const result = await checkBackendIntegration(client);
+    expect(result).toMatchObject({
+      configured: true,
+      reachable: false,
+      statusCode: 502,
+    });
   });
 });

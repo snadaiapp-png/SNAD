@@ -6,6 +6,7 @@ import type { HealthCheckResult } from "./types";
 interface ActuatorHealthResponse { status: string; }
 
 const SERVER_HEALTH_TIMEOUT_MS = 60_000;
+const BFF_HEALTH_PROBE_TIMEOUT_MS = 15_000;
 
 /**
  * Extract a safe hostname (with non-standard port if present) from a base URL.
@@ -28,7 +29,9 @@ function extractTargetHost(baseUrl: string): string | null {
 }
 
 function readServerBackendBaseUrl(): string {
-  const raw = process.env.BACKEND_API_BASE_URL?.trim() || "";
+  // Try BACKEND_API_BASE_URL first (server-side env var), then fall back to
+  // NEXT_PUBLIC_API_BASE_URL (which may also be set on Vercel to the backend URL).
+  const raw = (process.env.BACKEND_API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "").trim();
   if (!raw || raw.startsWith("/")) return "";
 
   try {
@@ -72,6 +75,42 @@ async function checkDirectBackend(baseUrl: string): Promise<{ statusCode: number
   return { statusCode: response.status, body };
 }
 
+/**
+ * Probe the backend health via the BFF by hitting an unauthenticated endpoint
+ * that the BFF allows (/api/v1/auth/me). A 401 response proves the BFF→Backend
+ * chain is operational. This is used as a fallback when no direct backend URL
+ * is available (e.g., browser-side or when BACKEND_API_BASE_URL is not set).
+ */
+async function checkBackendViaBff(client: ApiClient): Promise<{ statusCode: number; reachable: boolean }> {
+  try {
+    // /api/v1/auth/me without auth returns 401 if backend is reachable.
+    // We deliberately catch the 401 as a "reachable" signal.
+    await client.get("/api/v1/auth/me", {
+      timeoutMs: BFF_HEALTH_PROBE_TIMEOUT_MS,
+      cache: "no-store",
+    });
+    // If we get here, the backend returned 200 (unlikely without token, but
+    // treat it as reachable).
+    return { statusCode: 200, reachable: true };
+  } catch (err) {
+    if (isApiHttpError(err)) {
+      // 401 means the backend is alive and rejecting unauthenticated requests.
+      // 403 would also indicate the backend is alive.
+      if (err.status === 401 || err.status === 403) {
+        return { statusCode: err.status, reachable: true };
+      }
+      // Any other HTTP status means the backend responded (alive) but with
+      // an unexpected code. Treat 5xx as unreachable, others as reachable.
+      if (err.status >= 500) {
+        return { statusCode: err.status, reachable: false };
+      }
+      return { statusCode: err.status, reachable: true };
+    }
+    // Network error means backend is unreachable.
+    throw err;
+  }
+}
+
 export async function checkBackendIntegration(client: ApiClient = apiClient): Promise<HealthCheckResult> {
   const checkedAt = nowUtcIso();
   const serverBaseUrl = readServerBackendBaseUrl();
@@ -96,26 +135,38 @@ export async function checkBackendIntegration(client: ApiClient = apiClient): Pr
   try {
     let statusCode = 200;
     let health: ActuatorHealthResponse;
+    let reachable: boolean;
 
     if (serverBaseUrl && client.baseUrlValue.startsWith("/")) {
+      // Direct backend access — use Actuator health endpoint.
       const direct = await checkDirectBackend(serverBaseUrl);
       statusCode = direct.statusCode;
       health = direct.body;
+      reachable = statusCode === 200 && isHealthyResponse(health);
+    } else if (client.baseUrlValue.startsWith("/")) {
+      // BFF mode — no direct backend URL available. Probe via BFF using
+      // an unauthenticated endpoint that the BFF allows.
+      const probe = await checkBackendViaBff(client);
+      statusCode = probe.statusCode;
+      reachable = probe.reachable;
+      health = { status: reachable ? "UP" : "DOWN" };
     } else {
+      // Direct client mode — use Actuator health endpoint.
       health = await client.get<ActuatorHealthResponse>("/actuator/health", {
         timeoutMs: SERVER_HEALTH_TIMEOUT_MS,
         cache: "no-store",
       });
+      statusCode = 200; // client.get throws on non-2xx, so 200 is implied
+      reachable = isHealthyResponse(health);
     }
 
-    const healthy = statusCode === 200 && isHealthyResponse(health);
     return {
       configured: true,
-      reachable: healthy,
+      reachable,
       statusCode,
       targetHost,
       checkedAt,
-      error: healthy ? null : `Backend health contract returned ${health.status || "UNKNOWN"}`,
+      error: reachable ? null : `Backend health check failed (status: ${health.status || "UNKNOWN"})`,
     };
   } catch (err) {
     if (err instanceof ApiConfigurationError) {
