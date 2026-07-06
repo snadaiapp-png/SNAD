@@ -25,42 +25,53 @@ jq -n --arg commit "$RELEASE_SHA" \
   '{commitId:$commit,clearCache:"do_not_clear"}' \
   > "$RUNNER_TEMP/render-request.json"
 
-# Render API returns 202 Accepted with possibly empty body.
-# Use -w to capture HTTP code, don't use --fail (202 is success but --fail may reject)
-RENDER_DEPLOY_HTTP_CODE=$(curl -sS --show-error --max-time 45 \
-  -X POST \
-  -H "Authorization: Bearer $RENDER_API_KEY" \
-  -H "Accept: application/json" \
-  -H "Content-Type: application/json" \
-  --data @"$RUNNER_TEMP/render-request.json" \
-  -o "$RUNNER_TEMP/render-deployment-created.json" \
-  -w '%{http_code}' \
-  "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" 2>/dev/null || echo "000")
+# Render API can return 500 (internal server error) or 429 (rate limit).
+# Retry up to 3 times with exponential backoff.
+DEPLOY_ID=""
+for render_attempt in 1 2 3; do
+  echo "Render deploy attempt $render_attempt..."
+  RENDER_DEPLOY_HTTP_CODE=$(curl -sS --show-error --max-time 45 \
+    -X POST \
+    -H "Authorization: Bearer $RENDER_API_KEY" \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json" \
+    --data @"$RUNNER_TEMP/render-request.json" \
+    -o "$RUNNER_TEMP/render-deployment-created.json" \
+    -w '%{http_code}' \
+    "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" 2>/dev/null || echo "000")
 
-# 202 = Accepted, 201 = Created — both are success
-case "$RENDER_DEPLOY_HTTP_CODE" in
-  200|201|202)
-    # Try to extract deploy ID from response body
-    DEPLOY_ID="$(jq -r '(.deploy // .).id // empty' "$RUNNER_TEMP/render-deployment-created.json" 2>/dev/null)"
-    # If body is empty, fetch latest deploy for this commit
-    if [ -z "$DEPLOY_ID" ]; then
-      sleep 3
-      curl -sS --max-time 30 \
-        -H "Authorization: Bearer $RENDER_API_KEY" \
-        -H "Accept: application/json" \
-        "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=5" \
-        > "$RUNNER_TEMP/render-deploys-list.json" 2>/dev/null
-      DEPLOY_ID="$(jq -r --arg commit "$RELEASE_SHA" \
-        '[.[]? | (.deploy // .) | select((.commit.id // "") == $commit)][0].id // empty' \
-        "$RUNNER_TEMP/render-deploys-list.json" 2>/dev/null)"
-    fi
-    ;;
-  *)
-    echo "::error::Render deploy API returned HTTP $RENDER_DEPLOY_HTTP_CODE"
-    cat "$RUNNER_TEMP/render-deployment-created.json" 2>/dev/null || true
-    exit 1
-    ;;
-esac
+  echo "  HTTP: $RENDER_DEPLOY_HTTP_CODE"
+
+  case "$RENDER_DEPLOY_HTTP_CODE" in
+    200|201|202)
+      # Try to extract deploy ID from response body
+      DEPLOY_ID="$(jq -r '(.deploy // .).id // empty' "$RUNNER_TEMP/render-deployment-created.json" 2>/dev/null)"
+      # If body is empty, fetch latest deploy for this commit
+      if [ -z "$DEPLOY_ID" ]; then
+        sleep 5
+        curl -sS --max-time 30 \
+          -H "Authorization: Bearer $RENDER_API_KEY" \
+          -H "Accept: application/json" \
+          "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=5" \
+          > "$RUNNER_TEMP/render-deploys-list.json" 2>/dev/null
+        DEPLOY_ID="$(jq -r --arg commit "$RELEASE_SHA" \
+          '[.[]? | (.deploy // .) | select((.commit.id // "") == $commit)][0].id // empty' \
+          "$RUNNER_TEMP/render-deploys-list.json" 2>/dev/null)"
+      fi
+      [ -n "$DEPLOY_ID" ] && break
+      ;;
+    500|502|503|429)
+      echo "  Render API error ($RENDER_DEPLOY_HTTP_CODE), retrying in $((render_attempt * 10))s..."
+      cat "$RUNNER_TEMP/render-deployment-created.json" 2>/dev/null || true
+      sleep $((render_attempt * 10))
+      ;;
+    *)
+      echo "::error::Render deploy API returned HTTP $RENDER_DEPLOY_HTTP_CODE"
+      cat "$RUNNER_TEMP/render-deployment-created.json" 2>/dev/null || true
+      exit 1
+      ;;
+  esac
+done
 
 test -n "$DEPLOY_ID" || {
   echo "::error::Render did not return a deployment ID."
