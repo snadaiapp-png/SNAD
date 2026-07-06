@@ -127,6 +127,28 @@
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
 
+        <!-- ============================================================ -->
+        <!-- Stage 08 Sprint 1 — Scale Foundation                         -->
+        <!-- ============================================================ -->
+
+        <!-- Micrometer + Prometheus for capacity baseline metrics (ST8-S1-001) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <!-- Resilience4j for circuit breakers, rate limiting, retry (ST8-S1-003/006/007) -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-spring-boot3</artifactId>
+            <version>2.2.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-reactor</artifactId>
+            <version>2.2.0</version>
+        </dependency>
+
         <!-- Database: PostgreSQL driver (runtime) -->
         <!-- Version overridden via <postgresql.version> property for CVE remediation. -->
         <dependency>
