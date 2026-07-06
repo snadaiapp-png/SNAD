@@ -25,6 +25,7 @@ jq -n \
 CURRENT_GATE="INIT"
 on_failure() {
   STATUS=$?
+  # Update summary without failing (use || true to prevent recursive trap)
   jq \
     --arg gate "${CURRENT_GATE:-UNKNOWN}" \
     --argjson exitCode "$STATUS" \
@@ -35,8 +36,8 @@ on_failure() {
       .finalDecision = "COMMERCIAL GO-LIVE — NO-GO"
     ' \
     evidence/commercial-release-summary.json \
-    > evidence/commercial-release-summary.tmp
-  mv evidence/commercial-release-summary.tmp evidence/commercial-release-summary.json
+    > evidence/commercial-release-summary.tmp 2>/dev/null || true
+  mv -f evidence/commercial-release-summary.tmp evidence/commercial-release-summary.json 2>/dev/null || true
   exit "$STATUS"
 }
 trap on_failure ERR
