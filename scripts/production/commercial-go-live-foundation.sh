@@ -22,25 +22,27 @@ jq -n \
   }' > evidence/commercial-release-summary.json
 
 # ---- Trap to update summary on failure (§7 of final closure order) ----
+# Use EXIT trap instead of ERR to avoid recursive trap issues with set -e
 CURRENT_GATE="INIT"
-on_failure() {
+on_exit() {
   STATUS=$?
-  # Update summary without failing (use || true to prevent recursive trap)
-  jq \
-    --arg gate "${CURRENT_GATE:-UNKNOWN}" \
-    --argjson exitCode "$STATUS" \
-    '
-      .status = "FAILED" |
-      .failedGate = $gate |
-      .exitCode = $exitCode |
-      .finalDecision = "COMMERCIAL GO-LIVE — NO-GO"
-    ' \
-    evidence/commercial-release-summary.json \
-    > evidence/commercial-release-summary.tmp 2>/dev/null || true
-  mv -f evidence/commercial-release-summary.tmp evidence/commercial-release-summary.json 2>/dev/null || true
-  exit "$STATUS"
+  if [ "$STATUS" -ne 0 ]; then
+    # Update summary on failure
+    jq \
+      --arg gate "${CURRENT_GATE:-UNKNOWN}" \
+      --argjson exitCode "$STATUS" \
+      '
+        .status = "FAILED" |
+        .failedGate = $gate |
+        .exitCode = $exitCode |
+        .finalDecision = "COMMERCIAL GO-LIVE — NO-GO"
+      ' \
+      evidence/commercial-release-summary.json \
+      > evidence/commercial-release-summary.tmp 2>/dev/null || true
+    mv -f evidence/commercial-release-summary.tmp evidence/commercial-release-summary.json 2>/dev/null || true
+  fi
 }
-trap on_failure ERR
+trap on_exit EXIT
 
 CURRENT_GATE="RELEASE_SHA_VERIFICATION"
 
