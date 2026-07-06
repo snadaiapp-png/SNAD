@@ -150,3 +150,7 @@ apps/web/.next/
 # Python build artifacts
 *.py[cod]
 __pycache__/
+
+# Stage 08 working files (not for repo)
+tool-results/
+upload/
