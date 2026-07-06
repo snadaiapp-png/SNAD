@@ -14,9 +14,9 @@ import java.time.Duration;
  *
  * Configures retry policies for idempotent downstream calls:
  *   - maxAttempts: 3 (initial + 2 retries)
- *   - waitDuration: 1s, 2s, 4s (exponential backoff)
- *   - retryOnExceptions: IOException, TimeoutException (caller must
- *     mark operations idempotent via annotation)
+ *   - exponential backoff: 1s, 2s, 4s
+ *   - retryOnExceptions: transient failures only (caller must mark
+ *     operations idempotent via annotation)
  *
  * Non-idempotent operations MUST NOT use retry. The caller is
  * responsible for ensuring idempotency before applying @Retry.
@@ -42,7 +42,6 @@ public class TimeoutAndRetryPolicyConfig {
     public RetryRegistry retryRegistry() {
         RetryConfig idempotentConfig = RetryConfig.custom()
                 .maxAttempts(3)                                              // initial + 2 retries
-                .waitDuration(Duration.ofSeconds(1))
                 .intervalFunction(io.github.resilience4j.core.IntervalFunction.ofExponentialBackoff(
                         Duration.ofSeconds(1), 2.0))                         // 1s, 2s, 4s
                 .retryOnException(throwable -> {
