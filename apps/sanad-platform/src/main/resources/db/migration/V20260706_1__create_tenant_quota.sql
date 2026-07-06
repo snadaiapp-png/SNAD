@@ -14,9 +14,9 @@ CREATE TABLE IF NOT EXISTS tenant_quota (
     dimension       VARCHAR(32)  NOT NULL,
     limit_value     BIGINT       NOT NULL,
     used_value      BIGINT       NOT NULL DEFAULT 0,
-    reset_at        TIMESTAMPTZ  NOT NULL,
-    created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    reset_at        TIMESTAMP WITH TIME ZONE  NOT NULL,
+    created_at      TIMESTAMP WITH TIME ZONE  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP WITH TIME ZONE  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uk_tenant_quota_tenant_dim UNIQUE (tenant_id, dimension),
     CONSTRAINT chk_tenant_quota_dimension
         CHECK (dimension IN ('API_RPM', 'API_RPD', 'AI_TOKENS_DAY', 'AI_TOKENS_MONTH',
