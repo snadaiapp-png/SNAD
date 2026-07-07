@@ -20,8 +20,8 @@ public class CrmAiPolicyService {
             "(?i)[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}");
     private static final Pattern PHONE = Pattern.compile("(?<!\\w)\\+?[0-9][0-9 ()-]{6,}[0-9](?!\\w)");
     private static final Pattern PROMPT_INJECTION = Pattern.compile(
-            "(?i)(ignore|disregard|override).{0,40}(instruction|policy|system|developer)|"
-                    + "(?i)(system prompt|developer message|reveal secrets?|api key|execute command)");
+            "(?i)((ignore|disregard|override).{0,40}(instruction|policy|system|developer)"
+                    + "|(system prompt|developer message|reveal secrets?|api key|execute command))");
 
     public PolicyDecision sanitizeLeadContext(Map<String, Object> input) {
         Map<String, Object> safe = new LinkedHashMap<>();
