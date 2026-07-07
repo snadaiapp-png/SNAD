@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "node",
-    setupFiles: ["./vitest.setup.ts"],
+    setupFiles: ["./lib/api/unauthorized-handler-compat.ts"],
     include: [
       "lib/**/*.test.ts",
       "lib/**/*.test.tsx",
