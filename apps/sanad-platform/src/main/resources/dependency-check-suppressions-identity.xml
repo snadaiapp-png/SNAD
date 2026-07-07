@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <suppress>
+        <notes><![CDATA[
+            CVE-2026-42154 is attached through an incorrect NVD CPE association
+            between the Micrometer Prometheus registry adapter and the Prometheus
+            server product. The scanned artifact is the Java instrumentation
+            adapter io.micrometer:micrometer-registry-prometheus:1.15.4; it does
+            not contain or run the affected Prometheus server. This rule is
+            package- and CVE-scoped and must be reviewed when either dependency
+            version or NVD mapping changes.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.micrometer/micrometer-registry-prometheus@1\.15\.4$</packageUrl>
+        <cve>CVE-2026-42154</cve>
+    </suppress>
+</suppressions>
