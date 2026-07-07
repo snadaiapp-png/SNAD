@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ============================================================================
+  SNAD | سند — Vertical Logo Lockup
+  ----------------------------------------------------------------------------
+  Vertical version: icon on top, wordmarks below. Use when horizontal
+  space is limited (e.g., mobile headers, sidebar, business cards).
+  ============================================================================
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 160 160"
+     role="img"
+     aria-label="SNAD سند"
+     width="160"
+     height="160">
+  <title>SNAD | سند — Vertical Logo</title>
+
+  <!-- Icon mark -->
+  <rect x="52" y="8" width="56" height="56" rx="14" ry="14" fill="#0E3D38"/>
+  <path d="M 68 40 Q 68 26 80 26 Q 92 26 92 38 Q 92 46 84 46 Q 80 46 80 42"
+        stroke="#D4AF37"
+        stroke-width="4"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        fill="none"/>
+  <circle cx="96" cy="52" r="3.5" fill="#D4AF37"/>
+
+  <!-- Wordmark: SNAD -->
+  <text x="80" y="92"
+        font-family="Inter, 'Helvetica Neue', Arial, sans-serif"
+        font-size="24"
+        font-weight="800"
+        letter-spacing="2"
+        text-anchor="middle"
+        fill="#0E3D38">SNAD</text>
+
+  <!-- Wordmark: سند -->
+  <text x="80" y="120"
+        font-family="Tajawal, 'IBM Plex Sans Arabic', 'Noto Sans Arabic', sans-serif"
+        font-size="20"
+        font-weight="700"
+        text-anchor="middle"
+        fill="#0E3D38"
+        direction="rtl">سند</text>
+
+  <!-- Tagline: Business Operating System -->
+  <text x="80" y="142"
+        font-family="Inter, Arial, sans-serif"
+        font-size="8"
+        font-weight="500"
+        letter-spacing="1.5"
+        text-anchor="middle"
+        fill="#525252">BUSINESS OPERATING SYSTEM</text>
+</svg>

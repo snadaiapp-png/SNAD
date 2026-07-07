@@ -1,0 +1,268 @@
+/*
+ * ============================================================================
+ *  SDS Button — styles
+ * ----------------------------------------------------------------------------
+ *  Every visual value references an SDS v2 token. No hardcoded hex/rgb/hsl.
+ *  RTL-aware: all directional properties use logical equivalents
+ *  (margin-inline-*, padding-inline-*, inset-inline-*).
+ *
+ *  WCAG 2.2 AA compliance:
+ *    • focus-visible outline uses --snad-color-focus-ring (3px, offset 2px)
+ *    • minimum touch target is 44x44px for sm+ (enforced via min-block-size
+ *      and min-inline-size on the .button base class)
+ *    • disabled state uses aria-disabled (the host component sets
+ *      aria-disabled="true" and prevents the click handler from firing)
+ * ============================================================================
+ */
+
+.button {
+  /* Base reset / typography — font-size is a literal because SDS exposes
+     typography as composed shorthands (--snad-text-button), not as
+     individual size tokens. */
+  font-family: var(--snad-font-body);
+  font-weight: 700;
+  font-size: 0.9375rem;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+
+  /* Box model — logical properties for RTL */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--snad-space-2);
+  margin-inline: 0;
+  padding-inline: var(--snad-space-4);
+  padding-block: var(--snad-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--snad-radius-md);
+
+  /* WCAG 2.2 AA: minimum 44x44 touch target for sm+ sizes */
+  min-block-size: 44px;
+  min-inline-size: 44px;
+
+  /* Interaction */
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+
+  /* Motion */
+  transition:
+    background-color var(--snad-motion-fast) var(--snad-motion-ease-standard),
+    border-color var(--snad-motion-fast) var(--snad-motion-ease-standard),
+    color var(--snad-motion-fast) var(--snad-motion-ease-standard),
+    box-shadow var(--snad-motion-fast) var(--snad-motion-ease-standard),
+    transform var(--snad-motion-fast) var(--snad-motion-ease-standard);
+}
+
+.button:focus-visible {
+  outline: 3px solid var(--snad-color-focus-ring);
+  outline-offset: 2px;
+}
+
+.button:active {
+  transform: translateY(1px);
+}
+
+.button:disabled,
+.button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Variants
+ * ---------------------------------------------------------------------------- */
+
+.primary {
+  background-color: var(--snad-color-action-primary);
+  color: var(--snad-color-text-inverse);
+  border-color: var(--snad-color-action-primary);
+}
+.primary:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--snad-color-action-primary-hover);
+  border-color: var(--snad-color-action-primary-hover);
+}
+.primary:active:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--snad-color-action-primary-active);
+  border-color: var(--snad-color-action-primary-active);
+}
+
+.accent {
+  background-color: var(--snad-color-action-accent);
+  color: var(--snad-color-text-primary);
+  border-color: var(--snad-color-action-accent);
+}
+.accent:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--snad-color-action-accent-hover);
+  border-color: var(--snad-color-action-accent-hover);
+}
+.accent:active:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--snad-color-action-accent-hover);
+  border-color: var(--snad-color-action-accent-hover);
+  transform: translateY(1px);
+}
+
+.secondary {
+  background-color: var(--snad-color-surface-secondary);
+  color: var(--snad-color-text-primary);
+  border-color: var(--snad-color-border-default);
+}
+.secondary:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--snad-color-surface-primary);
+  border-color: var(--snad-color-border-default);
+}
+.secondary:active:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--snad-color-surface-secondary);
+  border-color: var(--snad-color-border-default);
+}
+
+.ghost {
+  background-color: transparent;
+  color: var(--snad-color-text-primary);
+  border-color: transparent;
+}
+.ghost:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--snad-color-surface-secondary);
+  border-color: transparent;
+}
+.ghost:active:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--snad-color-surface-secondary);
+  border-color: transparent;
+}
+
+.danger {
+  background-color: var(--snad-color-error);
+  color: var(--snad-color-text-inverse);
+  border-color: var(--snad-color-error);
+}
+.danger:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: color-mix(in srgb, var(--snad-color-error) 85%, var(--snad-color-text-primary));
+  border-color: color-mix(in srgb, var(--snad-color-error) 85%, var(--snad-color-text-primary));
+}
+.danger:active:not(:disabled):not([aria-disabled="true"]) {
+  background-color: color-mix(in srgb, var(--snad-color-error) 75%, var(--snad-color-text-primary));
+  border-color: color-mix(in srgb, var(--snad-color-error) 75%, var(--snad-color-text-primary));
+}
+
+/* ----------------------------------------------------------------------------
+ *  Sizes
+ *  Note: All sizes preserve the WCAG 2.2 AA 44x44 minimum touch target.
+ * ---------------------------------------------------------------------------- */
+
+.sm {
+  padding-inline: var(--snad-space-3);
+  padding-block: var(--snad-space-2);
+  font-size: 0.875rem;
+  min-block-size: 44px;
+  min-inline-size: 44px;
+}
+
+.md {
+  padding-inline: var(--snad-space-4);
+  padding-block: var(--snad-space-3);
+  font-size: 0.9375rem;
+  min-block-size: 44px;
+  min-inline-size: 44px;
+}
+
+.lg {
+  padding-inline: var(--snad-space-5);
+  padding-block: var(--snad-space-3);
+  font-size: 1rem;
+  min-block-size: 48px;
+  min-inline-size: 48px;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Loading state
+ * ---------------------------------------------------------------------------- */
+
+.loading {
+  position: relative;
+  color: transparent;
+  pointer-events: none;
+}
+
+.loading::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: 50%;
+  inset-block-start: 50%;
+  width: 1rem;
+  height: 1rem;
+  margin-inline-start: -0.5rem;
+  margin-block-start: -0.5rem;
+  border: 2px solid currentColor;
+  border-block-start-color: transparent;
+  border-radius: 50%;
+  color: var(--snad-color-text-inverse);
+  animation: snad-button-spin 0.7s linear infinite;
+}
+
+/* For variants where the text color is dark (accent, secondary, ghost),
+   use a dark spinner for contrast. */
+.loading.accent::after,
+.loading.secondary::after,
+.loading.ghost::after {
+  color: var(--snad-color-text-primary);
+}
+
+/* When loading, we still want the (now invisible) text to preserve width.
+   The hidden text uses `transparent` color, so accessibility tools that
+   read text content (e.g. screen readers) still receive the label. */
+
+@keyframes snad-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button {
+    transition: none;
+  }
+  .button:active {
+    transform: none;
+  }
+  .loading::after {
+    animation-duration: 1.5s;
+  }
+}
+
+/* ----------------------------------------------------------------------------
+ *  Full-width modifier
+ * ---------------------------------------------------------------------------- */
+
+.fullWidth {
+  display: flex;
+  width: 100%;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Icon + label slots (decorative — `aria-hidden` is set on the host)
+ * ---------------------------------------------------------------------------- */
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25em;
+  height: 1.25em;
+  flex-shrink: 0;
+  /* Inherit color so icons follow the variant's text color. */
+  color: inherit;
+}
+
+.icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.label {
+  display: inline-block;
+  /* Preserve the label width while loading so the button doesn't collapse. */
+  white-space: nowrap;
+}

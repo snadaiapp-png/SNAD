@@ -1,0 +1,113 @@
+/*
+ * ============================================================================
+ *  SDS Badge — styles
+ * ----------------------------------------------------------------------------
+ *  A small status indicator. All visual values reference SDS v2 tokens.
+ *  RTL-aware via logical CSS properties.
+ *
+ *  Variants:
+ *    default  — neutral (text-muted on surface-secondary)
+ *    success  — success-soft background, success text
+ *    warning  — warning-soft background, warning text
+ *    error    — error-soft background, error text
+ *    info     — info-soft background, info text
+ *    accent   — gold-200 background, brand-primary text
+ *
+ *  Sizes:
+ *    sm       — 0.75rem font, 4px/8px padding
+ *    md       — 0.8125rem font, 5px/10px padding (default)
+ * ============================================================================
+ */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--snad-space-1);
+  padding-block: var(--snad-space-1);
+  padding-inline: var(--snad-space-2);
+  border-radius: var(--snad-radius-full);
+  border: 1px solid transparent;
+
+  font-family: var(--snad-font-body);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  text-transform: none;
+
+  /* Inherit no decoration; consumers can compose inside links/buttons. */
+  text-decoration: none;
+  vertical-align: middle;
+  user-select: none;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Variants
+ * ---------------------------------------------------------------------------- */
+
+.default {
+  background-color: var(--snad-color-surface-secondary);
+  color: var(--snad-color-text-secondary);
+  border-color: var(--snad-color-border-default);
+}
+
+.success {
+  background-color: var(--snad-color-success-soft);
+  color: var(--snad-color-success);
+  border-color: color-mix(in srgb, var(--snad-color-success) 30%, transparent);
+}
+
+.warning {
+  background-color: var(--snad-color-warning-soft);
+  color: var(--snad-color-warning);
+  border-color: color-mix(in srgb, var(--snad-color-warning) 30%, transparent);
+}
+
+.error {
+  background-color: var(--snad-color-error-soft);
+  color: var(--snad-color-error);
+  border-color: color-mix(in srgb, var(--snad-color-error) 30%, transparent);
+}
+
+.info {
+  background-color: var(--snad-color-info-soft);
+  color: var(--snad-color-info);
+  border-color: color-mix(in srgb, var(--snad-color-info) 30%, transparent);
+}
+
+.accent {
+  background-color: var(--snad-color-gold-200);
+  color: var(--snad-color-brand-primary);
+  border-color: color-mix(in srgb, var(--snad-color-brand-accent) 40%, transparent);
+}
+
+/* ----------------------------------------------------------------------------
+ *  Sizes
+ * ---------------------------------------------------------------------------- */
+
+.sm {
+  font-size: 0.75rem;
+  padding-block: var(--snad-space-1);
+  padding-inline: var(--snad-space-2);
+}
+
+.md {
+  font-size: 0.8125rem;
+  padding-block: var(--snad-space-1);
+  padding-inline: var(--snad-space-2);
+}
+
+/* ----------------------------------------------------------------------------
+ *  Optional dot indicator (rendered before the label)
+ * ---------------------------------------------------------------------------- */
+
+.dot {
+  display: inline-block;
+  inline-size: 0.5em;
+  block-size: 0.5em;
+  border-radius: 50%;
+  background-color: currentColor;
+  flex-shrink: 0;
+}
