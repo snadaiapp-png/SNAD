@@ -92,6 +92,14 @@ jobs:
       - name: Build Next.js application
         run: npm run build
 
+      - name: Performance Budget Check
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          echo "Running SNAD Performance Budget check..."
+          python3 scripts/ci/check-performance-budget.py
+
       - name: Upload Next.js build output
         uses: actions/upload-artifact@v4
         with:
