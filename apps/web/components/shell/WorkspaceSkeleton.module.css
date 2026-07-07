@@ -1,0 +1,169 @@
+/*
+ * ============================================================================
+ *  SNAD Workspace Skeleton — Loading State
+ * ----------------------------------------------------------------------------
+ *  Uses SDS tokens only. RTL-aware via logical CSS properties.
+ *  Animations respect prefers-reduced-motion.
+ * ============================================================================
+ */
+
+.root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--snad-color-background-default);
+  color: var(--snad-color-text-primary);
+}
+
+/* --- Header --- */
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--snad-space-4);
+  padding: var(--snad-space-3) var(--snad-space-6);
+  background: var(--snad-color-surface-primary);
+  border-block-end: 1px solid var(--snad-color-border-default);
+  position: sticky;
+  top: 0;
+  z-index: var(--snad-z-sticky, 100);
+}
+
+.headerSkeleton {
+  flex: 1;
+  height: 32px;
+  max-width: 200px;
+  border-radius: var(--snad-radius-md);
+  background: var(--snad-color-surface-secondary);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* --- Navigation --- */
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snad-space-2);
+  padding: var(--snad-space-4);
+  width: 240px;
+  background: var(--snad-color-surface-primary);
+  border-inline-end: 1px solid var(--snad-color-border-default);
+}
+
+.navItem {
+  height: 36px;
+  border-radius: var(--snad-radius-md);
+  background: var(--snad-color-surface-secondary);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.navItem:nth-child(2) { animation-delay: 0.1s; }
+.navItem:nth-child(3) { animation-delay: 0.2s; }
+.navItem:nth-child(4) { animation-delay: 0.3s; }
+.navItem:nth-child(5) { animation-delay: 0.4s; }
+
+/* --- Content --- */
+.content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--snad-space-5);
+  padding: var(--snad-space-6);
+}
+
+/* --- KPI Row --- */
+.kpiRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--snad-space-4);
+}
+
+.kpiCard {
+  height: 100px;
+  border-radius: var(--snad-radius-lg);
+  background: var(--snad-color-surface-primary);
+  border: 1px solid var(--snad-color-border-subtle);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.kpiCard:nth-child(2) { animation-delay: 0.1s; }
+.kpiCard:nth-child(3) { animation-delay: 0.2s; }
+.kpiCard:nth-child(4) { animation-delay: 0.3s; }
+
+/* --- Chart Card --- */
+.chartCard {
+  height: 300px;
+  border-radius: var(--snad-radius-lg);
+  background: var(--snad-color-surface-primary);
+  border: 1px solid var(--snad-color-border-subtle);
+  animation: pulse 1.5s ease-in-out infinite;
+  animation-delay: 0.5s;
+}
+
+/* --- Table Card --- */
+.tableCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snad-space-2);
+  padding: var(--snad-space-4);
+  border-radius: var(--snad-radius-lg);
+  background: var(--snad-color-surface-primary);
+  border: 1px solid var(--snad-color-border-subtle);
+}
+
+.tableRow {
+  height: 40px;
+  border-radius: var(--snad-radius-sm);
+  background: var(--snad-color-surface-secondary);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.tableRow:nth-child(2) { animation-delay: 0.6s; }
+.tableRow:nth-child(3) { animation-delay: 0.7s; }
+.tableRow:nth-child(4) { animation-delay: 0.8s; }
+.tableRow:nth-child(5) { animation-delay: 0.9s; }
+
+/* --- Animation --- */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .headerSkeleton,
+  .navItem,
+  .kpiCard,
+  .chartCard,
+  .tableRow {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
+/* --- Screen Reader Only --- */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Mobile --- */
+@media (max-width: 768px) {
+  .nav {
+    display: none;
+  }
+  .content {
+    padding: var(--snad-space-3);
+  }
+  .kpiRow {
+    grid-template-columns: 1fr;
+  }
+}

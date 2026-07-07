@@ -1,0 +1,84 @@
+name: Visual Regression Tests
+
+# ============================================================
+# SNAD | سند — Playwright Visual Regression CI
+# ------------------------------------------------------------
+# Per PM Directive §1.1: Real Playwright visual regression tests
+# in CI with Chromium, fixed viewport/fonts/timezone, diff images
+# as artifacts, no automatic baseline updates.
+# ============================================================
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'apps/web/**'
+      - '.github/workflows/visual-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: visual-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  visual-regression:
+    name: Playwright Visual Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Build Next.js (production mode for visual tests)
+        run: npm run build
+
+      - name: Run Playwright visual regression tests
+        run: |
+          set -euo pipefail
+          echo "Running Playwright visual regression tests..."
+          echo "NOTE: Baselines are NOT auto-updated in CI."
+          echo "To update baselines, run 'npx playwright test --update-snapshots' locally."
+          npx playwright test --project=desktop-light-rtl --project=desktop-dark-rtl --project=desktop-light-ltr --project=desktop-dark-ltr --project=mobile-rtl --project=mobile-ltr
+        env:
+          CI: 'true'
+
+      - name: Upload Playwright HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: apps/web/playwright-report/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload diff images
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-diffs-${{ github.run_id }}
+          path: |
+            apps/web/test-results/
+            apps/web/tests/visual/__screenshots__/
+          if-no-files-found: warn
+          retention-days: 14
