@@ -202,8 +202,33 @@ def scan_repository(repo_root: Path):
             continue
         try:
             if f.stat().st_size > MAX_FILE_SIZE:
-                skipped_files.append({"path": str(f.relative_to(repo_root)), "reason": "FILE_TOO_LARGE", "size": f.stat().st_size})
-                scan_errors.append({"path": str(f), "errorType": "FILE_TOO_LARGE", "message": "Skipped: must be scanned or explicitly approved"})
+                # Stream-scan large files line by line instead of skipping
+                try:
+                    with open(f, 'r', encoding='utf-8', errors='ignore') as fh:
+                        line_num = 0
+                        for line in fh:
+                            line_num += 1
+                            for rule_id, pattern, severity, description in RULES:
+                                try:
+                                    for match in re.finditer(pattern, line):
+                                        secret_value = match.group(0)
+                                        secret_sample = match.group(1) if match.lastindex else secret_value
+                                        finding = {
+                                            "ruleId": rule_id,
+                                            "severity": severity,
+                                            "description": description,
+                                            "path": str(f.relative_to(repo_root)),
+                                            "line": line_num,
+                                            "fingerprint": compute_fingerprint(str(f.relative_to(repo_root)), line_num, rule_id, secret_sample),
+                                            "secret": "REDACTED",
+                                        }
+                                        if not is_allowlisted(finding, allowlist):
+                                            all_findings.append(finding)
+                                except re.error:
+                                    pass
+                    files_scanned += 1
+                except Exception as e:
+                    scan_errors.append({"path": str(f), "errorType": "STREAM_READ_ERROR", "message": str(e)})
                 continue
         except OSError as e:
             scan_errors.append({"path": str(f), "errorType": "STAT_ERROR", "message": str(e)})

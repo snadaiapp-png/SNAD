@@ -116,10 +116,14 @@ class TestSecretScanner(unittest.TestCase):
         findings, _, _ = self._scan()
         self.assertEqual(len(findings), 0)
 
-    def test_large_file_skipped(self):
-        self._create_file("large.txt", "x" * (scan_module.MAX_FILE_SIZE + 1))
+    def test_large_file_stream_scanned(self):
+        # Large files should be stream-scanned, not skipped
+        content = "x" * (scan_module.MAX_FILE_SIZE + 1)
+        self._create_file("large.txt", content)
         findings, files_scanned, _ = self._scan()
-        self.assertEqual(files_scanned, 0)
+        # File should be scanned (stream mode), no secrets in it
+        self.assertEqual(len(findings), 0, "Large file with no secrets should have 0 findings")
+        self.assertGreater(files_scanned, 0, "Large file should be scanned (stream mode)")
 
     def test_report_generation_valid_json(self):
         self._create_file("clean.py", "print('hello')")
