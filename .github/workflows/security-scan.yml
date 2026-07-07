@@ -199,6 +199,7 @@ jobs:
       - name: Verify and extract snapshot
         id: verify
         if: steps.snapshot.outputs.available == 'true'
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -299,20 +300,29 @@ jobs:
           SNAPSHOT_AVAILABLE: ${{ steps.snapshot.outputs.available }}
           SNAPSHOT_REASON: ${{ steps.snapshot.outputs.unavailable_reason }}
           VERIFY_RESULT: ${{ steps.verify.outputs.result }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           SCAN_COMPLETED: ${{ steps.scan.outputs.completed }}
           OWASP_RESULT: ${{ steps.result.outputs.result }}
         run: |
           set -euo pipefail
-          if [ "$SNAPSHOT_AVAILABLE" != 'true' ]; then
+          defer_pr() {
             if [ "$EXECUTION_MODE" = 'pr' ] && [ "$DEPENDENCY_CHANGED" = 'false' ]; then
-              echo 'PR mode: verified snapshot unavailable and dependency contract unchanged.'
-              echo 'OWASP acceptance is deferred to main; parser, validator, workflow and POM gates passed.'
+              echo 'PR mode: dependency contract unchanged.'
+              echo 'OWASP acceptance is deferred to main because the verified snapshot is unavailable or stale.'
+              echo 'Parser, validator, workflow, Maven profile and dependency-delta gates passed.'
               exit 0
             fi
-            echo "::error::Verified NVD snapshot unavailable: $SNAPSHOT_REASON"
-            exit 1
+            return 1
+          }
+
+          if [ "$SNAPSHOT_AVAILABLE" != 'true' ]; then
+            defer_pr || { echo "::error::Verified NVD snapshot unavailable: $SNAPSHOT_REASON"; exit 1; }
           fi
-          [ "$VERIFY_RESULT" = 'success' ] || { echo '::error::Snapshot verification failed'; exit 1; }
+
+          if [ "$VERIFY_RESULT" != 'success' ]; then
+            defer_pr || { echo "::error::Snapshot verification failed or snapshot is stale (outcome: $VERIFY_OUTCOME)"; exit 1; }
+          fi
+
           [ "$SCAN_COMPLETED" = 'true' ] || { echo '::error::OWASP scan did not complete'; exit 1; }
           [ "$OWASP_RESULT" = 'pass' ] || { echo "::error::OWASP result is $OWASP_RESULT"; exit 1; }
           echo 'OWASP terminal security gate passed.'
@@ -344,6 +354,7 @@ jobs:
             echo "- Snapshot available: \`${{ steps.snapshot.outputs.available }}\`"
             echo "- Effective backend: \`${{ steps.snapshot.outputs.effective_backend }}\`"
             echo "- Snapshot ID: \`${{ steps.snapshot.outputs.snapshot_id }}\`"
+            echo "- Snapshot verification: \`${{ steps.verify.outcome }}\`"
             echo "- OWASP result: \`${{ steps.result.outputs.result }}\`"
             echo "- Dependencies: \`${{ steps.result.outputs.total_dependencies }}\`"
             echo "- High: \`${{ steps.result.outputs.high }}\`"
