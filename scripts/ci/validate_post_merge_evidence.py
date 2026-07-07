@@ -97,7 +97,7 @@ def validate(args: argparse.Namespace) -> list[str]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate SNAD post-merge evidence")
     parser.add_argument("--manifest", required=True)
-    parser.add_argument("--scan-report", required=True)
+    parser.add_argument("--scan-report", "--secret-report", dest="scan_report", required=True)
     parser.add_argument("--backend-metadata", required=True)
     parser.add_argument("--backend-health", required=True)
     parser.add_argument("--frontend-metadata", required=True)
