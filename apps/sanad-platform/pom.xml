@@ -104,6 +104,7 @@
                             <failOnError>true</failOnError>
                             <failBuildOnCVSS>11</failBuildOnCVSS>
                             <ossindexAnalyzerEnabled>false</ossindexAnalyzerEnabled>
+                            <ossIndexAnalyzerEnabled>false</ossIndexAnalyzerEnabled>
                             <hostedSuppressionsEnabled>false</hostedSuppressionsEnabled>
                             <versionCheckEnabled>false</versionCheckEnabled>
                             <suppressionFile>${project.basedir}/src/main/resources/dependency-check-suppressions.xml</suppressionFile>
