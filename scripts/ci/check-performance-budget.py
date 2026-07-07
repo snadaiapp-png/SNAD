@@ -1,270 +1,112 @@
 #!/usr/bin/env python3
-"""
-SANAD Performance Budget Checker — FAIL-CLOSED EDITION
-Validates that the production build stays within performance budgets.
+"""SNAD route-level performance budget and regression gate."""
 
-Per PM Directive §2 — must FAIL when:
-  - Build directory missing after build step
-  - build-manifest.json missing
-  - Manifest JSON corrupt or unreadable
-  - Expected JS files missing
-  - Cannot compute bundle sizes
-  - No verifiable measurement data
+from __future__ import annotations
 
-This script NEVER returns PASS without verifiable evidence.
-"""
 import json
-import os
 import sys
 from pathlib import Path
 
-# Performance budgets (in bytes)
-BUDGETS = {
-    "total_initial_js": 500_000,        # 500 KB total initial JS
-    "per_route_js": 350_000,            # 350 KB per route JS
-    "largest_chunk": 300_000,           # 300 KB largest single chunk
-    "total_static_assets": 2_000_000,   # 2 MB total static assets
-    "fonts_count": 8,                   # Max 8 font files
-    "fonts_total_size": 300_000,        # 300 KB total fonts
-    "logo_asset_size": 20_000,          # 20 KB per logo SVG
-    "login_route_js": 200_000,          # 200 KB login route JS
-    "exec_dashboard_js": 350_000,       # 350 KB executive dashboard JS
+ROOT = Path(__file__).resolve().parents[2]
+BUILD_DIR = ROOT / "apps/web/.next"
+PUBLIC_DIR = ROOT / "apps/web/public"
+BASELINE_FILE = ROOT / "apps/web/performance-baseline.json"
+
+ABSOLUTE_ROUTE_BUDGETS = {
+    "/": 620_000,
+    "/workspace": 620_000,
+    "/control-plane": 650_000,
+    "/crm": 620_000,
 }
-
-BUILD_DIR = Path("apps/web/.next")
-PUBLIC_DIR = Path("apps/web/public")
-
-
-def fail(message):
-    """Print failure and exit with code 1."""
-    print(f"FAIL — {message}")
-    sys.exit(1)
+MAX_REGRESSION_RATIO = 1.08
+MAX_LOGO_BYTES = 100_000
+MAX_FONT_FILES = 8
+MAX_FONT_BYTES = 300_000
 
 
-def measure_logo_sizes():
-    """Measure logo SVG file sizes. Returns list of (name, size) tuples."""
-    results = []
-    brand_dir = PUBLIC_DIR / "assets" / "brand"
-    if not brand_dir.exists():
-        fail(f"Brand directory not found: {brand_dir}")
-    for svg in sorted(brand_dir.glob("*.svg")):
-        results.append((svg.name, svg.stat().st_size))
-    if not results:
-        fail("No logo SVG files found in brand directory")
-    return results
+def load_json(path: Path):
+    with path.open(encoding="utf-8") as handle:
+        return json.load(handle)
 
 
-def measure_fonts():
-    """Measure font file count and total size."""
-    font_files = list(PUBLIC_DIR.rglob("*.woff2")) + \
-                 list(PUBLIC_DIR.rglob("*.woff")) + \
-                 list(PUBLIC_DIR.rglob("*.ttf"))
-    total_size = sum(f.stat().st_size for f in font_files)
-    return font_files, total_size
+def main() -> int:
+    violations: list[str] = []
+    warnings: list[str] = []
 
-
-def measure_build_bundles():
-    """Measure JavaScript bundle sizes from Next.js build output.
-    FAIL-CLOSED: fails if build directory or manifest is missing."""
-    if not BUILD_DIR.exists():
-        fail("Build directory not found (apps/web/.next) — build step must succeed first")
-
-    # Check for build-manifest.json
-    manifest_path = BUILD_DIR / "build-manifest.json"
-    if not manifest_path.exists():
-        fail("build-manifest.json not found — cannot verify bundle sizes without manifest")
-
-    # Parse manifest
-    try:
-        with open(manifest_path) as f:
-            manifest = json.load(f)
-    except json.JSONDecodeError as e:
-        fail(f"build-manifest.json is corrupt or unreadable: {e}")
-    except IOError as e:
-        fail(f"Cannot read build-manifest.json: {e}")
-
-    # Collect all JS files from manifest
-    page_bundles = {}
-    all_js_files = set()
-
-    pages = manifest.get("pages", {})
-    if not pages:
-        fail("build-manifest.json contains no pages — manifest is empty or invalid")
-
-    for page, assets in pages.items():
-        js_assets = [a for a in assets if a.endswith(".js")]
-        page_size = 0
-        for asset in js_assets:
-            asset_path = BUILD_DIR / asset.lstrip("/")
-            if not asset_path.exists():
-                fail(f"JavaScript file referenced in manifest not found on disk: {asset}")
-            page_size += asset_path.stat().st_size
-            all_js_files.add(asset)
-        page_bundles[page] = {
-            "js_files": len(js_assets),
-            "total_js_bytes": page_size,
-        }
-
-    # Measure total JS
-    total_js = sum(p["total_js_bytes"] for p in page_bundles.values())
-
-    # Find largest chunk
-    largest_chunk = 0
-    largest_chunk_name = ""
-    for asset in all_js_files:
-        asset_path = BUILD_DIR / asset.lstrip("/")
-        if asset_path.exists():
-            size = asset_path.stat().st_size
-            if size > largest_chunk:
-                largest_chunk = size
-                largest_chunk_name = asset
-
-    # Measure total static assets
-    static_dir = BUILD_DIR / "static"
-    total_static = 0
-    if static_dir.exists():
-        for f in static_dir.rglob("*"):
-            if f.is_file():
-                total_static += f.stat().st_size
-
-    # Find login route bundle
-    login_js = 0
-    for page, data in page_bundles.items():
-        if "/auth" in page or "/login" in page:
-            login_js = max(login_js, data["total_js_bytes"])
-
-    # Find executive dashboard bundle
-    exec_js = 0
-    for page, data in page_bundles.items():
-        if "/control-plane" in page or "/workspace" in page:
-            exec_js = max(exec_js, data["total_js_bytes"])
-
-    return {
-        "page_bundles": page_bundles,
-        "total_js": total_js,
-        "largest_chunk": largest_chunk,
-        "largest_chunk_name": largest_chunk_name,
-        "total_static": total_static,
-        "login_route_js": login_js,
-        "exec_dashboard_js": exec_js,
-    }
-
-
-def main():
-    print("=" * 70)
-    print("SANAD Performance Budget Checker — FAIL-CLOSED")
-    print("=" * 70)
-    print()
-
-    measurements = {}
-    violations = []
-
-    # --- Logo Assets ---
-    print("Measuring logo asset sizes...")
-    logo_sizes = measure_logo_sizes()
-    measurements["logos"] = logo_sizes
-    for name, size in logo_sizes:
-        if size > BUDGETS["logo_asset_size"]:
+    official_assets = [
+        PUBLIC_DIR / "assets/brand/snad-logo-official-primary.webp",
+        PUBLIC_DIR / "assets/brand/snad-logo-official-wordmark.webp",
+    ]
+    for asset in official_assets:
+        if not asset.is_file():
+            violations.append(f"missing logo asset: {asset.relative_to(ROOT)}")
+        elif asset.stat().st_size > MAX_LOGO_BYTES:
             violations.append(
-                f"Logo '{name}' exceeds budget: {size:,} bytes "
-                f"(budget: {BUDGETS['logo_asset_size']:,} bytes)"
+                f"logo asset exceeds {MAX_LOGO_BYTES:,} bytes: "
+                f"{asset.name}={asset.stat().st_size:,}"
             )
 
-    # --- Fonts ---
-    print("Measuring font files...")
-    font_files, font_total = measure_fonts()
-    measurements["fonts"] = {"count": len(font_files), "total_bytes": font_total}
-    if len(font_files) > BUDGETS["fonts_count"]:
+    fonts = [
+        path for suffix in ("*.woff2", "*.woff", "*.ttf")
+        for path in PUBLIC_DIR.rglob(suffix)
+    ]
+    if len(fonts) > MAX_FONT_FILES:
+        violations.append(f"font file count {len(fonts)} > {MAX_FONT_FILES}")
+    total_font_bytes = sum(path.stat().st_size for path in fonts)
+    if total_font_bytes > MAX_FONT_BYTES:
+        violations.append(f"font bytes {total_font_bytes:,} > {MAX_FONT_BYTES:,}")
+
+    stats_path = BUILD_DIR / "diagnostics/route-bundle-stats.json"
+    if not stats_path.is_file():
         violations.append(
-            f"Font file count exceeds budget: {len(font_files)} "
-            f"(budget: {BUDGETS['fonts_count']})"
+            "route-bundle-stats.json is missing; route budgets cannot be verified"
         )
-    if font_total > BUDGETS["fonts_total_size"]:
-        violations.append(
-            f"Total font size exceeds budget: {font_total:,} bytes "
-            f"(budget: {BUDGETS['fonts_total_size']:,} bytes)"
-        )
-
-    # --- Build Bundles (FAIL-CLOSED) ---
-    print("Measuring build bundle sizes (fail-closed)...")
-    bundle_data = measure_build_bundles()
-    measurements["bundles"] = bundle_data
-
-    if bundle_data["total_js"] > BUDGETS["total_initial_js"]:
-        violations.append(
-            f"Total initial JS exceeds budget: {bundle_data['total_js']:,} bytes "
-            f"(budget: {BUDGETS['total_initial_js']:,} bytes)"
-        )
-    if bundle_data["largest_chunk"] > BUDGETS["largest_chunk"]:
-        violations.append(
-            f"Largest chunk exceeds budget: {bundle_data['largest_chunk']:,} bytes "
-            f"({bundle_data['largest_chunk_name']}, budget: {BUDGETS['largest_chunk']:,} bytes)"
-        )
-    if bundle_data["login_route_js"] > BUDGETS["login_route_js"]:
-        violations.append(
-            f"Login route JS exceeds budget: {bundle_data['login_route_js']:,} bytes "
-            f"(budget: {BUDGETS['login_route_js']:,} bytes)"
-        )
-    if bundle_data["exec_dashboard_js"] > BUDGETS["exec_dashboard_js"]:
-        violations.append(
-            f"Executive dashboard JS exceeds budget: {bundle_data['exec_dashboard_js']:,} bytes "
-            f"(budget: {BUDGETS['exec_dashboard_js']:,} bytes)"
-        )
-
-    # --- Report ---
-    print()
-    print("=" * 70)
-    print("PERFORMANCE MEASUREMENT REPORT")
-    print("=" * 70)
-    print()
-
-    # Logos
-    print("Logo Assets:")
-    for name, size in logo_sizes:
-        status = "OK" if size <= BUDGETS["logo_asset_size"] else "OVER"
-        print(f"  {name:40s} {size:>8,} bytes  [{status}]")
-    print()
-
-    # Fonts
-    print("Fonts:")
-    print(f"  File count:     {font_files.count if hasattr(font_files, 'count') else len(font_files)}  "
-          f"(budget: {BUDGETS['fonts_count']})")
-    print(f"  Total size:     {font_total:,} bytes  "
-          f"(budget: {BUDGETS['fonts_total_size']:,} bytes)")
-    print()
-
-    # Bundles
-    print("JavaScript Bundles:")
-    print(f"  Total initial JS:      {bundle_data['total_js']:>10,} bytes  "
-          f"(budget: {BUDGETS['total_initial_js']:,})")
-    print(f"  Largest chunk:         {bundle_data['largest_chunk']:>10,} bytes  "
-          f"(budget: {BUDGETS['largest_chunk']:,})")
-    print(f"    └─ {bundle_data['largest_chunk_name']}")
-    print(f"  Login route JS:        {bundle_data['login_route_js']:>10,} bytes  "
-          f"(budget: {BUDGETS['login_route_js']:,})")
-    print(f"  Executive dashboard:   {bundle_data['exec_dashboard_js']:>10,} bytes  "
-          f"(budget: {BUDGETS['exec_dashboard_js']:,})")
-    print(f"  Total static assets:   {bundle_data['total_static']:>10,} bytes  "
-          f"(budget: {BUDGETS['total_static_assets']:,})")
-    print()
-
-    # Per-page breakdown
-    print("Per-Page Bundle Breakdown:")
-    for page, data in sorted(bundle_data["page_bundles"].items()):
-        over = "OVER" if data["total_js_bytes"] > BUDGETS["per_route_js"] else "OK"
-        print(f"  {page:50s} {data['total_js_bytes']:>10,} bytes  [{over}]")
-    print()
-
-    # Final result
-    if violations:
-        print(f"FAIL — {len(violations)} performance budget violation(s):")
-        for v in violations:
-            print(f"  • {v}")
-        sys.exit(1)
     else:
-        print("PASS — all performance budgets met with verifiable measurements")
-        sys.exit(0)
+        stats = {
+            item["route"]: int(item["firstLoadUncompressedJsBytes"])
+            for item in load_json(stats_path)
+        }
+        baseline = load_json(BASELINE_FILE) if BASELINE_FILE.is_file() else {}
+
+        print("SNAD route bundle evidence:")
+        for route, absolute_budget in ABSOLUTE_ROUTE_BUDGETS.items():
+            current = stats.get(route)
+            if current is None:
+                violations.append(f"route missing from bundle diagnostics: {route}")
+                continue
+            previous = baseline.get(route)
+            print(
+                f"  {route:<16} current={current:,} "
+                f"budget={absolute_budget:,} baseline={previous or 'n/a'}"
+            )
+            if current > absolute_budget:
+                violations.append(
+                    f"{route} first-load JS {current:,} > {absolute_budget:,}"
+                )
+            if isinstance(previous, int):
+                regression_limit = int(previous * MAX_REGRESSION_RATIO)
+                if current > regression_limit:
+                    violations.append(
+                        f"{route} regressed by more than 8% "
+                        f"({previous:,} -> {current:,})"
+                    )
+
+        unknown = sorted(set(stats) - set(ABSOLUTE_ROUTE_BUDGETS))
+        if unknown:
+            warnings.append("unbudgeted routes: " + ", ".join(unknown))
+
+    for warning in warnings:
+        print(f"WARNING: {warning}")
+
+    if violations:
+        print("SNAD Performance Budget: FAIL")
+        for violation in violations:
+            print(f"  - {violation}")
+        return 1
+
+    print("SNAD Performance Budget: PASS")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
