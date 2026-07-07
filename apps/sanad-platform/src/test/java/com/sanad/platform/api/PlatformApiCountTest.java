@@ -40,8 +40,8 @@ class PlatformApiCountTest {
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
         assertThat(count(paths, "/api/v1/control-plane")).isEqualTo(34);
-        assertThat(count(paths, "/api/v1/crm")).isEqualTo(44);
-        assertThat(count(paths, null)).isEqualTo(131);
+        assertThat(count(paths, "/api/v1/crm")).isEqualTo(45);
+        assertThat(count(paths, null)).isEqualTo(132);
         assertThat(has(paths, "/api/v1/auth/change-credential", "post")).isTrue();
         assertThat(has(paths, "/api/v1/access/evaluation", "get")).isTrue();
         assertThat(has(paths, "/api/v1/control-plane/dashboard", "get")).isTrue();
@@ -50,6 +50,7 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/crm/dashboard", "get")).isTrue();
         assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/customer-360", "get")).isTrue();
         assertThat(has(paths, "/api/v1/crm/leads/{leadId}/convert", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/crm/ai/leads/{leadId}/score", "post")).isTrue();
         assertThat(has(paths, "/api/v1/crm/opportunities/{opportunityId}/stage", "patch")).isTrue();
         assertThat(has(paths, "/api/v1/crm/imports/upload", "post")).isTrue();
         assertThat(has(paths, "/api/v1/crm/imports/{jobId}/run", "post")).isTrue();
