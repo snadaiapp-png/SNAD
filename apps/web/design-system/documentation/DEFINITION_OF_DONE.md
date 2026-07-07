@@ -120,10 +120,25 @@ Repository Integration:   PASS
 Post-Merge Verification:  PASS
 ```
 
-**Final Status:** `CLOSED`
-**Release Decision:** `GO`
-**Brand Status:** `GOVERNED`
-**Production Status:** `VERIFIED`
+**IMPORTANT:** No criterion may be marked PASS without verifiable evidence.
+See `EVIDENCE_MATRIX.md` for the actual verification status of each criterion.
+
+Current truthful status (as of 2026-07-07):
+```text
+FINAL STATUS:     OPEN
+RELEASE DECISION: NO-GO
+ACCEPTANCE:       NOT ACHIEVED
+```
+
+PASS rate: 26/79 = 33% (see Evidence Matrix for details)
+
+When ALL items are PASS with evidence:
+```text
+FINAL STATUS:     CLOSED
+RELEASE DECISION: GO
+BRAND STATUS:     GOVERNED
+PRODUCTION STATUS: VERIFIED
+```
 
 If ANY item is not PASS:
 ```text
