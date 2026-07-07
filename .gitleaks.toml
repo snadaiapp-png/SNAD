@@ -21,13 +21,15 @@
 # Real secrets in source files are still detected by the default rules.
 
 [allowlist]
-description = "Gitignored generated build outputs excluded from tracked-source scanning; values in these directories must never be committed or published"
+description = "Gitignored generated build outputs and secret scanner test fixtures excluded from scanning"
 paths = [
   '''^apps/sanad-platform/target/''',
   '''^apps/web/\.next/''',
   '''^SNAD-https/''',
   '''^node_modules/''',
   '''^apps/web/node_modules/''',
+  '''^tests/ci/test_scan_secrets\.py$''',
+  '''^scripts/ci/scan_secrets\.py$''',
 ]
 
 # No global regex exclusions.
