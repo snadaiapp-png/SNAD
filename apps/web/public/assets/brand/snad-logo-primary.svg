@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ============================================================================
+  SNAD | سند — Primary Logo (Horizontal Lockup)
+  ----------------------------------------------------------------------------
+  Official brand logo for SNAD Business Operating System.
+
+  Brand Identity:
+    Primary color: #0E3D38 (Dark Petroleum Green)
+    Accent color:  #D4AF37 (Royal Polished Gold)
+
+  Usage Rules (per apps/web/design-system/documentation/LOGO_USAGE.md):
+    - Minimum width: 120px (digital), 30mm (print)
+    - Clear space: 1x logo height on all sides
+    - Do NOT modify proportions, colors, or add effects
+    - Do NOT stretch, rotate, or compress
+
+  This SVG is the canonical source. PNG exports at 1x/2x/3x should be
+  generated from this file for legacy contexts.
+  ============================================================================
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 280 80"
+     role="img"
+     aria-label="SNAD سند"
+     width="280"
+     height="80">
+  <title>SNAD | سند — Primary Logo</title>
+
+  <!-- Icon mark: rounded square with petroleum green background -->
+  <rect x="4" y="12" width="56" height="56" rx="14" ry="14"
+        fill="#0E3D38"/>
+
+  <!-- Arabic letter "س" (first letter of سند) — stylized geometric form -->
+  <path d="M 20 44 Q 20 30 32 30 Q 44 30 44 42 Q 44 50 36 50 Q 32 50 32 46"
+        stroke="#D4AF37"
+        stroke-width="4"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        fill="none"/>
+
+  <!-- Gold accent dot (the "نقطة الذهب" — brand signature element) -->
+  <circle cx="48" cy="56" r="3.5" fill="#D4AF37"/>
+
+  <!-- Wordmark: SNAD (Latin) -->
+  <text x="72" y="42"
+        font-family="Inter, 'Helvetica Neue', Arial, sans-serif"
+        font-size="26"
+        font-weight="800"
+        letter-spacing="2"
+        fill="#0E3D38">SNAD</text>
+
+  <!-- Wordmark: سند (Arabic) -->
+  <text x="72" y="64"
+        font-family="Tajawal, 'IBM Plex Sans Arabic', 'Noto Sans Arabic', sans-serif"
+        font-size="18"
+        font-weight="700"
+        fill="#0E3D38"
+        direction="rtl">سند</text>
+</svg>

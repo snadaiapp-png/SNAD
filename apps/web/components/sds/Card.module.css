@@ -1,0 +1,152 @@
+/*
+ * ============================================================================
+ *  SDS Card — styles
+ * ----------------------------------------------------------------------------
+ *  A surface container with optional header / body / footer slots.
+ *  Every visual value references an SDS v2 token. No hardcoded colors.
+ *  RTL-aware: all directional properties use logical equivalents.
+ *
+ *  Variants:
+ *    default  — flat surface, default border
+ *    elevated — adds a medium shadow
+ *    outlined — emphasizes the border, drops the surface fill
+ * ============================================================================
+ */
+
+.card {
+  /* Box model */
+  display: flex;
+  flex-direction: column;
+  background-color: var(--snad-color-surface-primary);
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-lg);
+  overflow: hidden;
+
+  /* Typography inheritance */
+  color: var(--snad-color-text-primary);
+  font-family: var(--snad-font-body);
+}
+
+/* ----------------------------------------------------------------------------
+ *  Variants
+ * ---------------------------------------------------------------------------- */
+
+.elevated {
+  border-color: transparent;
+  box-shadow: var(--snad-shadow-md);
+}
+
+.outlined {
+  background-color: transparent;
+  border: 1px solid var(--snad-color-border-default);
+  box-shadow: none;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Slots
+ * ---------------------------------------------------------------------------- */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--snad-space-3);
+  padding-block: var(--snad-space-4);
+  padding-inline: var(--snad-space-5);
+  border-block-end: 1px solid var(--snad-color-border-subtle);
+  background-color: var(--snad-color-surface-secondary);
+}
+
+.headerTitle {
+  margin: 0;
+  font-family: var(--snad-font-body);
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--snad-color-text-primary);
+}
+
+.headerDescription {
+  margin-block-start: var(--snad-space-1);
+  margin-block-end: 0;
+  font-size: 0.875rem;
+  color: var(--snad-color-text-secondary);
+}
+
+.headerActions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--snad-space-2);
+  margin-inline-start: auto;
+}
+
+.body {
+  padding-block: var(--snad-space-5);
+  padding-inline: var(--snad-space-5);
+  flex: 1 1 auto;
+  color: var(--snad-color-text-primary);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--snad-space-3);
+  padding-block: var(--snad-space-4);
+  padding-inline: var(--snad-space-5);
+  border-block-start: 1px solid var(--snad-color-border-subtle);
+  background-color: var(--snad-color-surface-secondary);
+}
+
+/* ----------------------------------------------------------------------------
+ *  Padding modifiers (consumers can opt out of padding)
+ * ---------------------------------------------------------------------------- */
+
+.bodyFlush {
+  padding: 0;
+}
+
+.headerFlush {
+  padding: 0;
+}
+
+.footerFlush {
+  padding: 0;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Interactive card (renders as a button / link)
+ * ---------------------------------------------------------------------------- */
+
+.interactive {
+  cursor: pointer;
+  transition:
+    box-shadow var(--snad-motion-fast) var(--snad-motion-ease-standard),
+    border-color var(--snad-motion-fast) var(--snad-motion-ease-standard),
+    transform var(--snad-motion-fast) var(--snad-motion-ease-standard);
+}
+
+.interactive:hover {
+  box-shadow: var(--snad-shadow-md);
+  border-color: var(--snad-color-border-default);
+}
+
+.interactive:active {
+  transform: translateY(1px);
+}
+
+.interactive:focus-visible {
+  outline: 3px solid var(--snad-color-focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .interactive {
+    transition: none;
+  }
+  .interactive:active {
+    transform: none;
+  }
+}

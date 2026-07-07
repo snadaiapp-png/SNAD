@@ -1,0 +1,175 @@
+/*
+ * ============================================================================
+ *  SDS Input — styles
+ * ----------------------------------------------------------------------------
+ *  A labeled text input with hint and error states. All visual values
+ *  reference SDS v2 tokens. RTL-aware via logical CSS properties.
+ *
+ *  States:
+ *    default  — neutral surface, default border
+ *    focus    — focus-ring border + 3px ring
+ *    error    — error border + 3px error ring (aria-invalid="true")
+ *    disabled — opacity 0.55, not-allowed cursor
+ *
+ *  Accessibility:
+ *    • Minimum 44x44 touch target (enforced via min-block-size on the input)
+ *    • focus-visible outline uses --snad-color-focus-ring
+ *    • Label is associated via htmlFor / id; hint and error are linked via
+ *      aria-describedby
+ * ============================================================================
+ */
+
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snad-space-1);
+  width: 100%;
+  font-family: var(--snad-font-body);
+  color: var(--snad-color-text-primary);
+}
+
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--snad-color-text-primary);
+  font-family: var(--snad-font-body);
+  line-height: 1.4;
+}
+
+.labelRequired::after {
+  content: " *";
+  color: var(--snad-color-error);
+  /* Avoid screen-reader noise: the required attribute already conveys this. */
+}
+
+.inputWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.input {
+  /* Box model — logical properties for RTL */
+  display: block;
+  width: 100%;
+  min-block-size: 44px;
+  padding-block: var(--snad-space-2);
+  padding-inline: var(--snad-space-3);
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-md);
+  background-color: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
+
+  /* Typography */
+  font-family: var(--snad-font-body);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+
+  /* Interaction */
+  transition:
+    border-color var(--snad-motion-fast) var(--snad-motion-ease-standard),
+    box-shadow var(--snad-motion-fast) var(--snad-motion-ease-standard),
+    background-color var(--snad-motion-fast) var(--snad-motion-ease-standard);
+}
+
+.input::placeholder {
+  color: var(--snad-color-text-muted);
+  opacity: 1;
+}
+
+.input:hover:not(:disabled):not(:focus) {
+  border-color: var(--snad-color-border-default);
+}
+
+.input:focus,
+.input:focus-visible {
+  outline: none;
+  border-color: var(--snad-color-brand-primary);
+  box-shadow: 0 0 0 3px var(--snad-color-focus-ring);
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--snad-color-error);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--snad-color-error) 18%, transparent);
+}
+
+.input[aria-invalid="true"]:focus,
+.input[aria-invalid="true"]:focus-visible {
+  border-color: var(--snad-color-error);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--snad-color-error) 28%, transparent);
+}
+
+.input:disabled {
+  background-color: var(--snad-color-disabled-background);
+  color: var(--snad-color-disabled);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Leading / trailing icon slots
+ * ---------------------------------------------------------------------------- */
+
+.leadingIcon,
+.trailingIcon {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--snad-color-text-muted);
+  pointer-events: none;
+}
+
+.leadingIcon {
+  inset-inline-start: var(--snad-space-3);
+}
+
+.trailingIcon {
+  inset-inline-end: var(--snad-space-3);
+}
+
+.hasLeadingIcon {
+  padding-inline-start: calc(var(--snad-space-3) + 1.5rem);
+}
+
+.hasTrailingIcon {
+  padding-inline-end: calc(var(--snad-space-3) + 1.5rem);
+}
+
+/* ----------------------------------------------------------------------------
+ *  Hint / error text
+ * ---------------------------------------------------------------------------- */
+
+.hint {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--snad-color-text-secondary);
+  font-family: var(--snad-font-body);
+}
+
+.error {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--snad-color-error);
+  font-family: var(--snad-font-body);
+  font-weight: 500;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Search variant — adds a search icon
+ * ---------------------------------------------------------------------------- */
+
+.searchInput {
+  /* No special styling — the leading icon is provided by the component. */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .input {
+    transition: none;
+  }
+}

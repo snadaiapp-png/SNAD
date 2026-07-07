@@ -93,11 +93,11 @@ ALLOWED_FILES = {
 # Pre-SDS files that pre-date the design system and are pending migration.
 # These are tracked as "legacy" so the SDS foundation can ship without
 # rewriting them in this PR. Each one must be migrated in a follow-up.
+#
+# MIGRATION HISTORY:
+#   - 2026-07-07: apps/web/app/crm/crm.module.css migrated to SDS tokens — removed from allowlist.
 LEGACY_FILES = {
-    "apps/web/app/crm/crm.module.css": (
-        "Pre-SDS CRM module — uses an off-brand blue palette. "
-        "Tracked for SDS migration in a follow-up PR."
-    ),
+    # Currently empty — all pre-SDS files have been migrated.
 }
 
 # ---------------------------------------------------------------------------

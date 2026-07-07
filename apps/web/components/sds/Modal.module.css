@@ -1,0 +1,213 @@
+/*
+ * ============================================================================
+ *  SDS Modal — styles
+ * ----------------------------------------------------------------------------
+ *  A focus-trapped, ESC-closable dialog rendered in a portal-like container.
+ *  All visual values reference SDS v2 tokens. RTL-aware via logical CSS.
+ *
+ *  Accessibility:
+ *    • role="dialog", aria-modal="true", aria-labelledby
+ *    • Backdrop uses --snad-color-surface-inverse (petroleum-900) at 50% opacity
+ *    • z-index: --snad-z-modal-backdrop (1300) and --snad-z-modal (1400)
+ *    • Click-outside closes the modal (handled by the host component)
+ *    • ESC closes the modal (handled by the host component)
+ *    • Focus is trapped inside the modal (basic: focus the modal panel on open,
+ *      restore the previously focused element on close)
+ *
+ *  Sizes:
+ *    sm   — 32rem (512px) max width
+ *    md   — 42rem (672px) max width (default)
+ *    lg   — 56rem (896px) max width
+ *    full — 90vw max width, 90vh max height
+ * ============================================================================
+ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--snad-z-modal-backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-block: var(--snad-space-5);
+  padding-inline: var(--snad-space-5);
+
+  /* Backdrop: surface-inverse at 50% opacity */
+  background-color: color-mix(in srgb, var(--snad-color-petroleum-900) 50%, transparent);
+
+  /* Entrance animation */
+  animation: snad-modal-fade-in var(--snad-motion-standard) var(--snad-motion-ease-out);
+}
+
+.modal {
+  position: relative;
+  z-index: var(--snad-z-modal);
+  display: flex;
+  flex-direction: column;
+  max-block-size: calc(100vh - var(--snad-space-10));
+  width: 100%;
+  background-color: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-xl);
+  box-shadow: var(--snad-shadow-xl);
+  overflow: hidden;
+
+  /* Entrance animation */
+  animation: snad-modal-pop-in var(--snad-motion-standard) var(--snad-motion-ease-out);
+}
+
+.modal:focus-visible {
+  outline: 3px solid var(--snad-color-focus-ring);
+  outline-offset: -3px;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Sizes
+ * ---------------------------------------------------------------------------- */
+
+.sm {
+  max-inline-size: 32rem;
+}
+
+.md {
+  max-inline-size: 42rem;
+}
+
+.lg {
+  max-inline-size: 56rem;
+}
+
+.full {
+  max-inline-size: 90vw;
+  max-block-size: 90vh;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Header / body / footer slots
+ * ---------------------------------------------------------------------------- */
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--snad-space-3);
+  padding-block: var(--snad-space-4);
+  padding-inline: var(--snad-space-5);
+  border-block-end: 1px solid var(--snad-color-border-subtle);
+  background-color: var(--snad-color-surface-primary);
+  flex-shrink: 0;
+}
+
+.titleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snad-space-1);
+  min-inline-size: 0;
+  flex: 1 1 auto;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--snad-font-body);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--snad-color-text-primary);
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--snad-color-text-secondary);
+}
+
+.closeButton {
+  /* Logical-property-based reset; uses Button-like styling. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  inline-size: 44px;
+  block-size: 44px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: var(--snad-radius-md);
+  background-color: transparent;
+  color: var(--snad-color-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  transition:
+    background-color var(--snad-motion-fast) var(--snad-motion-ease-standard),
+    color var(--snad-motion-fast) var(--snad-motion-ease-standard);
+}
+
+.closeButton:hover {
+  background-color: var(--snad-color-surface-secondary);
+  color: var(--snad-color-text-primary);
+}
+
+.closeButton:focus-visible {
+  outline: 3px solid var(--snad-color-focus-ring);
+  outline-offset: 2px;
+}
+
+.body {
+  padding-block: var(--snad-space-5);
+  padding-inline: var(--snad-space-5);
+  overflow-y: auto;
+  flex: 1 1 auto;
+  color: var(--snad-color-text-primary);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  font-family: var(--snad-font-body);
+}
+
+.bodyFlush {
+  padding: 0;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--snad-space-3);
+  padding-block: var(--snad-space-4);
+  padding-inline: var(--snad-space-5);
+  border-block-start: 1px solid var(--snad-color-border-subtle);
+  background-color: var(--snad-color-surface-secondary);
+  flex-shrink: 0;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Animations
+ * ---------------------------------------------------------------------------- */
+
+@keyframes snad-modal-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes snad-modal-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--snad-space-2)) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay,
+  .modal {
+    animation: none;
+  }
+}
