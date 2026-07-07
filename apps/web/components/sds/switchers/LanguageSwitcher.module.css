@@ -1,0 +1,70 @@
+/*
+ * SNAD LanguageSwitcher — styles
+ * ----------------------------------------------------------------------------
+ * All visual values reference --snad-* tokens. NO hardcoded colors.
+ * Layout uses logical properties (margin-inline-*, padding-inline-*) so the
+ * switcher renders identically in RTL and LTR.
+ *
+ * Tokens used:
+ *   --snad-color-surface-secondary   (muted background)
+ *   --snad-color-border-subtle       (divider)
+ *   --snad-color-text-secondary      (inactive label)
+ *   --snad-color-text-primary        (hover label)
+ *   --snad-color-surface-primary     (active background = petroleum green)
+ *   --snad-color-text-inverse        (active label = white-on-green)
+ *   --snad-focus-ring                (focus outline)
+ *   --snad-radius-full               (pill shape)
+ */
+
+.container {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding: 2px;
+  border-radius: var(--snad-radius-full, 9999px);
+  background: var(--snad-color-surface-secondary);
+  border: 1px solid var(--snad-color-border-subtle);
+}
+
+.button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--snad-color-text-secondary);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+  min-width: 44px;
+  min-height: 32px;
+  padding-block: 6px;
+  padding-inline: 10px;
+  border-radius: var(--snad-radius-full, 9999px);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.button:hover {
+  color: var(--snad-color-text-primary);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--snad-focus-ring);
+  outline-offset: 2px;
+}
+
+.button[data-active="true"] {
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-inverse);
+}
+
+.button[data-active="true"]:hover {
+  color: var(--snad-color-text-inverse);
+}
+
+/* Dark theme adjustments are automatic via tokens, no overrides needed */
