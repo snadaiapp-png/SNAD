@@ -1,1 +1,7 @@
-export default function Page() { return null; }
+"use client";
+
+import { AuthEntry } from "@/components/auth/auth-entry";
+
+export default function LoginPage() {
+  return <AuthEntry />;
+}
