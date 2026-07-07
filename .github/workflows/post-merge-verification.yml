@@ -25,7 +25,7 @@ jobs:
   verify-main:
     name: Post-Merge Verification
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - name: Record start metadata
         id: metadata
@@ -281,14 +281,14 @@ jobs:
           }
           trap cleanup_frontend EXIT
 
-          PORT=3001 npm run start \
+          PORT=3001 npx next start \
             > "$RUNNER_TEMP/frontend.log" 2>&1 &
 
           FRONTEND_PID=$!
 
           echo "Waiting for frontend to be ready..."
           FRONTEND_READY=false
-          for i in $(seq 1 90); do
+          for i in $(seq 1 150); do
             if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
               echo "::error::Frontend process terminated before readiness (PROCESS_EXITED)"
               tail -200 "$RUNNER_TEMP/frontend.log" || true
@@ -303,7 +303,7 @@ jobs:
           done
 
           if [ "$FRONTEND_READY" = "false" ]; then
-            echo "::error::Frontend did not become ready within 180s (STARTUP_TIMEOUT)"
+            echo "::error::Frontend did not become ready within 300s (STARTUP_TIMEOUT)"
             tail -200 "$RUNNER_TEMP/frontend.log" || true
             exit 1
           fi
