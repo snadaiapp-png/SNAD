@@ -49,7 +49,7 @@ class TestSecretScanner(unittest.TestCase):
         return fpath
 
     def _scan(self):
-        return scan_module.scan_repository(Path(self.tmpdir))
+        return scan_module.scan_repository(Path(self.tmpdir))[:3]
 
     def test_clean_repo_passes(self):
         self._create_file("README.md", "# Clean project\nNo secrets here.")
@@ -124,7 +124,7 @@ class TestSecretScanner(unittest.TestCase):
     def test_report_generation_valid_json(self):
         self._create_file("clean.py", "print('hello')")
         findings, files_scanned = self._scan()[:2]
-        report = scan_module.generate_report(findings, files_scanned, [], "/tmp")
+        report = scan_module.generate_report(findings, files_scanned, [], [], "/tmp")
         parsed = json.loads(json.dumps(report))
         self.assertEqual(parsed['result'], 'PASS')
         self.assertEqual(parsed['findingsCount'], 0)
@@ -132,7 +132,7 @@ class TestSecretScanner(unittest.TestCase):
     def test_report_with_findings(self):
         self._create_file("secret.txt", f"key: {_AWS}")
         findings, files_scanned = self._scan()[:2]
-        report = scan_module.generate_report(findings, files_scanned, [], "/tmp")
+        report = scan_module.generate_report(findings, files_scanned, [], [], "/tmp")
         self.assertEqual(report['result'], 'FAIL')
         self.assertEqual(report['findings'][0]['secret'], 'REDACTED')
 
@@ -189,7 +189,7 @@ class TestSecretScanner(unittest.TestCase):
         allowlist_path = Path(self.tmpdir) / "scripts" / "ci" / "secret-scan-allowlist.json"
         allowlist_path.parent.mkdir(parents=True, exist_ok=True)
         json.dump([{
-            "ruleId": "nonexistent-rule", "path": "x",
+            "ruleId": "nonexistent-rule", "path": "x", "fingerprint": "test",
             "reason": "test", "owner": "test", "approvalReference": "TEST-002",
             "expirationDate": "2027-12-31"
         }], open(allowlist_path, 'w'))
@@ -201,7 +201,7 @@ class TestSecretScanner(unittest.TestCase):
         allowlist_path = Path(self.tmpdir) / "scripts" / "ci" / "secret-scan-allowlist.json"
         allowlist_path.parent.mkdir(parents=True, exist_ok=True)
         json.dump([{
-            "ruleId": "aws-access-key", "path": "../../etc/passwd",
+            "ruleId": "aws-access-key", "path": "../../etc/passwd", "fingerprint": "test",
             "reason": "test", "owner": "test", "approvalReference": "TEST-003",
             "expirationDate": "2027-12-31"
         }], open(allowlist_path, 'w'))
@@ -229,37 +229,45 @@ class TestSecretScanner(unittest.TestCase):
         self.assertGreater(len(errors), 0)
 
     def test_report_includes_scan_errors(self):
-        report = scan_module.generate_report([], 0, [{"errorType": "TEST"}], "/tmp")
+        report = scan_module.generate_report([], 0, [{"errorType": "TEST"}], [], "/tmp")
         self.assertIn("scanErrors", report)
         self.assertEqual(len(report["scanErrors"]), 1)
 
     def test_report_fail_on_scan_errors(self):
-        report = scan_module.generate_report([], 0, [{"errorType": "TEST"}], "/tmp")
+        report = scan_module.generate_report([], 0, [{"errorType": "TEST"}], [], "/tmp")
         self.assertEqual(report["result"], "FAIL")
 
     def test_report_scanner_identity(self):
-        report = scan_module.generate_report([], 0, [], "/tmp")
+        report = scan_module.generate_report([], 0, [], [], "/tmp")
         self.assertEqual(report["scanner"], "snad-policy-supplement")
         self.assertEqual(report["role"], "defense-in-depth-current-tree-policy-check")
         self.assertFalse(report["historyScan"])
 
     def test_exact_path_allowlist_passes(self):
+        # First scan to get the actual fingerprint
+        self._create_file("config.yml", f"key: {_AWS}")
+        findings, _, _ = self._scan()
+        self.assertGreater(len(findings), 0)
+        actual_fp = findings[0]["fingerprint"]
+        
+        # Now create allowlist with exact fingerprint
         allowlist_path = Path(self.tmpdir) / "scripts" / "ci" / "secret-scan-allowlist.json"
         allowlist_path.parent.mkdir(parents=True, exist_ok=True)
         json.dump([{
-            "ruleId": "aws-access-key", "path": "config.yml",
+            "ruleId": "aws-access-key", "path": "config.yml", "fingerprint": actual_fp,
             "reason": "test fixture", "owner": "test", "approvalReference": "TEST-004",
             "expirationDate": "2027-12-31"
         }], open(allowlist_path, 'w'))
-        self._create_file("config.yml", f"key: {_AWS}")
+        
+        # Re-scan — should now be suppressed
         findings, _, _ = self._scan()
-        self.assertEqual(len(findings), 0, "Exact path allowlist should suppress finding")
+        self.assertEqual(len(findings), 0, "Exact path+ruleId+fingerprint allowlist should suppress finding")
 
     def test_different_file_not_allowlisted(self):
         allowlist_path = Path(self.tmpdir) / "scripts" / "ci" / "secret-scan-allowlist.json"
         allowlist_path.parent.mkdir(parents=True, exist_ok=True)
         json.dump([{
-            "ruleId": "aws-access-key", "path": "config.yml",
+            "ruleId": "aws-access-key", "path": "config.yml", "fingerprint": "",
             "reason": "test fixture", "owner": "test", "approvalReference": "TEST-005",
             "expirationDate": "2027-12-31"
         }], open(allowlist_path, 'w'))

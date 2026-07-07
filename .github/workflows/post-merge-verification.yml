@@ -203,12 +203,26 @@ jobs:
           echo "Application Port: 8081"
           echo "Management Port: 8082"
           echo "Health Endpoint: http://127.0.0.1:8082/actuator/health"
-          
-          SPRING_PROFILES_ACTIVE=local           SERVER_PORT=8081           MANAGEMENT_SERVER_PORT=8082           mvn --batch-mode --no-transfer-progress spring-boot:run             > "$RUNNER_TEMP/backend.log" 2>&1 &
+
+          # Create evidence files before potential failure
+          : > "$RUNNER_TEMP/backend.log"
+          printf '%s\n' '{"status":"NOT_AVAILABLE"}' > "$RUNNER_TEMP/backend-health.json"
+          printf '%s\n' '{"result":"FAIL","failureType":"NOT_COMPLETED"}' > "$RUNNER_TEMP/backend-smoke-metadata.json"
+
+          cleanup_backend() {
+            kill "$BACKEND_PID" 2>/dev/null || true
+            wait "$BACKEND_PID" 2>/dev/null || true
+          }
+          trap cleanup_backend EXIT
+
+          SPRING_PROFILES_ACTIVE=local \
+            SERVER_PORT=8081 \
+            MANAGEMENT_SERVER_PORT=8082 \
+            mvn --batch-mode --no-transfer-progress spring-boot:run \
+            > "$RUNNER_TEMP/backend.log" 2>&1 &
+
           BACKEND_PID=$!
-          
-          trap "kill $BACKEND_PID 2>/dev/null || true; wait $BACKEND_PID 2>/dev/null || true" EXIT
-          
+
           echo "Waiting for backend to be ready..."
           BACKEND_READY=false
           for i in $(seq 1 30); do
@@ -217,80 +231,36 @@ jobs:
               tail -200 "$RUNNER_TEMP/backend.log" || true
               exit 1
             fi
-            if curl --fail --silent --show-error http://127.0.0.1:8082/actuator/health > "$RUNNER_TEMP/backend-health.json" 2>&1; then
+            if curl --fail --silent --show-error http://127.0.0.1:8082/actuator/health > /dev/null 2>&1; then
               echo "Backend is ready after $((i*3))s"
               BACKEND_READY=true
               break
             fi
             sleep 3
           done
-          
+
           if [ "$BACKEND_READY" = "false" ]; then
             echo "::error::Backend did not become ready within 90s (STARTUP_TIMEOUT)"
             tail -200 "$RUNNER_TEMP/backend.log" || true
             exit 1
           fi
-          
-          echo "=== Backend health response ==="
-          cat "$RUNNER_TEMP/backend-health.json"
-          echo ""
-          
-          HTTP_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8082/actuator/health)
-          
-          python3 -c "
-          import json, sys
-          with open('$RUNNER_TEMP/backend-health.json') as f:
-              try:
-                  d = json.load(f)
-              except json.JSONDecodeError:
-                  print('::error::Invalid health JSON (INVALID_HEALTH_JSON)')
-                  sys.exit(1)
-          status = d.get('status')
-          if status != 'UP':
-              print(f'::error::Health status {status}, expected UP (HEALTH_STATUS_NOT_UP)')
-              sys.exit(1)
-          print(f'Backend health: PASS — status={status}, HTTP={int('')}')
-          "
-          
-          python3 -c "
-          import json
-          metadata = {
-              'applicationPort': 8081,
-              'managementPort': 8082,
-              'healthUrl': 'http://127.0.0.1:8082/actuator/health',
-              'processStarted': True,
-              'httpStatus': int(''),
-              'healthStatus': 'UP',
-              'result': 'PASS'
-          }
-          with open('$RUNNER_TEMP/backend-smoke-metadata.json', 'w') as f:
-              json.dump(metadata, f, indent=2)
-          "
-          
-          kill $BACKEND_PID 2>/dev/null || true
-          wait $BACKEND_PID 2>/dev/null || true
-          trap - EXIT
-          
-          # Verify health response
-          echo "=== Backend health response ==="
-          cat "$RUNNER_TEMP/backend-health.json"
-          echo ""
-          
-          python3 -c "
-          import json, sys
-          with open('$RUNNER_TEMP/backend-health.json') as f:
-              d = json.load(f)
-          status = d.get('status')
-          if status != 'UP':
-              print(f'::error::Backend health status is {status}, expected UP')
-              sys.exit(1)
-          print(f'Backend health: PASS — status is {status}')
-          "
-          
-          # Cleanup
-          kill $BACKEND_PID 2>/dev/null || true
-          wait $BACKEND_PID 2>/dev/null || true
-          trap - EXIT
+
+          HTTP_STATUS="$(
+            curl \
+              --silent \
+              --show-error \
+              --output "$RUNNER_TEMP/backend-health.json" \
+              --write-out '%{http_code}' \
+              http://127.0.0.1:8082/actuator/health
+          )"
+
+          python3 scripts/ci/validate_backend_smoke.py \
+            --health-file "$RUNNER_TEMP/backend-health.json" \
+            --metadata-file "$RUNNER_TEMP/backend-smoke-metadata.json" \
+            --http-status "$HTTP_STATUS" \
+            --application-port 8081 \
+            --management-port 8082 \
+            --health-url "http://127.0.0.1:8082/actuator/health"
 
       - name: Smoke test — Frontend auth route (operational)
         id: smoke-frontend
@@ -299,48 +269,60 @@ jobs:
         run: |
           set -euo pipefail
           echo "Starting frontend production server for operational smoke test..."
-          
-          npm run start -- --port 3001 > "$RUNNER_TEMP/frontend.log" 2>&1 &
+
+          # Create evidence files before potential failure
+          : > "$RUNNER_TEMP/frontend.log"
+          printf '%s\n' '<html>NOT_AVAILABLE</html>' > "$RUNNER_TEMP/frontend-auth.html"
+          printf '%s\n' '{"result":"FAIL","failureType":"NOT_COMPLETED"}' > "$RUNNER_TEMP/frontend-smoke-metadata.json"
+
+          cleanup_frontend() {
+            kill "$FRONTEND_PID" 2>/dev/null || true
+            wait "$FRONTEND_PID" 2>/dev/null || true
+          }
+          trap cleanup_frontend EXIT
+
+          npm run start -- --port 3001 \
+            > "$RUNNER_TEMP/frontend.log" 2>&1 &
+
           FRONTEND_PID=$!
-          
-          trap "kill $FRONTEND_PID 2>/dev/null || true; wait $FRONTEND_PID 2>/dev/null || true" EXIT
-          
-          # Wait for frontend to be ready (max 60s)
+
           echo "Waiting for frontend to be ready..."
+          FRONTEND_READY=false
           for i in $(seq 1 30); do
-            if curl --fail --silent --show-error http://127.0.0.1:3001/auth/login > "$RUNNER_TEMP/frontend-auth.html" 2>&1; then
-              echo "Frontend is ready after $((i*2))s"
-              break
-            fi
-            if [ $i -eq 30 ]; then
-              echo "::error::Frontend did not start within 60s"
-              echo "=== Frontend log (last 50 lines) ==="
-              tail -50 "$RUNNER_TEMP/frontend.log" || true
+            if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
+              echo "::error::Frontend process terminated before readiness (PROCESS_EXITED)"
+              tail -200 "$RUNNER_TEMP/frontend.log" || true
               exit 1
+            fi
+            if curl --fail --silent --show-error http://127.0.0.1:3001/auth/login > /dev/null 2>&1; then
+              echo "Frontend is ready after $((i*2))s"
+              FRONTEND_READY=true
+              break
             fi
             sleep 2
           done
-          
-          # Verify HTTP 200
-          STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:3001/auth/login)
-          if [ "$STATUS" != "200" ]; then
-            echo "::error::Auth route returned HTTP $STATUS, expected 200"
+
+          if [ "$FRONTEND_READY" = "false" ]; then
+            echo "::error::Frontend did not become ready within 60s (STARTUP_TIMEOUT)"
+            tail -200 "$RUNNER_TEMP/frontend.log" || true
             exit 1
           fi
-          echo "Frontend auth route: PASS — HTTP $STATUS"
-          
-          # Verify brand name in HTML
-          if grep -qi "snad\|سند" "$RUNNER_TEMP/frontend-auth.html"; then
-            echo "Brand name in HTML: PASS"
-          else
-            echo "::error::Brand name SNAD/سند not found in auth page HTML"
-            exit 1
-          fi
-          
-          # Cleanup
-          kill $FRONTEND_PID 2>/dev/null || true
-          wait $FRONTEND_PID 2>/dev/null || true
-          trap - EXIT
+
+          HTTP_STATUS="$(
+            curl \
+              --silent \
+              --show-error \
+              --output "$RUNNER_TEMP/frontend-auth.html" \
+              --write-out '%{http_code}' \
+              http://127.0.0.1:3001/auth/login
+          )"
+
+          python3 scripts/ci/validate_frontend_smoke.py \
+            --html-file "$RUNNER_TEMP/frontend-auth.html" \
+            --metadata-file "$RUNNER_TEMP/frontend-smoke-metadata.json" \
+            --http-status "$HTTP_STATUS" \
+            --url "http://127.0.0.1:3001/auth/login" \
+            --port 3001
 
       # === Generate Truthful Manifest (Section 4) ===
       - name: Generate verification manifest
@@ -447,10 +429,11 @@ jobs:
         with:
           name: vitest-log-${{ github.run_id }}
           path: ${{ runner.temp }}/vitest.log
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
 
-      - name: Upload backend log
+      - name: Upload backend smoke evidence
+        id: upload-backend-evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -458,10 +441,11 @@ jobs:
           path: |
             ${{ runner.temp }}/backend.log
             ${{ runner.temp }}/backend-health.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
 
-      - name: Upload frontend log
+      - name: Upload frontend smoke evidence
+        id: upload-frontend-evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -469,30 +453,48 @@ jobs:
           path: |
             ${{ runner.temp }}/frontend.log
             ${{ runner.temp }}/frontend-auth.html
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
 
-      # === Final Gate (Section 6) ===
+      # === Final Gate (Section 8) ===
       - name: Final gate
         id: final-gate
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          RESULT="${{ steps.manifest.outputs.result }}"
           echo "=== Final Gate ==="
-          echo "Result: $RESULT"
-          echo "Manifest uploaded: ${{ steps.upload-manifest.outcome }}"
           
-          if [ "$RESULT" = "FAIL" ]; then
-            echo "::error::Post-merge verification FAILED — see manifest for failed gates"
+          # Check manifest result
+          MANIFEST_RESULT="${{ steps.manifest.outputs.result }}"
+          echo "Manifest result: $MANIFEST_RESULT"
+          if [ "$MANIFEST_RESULT" = "FAIL" ] || [ -z "$MANIFEST_RESULT" ]; then
+            echo "::error::Manifest result is FAIL or empty"
             exit 1
           fi
+          
+          # Check all artifact uploads
+          echo "Manifest upload: ${{ steps.upload-manifest.outcome }}"
+          echo "Secret report upload: ${{ steps.upload-secret-report.outcome }}"
+          echo "Backend evidence upload: ${{ steps.upload-backend-evidence.outcome }}"
+          echo "Frontend evidence upload: ${{ steps.upload-frontend-evidence.outcome }}"
           
           if [ "${{ steps.upload-manifest.outcome }}" != "success" ]; then
-            echo "::error::Manifest artifact upload failed — cannot verify evidence"
+            echo "::error::Manifest artifact upload failed"
+            exit 1
+          fi
+          if [ "${{ steps.upload-secret-report.outcome }}" != "success" ]; then
+            echo "::error::Secret scan report upload failed"
+            exit 1
+          fi
+          if [ "${{ steps.upload-backend-evidence.outcome }}" != "success" ]; then
+            echo "::error::Backend smoke evidence upload failed"
+            exit 1
+          fi
+          if [ "${{ steps.upload-frontend-evidence.outcome }}" != "success" ]; then
+            echo "::error::Frontend smoke evidence upload failed"
             exit 1
           fi
           
-          echo "All critical checks passed. Manifest uploaded. Workflow SUCCESS."
+          echo "All critical checks passed. All artifacts uploaded. Workflow SUCCESS."
           exit 0
