@@ -262,13 +262,22 @@ jobs:
             --management-port 8082 \
             --health-url "http://127.0.0.1:8082/actuator/health"
 
-      - name: Smoke test — Frontend auth route (operational)
+      - name: Smoke test — Frontend auth entry route (operational)
         id: smoke-frontend
         shell: bash
         working-directory: apps/web
         run: |
           set -euo pipefail
           echo "Starting frontend production server for operational smoke test..."
+
+          # The actual frontend auth entry is the root route `/` (renders <AuthEntry />
+          # which itself renders <LoginScreen /> when no session is present). The
+          # legacy non-existent login subpath was previously used here and caused
+          # every readiness probe to return HTTP 404 regardless of how long the
+          # timeout was. Per PM Directive (Final Closure Execution Order — P0-2):
+          # probe the real route, do NOT paper over the bug by extending the timeout.
+          FRONTEND_SMOKE_URL="http://127.0.0.1:3001/"
+          echo "Frontend smoke URL: $FRONTEND_SMOKE_URL"
 
           # Create evidence files before potential failure
           : > "$RUNNER_TEMP/frontend.log"
@@ -281,20 +290,31 @@ jobs:
           }
           trap cleanup_frontend EXIT
 
-          NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production ./node_modules/.bin/next start -H 127.0.0.1 -p 3001 \
-            > "$RUNNER_TEMP/frontend.log" 2>&1 &
+          NEXT_TELEMETRY_DISABLED=1 \
+            NODE_ENV=production \
+            ./node_modules/.bin/next start \
+              -H 127.0.0.1 \
+              -p 3001 \
+              > "$RUNNER_TEMP/frontend.log" 2>&1 &
 
           FRONTEND_PID=$!
 
-          echo "Waiting for frontend to be ready (up to 600s)..."
+          echo "Waiting for frontend to be ready (up to 180s)..."
           FRONTEND_READY=false
-          for i in $(seq 1 200); do
+          for i in $(seq 1 60); do
             if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
               echo "::error::Frontend process terminated before readiness (PROCESS_EXITED)"
               tail -200 "$RUNNER_TEMP/frontend.log" || true
               exit 1
             fi
-            if curl --fail --silent --show-error --connect-timeout 3 http://127.0.0.1:3001/auth/login > /dev/null 2>&1; then
+            if curl \
+              --fail \
+              --silent \
+              --show-error \
+              --connect-timeout 3 \
+              "$FRONTEND_SMOKE_URL" \
+              > /dev/null 2>&1
+            then
               echo "Frontend is ready after $((i*3))s"
               FRONTEND_READY=true
               break
@@ -303,7 +323,7 @@ jobs:
           done
 
           if [ "$FRONTEND_READY" = "false" ]; then
-            echo "::error::Frontend did not become ready within 600s (STARTUP_TIMEOUT)"
+            echo "::error::Frontend did not become ready within 180s (STARTUP_TIMEOUT)"
             tail -200 "$RUNNER_TEMP/frontend.log" || true
             exit 1
           fi
@@ -312,16 +332,17 @@ jobs:
             curl \
               --silent \
               --show-error \
+              --connect-timeout 3 \
               --output "$RUNNER_TEMP/frontend-auth.html" \
               --write-out '%{http_code}' \
-              http://127.0.0.1:3001/auth/login
+              "$FRONTEND_SMOKE_URL"
           )"
 
           python3 ${{ github.workspace }}/scripts/ci/validate_frontend_smoke.py \
             --html-file "$RUNNER_TEMP/frontend-auth.html" \
             --metadata-file "$RUNNER_TEMP/frontend-smoke-metadata.json" \
             --http-status "$HTTP_STATUS" \
-            --url "http://127.0.0.1:3001/auth/login" \
+            --url "$FRONTEND_SMOKE_URL" \
             --port 3001
 
       # === Generate Truthful Manifest (Section 4) ===
@@ -437,26 +458,28 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: backend-smoke-log-${{ github.run_id }}
+          name: backend-smoke-evidence-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/backend.log
             ${{ runner.temp }}/backend-health.json
+            ${{ runner.temp }}/backend-smoke-metadata.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
       - name: Upload frontend smoke evidence
         id: upload-frontend-evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-smoke-log-${{ github.run_id }}
+          name: frontend-smoke-evidence-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/frontend.log
             ${{ runner.temp }}/frontend-auth.html
+            ${{ runner.temp }}/frontend-smoke-metadata.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
-      # === Final Gate (Section 8) ===
+      # === Final Gate (Section 8) — reads actual evidence files, no hardcoded PASS ===
       - name: Final gate
         id: final-gate
         if: always()
@@ -464,21 +487,21 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Final Gate ==="
-          
-          # Check manifest result
+
+          # 1. Check manifest result (still produced by the manifest step)
           MANIFEST_RESULT="${{ steps.manifest.outputs.result }}"
-          echo "Manifest result: $MANIFEST_RESULT"
+          echo "Manifest result (from step output): $MANIFEST_RESULT"
           if [ "$MANIFEST_RESULT" = "FAIL" ] || [ -z "$MANIFEST_RESULT" ]; then
-            echo "::error::Manifest result is FAIL or empty"
+            echo "::error::Manifest result is FAIL or empty — refusing to close gate"
             exit 1
           fi
-          
-          # Check all artifact uploads
+
+          # 2. Check all artifact uploads succeeded
           echo "Manifest upload: ${{ steps.upload-manifest.outcome }}"
           echo "Secret report upload: ${{ steps.upload-secret-report.outcome }}"
           echo "Backend evidence upload: ${{ steps.upload-backend-evidence.outcome }}"
           echo "Frontend evidence upload: ${{ steps.upload-frontend-evidence.outcome }}"
-          
+
           if [ "${{ steps.upload-manifest.outcome }}" != "success" ]; then
             echo "::error::Manifest artifact upload failed"
             exit 1
@@ -495,6 +518,25 @@ jobs:
             echo "::error::Frontend smoke evidence upload failed"
             exit 1
           fi
-          
-          echo "All critical checks passed. All artifacts uploaded. Workflow SUCCESS."
+
+          # 3. Independent evidence validator — reads actual JSON files and enforces
+          #    invariants the manifest step cannot enforce on its own:
+          #      - SHA & run-id match the actual workflow run
+          #      - backend-smoke-metadata.json.result == PASS
+          #      - backend-health.json.status == UP
+          #      - frontend-smoke-metadata.json.result == PASS
+          #      - secret-scan-report.json.result == PASS  (and findings == 0)
+          #      - verification-manifest.json.result == PASS
+          #      - no skipped critical checks
+          echo "Invoking independent evidence validator..."
+          python3 "${{ github.workspace }}/scripts/ci/validate_post_merge_evidence.py" \
+            --manifest "$RUNNER_TEMP/verification-manifest.json" \
+            --secret-report "$RUNNER_TEMP/secret-scan-report.json" \
+            --backend-metadata "$RUNNER_TEMP/backend-smoke-metadata.json" \
+            --backend-health "$RUNNER_TEMP/backend-health.json" \
+            --frontend-metadata "$RUNNER_TEMP/frontend-smoke-metadata.json" \
+            --expected-sha "${{ github.sha }}" \
+            --expected-run-id "${{ github.run_id }}"
+
+          echo "All critical checks passed. All artifacts uploaded. Independent evidence validator: PASS."
           exit 0
