@@ -3,12 +3,11 @@ name: Post-Merge Main Verification
 # ============================================================
 # SANAD Platform — Post-Merge Verification on main branch
 # ------------------------------------------------------------
-# Per PM Directive §1.2: This workflow runs on the EXACT main SHA
-# after merge, NOT on PR head branches. PR CI results are NOT
-# post-merge verification.
-#
-# This workflow is FAIL-CLOSED: any critical check failure
-# prevents declaring production readiness.
+# Per PM Directive §1.2 and §11-§14: FAIL-CLOSED workflow.
+# - No || true, no set +e, no allow-failure.
+# - Manifest generated on success AND failure (if: always()).
+# - No hardcoded PASS values — reads actual step outcomes.
+# - Smoke tests are operational (curl, not file checks).
 # ============================================================
 
 on:
@@ -24,7 +23,6 @@ on:
 
 permissions:
   contents: read
-  checks: read
 
 concurrency:
   group: post-merge-verification-${{ github.ref }}
@@ -37,40 +35,32 @@ jobs:
     timeout-minutes: 30
     env:
       VERIFICATION_SHA: ${{ github.sha }}
-      WORKFLOW_RUN_ID: ${{ github.run_id }}
+    outputs:
+      result: ${{ steps.manifest.outputs.result }}
+      failed_gate: ${{ steps.manifest.outputs.failed_gate }}
     steps:
       - name: Record verification metadata
+        id: metadata
         shell: bash
         run: |
+          echo "start_timestamp_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
           echo "=== Post-Merge Verification Metadata ==="
           echo "Exact Main SHA: ${{ github.sha }}"
           echo "Trigger Type: ${{ github.event_name }}"
           echo "Workflow Run ID: ${{ github.run_id }}"
           echo "Start Timestamp UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo "Actor: ${{ github.actor }}"
-          echo "Ref: ${{ github.ref }}"
           echo "=========================================="
 
       - name: Checkout exact main SHA
+        id: checkout
         uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Verify exact SHA
-        shell: bash
-        run: |
-          set -euo pipefail
-          ACTUAL_SHA=$(git rev-parse HEAD)
-          echo "Checked out SHA: $ACTUAL_SHA"
-          echo "Expected SHA: ${{ github.sha }}"
-          if [ "$ACTUAL_SHA" != "${{ github.sha }}" ]; then
-            echo "::error::SHA mismatch — checked out $ACTUAL_SHA but expected ${{ github.sha }}"
-            exit 1
-          fi
-          echo "SHA verified: $ACTUAL_SHA"
-
       - name: Set up Node.js 24
+        id: setup-node
         uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -78,216 +68,330 @@ jobs:
           cache-dependency-path: apps/web/package-lock.json
 
       - name: Set up Java 21
+        id: setup-java
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
+
       - name: Set up Maven
+        id: setup-maven
         uses: stCarolas/setup-maven@v5
         with:
           maven-version: 3.9.9
 
+      # --- Clean Dependency Installation ---
       - name: Clean dependency installation (frontend)
+        id: frontend-deps
         shell: bash
         working-directory: apps/web
         run: |
           set -euo pipefail
-          echo "Installing frontend dependencies..."
           npm ci
 
       - name: Clean dependency installation (backend)
+        id: backend-deps
         shell: bash
         working-directory: apps/sanad-platform
         run: |
           set -euo pipefail
-          echo "Installing backend dependencies..."
-          mvn --batch-mode --no-transfer-progress clean verify -DskipTests -q || true
-          echo "Backend dependencies resolved."
+          mvn --batch-mode --no-transfer-progress dependency:go-offline
 
       # --- Frontend Checks ---
       - name: Frontend Lint
+        id: frontend-lint
         shell: bash
         working-directory: apps/web
         run: |
           set -euo pipefail
-          echo "Running frontend lint..."
           npm run lint
 
       - name: Frontend Type Check
+        id: frontend-typecheck
         shell: bash
         working-directory: apps/web
         run: |
           set -euo pipefail
-          echo "Running TypeScript type check..."
           npx tsc --noEmit
 
       - name: Frontend Unit Tests
+        id: frontend-tests
         shell: bash
         working-directory: apps/web
         run: |
           set -euo pipefail
-          echo "Running frontend unit tests..."
           npm test -- --reporter=verbose 2>&1 | tee "$RUNNER_TEMP/postmerge-vitest.log"
 
       - name: Frontend Production Build
+        id: frontend-build
         shell: bash
         working-directory: apps/web
         run: |
           set -euo pipefail
-          echo "Running Next.js production build..."
           npm run build
 
-      # --- Brand Governance ---
+      # --- Brand Governance (all fail-closed) ---
       - name: SDS Compliance Check
+        id: sds-compliance
         shell: bash
         working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          echo "Running SDS Design System compliance check..."
           python3 scripts/ci/check-design-system-compliance.py
 
       - name: Logo Governance Check
+        id: logo-governance
         shell: bash
         working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          echo "Running SNAD Logo Governance check..."
           python3 scripts/ci/check-logo-governance.py
 
       - name: Brand Name Governance Check
+        id: brand-name
         shell: bash
         working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          echo "Running SNAD Brand Name Governance check..."
           python3 scripts/ci/check-brand-name-governance.py
 
       - name: Performance Budget Check (Fail-Closed)
+        id: performance-budget
         shell: bash
         working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          echo "Running SNAD Performance Budget check (fail-closed)..."
           python3 scripts/ci/check-performance-budget.py
 
       # --- Backend Checks ---
       - name: Backend Compile
+        id: backend-compile
         shell: bash
         working-directory: apps/sanad-platform
         run: |
           set -euo pipefail
-          echo "Compiling backend..."
-          mvn --batch-mode --no-transfer-progress compile -q
+          mvn --batch-mode --no-transfer-progress compile
 
       - name: Backend Unit Tests
+        id: backend-tests
         shell: bash
         working-directory: apps/sanad-platform
         run: |
           set -euo pipefail
-          echo "Running backend unit tests..."
-          mvn --batch-mode --no-transfer-progress test -q
+          mvn --batch-mode --no-transfer-progress test
 
-      # --- Security Baseline ---
-      - name: Secret Scan
+      # --- Security Baseline (fail-closed) ---
+      - name: Workflow Security Validator
+        id: workflow-security
         shell: bash
         working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          echo "Running secret scan on current tree..."
-          # Use the existing secret scan approach
-          if [ -f scripts/ci/check_workflow_security.py ]; then
-            python3 scripts/ci/check_workflow_security.py || true
+          if [ ! -f scripts/ci/check_workflow_security.py ]; then
+            echo "::error::Workflow security script not found: scripts/ci/check_workflow_security.py"
+            exit 1
           fi
-          echo "Secret scan complete."
+          python3 scripts/ci/check_workflow_security.py
 
-      - name: Workflow Security Policy
+      - name: Secret Scan (Current Tree)
+        id: secret-scan
         shell: bash
         working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          echo "Verifying workflow security policy..."
-          # Check for forbidden patterns in workflows
-          FORBIDDEN=$(grep -rl "continue-on-error: true" .github/workflows/ 2>/dev/null || true)
-          if [ -n "$FORBIDDEN" ]; then
-            echo "::error::Found continue-on-error: true in workflows:"
-            echo "$FORBIDDEN"
-            exit 1
+          # Verify no secrets in the current tree using gitleaks if available
+          if command -v gitleaks &>/dev/null; then
+            gitleaks detect --source . --no-git --verbose --config .gitleaks.toml
+          else
+            echo "gitleaks not installed — running Python-based secret pattern check"
+            python3 -c "
+          import re, sys, os
+          from pathlib import Path
+          patterns = [
+              (r'AKIA[0-9A-Z]{16}', 'AWS Access Key'),
+              (r'ghp_[a-zA-Z0-9]{36}', 'GitHub PAT'),
+              (r'sk-[a-zA-Z0-9]{20}', 'OpenAI API Key'),
+              (r'-----BEGIN (RSA |EC )?PRIVATE KEY-----', 'Private Key'),
+          ]
+          violations = []
+          for f in Path('.').rglob('*'):
+              if f.is_file() and '.git/' not in str(f) and 'node_modules' not in str(f) and '.next' not in str(f):
+                  try:
+                      content = f.read_text(encoding='utf-8', errors='ignore')
+                      for pat, name in patterns:
+                          if re.search(pat, content):
+                              violations.append(f'{f}: {name}')
+                  except: pass
+          if violations:
+              for v in violations: print(f'  SECRET FOUND: {v}')
+              sys.exit(1)
+          print('Secret scan: PASS — 0 secrets found')
+          "
           fi
-          echo "No continue-on-error found in workflows. PASS."
 
-      # --- Smoke Test ---
-      - name: Smoke Test — Backend Health Endpoint
+      # --- Operational Smoke Tests ---
+      - name: Smoke Test — Backend Health (Operational)
+        id: smoke-backend
         shell: bash
+        working-directory: apps/sanad-platform
         run: |
           set -euo pipefail
-          echo "Smoke test: verifying backend health endpoint contract..."
-          # Verify the health endpoint exists in the codebase
-          if ! grep -q "/actuator/health" apps/sanad-platform/src/main/resources/application.yml; then
-            echo "::error::Health endpoint not configured"
-            exit 1
-          fi
-          echo "Health endpoint configured. PASS."
+          echo "Starting backend for smoke test..."
+          # Start backend in background
+          mvn --batch-mode --no-transfer-progress spring-boot:run \
+            -Dspring-boot.run.profiles=local \
+            -Dspring-boot.run.arguments="--server.port=8081" &
+          BACKEND_PID=$!
 
-      - name: Smoke Test — Frontend Auth Route
+          # Wait for backend to be ready (max 60s)
+          for i in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:8081/actuator/health &>/dev/null; then
+              echo "Backend is ready after ${i}s"
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              echo "::error::Backend did not start within 60s"
+              kill $BACKEND_PID 2>/dev/null || true
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # Verify health response
+          RESPONSE=$(curl --fail --silent --show-error http://127.0.0.1:8081/actuator/health)
+          echo "Health response: $RESPONSE"
+          echo "$RESPONSE" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          assert d.get('status') == 'UP', f'Health status is not UP: {d}'
+          print('Backend health: PASS — status is UP')
+          "
+
+          # Cleanup
+          kill $BACKEND_PID 2>/dev/null || true
+          wait $BACKEND_PID 2>/dev/null || true
+
+      - name: Smoke Test — Frontend Auth Route (Operational)
+        id: smoke-frontend
         shell: bash
+        working-directory: apps/web
         run: |
           set -euo pipefail
-          echo "Smoke test: verifying auth route exists..."
-          if [ ! -f apps/web/app/auth/login/page.tsx ] && [ ! -f apps/web/components/auth/login-screen.tsx ]; then
-            echo "::error::Auth login route not found"
+          echo "Starting frontend production server for smoke test..."
+          npm run start -- --port 3001 &
+          FRONTEND_PID=$!
+
+          # Wait for frontend to be ready (max 60s)
+          for i in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:3001/auth/login &>/dev/null; then
+              echo "Frontend is ready after ${i}s"
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              echo "::error::Frontend did not start within 60s"
+              kill $FRONTEND_PID 2>/dev/null || true
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # Verify auth route returns HTML
+          STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:3001/auth/login)
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Auth route returned HTTP $STATUS, expected 200"
+            kill $FRONTEND_PID 2>/dev/null || true
             exit 1
           fi
-          echo "Auth route exists. PASS."
+          echo "Frontend auth route: PASS — HTTP 200"
 
-      - name: Smoke Test — SnadLogo Component
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Smoke test: verifying SnadLogo component exists..."
-          if [ ! -f apps/web/components/sds/SnadLogo.tsx ]; then
-            echo "::error::SnadLogo component not found"
+          # Verify SnadLogo is in the HTML
+          BODY=$(curl --silent http://127.0.0.1:3001/auth/login)
+          if echo "$BODY" | grep -qi "snad\|سند"; then
+            echo "SnadLogo/brand name in HTML: PASS"
+          else
+            echo "::error::Brand name SNAD/سند not found in auth page HTML"
+            kill $FRONTEND_PID 2>/dev/null || true
             exit 1
           fi
-          echo "SnadLogo component exists. PASS."
 
-      # --- Evidence Artifact ---
+          # Cleanup
+          kill $FRONTEND_PID 2>/dev/null || true
+          wait $FRONTEND_PID 2>/dev/null || true
+
+      # --- Generate Manifest (always, even on failure) ---
       - name: Generate Verification Manifest
+        id: manifest
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
+          START_TS="${{ steps.metadata.outputs.start_timestamp_utc }}"
+          END_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          # Determine overall result from step outcomes
+          STEPS_JSON='{"frontend_deps":"${{ steps.frontend-deps.outcome }}","backend_deps":"${{ steps.backend-deps.outcome }}","frontend_lint":"${{ steps.frontend-lint.outcome }}","frontend_typecheck":"${{ steps.frontend-typecheck.outcome }}","frontend_tests":"${{ steps.frontend-tests.outcome }}","frontend_build":"${{ steps.frontend-build.outcome }}","sds_compliance":"${{ steps.sds-compliance.outcome }}","logo_governance":"${{ steps.logo-governance.outcome }}","brand_name":"${{ steps.brand-name.outcome }}","performance_budget":"${{ steps.performance-budget.outcome }}","backend_compile":"${{ steps.backend-compile.outcome }}","backend_tests":"${{ steps.backend-tests.outcome }}","workflow_security":"${{ steps.workflow-security.outcome }}","secret_scan":"${{ steps.secret-scan.outcome }}","smoke_backend":"${{ steps.smoke-backend.outcome }}","smoke_frontend":"${{ steps.smoke-frontend.outcome }}"}'
+
+          # Find first failed gate
+          FAILED_GATE=$(echo "$STEPS_JSON" | python3 -c "
+          import json, sys
+          steps = json.loads(sys.stdin.read())
+          failed = [k for k, v in steps.items() if v == 'failure']
+          print(failed[0] if failed else '')
+          ")
+
+          # Determine overall result
+          if [ -n "$FAILED_GATE" ]; then
+            RESULT="FAIL"
+          else
+            RESULT="PASS"
+          fi
+
+          echo "result=$RESULT" >> "$GITHUB_OUTPUT"
+          echo "failed_gate=$FAILED_GATE" >> "$GITHUB_OUTPUT"
+
+          # Build passed/failed/skipped lists
+          PASSED=$(echo "$STEPS_JSON" | python3 -c "
+          import json, sys
+          steps = json.loads(sys.stdin.read())
+          print(json.dumps([k for k, v in steps.items() if v == 'success']))
+          ")
+          FAILED=$(echo "$STEPS_JSON" | python3 -c "
+          import json, sys
+          steps = json.loads(sys.stdin.read())
+          print(json.dumps([k for k, v in steps.items() if v == 'failure']))
+          ")
+          SKIPPED=$(echo "$STEPS_JSON" | python3 -c "
+          import json, sys
+          steps = json.loads(sys.stdin.read())
+          print(json.dumps([k for k, v in steps.items() if v in ('skipped', 'cancelled')]))
+          ")
+
           cat > "$RUNNER_TEMP/verification-manifest.json" << MANIFEST
           {
             "verificationType": "post-merge-main",
             "exactMainSha": "${{ github.sha }}",
             "triggerType": "${{ github.event_name }}",
             "workflowRunId": "${{ github.run_id }}",
-            "startTimestampUtc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "startTimestampUtc": "$START_TS",
+            "completionTimestampUtc": "$END_TS",
             "actor": "${{ github.actor }}",
             "ref": "${{ github.ref }}",
-            "checks": {
-              "frontendLint": "PASS",
-              "frontendTypeCheck": "PASS",
-              "frontendUnitTests": "PASS",
-              "frontendProductionBuild": "PASS",
-              "sdsCompliance": "PASS",
-              "logoGovernance": "PASS",
-              "brandNameGovernance": "PASS",
-              "performanceBudget": "PASS",
-              "backendCompile": "PASS",
-              "backendUnitTests": "PASS",
-              "secretScan": "PASS",
-              "workflowSecurityPolicy": "PASS",
-              "smokeTestBackendHealth": "PASS",
-              "smokeTestFrontendAuth": "PASS",
-              "smokeTestSnadLogo": "PASS"
-            },
-            "result": "PASS"
+            "result": "$RESULT",
+            "failedGate": "$FAILED_GATE",
+            "passedChecks": $PASSED,
+            "failedChecks": $FAILED,
+            "skippedChecks": $SKIPPED
           }
           MANIFEST
-          echo "Verification manifest generated."
+
+          echo "=== Verification Manifest ==="
+          cat "$RUNNER_TEMP/verification-manifest.json"
+          echo "============================="
 
       - name: Upload Verification Manifest
+        id: upload-manifest
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: post-merge-verification-${{ github.run_id }}
@@ -312,6 +416,10 @@ jobs:
           echo "Exact Main SHA: ${{ github.sha }}"
           echo "Workflow Run ID: ${{ github.run_id }}"
           echo "Completion Timestamp UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          echo "Actor: ${{ github.actor }}"
-          echo "Result: ${{ job.status }}"
+          echo "Result: ${{ steps.manifest.outputs.result }}"
+          echo "Failed Gate: ${{ steps.manifest.outputs.failed_gate }}"
           echo "=========================================="
+          # If any step failed, ensure workflow fails
+          if [ "${{ steps.manifest.outputs.result }}" = "FAIL" ]; then
+            exit 1
+          fi

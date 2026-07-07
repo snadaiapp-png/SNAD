@@ -19,7 +19,14 @@ jobs:
       - run: pip install pyyaml -q
       - name: Generate report
         run: |
-          python3 scripts/ci/check_workflow_security.py > workflow-security-report.txt 2>&1 || true
+          set +e
+          python3 scripts/ci/check_workflow_security.py > workflow-security-report.txt 2>&1
+          EXIT_CODE=$?
+          set -e
+          # This workflow generates a REPORT — it does not gate merges.
+          # The actual fail-closed check runs in web-ci.yml and post-merge-verification.yml.
+          cat workflow-security-report.txt
+          echo "Security check exit code: $EXIT_CODE"
       - uses: actions/upload-artifact@v4
         with:
           name: workflow-security-report

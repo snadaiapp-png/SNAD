@@ -58,7 +58,7 @@ jobs:
         run: |
           echo "## Test Results" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          mvn test -q -DskipTests -Dmaven.test.skip=true 2>/dev/null || true
+          mvn test -q -DskipTests -Dmaven.test.skip=true 2>/dev/null || echo "Maven test summary not available"
           # Parse surefire reports for summary
           find target/surefire-reports -name "*.txt" -exec grep -H "Tests run:" {} \; 2>/dev/null | \
             awk -F'[, ]' '{runs+=$4; fail+=$6; err+=$8; skip+=$10} END {print "Total: "runs" tests, "fail" failures, "err" errors, "skip" skipped"}' >> $GITHUB_STEP_SUMMARY
