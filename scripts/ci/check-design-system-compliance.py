@@ -11,6 +11,18 @@
  hsl, hsla) or hardcoded `font-family` declarations. Every visual value must
  reference a `--snad-*` token.
 
+ The script also enforces two additional governance rules:
+
+   • DIRECT_LOGO_IMPORT — no `.ts` or `.tsx` file (except SnadLogo.tsx and
+     its test) may `import` a brand SVG file directly. Every surface must
+     consume the `<SnadLogo />` component instead.
+
+   • INCORRECT_BRAND_NAME — no `.ts` or `.tsx` file may use the forbidden
+     5-letter brand variant "SANAD" (case-sensitive). The official spellings
+     are "SNAD" (Latin) and "سند" (Arabic). "SANAD" is allowed only in
+     comments, URLs, emails, env vars, hyphenated identifiers, file paths,
+     and the governance / compliance scripts themselves.
+
  The script is:
    • idempotent — running it twice produces identical output
    • dependency-free — only the Python 3 standard library
@@ -31,6 +43,17 @@
 
  Hardcoded font-family declarations are allowed ONLY in the source-of-truth
  files above. Everywhere else, font-family must use `var(--snad-font-*)`.
+
+ Brand SVG imports are allowed ONLY in:
+   • apps/web/components/sds/SnadLogo.tsx
+   • apps/web/components/sds/__tests__/SnadLogo.test.tsx
+
+ The "SANAD" brand variant is allowed ONLY in:
+   • scripts/ci/check-design-system-compliance.py
+   • scripts/ci/check-brand-name-governance.py
+   • scripts/ci/check-logo-governance.py
+   (plus comments, URLs, emails, env vars, hyphenated identifiers, and file
+   paths in any file.)
 
  USAGE
  -----
@@ -101,6 +124,35 @@ LEGACY_FILES = {
 }
 
 # ---------------------------------------------------------------------------
+# DIRECT_LOGO_IMPORT allowlist
+# ---------------------------------------------------------------------------
+# SnadLogo is the ONLY component permitted to import brand SVG files directly.
+# Its test file is also allowlisted because it asserts on the exact SVG paths
+# to verify the variant → src mapping. Any other file that imports from
+# `assets/brand/` is in violation of the logo governance policy and must use
+# <SnadLogo /> instead.
+LOGO_IMPORT_ALLOWED_FILES = {
+    "apps/web/components/sds/SnadLogo.tsx",
+    "apps/web/components/sds/__tests__/SnadLogo.test.tsx",
+}
+
+# ---------------------------------------------------------------------------
+# INCORRECT_BRAND_NAME allowlist
+# ---------------------------------------------------------------------------
+# The official brand name is "SNAD" (Latin) or "سند" (Arabic). The 5-letter
+# variant "SANAD" is forbidden in source code because it causes brand drift.
+# It is allowed only in:
+#   • comments (// or /* */ lines)
+#   • this compliance script itself
+#   • the brand-name governance script (which documents the rule)
+#   • historical / documentation files (allowlisted explicitly)
+BRAND_NAME_ALLOWED_FILES = {
+    "scripts/ci/check-design-system-compliance.py",
+    "scripts/ci/check-brand-name-governance.py",
+    "scripts/ci/check-logo-governance.py",
+}
+
+# ---------------------------------------------------------------------------
 # Regex patterns
 # ---------------------------------------------------------------------------
 
@@ -154,6 +206,60 @@ INLINE_COLOR_KEY_RE = re.compile(
 )
 
 # ---------------------------------------------------------------------------
+# DIRECT_LOGO_IMPORT patterns
+# ---------------------------------------------------------------------------
+# Matches `import ... from "...assets/brand/snad-*.svg"` — the canonical
+# violation of the logo governance policy. Only SnadLogo.tsx (and its test)
+# are permitted to import brand SVGs; every other surface must consume
+# <SnadLogo />.
+LOGO_IMPORT_RE = re.compile(
+    r"""import\s+[^;]*?from\s+["']([^"']*assets/brand/[^"']*\.svg)["']""",
+    re.IGNORECASE,
+)
+
+# Matches dynamic `import("...assets/brand/...svg")` — same rule, catches
+# the lazy-import form.
+LOGO_DYNAMIC_IMPORT_RE = re.compile(
+    r"""\bimport\s*\(\s*["']([^"']*assets/brand/[^"']*\.svg)["']\s*\)""",
+    re.IGNORECASE,
+)
+
+# ---------------------------------------------------------------------------
+# INCORRECT_BRAND_NAME patterns
+# ---------------------------------------------------------------------------
+# Matches the case-sensitive 5-letter variant "SANAD" as a whole word. Does
+# NOT match the correct "SNAD" (4 letters). The match is later filtered by
+# the comment-line and allowlist exceptions.
+FORBIDDEN_BRAND_RE = re.compile(r"\bSANAD\b")
+
+# Match a URL scheme — we allow "SANAD" inside URLs (e.g. hostnames like
+# sanad-backend.example.com are handled by the brand-name governance script;
+# here we only catch the literal word "SANAD" in identifiers/strings).
+URL_RE = re.compile(r"\b(?:https?|ftp|ws|wss)://[^\s'\"<>]+", re.IGNORECASE)
+
+# Match an email address — we allow "SANAD" inside email addresses.
+EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")
+
+# Match an env var name (UPPER_SNAKE_CASE starting with SANAD_). These are
+# technical identifiers, not brand displays, so they are allowed.
+ENV_VAR_RE = re.compile(r"\bSANAD_[A-Za-z0-9_]+\b")
+
+# Match a hyphenated identifier containing SANAD — e.g. `x-sanad-refresh-token`,
+# `sanad-backend`. These are technical identifiers (HTTP header names,
+# hostnames, package names), NOT brand displays, so they are allowed.
+HYPHEN_IDENT_RE = re.compile(
+    r"\b[\w]+-SANAD(?:-[\w]+)*\b"
+    r"|"
+    r"\bSANAD-[\w]+(?:-[\w]+)*\b"
+)
+
+# Match a file path containing SANAD — e.g. `/sanad-platform/`, `com/sanad/`.
+PATH_RE = re.compile(r"(?:[/\\])SANAD(?=[/\\.-])")
+
+# Comment-line markers for TS/TSX/CSS.
+COMMENT_LINE_RE = re.compile(r"^\s*(?://|/\*|\*|#|<!--|-->)")
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -193,6 +299,33 @@ def line_col_of(line: str, match_start: int) -> Tuple[int, int]:
     return (1, match_start + 1)
 
 
+def find_brand_name_allowed_spans(line: str) -> List[Tuple[int, int]]:
+    """Return a list of (start, end) spans covering URLs, emails, env vars,
+    hyphenated identifiers, and file paths in `line`. A FORBIDDEN_BRAND_RE
+    match inside one of these spans is allowed (technical identifier, not
+    a brand display).
+    """
+    spans: List[Tuple[int, int]] = []
+    for pattern in (
+        URL_RE,
+        EMAIL_RE,
+        ENV_VAR_RE,
+        HYPHEN_IDENT_RE,
+        PATH_RE,
+    ):
+        for m in pattern.finditer(line):
+            spans.append((m.start(), m.end()))
+    return spans
+
+
+def is_in_allowed_span(pos: int, spans: List[Tuple[int, int]]) -> bool:
+    """Return True if `pos` falls inside any of the given (start, end) spans."""
+    for start, end in spans:
+        if start <= pos < end:
+            return True
+    return False
+
+
 def check_file(path: Path, scan_root: Path) -> List[str]:
     """Return a list of violation strings for the given file (may be empty)."""
     rel = normalize_relpath(path, scan_root)
@@ -213,9 +346,21 @@ def check_file(path: Path, scan_root: Path) -> List[str]:
 
     lines = text.splitlines()
 
+    # ---- Determine which extended checks apply to this file ---------------
+    # DIRECT_LOGO_IMPORT and INCORRECT_BRAND_NAME apply only to .ts and .tsx
+    # files (CSS cannot `import` JS modules, and the brand-name rule is about
+    # source-code identifiers / string literals, not CSS values).
+    ext = path.suffix.lower()
+    is_ts_like = ext in {".ts", ".tsx"}
+
+    # Per-file allowlist flags for the extended checks.
+    logo_import_allowed = rel in LOGO_IMPORT_ALLOWED_FILES
+    brand_name_allowed = rel in BRAND_NAME_ALLOWED_FILES
+
     for line_no, line in enumerate(lines, start=1):
         # Skip lines that are obviously comments (CSS / JS / TS).
         stripped = line.lstrip()
+        is_comment_line = bool(COMMENT_LINE_RE.match(line))
         if (
             stripped.startswith("//")
             or stripped.startswith("/*")
@@ -280,6 +425,55 @@ def check_file(path: Path, scan_root: Path) -> List[str]:
                 f"var(--snad-font-latin) / var(--snad-font-numeric)."
             )
 
+        # ---- DIRECT_LOGO_IMPORT (.ts / .tsx only) ----------------------
+        # SnadLogo is the ONLY module permitted to import brand SVG files.
+        # This catches both static `import x from "...svg"` and dynamic
+        # `import("...svg")` forms.
+        if is_ts_like and not logo_import_allowed:
+            for m in LOGO_IMPORT_RE.finditer(line):
+                col = m.start(1) + 1
+                value = m.group(1)
+                violations.append(
+                    f"{rel}:{line_no}:{col}: DIRECT_LOGO_IMPORT — "
+                    f'direct import of brand SVG "{value}". '
+                    f"Use the <SnadLogo /> component from @/components/sds "
+                    f"instead. SnadLogo is the canonical brand renderer."
+                )
+            for m in LOGO_DYNAMIC_IMPORT_RE.finditer(line):
+                col = m.start(1) + 1
+                value = m.group(1)
+                violations.append(
+                    f"{rel}:{line_no}:{col}: DIRECT_LOGO_IMPORT — "
+                    f'dynamic import of brand SVG "{value}". '
+                    f"Use the <SnadLogo /> component from @/components/sds "
+                    f"instead. SnadLogo is the canonical brand renderer."
+                )
+
+        # ---- INCORRECT_BRAND_NAME (.ts / .tsx only) --------------------
+        # The official brand name is "SNAD" (Latin) or "سند" (Arabic). The
+        # 5-letter variant "SANAD" is forbidden in source code. Allowed in:
+        #   • comments (// or /* */ or # lines)
+        #   • URLs, emails, env vars, hyphenated identifiers, file paths
+        #   • the allowlisted governance / compliance scripts
+        if is_ts_like and not brand_name_allowed:
+            allowed_spans = find_brand_name_allowed_spans(line)
+            for m in FORBIDDEN_BRAND_RE.finditer(line):
+                # Exception 1: comment-only line.
+                if is_comment_line:
+                    continue
+                # Exception 2: inside a URL / email / env var / path.
+                if is_in_allowed_span(m.start(), allowed_spans):
+                    continue
+                col = m.start() + 1
+                value = m.group(0)
+                violations.append(
+                    f"{rel}:{line_no}:{col}: INCORRECT_BRAND_NAME — "
+                    f'incorrect brand name "{value}". '
+                    f'Use "SNAD" (Latin) or "سند" (Arabic). '
+                    f"Allowed in comments, URLs, emails, env vars, and "
+                    f"file paths only."
+                )
+
     return violations
 
 
@@ -311,6 +505,8 @@ def main(argv: List[str]) -> int:
     print(f"  scan root : {scan_root}")
     print(f"  allowed   : {len(ALLOWED_FILES)} source-of-truth files")
     print(f"  legacy    : {len(LEGACY_FILES)} files pending migration")
+    print(f"  logo import allowed : {len(LOGO_IMPORT_ALLOWED_FILES)} file(s)")
+    print(f"  brand name allowed  : {len(BRAND_NAME_ALLOWED_FILES)} file(s)")
     print()
 
     all_violations: List[str] = []
@@ -343,7 +539,13 @@ def main(argv: List[str]) -> int:
         print("  3. For translucent overlays, use:")
         print("       color-mix(in srgb, var(--snad-color-brand-primary) "
               "N%, transparent)")
-        print("  4. See apps/web/design-system/documentation/DESIGN_TOKENS.md"
+        print("  4. Replace any direct brand SVG import / <img src> with")
+        print('     <SnadLogo variant="primary" size="md" /> from '
+              "@/components/sds.")
+        print('  5. Replace any "SANAD" with "SNAD" (Latin) or "سند" '
+              "(Arabic). Allowed in comments, URLs, emails, env vars, "
+              "and file paths only.")
+        print("  6. See apps/web/design-system/documentation/DESIGN_TOKENS.md"
               " for the full token reference.")
         return 1
 

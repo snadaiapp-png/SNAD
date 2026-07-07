@@ -35,9 +35,9 @@ describe("ApiClient", () => {
   it("serializes POST bodies and sets JSON content type", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: "1" }, 201));
     vi.stubGlobal("fetch", fetchMock);
-    await client().post("/api/v1/items", { name: "SANAD" });
+    await client().post("/api/v1/items", { name: "SNAD" });
     const init = fetchMock.mock.calls[0][1] as RequestInit;
-    expect(init.body).toBe(JSON.stringify({ name: "SANAD" }));
+    expect(init.body).toBe(JSON.stringify({ name: "SNAD" }));
     expect(init.headers).toMatchObject({ Accept: "application/json", "Content-Type": "application/json" });
   });
 

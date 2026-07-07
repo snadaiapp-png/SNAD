@@ -5,6 +5,8 @@ import { useState, type FormEvent } from "react";
 import styles from "./auth.module.css";
 import { AuthErrorAlert } from "./auth-error-alert";
 import type { UserFacingError } from "@/lib/api/user-facing-errors";
+import { SnadLogo } from "@/components/sds";
+import { useTheme } from "@/lib/hooks/useTheme";
 
 interface LoginFormProps {
   onLogin: (email: string, password: string) => Promise<void>;
@@ -25,6 +27,25 @@ export function LoginForm({
   const [showHelp, setShowHelp] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+
+  /*
+   * Theme-aware logo variant selection.
+   *
+   * The auth screen runs before the user has any session, so we cannot rely
+   * on a persisted theme preference alone. `useTheme` resolves in this order:
+   *   1. `<html data-theme="...">`  (set by an explicit toggle, if any)
+   *   2. `localStorage['snad-theme']` (returning users)
+   *   3. `prefers-color-scheme: dark` (OS-level)
+   *   4. `'light'` (safe default)
+   *
+   * We pick `variant="white"` when the resolved theme is `'dark'` so the
+   * logo stays legible on dark backgrounds. On SSR, `useTheme` returns
+   * `'light'` to avoid hydration mismatch; the correct variant is rendered
+   * after mount. The `.loginBrandMark` container reserves a fixed minimum
+   * height (see auth.module.css) so this post-mount swap causes ZERO CLS.
+   */
+  const { theme } = useTheme();
+  const logoVariant = theme === "dark" ? "white" : "primary";
 
   function validate(): boolean {
     let valid = true;
@@ -60,7 +81,15 @@ export function LoginForm({
 
   return (
     <div className={styles.loginCard}>
-      <div className={styles.loginBrandMark}>SNAD</div>
+      <div className={styles.loginBrandMark}>
+        <SnadLogo
+          variant={logoVariant}
+          size="responsive"
+          href="/"
+          alt="شعار سند — SNAD Business Operating System"
+          priority
+        />
+      </div>
       <h1 className={styles.loginWelcomeTitle}>مرحبًا بعودتك</h1>
       <p className={styles.loginWelcomeSubtitle}>
         سجّل دخولك للوصول إلى منصة تشغيل الأعمال.

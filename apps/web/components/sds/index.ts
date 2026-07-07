@@ -51,3 +51,11 @@ export {
   type BadgeVariant,
   type BadgeSize,
 } from './Badge';
+
+export {
+  SnadLogo,
+  type SnadLogoProps,
+  type SnadLogoVariant,
+  type SnadLogoSize,
+  type SnadLogoTheme,
+} from './SnadLogo';

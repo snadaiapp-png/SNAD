@@ -1,0 +1,192 @@
+/*
+ * ============================================================================
+ *  SDS SnadLogo — styles
+ * ----------------------------------------------------------------------------
+ *  RULES
+ *  • Every visual value references an `--snad-*` token (no hex/rgb/hsl).
+ *  • RTL-aware: logical properties only (no left/right).
+ *  • CLS-safe: width/height/aspect-ratio are always pre-computed.
+ *
+ *  SIZING MODEL
+ *  ------------
+ *  The root wrapper exposes two CSS custom properties that consumers may
+ *  override to scale the logo in non-standard contexts:
+ *
+ *    --snad-logo-width   default: auto
+ *    --snad-logo-height  default: per size preset (xs..xl) or clamp() for
+ *                                 the `responsive` size
+ *
+ *  When the consumer passes `width` / `height` props on the component, they
+ *  are written to these same custom properties inline — overriding the
+ *  preset for that instance only.
+ *
+ *  THEME=AUTO
+ *  ----------
+ *  When `theme="auto"` and no explicit `variant` is provided, the component
+ *  renders BOTH the primary (light) and white (dark) SVGs stacked. The
+ *  `.imageDark` modifier is hidden by default and revealed under
+ *  `prefers-color-scheme: dark` — guaranteeing zero client JS, zero SSR
+ *  hydration mismatch, and zero flash of the wrong logo on first paint.
+ * ============================================================================
+ */
+
+.logo {
+  /* Defaults — overridden by size presets and inline props. */
+  --snad-logo-width: auto;
+  --snad-logo-height: var(--snad-size-md); /* 40px */
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin-inline: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  /* Reserve a baseline-aligned box so the logo never pushes neighbours. */
+  vertical-align: middle;
+  /* Allow consumer overrides via custom properties to take effect. */
+  container-type: inline-size;
+}
+
+.logo > img,
+.logo a > img {
+  display: block;
+  width: var(--snad-logo-width);
+  height: var(--snad-logo-height);
+  /* Preserve intrinsic aspect ratio when only one dimension is set. */
+  aspect-ratio: var(--snad-logo-aspect-ratio, auto);
+  /* SVGs are vector — never let them blur on HiDPI. */
+  shape-rendering: geometricPrecision;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Size presets
+ *  Heights are sourced from --snad-space-* tokens (where available) and
+ *  align with the SDS sizing scale (24/32/40/48/64).
+ * ---------------------------------------------------------------------------- */
+
+.size-xs {
+  --snad-logo-height: var(--snad-size-xs); /* 24px */
+}
+
+.size-sm {
+  --snad-logo-height: var(--snad-size-sm); /* 32px */
+}
+
+.size-md {
+  --snad-logo-height: var(--snad-size-md); /* 40px */
+}
+
+.size-lg {
+  --snad-logo-height: var(--snad-size-lg); /* 48px */
+}
+
+.size-xl {
+  --snad-logo-height: var(--snad-size-xl); /* 64px */
+}
+
+/*
+ * Responsive (header default): height-driven clamp between 28px and 48px.
+ * Width auto-computes from the variant's aspect ratio.
+ */
+.size-responsive {
+  --snad-logo-height: clamp(28px, 5vw, 48px);
+  --snad-logo-width: auto;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Image slots
+ * ---------------------------------------------------------------------------- */
+
+.image {
+  display: block;
+  /* The intrinsic dimensions are written inline by the component; here we
+ *  ensure the image never exceeds its container. */
+  max-width: 100%;
+  height: auto;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Theme=auto dual rendering
+ *  Both primary and white variants are present in the DOM. The white one is
+ *  visually hidden by default and revealed under `prefers-color-scheme: dark`.
+ *  `visibility: hidden` (rather than `display: none`) preserves layout so
+ *  the wrapper's box doesn't shift between themes.
+ * ---------------------------------------------------------------------------- */
+
+.autoDual {
+  position: relative;
+}
+
+.imageLight {
+  visibility: visible;
+}
+
+.imageDark {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  visibility: hidden;
+}
+
+@media (prefers-color-scheme: dark) {
+  .autoDual .imageLight {
+    visibility: hidden;
+  }
+  .autoDual .imageDark {
+    visibility: visible;
+  }
+}
+
+/*
+ *  If the document explicitly sets data-theme="dark", also reveal the white
+ *  variant. This lets apps with manual theme toggles benefit from the same
+ *  auto-dual rendering without needing JS.
+ */
+[data-theme="dark"] .autoDual .imageLight {
+  visibility: hidden;
+}
+[data-theme="dark"] .autoDual .imageDark {
+  visibility: visible;
+}
+
+[data-theme="light"] .autoDual .imageLight {
+  visibility: visible;
+}
+[data-theme="light"] .autoDual .imageDark {
+  visibility: hidden;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Anchor wrapper
+ *  Applies the SDS focus ring and removes default link decoration so the
+ *  logo reads as a brand element, not a text link.
+ * ---------------------------------------------------------------------------- */
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  color: inherit;
+  border-radius: var(--snad-radius-sm);
+  padding: var(--snad-space-1);
+  /* Match the wrapper's inline-flex behavior so layout is identical whether
+ *  the logo is wrapped in a link or not. */
+  margin-inline: calc(var(--snad-space-1) * -1);
+}
+
+.link:focus-visible {
+  outline: 3px solid var(--snad-color-focus-ring);
+  outline-offset: var(--snad-space-1);
+}
+
+/* Honor reduced-motion: the only motion in this component is the focus
+ *  outline appearing/disappearing, which is already instant. This block is
+ *  here for completeness and to document the intent. */
+@media (prefers-reduced-motion: reduce) {
+  .link {
+    transition: none;
+  }
+}

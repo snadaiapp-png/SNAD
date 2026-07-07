@@ -55,6 +55,22 @@ jobs:
           echo "Running SNAD Design System compliance check..."
           python3 scripts/ci/check-design-system-compliance.py
 
+      - name: Logo Governance Check
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          echo "Running SNAD Logo Governance check..."
+          python3 scripts/ci/check-logo-governance.py
+
+      - name: Brand Name Governance Check
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          echo "Running SNAD Brand Name Governance check..."
+          python3 scripts/ci/check-brand-name-governance.py
+
       - name: Lint
         run: npm run lint
 
