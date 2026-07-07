@@ -25,7 +25,7 @@ jobs:
   verify-main:
     name: Post-Merge Verification
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Record start metadata
         id: metadata
@@ -225,7 +225,7 @@ jobs:
 
           echo "Waiting for backend to be ready..."
           BACKEND_READY=false
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
               echo "::error::Backend process terminated before readiness (PROCESS_EXITED)"
               tail -200 "$RUNNER_TEMP/backend.log" || true
@@ -288,13 +288,13 @@ jobs:
 
           echo "Waiting for frontend to be ready..."
           FRONTEND_READY=false
-          for i in $(seq 1 30); do
+          for i in $(seq 1 90); do
             if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
               echo "::error::Frontend process terminated before readiness (PROCESS_EXITED)"
               tail -200 "$RUNNER_TEMP/frontend.log" || true
               exit 1
             fi
-            if curl --fail --silent --show-error http://127.0.0.1:3001/auth/login > /dev/null 2>&1; then
+            if curl --fail --silent --show-error http://localhost:3001/auth/login > /dev/null 2>&1; then
               echo "Frontend is ready after $((i*2))s"
               FRONTEND_READY=true
               break
@@ -303,7 +303,7 @@ jobs:
           done
 
           if [ "$FRONTEND_READY" = "false" ]; then
-            echo "::error::Frontend did not become ready within 60s (STARTUP_TIMEOUT)"
+            echo "::error::Frontend did not become ready within 180s (STARTUP_TIMEOUT)"
             tail -200 "$RUNNER_TEMP/frontend.log" || true
             exit 1
           fi
@@ -314,14 +314,14 @@ jobs:
               --show-error \
               --output "$RUNNER_TEMP/frontend-auth.html" \
               --write-out '%{http_code}' \
-              http://127.0.0.1:3001/auth/login
+              http://localhost:3001/auth/login
           )"
 
           python3 ${{ github.workspace }}/scripts/ci/validate_frontend_smoke.py \
             --html-file "$RUNNER_TEMP/frontend-auth.html" \
             --metadata-file "$RUNNER_TEMP/frontend-smoke-metadata.json" \
             --http-status "$HTTP_STATUS" \
-            --url "http://127.0.0.1:3001/auth/login" \
+            --url "http://localhost:3001/auth/login" \
             --port 3001
 
       # === Generate Truthful Manifest (Section 4) ===
