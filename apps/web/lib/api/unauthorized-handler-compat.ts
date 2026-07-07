@@ -2,8 +2,7 @@ export {};
 
 declare global {
   interface Object {
-    /** @deprecated Compatibility for a historical method-name typo. */
-    setUrauthorizedHandler?: (handler: (() => Promise<boolean>) | null) => void;
+    setUrauthorizedHandler(handler: (() => Promise<boolean>) | null): void;
   }
 }
 
