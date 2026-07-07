@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { AuthLoadingState } from "./auth-loading-state";
@@ -11,29 +11,32 @@ import { CredentialRotationForm } from "./credential-rotation-form";
 export function AuthEntry() {
   const auth = useAuth();
   const router = useRouter();
-  const tenantCache = useRef<string[]>([]);
-
-  if (auth.ambiguousTenantIds.length > 0) {
-    tenantCache.current = auth.ambiguousTenantIds;
-  }
-  const selectableTenants = auth.ambiguousTenantIds.length > 0
-    ? auth.ambiguousTenantIds
-    : tenantCache.current;
+  const [pendingTenantIds, setPendingTenantIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (auth.state === "AUTHENTICATED") router.replace("/workspace");
   }, [auth.state, router]);
 
+  const selectTenant = async (tenantId: string) => {
+    setPendingTenantIds(auth.ambiguousTenantIds);
+    await auth.loginWithTenant(tenantId);
+  };
+
+  const dismissTenantPicker = () => {
+    setPendingTenantIds([]);
+    auth.dismissAmbiguousTenant();
+  };
+
   if (["INITIALIZING", "REFRESHING", "LOGGING_OUT"].includes(auth.state)) {
     return <AuthLoadingState />;
   }
 
-  if (auth.state === "AUTHENTICATING" && selectableTenants.length > 0) {
+  if (auth.state === "AUTHENTICATING" && pendingTenantIds.length > 0) {
     return (
       <TenantPicker
-        tenantIds={selectableTenants}
-        onSelect={auth.loginWithTenant}
-        onDismiss={auth.dismissAmbiguousTenant}
+        tenantIds={pendingTenantIds}
+        onSelect={selectTenant}
+        onDismiss={dismissTenantPicker}
         authenticating={true}
       />
     );
@@ -52,9 +55,9 @@ export function AuthEntry() {
   if (auth.state === "AMBIGUOUS_TENANT") {
     return (
       <TenantPicker
-        tenantIds={selectableTenants}
-        onSelect={auth.loginWithTenant}
-        onDismiss={auth.dismissAmbiguousTenant}
+        tenantIds={auth.ambiguousTenantIds}
+        onSelect={selectTenant}
+        onDismiss={dismissTenantPicker}
         authenticating={false}
       />
     );
