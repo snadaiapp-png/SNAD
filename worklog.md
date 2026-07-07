@@ -151,3 +151,284 @@ git push origin fix/p0-2-correct-frontend-smoke-route
 - قرار Gate 8F: OPEN
 - قرار الإصدار: NO-GO
 - لا يُعلن عن نجاح إلا بعد اجتياز post-merge verification على merge SHA الفعلي واجتياز المدقق المستقل validate_post_merge_evidence.py
+
+---
+Task ID: snad-final-production-closure
+Agent: main (Super Z)
+Task: أمر الإغلاق التنفيذي الكامل — bilingual UI, dynamic theme, Vercel production
+
+Work Log:
+- قراءة الأمر التنفيذي الكامل (21 قسمًا) للإغلاق الإنتاجي لمشروع SNAD
+- بدء من أحدث origin/main (SHA 4f38807f9c102579a8f824e754bfe936accfe6da)
+- إنشاء فرع fix/snad-final-production-closure من main
+- تدقيق المسارات الفعلية للمصادقة:
+  * apps/web/app/page.tsx → يعرض <AuthEntry /> (هذا هو مسار تسجيل الدخول الفعلي)
+  * apps/web/app/auth/login/page.tsx → غير موجود (تم تأكيد عدم وجوده)
+  * apps/web/components/auth/auth-entry.tsx → يوجّه إلى LoginScreen / TenantPicker / CredentialRotationForm
+  * القرار: الخيار B — تحديث Smoke Workflow ليختبر المسار الحقيقي / (تم تنفيذه في commit 567204e)
+
+- بناء نظام i18n مركزي:
+  * apps/web/lib/i18n/types.ts — Locale (ar|en)، DEFAULT_LOCALE=ar، LOCALE_DIRECTION (ar=rtl, en=ltr)
+  * apps/web/lib/i18n/locales/ar.ts — 142 مفتاح ترجمة عربي
+  * apps/web/lib/i18n/locales/en.ts — 142 مفتاح ترجمة إنجليزي (تماثل كامل مع ar)
+  * apps/web/lib/i18n/index.ts — barrel export
+  * apps/web/lib/i18n/I18nProvider.tsx — React Context مع:
+    - حفظ التفضيل في localStorage (snad.locale، لا PII)
+    - تحديث <html lang dir> تلقائياً
+    - t(key, params?) مع استيفاء {param}
+    - آمن للـ SSR: العرض الأولي يطابق الخادم (ar/rtl)، التفضيل المخزن يُطبق بعد التحميل
+  * apps/web/lib/i18n/I18nProvider.test.tsx — 7 اختبارات
+
+- بناء نظام Theme ديناميكي:
+  * apps/web/lib/theme/types.ts — ThemeMode (light|dark|system)، ResolvedTheme
+  * apps/web/lib/theme/ThemeProvider.tsx — React Context مع:
+    - mode state (light|dark|system)، system كافتراضي
+    - resolved theme (المُطبّق فعلياً على DOM)
+    - setMode() مع حفظ في localStorage وتحديث <html data-theme>
+    - cycleMode() للتبديل light→dark→system→light
+    - الاستماع إلى prefers-color-scheme media query في وضع system
+    - تعيين colorScheme CSS property لعناصر النموذج الأصلية
+    - آمن للـ SSR
+  * apps/web/lib/theme/ThemeProvider.test.tsx — 5 اختبارات
+
+- بناء مبدلات اللغة والمظهر:
+  * apps/web/components/sds/switchers/LanguageSwitcher.tsx — تحكم مجزأ (ع | EN)
+    - aria-pressed, aria-label, focus-visible ring
+    - 44x44 حد أدنى لهدف اللمس (WCAG 2.2 AA 2.5.5)
+    - خصائص منطقية (padding-inline-*) للتماثل RTL/LTR
+  * apps/web/components/sds/switchers/ThemeSwitcher.tsx — زر يبدّل light→dark→system
+    - أيقونات sun/moon/auto
+    - aria-label يعكس الوضع الحالي
+  * ملفات CSS تستخدم فقط --snad-* tokens (تم التحقق بواسطة check-design-system-compliance.py)
+
+- تكامل المبدلات في ExecutiveShell:
+  * apps/web/components/shell/ExecutiveShell.tsx — عرض LanguageSwitcher و ThemeSwitcher في inline-end cluster دائماً
+  * apps/web/components/sds/index.ts — export المبدلات
+
+- منع FOUC (Flash of Incorrect Theme/Locale):
+  * apps/web/app/layout.tsx — إضافة NO_FLASH_SCRIPT inline يعمل قبل React hydration:
+    - يطبق المظهر المخزن على <html data-theme>
+    - يطبق اللغة المخزنة على <html lang dir>
+  * <html> له data-theme="light" كافتراضي + suppressHydrationWarning
+
+- تحديث Providers:
+  * apps/web/app/providers.tsx — تغليف AuthProvider بـ ThemeProvider و I18nProvider
+  * الترتيب: Theme > I18n > Auth > Tenant (خارجي→داخلي)
+
+- إعداد اختبار Vitest:
+  * apps/web/vitest.config.ts — إضافة setupFiles
+  * apps/web/vitest.setup.ts — polyfill لـ window.matchMedia و IntersectionObserver في jsdom
+  * apps/web/test-utils/providers.tsx — AllProviders wrapper مشترك للاختبارات
+
+- تحديث اختبار workspace:
+  * apps/web/app/workspace/page.test.tsx — تغليف renders بـ ThemeProvider + I18nProvider (مطلوب الآن لأن ExecutiveShell يعرض المبدلات)
+
+- إضافة بوابة CI لمفتاح i18n:
+  * scripts/ci/check_i18n_keys.py — فحص fail-closed يتحقق من تماثل المفاتيح بين ar.ts و en.ts
+  * .github/workflows/post-merge-verification.yml — إضافة خطوة "i18n key parity check" (id: i18n-keys)
+  * scripts/ci/validate_post_merge_evidence.py — إضافة i18n_keys إلى CRITICAL_CHECK_KEYS
+
+- التحقق المحلي الكامل:
+  * YAML parse: OK
+  * Python compile: OK (10 scripts)
+  * CI unit tests: 124/124 PASS
+  * Workflow security: 46/46 workflows PASS
+  * Secret scan: 1772 files, 0 findings, 0 errors, result=PASS
+  * i18n key parity: 142/142 keys, PASS
+  * DS compliance: 0 violations across 127 files
+  * Logo governance: 0 violations across 32 files
+  * Brand governance: 0 violations across 149 files
+  * Frontend lint: clean (0 errors, 0 warnings)
+  * Frontend tsc: clean (0 errors)
+  * Frontend vitest: 376/376 PASS (33 test files)
+  * Frontend build: OK (11 routes: /, /auth/forgot-password, /control-plane, /crm, /forgot-password, /reset-password, /workspace, /api/*)
+
+- Commits على فرع fix/snad-final-production-closure (5 commits):
+  1. 4a4125f feat(i18n): add Arabic and English localization system
+  2. 87b9c7e feat(theme): add dynamic light/dark/system theme provider
+  3. 6ea1418 feat(shell): centralize language and theme controls in ExecutiveShell
+  4. 45250aa fix(rtl): apply logical layout properties and prevent theme/locale FOUC
+  5. 9d54071 fix(ci): make post-merge smoke tests deterministic + i18n key parity gate
+
+Stage Summary:
+- Base SHA: 4f38807f9c102579a8f824e754bfe936accfe6da
+- Final HEAD SHA: 9d5407170bf7122e5c8877498fb2af35a0422f14
+- Branch: fix/snad-final-production-closure (محلي، غير مدفوع)
+- الملفات المُنشأة (14):
+  - apps/web/lib/i18n/{types.ts, index.ts, I18nProvider.tsx, I18nProvider.test.tsx, locales/ar.ts, locales/en.ts}
+  - apps/web/lib/theme/{types.ts, index.ts, ThemeProvider.tsx, ThemeProvider.test.tsx}
+  - apps/web/components/sds/switchers/{LanguageSwitcher.tsx, LanguageSwitcher.module.css, ThemeSwitcher.tsx, ThemeSwitcher.module.css, index.ts}
+  - apps/web/test-utils/providers.tsx
+  - apps/web/vitest.setup.ts
+  - scripts/ci/check_i18n_keys.py
+- الملفات المُعدّلة (6):
+  - apps/web/app/layout.tsx (NO_FLASH_SCRIPT + bilingual metadata)
+  - apps/web/app/providers.tsx (wrap with Theme + I18n)
+  - apps/web/app/workspace/page.test.tsx (wrap with providers)
+  - apps/web/components/sds/index.ts (export switchers)
+  - apps/web/components/shell/ExecutiveShell.tsx (render switchers)
+  - apps/web/vitest.config.ts (setupFiles)
+  - .github/workflows/post-merge-verification.yml (i18n key parity step)
+  - scripts/ci/validate_post_merge_evidence.py (add i18n_keys to critical checks)
+
+- العائق المتبقي: لا توجد بيانات اعتماد GitHub/Vercel في البيئة لتنفيذ:
+  * git push origin fix/snad-final-production-closure
+  * فتح Pull Request على GitHub
+  * مراقبة CI checks على SHA الجديد
+  * دمج PR بعد نجاح جميع Required Checks
+  * مراقبة Vercel Production Deployment
+  * تنفيذ Production Smoke Tests
+  * تنزيل Playwright artifacts
+
+- الحالة الحالية:
+  * IMPLEMENTATION: COMPLETED (محلياً)
+  * BILINGUAL SUPPORT: VERIFIED (محلياً — 142 keys parity)
+  * ARABIC RTL: PASSED (محلياً)
+  * ENGLISH LTR: PASSED (محلياً)
+  * LIGHT MODE: PASSED (محلياً)
+  * DARK MODE: PASSED (محلياً)
+  * SYSTEM MODE: PASSED (محلياً)
+  * FRONTEND TESTS: PASSED (376/376)
+  * SECRET SCAN: PASSED (0 findings)
+  * GITHUB UPLOAD: NOT COMPLETED (لا توجد بيانات اعتماد)
+  * VERCEL PREVIEW: NOT DEPLOYED (لا توجد بيانات اعتماد)
+  * VERCEL PRODUCTION: NOT DEPLOYED (لا توجد بيانات اعتماد)
+  * FINAL STATUS: BLOCKED — يتطلب بيانات اعتماد GitHub و Vercel لإكمال الدورة
+
+---
+Task ID: snad-final-closure-attempt-3
+Agent: main (Super Z)
+Task: أمر الإغلاق الإنتاجي النهائي — محاولة الرفع الفعلي
+
+Work Log:
+- تنفيذ git fetch origin --prune — تأكيد origin/main = 4f38807
+- تأكيد وجود فرع fix/snad-final-production-closure محلياً مع 5 commits جديدة + 2 carries = 7 commits ahead of origin/main
+- محاولة git push --set-upstream origin fix/snad-final-production-closure — فشل: "could not read Username for 'https://github.com'"
+- البحث الشامل عن بيانات الاعتماد:
+  * /tmp/gh-token.txt — غير موجود
+  * GH_TOKEN / GITHUB_TOKEN env vars — غير مضبوط
+  * ~/.git-credentials — غير موجود
+  * ~/.netrc — غير موجود
+  * credential.helper — غير مضبوط
+- استخدام agent-browser لفتح https://github.com/snadaiapp-png/SNAD:
+  * الصفحة تُظهر "Sign in" / "Sign up" — الجلسة غير مصدّقة
+  * cookies: logged_in=no
+  * لا توجد جلسة GitHub محفوظة في المتصفح
+- لا يمكن تنفيذ git push / فتح PR / الدمج / نشر Vercel دون بيانات اعتماد
+
+التحقق المحلي الكامل النهائي (كل الفحوص تمر):
+  1. YAML parse (post-merge-verification.yml): PASS
+  2. Python compile (10 scripts): PASS
+  3. CI unit tests: 124/124 PASS
+  4. Workflow security (46 workflows): PASS
+  5. Secret scan (1772 files): 0 findings, 0 errors, PASS
+  6. i18n key parity: 142/142 keys, PASS
+  7. Design system compliance (127 files): 0 violations, PASS
+  8. Logo governance (32 files): 0 violations, PASS
+  9. Brand name governance (149 files): 0 violations, PASS
+  10. Frontend lint (ESLint): 0 errors, 0 warnings, PASS
+  11. Frontend TypeScript (tsc --noEmit): 0 errors, PASS
+  12. Frontend unit tests (vitest): 376/376 PASS (33 test files)
+  13. Frontend production build (next build): PASS (11 routes)
+  14. Auth route audit: /auth/login DOES NOT EXIST (confirmed), / renders <AuthEntry /> → <LoginScreen />, FRONTEND_SMOKE_URL = http://127.0.0.1:3001/
+
+Stage Summary:
+- Base SHA: 4f38807f9c102579a8f824e754bfe936accfe6da
+- Branch HEAD SHA: 9d5407170bf7122e5c8877498fb2af35a0422f14
+- Branch: fix/snad-final-production-closure (محلي فقط)
+- GitHub Push: NOT PUSHED (no credentials)
+- Pull Request: NOT CREATED
+- CI on PR: NOT RUN
+- Merge to main: NOT COMPLETED
+- Vercel Preview: NOT DEPLOYED
+- Vercel Production: NOT DEPLOYED
+- Production Smoke: NOT RUN
+- FINAL STATUS: BLOCKED — requires GitHub Personal Access Token and Vercel token to complete the cycle
+
+الإجراء المطلوب من المستخدم لإلغاء الحظر:
+  1. توفير GitHub Personal Access Token (scopes: repo, workflow)
+  2. توفير Vercel token (إن لزم)
+  3. أو تشغيل الأوامر يدوياً:
+     git push -u origin fix/snad-final-production-closure
+     # ثم فتح PR على GitHub ودمجه بعد نجاح CI
+
+---
+Task ID: snad-closure-playwright-backend
+Agent: main (Super Z)
+Task: §4-§9 — recovery bundle, Playwright, backend tests, push attempt
+
+Work Log:
+- §3: Verified branch state — HEAD=9d54071 (later a971dbc), origin/main=4f38807, working tree clean
+- §4: Created recovery bundle at /tmp/snad-final-production-closure/:
+  * snad-final-production-closure.bundle (51KB, verified)
+  * full-change.patch (137KB)
+  * 8 patches in patches/ directory
+  * commit-log.txt (15KB)
+  * SHA256SUMS:
+    - bundle: 31ae3e7bf1e5acd956f9fca7fc29f058c43ead65af1fe93dbd572c40a066fc55
+    - patch:  3e2e14c0fe18cd4e3128b74dd32e21a4cbdc4040edbdfc8a4c4ba5f476c1b399
+- §6: Installed Maven 3.9.9 manually (from repo1.maven.org, 9.1MB)
+  * Java 21.0.11 (Debian) available
+  * Ran: mvn --batch-mode --no-transfer-progress clean verify
+  * Result: 467 tests, 465 pass, 2 errors, 11 skipped
+  * 2 errors are Docker-dependent Testcontainers tests:
+    - FlywayV15ProductionUpgradeTest (requires Docker for PostgreSQL container)
+    - CrmPostgresMigrationTest (requires Docker for PostgreSQL container)
+  * Docker NOT available in this environment — errors are environmental, not code defects
+- §5: Installed @playwright/test and Chromium browser
+  * Created apps/web/playwright.config.ts with 6 projects (ar/en × rtl/ltr × light/dark/system)
+  * Each project pre-sets localStorage for locale and theme
+  * Created apps/web/e2e/bilingual-theme-matrix.spec.ts with 8 tests per project (48 total)
+  * Tests verify: locale, direction, theme, brand identity, persistence, hydration errors, switchers, header
+  * Updated tsconfig.json to exclude e2e/ from Next.js TypeScript check
+  * Updated .gitignore to exclude test-results/ and playwright-report/
+  * Created scripts/run-playwright-full.sh helper
+- §5: Ran Playwright against local Next.js production server:
+  * Started: NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production ./node_modules/.bin/next start -H 127.0.0.1 -p 3001
+  * All 48 tests PASSED (6 projects × 8 tests, 2.0m duration)
+  * Matrix: ar+RTL+Light, ar+RTL+Dark, ar+RTL+System, en+LTR+Light, en+LTR+Dark, en+LTR+System
+- §7: Re-ran ALL local gates after Playwright addition:
+  * Frontend lint: PASS (0 errors, 0 warnings)
+  * Frontend tsc: PASS (0 errors)
+  * Frontend vitest: 376/376 PASS (33 test files)
+  * Frontend build: PASS (11 routes)
+  * CI unit tests: 124/124 PASS
+  * i18n key parity: 142/142 PASS
+  * Workflow security: 46/46 PASS
+  * Secret scan: 1772 files, 0 findings, 0 errors, PASS
+  * DS compliance: 0 violations across 129 files, PASS
+  * Logo governance: 0 violations across 32 files, PASS
+  * Brand governance: 0 violations across 151 files, PASS
+- §8: Committed Playwright tests:
+  * New commit: a971dbc test(e2e): verify bilingual rtl ltr and theme matrix
+  * New Branch Final SHA: a971dbc928057f941951f1d954d940dfe4e5fa8c
+  * 8 files changed, 515 insertions, 1 deletion
+  * Total commits ahead of origin/main: 8 (including 2 carried-forward)
+  * Total diff: 38 files changed, 3085 insertions, 44 deletions
+- §9: Attempted GitHub authentication:
+  * gh CLI 2.65.0 installed from github.com/cli/cli releases
+  * gh auth status: "You are not logged into any GitHub hosts"
+  * gh auth login --web: provided device code FFDF-CED4, URL https://github.com/login/device
+    but no interactive browser session available to complete the flow
+  * git push: "fatal: could not read Username for 'https://github.com'"
+  * No GitHub credentials available in environment (verified: no /tmp/gh-token.txt, no env vars, no ~/.git-credentials, no ~/.netrc, browser logged_in=no)
+- Updated recovery bundle with new HEAD (a971dbc)
+- Created PR body at /home/z/snad-pr-body.md (ready for use when credentials available)
+
+Stage Summary:
+- Base SHA: 4f38807f9c102579a8f824e754bfe936accfe6da
+- Local Final SHA: a971dbc928057f941951f1d954d940dfe4e5fa8c
+- Branch: fix/snad-final-production-closure (LOCAL ONLY — NOT PUSHED)
+- Recovery Bundle: /tmp/snad-final-production-closure/snad-final-production-closure.bundle
+  SHA256: 31ae3e7bf1e5acd956f9fca7fc29f058c43ead65af1fe93dbd572c40a066fc55
+- Patch Count: 8
+- Playwright Status: 48/48 PASS
+- Backend Status: 465/467 pass (2 Docker-dependent errors, 11 skipped)
+- GitHub Push: NOT PUSHED (no credentials)
+- Pull Request: NOT CREATED
+- CI: NOT RUN
+- Vercel Preview: NOT DEPLOYED
+- Vercel Production: NOT DEPLOYED
+- FINAL STATUS: BLOCKED — requires GitHub authentication to complete push/PR/merge/deploy cycle
+
+All local implementation is complete and verified. The only remaining blocker is GitHub authentication.
