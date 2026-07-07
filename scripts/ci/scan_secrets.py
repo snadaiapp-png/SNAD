@@ -5,26 +5,16 @@ SNAD Secret Scanner — Fail-Closed External Script
 Scans the current working tree for exposed secrets.
 Exit 0 = no secrets found, Exit 1 = secrets found or error.
 
-Usage:
-    python3 scripts/ci/scan_secrets.py --repository-root . --report /tmp/report.json
-
-Per PM Directive sections 1-9:
-  - External file (no inline Python in workflows)
-  - JSON report with redacted secrets
-  - Allowlist support
-  -- CLI args: --repository-root, --report
+Per PM Directive: exact path matching, fail-closed, no wildcards.
 """
 import argparse
 import hashlib
 import json
-import os
 import re
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-# --- Secret detection rules ---
-# Each rule: (rule_id, pattern, severity, description)
 RULES = [
     ("aws-access-key", r'AKIA[0-9A-Z]{16}', "HIGH", "AWS Access Key ID"),
     ("github-pat", r'ghp_[a-zA-Z0-9]{36}', "HIGH", "GitHub Personal Access Token"),
@@ -44,174 +34,221 @@ RULES = [
     ("stripe-key", r'sk_(live|test)_[a-zA-Z0-9]{24,}', "HIGH", "Stripe Secret Key"),
 ]
 
-# Directories to always skip
 SKIP_DIRS = {
     '.git', 'node_modules', '.next', 'target', '__pycache__',
     '.gradle', 'build', 'dist', '.cache', '.pytest_cache',
     'tool-results', 'upload', 'SNAD-https',
 }
 
-# File extensions to skip (binaries/generated)
 SKIP_EXTS = {
     '.lock', '.sum', '.bin', '.png', '.jpg', '.jpeg', '.gif',
     '.ico', '.svg', '.woff', '.woff2', '.ttf', '.eot',
     '.pdf', '.zip', '.tar', '.gz', '.jar', '.class',
 }
 
-MAX_FILE_SIZE = 2_000_000  # 2MB
-
-# Allowlist file path
+MAX_FILE_SIZE = 2_000_000
 ALLOWLIST_FILE = "scripts/ci/secret-scan-allowlist.json"
 
+VALID_RULE_IDS = {r[0] for r in RULES} | {"*"}
+REQUIRED_ALLOWLIST_FIELDS = {"ruleId", "path", "reason", "owner", "approvalReference", "expirationDate"}
 
-def load_allowlist(repo_root: Path) -> list:
-    """Load the allowlist of approved false positives."""
+
+def load_allowlist(repo_root: Path):
+    """Load and validate allowlist. Fail-closed on any error."""
     allowlist_path = repo_root / ALLOWLIST_FILE
     if not allowlist_path.exists():
-        return []
+        return [], []
+    errors = []
     try:
         with open(allowlist_path) as f:
             data = json.load(f)
-        if not isinstance(data, list):
-            return []
-        # Validate each entry has required fields
-        valid = []
-        for entry in data:
-            if not isinstance(entry, dict):
+    except json.JSONDecodeError as e:
+        errors.append({"path": str(allowlist_path), "errorType": "MALFORMED_JSON", "message": str(e)})
+        return [], errors
+    except IOError as e:
+        errors.append({"path": str(allowlist_path), "errorType": "READ_ERROR", "message": str(e)})
+        return [], errors
+
+    if not isinstance(data, list):
+        errors.append({"path": str(allowlist_path), "errorType": "INVALID_SCHEMA", "message": "Allowlist must be a JSON array"})
+        return [], errors
+
+    valid = []
+    seen_refs = set()
+    for i, entry in enumerate(data):
+        if not isinstance(entry, dict):
+            errors.append({"path": str(allowlist_path), "errorType": "INVALID_ENTRY", "message": f"Entry {i} is not a dict"})
+            continue
+        missing = REQUIRED_ALLOWLIST_FIELDS - set(entry.keys())
+        if missing:
+            errors.append({"path": str(allowlist_path), "errorType": "MISSING_FIELD", "message": f"Entry {i} missing: {missing}"})
+            continue
+        if entry["ruleId"] not in VALID_RULE_IDS:
+            errors.append({"path": str(allowlist_path), "errorType": "UNKNOWN_RULE_ID", "message": f"Entry {i} unknown ruleId: {entry['ruleId']}"})
+            continue
+        if ".." in entry["path"] or entry["path"].startswith("/"):
+            errors.append({"path": str(allowlist_path), "errorType": "UNSAFE_PATH", "message": f"Entry {i} unsafe path: {entry['path']}"})
+            continue
+        ref = entry.get("approvalReference", "")
+        if ref in seen_refs:
+            errors.append({"path": str(allowlist_path), "errorType": "DUPLICATE_REF", "message": f"Entry {i} duplicate approvalReference: {ref}"})
+            continue
+        seen_refs.add(ref)
+        # Check expiration
+        try:
+            exp = datetime.strptime(entry["expirationDate"], "%Y-%m-%d")
+            if exp < datetime.now():
+                errors.append({"path": str(allowlist_path), "errorType": "EXPIRED_ENTRY", "message": f"Entry {i} expired: {entry['expirationDate']}"})
                 continue
-            if all(k in entry for k in ('ruleId', 'path', 'reason')):
-                valid.append(entry)
-        return valid
-    except (json.JSONDecodeError, IOError):
-        return []
+        except (ValueError, TypeError):
+            errors.append({"path": str(allowlist_path), "errorType": "INVALID_DATE", "message": f"Entry {i} invalid date: {entry.get('expirationDate')}"})
+            continue
+        valid.append(entry)
+    return valid, errors
 
 
 def is_allowlisted(finding: dict, allowlist: list) -> bool:
-    """Check if a finding matches an allowlist entry."""
+    """Check if a finding matches an allowlist entry using EXACT path matching."""
+    finding_path = PurePosixPath(finding["path"])
     for entry in allowlist:
-        rule_match = entry['ruleId'] == '*' or entry['ruleId'] == finding['ruleId']
-        path_match = entry['path'] in finding['path']
+        rule_match = entry["ruleId"] == "*" or entry["ruleId"] == finding["ruleId"]
+        # Exact path match — NO substring matching
+        entry_path = PurePosixPath(entry["path"])
+        # Match if finding path equals entry path, or finding is under entry path (for directory entries)
+        try:
+            finding_path.relative_to(entry_path)
+            path_match = True
+        except ValueError:
+            path_match = finding_path == entry_path
         if rule_match and path_match:
             return True
     return False
 
 
 def compute_fingerprint(path: str, line: int, rule_id: str, secret_sample: str) -> str:
-    """Compute a fingerprint for deduplication. Does NOT include the full secret."""
     h = hashlib.sha256(f"{path}:{line}:{rule_id}:{secret_sample[:8]}".encode()).hexdigest()
     return h[:16]
 
 
-def scan_file(filepath: Path, rules: list) -> list:
-    """Scan a single file for secrets. Returns list of findings."""
+def scan_file(filepath: Path, rules: list, scan_errors: list, repo_root: Path = None) -> list:
+    """Scan a single file. Records errors instead of silently passing."""
     findings = []
     try:
         content = filepath.read_text(encoding='utf-8', errors='ignore')
-    except Exception:
+    except Exception as e:
+        scan_errors.append({"path": str(filepath), "errorType": "READ_ERROR", "message": str(e)})
         return findings
+
+    # Use relative path if repo_root is provided
+    try:
+        rel_path = str(filepath.relative_to(repo_root)) if repo_root else str(filepath)
+    except ValueError:
+        rel_path = str(filepath)
 
     lines = content.splitlines()
     for i, line in enumerate(lines, 1):
         for rule_id, pattern, severity, description in rules:
-            matches = re.finditer(pattern, line)
-            for match in matches:
-                secret_value = match.group(0)
-                # For groups, use the captured group; otherwise use full match
-                secret_sample = match.group(1) if match.lastindex else secret_value
+            try:
+                matches = re.finditer(pattern, line)
+                for match in matches:
+                    secret_value = match.group(0)
+                    secret_sample = match.group(1) if match.lastindex else secret_value
+                    finding = {
+                        "ruleId": rule_id,
+                        "severity": severity,
+                        "description": description,
+                        "path": rel_path,
+                        "line": i,
+                        "fingerprint": compute_fingerprint(rel_path, i, rule_id, secret_sample),
+                        "secret": "REDACTED",
+                    }
+                    findings.append(finding)
+            except re.error as e:
+                scan_errors.append({"path": rel_path, "errorType": "REGEX_ERROR", "message": f"Rule {rule_id}: {e}"})
+                continue
+
+    # Multiline private keys
+    for rule_id, pattern, severity, description in rules:
+        if 'private' not in rule_id.lower():
+            continue
+        try:
+            for match in re.finditer(pattern, content):
+                line_num = content[:match.start()].count('\n') + 1
                 finding = {
                     "ruleId": rule_id,
                     "severity": severity,
                     "description": description,
-                    "path": str(filepath),
-                    "line": i,
-                    "fingerprint": compute_fingerprint(str(filepath), i, rule_id, secret_sample),
+                    "path": rel_path,
+                    "line": line_num,
+                    "fingerprint": compute_fingerprint(rel_path, line_num, rule_id, "multiline"),
                     "secret": "REDACTED",
                 }
                 findings.append(finding)
-
-    # Check for multiline private keys
-    for rule_id, pattern, severity, description in rules:
-        if 'private' not in rule_id.lower():
-            continue
-        for match in re.finditer(pattern, content):
-            line_num = content[:match.start()].count('\n') + 1
-            finding = {
-                "ruleId": rule_id,
-                "severity": severity,
-                "description": description,
-                "path": str(filepath),
-                "line": line_num,
-                "fingerprint": compute_fingerprint(str(filepath), line_num, rule_id, "multiline"),
-                "secret": "REDACTED",
-            }
-            findings.append(finding)
+        except re.error as e:
+            scan_errors.append({"path": rel_path, "errorType": "REGEX_ERROR", "message": f"Rule {rule_id}: {e}"})
 
     return findings
 
 
-def scan_repository(repo_root: Path) -> tuple:
-    """Scan entire repository. Returns (findings, files_scanned)."""
-    allowlist = load_allowlist(repo_root)
+def scan_repository(repo_root: Path):
+    """Scan repository. Returns (findings, files_scanned, scan_errors)."""
+    allowlist, allowlist_errors = load_allowlist(repo_root)
     all_findings = []
     files_scanned = 0
+    scan_errors = list(allowlist_errors)
 
     for f in repo_root.rglob('*'):
-        # Skip directories
         if not f.is_file():
             continue
-
-        # Skip excluded directories
         rel_parts = f.relative_to(repo_root).parts
         if any(d in SKIP_DIRS for d in rel_parts):
             continue
-
-        # Skip excluded extensions
         if f.suffix in SKIP_EXTS:
             continue
-
-        # Skip large files
         try:
             if f.stat().st_size > MAX_FILE_SIZE:
+                # Large files are skipped (policy decision), not errors
                 continue
-        except OSError:
+        except OSError as e:
+            scan_errors.append({"path": str(f), "errorType": "STAT_ERROR", "message": str(e)})
             continue
 
         files_scanned += 1
-        file_findings = scan_file(f, RULES)
-
-        # Filter allowlisted findings
+        file_findings = scan_file(f, RULES, scan_errors, repo_root)
         for finding in file_findings:
             if not is_allowlisted(finding, allowlist):
                 all_findings.append(finding)
 
-    return all_findings, files_scanned
+    return all_findings, files_scanned, scan_errors
 
 
-def generate_report(findings: list, files_scanned: int, repo_root: str,
-                    commit_sha: str = "", workflow_run_id: str = "") -> dict:
-    """Generate JSON report."""
+def generate_report(findings, files_scanned, scan_errors, repo_root, commit_sha="", workflow_run_id=""):
     now = datetime.now(timezone.utc).isoformat()
+    result = "FAIL" if findings or scan_errors else "PASS"
     return {
-        "scanner": "snad-python-scanner",
-        "scannerVersion": "1.0.0",
+        "scanner": "snad-policy-supplement",
+        "role": "defense-in-depth-current-tree-policy-check",
+        "historyScan": False,
+        "scannerVersion": "2.0.0",
         "commitSha": commit_sha,
         "workflowRunId": workflow_run_id,
         "startedAtUtc": now,
         "completedAtUtc": now,
-        "result": "FAIL" if findings else "PASS",
+        "result": result,
         "filesScanned": files_scanned,
         "commitsScanned": 0,
         "findingsCount": len(findings),
         "findings": findings,
+        "scanErrors": scan_errors,
     }
 
 
 def main():
     parser = argparse.ArgumentParser(description="SNAD Secret Scanner")
-    parser.add_argument("--repository-root", required=True, help="Path to repository root")
-    parser.add_argument("--report", required=True, help="Path to write JSON report")
-    parser.add_argument("--commit-sha", default="", help="Commit SHA for report")
-    parser.add_argument("--workflow-run-id", default="", help="Workflow run ID for report")
+    parser.add_argument("--repository-root", required=True)
+    parser.add_argument("--report", required=True)
+    parser.add_argument("--commit-sha", default="")
+    parser.add_argument("--workflow-run-id", default="")
     args = parser.parse_args()
 
     repo_root = Path(args.repository_root).resolve()
@@ -220,14 +257,13 @@ def main():
         sys.exit(1)
 
     print(f"Scanning repository: {repo_root}")
-    findings, files_scanned = scan_repository(repo_root)
+    findings, files_scanned, scan_errors = scan_repository(repo_root)
 
-    report = generate_report(findings, files_scanned, str(repo_root),
+    report = generate_report(findings, files_scanned, scan_errors, str(repo_root),
                              args.commit_sha, args.workflow_run_id)
 
-    # Write report
-    report_path = Path(args.report)
     try:
+        report_path = Path(args.report)
         report_path.parent.mkdir(parents=True, exist_ok=True)
         with open(report_path, 'w') as f:
             json.dump(report, f, indent=2)
@@ -236,18 +272,24 @@ def main():
         print(f"FATAL: Cannot write report: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Print summary
     print(f"Files scanned: {files_scanned}")
     print(f"Findings: {len(findings)}")
+    print(f"Scan errors: {len(scan_errors)}")
     print(f"Result: {report['result']}")
 
     if findings:
         print("\nFINDINGS (secrets REDACTED):")
         for f in findings:
             print(f"  [{f['severity']}] {f['ruleId']}: {f['path']}:{f['line']} — {f['description']}")
+    if scan_errors:
+        print("\nSCAN ERRORS:")
+        for e in scan_errors:
+            print(f"  [{e['errorType']}] {e['path']} — {e['message']}")
+
+    if findings or scan_errors:
         sys.exit(1)
     else:
-        print("PASS — 0 secrets found")
+        print("PASS — 0 secrets found, 0 scan errors")
         sys.exit(0)
 
 
