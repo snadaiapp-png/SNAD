@@ -1,71 +1,29 @@
 # SNAD | سند — Official Brand Assets
 
-**Version:** 1.0.0
-**Last Updated:** 2026-07-07
-**Status:** ACTIVE — official source of truth for SNAD brand assets
+**Status:** ACTIVE — immutable source of truth
 
-## Available Logo Files
+The only approved artwork is the owner-supplied **سند** logo. It must not be reconstructed, redrawn, retyped, recolored, stretched, cropped beyond the approved exports, or replaced by a generated SVG.
 
-| File | Format | Usage |
-|------|--------|-------|
-| snad-logo-primary.svg | SVG | Primary horizontal lockup — headers, nav bars, email signatures |
-| snad-logo-vertical.svg | SVG | Vertical lockup — mobile headers, sidebars, business cards |
-| snad-logo-white.svg | SVG | White version — dark backgrounds (#0E3D38 or darker) |
-| snad-logo-mono.svg | SVG | Monochrome (currentColor) — stamps, embossing, single-color print |
-| snad-app-icon.svg | SVG | Square app icon — favicons, home screen, social media |
-| snad-favicon.svg | SVG | Simplified 32x32 favicon — browser tabs |
+## Canonical files
 
-## Brand Colors
+| File | Purpose | SHA-256 |
+|---|---|---|
+| `snad-logo-official-primary.webp` | Optimized full lockup for login and large surfaces | `7d3220e2f37b1dd9ca9e635c671693c73856ae4b2adb31263d3491daa18c4786` |
+| `snad-logo-official-wordmark.webp` | Approved crop of the Arabic wordmark for compact headers | `406c537c2e537a0f80efd22b2271eddf77452c67b9444eae919ef61771a02403` |
 
-| Token | Hex | Usage |
-|-------|-----|-------|
-| --snad-color-brand-primary | #0E3D38 | Dark Petroleum Green |
-| --snad-color-brand-accent | #D4AF37 | Royal Polished Gold |
+The hashes are enforced by `scripts/ci/check-logo-governance.py`. Any byte-level change requires an approved SNAD Brand Change Request and an intentional hash update in the same reviewed pull request.
 
-NEVER use raw hex values in components. Always reference SDS tokens.
+## Usage
 
-## Logo Usage Rules
+All application code must render logos through `SnadLogo`. Direct paths and raw `img` usage are prohibited outside that component and visual-governance tests.
 
-### Minimum Sizes
-- Digital (primary horizontal): 120px
-- Digital (vertical): 80px
-- Digital (app icon): 32px
-- Print (primary): 30mm
-- Favicon: 16px
+- Login: full official lockup.
+- Global authenticated header: official wordmark crop.
+- Light and dark themes: preserve the original artwork; use an appropriate surface behind it rather than altering the logo.
 
-### Clear Space
-Minimum 1x logo height on all sides.
+## Official colors
 
-### Prohibited Modifications
-- Do NOT change colors, proportions, or add effects
-- Do NOT stretch, rotate, compress, or crop
-- Do NOT change the gold accent dot position
-- Do NOT use low-resolution raster versions
+- Dark Petroleum Green: `#0E3D38`
+- Royal Polished Gold: `#D4AF37`
 
-### Background Selection
-- White/light: snad-logo-primary.svg
-- Petroleum green: snad-logo-white.svg
-- Dark photographic: snad-logo-white.svg
-- Single-color print: snad-logo-mono.svg
-
-## Icon Mark
-Rounded square (petroleum green) + stylized Arabic "س" (gold) + gold accent dot.
-
-## Typography
-- Latin "SNAD": Inter, weight 800
-- Arabic "سند": Tajawal, weight 700
-
-## File Format Policy
-- SVG: canonical (all digital)
-- PNG: 1x/2x/3x exports for legacy (email, old browsers)
-- PDF: print
-- ICO: legacy favicons (from snad-favicon.svg)
-
-## Brand Change Process
-See apps/web/design-system/documentation/BRAND_CHANGE_PROCESS.md
-
-## Cross-References
-- Logo usage: apps/web/design-system/documentation/LOGO_USAGE.md
-- Brand governance: apps/web/design-system/documentation/BRAND_GOVERNANCE.md
-- Design tokens: apps/web/design-system/tokens/theme.css
-- Component library: apps/web/components/sds/
+Use SDS tokens in product UI. Raw values above are documented only as brand references.
