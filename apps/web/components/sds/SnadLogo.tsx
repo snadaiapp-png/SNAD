@@ -38,44 +38,41 @@ export interface SnadLogoProps {
 
 const DEFAULT_ALT = "شعار سند — SNAD Business Operating System";
 
-/**
- * Canonical artwork exported directly from the owner-approved logo image.
- * No SVG reconstruction or substitute mark is permitted.
- */
+/** Canonical artwork exported directly from the owner-approved logo image. */
 const ASSETS: Record<SnadLogoVariant, {
   src: string;
   width: number;
   height: number;
 }> = {
   primary: {
-    src: "/assets/brand/snad-logo-official-primary.png",
-    width: 1230,
-    height: 630,
+    src: "/assets/brand/snad-logo-official-primary.webp",
+    width: 480,
+    height: 246,
   },
   horizontal: {
-    src: "/assets/brand/snad-logo-official-primary.png",
-    width: 1230,
-    height: 630,
+    src: "/assets/brand/snad-logo-official-primary.webp",
+    width: 480,
+    height: 246,
   },
   compact: {
-    src: "/assets/brand/snad-logo-official-wordmark.png",
-    width: 940,
-    height: 440,
+    src: "/assets/brand/snad-logo-official-wordmark.webp",
+    width: 280,
+    height: 131,
   },
   white: {
-    src: "/assets/brand/snad-logo-official-primary.png",
-    width: 1230,
-    height: 630,
+    src: "/assets/brand/snad-logo-official-primary.webp",
+    width: 480,
+    height: 246,
   },
   monochrome: {
-    src: "/assets/brand/snad-logo-official-wordmark.png",
-    width: 940,
-    height: 440,
+    src: "/assets/brand/snad-logo-official-wordmark.webp",
+    width: 280,
+    height: 131,
   },
   "app-icon": {
-    src: "/assets/brand/snad-logo-official-wordmark.png",
-    width: 940,
-    height: 440,
+    src: "/assets/brand/snad-logo-official-wordmark.webp",
+    width: 280,
+    height: 131,
   },
 };
 
