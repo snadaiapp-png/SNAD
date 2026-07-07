@@ -49,8 +49,8 @@ SKIP_EXTS = {
 MAX_FILE_SIZE = 2_000_000
 ALLOWLIST_FILE = "scripts/ci/secret-scan-allowlist.json"
 
-VALID_RULE_IDS = {r[0] for r in RULES} | {"*"}
-REQUIRED_ALLOWLIST_FIELDS = {"ruleId", "path", "reason", "owner", "approvalReference", "expirationDate"}
+VALID_RULE_IDS = {r[0] for r in RULES}
+REQUIRED_ALLOWLIST_FIELDS = {"ruleId", "path", "fingerprint", "reason", "owner", "approvalReference", "expirationDate"}
 
 
 def load_allowlist(repo_root: Path):
@@ -108,19 +108,13 @@ def load_allowlist(repo_root: Path):
 
 
 def is_allowlisted(finding: dict, allowlist: list) -> bool:
-    """Check if a finding matches an allowlist entry using EXACT path matching."""
+    """Check if a finding matches an allowlist entry using EXACT path + ruleId + fingerprint."""
     finding_path = PurePosixPath(finding["path"])
     for entry in allowlist:
-        rule_match = entry["ruleId"] == "*" or entry["ruleId"] == finding["ruleId"]
-        # Exact path match — NO substring matching
         entry_path = PurePosixPath(entry["path"])
-        # Match if finding path equals entry path, or finding is under entry path (for directory entries)
-        try:
-            finding_path.relative_to(entry_path)
-            path_match = True
-        except ValueError:
-            path_match = finding_path == entry_path
-        if rule_match and path_match:
+        if (finding_path == entry_path
+            and finding["ruleId"] == entry["ruleId"]
+            and finding.get("fingerprint") == entry.get("fingerprint")):
             return True
     return False
 
@@ -196,6 +190,7 @@ def scan_repository(repo_root: Path):
     all_findings = []
     files_scanned = 0
     scan_errors = list(allowlist_errors)
+    skipped_files = []
 
     for f in repo_root.rglob('*'):
         if not f.is_file():
@@ -207,7 +202,8 @@ def scan_repository(repo_root: Path):
             continue
         try:
             if f.stat().st_size > MAX_FILE_SIZE:
-                # Large files are skipped (policy decision), not errors
+                skipped_files.append({"path": str(f.relative_to(repo_root)), "reason": "FILE_TOO_LARGE", "size": f.stat().st_size})
+                scan_errors.append({"path": str(f), "errorType": "FILE_TOO_LARGE", "message": "Skipped: must be scanned or explicitly approved"})
                 continue
         except OSError as e:
             scan_errors.append({"path": str(f), "errorType": "STAT_ERROR", "message": str(e)})
@@ -219,10 +215,10 @@ def scan_repository(repo_root: Path):
             if not is_allowlisted(finding, allowlist):
                 all_findings.append(finding)
 
-    return all_findings, files_scanned, scan_errors
+    return all_findings, files_scanned, scan_errors, skipped_files
 
 
-def generate_report(findings, files_scanned, scan_errors, repo_root, commit_sha="", workflow_run_id=""):
+def generate_report(findings, files_scanned, scan_errors, skipped_files, repo_root, commit_sha="", workflow_run_id=""):
     now = datetime.now(timezone.utc).isoformat()
     result = "FAIL" if findings or scan_errors else "PASS"
     return {
@@ -240,6 +236,7 @@ def generate_report(findings, files_scanned, scan_errors, repo_root, commit_sha=
         "findingsCount": len(findings),
         "findings": findings,
         "scanErrors": scan_errors,
+        "skippedFiles": skipped_files,
     }
 
 
@@ -257,9 +254,9 @@ def main():
         sys.exit(1)
 
     print(f"Scanning repository: {repo_root}")
-    findings, files_scanned, scan_errors = scan_repository(repo_root)
+    findings, files_scanned, scan_errors, skipped_files = scan_repository(repo_root)
 
-    report = generate_report(findings, files_scanned, scan_errors, str(repo_root),
+    report = generate_report(findings, files_scanned, scan_errors, skipped_files, str(repo_root),
                              args.commit_sha, args.workflow_run_id)
 
     try:
