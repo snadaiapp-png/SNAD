@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - stage0910-unified
+      - stage0910-unified-rebased
     paths:
       - '.github/workflows/nvd-snapshot-publisher.yml'
       - 'scripts/security/**'
