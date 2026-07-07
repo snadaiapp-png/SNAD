@@ -102,7 +102,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Installing backend dependencies..."
-          mvn --batch-mode --no-transfer-progress clean verify -DskipTests -q || true
+          mvn --batch-mode --no-transfer-progress dependency:go-offline
           echo "Backend dependencies resolved."
 
       # --- Frontend Checks ---
@@ -196,9 +196,11 @@ jobs:
           set -euo pipefail
           echo "Running secret scan on current tree..."
           # Use the existing secret scan approach
-          if [ -f scripts/ci/check_workflow_security.py ]; then
-            python3 scripts/ci/check_workflow_security.py || true
+          if [ ! -f scripts/ci/check_workflow_security.py ]; then
+            echo "::error::Workflow security script not found: scripts/ci/check_workflow_security.py"
+            exit 1
           fi
+          python3 scripts/ci/check_workflow_security.py
           echo "Secret scan complete."
 
       - name: Workflow Security Policy
