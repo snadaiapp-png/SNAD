@@ -18,7 +18,8 @@ interface AuthMetricPayload {
 }
 
 export function nowMs(): number {
-  return typeof performance !== "undefined"" ? performance.now() : Date.now();
+  if (typeof performance === "undefined") return Date.now();
+  return performance.now();
 }
 
 export function emitAuthMetric(payload: AuthMetricPayload): void {
