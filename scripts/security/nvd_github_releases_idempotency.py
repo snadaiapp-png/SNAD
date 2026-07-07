@@ -62,7 +62,13 @@ def _remove_named_assets(
     release: dict[str, Any],
     asset_name: str,
 ) -> dict[str, Any]:
-    """Delete every matching asset; a concurrent 404 is already-success."""
+    """Delete every matching asset; a concurrent 404 is already-success.
+
+    GitHub's delete-release-asset endpoint is ``releases/assets/{asset_id}``.
+    It does not include the release ID. Using ``releases/{release_id}/assets``
+    silently left the mutable ``latest.json`` asset in place and caused the
+    replacement upload to fail with HTTP 422 ``already_exists``.
+    """
     release_id = release.get("id")
     if not release_id:
         raise StorageBackendError("latest-pointer release response has no id")
@@ -74,7 +80,7 @@ def _remove_named_assets(
         if not asset_id:
             continue
         try:
-            backend._request("DELETE", f"releases/{release_id}/assets/{asset_id}")
+            backend._request("DELETE", f"releases/assets/{asset_id}")
         except SnapshotNotFoundError:
             pass
 
