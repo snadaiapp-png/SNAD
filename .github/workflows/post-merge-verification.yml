@@ -254,7 +254,7 @@ jobs:
               http://127.0.0.1:8082/actuator/health
           )"
 
-          python3 scripts/ci/validate_backend_smoke.py \
+          python3 ${{ github.workspace }}/scripts/ci/validate_backend_smoke.py \
             --health-file "$RUNNER_TEMP/backend-health.json" \
             --metadata-file "$RUNNER_TEMP/backend-smoke-metadata.json" \
             --http-status "$HTTP_STATUS" \
@@ -317,7 +317,7 @@ jobs:
               http://127.0.0.1:3001/auth/login
           )"
 
-          python3 scripts/ci/validate_frontend_smoke.py \
+          python3 ${{ github.workspace }}/scripts/ci/validate_frontend_smoke.py \
             --html-file "$RUNNER_TEMP/frontend-auth.html" \
             --metadata-file "$RUNNER_TEMP/frontend-smoke-metadata.json" \
             --http-status "$HTTP_STATUS" \
