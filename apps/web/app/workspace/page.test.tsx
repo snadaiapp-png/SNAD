@@ -6,6 +6,9 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthProvider } from "@/lib/auth/auth-provider";
+import { ThemeProvider } from "@/lib/theme/ThemeProvider";
+import { I18nProvider } from "@/lib/i18n/I18nProvider";
+import { TenantContextProvider } from "@/lib/auth/tenant-context";
 import WorkspacePage from "./page";
 
 const { authApiMock, pushMock } = vi.hoisted(() => ({
@@ -70,7 +73,7 @@ describe("WorkspacePage", () => {
 
   it("protects the route from anonymous users (redirects to /)", async () => {
     authApiMock.refresh.mockRejectedValue(new Error("no session"));
-    render(<AuthProvider><WorkspacePage /></AuthProvider>);
+    render(<ThemeProvider><I18nProvider><AuthProvider><TenantContextProvider><WorkspacePage /></TenantContextProvider></AuthProvider></I18nProvider></ThemeProvider>);
     await waitFor(() => {
       expect(pushMock).toHaveBeenCalledWith("/");
     });
@@ -83,7 +86,7 @@ describe("WorkspacePage", () => {
       user: defaultUser,
     });
     authApiMock.me.mockResolvedValue(defaultMe);
-    render(<AuthProvider><WorkspacePage /></AuthProvider>);
+    render(<ThemeProvider><I18nProvider><AuthProvider><TenantContextProvider><WorkspacePage /></TenantContextProvider></AuthProvider></I18nProvider></ThemeProvider>);
     await waitFor(() => {
       expect(screen.getByText("Admin User")).toBeInTheDocument();
     });
@@ -99,7 +102,7 @@ describe("WorkspacePage", () => {
     });
     authApiMock.me.mockResolvedValue(defaultMe);
     authApiMock.logout.mockResolvedValue(undefined);
-    render(<AuthProvider><WorkspacePage /></AuthProvider>);
+    render(<ThemeProvider><I18nProvider><AuthProvider><TenantContextProvider><WorkspacePage /></TenantContextProvider></AuthProvider></I18nProvider></ThemeProvider>);
     const logoutButton = await screen.findByRole("button", { name: "تسجيل الخروج" });
     logoutButton.click();
     await waitFor(() => {
@@ -117,7 +120,7 @@ describe("WorkspacePage", () => {
       user: defaultUser,
     });
     authApiMock.me.mockResolvedValue(defaultMe);
-    const { container } = render(<AuthProvider><WorkspacePage /></AuthProvider>);
+    const { container } = render(<ThemeProvider><I18nProvider><AuthProvider><TenantContextProvider><WorkspacePage /></TenantContextProvider></AuthProvider></I18nProvider></ThemeProvider>);
     await waitFor(() => {
       expect(screen.getByText("Admin User")).toBeInTheDocument();
     });

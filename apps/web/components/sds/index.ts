@@ -59,3 +59,8 @@ export {
   type SnadLogoSize,
   type SnadLogoTheme,
 } from './SnadLogo';
+
+export {
+  LanguageSwitcher,
+  ThemeSwitcher,
+} from './switchers';

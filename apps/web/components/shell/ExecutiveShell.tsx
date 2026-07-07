@@ -39,7 +39,7 @@
 
 import { forwardRef, type ReactNode } from 'react';
 
-import { SnadLogo } from '@/components/sds';
+import { SnadLogo, LanguageSwitcher, ThemeSwitcher } from '@/components/sds';
 import styles from './ExecutiveShell.module.css';
 
 export interface ExecutiveShellProps {
@@ -131,7 +131,7 @@ export const ExecutiveShell = forwardRef<HTMLElement, ExecutiveShellProps>(
               </div>
             ) : null}
 
-            {/* Inline-end cluster: search, notifications, AI, profile */}
+            {/* Inline-end cluster: search, notifications, AI, language, theme, profile */}
             <div className={styles.endCluster}>
               {search ? (
                 <div className={styles.searchSlot}>{search}</div>
@@ -142,6 +142,14 @@ export const ExecutiveShell = forwardRef<HTMLElement, ExecutiveShellProps>(
               {aiAssistant ? (
                 <div className={styles.iconSlot}>{aiAssistant}</div>
               ) : null}
+              {/* Language and theme controls are always present so users can
+                  switch locale/appearance from any authenticated surface. */}
+              <div className={styles.iconSlot}>
+                <LanguageSwitcher />
+              </div>
+              <div className={styles.iconSlot}>
+                <ThemeSwitcher />
+              </div>
               {userProfile ? (
                 <div className={styles.profileSlot}>{userProfile}</div>
               ) : null}

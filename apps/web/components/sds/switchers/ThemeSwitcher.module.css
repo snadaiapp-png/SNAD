@@ -1,0 +1,61 @@
+/*
+ * SNAD ThemeSwitcher — styles
+ * ----------------------------------------------------------------------------
+ * All visual values reference --snad-* tokens. NO hardcoded colors.
+ * Layout uses logical properties so the switcher renders identically in
+ * RTL and LTR.
+ *
+ * Tokens used:
+ *   --snad-color-surface-primary     (default background)
+ *   --snad-color-border-subtle       (default border)
+ *   --snad-color-border-default      (hover border)
+ *   --snad-color-text-secondary      (default label)
+ *   --snad-color-text-primary        (hover label)
+ *   --snad-focus-ring                (focus outline)
+ *   --snad-radius-full               (pill shape)
+ */
+
+.button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 36px;
+  min-width: 44px;
+  padding-block: 6px;
+  padding-inline: 10px;
+  border: 1px solid var(--snad-color-border-subtle);
+  border-radius: var(--snad-radius-full, 9999px);
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-secondary);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease;
+}
+
+.button:hover {
+  color: var(--snad-color-text-primary);
+  border-color: var(--snad-color-border-default);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--snad-focus-ring);
+  outline-offset: 2px;
+}
+
+.label {
+  /* Hidden on small screens, visible on >=640px */
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .label {
+    display: inline;
+  }
+}

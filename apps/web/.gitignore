@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Playwright test artifacts (generated, not committed)
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/playwright/.cache/
