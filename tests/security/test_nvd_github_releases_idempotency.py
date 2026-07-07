@@ -30,6 +30,7 @@ class FakeGitHubReleasesBackend(GitHubReleasesBackend):
         self.upload_422_once = upload_422_once
         self.upload_attempts = 0
         self.deleted_assets = 0
+        self.delete_paths = []
         self.stored_bytes = b""
 
     def _release(self):
@@ -66,7 +67,8 @@ class FakeGitHubReleasesBackend(GitHubReleasesBackend):
         if method == "GET" and path == "releases/7":
             return self._release()
 
-        if method == "DELETE" and path == "releases/7/assets/99":
+        if method == "DELETE" and path == "releases/assets/99":
+            self.delete_paths.append(path)
             self.deleted_assets += 1
             self.asset_exists = False
             if self.delete_404_once:
@@ -97,6 +99,16 @@ def pointer():
         "archive_sha256": "a" * 64,
         "manifest_sha256": "b" * 64,
     }
+
+
+def test_delete_uses_github_release_asset_endpoint():
+    backend = FakeGitHubReleasesBackend()
+
+    promote_latest_pointer_idempotent(backend, pointer())
+
+    assert backend.delete_paths == ["releases/assets/99"]
+    assert backend.deleted_assets == 1
+    assert backend.upload_attempts == 1
 
 
 def test_delete_404_is_treated_as_already_successful():
@@ -133,6 +145,7 @@ def test_duplicate_asset_422_is_cleaned_and_retried_once():
 
     assert backend.upload_attempts == 2
     assert backend.deleted_assets == 1
+    assert backend.delete_paths == ["releases/assets/99"]
     assert json.loads(backend.stored_bytes) == pointer()
 
 
