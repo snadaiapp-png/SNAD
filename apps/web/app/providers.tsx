@@ -1,5 +1,6 @@
 "use client";
 
+import "@/lib/api/unauthorized-handler-compat";
 import type { ReactNode } from "react";
 import { AuthProvider } from "@/lib/auth/auth-provider";
 import { TenantContextProvider } from "@/lib/auth/tenant-context";
