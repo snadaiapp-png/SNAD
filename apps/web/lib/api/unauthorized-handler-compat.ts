@@ -1,14 +1,19 @@
-import { ApiClient } from "./client";
+export {};
 
-declare module "./client" {
-  interface ApiClient {
-    /** @deprecated Temporary compatibility for a historical misspelling. */
-    setUrauthorizedHandler(handler: (() => Promise<boolean>) | null): void;
+declare global {
+  interface Object {
+    /** @deprecated Compatibility for a historical method-name typo. */
+    setUrauthorizedHandler?: (handler: (() => Promise<boolean>) | null) => void;
   }
 }
 
-ApiClient.prototype.setUrauthorizedHandler = function setUrauthorizedHandler(
-  handler: (() => Promise<boolean>) | null,
-): void {
-  this.setUnauthorizedHandler(handler);
-};
+if (!("setUrauthorizedHandler" in Object.prototype)) {
+  Object.defineProperty(Object.prototype, "setUrauthorizedHandler", {
+    configurable: true,
+    enumerable: false,
+    writable: true,
+    value(this: { setUnauthorizedHandler?: (handler: (() => Promise<boolean>) | null) => void }, handler: (() => Promise<boolean>) | null) {
+      this.setUnauthorizedHandler?.(handler);
+    },
+  });
+}
