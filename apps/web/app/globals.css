@@ -3,15 +3,15 @@
  *  SNAD Web App — global stylesheet
  * ----------------------------------------------------------------------------
  *  IMPORT ORDER (DO NOT REORDER)
- *    1. tailwindcss                       (Tailwind CSS 4 base)
- *    2. ./design-system/tokens/theme.css  (SDS 2.0 canonical tokens — light,
- *                                          dark, OS-prefers fallback)
- *    3. ./snad-tokens.css                 (legacy v1.x compatibility shim)
- *    4. ./snad-tailwind.css               (Tailwind @theme color map → SDS)
+ *    1. tailwindcss                          (Tailwind CSS 4 base)
+ *    2. ../design-system/tokens/theme.css    (SDS 2.0 canonical tokens — light,
+ *                                             dark, OS-prefers fallback)
+ *    3. ./snad-tokens.css                    (legacy v1.x compatibility shim)
+ *    4. ./snad-tailwind.css                  (Tailwind @theme color map → SDS)
  * ============================================================================
  */
 @import "tailwindcss";
-@import "./design-system/tokens/theme.css";
+@import "../design-system/tokens/theme.css";
 @import "./snad-tokens.css";
 @import "./snad-tailwind.css";
 
