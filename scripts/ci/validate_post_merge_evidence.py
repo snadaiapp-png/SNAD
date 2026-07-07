@@ -38,6 +38,7 @@ CRITICAL_CHECK_KEYS = {
     "sds_compliance",
     "logo_governance",
     "brand_name",
+    "i18n_keys",
     "performance_budget",
     "backend_compile",
     "backend_tests",
