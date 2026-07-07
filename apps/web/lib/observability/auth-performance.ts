@@ -18,7 +18,7 @@ interface AuthMetricPayload {
 }
 
 export function nowMs(): number {
-  return typeof performance !== "undefined" ? performance.now() : Date.now();
+  return typeof performance !== "undefined"" ? performance.now() : Date.now();
 }
 
 export function emitAuthMetric(payload: AuthMetricPayload): void {
@@ -45,7 +45,7 @@ export function emitAuthMetric(payload: AuthMetricPayload): void {
       body,
       keepalive: true,
       credentials: "same-origin",
-    });
+    }).catch(() => undefined);
   } catch {
     // Telemetry must never interrupt authentication.
   }
