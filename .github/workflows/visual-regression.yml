@@ -1,0 +1,60 @@
+name: SNAD Visual Regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - ".github/workflows/visual-regression.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: visual-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  visual-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install application dependencies
+        run: npm ci
+
+      - name: Install pinned Playwright runner
+        run: |
+          npm install --no-save --no-package-lock @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+
+      - name: Build application
+        run: npm run build
+
+      - name: Run visual regression suite
+        env:
+          UPDATE_SNAPSHOTS: "1"
+        run: npx playwright test --config=playwright.config.ts
+
+      - name: Upload visual snapshots and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snad-visual-regression-${{ github.run_id }}
+          path: |
+            apps/web/e2e/__screenshots__/
+            apps/web/test-results/
+            apps/web/playwright-report/
+          if-no-files-found: warn
+          retention-days: 14
