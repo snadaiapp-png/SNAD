@@ -6,19 +6,6 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * Response body for {@code POST /api/v1/auth/login} and
- * {@code POST /api/v1/auth/refresh}.
- *
- * <p>Contains the short-lived access JWT, the access token's expiry
- * time, and basic user identity (no sensitive data).</p>
- *
- * <p><strong>The refresh token is NOT included in the JSON response.</strong>
- * It is set exclusively as an HttpOnly cookie by the controller (BFF pattern).
- * The {@code refreshToken} field exists only for internal controller use
- * (to set the cookie) and is annotated with {@code @JsonIgnore} to ensure
- * it is never serialized to JSON.</p>
- */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class AuthResponse {
 
@@ -27,6 +14,7 @@ public class AuthResponse {
     private String refreshToken;
     private Instant expiresAt;
     private AuthUser user;
+    private MeResponse profile;
 
     public AuthResponse() {
     }
@@ -41,7 +29,6 @@ public class AuthResponse {
     public String getAccessToken() { return accessToken; }
     public void setAccessToken(String accessToken) { this.accessToken = accessToken; }
 
-    /** Internal-only — never serialized to JSON. Used by the controller to set the HttpOnly cookie. */
     public String getRefreshToken() { return refreshToken; }
     public void setRefreshToken(String refreshToken) { this.refreshToken = refreshToken; }
 
@@ -51,10 +38,9 @@ public class AuthResponse {
     public AuthUser getUser() { return user; }
     public void setUser(AuthUser user) { this.user = user; }
 
-    /**
-     * Minimal user identity included in auth responses.
-     * Never includes password hash or other sensitive data.
-     */
+    public MeResponse getProfile() { return profile; }
+    public void setProfile(MeResponse profile) { this.profile = profile; }
+
     public static class AuthUser {
         private UUID id;
         private UUID tenantId;
