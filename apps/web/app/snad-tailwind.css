@@ -1,30 +1,152 @@
+/*
+ * ============================================================================
+ *  SNAD Design System — Tailwind CSS 4 integration
+ * ----------------------------------------------------------------------------
+ *  PURPOSE
+ *  -------
+ *  Bridges the SNAD design tokens (defined in
+ *  `design-system/tokens/theme.css`) into Tailwind CSS 4's `@theme` color
+ *  system so utility classes like `bg-primary`, `text-brand`, `border-default`
+ *  resolve to SDS semantic tokens.
+ *
+ *  IMPORT ORDER
+ *  -----------
+ *  `apps/web/app/globals.css` must import in this exact order:
+ *
+ *    1. `tailwindcss`                  (Tailwind base)
+ *    2. `./design-system/tokens/theme.css`  (SDS tokens — NEW source of truth)
+ *    3. `./snad-tokens.css`            (legacy aliases — kept for backward
+ *                                       compatibility with SDS v1.x consumers)
+ *    4. `./snad-tailwind.css`          (this file — Tailwind @theme map)
+ *
+ *  RULES
+ *  -----
+ *  • No raw color values in this file. Every entry references a `--snad-*` var.
+ *  • New utilities use the SDS semantic naming. Legacy `--color-brand-*`
+ *    / `--color-teal-*` / `--color-slate-*` aliases remain so existing
+ *    Tailwind utility usage (`text-teal-700`, `bg-slate-50`, …) keeps working.
+ * ============================================================================
+ */
+
+@import "./design-system/tokens/theme.css";
+
 @theme inline {
-  --color-background: var(--snad-surface-canvas);
-  --color-foreground: var(--snad-text-primary);
-  --color-brand-primary: var(--snad-brand-primary);
-  --color-brand-primary-hover: var(--snad-brand-primary-hover);
-  --color-brand-gold: var(--snad-brand-gold);
-  --color-brand-gold-soft: var(--snad-brand-gold-soft);
-  --color-teal-50: var(--snad-surface-secondary);
-  --color-teal-100: var(--snad-border-subtle);
-  --color-teal-200: var(--snad-border-default);
-  --color-teal-400: var(--snad-focus-ring);
-  --color-teal-700: var(--snad-brand-primary);
-  --color-teal-800: var(--snad-brand-primary-hover);
-  --color-teal-900: var(--snad-surface-inverse);
-  --color-teal-950: var(--snad-surface-inverse);
-  --color-slate-50: var(--snad-surface-secondary);
-  --color-slate-100: var(--snad-border-subtle);
-  --color-slate-200: var(--snad-border-default);
-  --color-slate-500: var(--snad-text-muted);
-  --color-slate-600: var(--snad-text-secondary);
-  --color-slate-900: var(--snad-text-primary);
-  --color-emerald-50: var(--snad-success-soft);
-  --color-emerald-400: var(--snad-success);
-  --color-emerald-700: var(--snad-success);
-  --color-amber-50: var(--snad-warning-soft);
-  --color-amber-700: var(--snad-warning);
-  --color-red-50: var(--snad-error-soft);
-  --color-red-700: var(--snad-error);
-  --font-sans: var(--snad-font-body);
+  /* ---- Semantic brand color utilities -------------------------------- */
+  --color-brand-primary:         var(--snad-color-brand-primary);
+  --color-brand-primary-hover:   var(--snad-color-action-primary-hover);
+  --color-brand-primary-active:  var(--snad-color-action-primary-active);
+  --color-brand-accent:          var(--snad-color-brand-accent);
+  --color-brand-accent-hover:    var(--snad-color-action-accent-hover);
+  --color-brand-petroleum-500:   var(--snad-color-petroleum-500);
+  --color-brand-gold:            var(--snad-color-brand-accent);
+  --color-brand-gold-soft:       var(--snad-color-gold-200);
+
+  /* ---- Semantic background utilities --------------------------------- */
+  --color-background:            var(--snad-color-background-default);
+  --color-background-elevated:   var(--snad-color-background-elevated);
+  --color-surface:               var(--snad-color-surface-primary);
+  --color-surface-primary:       var(--snad-color-surface-primary);
+  --color-surface-secondary:     var(--snad-color-surface-secondary);
+
+  /* ---- Semantic text utilities --------------------------------------- */
+  --color-foreground:            var(--snad-color-text-primary);
+  --color-text-primary:          var(--snad-color-text-primary);
+  --color-text-secondary:        var(--snad-color-text-secondary);
+  --color-text-muted:            var(--snad-color-text-muted);
+  --color-text-inverse:          var(--snad-color-text-inverse);
+  --color-text-brand:            var(--snad-color-text-brand);
+
+  /* ---- Semantic border utilities ------------------------------------- */
+  --color-border-default:        var(--snad-color-border-default);
+  --color-border-subtle:         var(--snad-color-border-subtle);
+
+  /* ---- Semantic action utilities ------------------------------------- */
+  --color-action-primary:        var(--snad-color-action-primary);
+  --color-action-primary-hover:  var(--snad-color-action-primary-hover);
+  --color-action-primary-active: var(--snad-color-action-primary-active);
+  --color-action-accent:         var(--snad-color-action-accent);
+  --color-action-accent-hover:   var(--snad-color-action-accent-hover);
+
+  /* ---- Status colors ------------------------------------------------- */
+  --color-success:      var(--snad-color-success);
+  --color-success-soft: var(--snad-color-success-soft);
+  --color-warning:      var(--snad-color-warning);
+  --color-warning-soft: var(--snad-color-warning-soft);
+  --color-error:        var(--snad-color-error);
+  --color-error-soft:   var(--snad-color-error-soft);
+  --color-info:         var(--snad-color-info);
+  --color-info-soft:    var(--snad-color-info-soft);
+  --color-pending:      var(--snad-color-pending);
+
+  /* ---- Status / disabled --------------------------------------------- */
+  --color-disabled:            var(--snad-color-disabled);
+  --color-disabled-background: var(--snad-color-disabled-background);
+
+  /* ====================================================================
+   *  Legacy aliases (Tailwind palette shims)
+   *  These map SDS v1.x Tailwind utilities to SDS 2.x tokens so existing
+   *  code keeps working without rewrite. Do NOT use these aliases in new
+   *  code — prefer the semantic names above.
+   * ==================================================================== */
+  --color-teal-50:  var(--snad-color-surface-secondary);
+  --color-teal-100: var(--snad-color-border-subtle);
+  --color-teal-200: var(--snad-color-border-default);
+  --color-teal-400: var(--snad-color-focus-ring);
+  --color-teal-700: var(--snad-color-brand-primary);
+  --color-teal-800: var(--snad-color-action-primary-hover);
+  --color-teal-900: var(--snad-color-petroleum-900);
+  --color-teal-950: var(--snad-color-petroleum-950);
+
+  --color-slate-50:  var(--snad-color-surface-secondary);
+  --color-slate-100: var(--snad-color-border-subtle);
+  --color-slate-200: var(--snad-color-border-default);
+  --color-slate-500: var(--snad-color-text-muted);
+  --color-slate-600: var(--snad-color-text-secondary);
+  --color-slate-900: var(--snad-color-text-primary);
+
+  --color-emerald-50:  var(--snad-color-success-soft);
+  --color-emerald-400: var(--snad-color-success);
+  --color-emerald-700: var(--snad-color-success);
+
+  --color-amber-50: var(--snad-color-warning-soft);
+  --color-amber-700: var(--snad-color-warning);
+
+  --color-red-50:  var(--snad-color-error-soft);
+  --color-red-700: var(--snad-color-error);
+
+  --color-blue-50:  var(--snad-color-info-soft);
+  --color-blue-700: var(--snad-color-info);
+
+  /* ---- Font utilities ------------------------------------------------ */
+  --font-sans:    var(--snad-font-body);
+  --font-arabic:  var(--snad-font-arabic);
+  --font-latin:   var(--snad-font-latin);
+  --font-display: var(--snad-font-display);
+  --font-body:    var(--snad-font-body);
+  --font-label:   var(--snad-font-label);
+  --font-numeric: var(--snad-font-numeric);
+
+  /* ---- Radius utilities ---------------------------------------------- */
+  --radius-sm:   var(--snad-radius-sm);
+  --radius-md:   var(--snad-radius-md);
+  --radius-lg:   var(--snad-radius-lg);
+  --radius-xl:   var(--snad-radius-xl);
+  --radius-2xl:  var(--snad-radius-2xl);
+  --radius-full: var(--snad-radius-full);
+
+  /* ---- Shadow utilities ---------------------------------------------- */
+  --shadow-sm: var(--snad-shadow-sm);
+  --shadow-md: var(--snad-shadow-md);
+  --shadow-lg: var(--snad-shadow-lg);
+  --shadow-xl: var(--snad-shadow-xl);
+
+  /* ---- Z-index utilities --------------------------------------------- */
+  --z-dropdown:       var(--snad-z-dropdown);
+  --z-sticky:         var(--snad-z-sticky);
+  --z-fixed:          var(--snad-z-fixed);
+  --z-modal-backdrop: var(--snad-z-modal-backdrop);
+  --z-modal:          var(--snad-z-modal);
+  --z-popover:        var(--snad-z-popover);
+  --z-tooltip:        var(--snad-z-tooltip);
+  --z-toast:          var(--snad-z-toast);
 }

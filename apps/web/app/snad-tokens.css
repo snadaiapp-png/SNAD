@@ -1,86 +1,114 @@
-/* SNAD Design Tokens v1.1 — source of truth for active UI work. */
+/*
+ * ============================================================================
+ *  SNAD Design Tokens v1.1 — LEGACY COMPATIBILITY SHIM
+ * ----------------------------------------------------------------------------
+ *  STATUS
+ *  -----
+ *  ⚠️  DEPRECATED — kept only for backward compatibility with components
+ *  written against SDS v1.x. The canonical source of truth is now:
+ *
+ *      apps/web/design-system/tokens/theme.css
+ *      apps/web/design-system/tokens/tokens.json
+ *
+ *  DO NOT ADD NEW TOKENS HERE. New work must reference the v2 semantic tokens
+ *  (e.g. `--snad-color-brand-primary`, `--snad-color-text-muted`) directly.
+ *
+ *  PURPOSE
+ *  -------
+ *  1. Import the canonical v2 theme so a single import gives consumers both
+ *     the new tokens and the legacy aliases below.
+ *  2. Define v1.x alias names (`--snad-brand-primary`, `--snad-surface-canvas`,
+ *     etc.) that resolve to the new semantic tokens via `var()`.
+ *
+ *  WHY THIS FILE STILL CONTAINS RAW COLORS
+ *  ---------------------------------------
+ *  It doesn't anymore — every value below is a `var()` reference. The
+ *  compliance lint script still allowlists this file so future v1 → v2
+ *  migration PRs can reintroduce transitional values without breaking CI.
+ *
+ *  MIGRATION PLAN
+ *  --------------
+ *  Phase 3 of SDS 2.0 will sweep the codebase to replace every legacy alias
+ *  with its v2 equivalent, then delete this file.
+ * ============================================================================
+ */
+
+@import "./design-system/tokens/theme.css";
+
 :root,
 [data-theme="light"] {
   color-scheme: light;
-  --snad-brand-primary: #003b39;
-  --snad-brand-primary-hover: #002b29;
-  --snad-brand-gold: #d4af37;
-  --snad-brand-gold-soft: #f7e7b1;
-  --snad-surface-canvas: #f7f8f5;
-  --snad-surface-primary: #ffffff;
-  --snad-surface-secondary: #f0f4f2;
-  --snad-surface-inverse: #021f1e;
-  --snad-text-primary: #102322;
-  --snad-text-secondary: #526563;
-  --snad-text-muted: #71817f;
-  --snad-text-inverse: #ffffff;
-  --snad-text-brand: #003b39;
-  --snad-border-subtle: #e8efed;
-  --snad-border-default: #d8e1df;
-  --snad-focus-ring: #168e87;
-  --snad-success: #16835b;
-  --snad-success-soft: #e8f7f0;
-  --snad-warning: #9b5b0c;
-  --snad-warning-soft: #fff5e6;
-  --snad-error: #b52f3e;
-  --snad-error-soft: #fff0f2;
-  --snad-info: #176b94;
-  --snad-info-soft: #eaf6fc;
+
+  /* ---- v1.x brand aliases (now resolve to v2 tokens) ----------------- */
+  --snad-brand-primary:        var(--snad-color-brand-primary);        /* was #003b39 → now #0E3D38 */
+  --snad-brand-primary-hover:  var(--snad-color-action-primary-hover); /* was #002b29 → now #0A2E2A */
+  --snad-brand-gold:           var(--snad-color-brand-accent);         /* #D4AF37 */
+  --snad-brand-gold-soft:      var(--snad-color-gold-200);             /* #F4EBCD */
+
+  /* ---- v1.x surface aliases ------------------------------------------ */
+  --snad-surface-canvas:       var(--snad-color-background-default);   /* #FAFAF7 ivory */
+  --snad-surface-primary:      var(--snad-color-surface-primary);      /* #FFFFFF */
+  --snad-surface-secondary:    var(--snad-color-surface-secondary);    /* #F4F1EA warm gray */
+  --snad-surface-inverse:      var(--snad-color-petroleum-900);        /* #061B19 */
+
+  /* ---- v1.x text aliases --------------------------------------------- */
+  --snad-text-primary:         var(--snad-color-text-primary);         /* #1A1A1A charcoal */
+  --snad-text-secondary:       var(--snad-color-text-secondary);       /* #525252 warm gray */
+  --snad-text-muted:           var(--snad-color-text-muted);           /* #8A8A8A */
+  --snad-text-inverse:         var(--snad-color-text-inverse);         /* #FFFFFF */
+  --snad-text-brand:           var(--snad-color-text-brand);           /* #0E3D38 */
+
+  /* ---- v1.x border aliases ------------------------------------------- */
+  --snad-border-subtle:        var(--snad-color-border-subtle);        /* #F0EDE5 */
+  --snad-border-default:       var(--snad-color-border-default);       /* #E5E2DA */
+
+  /* ---- v1.x focus / status aliases ----------------------------------- */
+  --snad-focus-ring:           var(--snad-color-focus-ring);
+  --snad-success:              var(--snad-color-success);
+  --snad-success-soft:         var(--snad-color-success-soft);
+  --snad-warning:              var(--snad-color-warning);
+  --snad-warning-soft:         var(--snad-color-warning-soft);
+  --snad-error:                var(--snad-color-error);
+  --snad-error-soft:           var(--snad-color-error-soft);
+  --snad-info:                 var(--snad-color-info);
+  --snad-info-soft:            var(--snad-color-info-soft);
+
+  /* ---- v1.x font aliases (preserved verbatim for SDS v1 consumers) --- */
   --snad-font-arabic: var(--font-snad-arabic), "Noto Sans Arabic", Tahoma, Arial, sans-serif;
-  --snad-font-latin: var(--font-snad-latin), "Noto Sans", Arial, sans-serif;
-  --snad-font-body: var(--snad-font-arabic);
+  --snad-font-latin:  var(--font-snad-latin),  "Noto Sans", Arial, sans-serif;
+  --snad-font-body:    var(--snad-font-arabic);
   --snad-font-display: var(--snad-font-arabic);
-  --snad-font-label: var(--snad-font-arabic);
+  --snad-font-label:   var(--snad-font-arabic);
   --snad-font-numeric: var(--snad-font-latin);
-  --snad-leading-body: 1.75;
+
+  /* ---- v1.x leading / radius / shadow / motion ----------------------- */
+  --snad-leading-body:    1.6;
   --snad-leading-heading: 1.3;
-  --snad-radius-sm: 0.5rem;
-  --snad-radius-md: 0.75rem;
-  --snad-radius-lg: 1rem;
-  --snad-shadow-sm: 0 1px 2px rgb(16 35 34 / 0.08);
-  --snad-shadow-md: 0 12px 30px rgb(0 59 57 / 0.12);
-  --snad-motion-fast: 140ms;
-  --snad-motion-standard: 220ms;
+  --snad-radius-sm:       var(--snad-radius-sm);
+  --snad-radius-md:       var(--snad-radius-md);
+  --snad-radius-lg:       var(--snad-radius-lg);
+  --snad-shadow-sm:       var(--snad-shadow-sm);
+  --snad-shadow-md:       var(--snad-shadow-md);
+  --snad-motion-fast:     var(--snad-motion-fast);
+  --snad-motion-standard: var(--snad-motion-standard);
 }
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --snad-brand-primary: #20a89f;
-  --snad-brand-primary-hover: #36b8b0;
-  --snad-brand-gold: #e2c25b;
-  --snad-brand-gold-soft: #3b3217;
-  --snad-surface-canvas: #071c1b;
-  --snad-surface-primary: #0e2927;
-  --snad-surface-secondary: #123532;
-  --snad-surface-inverse: #f5faf9;
-  --snad-text-primary: #f5faf9;
-  --snad-text-secondary: #bdd0cd;
-  --snad-text-muted: #9db1ae;
-  --snad-text-inverse: #102322;
-  --snad-text-brand: #66c7c0;
-  --snad-border-subtle: #1f403d;
-  --snad-border-default: #294744;
-  --snad-focus-ring: #66c7c0;
-  --snad-success: #4bc38e;
-  --snad-success-soft: #12382c;
-  --snad-warning: #f2b555;
-  --snad-warning-soft: #3b2a12;
-  --snad-error: #f07782;
-  --snad-error-soft: #3e1d22;
-  --snad-info: #58add5;
-  --snad-info-soft: #102f3d;
+
+  /* The v2 [data-theme="dark"] block in theme.css already overrides every
+   * --snad-color-* token. Because every alias above is a var() reference,
+   * the aliases auto-resolve to the dark-mode values without duplication. */
+
+  /* v1.x font tokens are theme-independent — keep them defined here too
+   * so a dark-only import surface doesn't lose them. */
+  --snad-font-arabic: var(--font-snad-arabic), "Noto Sans Arabic", Tahoma, Arial, sans-serif;
+  --snad-font-latin:  var(--font-snad-latin),  "Noto Sans", Arial, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
     color-scheme: dark;
-    --snad-surface-canvas: #071c1b;
-    --snad-surface-primary: #0e2927;
-    --snad-surface-secondary: #123532;
-    --snad-text-primary: #f5faf9;
-    --snad-text-secondary: #bdd0cd;
-    --snad-text-muted: #9db1ae;
-    --snad-border-default: #294744;
-    --snad-focus-ring: #66c7c0;
+    /* All aliases auto-resolve via var() — no overrides needed here. */
   }
 }
