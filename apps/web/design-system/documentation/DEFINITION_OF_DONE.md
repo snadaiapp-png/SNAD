@@ -137,4 +137,4 @@ RELEASE DECISION: NO-GO
 
 | Date       | Change                                | Author             |
 |------------|---------------------------------------|--------------------|
-| 2026-07-07 | Initial Definition of Done created    | SANAD Platform (Z) |
+| 2026-07-07 | Initial Definition of Done created    | SNAD Platform (Z) |
