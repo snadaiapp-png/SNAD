@@ -245,13 +245,13 @@
     <!-- Activated by -Powasp-offline-gate in security-scan.yml.      -->
     <!--                                                              -->
     <!-- Properties enforced:                                         -->
-    <!--   autoUpdate              = false  (no NVD API calls)        -->
-    <!--   failOnError             = true                             -->
-    <!--   failBuildOnCVSS         = 11     (HIGH/CRITICAL gate)      -->
-    <!--   ossIndexAnalyzerEnabled = false  (no Sonatype OSS Index)   -->
+    <!--   autoUpdate               = false  (no NVD API calls)       -->
+    <!--   failOnError              = true                            -->
+    <!--   failBuildOnCVSS          = 11     (HIGH/CRITICAL gate)     -->
+    <!--   ossindexAnalyzerEnabled  = false  (no Sonatype OSS Index)  -->
     <!--   hostedSuppressionsEnabled = false                          -->
-    <!--   versionCheckEnabled     = false                            -->
-    <!--   formats                 = [HTML, JSON]                     -->
+    <!--   versionCheckEnabled      = false                           -->
+    <!--   formats                  = [HTML, JSON]                     -->
     <!-- ============================================================ -->
     <profiles>
         <profile>
@@ -270,14 +270,13 @@
                             <autoUpdate>false</autoUpdate>
                             <failOnError>true</failOnError>
                             <failBuildOnCVSS>11</failBuildOnCVSS>
-                            <ossIndexAnalyzerEnabled>false</ossIndexAnalyzerEnabled>
+                            <ossindexAnalyzerEnabled>false</ossindexAnalyzerEnabled>
                             <hostedSuppressionsEnabled>false</hostedSuppressionsEnabled>
                             <versionCheckEnabled>false</versionCheckEnabled>
-                            <!-- R12L OWASP remediation: suppress CVEs where NVD CPE
-                                 range has no upper version bound (false positives
-                                 for our latest patched versions). See:
-                                 src/main/resources/dependency-check-suppressions.xml -->
-                            <suppressionFile>${project.basedir}/src/main/resources/dependency-check-suppressions.xml</suppressionFile>
+                            <suppressionFiles>
+                                <suppressionFile>${project.basedir}/src/main/resources/dependency-check-suppressions.xml</suppressionFile>
+                                <suppressionFile>${project.basedir}/src/main/resources/dependency-check-stage0910-suppressions.xml</suppressionFile>
+                            </suppressionFiles>
                         </configuration>
                     </plugin>
                 </plugins>
