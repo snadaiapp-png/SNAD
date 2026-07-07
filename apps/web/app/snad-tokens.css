@@ -33,7 +33,7 @@
  * ============================================================================
  */
 
-@import "./design-system/tokens/theme.css";
+@import "../design-system/tokens/theme.css";
 
 :root,
 [data-theme="light"] {

@@ -28,7 +28,7 @@
  * ============================================================================
  */
 
-@import "./design-system/tokens/theme.css";
+@import "../design-system/tokens/theme.css";
 
 @theme inline {
   /* ---- Semantic brand color utilities -------------------------------- */
