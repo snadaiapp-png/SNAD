@@ -10,9 +10,23 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { authApi, type AuthUser, type LoginRequest, type MeResponse, AmbiguousTenantError } from "@/lib/api/auth";
+import {
+  authApi,
+  type AuthResponse,
+  type AuthUser,
+  type LoginRequest,
+  type MeResponse,
+  AmbiguousTenantError,
+} from "@/lib/api/auth";
 import { apiClient } from "@/lib/api/client";
-import { toUserFacingError, type UserFacingError } from "@/lib/api/user-facing-errors";
+import {
+  toUserFacingError,
+  type UserFacingError,
+} from "@/lib/api/user-facing-errors";
+import {
+  emitAuthMetric,
+  nowMs,
+} from "@/lib/observability/auth-performance";
 
 export type AuthState =
   | "INITIALIZING"
@@ -39,19 +53,15 @@ interface AuthContextValue {
   refresh: () => Promise<void>;
   loadMe: () => Promise<void>;
   dismissAmbiguousTenant: () => void;
-  changeCredential: (currentPassword: string, newPassword: string) => Promise<void>;
+  changeCredential: (
+    currentPassword: string,
+    newPassword: string,
+  ) => Promise<void>;
   clearError: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-/**
- * In-memory session store — access tokens are NEVER written to localStorage,
- * sessionStorage, or cookies. They survive SPA navigation but not page reload.
- * On reload, session is restored via silent refresh using the HttpOnly refresh cookie.
- *
- * Expiry is kept in memory for proactive/anticipatory refresh decisions.
- */
 function useInMemorySession() {
   const accessTokenRef = useRef<string | null>(null);
   const expiresAtRef = useRef<string | null>(null);
@@ -68,57 +78,91 @@ function useInMemorySession() {
     apiClient.removeDefaultHeader("Authorization");
   }, []);
 
-  const getAccessToken = useCallback(() => accessTokenRef.current, []);
-  const getExpiresAt = useCallback(() => expiresAtRef.current, []);
-
   return useMemo(
     () => ({
       setSession,
       clearSession,
-      getAccessToken,
-      getExpiresAt,
+      getAccessToken: () => accessTokenRef.current,
+      getExpiresAt: () => expiresAtRef.current,
     }),
-    [
-      setSession,
-      clearSession,
-      getAccessToken,
-      getExpiresAt,
-    ],
+    [clearSession, setSession],
   );
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // On client, always start as INITIALIZING so the bootstrap effect can attempt
-  // a silent refresh via the HttpOnly refresh cookie.
   const [state, setState] = useState<AuthState>("INITIALIZING");
   const [user, setUser] = useState<AuthUser | null>(null);
   const [me, setMe] = useState<MeResponse | null>(null);
   const [error, setError] = useState<UserFacingError | null>(null);
   const [ambiguousTenantIds, setAmbiguousTenantIds] = useState<string[]>([]);
   const [lastLoginEmail, setLastLoginEmail] = useState("");
-  const lastLoginPasswordRef = useRef<string>("");
+  const lastLoginPasswordRef = useRef("");
   const refreshPromiseRef = useRef<Promise<void> | null>(null);
   const session = useInMemorySession();
 
-  // Register auto-refresh handler: when any API call receives 401, attempt to
-  // refresh the token. Return true if refresh succeeded (caller retries), false otherwise.
-  // This prevents 401 errors when the 15-minute access token expires mid-session.
+  const consumeAuthResponse = useCallback(
+    async (response: AuthResponse): Promise<MeResponse> => {
+      session.setSession(response.accessToken, response.expiresAt);
+      setUser(response.user);
+
+      const profile = response.profile ?? await authApi.me();
+      setMe(profile);
+      setState(
+        profile.credentialRotationRequired
+          ? "CREDENTIAL_ROTATION_REQUIRED"
+          : "AUTHENTICATED",
+      );
+      return profile;
+    },
+    [session],
+  );
+
+  const performRefresh = useCallback(
+    async (visibleState: boolean): Promise<void> => {
+      if (refreshPromiseRef.current) return refreshPromiseRef.current;
+
+      const startedAt = nowMs();
+      if (visibleState) setState("REFRESHING");
+      emitAuthMetric({ event: "session_restore_started" });
+
+      const promise = authApi.refresh()
+        .then(async (response) => {
+          await consumeAuthResponse(response);
+          emitAuthMetric({
+            event: "session_restored",
+            durationMs: Math.round(nowMs() - startedAt),
+            outcome: "success",
+          });
+        })
+        .catch((err) => {
+          session.clearSession();
+          setUser(null);
+          setMe(null);
+          if (visibleState) {
+            setError(toUserFacingError(err));
+            setState("EXPIRED");
+          }
+          emitAuthMetric({
+            event: "session_restore_failed",
+            durationMs: Math.round(nowMs() - startedAt),
+            outcome: "failure",
+          });
+          throw err;
+        })
+        .finally(() => {
+          refreshPromiseRef.current = null;
+        });
+
+      refreshPromiseRef.current = promise;
+      return promise;
+    },
+    [consumeAuthResponse, session],
+   );
+
   useEffect(() => {
-    apiClient.setUnauthorizedHandler(async () => {
-      // If already refreshing, wait for that to complete.
-      if (refreshPromiseRef.current) {
-        try {
-          await refreshPromiseRef.current;
-          return true;
-        } catch {
-          return false;
-        }
-      }
+    apiClient.setUrauthorizedHandler(async () => {
       try {
-        const res = await authApi.refresh();
-        session.setSession(res.accessToken, res.expiresAt);
-        setUser(res.user);
-        setState("AUTHENTICATED");
+        await performRefresh(false);
         return true;
       } catch {
         session.clearSession();
@@ -128,121 +172,82 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return false;
       }
     });
-    return () => { apiClient.setUnauthorizedHandler(null); };
-  }, [session]);
+    return () => apiClient.setUnauthorizedHandler(null);
+  }, [performRefresh, session]);
 
-  // Bootstrap: attempt silent refresh via HttpOnly refresh cookie to restore session.
-  // If refresh succeeds, load /me for full profile. If it fails, go to ANONYMOUS.
   useEffect(() => {
     if (state !== "INITIALIZING") return;
-
     let cancelled = false;
 
-    authApi
-      .refresh()
-      .then((res) => {
-        if (cancelled) return;
-        session.setSession(res.accessToken, res.expiresAt);
-        setUser(res.user);
-
-        // Load full profile (/me) after restoring token
-        return authApi.me();
-      })
-      .then((meData) => {
-        if (cancelled || !meData) return;
-        setMe(meData);
-        if (meData.credentialRotationRequired) {
-          setState("CREDENTIAL_ROTATION_REQUIRED");
-        } else {
-          setState("AUTHENTICATED");
-        }
-      })
+    performRefresh(false)
       .catch(() => {
-        if (cancelled) return;
-        session.clearSession();
-        setUser(null);
-        setMe(null);
-        setState("ANONYMOUS");
+        if (!cancelled) setState("ANONYMOUS");
       });
 
-    return () => { cancelled = true; };
-  }, [state, session]);
+    return () => {
+      cancelled = true;
+    };
+  }, [performRefresh, state]);
 
-  const login = useCallback(async (req: LoginRequest) => {
-    setState("AUTHENTICATING");
-    setError(null);
-    setAmbiguousTenantIds([]);
-    setLastLoginEmail(req.email);
-    lastLoginPasswordRef.current = req.password;
-    try {
-      const res = await authApi.login(req);
-      session.setSession(res.accessToken, res.expiresAt);
-      setUser(res.user);
+  const finishLogin = useCallback(
+    async (request: LoginRequest) => {
+      const startedAt = nowMs();
+      setState("AUTHENTICATING");
+      setError(null);
+      setAmbiguousTenantIds([]);
+      emitAuthMetric({ event: "login_submitted" });
 
-      const meData = await authApi.me();
-      setMe(meData);
-      // Check if credential rotation is required after login
-      if (meData.credentialRotationRequired) {
-        setState("CREDENTIAL_ROTATION_REQUIRED");
-      } else {
-        setState("AUTHENTICATED");
-      }
-      // Security: clear the in-memory password as soon as login succeeds.
-      lastLoginPasswordRef.current = "";
-    } catch (err) {
-      if (err instanceof AmbiguousTenantError) {
-        setAmbiguousTenantIds(err.tenantIds);
-        setState("AMBIGUOUS_TENANT");
-        // Keep lastLoginPasswordRef for loginWithTenant — cleared after tenant selection.
-      } else {
-        setError(toUserFacingError(err));
-        setState("ERROR");
-        // Security: clear the in-memory password on non-ambiguous failure.
+      try {
+        const response = await authApi.login(request);
+        await consumeAuthResponse(response);
         lastLoginPasswordRef.current = "";
+        emitAuthMetric({
+          event: "authentication_succeeded",
+          durationMs: Math.round(nowMs() - startedAt),
+          outcome: "success",
+        });
+      } catch (err) {
+        if (err instanceof AmbiguousTenantError) {
+          setAmbiguousTenantIds(err.tenantIds);
+          setState("AMBIGUOUS_TENANT");
+        } else {
+          setError(toUserFacingError(err));
+          setState("ERROR");
+          lastLoginPasswordRef.current = "";
+        }
+        emitAuthMetric({
+          event: "authentication_failed",
+          durationMs: Math.round(nowMs() - startedAt),
+          outcome: "failure",
+        });
       }
-    }
-  }, [session]);
+    },
+    [consumeAuthResponse],
+   );
 
-  /** Re-login with a specific tenantId after an ambiguous tenant 409. */
-  const loginWithTenant = useCallback(async (tenantId: string) => {
-    setState("AUTHENTICATING");
-    setError(null);
-    try {
-      const res = await authApi.login({
+  const login = useCallback(
+    async (req: LoginRequest) => {
+      setLastLoginEmail(req.email);
+      lastLoginPasswordRef.current = req.password;
+      await finishLogin(req);
+    },
+    [finishLogin],
+  );
+
+  const loginWithTenant = useCallback(
+    async (tenantId: string) => {
+      await finishLogin({
         email: lastLoginEmail,
         password: lastLoginPasswordRef.current,
         tenantId,
       });
-      session.setSession(res.accessToken, res.expiresAt);
-      setUser(res.user);
+    },
+    [finishLogin, lastLoginEmail],
+   );
 
-      const meData = await authApi.me();
-      setMe(meData);
-      if (meData.credentialRotationRequired) {
-        setState("CREDENTIAL_ROTATION_REQUIRED");
-      } else {
-        setState("AUTHENTICATED");
-      }
-      // Security: clear the in-memory password after tenant-specific login succeeds.
-      lastLoginPasswordRef.current = "";
-    } catch (err) {
-      if (err instanceof AmbiguousTenantError) {
-        setAmbiguousTenantIds(err.tenantIds);
-        setState("AMBIGUOUS_TENANT");
-      } else {
-        setError(toUserFacingError(err));
-        setState("ERROR");
-        // Security: clear the in-memory password on non-ambiguous failure.
-        lastLoginPasswordRef.current = "";
-      }
-    }
-  }, [lastLoginEmail, session]);
-
-  /** Dismiss the tenant picker and go back to login form. */
   const dismissAmbiguousTenant = useCallback(() => {
     setAmbiguousTenantIds([]);
     setState("ANONYMOUS");
-    // Security: clear the in-memory password when user dismisses tenant picker.
     lastLoginPasswordRef.current = "";
   }, []);
 
@@ -251,86 +256,88 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await authApi.logout();
     } catch {
-      // Ignore
+      // Local state is cleared even if the network request fails.
     }
     session.clearSession();
     setUser(null);
     setMe(null);
     setError(null);
     setState("ANONYMOUS");
-    // Security: clear the in-memory password on logout.
     lastLoginPasswordRef.current = "";
   }, [session]);
 
   const refresh = useCallback(async () => {
-    if (refreshPromiseRef.current) return refreshPromiseRef.current;
-
-    setState("REFRESHING");
-    const promise = authApi
-      .refresh()
-      .then((res) => {
-        session.setSession(res.accessToken, res.expiresAt);
-        setUser(res.user);
-        setState("AUTHENTICATED");
-      })
-      .catch((err) => {
-        session.clearSession();
-        setUser(null);
-        setMe(null);
-        setError(toUserFacingError(err));
-        setState("EXPIRED");
-        throw err;
-      })
-      .finally(() => {
-        refreshPromiseRef.current = null;
-      });
-
-    refreshPromiseRef.current = promise;
-    return promise;
-  }, [session]);
+    await performRefresh(true);
+  }, [performRefresh]);
 
   const loadMe = useCallback(async () => {
     try {
-      const meData = await authApi.me();
-      setMe(meData);
+      setMe(await authApi.me());
     } catch (err) {
       setError(toUserFacingError(err));
     }
   }, []);
 
-  /** Change credential (self-service password rotation). Used for forced password change flow. */
-  const changeCredential = useCallback(async (currentPassword: string, newPassword: string) => {
-    setError(null);
-    try {
-      await authApi.changeCredential({
-        currentCredential: currentPassword,
-        newCredential: newPassword,
-      });
-      // After successful credential change, reload /me to get updated state
-      const meData = await authApi.me();
-      setMe(meData);
-      setState("AUTHENTICATED");
-    } catch (err) {
-      setError(toUserFacingError(err));
-      throw err;
-    }
-  }, []);
+  const changeCredential = useCallback(
+    async (currentPassword: string, newPassword: string) => {
+      setError(null);
+      try {
+        await authApi.changeCredential({
+          currentCredential: currentPassword,
+          newCredential: newPassword,
+        });
+        setMe(await authApi.me());
+        setState("AUTHENTICATED");
+      } catch (err) {
+        setError(toUserFacingError(err));
+        throw err;
+      }
+    },
+    [],
+  );
 
-  /** Clear the current error state. */
-  const clearError = useCallback(() => {
-    setError(null);
-  }, []);
+  const clearError = useCallback(() => setError(null), []);
 
   const value = useMemo(
-    () => ({ state, user, me, error, ambiguousTenantIds, lastLoginEmail, login, loginWithTenant, dismissAmbiguousTenant, logout, refresh, loadMe, changeCredential, clearError }),
-    [state, user, me, error, ambiguousTenantIds, lastLoginEmail, login, loginWithTenant, dismissAmbiguousTenant, logout, refresh, loadMe, changeCredential, clearError]
+    () => ({
+      state,
+      user,
+      me,
+      error,
+      ambiguousTenantIds,
+      lastLoginEmail,
+      login,
+      loginWithTenant,
+      dismissAmbiguousTenant,
+      logout,
+      refresh,
+      loadMe,
+      changeCredential,
+      clearError,
+    }),
+    [
+      state,
+      user,
+      me,
+      error,
+      ambiguousTenantIds,
+      lastLoginEmail,
+      login,
+      loginWithTenant,
+      dismissAmbiguousTenant,
+      logout,
+      refresh,
+      loadMe,
+      changeCredential,
+      clearError,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
-  return ctx;
+  const context = useContext(AuthContext);
+  if (!context) throw new Error("useAuth must be used within AuthProvider");
+  return context;
 }
