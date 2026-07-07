@@ -342,3 +342,62 @@
     --snad-shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.50), 0 48px 96px rgba(0, 0, 0, 0.60);
   }
 }
+
+/* ============================================================================
+ * ALIASES — Short-form token names per executive order §3
+ * These provide the simplified naming convention requested in the executive
+ * order (--snad-petroleum-*, --snad-gold-*, --snad-bg-*, etc.) while
+ * keeping the canonical --snad-color-* tokens as the source of truth.
+ * Aliases are defined OUTSIDE the [data-theme] blocks so they automatically
+ * inherit whatever the active theme sets for the canonical tokens.
+ * ============================================================================
+ */
+:root {
+  /* Petroleum Green scale (alias of --snad-color-petroleum-*) */
+  --snad-petroleum-50:  var(--snad-color-petroleum-50);
+  --snad-petroleum-100: var(--snad-color-petroleum-100);
+  --snad-petroleum-200: var(--snad-color-petroleum-200);
+  --snad-petroleum-300: var(--snad-color-petroleum-300);
+  --snad-petroleum-400: var(--snad-color-petroleum-400);
+  --snad-petroleum-500: var(--snad-color-petroleum-500);
+  --snad-petroleum-600: var(--snad-color-petroleum-600);
+  --snad-petroleum-700: var(--snad-color-petroleum-700);
+  --snad-petroleum-800: var(--snad-color-petroleum-800);
+  --snad-petroleum-900: var(--snad-color-petroleum-900);
+  --snad-petroleum-950: var(--snad-color-petroleum-950);
+
+  /* Royal Gold scale (alias of --snad-color-gold-*) */
+  --snad-gold-50:  var(--snad-color-gold-50);
+  --snad-gold-100: var(--snad-color-gold-100);
+  --snad-gold-200: var(--snad-color-gold-200);
+  --snad-gold-300: var(--snad-color-gold-300);
+  --snad-gold-400: var(--snad-color-gold-400);
+  --snad-gold-500: var(--snad-color-gold-500);
+  --snad-gold-600: var(--snad-color-gold-600);
+  --snad-gold-700: var(--snad-color-gold-700);
+  --snad-gold-800: var(--snad-color-gold-800);
+  --snad-gold-900: var(--snad-color-gold-900);
+  --snad-gold-950: var(--snad-color-gold-950);
+
+  /* Semantic background aliases */
+  --snad-bg-primary:    var(--snad-color-background-default);
+  --snad-bg-secondary:  var(--snad-color-background-elevated);
+  --snad-surface:       var(--snad-color-surface-primary);
+  --snad-surface-elevated: var(--snad-color-surface-secondary);
+
+  /* Border aliases */
+  --snad-border:        var(--snad-color-border-default);
+  --snad-border-focus:  var(--snad-color-focus-ring);
+
+  /* Text aliases */
+  --snad-text-primary:   var(--snad-color-text-primary);
+  --snad-text-secondary: var(--snad-color-text-secondary);
+  --snad-text-muted:     var(--snad-color-text-muted);
+
+  /* Accent + status aliases */
+  --snad-accent:  var(--snad-color-brand-accent);
+  --snad-success: var(--snad-color-success);
+  --snad-warning: var(--snad-color-warning);
+  --snad-danger:  var(--snad-color-error);
+  --snad-info:    var(--snad-color-info);
+}
