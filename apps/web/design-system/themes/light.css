@@ -1,0 +1,41 @@
+/*
+ * ============================================================================
+ *  SNAD Design System — Light Theme Override
+ * ----------------------------------------------------------------------------
+ *  PURPOSE
+ *  -------
+ *  Imports the canonical token set from `tokens/theme.css` and provides
+ *  optional light-theme-specific overrides. Most consumers do NOT need to
+ *  import this file directly — `globals.css` imports `tokens/theme.css`
+ *  which already ships a complete `:root` + `[data-theme="light"]` block.
+ *
+ *  USE THIS FILE WHEN
+ *  ------------------
+ *  • You are building a static page that wants ONLY the light theme (e.g. a
+ *    printable invoice, an email template, a marketing landing page that
+ *    must never honor `prefers-color-scheme: dark`).
+ *  • You need to layer a small light-only override on top of the base theme.
+ *
+ *  DO NOT USE THIS FILE WHEN
+ *  -------------------------
+ *  • You need theme switching in a Next.js app route. In that case let
+ *    `globals.css` import `tokens/theme.css` and switch by toggling the
+ *    `data-theme` attribute on `<html>`.
+ *
+ *  OVERRIDES
+ *  ---------
+ *  The base theme.css already defines every token for the light theme, so
+ *  no overrides are needed by default. Add overrides BELOW this comment
+ *  block ONLY if a specific light-only surface needs a value that diverges
+ *  from the in-app light theme. Every override MUST reference tokens via
+ *  var(--snad-*); raw color values are forbidden (enforced by
+ *  `scripts/ci/check-design-system-compliance.py`).
+ * ============================================================================
+ */
+
+@import "../tokens/theme.css";
+
+/* ----------------------------------------------------------------------------
+ *  Light-only overrides
+ *  (Intentionally empty — add overrides here only when absolutely necessary.)
+ * ---------------------------------------------------------------------------- */

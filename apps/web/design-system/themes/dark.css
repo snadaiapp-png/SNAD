@@ -1,0 +1,48 @@
+/*
+ * ============================================================================
+ *  SNAD Design System — Dark Theme Override
+ * ----------------------------------------------------------------------------
+ *  PURPOSE
+ *  -------
+ *  Imports the canonical token set from `tokens/theme.css` and provides
+ *  optional dark-theme-specific overrides. Most consumers do NOT need to
+ *  import this file directly — `globals.css` imports `tokens/theme.css`
+ *  which already ships a complete `[data-theme="dark"]` block and an
+ *  `@media (prefers-color-scheme: dark)` fallback.
+ *
+ *  USE THIS FILE WHEN
+ *  ------------------
+ *  • You are building a static page that wants ONLY the dark theme (e.g. a
+ *    dashboard iframe embedded in an always-dark parent shell, a
+ *    status / monitoring wall display that runs 24/7).
+ *  • You need to layer a small dark-only override on top of the base theme.
+ *
+ *  HOW TO ACTIVATE
+ *  ---------------
+ *  After importing this file, set `data-theme="dark"` on the root element
+ *  of the surface. The base theme.css rules will then apply. If you need a
+ *  forced-dark scope (always dark regardless of OS preference or sibling
+ *  data-theme attributes), uncomment the helper block below.
+ *
+ *  OVERRIDES
+ *  ---------
+ *  The base theme.css already defines every token for the dark theme, so
+ *  no overrides are needed by default. Add overrides BELOW this comment
+ *  block ONLY if a specific dark-only surface needs a value that diverges
+ *  from the in-app dark theme. Every override MUST reference tokens via
+ *  var(--snad-*); raw color values are forbidden (enforced by
+ *  `scripts/ci/check-design-system-compliance.py`).
+ * ============================================================================
+ */
+
+@import "../tokens/theme.css";
+
+/* ----------------------------------------------------------------------------
+ *  Dark-only overrides
+ *  (Intentionally empty — add overrides here only when absolutely necessary.)
+ *
+ *  To force the dark theme on the importing scope even when no data-theme
+ *  attribute is set on the html element, set data-theme="dark" on the
+ *  surface's root element via JS or SSR. Do NOT duplicate token values
+ *  here — reference them via var(--snad-*).
+ * ---------------------------------------------------------------------------- */

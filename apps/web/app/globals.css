@@ -1,4 +1,17 @@
+/*
+ * ============================================================================
+ *  SNAD Web App — global stylesheet
+ * ----------------------------------------------------------------------------
+ *  IMPORT ORDER (DO NOT REORDER)
+ *    1. tailwindcss                          (Tailwind CSS 4 base)
+ *    2. ../design-system/tokens/theme.css    (SDS 2.0 canonical tokens — light,
+ *                                             dark, OS-prefers fallback)
+ *    3. ./snad-tokens.css                    (legacy v1.x compatibility shim)
+ *    4. ./snad-tailwind.css                  (Tailwind @theme color map → SDS)
+ * ============================================================================
+ */
 @import "tailwindcss";
+@import "../design-system/tokens/theme.css";
 @import "./snad-tokens.css";
 @import "./snad-tailwind.css";
 
@@ -14,8 +27,8 @@ body {
 }
 
 body {
-  background: var(--snad-surface-canvas);
-  color: var(--snad-text-primary);
+  background: var(--snad-color-background-default);
+  color: var(--snad-color-text-primary);
   font-family: var(--snad-font-body);
 }
 
@@ -29,7 +42,7 @@ select {
 .snad-clean-canvas {
   width: 100%;
   min-height: 100svh;
-  background: var(--snad-surface-canvas);
+  background: var(--snad-color-background-default);
 }
 
 /* Reset-password route styling (self-contained, no legacy component imports) */
@@ -37,31 +50,31 @@ select {
   display: grid;
   place-items: center;
   min-height: 100svh;
-  padding: 1.5rem;
-  background: var(--snad-surface-canvas);
+  padding: var(--snad-space-6);
+  background: var(--snad-color-background-default);
 }
 
 .snad-reset-card {
   width: 100%;
   max-width: 28rem;
-  background: var(--snad-surface-primary);
-  border: 1px solid var(--snad-border-default);
-  border-radius: 1rem;
-  padding: 2rem;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  background: var(--snad-color-surface-primary);
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-xl);
+  padding: var(--snad-space-8);
+  box-shadow: var(--snad-shadow-md);
 }
 
 .snad-reset-title {
-  margin: 0 0 0.5rem;
-  font-size: 1.5rem;
+  margin: 0 0 var(--snad-space-2);
+  font-size: var(--snad-text-h3);
   font-weight: 800;
-  color: var(--snad-text-primary);
+  color: var(--snad-color-text-primary);
 }
 
 .snad-reset-description {
-  margin: 0 0 1.5rem;
+  margin: 0 0 var(--snad-space-6);
   font-size: 0.9375rem;
-  color: var(--snad-text-secondary);
+  color: var(--snad-color-text-secondary);
 }
 
 .snad-reset-form {
@@ -72,15 +85,15 @@ select {
 .snad-reset-input {
   width: 100%;
   padding: 0.75rem 1rem;
-  border: 1px solid var(--snad-border-default);
-  border-radius: 0.625rem;
-  background: var(--snad-surface-secondary);
-  color: var(--snad-text-primary);
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-md);
+  background: var(--snad-color-surface-secondary);
+  color: var(--snad-color-text-primary);
   font-size: 0.9375rem;
 }
 
 .snad-reset-input:focus {
-  outline: 3px solid var(--snad-focus-ring);
+  outline: 3px solid var(--snad-color-focus-ring);
   outline-offset: 2px;
 }
 
@@ -90,10 +103,10 @@ select {
   width: 100%;
   padding: 0.75rem 1rem;
   border: none;
-  border-radius: 0.625rem;
-  background: var(--snad-brand-primary);
-  color: var(--snad-text-inverse);
-  font-size: 0.9375rem;
+  border-radius: var(--snad-radius-md);
+  background: var(--snad-color-action-primary);
+  color: var(--snad-color-text-inverse);
+  font-size: var(--snad-text-button);
   font-weight: 700;
   text-decoration: none;
   cursor: pointer;
@@ -106,9 +119,9 @@ select {
 
 .snad-reset-alert {
   padding: 0.625rem 0.875rem;
-  border-radius: 0.5rem;
-  background: rgba(220, 38, 38, 0.1);
-  color: #dc2626;
+  border-radius: var(--snad-radius-sm);
+  background: var(--snad-color-error-soft);
+  color: var(--snad-color-error);
   font-size: 0.875rem;
 }
 
@@ -117,7 +130,7 @@ select {
   margin-bottom: 0.375rem;
   font-size: 0.875rem;
   font-weight: 600;
-  color: var(--snad-text-primary);
+  color: var(--snad-color-text-primary);
 }
 
 .snad-reset-secondary {
@@ -125,35 +138,35 @@ select {
   place-items: center;
   width: 100%;
   padding: 0.625rem 1rem;
-  border: 1px solid var(--snad-border-default);
-  border-radius: 0.625rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-md);
   background: transparent;
-  color: var(--snad-text-secondary);
+  color: var(--snad-color-text-secondary);
   font-size: 0.875rem;
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
-  transition: color var(--snad-motion-fast, 150ms),
-              border-color var(--snad-motion-fast, 150ms),
-              background var(--snad-motion-fast, 150ms);
+  transition: color var(--snad-motion-fast),
+              border-color var(--snad-motion-fast),
+              background var(--snad-motion-fast);
 }
 
 .snad-reset-secondary:hover {
-  color: var(--snad-brand-primary);
-  border-color: var(--snad-brand-primary);
-  background: rgba(32, 168, 159, 0.04);
+  color: var(--snad-color-action-primary);
+  border-color: var(--snad-color-action-primary);
+  background: color-mix(in srgb, var(--snad-color-brand-primary) 4%, transparent);
 }
 
 .snad-reset-secondary:focus-visible {
-  outline: 3px solid var(--snad-focus-ring);
+  outline: 3px solid var(--snad-color-focus-ring);
   outline-offset: 2px;
 }
 
 .snad-reset-info {
-  padding: 1rem;
-  border-radius: 0.625rem;
-  background: rgba(32, 168, 159, 0.08);
-  border: 1px solid rgba(32, 168, 159, 0.2);
+  padding: var(--snad-space-4);
+  border-radius: var(--snad-radius-md);
+  background: color-mix(in srgb, var(--snad-color-brand-primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--snad-color-brand-primary) 20%, transparent);
   display: grid;
   gap: 0.75rem;
 }
@@ -162,15 +175,15 @@ select {
   margin: 0;
   font-size: 0.8125rem;
   font-weight: 600;
-  color: var(--snad-text-primary);
+  color: var(--snad-color-text-primary);
   line-height: 1.5;
 }
 
 .snad-reset-success {
   padding: 0.625rem 0.875rem;
-  border-radius: 0.5rem;
-  background: rgba(22, 163, 74, 0.1);
-  color: #16a34a;
+  border-radius: var(--snad-radius-sm);
+  background: var(--snad-color-success-soft);
+  color: var(--snad-color-success);
   font-size: 0.875rem;
 }
 
@@ -178,17 +191,17 @@ select {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 1rem;
+  margin-bottom: var(--snad-space-4);
 }
 
 .snad-reset-brand-icon {
   width: 1.5rem;
   height: 1.5rem;
-  color: var(--snad-brand-primary);
+  color: var(--snad-color-brand-primary);
 }
 
 .snad-reset-brand-mark {
-  font-size: 1.5rem;
+  font-size: var(--snad-text-h3);
   font-weight: 800;
-  color: var(--snad-brand-primary);
+  color: var(--snad-color-brand-primary);
 }

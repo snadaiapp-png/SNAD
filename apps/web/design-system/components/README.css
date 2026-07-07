@@ -1,0 +1,27 @@
+/*
+ * ============================================================================
+ *  SNAD Design System — Component CSS module placeholder
+ * ----------------------------------------------------------------------------
+ *  PURPOSE
+ *  -------
+ *  This directory will hold CSS modules for SDS components (Button, Card,
+ *  Input, Modal, etc.). Each component module will:
+ *
+ *    1. Reference ONLY `--snad-*` tokens — never raw color values.
+ *    2. Be verified by `scripts/ci/check-design-system-compliance.py`.
+ *    3. Ship with a co-located `[name].test.tsx` rendering the component in
+ *       both light and dark themes for visual regression (see
+ *       documentation/VISUAL_TESTING.md).
+ *
+ *  STATUS
+ *  ------
+ *  Phase 1 of SDS 2.0 ships ONLY the foundation: tokens, themes, docs, and
+ *  the lint rule. Component CSS modules land in Phase 2 (separate PR).
+ *
+ *  NAMING CONVENTION
+ *  -----------------
+ *  Files:        kebab-case        e.g. `button.css`, `data-table.css`
+ *  CSS classes:  BEM-with-prefix   e.g. `.snad-button`, `.snad-button__icon`,
+ *                                   `.snad-button--primary`
+ * ============================================================================
+ */

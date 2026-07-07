@@ -217,7 +217,7 @@ export function ControlPlaneConsole() {
         </Buttons></div>
         <div className={styles.cards}>
           {organizations.length === 0 ? (
-            <p style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>
+            <p style={{ padding: "2rem", textAlign: "center", color: "var(--snad-color-text-muted)" }}>
               {`لا توجد شركات بعد. اضغط "إضافة شركة" لإنشاء أول شركة.`}
             </p>
           ) : organizations.map((item) => <article key={item.id}>
