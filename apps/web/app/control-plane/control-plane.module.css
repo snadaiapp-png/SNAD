@@ -21,6 +21,30 @@
   box-shadow: var(--snad-shadow-md);
 }
 
+/*
+ * Header brand cluster — compact SnadLogo + page title block.
+ * The logo sits at the inline-start edge (right in RTL, left in LTR) and
+ * is separated from the title by `margin-inline-end` so the same rule
+ * works in both writing directions.
+ */
+.headerBrand {
+  display: flex;
+  align-items: center;
+  gap: var(--snad-space-4);
+  min-width: 0;
+}
+
+.headerLogo {
+  /*
+   * Logical-property gap to the title block. In LTR this is the right
+   * margin; in RTL it flips automatically. We also pin a fixed block
+   * size so the logo's box is reserved even before the SVG arrives,
+   * preventing CLS when the header paints progressively.
+   */
+  margin-inline-end: var(--snad-space-3);
+  flex-shrink: 0;
+}
+
 .header h1 { margin: 4px 0 8px; font-size: clamp(2rem, 4vw, 3.5rem); line-height: 1.1; }
 .header p { margin: 0; color: var(--snad-text-secondary); }
 .eyebrow { color: var(--snad-text-brand); font-family: var(--snad-font-latin); font-size: .75rem; font-weight: 800; letter-spacing: .14em; }

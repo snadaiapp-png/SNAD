@@ -1,0 +1,246 @@
+/*
+ * ============================================================================
+ *  ExecutiveShell — styles
+ * ----------------------------------------------------------------------------
+ *  RULES
+ *  • Every visual value references an `--snad-*` token (no hex/rgb/hsl).
+ *  • RTL-aware: logical properties only (no left/right).
+ *  • WCAG 2.2 AA: focus-visible rings on every interactive element,
+ *    minimum 44x44 touch targets, 4.5:1 contrast on all text.
+ *  • Sticky header: position:sticky + z-index:var(--snad-z-sticky) so the
+ *    header remains visible during scroll and never collides with modals.
+ * ============================================================================
+ */
+
+.layout {
+  /*
+   * Establish a block-formatting context for the sticky header. The layout
+   * is a vertical stack: header on top, main content below.
+   */
+  display: flex;
+  flex-direction: column;
+  min-block-size: 100svh;
+  background: var(--snad-color-background-default);
+}
+
+.shell {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: var(--snad-z-sticky);
+  /*
+   * Height: 64px desktop, 56px mobile. Implemented via clamp() so the
+   * header shrinks gracefully on small viewports without media queries.
+   */
+  block-size: clamp(56px, 7vw, 64px);
+  background: var(--snad-color-surface-primary);
+  border-block-end: 1px solid var(--snad-color-border-default);
+  box-shadow: var(--snad-shadow-sm);
+  /* Prevent content from bleeding under the sticky header when scrolled. */
+  contain: layout paint;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--snad-space-4);
+  block-size: 100%;
+  padding-inline: var(--snad-space-4);
+  max-inline-size: var(--snad-bp-2xl);
+  margin-inline: auto;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Inline-start cluster: menu button + brand logo
+ *  In RTL, inline-start is the right edge; in LTR it's the left edge.
+ *  The logo is rendered by SnadLogo (compact variant, 32px favicon).
+ * ---------------------------------------------------------------------------- */
+
+.startCluster {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--snad-space-3);
+  flex-shrink: 0;
+}
+
+.menuSlot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 44px;
+  min-inline-size: 44px;
+  border-radius: var(--snad-radius-md);
+}
+
+.menuSlot:focus-visible,
+.menuSlot :global(button):focus-visible,
+.menuSlot :global(a):focus-visible {
+  outline: 3px solid var(--snad-color-focus-ring);
+  outline-offset: var(--snad-space-1);
+  border-radius: var(--snad-radius-md);
+}
+
+.logoLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  color: inherit;
+  border-radius: var(--snad-radius-sm);
+  padding: var(--snad-space-1);
+  margin-inline: calc(var(--snad-space-1) * -1);
+  transition: background-color var(--snad-motion-fast) var(--snad-motion-ease-standard);
+}
+
+.logoLink:hover {
+  background: var(--snad-color-surface-secondary);
+}
+
+.logoLink:focus-visible {
+  outline: 3px solid var(--snad-color-focus-ring);
+  outline-offset: var(--snad-space-1);
+}
+
+.logoLink :global(img) {
+  /*
+   * Compact variant: 32x32 intrinsic. We render it at the md size preset
+   * (40px height) on desktop, 32px on mobile — both driven by SnadLogo's
+   * --snad-logo-height CSS variable.
+   */
+  display: block;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Center slot: organization name
+ * ---------------------------------------------------------------------------- */
+
+.orgSlot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  /* Hide the org name on very narrow viewports to prevent overflow. */
+  overflow: hidden;
+}
+
+.orgName {
+  font-family: var(--snad-font-body);
+  font-size: var(--snad-text-subtitle);
+  font-weight: 700;
+  color: var(--snad-color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-inline-size: 100%;
+}
+
+@media (max-width: 600px) {
+  .orgSlot {
+    display: none;
+  }
+}
+
+/* ----------------------------------------------------------------------------
+ *  Inline-end cluster: search, notifications, AI assistant, user profile
+ * ---------------------------------------------------------------------------- */
+
+.endCluster {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--snad-space-2);
+  flex-shrink: 0;
+}
+
+.searchSlot {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 44px;
+}
+
+/*
+ * On small screens, hide the search control to keep the header uncluttered.
+ * The consumer is responsible for surfacing search via a menu button on
+ * mobile (progressive disclosure).
+ */
+@media (max-width: 600px) {
+  .searchSlot {
+    display: none;
+  }
+}
+
+.iconSlot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 44px;
+  min-inline-size: 44px;
+  border-radius: var(--snad-radius-md);
+  color: var(--snad-color-text-secondary);
+  transition: background-color var(--snad-motion-fast) var(--snad-motion-ease-standard),
+              color var(--snad-motion-fast) var(--snad-motion-ease-standard);
+}
+
+.iconSlot:hover {
+  background: var(--snad-color-surface-secondary);
+  color: var(--snad-color-text-primary);
+}
+
+.iconSlot:focus-visible,
+.iconSlot :global(button):focus-visible,
+.iconSlot :global(a):focus-visible {
+  outline: 3px solid var(--snad-color-focus-ring);
+  outline-offset: var(--snad-space-1);
+}
+
+.profileSlot {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 44px;
+  padding-inline: var(--snad-space-2);
+  border-radius: var(--snad-radius-md);
+  cursor: pointer;
+}
+
+.profileSlot:hover {
+  background: var(--snad-color-surface-secondary);
+}
+
+.profileSlot:focus-visible,
+.profileSlot :global(button):focus-visible,
+.profileSlot :global(a):focus-visible {
+  outline: 3px solid var(--snad-color-focus-ring);
+  outline-offset: var(--snad-space-1);
+}
+
+/* ----------------------------------------------------------------------------
+ *  Main content area
+ *  The header is sticky (not fixed), so we don't need padding-block-start
+ *  to compensate. Content flows naturally below.
+ * ---------------------------------------------------------------------------- */
+
+.main {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  /*
+   * Skip-link target: when a user activates "Skip to main content", focus
+   * is moved here. Make the target focusable in a sane way.
+   */
+  outline: none;
+}
+
+.main:focus-visible {
+  outline: none;
+}
+
+/* ----------------------------------------------------------------------------
+ *  Reduced motion
+ * ---------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .logoLink,
+  .iconSlot,
+  .profileSlot {
+    transition: none;
+  }
+}

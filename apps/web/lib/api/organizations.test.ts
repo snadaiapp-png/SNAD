@@ -19,10 +19,10 @@ describe("organizationsApi", () => {
   it("creates an organization with the backend DTO", async () => {
     const { client, api } = setup();
     const post = vi.spyOn(client, "post").mockResolvedValue({ id: "org-1" });
-    await api.create("tenant-1", { name: " SANAD ", description: " Main " });
+    await api.create("tenant-1", { name: " SNAD ", description: " Main " });
     expect(post).toHaveBeenCalledWith("/api/v1/organizations", {
       tenantId: "tenant-1",
-      name: "SANAD",
+      name: "SNAD",
       description: "Main",
     });
   });

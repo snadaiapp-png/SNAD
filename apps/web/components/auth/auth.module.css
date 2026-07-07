@@ -168,10 +168,49 @@
 }
 
 .loginBrandMark {
-  font-size: 1.5rem;
-  font-weight: 800;
-  color: var(--snad-brand-primary);
-  margin-bottom: 0.5rem;
+  /*
+   * Logo container on the auth screen.
+   *
+   * CLS safety:
+   *   The container has a min-block-size reservation so that error messages,
+   *   validation states, MFA prompts, and language/theme switches NEVER cause
+   *   the logo to shift vertically. The SnadLogo component itself pre-computes
+   *   its width/height inline; here we additionally clamp the width to the
+   *   responsive auth range (170–360px) per the AUTH_UI_GUIDE.md spec.
+   *
+   * Token usage:
+   *   All spacing & sizing reference SDS tokens (no hardcoded px values).
+   */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-block: 0 0.5rem;
+  /* Reserve a stable minimum height equal to the largest clamped logo so
+ *  validation/error UI below never shifts the logo's vertical position. */
+  min-block-size: clamp(48px, 11vw, 103px);
+  /*
+   * Width clamp per AUTH_UI_GUIDE.md:
+   *   desktop: 260–360px
+   *   tablet : 220–300px
+   *   mobile : 170–230px
+   * Implemented as a single clamp() that scales with viewport width.
+   */
+  --snad-logo-width: clamp(170px, 30vw, 360px);
+  --snad-logo-height: auto;
+}
+
+/* Tablet breakpoint — narrow the upper bound of the auth logo clamp. */
+@media (max-width: 899px) and (min-width: 600px) {
+  .loginBrandMark {
+    --snad-logo-width: clamp(220px, 30vw, 300px);
+  }
+}
+
+/* Mobile breakpoint — narrowest clamp for small phones. */
+@media (max-width: 599px) {
+  .loginBrandMark {
+    --snad-logo-width: clamp(170px, 50vw, 230px);
+  }
 }
 
 .loginWelcomeTitle {

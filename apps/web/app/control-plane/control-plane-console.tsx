@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
+import { SnadLogo } from "@/components/sds";
 import {
   platformOperationsApi,
   type BillingInvoice,
@@ -171,8 +172,29 @@ export function ControlPlaneConsole() {
 
   return <main className={styles.root}>
     <header className={styles.header}>
-      <div><p className={styles.eyebrow}>SNAD CONTROL PLANE</p><h1>مركز إدارة منصة سند</h1>
-        <p>إدارة المستأجرين والشركات والعضويات والباقات والاشتراكات والفوترة.</p></div>
+      <div className={styles.headerBrand}>
+        {/*
+          * Compact SnadLogo rendered at the inline-start edge of the page
+          * header. The logo links back to /control-plane (the executive
+          * dashboard root) so users can always recover context from any
+          * deep-linked tab. The global ExecutiveShell (rendered by the
+          * control-plane layout) already provides a sticky top bar with
+          * its own compact logo — this in-page mark is a section brand
+          * that orients the user without duplicating the sticky bar.
+          *
+          * RTL/LTR: `margin-inline-end` on the logo provides the gap to
+          * the title block in both writing directions.
+          */}
+        <SnadLogo
+          variant="compact"
+          size="sm"
+          href="/control-plane"
+          alt="SNAD Control Plane — مركز الإدارة العليا"
+          className={styles.headerLogo}
+        />
+        <div><p className={styles.eyebrow}>SNAD CONTROL PLANE</p><h1>مركز إدارة منصة سند</h1>
+          <p>إدارة المستأجرين والشركات والعضويات والباقات والاشتراكات والفوترة.</p></div>
+      </div>
       <Buttons><span>{me?.displayName || me?.email}</span>
         <button type="button" onClick={() => router.push("/workspace")}>مساحة العمل</button></Buttons>
     </header>
