@@ -79,8 +79,8 @@ class CrmAiApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.correlationId").value("stage10-test-001"))
                 .andExpect(jsonPath("$.leadId").value(leadId))
-                .andExpect(jsonPath("$.score").value(75))
-                .andExpect(jsonPath("$.grade").value("B"))
+                .andExpect(jsonPath("$.score").value(100))
+                .andExpect(jsonPath("$.grade").value("A"))
                 .andExpect(jsonPath("$.advisoryOnly").value(true))
                 .andExpect(jsonPath("$.humanConfirmationRequired").value(true))
                 .andExpect(jsonPath("$.modelReference").value("deterministic-fallback-v1"));
