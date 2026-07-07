@@ -1,13 +1,13 @@
 package com.sanad.platform.security.api;
 
 import com.sanad.platform.access.grant.UserGrantStatus;
-import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.access.grant.UserRoleGrant;
 import com.sanad.platform.access.grant.UserRoleGrantRepository;
 import com.sanad.platform.access.role.Role;
 import com.sanad.platform.access.role.RoleRepository;
 import com.sanad.platform.organization.membership.domain.OrganizationMembership;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
+import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.security.dto.AdminResetPasswordRequest;
 import com.sanad.platform.security.dto.AuthResponse;
 import com.sanad.platform.security.dto.ChangeCredentialRequest;
@@ -38,9 +38,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /** Authentication API consumed by the trusted same-origin Next.js BFF. */
@@ -80,13 +82,13 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    @Operation(summary = "Authenticate and return access data to the trusted BFF")
+    @Operation(summary = "Authenticate and return access data plus the critical workspace profile")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
-        return authResponse(authService.login(request));
+        return authResponse(withProfile(authService.login(request)));
     }
 
     @PostMapping("/refresh")
-    @Operation(summary = "Rotate a BFF-held refresh token")
+    @Operation(summary = "Rotate a BFF-held refresh token and restore the critical workspace profile")
     public ResponseEntity<AuthResponse> refresh(HttpServletRequest request, @RequestBody(required = false) RefreshRequest body) {
         String refreshToken = request.getHeader(REFRESH_TOKEN_HEADER);
         if ((refreshToken == null || refreshToken.isBlank()) && isLocalOrDev() && body != null) {
@@ -95,7 +97,7 @@ public class AuthController {
         if (refreshToken == null || refreshToken.isBlank()) {
             return ResponseEntity.status(401).header(HttpHeaders.CACHE_CONTROL, "no-store").build();
         }
-        return authResponse(authService.refresh(new RefreshRequest(refreshToken)));
+        return authResponse(withProfile(authService.refresh(new RefreshRequest(refreshToken))));
     }
 
     @PostMapping("/logout")
@@ -131,36 +133,9 @@ public class AuthController {
         if (principal == null) {
             return ResponseEntity.status(401).header(HttpHeaders.CACHE_CONTROL, "no-store").build();
         }
-
-        UUID tenantId = principal.tenantId();
-        UUID userId = principal.userId();
-        User user = userRepository.findByTenantIdAndId(tenantId, userId)
-                .orElseThrow(() -> new IllegalStateException("Authenticated user not found"));
-
-        MeResponse response = new MeResponse();
-        response.setId(user.getId());
-        response.setTenantId(user.getTenantId());
-        response.setEmail(user.getEmail());
-        response.setDisplayName(user.getDisplayName());
-        response.setStatus(user.getStatus().name());
-        response.setLastLoginAt(user.getLastLoginAt());
-        response.setCredentialRotationRequired(user.isMustChangePassword());
-
-        List<OrganizationMembership> memberships = membershipRepository.findByTenantIdAndUserId(tenantId, userId);
-        response.setMemberships(memberships.stream()
-                .map(membership -> new MeResponse.MembershipSummary(
-                        membership.getId(), membership.getOrganizationId(), membership.getStatus().name()))
-                .collect(Collectors.toList()));
-
-        List<UserRoleGrant> grants = roleGrantRepository.findByTenantIdAndUserIdAndStatus(tenantId, userId, UserGrantStatus.ACTIVE);
-        response.setRoleGrants(grants.stream().map(grant -> {
-            String roleCode = roleRepository.findByTenantIdAndId(tenantId, grant.getRoleId())
-                    .map(Role::getCode).orElse("UNKNOWN");
-            return new MeResponse.RoleGrantSummary(
-                    grant.getId(), grant.getRoleId(), roleCode, grant.getOrganizationId(), grant.getStatus().name());
-        }).collect(Collectors.toList()));
-
-        return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store").body(response);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(buildProfile(principal.tenantId(), principal.userId()));
     }
 
     @PostMapping("/forgot-password")
@@ -177,7 +152,7 @@ public class AuthController {
             log.error("Password recovery delivery failed; token revoked", exception);
         }
 
-        Map<String, Object> response = new java.util.HashMap<>();
+        Map<String, Object> response = new HashMap<>();
         response.put("message", "إذا كان البريد الإلكتروني مسجلاً لدينا، فستتلقى رابط إعادة تعيين كلمة المرور.");
         if (isLocalOrDev() && rawToken != null) {
             response.put("token", rawToken);
@@ -218,12 +193,72 @@ public class AuthController {
         String rawToken = recoveryNotifications.createAdministrativeResetLink(
                 principal.tenantId(), userId, request.getLocale(), httpRequest.getRemoteAddr());
 
-        Map<String, Object> response = new java.util.HashMap<>();
+        Map<String, Object> response = new HashMap<>();
         response.put("message", "تم إرسال رابط أحادي الاستخدام لإعداد كلمة مرور جديدة.");
         if (isLocalOrDev()) {
             response.put("token", rawToken);
         }
         return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store").body(response);
+    }
+
+    private AuthResponse withProfile(AuthResponse response) {
+        AuthResponse.AuthUser identity = response.getUser();
+        if (identity != null && identity.getTenantId() != null && identity.getId() != null) {
+            response.setProfile(buildProfile(identity.getTenantId(), identity.getId()));
+        }
+        return response;
+    }
+
+    private MeResponse buildProfile(UUID tenantId, UUID userId) {
+        User user = userRepository.findByTenantIdAndId(tenantId, userId)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user not found"));
+
+        MeResponse response = new MeResponse();
+        response.setId(user.getId());
+        response.setTenantId(user.getTenantId());
+        response.setEmail(user.getEmail());
+        response.setDisplayName(user.getDisplayName());
+        response.setStatus(user.getStatus().name());
+        response.setLastLoginAt(user.getLastLoginAt());
+        response.setCredentialRotationRequired(user.isMustChangePassword());
+
+        List<OrganizationMembership> memberships =
+                membershipRepository.findByTenantIdAndUserId(tenantId, userId);
+        response.setMemberships(memberships.stream()
+                .map(membership -> new MeResponse.MembershipSummary(
+                        membership.getId(),
+                        membership.getOrganizationId(),
+                        membership.getStatus().name()))
+                .toList());
+
+        List<UserRoleGrant> grants =
+                roleGrantRepository.findByTenantIdAndUserIdAndStatus(
+                        tenantId, userId, UserGrantStatus.ACTIVE);
+
+        List<UUID> roleIds = grants.stream()
+                .map(UserRoleGrant::getRoleId)
+                .distinct()
+                .toList();
+
+        Map<UUID, Role> rolesById = roleIds.isEmpty()
+                ? Map.of()
+                : roleRepository.findByTenantIdAndIdIn(tenantId, roleIds).stream()
+                        .collect(Collectors.toMap(Role::getId, Function.identity()));
+
+        response.setRoleGrants(grants.stream()
+                .map(grant -> {
+                    Role role = rolesById.get(grant.getRoleId());
+                    String roleCode = role == null ? "UNKNOWN" : role.getCode();
+                    return new MeResponse.RoleGrantSummary(
+                            grant.getId(),
+                            grant.getRoleId(),
+                            roleCode,
+                            grant.getOrganizationId(),
+                            grant.getStatus().name());
+                })
+                .toList());
+
+        return response;
     }
 
     private ResponseEntity<AuthResponse> authResponse(AuthResponse response) {
