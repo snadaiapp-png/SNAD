@@ -183,42 +183,14 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          echo "Running secret scan on current tree..."
-          python3 -c "
-          import re, sys, os
-          from pathlib import Path
-          patterns = [
-              (r'AKIA[0-9A-Z]{16}', 'AWS Access Key'),
-              (r'ghp_[a-zA-Z0-9]{36}', 'GitHub PAT'),
-              (r'gho_[a-zA-Z0-9]{36}', 'GitHub OAuth Token'),
-              (r'sk-[a-zA-Z0-9]{20}', 'OpenAI API Key'),
-              (r'-----BEGIN (RSA |EC )?PRIVATE KEY-----', 'Private Key'),
-              (r'password\s*[:=]\s*[\"'"'"'][^\"'"'"']{8,}[\"'"'"']', 'Hardcoded Password'),
-          ]
-          violations = []
-          skip_dirs = {'.git', 'node_modules', '.next', 'target', '__pycache__', '.gradle'}
-          skip_exts = {'.lock', '.sum', '.bin'}
-          for f in Path('.').rglob('*'):
-              if any(d in f.parts for d in skip_dirs):
-                  continue
-              if f.suffix in skip_exts:
-                  continue
-              if not f.is_file() or f.stat().st_size > 1_000_000:
-                  continue
-              try:
-                  content = f.read_text(encoding='utf-8', errors='ignore')
-                  for pat, name in patterns:
-                      matches = re.findall(pat, content)
-                      if matches:
-                          violations.append(f'{f}: {name} ({len(matches)} occurrence(s))')
-              except Exception:
-                  pass
-          if violations:
-              for v in violations:
-                  print(f'  SECRET FOUND: {v}')
-              sys.exit(1)
-          print('Secret scan: PASS — 0 secrets found')
-          "
+          echo "Running secret scan..."
+          test -f scripts/ci/scan_secrets.py
+          python3 -m py_compile scripts/ci/scan_secrets.py
+          python3 scripts/ci/scan_secrets.py \
+            --repository-root . \
+            --report "$RUNNER_TEMP/secret-scan-report.json" \
+            --commit-sha "${{ github.sha }}" \
+            --workflow-run-id "${{ github.run_id }}"
 
       # === Operational Smoke Tests (Section 3) ===
       - name: Smoke test — Backend health (operational)
@@ -412,6 +384,16 @@ jobs:
         with:
           name: verification-manifest-${{ github.run_id }}
           path: ${{ runner.temp }}/verification-manifest.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload secret scan report
+        id: upload-secret-report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: secret-scan-report-${{ github.run_id }}
+          path: ${{ runner.temp }}/secret-scan-report.json
           if-no-files-found: error
           retention-days: 90
 
