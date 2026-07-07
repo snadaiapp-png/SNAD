@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { AuthLoadingState } from "./auth-loading-state";
@@ -9,76 +9,72 @@ import { TenantPicker } from "./tenant-picker";
 import { CredentialRotationForm } from "./credential-rotation-form";
 
 export function AuthEntry() {
-  const {
-    state,
-    error,
-    ambiguousTenantIds,
-    lastLoginEmail,
-    login,
-    loginWithTenant,
-    dismissAmbiguousTenant,
-    changeCredential,
-  } = useAuth();
+  const auth = useAuth();
   const router = useRouter();
+  const tenantCache = useRef<string[]>([]);
 
-  // Redirect to /workspace when authenticated
+  if (auth.ambiguousTenantIds.length > 0) {
+    tenantCache.current = auth.ambiguousTenantIds;
+  }
+  const selectableTenants = auth.ambiguousTenantIds.length > 0
+    ? auth.ambiguousTenantIds
+    : tenantCache.current;
+
   useEffect(() => {
-    if (state === "AUTHENTICATED") {
-      router.replace("/workspace");
-    }
-  }, [state, router]);
+    if (auth.state === "AUTHENTICATED") router.replace("/workspace");
+  }, [auth.state, router]);
 
-  if (state === "INITIALIZING" || state === "REFRESHING" || state === "LOGGING_OUT") {
+  if (["INITIALIZING", "REFRESHING", "LOGGING_OUT"].includes(auth.state)) {
     return <AuthLoadingState />;
   }
 
-  if (state === "AUTHENTICATING" && ambiguousTenantIds.length > 0) {
+  if (auth.state === "AUTHENTICATING" && selectableTenants.length > 0) {
     return (
       <TenantPicker
-        tenantIds={ambiguousTenantIds}
-        onSelect={loginWithTenant}
-        onDismiss={dismissAmbiguousTenant}
+        tenantIds={selectableTenants}
+        onSelect={auth.loginWithTenant}
+        onDismiss={auth.dismissAmbiguousTenant}
         authenticating={true}
       />
     );
   }
 
-  if (state === "AUTHENTICATING") {
+  if (auth.state === "AUTHENTICATING") {
     return (
       <LoginScreen
-        onLogin={(email, password) => login({ email, password })}
+        onLogin={(email, password) => auth.login({ email, password })}
         authenticating={true}
         error={null}
       />
     );
   }
 
-  if (state === "AMBIGUOUS_TENANT") {
+  if (auth.state === "AMBIGUOUS_TENANT") {
     return (
       <TenantPicker
-        tenantIds={ambiguousTenantIds}
-        onSelect={loginWithTenant}
-        onDismiss={dismissAmbiguousTenant}
+        tenantIds={selectableTenants}
+        onSelect={auth.loginWithTenant}
+        onDismiss={auth.dismissAmbiguousTenant}
         authenticating={false}
       />
     );
   }
 
-  if (state === "CREDENTIAL_ROTATION_REQUIRED") {
+  if (auth.state === "CREDENTIAL_ROTATION_REQUIRED") {
     return (
       <CredentialRotationForm
-        onChangeCredential={changeCredential}
+        onChangeCredential={auth.changeCredential}
         processing={false}
-        error={error}
-        userEmail={lastLoginEmail}
+        error={auth.error}
+        userEmail={auth.lastLoginEmail}
       />
     );
   }
 
-  if (state === "EXPIRED") {
+  if (auth.state === "EXPIRED") {
     return (
       <LoginScreen
-        onLogin={(email, password) => login({ email, password })}
+        onLogin={(email, password) => auth.login({ email, password })}
         authenticating={false}
         error={null}
         sessionExpired={true}
@@ -86,12 +82,11 @@ export function AuthEntry() {
     );
   }
 
-  // ANONYMOUS or ERROR
   return (
     <LoginScreen
-      onLogin={(email, password) => login({ email, password })}
+      onLogin={(email, password) => auth.login({ email, password })}
       authenticating={false}
-      error={error}
+      error={auth.error}
     />
   );
 }
