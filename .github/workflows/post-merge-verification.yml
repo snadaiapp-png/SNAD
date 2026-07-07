@@ -281,29 +281,29 @@ jobs:
           }
           trap cleanup_frontend EXIT
 
-          PORT=3001 npx next start \
+          NODE_ENV=production ./node_modules/.bin/next start -H 0.0.0.0 -p 3001 \
             > "$RUNNER_TEMP/frontend.log" 2>&1 &
 
           FRONTEND_PID=$!
 
           echo "Waiting for frontend to be ready..."
           FRONTEND_READY=false
-          for i in $(seq 1 150); do
+          for i in $(seq 1 120); do
             if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
               echo "::error::Frontend process terminated before readiness (PROCESS_EXITED)"
               tail -200 "$RUNNER_TEMP/frontend.log" || true
               exit 1
             fi
-            if curl --fail --silent --show-error http://localhost:3001/auth/login > /dev/null 2>&1; then
-              echo "Frontend is ready after $((i*2))s"
+            if curl --fail --silent --show-error http://0.0.0.0:3001/auth/login > /dev/null 2>&1; then
+              echo "Frontend is ready after $((i*3))s"
               FRONTEND_READY=true
               break
             fi
-            sleep 2
+            sleep 3
           done
 
           if [ "$FRONTEND_READY" = "false" ]; then
-            echo "::error::Frontend did not become ready within 300s (STARTUP_TIMEOUT)"
+            echo "::error::Frontend did not become ready within 360s (STARTUP_TIMEOUT)"
             tail -200 "$RUNNER_TEMP/frontend.log" || true
             exit 1
           fi
@@ -314,14 +314,14 @@ jobs:
               --show-error \
               --output "$RUNNER_TEMP/frontend-auth.html" \
               --write-out '%{http_code}' \
-              http://localhost:3001/auth/login
+              http://0.0.0.0:3001/auth/login
           )"
 
           python3 ${{ github.workspace }}/scripts/ci/validate_frontend_smoke.py \
             --html-file "$RUNNER_TEMP/frontend-auth.html" \
             --metadata-file "$RUNNER_TEMP/frontend-smoke-metadata.json" \
             --http-status "$HTTP_STATUS" \
-            --url "http://localhost:3001/auth/login" \
+            --url "http://0.0.0.0:3001/auth/login" \
             --port 3001
 
       # === Generate Truthful Manifest (Section 4) ===
