@@ -28,8 +28,6 @@ paths = [
   '''^SNAD-https/''',
   '''^node_modules/''',
   '''^apps/web/node_modules/''',
-  '''tests/ci/test_scan_secrets\.py''',
-  '''scripts/ci/scan_secrets\.py''',
 ]
 
 # No global regex exclusions.

@@ -200,32 +200,76 @@ jobs:
         run: |
           set -euo pipefail
           echo "Starting backend for operational smoke test..."
+          echo "Application Port: 8081"
+          echo "Management Port: 8082"
+          echo "Health Endpoint: http://127.0.0.1:8082/actuator/health"
           
-          # Start backend in background
-          mvn --batch-mode --no-transfer-progress spring-boot:run \
-            -Dspring-boot.run.profiles=local \
-            -Dspring-boot.run.arguments="--server.port=8081" \
-            > "$RUNNER_TEMP/backend.log" 2>&1 &
+          SPRING_PROFILES_ACTIVE=local           SERVER_PORT=8081           MANAGEMENT_SERVER_PORT=8082           mvn --batch-mode --no-transfer-progress spring-boot:run             > "$RUNNER_TEMP/backend.log" 2>&1 &
           BACKEND_PID=$!
           
-          # Trap to ensure cleanup
           trap "kill $BACKEND_PID 2>/dev/null || true; wait $BACKEND_PID 2>/dev/null || true" EXIT
           
-          # Wait for backend to be ready (max 90s)
           echo "Waiting for backend to be ready..."
+          BACKEND_READY=false
           for i in $(seq 1 30); do
-            if curl --fail --silent --show-error http://127.0.0.1:8081/actuator/health > "$RUNNER_TEMP/backend-health.json" 2>&1; then
-              echo "Backend is ready after $((i*3))s"
-              break
-            fi
-            if [ $i -eq 30 ]; then
-              echo "::error::Backend did not start within 90s"
-              echo "=== Backend log (last 50 lines) ==="
-              tail -50 "$RUNNER_TEMP/backend.log" || true
+            if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+              echo "::error::Backend process terminated before readiness (PROCESS_EXITED)"
+              tail -200 "$RUNNER_TEMP/backend.log" || true
               exit 1
+            fi
+            if curl --fail --silent --show-error http://127.0.0.1:8082/actuator/health > "$RUNNER_TEMP/backend-health.json" 2>&1; then
+              echo "Backend is ready after $((i*3))s"
+              BACKEND_READY=true
+              break
             fi
             sleep 3
           done
+          
+          if [ "$BACKEND_READY" = "false" ]; then
+            echo "::error::Backend did not become ready within 90s (STARTUP_TIMEOUT)"
+            tail -200 "$RUNNER_TEMP/backend.log" || true
+            exit 1
+          fi
+          
+          echo "=== Backend health response ==="
+          cat "$RUNNER_TEMP/backend-health.json"
+          echo ""
+          
+          HTTP_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8082/actuator/health)
+          
+          python3 -c "
+          import json, sys
+          with open('$RUNNER_TEMP/backend-health.json') as f:
+              try:
+                  d = json.load(f)
+              except json.JSONDecodeError:
+                  print('::error::Invalid health JSON (INVALID_HEALTH_JSON)')
+                  sys.exit(1)
+          status = d.get('status')
+          if status != 'UP':
+              print(f'::error::Health status {status}, expected UP (HEALTH_STATUS_NOT_UP)')
+              sys.exit(1)
+          print(f'Backend health: PASS — status={status}, HTTP={int('')}')
+          "
+          
+          python3 -c "
+          import json
+          metadata = {
+              'applicationPort': 8081,
+              'managementPort': 8082,
+              'healthUrl': 'http://127.0.0.1:8082/actuator/health',
+              'processStarted': True,
+              'httpStatus': int(''),
+              'healthStatus': 'UP',
+              'result': 'PASS'
+          }
+          with open('$RUNNER_TEMP/backend-smoke-metadata.json', 'w') as f:
+              json.dump(metadata, f, indent=2)
+          "
+          
+          kill $BACKEND_PID 2>/dev/null || true
+          wait $BACKEND_PID 2>/dev/null || true
+          trap - EXIT
           
           # Verify health response
           echo "=== Backend health response ==="
