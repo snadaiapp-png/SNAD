@@ -1,0 +1,157 @@
+name: Debug Render Deploy (No Cache Clear)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'deploy-no-clear' to trigger Render deploy without cache clear"
+        required: true
+        default: "no"
+      clear_bootstrap_env:
+        description: "Set to 'yes' to remove bootstrap env vars before deploying"
+        required: false
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  debug-deploy:
+    name: Trigger Render deploy without cache clear
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 15
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "deploy-no-clear" ]; then
+            echo "Confirmation input must be 'deploy-no-clear'. Aborting."
+            exit 1
+          fi
+
+      - name: Optionally remove bootstrap env vars
+        if: ${{ github.event.inputs.clear_bootstrap_env == 'yes' }}
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo "=== Fetching existing env vars ==="
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/env-vars.json
+
+          python3 - <<'PY' > /tmp/payload.json
+          import json
+          with open('/tmp/env-vars.json') as f:
+              data = json.load(f)
+          items = []
+          removed = []
+          if isinstance(data, list):
+              for item in data:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '') if isinstance(ev, dict) else ''
+                  val = ev.get('value', '') if isinstance(ev, dict) else ''
+                  if not key:
+                      continue
+                  # Remove the 4 bootstrap env vars
+                  if key in ('CONTROL_PLANE_BOOTSTRAP_ENABLED',
+                             'CONTROL_PLANE_BOOTSTRAP_TOKEN',
+                             'CONTROL_PLANE_ADMIN_EMAIL',
+                             'CONTROL_PLANE_ADMIN_PASSWORD'):
+                      removed.append(key)
+                      continue
+                  items.append({'key': key, 'value': val})
+          print(f"Removed {len(removed)} bootstrap env vars: {', '.join(removed)}", flush=True)
+          print(f"Keeping {len(items)} env vars", flush=True)
+          print(json.dumps(items))
+          PY
+
+          echo "=== PUTting updated env vars (without bootstrap) ==="
+          STATUS=$(curl -sS -o /tmp/render-response.json -w "%{http_code}" \
+            --max-time 60 \
+            -X PUT "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data @/tmp/payload.json)
+          echo "PUT returned HTTP ${STATUS}"
+
+      - name: Trigger Render deploy (no cache clear)
+        id: deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo "Triggering Render deploy (no cache clear)..."
+          STATUS=$(curl -sS -o /tmp/deploy.json -w "%{http_code}" \
+            --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data '{"clearCache": "do-not-clear"}')
+          echo "Render deploy trigger returned HTTP ${STATUS}"
+          if [ "${STATUS}" != "201" ] && [ "${STATUS}" != "200" ] && [ "${STATUS}" != "202" ]; then
+            echo "Failed to trigger deploy. Response:"
+            head -c 500 /tmp/deploy.json
+            exit 1
+          fi
+          DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/deploy.json')).get('id', ''))")
+          echo "Deploy ID: ${DEPLOY_ID}"
+          echo "deploy_id=${DEPLOY_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for deploy to complete
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          DEPLOY_ID="${{ steps.deploy.outputs.deploy_id }}"
+          echo "Waiting for deploy ${DEPLOY_ID} to complete..."
+          for i in $(seq 1 40); do
+            sleep 20
+            STATUS=$(curl -sS --max-time 15 \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status', 'unknown'))")
+            echo "  Attempt ${i}: deploy status = ${STATUS}"
+            if [ "${STATUS}" = "live" ]; then
+              echo "Deploy is live!"
+              exit 0
+            fi
+            if [ "${STATUS}" = "build_failed" ] || [ "${STATUS}" = "update_failed" ] || [ "${STATUS}" = "canceled" ] || [ "${STATUS}" = "deactivated" ]; then
+              echo "Deploy failed with status: ${STATUS}"
+              exit 1
+            fi
+          done
+          echo "Deploy did not complete within ~13 minutes."
+          exit 1
+
+      - name: Verify health and bootstrap endpoint
+        env:
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+        run: |
+          set -euo pipefail
+          sleep 10
+          STATUS=$(curl -sS -o /tmp/health.json -w "%{http_code}" --max-time 30 \
+            "${PRODUCTION_BASE_URL}/actuator/health")
+          echo "Backend health HTTP ${STATUS}"
+          cat /tmp/health.json
+
+          curl -sS --max-time 30 "${PRODUCTION_BASE_URL}/v3/api-docs" > /tmp/api-docs.json
+          BOOTSTRAP_PATHS=$(python3 -c "
+          import json
+          with open('/tmp/api-docs.json') as f:
+              data = json.load(f)
+          paths = data.get('paths', {})
+          bootstrap = [p for p in paths if 'bootstrap' in p.lower()]
+          print(','.join(bootstrap) if bootstrap else 'NONE')
+          ")
+          echo "Bootstrap paths in OpenAPI: ${BOOTSTRAP_PATHS}"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/env-vars.json /tmp/payload.json /tmp/render-response.json /tmp/deploy.json /tmp/health.json /tmp/api-docs.json
