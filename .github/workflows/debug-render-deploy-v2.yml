@@ -92,7 +92,7 @@ jobs:
             -H "Authorization: Bearer ${RENDER_API_KEY}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
-            --data '{"clearCache": "do-not-clear"}')
+            --data '{"clearCache": "do_not_clear"}')
           echo "Render deploy trigger returned HTTP ${STATUS}"
           if [ "${STATUS}" != "201" ] && [ "${STATUS}" != "200" ] && [ "${STATUS}" != "202" ]; then
             echo "Failed to trigger deploy. Response:"
