@@ -102,7 +102,7 @@ jobs:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
         run: |
           set -euo pipefail
-          npx playwright test --reporter=list
+          npx playwright test --reporter=html,list
 
       - name: Stop server
         if: always()
@@ -117,7 +117,7 @@ jobs:
         with:
           name: playwright-report-${{ github.run_id }}
           path: apps/web/playwright-report/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
 
       - name: Upload test results (screenshots, traces, videos)
@@ -126,7 +126,7 @@ jobs:
         with:
           name: playwright-test-results-${{ github.run_id }}
           path: apps/web/test-results/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
 
       - name: Upload frontend server log
@@ -135,5 +135,5 @@ jobs:
         with:
           name: playwright-server-log-${{ github.run_id }}
           path: ${{ runner.temp }}/frontend.log
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
