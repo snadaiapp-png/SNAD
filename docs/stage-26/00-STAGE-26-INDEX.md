@@ -1,0 +1,32 @@
+# Stage 26 — Document Index
+
+## Stage
+
+```text
+Stage 26 — Operating Company Launch & Market Execution
+```
+
+## Index
+
+```text
+00-STAGE-26-INDEX.md
+01-OPERATING-COMPANY-LAUNCH-PLAN.md
+02-MARKET-EXECUTION-STRATEGY.md
+03-COMMERCIAL-OPERATIONS-MODEL.md
+04-CUSTOMER-IMPLEMENTATION-OPERATING-MODEL.md
+05-PARTNER-EXECUTION-MODEL.md
+06-SUPPORT-AND-SERVICE-OPERATIONS.md
+07-FINANCE-LEGAL-GOVERNANCE-READINESS.md
+08-STAGE-26-CLOSURE-STAGE-27-RECOMMENDATION.md
+README.md
+STAGE-26-EXECUTION-RECORD.md
+```
+
+## Governing Rule
+
+```text
+Production remains LIVE.
+Gate 8F remains CLOSED BY GOVERNANCE WAIVER.
+Final Platform Release remains GO.
+No secret value may be republished.
+```
