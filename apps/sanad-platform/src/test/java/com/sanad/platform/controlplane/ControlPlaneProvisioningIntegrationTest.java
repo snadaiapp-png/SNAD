@@ -42,7 +42,12 @@ class ControlPlaneProvisioningIntegrationTest {
                 "ar-SA",
                 "Asia/Riyadh",
                 "SAR",
-                14
+                14,
+                "STARTER",
+                null,
+                "MONTHLY",
+                1,
+                true
         );
 
         UsernamePasswordAuthenticationToken authentication =
