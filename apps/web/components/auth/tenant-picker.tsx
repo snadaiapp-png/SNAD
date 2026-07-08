@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import styles from "./auth.module.css";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
 interface TenantPickerProps {
   tenantIds: string[];
@@ -22,6 +23,7 @@ export function TenantPicker({
   authenticating,
 }: TenantPickerProps) {
   const [selected, setSelected] = useState("");
+  const { t } = useI18n();
 
   return (
     <div className={styles.authShell}>
@@ -29,12 +31,12 @@ export function TenantPicker({
       <div className={styles.loginPanel}>
         <div className={styles.loginCard}>
           <div className={styles.loginBrandMark}>SNAD</div>
-          <h1 className={styles.loginWelcomeTitle}>اختيار مساحة العمل</h1>
+          <h1 className={styles.loginWelcomeTitle}>{t("auth.tenant.welcomeTitle")}</h1>
           <p className={styles.loginWelcomeSubtitle}>
-            البريد مرتبط بأكثر من مساحة عمل. اختر المساحة المطلوبة.
+            {t("auth.tenant.welcomeSubtitle")}
           </p>
 
-          <div className={styles.tenantList} role="radiogroup" aria-label="مساحات العمل">
+          <div className={styles.tenantList} role="radiogroup" aria-label={t("auth.tenant.workspaceLabel")}>
             {tenantIds.map((id) => (
               <label
                 key={id}
@@ -51,7 +53,7 @@ export function TenantPicker({
                   disabled={authenticating}
                 />
                 <span className={styles.tenantLabel}>
-                  مساحة عمل {shortenTenantId(id)}
+                  {t("auth.tenant.workspacePrefix")} {shortenTenantId(id)}
                 </span>
               </label>
             ))}
@@ -64,7 +66,7 @@ export function TenantPicker({
             onClick={() => selected && onSelect(selected)}
             aria-busy={authenticating}
           >
-            {authenticating ? "جارٍ الدخول…" : "المتابعة"}
+            {authenticating ? t("auth.tenant.entering") : t("auth.tenant.continue")}
           </button>
 
           <button
@@ -73,7 +75,7 @@ export function TenantPicker({
             onClick={onDismiss}
             disabled={authenticating}
           >
-            العودة إلى تسجيل الدخول
+            {t("auth.tenant.backToLogin")}
           </button>
         </div>
       </div>

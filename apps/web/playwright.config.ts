@@ -45,7 +45,20 @@ export default defineConfig({
   timeout: 60_000,
   expect: {
     timeout: 10_000,
+    // Visual regression: screenshots stored under e2e/__screenshots__/
+    // Cross-environment tolerance: CI runners render slightly differently
+    // than local dev machines (font rendering, anti-aliasing, GPU). The
+    // thresholds below allow for these minor differences while still
+    // catching significant visual regressions (>5% pixel diff).
+    toHaveScreenshot: {
+      maxDiffPixelRatio: 0.05,
+      maxDiffPixels: 5000,
+      threshold: 0.3,
+    },
   },
+  // Snapshot path template — keeps baselines in-repo for reviewable diffs
+  snapshotPathTemplate: "{snapshotDir}/{testFileDir}/__screenshots__/{arg}{ext}",
+  snapshotDir: "./e2e",
   use: {
     baseURL: BASE_URL,
     trace: "retain-on-failure",

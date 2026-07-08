@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LoginForm } from "./login-form";
+import { I18nProvider } from "@/lib/i18n/I18nProvider";
 
 const onLoginMock = vi.fn();
 
@@ -24,12 +25,14 @@ vi.mock("next/link", () => ({
 
 function renderLoginForm(overrides: Partial<React.ComponentProps<typeof LoginForm>> = {}) {
   return render(
-    <LoginForm
-      onLogin={onLoginMock}
-      authenticating={false}
-      error={null}
-      {...overrides}
-    />,
+    <I18nProvider>
+      <LoginForm
+        onLogin={onLoginMock}
+        authenticating={false}
+        error={null}
+        {...overrides}
+      />
+    </I18nProvider>,
   );
 }
 
@@ -44,7 +47,7 @@ describe("LoginForm", () => {
 
   it("renders email and password fields", () => {
     renderLoginForm();
-    expect(screen.getByPlaceholderText("you@example.com")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("name@company.com")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("••••••••")).toBeInTheDocument();
   });
 
@@ -65,7 +68,7 @@ describe("LoginForm", () => {
   it("validates required password", async () => {
     const user = userEvent.setup();
     renderLoginForm();
-    await user.type(screen.getByPlaceholderText("you@example.com"), "test@example.com");
+    await user.type(screen.getByPlaceholderText("name@company.com"), "test@example.com");
     await user.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
     expect(screen.getByText("كلمة المرور مطلوبة.")).toBeInTheDocument();
     expect(onLoginMock).not.toHaveBeenCalled();
@@ -74,7 +77,7 @@ describe("LoginForm", () => {
   it("normalizes email to trimmed lowercase before calling login", async () => {
     const user = userEvent.setup();
     renderLoginForm();
-    await user.type(screen.getByPlaceholderText("you@example.com"), "  Test@Example.COM  ");
+    await user.type(screen.getByPlaceholderText("name@company.com"), "  Test@Example.COM  ");
     await user.type(screen.getByPlaceholderText("••••••••"), "Password123!");
     await user.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
     expect(onLoginMock).toHaveBeenCalledWith("test@example.com", "Password123!");
@@ -83,7 +86,7 @@ describe("LoginForm", () => {
   it("calls onLogin with the correct values", async () => {
     const user = userEvent.setup();
     renderLoginForm();
-    await user.type(screen.getByPlaceholderText("you@example.com"), "user@snad.app");
+    await user.type(screen.getByPlaceholderText("name@company.com"), "user@snad.app");
     await user.type(screen.getByPlaceholderText("••••••••"), "SecretPass1!");
     await user.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
     expect(onLoginMock).toHaveBeenCalledTimes(1);
@@ -152,7 +155,7 @@ describe("LoginForm", () => {
     const forgotLink = screen.getByRole("link", { name: /نسيت كلمة المرور؟/ });
     expect(forgotLink).toHaveAttribute(
       "aria-label",
-      "نسيت كلمة المرور؟ استعادة كلمة المرور",
+      "نسيت كلمة المرور؟",
     );
   });
 });

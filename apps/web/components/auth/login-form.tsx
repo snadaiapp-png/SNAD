@@ -7,6 +7,7 @@ import { AuthErrorAlert } from "./auth-error-alert";
 import type { UserFacingError } from "@/lib/api/user-facing-errors";
 import { SnadLogo } from "@/components/sds";
 import { useTheme } from "@/lib/hooks/useTheme";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
 interface LoginFormProps {
   onLogin: (email: string, password: string) => Promise<void>;
@@ -27,6 +28,7 @@ export function LoginForm({
   const [showHelp, setShowHelp] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const { t } = useI18n();
 
   /*
    * Theme-aware logo variant selection.
@@ -50,16 +52,16 @@ export function LoginForm({
   function validate(): boolean {
     let valid = true;
     if (!email.trim()) {
-      setEmailError("البريد الإلكتروني مطلوب.");
+      setEmailError(t("auth.login.emailRequired"));
       valid = false;
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setEmailError("صيغة البريد الإلكتروني غير صالحة.");
+      setEmailError(t("auth.login.emailInvalid"));
       valid = false;
     } else {
       setEmailError(null);
     }
     if (!password) {
-      setPasswordError("كلمة المرور مطلوبة.");
+      setPasswordError(t("auth.login.passwordRequired"));
       valid = false;
     } else {
       setPasswordError(null);
@@ -76,7 +78,7 @@ export function LoginForm({
   }
 
   const displayError = sessionExpired && !error
-    ? { title: "انتهت الجلسة", message: "انتهت صلاحية جلستك. يرجى تسجيل الدخول مرة أخرى.", kind: "validation" as const }
+    ? { title: t("auth.login.sessionExpiredTitle"), message: t("auth.login.sessionExpiredMessage"), kind: "validation" as const }
     : error;
 
   return (
@@ -86,13 +88,13 @@ export function LoginForm({
           variant={logoVariant}
           size="responsive"
           href="/"
-          alt="شعار سند — SNAD Business Operating System"
+          alt={t("auth.login.logoAlt")}
           priority
         />
       </div>
-      <h1 className={styles.loginWelcomeTitle}>مرحبًا بعودتك</h1>
+      <h1 className={styles.loginWelcomeTitle}>{t("auth.login.welcomeTitle")}</h1>
       <p className={styles.loginWelcomeSubtitle}>
-        سجّل دخولك للوصول إلى منصة تشغيل الأعمال.
+        {t("auth.login.welcomeSubtitle")}
       </p>
 
       {displayError && <AuthErrorAlert error={displayError} />}
@@ -100,7 +102,7 @@ export function LoginForm({
       <form onSubmit={handleSubmit} noValidate>
         <div className={styles.authField}>
           <label htmlFor="login-email" className={styles.authLabel}>
-            البريد الإلكتروني
+            {t("auth.login.email")}
           </label>
           <div className={styles.authInputWrapper}>
             <input
@@ -110,7 +112,7 @@ export function LoginForm({
               inputMode="email"
               dir="ltr"
               className={styles.authInput}
-              placeholder="you@example.com"
+              placeholder={t("auth.login.emailPlaceholder")}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               aria-invalid={!!emailError}
@@ -128,7 +130,7 @@ export function LoginForm({
 
         <div className={styles.authField}>
           <label htmlFor="login-password" className={styles.authLabel}>
-            كلمة المرور
+            {t("auth.login.password")}
           </label>
           <div className={styles.authInputWrapper}>
             <input
@@ -137,7 +139,7 @@ export function LoginForm({
               autoComplete="current-password"
               dir="ltr"
               className={styles.authInput}
-              placeholder="••••••••"
+              placeholder={t("auth.login.passwordPlaceholder")}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               aria-invalid={!!passwordError}
@@ -149,7 +151,7 @@ export function LoginForm({
               type="button"
               className={styles.passwordToggle}
               onClick={() => setShowPassword(!showPassword)}
-              aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+              aria-label={showPassword ? t("auth.login.hidePassword") : t("auth.login.showPassword")}
               tabIndex={0}
             >
               {showPassword ? (
@@ -176,7 +178,7 @@ export function LoginForm({
           <Link
             href="/auth/forgot-password"
             className={styles.authForgotLink}
-            aria-label="نسيت كلمة المرور؟ استعادة كلمة المرور"
+            aria-label={t("auth.login.forgotPassword")}
           >
             <svg
               className={styles.authForgotLinkIcon}
@@ -192,7 +194,7 @@ export function LoginForm({
             >
               <path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4" />
             </svg>
-            <span>نسيت كلمة المرور؟</span>
+            <span>{t("auth.login.forgotPassword")}</span>
           </Link>
         </div>
 
@@ -202,7 +204,7 @@ export function LoginForm({
           disabled={authenticating}
           aria-busy={authenticating}
         >
-          {authenticating ? "جارٍ تسجيل الدخول…" : "تسجيل الدخول"}
+          {authenticating ? t("auth.login.submitting") : t("auth.login.submit")}
         </button>
       </form>
 
@@ -212,12 +214,12 @@ export function LoginForm({
         onClick={() => setShowHelp(!showHelp)}
         aria-expanded={showHelp}
       >
-        تحتاج مساعدة في الدخول؟
+        {t("auth.login.helpLink")}
       </button>
 
       {showHelp && (
         <div className={styles.authHelpPanel}>
-          تواصل مع مسؤول النظام أو فريق الدعم لاستعادة الوصول إلى حسابك. إذا استلمت رابط استرداد آمنًا، افتح الرابط نفسه لإكمال العملية.
+          {t("auth.login.helpText")}
         </div>
       )}
     </div>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { ExecutiveShell } from "@/components/shell";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 import styles from "@/components/auth/auth.module.css";
 
 function shortenTenantId(id: string): string {
@@ -16,6 +17,7 @@ function shortenTenantId(id: string): string {
 export default function WorkspacePage() {
   const { state, user, me, logout } = useAuth();
   const router = useRouter();
+  const { t } = useI18n();
 
   useEffect(() => {
     if (
@@ -40,7 +42,7 @@ export default function WorkspacePage() {
     return <AuthLoadingState />;
   }
 
-  const displayName = me?.displayName || user?.email || "المستخدم";
+  const displayName = me?.displayName || user?.email || t("workspace.defaultUser");
   const tenantId = user?.tenantId ?? "";
   const hasAdministrativeRole = me?.roleGrants.some(
     (grant) => grant.status === "ACTIVE" && grant.roleCode === "ADMIN",
@@ -64,22 +66,22 @@ export default function WorkspacePage() {
             <polyline points="22 4 12 14.01 9 11.01" />
           </svg>
 
-          <h1 className={styles.workspaceTitle}>تم تسجيل الدخول بنجاح</h1>
+          <h1 className={styles.workspaceTitle}>{t("workspace.loginSuccess")}</h1>
 
           <div className={styles.workspaceInfo}>
             <div className={styles.workspaceInfoRow}>
-              <span className={styles.workspaceInfoLabel}>المستخدم</span>
+              <span className={styles.workspaceInfoLabel}>{t("workspace.userInfo")}</span>
               <span className={styles.workspaceInfoValue}>{displayName}</span>
             </div>
             <div className={styles.workspaceInfoRow}>
-              <span className={styles.workspaceInfoLabel}>مساحة العمل</span>
+              <span className={styles.workspaceInfoLabel}>{t("workspace.tenantInfo")}</span>
               <span className={styles.workspaceInfoValue}>
                 {shortenTenantId(tenantId)}
               </span>
             </div>
             <div className={styles.workspaceInfoRow}>
-              <span className={styles.workspaceInfoLabel}>حالة الجلسة</span>
-              <span className={styles.workspaceInfoValue}>نشطة</span>
+              <span className={styles.workspaceInfoLabel}>{t("workspace.sessionStatus")}</span>
+              <span className={styles.workspaceInfoValue}>{t("workspace.sessionActive")}</span>
             </div>
           </div>
 
@@ -89,7 +91,7 @@ export default function WorkspacePage() {
               className={styles.workspaceLogoutButton}
               onClick={() => router.push("/control-plane")}
             >
-              فتح مركز الإدارة العليا
+              {t("workspace.openControlPlane")}
             </button>
           ) : null}
 
@@ -101,7 +103,7 @@ export default function WorkspacePage() {
               router.replace("/");
             }}
           >
-            تسجيل الخروج
+            {t("nav.logout")}
           </button>
         </div>
       </div>

@@ -192,4 +192,36 @@ export const en: TranslationDictionary = {
   "common.actions": "Actions",
   "common.optional": "Optional",
   "common.required": "Required",
+
+  // === Login Form (migrated from hardcoded strings) ===
+  "auth.login.welcomeTitle": "Welcome back",
+  "auth.login.welcomeSubtitle": "Sign in to access your business operating platform.",
+  "auth.login.emailRequired": "Email is required.",
+  "auth.login.emailInvalid": "Invalid email format.",
+  "auth.login.passwordRequired": "Password is required.",
+  "auth.login.sessionExpiredTitle": "Session expired",
+  "auth.login.sessionExpiredMessage": "Your session has expired. Please sign in again.",
+  "auth.login.logoAlt": "SNAD logo — SNAD Business Operating System",
+  "auth.login.showPassword": "Show password",
+  "auth.login.hidePassword": "Hide password",
+  "auth.login.goToWorkspace": "Go to workspace",
+  "auth.login.helpLink": "Need help signing in?",
+  "auth.login.helpText": "Contact your system administrator or support team to restore access to your account. If you received a secure recovery link, open that same link to complete the process.",
+
+  // === Tenant Picker (migrated) ===
+  "auth.tenant.welcomeTitle": "Select workspace",
+  "auth.tenant.welcomeSubtitle": "This email is linked to multiple workspaces. Select the one you want.",
+  "auth.tenant.workspaceLabel": "Workspaces",
+  "auth.tenant.workspacePrefix": "Workspace",
+  "auth.tenant.entering": "Entering…",
+  "auth.tenant.backToLogin": "Back to sign in",
+
+  // === Workspace (migrated) ===
+  "workspace.defaultUser": "User",
+  "workspace.loginSuccess": "Successfully signed in",
+  "workspace.userInfo": "User",
+  "workspace.tenantInfo": "Workspace",
+  "workspace.sessionStatus": "Session status",
+  "workspace.sessionActive": "Active",
+  "workspace.openControlPlane": "Open Control Plane",
 };

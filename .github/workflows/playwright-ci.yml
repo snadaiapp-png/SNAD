@@ -1,0 +1,139 @@
+name: Playwright E2E & Visual Regression
+
+# ============================================================
+# SNAD Platform — Playwright CI Hardening (Gate 8F Item 5)
+# ------------------------------------------------------------
+# Runs the full Playwright test suite in GitHub Actions:
+#   - Bilingual theme matrix (48 tests, 6 projects)
+#   - Visual regression with baseline comparison (10 tests)
+#
+# Total: 58 tests, fail-closed (no continue-on-error).
+#
+# Artifacts uploaded on failure:
+#   - playwright-report (HTML report)
+#   - test-results (screenshots, traces, videos)
+#   - visual-diffs (baseline diff images)
+# ============================================================
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/web/**'
+      - '.github/workflows/playwright-ci.yml'
+  pull_request:
+    paths:
+      - 'apps/web/**'
+      - '.github/workflows/playwright-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: playwright-ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  playwright:
+    name: Playwright E2E & Visual Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          npm ci
+
+      - name: Install Playwright browsers
+        run: |
+          set -euo pipefail
+          npx playwright install --with-deps chromium
+
+      - name: Build Next.js production
+        run: |
+          set -euo pipefail
+          npm run build
+
+      - name: Start Next.js production server
+        id: server
+        shell: bash
+        run: |
+          set -euo pipefail
+          NEXT_TELEMETRY_DISABLED=1 \
+          NODE_ENV=production \
+          ./node_modules/.bin/next start -H 127.0.0.1 -p 3001 \
+            > "$RUNNER_TEMP/frontend.log" 2>&1 &
+          SERVER_PID=$!
+          echo "pid=$SERVER_PID" >> "$GITHUB_OUTPUT"
+
+          # Wait for readiness (up to 60s)
+          for i in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:3001/ > /dev/null 2>&1; then
+              echo "Server ready after $((i*3))s"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::Server did not become ready within 60s"
+          tail -50 "$RUNNER_TEMP/frontend.log" || true
+          exit 1
+
+      - name: Run Playwright tests (E2E matrix + Visual Regression)
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
+        run: |
+          set -euo pipefail
+          npx playwright test --reporter=html,list
+
+      - name: Stop server
+        if: always()
+        shell: bash
+        run: |
+          kill ${{ steps.server.outputs.pid }} 2>/dev/null || true
+          wait ${{ steps.server.outputs.pid }} 2>/dev/null || true
+
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: apps/web/playwright-report/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload test results (screenshots, traces, videos)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results-${{ github.run_id }}
+          path: apps/web/test-results/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload frontend server log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-server-log-${{ github.run_id }}
+          path: ${{ runner.temp }}/frontend.log
+          if-no-files-found: warn
+          retention-days: 14
