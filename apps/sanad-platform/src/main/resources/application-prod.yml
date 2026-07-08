@@ -37,6 +37,8 @@ sanad:
       audit-actor: ${BOOTSTRAP_AUDIT_ACTOR:credential-bootstrap}
 
 spring:
+  main:
+    lazy-initialization: ${LAZY_INIT:true}
   datasource:
     url: ${DATABASE_URL:}
     username: ${DATABASE_USERNAME:}
