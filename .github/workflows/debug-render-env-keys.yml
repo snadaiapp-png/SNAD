@@ -1,0 +1,65 @@
+name: Debug Render Env Keys
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    name: List Render Env Var Keys
+    runs-on: ubuntu-latest
+    environment: Production
+    steps:
+      - name: List all Render env var keys (values masked)
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo "=== Fetching Render service env vars ==="
+          ENV_VARS=$(curl -sS --max-time 30 "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json")
+          
+          echo "Response length: ${#ENV_VARS}"
+          echo ""
+          echo "=== All env var keys and value lengths (values NOT printed) ==="
+          echo "$ENV_VARS" | python3 -c "
+          import json, sys
+          try:
+              d = json.load(sys.stdin)
+              if isinstance(d, list):
+                  for item in d:
+                      ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                      key = ev.get('key', item.get('key', '?')) if isinstance(ev, dict) else '?'
+                      val = ev.get('value', item.get('value', '')) if isinstance(ev, dict) else ''
+                      print(f'  {key}: (length={len(str(val))}) starts_with={str(val)[:15]}...')
+              elif isinstance(d, dict):
+                  for k, v in d.items():
+                      print(f'  {k}: (length={len(str(v))}) starts_with={str(v)[:15]}...')
+              else:
+                  print(f'Unexpected type: {type(d)}')
+          except Exception as e:
+              print(f'Parse error: {e}')
+              print(sys.stdin.read()[:500])
+          "
+          
+          echo ""
+          echo "=== Also check service details ==="
+          curl -sS --max-time 30 "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" | python3 -c "
+          import json, sys
+          try:
+              d = json.load(sys.stdin)
+              print(f'  name: {d.get(\"name\",\"?\")}')
+              print(f'  type: {d.get(\"type\",\"?\")}')
+              print(f'  status: {d.get(\"status\",\"?\")}')
+              print(f'  url: {d.get(\"serviceUrl\",\"?\")}')
+              print(f'  region: {d.get(\"region\",\"?\")}')
+              print(f'  plan: {d.get(\"plan\",\"?\")}')
+          except:
+              pass
+          "
