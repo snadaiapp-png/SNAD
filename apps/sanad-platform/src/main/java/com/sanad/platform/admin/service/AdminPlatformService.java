@@ -6,6 +6,9 @@ import com.sanad.platform.admin.api.AdminDtos.DashboardResponse;
 import com.sanad.platform.admin.api.AdminDtos.SystemServiceResponse;
 import com.sanad.platform.admin.api.AdminDtos.TenantResponse;
 import com.sanad.platform.admin.api.AdminDtos.UpdateSystemStatusRequest;
+import com.sanad.platform.admin.api.SaasAdminDtos.CreateSubscriptionRequest;
+import com.sanad.platform.admin.api.SaasAdminDtos.PlanResponse;
+import com.sanad.platform.admin.api.SaasAdminDtos.SubscriptionResponse;
 import com.sanad.platform.security.service.RegistrationProvisioner;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -49,15 +52,18 @@ public class AdminPlatformService {
     private final JdbcTemplate jdbcTemplate;
     private final PlatformAuditService auditService;
     private final RegistrationProvisioner registrationProvisioner;
+    private final SaasAdministrationService saasService;
 
     public AdminPlatformService(
             JdbcTemplate jdbcTemplate,
             PlatformAuditService auditService,
-            RegistrationProvisioner registrationProvisioner
+            RegistrationProvisioner registrationProvisioner,
+            SaasAdministrationService saasService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
         this.registrationProvisioner = registrationProvisioner;
+        this.saasService = saasService;
     }
 
     @Transactional(readOnly = true)
@@ -164,9 +170,29 @@ public class AdminPlatformService {
         );
 
         TenantResponse created = getTenant(tenantId);
+
+        // Auto-create subscription so organization and membership operations work immediately.
+        // If subscription creation fails (e.g., no plan seeded), log but don't fail the tenant creation.
+        // The subscription can be created manually later via the Control Plane.
+        try {
+            autoCreateSubscription(request, tenantId, trialDays, authentication);
+        } catch (Exception subEx) {
+            // Log the subscription creation failure but don't fail the tenant provisioning
+            auditService.success(
+                    authentication, tenantId, "TENANT.PROVISION", "TENANT", tenantId.toString(),
+                    "Control-plane tenant provisioning with administrator and default organization (subscription auto-creation failed: " + subEx.getMessage() + ")",
+                    null,
+                    Map.of(
+                            "tenant", created,
+                            "administratorUserId", provisioned.userId(),
+                            "subscriptionAutoCreateError", subEx.getMessage() != null ? subEx.getMessage() : "unknown"
+                    ));
+            return created;
+        }
+
         auditService.success(
                 authentication, tenantId, "TENANT.PROVISION", "TENANT", tenantId.toString(),
-                "Control-plane tenant provisioning with administrator and default organization",
+                "Control-plane tenant provisioning with administrator, default organization, and subscription",
                 null,
                 Map.of(
                         "tenant", created,
@@ -338,5 +364,51 @@ public class AdminPlatformService {
     private static String defaultValue(String value, String fallback) {
         String normalized = blankToNull(value);
         return normalized == null ? fallback : normalized;
+    }
+
+    /**
+     * Automatically creates a subscription for a newly provisioned tenant.
+     * Resolves the plan from planId, planCode, or defaults to STARTER.
+     * Creates a TRIALING subscription if trialDays > 0, ACTIVE otherwise.
+     */
+    private void autoCreateSubscription(
+            CreateTenantRequest request,
+            UUID tenantId,
+            int trialDays,
+            Authentication authentication
+    ) {
+        // Resolve plan: planId → planCode → STARTER
+        UUID resolvedPlanId = request.planId();
+        if (resolvedPlanId == null) {
+            String planCode = blankToNull(request.planCode());
+            if (planCode == null) {
+                planCode = "STARTER";
+            }
+            final String codeToMatch = planCode;
+            // Look up plan by code
+            List<PlanResponse> plans = saasService.listPlans();
+            PlanResponse matched = plans.stream()
+                    .filter(p -> codeToMatch.equalsIgnoreCase(p.code()))
+                    .filter(p -> "ACTIVE".equalsIgnoreCase(p.status()))
+                    .findFirst()
+                    .orElse(null);
+            if (matched == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "No active plan found for code: " + planCode);
+            }
+            resolvedPlanId = matched.id();
+        }
+
+        String billingCycle = defaultValue(request.billingCycle(), "MONTHLY");
+        int seatQuantity = request.seatQuantity() != null ? request.seatQuantity() : 1;
+
+        CreateSubscriptionRequest subRequest = new CreateSubscriptionRequest(
+                tenantId,
+                resolvedPlanId,
+                billingCycle,
+                seatQuantity,
+                trialDays > 0 ? trialDays : null
+        );
+        saasService.createSubscription(subRequest, authentication);
     }
 }

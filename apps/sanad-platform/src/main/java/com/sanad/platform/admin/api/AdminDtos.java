@@ -1,6 +1,7 @@
 package com.sanad.platform.admin.api;
 
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -59,7 +60,12 @@ public final class AdminDtos {
             @Size(max = 10) String locale,
             @Size(max = 64) String timezone,
             @Pattern(regexp = "^[A-Z]{3}$") String currencyCode,
-            Integer trialDays
+            Integer trialDays,
+            @Size(max = 50) String planCode,
+            UUID planId,
+            @Pattern(regexp = "^(MONTHLY|ANNUAL)$") String billingCycle,
+            @Min(1) Integer seatQuantity,
+            Boolean createDefaultOrganization
     ) {
     }
 
