@@ -1,21 +1,5 @@
 name: Control Plane Admin Provisioning
 
-# ============================================================
-# SNAD Platform — Control Plane Admin Provisioning
-# ------------------------------------------------------------
-# Creates or updates a Control Plane admin user directly in the
-# production database. This bypasses the public registration
-# endpoint (which returns 500) to establish a working admin
-# account for authenticated smoke testing.
-#
-# Security:
-#   - Runs only on manual trigger (workflow_dispatch)
-#   - Uses Production environment (all secrets protected)
-#   - Never prints passwords, tokens, or secrets
-#   - Idempotent (safe to run multiple times)
-#   - Only grants ROLE.READ and ROLE.WRITE within CP tenant
-# ============================================================
-
 on:
   workflow_dispatch:
 
@@ -28,14 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: Production
     timeout-minutes: 10
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install PostgreSQL client and Python tools
+      - name: Install tools
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
           pip3 install bcrypt psycopg2-binary
 
       - name: Provision Control Plane Admin
@@ -47,212 +29,208 @@ jobs:
         run: |
           set -euo pipefail
           python3 << 'PYEOF'
-          import os
-          import sys
-          import json
-          import uuid
-          import bcrypt
-          import psycopg2
+          import os, sys, uuid, bcrypt, psycopg2
           from psycopg2.extras import RealDictCursor
           from datetime import datetime, timezone
+          from urllib.parse import urlparse, parse_qs, unquote
 
-          db_url = os.environ.get("DATABASE_URL", "")
+          raw_url = os.environ.get("DATABASE_URL", "")
           tenant_id_str = os.environ.get("CONTROL_PLANE_TENANT_ID", "")
           admin_email = os.environ.get("CP_ADMIN_EMAIL", "")
           admin_password = os.environ.get("CP_ADMIN_PASSWORD", "")
 
-          if not all([db_url, tenant_id_str, admin_email, admin_password]):
-              print("ERROR: Missing required environment variables")
+          if not all([raw_url, tenant_id_str, admin_email, admin_password]):
+              print("ERROR: Missing required env vars")
               sys.exit(1)
 
-          # Convert JDBC URL to psycopg2 format
-          if db_url.startswith("jdbc:postgresql://"):
-              db_url = db_url.replace("jdbc:postgresql://", "postgresql://")
-          # Handle jdbc:postgresql:dbname format
-          elif db_url.startswith("jdbc:postgresql:"):
-              db_url = db_url.replace("jdbc:postgresql:", "postgresql://")
+          # Parse JDBC URL to psycopg2 format
+          # Input: jdbc:postgresql://host:port/dbname?user=xxx&password=xxx
+          # OR: postgresql://user:pass@host:port/dbname
+          if raw_url.startswith("jdbc:postgresql://"):
+              raw_url = raw_url[len("jdbc:postgresql://"):]
+          elif raw_url.startswith("jdbc:postgresql:"):
+              raw_url = raw_url[len("jdbc:postgresql:"):]
+          
+          # Now raw_url is like: host:port/dbname?user=xxx&password=xxx
+          # OR: user:pass@host:port/dbname
+          
+          if '?' in raw_url and '=' in raw_url:
+              # Format: host:port/dbname?user=xxx&password=xxx
+              host_part, query_part = raw_url.split('?', 1)
+              params = parse_qs(query_part)
+              host = host_part.split('/')[0].split(':')[0]
+              port = host_part.split('/')[0].split(':')[1] if ':' in host_part.split('/')[0] else '5432'
+              dbname = host_part.split('/')[1] if '/' in host_part else 'postgres'
+              user = params.get('user', [''])[0]
+              password = params.get('password', [''])[0]
+          elif '@' in raw_url:
+              # Format: user:pass@host:port/dbname
+              if '://' in raw_url:
+                  raw_url = raw_url.split('://', 1)[1]
+              creds, hostpart = raw_url.rsplit('@', 1)
+              user, password = creds.split(':', 1)
+              host_port_db = hostpart
+              host = host_port_db.split(':')[0]
+              rest = host_port_db[len(host):]
+              if rest.startswith(':'):
+                  port_db = rest[1:]
+                  if '/' in port_db:
+                      port, dbname = port_db.split('/', 1)
+                  else:
+                      port, dbname = port_db, 'postgres'
+              else:
+                  port = '5432'
+                  dbname = rest.lstrip('/') if rest else 'postgres'
+          else:
+              # Try using as-is
+              user = password = host = port = dbname = ''
+              print(f"ERROR: Cannot parse DATABASE_URL format")
+              sys.exit(1)
 
+          conn = None
           try:
               tenant_id = uuid.UUID(tenant_id_str)
           except ValueError:
-              print(f"ERROR: CONTROL_PLANE_TENANT_ID is not a valid UUID")
+              print(f"ERROR: CONTROL_PLANE_TENANT_ID is not a valid UUID: {tenant_id_str[:20]}...")
               sys.exit(1)
 
-          print(f"Connecting to database...")
-          print(f"Control Plane Tenant ID: {str(tenant_id)[:8]}...")
-          print(f"Admin Email: {admin_email[:3]}***@{admin_email.split('@')[-1] if '@' in admin_email else '???'}")
-
+          print(f"Connecting to {host}:{port}/{dbname} as {user[:3]}***")
+          
           try:
-              conn = psycopg2.connect(db_url)
+              conn = psycopg2.connect(host=host, port=port, dbname=dbname, user=user, password=password, sslmode='require')
               conn.autocommit = False
               cur = conn.cursor(cursor_factory=RealDictCursor)
 
-              # Step 1: Verify control plane tenant exists
+              # 1. Verify tenant
               print("\n1. Verifying Control Plane tenant...")
-              cur.execute("SELECT id, name, status, subdomain FROM tenants WHERE id = %s", (tenant_id,))
+              cur.execute("SELECT id, name, status FROM tenants WHERE id = %s", (tenant_id,))
               tenant = cur.fetchone()
               if not tenant:
-                  print(f"ERROR: Control Plane tenant not found with ID {tenant_id}")
-                  # List all tenants to help diagnose
+                  print("ERROR: Control Plane tenant not found!")
                   cur.execute("SELECT id, name, status FROM tenants LIMIT 20")
-                  all_tenants = cur.fetchall()
-                  print(f"\nAvailable tenants ({len(all_tenants)}):")
-                  for t in all_tenants:
+                  for t in cur.fetchall():
                       print(f"  id={t['id']} name={t['name']} status={t['status']}")
                   sys.exit(1)
-              print(f"   PASS: Tenant found (name={tenant['name']}, status={tenant['status']})")
+              print(f"   PASS: Tenant={tenant['name']} status={tenant['status']}")
 
-              # Step 2: Find or create organization in CP tenant
-              print("\n2. Finding or creating Control Plane organization...")
-              cur.execute("SELECT id, name, status FROM organizations WHERE tenant_id = %s LIMIT 1", (tenant_id,))
+              # 2. Find or create org
+              print("\n2. Finding/creating organization...")
+              cur.execute("SELECT id FROM organizations WHERE tenant_id = %s LIMIT 1", (tenant_id,))
               org = cur.fetchone()
-              if not org:
-                  org_id = uuid.uuid4()
-                  now = datetime.now(timezone.utc)
-                  cur.execute("""
-                      INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at)
-                      VALUES (%s, %s, 'Control Plane Admin Org', 'Primary organization for Control Plane administration', 'ACTIVE', %s, %s)
-                  """, (org_id, tenant_id, now, now))
-                  print(f"   Created organization (id={str(org_id)[:8]}...)")
-              else:
-                  org_id = org['id']
-                  if org['status'] != 'ACTIVE':
-                      cur.execute("UPDATE organizations SET status = 'ACTIVE', updated_at = %s WHERE id = %s", (datetime.now(timezone.utc), org_id))
-                      print(f"   Activated existing organization (id={str(org_id)[:8]}...)")
-                  else:
-                      print(f"   Found existing organization (id={str(org_id)[:8]}...)")
-
-              # Step 3: Find or create admin user
-              print("\n3. Finding or creating admin user...")
-              cur.execute("SELECT id, email, status, tenant_id FROM users WHERE email = %s AND tenant_id = %s", (admin_email, tenant_id))
-              user = cur.fetchone()
-              
-              # Generate BCrypt hash
-              password_hash = bcrypt.hashpw(admin_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
               now = datetime.now(timezone.utc)
+              if org:
+                  org_id = org['id']
+                  print(f"   Found org (id={str(org_id)[:8]}...)")
+              else:
+                  org_id = uuid.uuid4()
+                  cur.execute("""INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at)
+                      VALUES (%s, %s, 'CP Admin Org', 'Control Plane Admin', 'ACTIVE', %s, %s)""", (org_id, tenant_id, now, now))
+                  print(f"   Created org (id={str(org_id)[:8]}...)")
 
-              if not user:
+              # 3. Find or create user
+              print("\n3. Finding/creating admin user...")
+              cur.execute("SELECT id FROM users WHERE email = %s AND tenant_id = %s", (admin_email, tenant_id))
+              user_row = cur.fetchone()
+              pw_hash = bcrypt.hashpw(admin_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+              
+              if user_row:
+                  user_id = user_row['id']
+                  cur.execute("UPDATE users SET password_hash = %s, status = 'ACTIVE', must_change_password = false, updated_at = %s WHERE id = %s",
+                      (pw_hash, now, user_id))
+                  print(f"   Updated user (id={str(user_id)[:8]}...)")
+              else:
                   user_id = uuid.uuid4()
-                  cur.execute("""
-                      INSERT INTO users (id, tenant_id, email, display_name, password_hash, status, must_change_password, created_at, updated_at)
-                      VALUES (%s, %s, %s, 'Control Plane Admin', %s, 'ACTIVE', false, %s, %s)
-                  """, (user_id, tenant_id, admin_email, password_hash, now, now))
-                  print(f"   Created admin user (id={str(user_id)[:8]}...)")
-              else:
-                  user_id = user['id']
-                  # Update password and ensure active
-                  cur.execute("""
-                      UPDATE users SET password_hash = %s, status = 'ACTIVE', must_change_password = false, updated_at = %s
-                      WHERE id = %s
-                  """, (password_hash, now, user_id))
-                  print(f"   Updated existing admin user (id={str(user_id)[:8]}...)")
+                  # Check if users table has must_change_password column
+                  cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'must_change_password'")
+                  has_mcp = cur.fetchone()
+                  if has_mcp:
+                      cur.execute("""INSERT INTO users (id, tenant_id, email, display_name, password_hash, status, must_change_password, created_at, updated_at)
+                          VALUES (%s, %s, %s, 'CP Admin', %s, 'ACTIVE', false, %s, %s)""",
+                          (user_id, tenant_id, admin_email, pw_hash, now, now))
+                  else:
+                      cur.execute("""INSERT INTO users (id, tenant_id, email, display_name, password_hash, status, created_at, updated_at)
+                          VALUES (%s, %s, %s, 'CP Admin', %s, 'ACTIVE', %s, %s)""",
+                          (user_id, tenant_id, admin_email, pw_hash, now, now))
+                  print(f"   Created user (id={str(user_id)[:8]}...)")
 
-              # Step 4: Find or create membership
-              print("\n4. Finding or creating admin membership...")
-              cur.execute("""
-                  SELECT id, status FROM organization_memberships
-                  WHERE tenant_id = %s AND organization_id = %s AND (user_id = %s OR email = %s)
-              """, (tenant_id, org_id, user_id, admin_email))
-              membership = cur.fetchone()
-              if not membership:
-                  membership_id = uuid.uuid4()
-                  cur.execute("""
-                      INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, email, display_name, status, created_at, updated_at)
-                      VALUES (%s, %s, %s, %s, %s, 'Control Plane Admin', 'ACTIVE', %s, %s)
-                  """, (membership_id, tenant_id, org_id, user_id, admin_email, now, now))
-                  print(f"   Created membership (id={str(membership_id)[:8]}...)")
+              # 4. Find or create membership
+              print("\n4. Finding/creating membership...")
+              cur.execute("SELECT id FROM organization_memberships WHERE tenant_id = %s AND organization_id = %s AND (user_id = %s OR email = %s)",
+                  (tenant_id, org_id, user_id, admin_email))
+              mem = cur.fetchone()
+              if not mem:
+                  mem_id = uuid.uuid4()
+                  cur.execute("""INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, email, display_name, status, created_at, updated_at)
+                      VALUES (%s, %s, %s, %s, %s, 'CP Admin', 'ACTIVE', %s, %s)""",
+                      (mem_id, tenant_id, org_id, user_id, admin_email, now, now))
+                  print(f"   Created membership")
               else:
-                  if membership['status'] != 'ACTIVE':
-                      cur.execute("UPDATE organization_memberships SET status = 'ACTIVE', updated_at = %s WHERE id = %s", (now, membership['id']))
-                  print(f"   Membership exists and active")
+                  cur.execute("UPDATE organization_memberships SET status = 'ACTIVE' WHERE id = %s", (mem['id'],))
+                  print(f"   Membership active")
 
-              # Step 5: Find or create ADMIN role in CP tenant
-              print("\n5. Finding or creating ADMIN role...")
-              cur.execute("SELECT id, code, status FROM roles WHERE tenant_id = %s AND code = 'ADMIN'", (tenant_id,))
+              # 5. Find or create ADMIN role
+              print("\n5. Finding/creating ADMIN role...")
+              cur.execute("SELECT id FROM roles WHERE tenant_id = %s AND code = 'ADMIN'", (tenant_id,))
               role = cur.fetchone()
-              if not role:
-                  role_id = uuid.uuid4()
-                  cur.execute("""
-                      INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
-                      VALUES (%s, %s, 'ADMIN', 'Administrator', 'Full administrative access', 'ACTIVE', %s, %s)
-                  """, (role_id, tenant_id, now, now))
-                  print(f"   Created ADMIN role (id={str(role_id)[:8]}...)")
-              else:
+              if role:
                   role_id = role['id']
-                  if role['status'] != 'ACTIVE':
-                      cur.execute("UPDATE roles SET status = 'ACTIVE' WHERE id = %s", (role_id,))
-                  print(f"   ADMIN role exists (id={str(role_id)[:8]}...)")
+              else:
+                  role_id = uuid.uuid4()
+                  cur.execute("""INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
+                      VALUES (%s, %s, 'ADMIN', 'Administrator', 'Admin access', 'ACTIVE', %s, %s)""",
+                      (role_id, tenant_id, now, now))
+              print(f"   Role ready (id={str(role_id)[:8]}...)")
 
-              # Step 6: Grant ADMIN role to user
-              print("\n6. Granting ADMIN role to user...")
-              cur.execute("""
-                  SELECT id, status FROM user_role_grants
-                  WHERE tenant_id = %s AND user_id = %s AND role_id = %s
-              """, (tenant_id, user_id, role_id))
+              # 6. Grant role to user
+              print("\n6. Granting ADMIN role...")
+              cur.execute("SELECT id FROM user_role_grants WHERE tenant_id = %s AND user_id = %s AND role_id = %s",
+                  (tenant_id, user_id, role_id))
               grant = cur.fetchone()
               if not grant:
                   grant_id = uuid.uuid4()
-                  cur.execute("""
-                      INSERT INTO user_role_grants (id, tenant_id, user_id, role_id, status, created_at, updated_at)
-                      VALUES (%s, %s, %s, %s, 'ACTIVE', %s, %s)
-                  """, (grant_id, tenant_id, user_id, role_id, now, now))
-                  print(f"   Created role grant (id={str(grant_id)[:8]}...)")
+                  cur.execute("""INSERT INTO user_role_grants (id, tenant_id, user_id, role_id, status, created_at, updated_at)
+                      VALUES (%s, %s, %s, %s, 'ACTIVE', %s, %s)""",
+                      (grant_id, tenant_id, user_id, role_id, now, now))
+                  print(f"   Created grant")
               else:
-                  if grant['status'] != 'ACTIVE':
-                      cur.execute("UPDATE user_role_grants SET status = 'ACTIVE' WHERE id = %s", (grant['id']))
-                  print(f"   Role grant exists and active")
+                  cur.execute("UPDATE user_role_grants SET status = 'ACTIVE' WHERE id = %s", (grant['id'],))
+                  print(f"   Grant active")
 
-              # Step 7: Ensure capabilities exist (ROLE.READ, ROLE.WRITE)
-              print("\n7. Ensuring capabilities (ROLE.READ, ROLE.WRITE)...")
+              # 7. Ensure capabilities
+              print("\n7. Ensuring capabilities...")
               for cap_code in ['ROLE.READ', 'ROLE.WRITE']:
                   cur.execute("SELECT id FROM access_capabilities WHERE code = %s", (cap_code,))
                   cap = cur.fetchone()
-                  if not cap:
-                      cap_id = uuid.uuid4()
-                      cur.execute("""
-                          INSERT INTO access_capabilities (id, code, description, status, created_at, updated_at)
-                          VALUES (%s, %s, %s, 'ACTIVE', %s, %s)
-                      """, (cap_id, cap_code, f'Capability: {cap_code}', now, now))
-                      print(f"   Created capability: {cap_code}")
+                  if cap:
+                      cap_id = cap['id']
                   else:
-                      print(f"   Capability exists: {cap_code}")
-
-                  # Link capability to ADMIN role
-                  cap_id = cap['id'] if cap else cap_id
-                  cur.execute("""
-                      SELECT id FROM role_capabilities
-                      WHERE role_id = %s AND capability_id = %s
-                  """, (role_id, cap_id))
-                  rc = cur.fetchone()
-                  if not rc:
+                      cap_id = uuid.uuid4()
+                      cur.execute("""INSERT INTO access_capabilities (id, code, description, status, created_at, updated_at)
+                          VALUES (%s, %s, %s, 'ACTIVE', %s, %s)""",
+                          (cap_id, cap_code, f'Capability {cap_code}', now, now))
+                  
+                  cur.execute("SELECT id FROM role_capabilities WHERE role_id = %s AND capability_id = %s", (role_id, cap_id))
+                  if not cur.fetchone():
                       rc_id = uuid.uuid4()
-                      cur.execute("""
-                          INSERT INTO role_capabilities (id, role_id, capability_id, status, created_at, updated_at)
-                          VALUES (%s, %s, %s, 'ACTIVE', %s, %s)
-                      """, (rc_id, role_id, cap_id, now, now))
-                      print(f"   Linked {cap_code} to ADMIN role")
+                      cur.execute("""INSERT INTO role_capabilities (id, role_id, capability_id, status, created_at, updated_at)
+                          VALUES (%s, %s, %s, 'ACTIVE', %s, %s)""",
+                          (rc_id, role_id, cap_id, now, now))
+                  print(f"   {cap_code}: ready")
 
-              # Commit transaction
               conn.commit()
               print("\n=== PROVISIONING COMPLETE ===")
-              print(f"Tenant: {str(tenant_id)[:8]}... (name={tenant['name']})")
-              print(f"Organization: {str(org_id)[:8]}...")
-              print(f"User: {str(user_id)[:8]}... (email={admin_email[:3]}***)")
-              print(f"Role: ADMIN with ROLE.READ + ROLE.WRITE")
-              print(f"Membership: ACTIVE")
 
           except Exception as e:
-              conn.rollback()
-              print(f"\nERROR: Provisioning failed: {e}")
+              if conn:
+                  conn.rollback()
+              print(f"\nERROR: {e}")
               sys.exit(1)
           finally:
-              if 'cur' in locals():
-                  cur.close()
-              if 'conn' in locals():
+              if conn:
                   conn.close()
           PYEOF
 
-      - name: Verify login works
+      - name: Verify login
         env:
           PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
           CP_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
@@ -263,48 +241,23 @@ jobs:
           LOGIN_RESP=$(curl -sS --max-time 30 -X POST "${PRODUCTION_BASE_URL}/api/v1/auth/login" \
             -H "Content-Type: application/json" \
             -d "{\"email\":\"${CP_ADMIN_EMAIL}\",\"password\":\"${CP_ADMIN_PASSWORD}\"}")
-          
           TOKEN=$(echo "$LOGIN_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('accessToken',''))" 2>/dev/null || echo "")
-          
           if [ -z "$TOKEN" ]; then
             echo "FAIL: Login failed"
-            echo "Response: $(echo "$LOGIN_RESP" | head -c 200)"
             exit 1
           fi
           echo "PASS: Login successful"
           
-          echo ""
-          echo "=== Verifying Control Plane access ==="
-          # Try access-check (may 404 on old backend)
-          ACCESS_CODE=$(curl -sS -o /tmp/access.json -w "%{http_code}" --max-time 15 "${PRODUCTION_BASE_URL}/api/v1/control-plane/access-check" \
-            -H "Authorization: Bearer ${TOKEN}" 2>/dev/null || echo "000")
-          
-          if [ "$ACCESS_CODE" = "200" ]; then
-            echo "PASS: Access check 200"
-            cat /tmp/access.json
-          elif [ "$ACCESS_CODE" = "404" ]; then
-            echo "SKIP: Access check endpoint not available (old backend)"
-          else
-            echo "WARN: Access check returned $ACCESS_CODE"
-          fi
-          
-          echo ""
-          echo "=== Verifying Control Plane tenants listing ==="
+          echo "=== Verifying CP access ==="
           TENANTS_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 "${PRODUCTION_BASE_URL}/api/v1/control-plane/tenants" \
             -H "Authorization: Bearer ${TOKEN}")
-          
           if [ "$TENANTS_CODE" = "200" ]; then
-            echo "PASS: Control Plane tenants listing 200"
+            echo "PASS: CP tenants 200"
           elif [ "$TENANTS_CODE" = "403" ]; then
-            echo "FAIL: 403 Forbidden - account is not in Control Plane tenant"
-            exit 1
-          elif [ "$TENANTS_CODE" = "401" ]; then
-            echo "FAIL: 401 Unauthorized"
+            echo "FAIL: 403 Forbidden"
             exit 1
           else
-            echo "FAIL: Unexpected status $TENANTS_CODE"
+            echo "FAIL: $TENANTS_CODE"
             exit 1
           fi
-          
-          echo ""
           echo "=== ADMIN PROVISIONING VERIFIED ==="
