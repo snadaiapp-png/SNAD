@@ -1,0 +1,99 @@
+name: Debug Render Deploy Failure
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'debug' to fetch Render deploy logs"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    name: Fetch Render deploy logs
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "debug" ]; then
+            echo "Confirmation input must be 'debug'. Aborting."
+            exit 1
+          fi
+
+      - name: Fetch recent deploys
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo "=== List recent deploys ==="
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys?limit=5" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/deploys.json
+          python3 - <<'PY'
+          import json
+          with open('/tmp/deploys.json') as f:
+              data = json.load(f)
+          if isinstance(data, list):
+              for d in data[:5]:
+                  deploy = d.get('deploy', d) if isinstance(d, dict) else {}
+                  print(f"  id={deploy.get('id', '?')[:12]}  status={deploy.get('status', '?')}  commit={deploy.get('commit', {}).get('id', '?')[:12] if isinstance(deploy.get('commit'), dict) else '?'}  created={deploy.get('createdAt', '?')[:19]}  finished={deploy.get('finishedAt', '?')[:19] if deploy.get('finishedAt') else '-'}")
+          PY
+
+          echo ""
+          echo "=== Fetch most recent failed deploy logs ==="
+          # Get the most recent deploy ID
+          DEPLOY_ID=$(python3 -c "
+          import json
+          with open('/tmp/deploys.json') as f:
+              data = json.load(f)
+          if isinstance(data, list) and data:
+              deploy = data[0].get('deploy', data[0]) if isinstance(data[0], dict) else {}
+              print(deploy.get('id', ''))
+          ")
+          echo "Most recent deploy ID: ${DEPLOY_ID}"
+
+          if [ -n "${DEPLOY_ID}" ]; then
+            echo "=== Fetch logs for deploy ${DEPLOY_ID} ==="
+            # Try the logs endpoint
+            STATUS=$(curl -sS -o /tmp/logs.txt -w "%{http_code}" --max-time 30 \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}/logs" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: text/plain")
+            echo "Logs endpoint HTTP ${STATUS}"
+            echo "=== Last 100 lines of deploy logs ==="
+            tail -100 /tmp/logs.txt 2>/dev/null || echo "(no logs available)"
+          fi
+
+      - name: Fetch service info
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo "=== Service info ==="
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/service.json
+          python3 -c "
+          import json
+          with open('/tmp/service.json') as f:
+              d = json.load(f)
+          print(f\"  name: {d.get('name')}\")
+          print(f\"  status: {d.get('status')}\")
+          print(f\"  serviceId: {d.get('serviceId', '?')[:12]}\")
+          print(f\"  branch: {d.get('branch')}\")
+          print(f\"  autoDeploy: {d.get('autoDeploy')}\")
+          print(f\"  createdAt: {d.get('createdAt', '?')[:19]}\")
+          "
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/deploys.json /tmp/logs.txt /tmp/service.json
