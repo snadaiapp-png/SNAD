@@ -39,7 +39,7 @@ jobs:
 
       - name: Generate blocker report
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           SANAD_FORMAL_RELEASE_GO: ${{ github.event.inputs.formal_release_go || 'false' }}
         run: |
           mkdir -p build/release-governance
