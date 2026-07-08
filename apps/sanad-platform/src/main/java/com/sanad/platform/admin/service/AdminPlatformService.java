@@ -171,8 +171,24 @@ public class AdminPlatformService {
 
         TenantResponse created = getTenant(tenantId);
 
-        // Auto-create subscription so organization and membership operations work immediately
-        autoCreateSubscription(request, tenantId, trialDays, authentication);
+        // Auto-create subscription so organization and membership operations work immediately.
+        // If subscription creation fails (e.g., no plan seeded), log but don't fail the tenant creation.
+        // The subscription can be created manually later via the Control Plane.
+        try {
+            autoCreateSubscription(request, tenantId, trialDays, authentication);
+        } catch (Exception subEx) {
+            // Log the subscription creation failure but don't fail the tenant provisioning
+            auditService.success(
+                    authentication, tenantId, "TENANT.PROVISION", "TENANT", tenantId.toString(),
+                    "Control-plane tenant provisioning with administrator and default organization (subscription auto-creation failed: " + subEx.getMessage() + ")",
+                    null,
+                    Map.of(
+                            "tenant", created,
+                            "administratorUserId", provisioned.userId(),
+                            "subscriptionAutoCreateError", subEx.getMessage() != null ? subEx.getMessage() : "unknown"
+                    ));
+            return created;
+        }
 
         auditService.success(
                 authentication, tenantId, "TENANT.PROVISION", "TENANT", tenantId.toString(),
