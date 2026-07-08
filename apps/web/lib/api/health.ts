@@ -5,8 +5,12 @@ import type { HealthCheckResult } from "./types";
 
 interface ActuatorHealthResponse { status: string; }
 
-const SERVER_HEALTH_TIMEOUT_MS = 60_000;
-const BFF_HEALTH_PROBE_TIMEOUT_MS = 15_000;
+// Keep probes below Vercel function limits so health checks return a controlled
+// JSON contract instead of being cut off by the platform with a generic 502.
+const SERVER_HEALTH_TIMEOUT_MS = 4_000;
+const BFF_HEALTH_PROBE_TIMEOUT_MS = 4_000;
+const SERVER_HEALTH_MAX_ATTEMPTS = 2;
+const SERVER_HEALTH_RETRY_DELAY_MS = 250;
 
 /**
  * Extract a safe hostname (with non-standard port if present) from a base URL.
@@ -57,7 +61,11 @@ function isHealthyResponse(value: ActuatorHealthResponse): boolean {
   return value?.status === "UP";
 }
 
-async function checkDirectBackend(baseUrl: string): Promise<{ statusCode: number; body: ActuatorHealthResponse }> {
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function checkDirectBackendOnce(baseUrl: string): Promise<{ statusCode: number; body: ActuatorHealthResponse }> {
   const response = await fetch(`${baseUrl}/actuator/health`, {
     method: "GET",
     headers: { Accept: "application/json" },
@@ -73,6 +81,24 @@ async function checkDirectBackend(baseUrl: string): Promise<{ statusCode: number
   }
 
   return { statusCode: response.status, body };
+}
+
+async function checkDirectBackend(baseUrl: string): Promise<{ statusCode: number; body: ActuatorHealthResponse }> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= SERVER_HEALTH_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const result = await checkDirectBackendOnce(baseUrl);
+      if (result.statusCode < 500 || attempt === SERVER_HEALTH_MAX_ATTEMPTS) return result;
+    } catch (err) {
+      lastError = err;
+      if (attempt === SERVER_HEALTH_MAX_ATTEMPTS) throw err;
+    }
+
+    await sleep(SERVER_HEALTH_RETRY_DELAY_MS);
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Backend health check failed");
 }
 
 /**
