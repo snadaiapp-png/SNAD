@@ -84,4 +84,44 @@ public class PlatformOperationsQueryController {
         accessGuard.require(authentication);
         return ResponseEntity.ok(auditService.recent(limit));
     }
+
+    /**
+     * Diagnostic endpoint that returns whether the authenticated user has
+     * Control Plane access and what capabilities they hold.
+     * Does NOT expose secrets or UUIDs beyond what the user already owns.
+     */
+    @GetMapping("/access-check")
+    public ResponseEntity<java.util.Map<String, Object>> accessCheck(Authentication authentication) {
+        boolean authenticated = authentication != null && authentication.isAuthenticated();
+        boolean controlPlaneConfigured = accessGuard.isControlPlaneConfigured();
+        boolean controlTenantMatched = false;
+        boolean canRead = false;
+        boolean canWrite = false;
+        java.util.List<String> capabilities = new java.util.ArrayList<>();
+
+        if (authenticated) {
+            try {
+                controlTenantMatched = accessGuard.isControlPlaneTenant(authentication);
+                try {
+                    accessGuard.requireRead(authentication);
+                    canRead = true;
+                    capabilities.add("ROLE.READ");
+                } catch (Exception ignored) { }
+                try {
+                    accessGuard.requireWrite(authentication);
+                    canWrite = true;
+                    capabilities.add("ROLE.WRITE");
+                } catch (Exception ignored) { }
+            } catch (Exception ignored) { }
+        }
+
+        return ResponseEntity.ok(java.util.Map.of(
+                "authenticated", authenticated,
+                "controlPlaneConfigured", controlPlaneConfigured,
+                "controlTenantMatched", controlTenantMatched,
+                "capabilities", capabilities,
+                "canRead", canRead,
+                "canWrite", canWrite
+        ));
+    }
 }

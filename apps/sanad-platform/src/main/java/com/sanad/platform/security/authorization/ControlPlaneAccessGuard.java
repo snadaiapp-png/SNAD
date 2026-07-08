@@ -47,6 +47,41 @@ public class ControlPlaneAccessGuard {
         }
     }
 
+    /** Returns true if a control-plane tenant ID is configured. */
+    public boolean isControlPlaneConfigured() {
+        return controlTenantId != null;
+    }
+
+    /** Returns true if the authenticated user's tenant matches the control-plane tenant. */
+    public boolean isControlPlaneTenant(Authentication authentication) {
+        if (controlTenantId == null || authentication == null || !authentication.isAuthenticated()) {
+            return false;
+        }
+        if (!(authentication.getDetails() instanceof Map<?, ?> details)) {
+            return false;
+        }
+        Object tenantValue = details.get("tenant_id");
+        if (tenantValue == null) {
+            return false;
+        }
+        try {
+            UUID authenticatedTenant = UUID.fromString(tenantValue.toString());
+            return controlTenantId.equals(authenticatedTenant);
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
+    }
+
+    /** Requires read capability (same as require for now — RBAC is enforced via @RequireCapability). */
+    public void requireRead(Authentication authentication) {
+        require(authentication);
+    }
+
+    /** Requires write capability (same as require for now — RBAC is enforced via @RequireCapability). */
+    public void requireWrite(Authentication authentication) {
+        require(authentication);
+    }
+
     private static UUID parseConfiguredTenant(String value) {
         if (value == null || value.isBlank()) {
             return null;

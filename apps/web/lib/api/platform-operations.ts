@@ -12,7 +12,7 @@ export interface BillingInvoice { id: string; tenantId: string; tenantName: stri
 export interface ManagedOrganization { id: string; tenantId: string; name: string; description: string | null; status: string; createdAt: string; updatedAt: string; }
 export interface ManagedMembership { id: string; tenantId: string; organizationId: string; userId: string | null; email: string; displayName: string | null; roleCode: string; status: string; createdAt: string; updatedAt: string; }
 
-export interface CreateTenantInput { name: string; legalName?: string; subdomain: string; billingEmail?: string; adminEmail: string; adminDisplayName: string; countryCode?: string; locale?: string; timezone?: string; currencyCode?: string; trialDays?: number; }
+export interface CreateTenantInput { name: string; legalName?: string; subdomain: string; billingEmail?: string; adminEmail: string; adminDisplayName: string; countryCode?: string; locale?: string; timezone?: string; currencyCode?: string; trialDays?: number; planCode?: string; planId?: string; billingCycle?: "MONTHLY" | "ANNUAL"; seatQuantity?: number; createDefaultOrganization?: boolean; }
 export interface PlanInput { code?: string; name: string; description?: string; currencyCode: string; monthlyPriceMinor: number; annualPriceMinor: number; trialDays: number; maxUsers: number; maxOrganizations: number; storageMb: number; entitlements: Array<Omit<Entitlement, "id">>; }
 type StatusBody = { status: string; reason: string };
 type SubscriptionCreateBody = { tenantId: string; planId: string; billingCycle: string; seatQuantity: number; trialDays?: number };
@@ -26,6 +26,7 @@ type MembershipUpdateBody = { status: string; roleCode: string; reason: string }
 
 export const platformOperationsApi = {
   dashboard: () => apiClient.get<ExecutiveDashboard>("/api/v1/control-plane/dashboard"),
+  accessCheck: () => apiClient.get<{ authenticated: boolean; controlPlaneConfigured: boolean; controlTenantMatched: boolean; capabilities: string[]; canRead: boolean; canWrite: boolean }>("/api/v1/control-plane/access-check"),
   tenants: () => apiClient.get<ManagedTenant[]>("/api/v1/control-plane/tenants"),
   createTenant: (body: CreateTenantInput) => apiClient.post<ManagedTenant, CreateTenantInput>("/api/v1/control-plane/tenants", body),
   changeTenantStatus: (tenantId: string, status: string, reason: string) => apiClient.patch<ManagedTenant, StatusBody>(`/api/v1/control-plane/tenants/${tenantId}/status`, { status, reason }),
