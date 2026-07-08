@@ -19,7 +19,7 @@ Status: CLOSED (completed)
 ### Token Details
 
 ```
-Token: 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
+Token: [REDACTED — token revoked/pending revocation, see Issue #367]
 Account: abdulrhmansenan1985-creator (external reviewer)
 Exposure: Token was shared in chat (IM conversation)
 Usage: Repository collaboration setup + PR review submissions on #358, #359, #364
