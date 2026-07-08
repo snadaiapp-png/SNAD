@@ -1,4 +1,39 @@
-name: Setup Control Plane Admin
+# =============================================================================
+# Setup Control Plane Admin — DEPRECATED
+# =============================================================================
+#
+# GOVERNANCE NOTICE (Stage 27 Security Baseline Hardening)
+# -------------------------------------------------------
+# This workflow previously connected directly to the production PostgreSQL
+# database via psycopg2 to query and create Control Plane admin users. That
+# pattern violates the SNAD Workflow Security Policy:
+#
+#   - production_psycopg2_access: no workflow may use psycopg2 against the
+#     Production environment.
+#
+# The approved replacement is the secure, token-gated HTTP bootstrap endpoint
+# added in PR #416:
+#
+#   POST /api/v1/internal/control-plane/bootstrap-admin
+#   Header: X-Control-Plane-Bootstrap-Token: <token>
+#
+# That endpoint runs inside the backend process (which already holds the
+# production DATABASE_URL) and is protected by:
+#   1. CONTROL_PLANE_BOOTSTRAP_ENABLED must be true.
+#   2. A constant-time comparison of the X-Control-Plane-Bootstrap-Token header
+#      against the server-side CONTROL_PLANE_BOOTSTRAP_TOKEN env var.
+#   3. Admin credentials are read from server-side env vars only — never from
+#      the request body.
+#
+# To provision the Control Plane admin, run the workflow:
+#   .github/workflows/control-plane-bootstrap-admin-http.yml
+#
+# This file is retained as a documentation placeholder so that operators who
+# remember the old workflow name are redirected to the safe replacement. It
+# does NOT execute any database operations and does NOT run in the Production
+# environment.
+# =============================================================================
+name: Setup Control Plane Admin (DEPRECATED)
 
 on:
   workflow_dispatch:
@@ -7,128 +42,29 @@ permissions:
   contents: read
 
 jobs:
-  setup:
-    name: Create or verify Control Plane admin
+  deprecated-notice:
+    name: Print deprecation notice
     runs-on: ubuntu-latest
-    environment: Production
     steps:
-      - name: Install psql and python tools
+      - name: Notice
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client python3-pip
-          pip3 install bcrypt psycopg2-binary
-
-      - name: Query database for existing control plane users
-        env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
-          CONTROL_PLANE_TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
-        run: |
-          # Extract connection params from DATABASE_URL
-          # Format: jdbc:postgresql://host:port/dbname or postgresql://user:pass@host:port/dbname
-          DB_URL="$DATABASE_URL"
-          
-          # Try to parse as standard postgresql URL
-          if echo "$DB_URL" | grep -q "^jdbc:postgresql://"; then
-            DB_URL=$(echo "$DB_URL" | sed 's/^jdbc:postgresql:\/\//postgresql:\/\//')
-          fi
-          
-          echo "Checking for existing control plane users..."
-          psql "$DB_URL" -c "
-            SELECT u.id, u.email, u.display_name, u.status, u.tenant_id
-            FROM users u
-            WHERE u.tenant_id = '$CONTROL_PLANE_TENANT_ID'
-            LIMIT 10;
-          " 2>&1 || echo "Direct psql query failed, trying Python approach"
-          
-          # Also try with Python
-          python3 << 'PYEOF'
-          import os
-          import psycopg2
-
-          db_url = os.environ.get("DATABASE_URL", "")
-          tenant_id = os.environ.get("CONTROL_PLANE_TENANT_ID", "")
-
-          # Convert JDBC URL to psycopg2 format if needed
-          if db_url.startswith("jdbc:postgresql://"):
-              db_url = db_url.replace("jdbc:postgresql://", "postgresql://")
-
-          print(f"Connecting to database...")
-          print(f"Tenant ID: {tenant_id[:8]}...")
-
-          try:
-              conn = psycopg2.connect(db_url)
-              cur = conn.cursor()
-
-              # Check if control plane tenant exists
-              cur.execute("SELECT id, name, status FROM tenants WHERE id = %s", (tenant_id,))
-              tenant = cur.fetchone()
-              if tenant:
-                  print(f"Control plane tenant: id={tenant[0]}, name={tenant[1]}, status={tenant[2]}")
-              else:
-                  print("ERROR: Control plane tenant not found!")
-                  # List all tenants
-                  cur.execute("SELECT id, name, status FROM tenants LIMIT 10")
-                  for row in cur.fetchall():
-                      print(f"  Tenant: id={row[0]}, name={row[1]}, status={row[2]}")
-
-              # Check for users in control plane tenant
-              cur.execute("SELECT id, email, display_name, status FROM users WHERE tenant_id = %s", (tenant_id,))
-              users = cur.fetchall()
-              print(f"\nUsers in control plane tenant: {len(users)}")
-              for u in users:
-                  print(f"  User: id={u[0]}, email={u[1]}, name={u[2]}, status={u[3]}")
-
-              # Check for ADMIN role grants
-              if users:
-                  cur.execute("""
-                      SELECT g.user_id, g.role_id, r.code, g.status
-                      FROM user_role_grants g
-                      JOIN roles r ON g.role_id = r.id
-                      WHERE g.tenant_id = %s AND r.code = 'ADMIN'
-                  """, (tenant_id,))
-                  grants = cur.fetchall()
-                  print(f"\nADMIN role grants: {len(grants)}")
-                  for g in grants:
-                      print(f"  Grant: user_id={g[0]}, role_id={g[1]}, role={g[2]}, status={g[3]}")
-
-              # Check for memberships
-              if users:
-                  cur.execute("""
-                      SELECT m.id, m.email, m.organization_id, m.status
-                      FROM organization_memberships m
-                      WHERE m.tenant_id = %s
-                  """, (tenant_id,))
-                  memberships = cur.fetchall()
-                  print(f"\nMemberships: {len(memberships)}")
-                  for m in memberships:
-                      print(f"  Membership: id={m[0]}, email={m[1]}, org={m[2]}, status={m[3]}")
-
-              cur.close()
-              conn.close()
-          except Exception as e:
-              print(f"Database error: {e}")
-          PYEOF
-
-      - name: Check if we can login with existing accounts
-        env:
-          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
-          CONTROL_PLANE_NON_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_NON_ADMIN_EMAIL }}
-          CONTROL_PLANE_NON_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_NON_ADMIN_PASSWORD }}
-        run: |
-          echo "Trying login with CONTROL_PLANE_NON_ADMIN_EMAIL..."
-          RESPONSE=$(curl -sS --max-time 30 -X POST "${PRODUCTION_BASE_URL}/api/v1/auth/login" \
-            -H "Content-Type: application/json" \
-            -d "{\"email\":\"${CONTROL_PLANE_NON_ADMIN_EMAIL}\",\"password\":\"${CONTROL_PLANE_NON_ADMIN_PASSWORD}\"}")
-          
-          TOKEN=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('accessToken',''))" 2>/dev/null || echo "")
-          
-          if [ -n "$TOKEN" ]; then
-            echo "LOGIN SUCCESS with non-admin account"
-            
-            # Check access
-            ACCESS=$(curl -sS --max-time 15 "${PRODUCTION_BASE_URL}/api/v1/control-plane/access-check" \
-              -H "Authorization: Bearer ${TOKEN}")
-            echo "Access check: $ACCESS"
-          else
-            echo "Login failed with non-admin account"
-            echo "Response: $RESPONSE"
-          fi
+          echo "========================================================"
+          echo "  Setup Control Plane Admin (DEPRECATED)"
+          echo "========================================================"
+          echo ""
+          echo "This workflow has been replaced by the secure HTTP"
+          echo "bootstrap endpoint added in PR #416."
+          echo ""
+          echo "To provision the Control Plane admin, run the workflow:"
+          echo "  Control Plane Bootstrap Admin (HTTP)"
+          echo "  (.github/workflows/control-plane-bootstrap-admin-http.yml)"
+          echo ""
+          echo "That workflow calls the backend endpoint:"
+          echo "  POST /api/v1/internal/control-plane/bootstrap-admin"
+          echo ""
+          echo "Direct psycopg2 access to the production database and"
+          echo "direct password_hash mutation are forbidden by the"
+          echo "SNAD Workflow Security Policy."
+          echo ""
+          echo "No database operations will be performed by this workflow."
+          exit 0
