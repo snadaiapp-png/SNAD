@@ -115,7 +115,7 @@ describe("checkBackendIntegration", () => {
     await checkBackendIntegration(client);
     expect(spy).toHaveBeenCalledWith(
       "/actuator/health",
-      expect.objectContaining({ cache: "no-store", timeoutMs: 60_000 }),
+      expect.objectContaining({ cache: "no-store", timeoutMs: 4_000 }),
     );
   });
 

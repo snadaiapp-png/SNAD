@@ -9,7 +9,11 @@ const AUTH_PATH_PREFIX = "/api/v1/auth";
 const REFRESH_PATH = "/api/v1/auth/refresh";
 const LOGOUT_PATH = "/api/v1/auth/logout";
 const COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
-const REQUEST_TIMEOUT_MS = 60_000;
+// Keep total retries below Vercel function limits. Long backend cold-start waits
+// otherwise surface as platform 502s before this route can return a safe body.
+const REQUEST_TIMEOUT_MS = 4_000;
+const RETRY_DELAY_MS = 250;
+const MAX_IDEMPOTENT_ATTEMPTS = 2;
 
 const FORWARDED_REQUEST_HEADERS = [
   "accept",
@@ -61,6 +65,10 @@ function backendPath(path: string[]): string | null {
 
 function isStateChanging(method: string): boolean {
   return ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+}
+
+function isIdempotent(method: string): boolean {
+  return method === "GET" || method === "HEAD";
 }
 
 function hasValidOrigin(request: NextRequest): boolean {
@@ -124,6 +132,43 @@ function persistRefreshToken(response: NextResponse, upstream: Response, path: s
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchBackend(
+  target: string,
+  request: NextRequest,
+  headers: Headers,
+  body: ArrayBuffer | undefined,
+): Promise<Response> {
+  const attempts = isIdempotent(request.method) ? MAX_IDEMPOTENT_ATTEMPTS : 1;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const upstream = await fetch(target, {
+        method: request.method,
+        headers,
+        body: body && body.byteLength > 0 ? body : undefined,
+        cache: "no-store",
+        redirect: "manual",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+
+      if (upstream.status < 500 || attempt === attempts) return upstream;
+      await upstream.body?.cancel().catch(() => undefined);
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts) throw error;
+    }
+
+    await sleep(RETRY_DELAY_MS);
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Backend fetch failed");
+}
+
 type RouteContext = { params: Promise<{ path: string[] }> };
 
 async function proxy(request: NextRequest, context: RouteContext): Promise<NextResponse> {
@@ -147,14 +192,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
   const body = supportsBody ? await request.arrayBuffer() : undefined;
 
   try {
-    const upstream = await fetch(target, {
-      method: request.method,
-      headers,
-      body: body && body.byteLength > 0 ? body : undefined,
-      cache: "no-store",
-      redirect: "manual",
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    const upstream = await fetchBackend(target, request, headers, body);
 
     const response = new NextResponse(
       upstream.status === 204 || upstream.status === 304 ? null : upstream.body,
