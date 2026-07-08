@@ -20,9 +20,33 @@ jobs:
         run: |
           RESPONSE=$(curl -sS --max-time 30 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/register" \
             -H "Content-Type: application/json" \
-            -d '{"email":"debug-test@snad.app","password":"DebugTest@2026","displayName":"Debug","organizationName":"Debug Org","subdomain":"debug-snad-001","mobileNumber":"0500000000","regionCode":"SA","countryCode":"+966","acceptTerms":true}')
+            -d '{"email":"debug-test-2@snad.app","password":"DebugTest@2026","displayName":"Debug","organizationName":"Debug Org","subdomain":"debug-snad-002","mobileNumber":"0500000000","regionCode":"SA","countryCode":"+966","acceptTerms":true}')
           echo "Response: $RESPONSE"
       
+      - name: List Render services
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          if [ -z "$RENDER_API_KEY" ]; then
+            echo "RENDER_API_KEY not configured"
+            exit 0
+          fi
+          echo "Listing Render services..."
+          curl -sS --max-time 30 "https://api.render.com/v1/services" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" 2>&1 | python3 -c "
+          import json,sys
+          try:
+              d=json.load(sys.stdin)
+              if isinstance(d, list):
+                  for s in d:
+                      print(f'  id={s.get(\"id\",\"?\")} name={s.get(\"name\",\"?\")} type={s.get(\"type\",\"?\")}')
+              else:
+                  print(json.dumps(d, indent=2)[:500])
+          except:
+              print(sys.stdin.read()[:500])
+          " || echo "Failed to list services"
+
       - name: Get Render service logs
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
@@ -32,7 +56,36 @@ jobs:
             echo "Render API credentials not configured"
             exit 0
           fi
-          echo "Fetching Render service logs..."
-          curl -sS --max-time 30 "https://api.render.com/v1/services/$RENDER_SERVICE_ID/logs?limit=50" \
+          echo "Fetching Render service logs for $RENDER_SERVICE_ID..."
+          # Try the events endpoint instead
+          curl -sS --max-time 30 "https://api.render.com/v1/services/$RENDER_SERVICE_ID/events?limit=10" \
             -H "Authorization: Bearer $RENDER_API_KEY" \
-            -H "Accept: application/json" 2>&1 | head -100 || echo "Failed to fetch logs"
+            -H "Accept: application/json" 2>&1 | python3 -c "
+          import json,sys
+          try:
+              d=json.load(sys.stdin)
+              if isinstance(d, list):
+                  for e in d:
+                      print(f'  {e.get(\"createdAt\",\"?\")} {e.get(\"type\",\"?\")} {e.get(\"description\",\"?\")[:80]}')
+              else:
+                  print(json.dumps(d, indent=2)[:500])
+          except:
+              print(sys.stdin.read()[:500])
+          " || echo "Failed to fetch events"
+          
+          # Also try to get the service details
+          echo ""
+          echo "Service details:"
+          curl -sS --max-time 30 "https://api.render.com/v1/services/$RENDER_SERVICE_ID" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" 2>&1 | python3 -c "
+          import json,sys
+          try:
+              d=json.load(sys.stdin)
+              print(f'  name: {d.get(\"name\",\"?\")}')
+              print(f'  status: {d.get(\"status\",\"?\")}')
+              print(f'  type: {d.get(\"type\",\"?\")}')
+              print(f'  url: {d.get(\"serviceUrl\",\"?\")}')
+          except:
+              print(sys.stdin.read()[:500])
+          " || echo "Failed to get service details"
