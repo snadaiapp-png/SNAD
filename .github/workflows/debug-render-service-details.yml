@@ -1,0 +1,70 @@
+name: Debug Render Service Details
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'details' to fetch full Render service details"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  details:
+    name: Fetch Render service details
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 3
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "details" ]; then exit 1; fi
+
+      - name: Fetch service details
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/service.json
+          # Print the full response (it shouldn't contain secrets — just service config)
+          python3 -c "
+          import json
+          with open('/tmp/service.json') as f:
+              d = json.load(f)
+          # Print all keys except any that might contain secrets
+          for k, v in d.items():
+              if k in ('envVars',): continue  # skip env vars
+              print(f'  {k}: {v}')
+          "
+
+      - name: Fetch env var keys (values redacted)
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/env-vars.json
+          python3 -c "
+          import json
+          with open('/tmp/env-vars.json') as f:
+              data = json.load(f)
+          if isinstance(data, list):
+              for item in data:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '') if isinstance(ev, dict) else ''
+                  if key:
+                      print(f'  {key}: (value redacted)')
+          "
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/service.json /tmp/env-vars.json
