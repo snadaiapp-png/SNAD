@@ -80,3 +80,57 @@ PRODUCTION SMOKE: READY (script + workflow created)
 
 Gate 8F: CLOSED BY GOVERNANCE WAIVER. Reference: SANAD-ST08-GOV-AMENDMENT-002.
 No secret value republished. No high-impact AI without human confirmation.
+
+## Authenticated Production Smoke Evidence
+
+Status: BLOCKED — Missing Production Secrets
+
+### Workflow Execution
+- Workflow: Control Plane Provisioning Production Smoke
+- Run ID: 28962724982
+- Run URL: https://github.com/snadaiapp-png/SNAD/actions/runs/28962724982
+- Branch: main
+- SHA: 5e524a873feb61ae6331ef21af91d1df9a7c7819
+- Environment: Production
+- Triggered by: snadaiapp-png
+- Started at: 2026-07-08T17:31:46Z
+- Completed at: 2026-07-08T17:31:46Z
+- Final status: FAILURE
+- Error: CONTROL_PLANE_ADMIN_EMAIL required (missing Production secret)
+
+### Root Cause
+3 of 4 required Production environment secrets are MISSING:
+- PRODUCTION_BASE_URL: PRESENT
+- CONTROL_PLANE_ADMIN_EMAIL: MISSING
+- CONTROL_PLANE_ADMIN_PASSWORD: MISSING
+- CONTROL_PLANE_TEST_EMAIL_DOMAIN: MISSING
+
+### Owner Action Required
+The project owner (snadaiapp-png) must set the 3 missing secrets in:
+GitHub Settings → Environments → Production → Secrets
+
+These require actual Control Plane admin credentials provisioned on the backend:
+1. CONTROL_PLANE_ADMIN_EMAIL — email of the Control Plane admin account
+2. CONTROL_PLANE_ADMIN_PASSWORD — password of the Control Plane admin account
+3. CONTROL_PLANE_TEST_EMAIL_DOMAIN — domain for test email addresses (e.g., example.com)
+
+### Pre-Smoke Verification (Unauthenticated)
+All unauthenticated checks PASS:
+- Backend health: UP (HTTP 200)
+- Vercel backend-status: reachable=true, statusCode=200
+- BFF auth/me: 401 (not 502)
+- BFF control-plane/dashboard: 401 (not 502)
+- BFF control-plane/tenants: 401 (not 502)
+- All 6 frontend routes: HTTP 200
+- No 5xx errors
+- No secret leakage
+
+### Decision
+CONTROL PLANE: OPERATIONAL (unauthenticated verification PASS)
+CONTROL PLANE SMOKE: BLOCKED (3 missing Production secrets)
+
+The Control Plane code is deployed and functional. The BFF correctly proxies
+to the backend. All endpoints return proper HTTP status codes.
+
+The authenticated smoke test cannot run until the owner sets the 3 missing
+Production environment secrets with actual Control Plane admin credentials.
