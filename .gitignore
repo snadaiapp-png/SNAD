@@ -154,3 +154,4 @@ __pycache__/
 # Stage 08 working files (not for repo)
 tool-results/
 upload/
+.secure/

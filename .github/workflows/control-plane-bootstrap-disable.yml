@@ -1,0 +1,135 @@
+name: Control Plane Bootstrap Disable
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'disable' to confirm one-time admin bootstrap teardown"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  disable:
+    name: Disable Control Plane Bootstrap on Render
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "disable" ]; then
+            echo "Confirmation input must be the literal string 'disable'. Aborting."
+            exit 1
+          fi
+          echo "Confirmation accepted."
+
+      - name: Disable bootstrap flag on Render
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RENDER_API_KEY}" ]; then
+            echo "RENDER_API_KEY secret is not set"; exit 2
+          fi
+          if [ -z "${RENDER_SERVICE_ID}" ]; then
+            echo "RENDER_SERVICE_ID secret is not set"; exit 2
+          fi
+
+          # Fetch existing env vars so we can update only the bootstrap flag.
+          ENV_VARS=$(curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json")
+
+          # Build a payload that sets CONTROL_PLANE_BOOTSTRAP_ENABLED=false
+          # while preserving every other env var as-is (value is required for
+          # non-generated env vars; we read the existing value).
+          PAYLOAD=$(python3 - <<'PY'
+          import json, os, sys
+          with os.popen('cat /tmp/render-env.json') as f:
+              data = json.load(f)
+          items = []
+          if isinstance(data, list):
+              for item in data:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '') if isinstance(ev, dict) else ''
+                  val = ev.get('value', '') if isinstance(ev, dict) else ''
+                  if not key:
+                      continue
+                  if key == 'CONTROL_PLANE_BOOTSTRAP_ENABLED':
+                      items.append({'key': key, 'value': 'false'})
+                  else:
+                      items.append({'key': key, 'value': val})
+          print(json.dumps(items))
+          PY
+          )
+
+          # Persist env JSON to a file so the Python helper can read it.
+          echo "${ENV_VARS}" > /tmp/render-env.json
+
+          PAYLOAD=$(python3 - <<'PY'
+          import json
+          with open('/tmp/render-env.json') as f:
+              data = json.load(f)
+          items = []
+          if isinstance(data, list):
+              for item in data:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '') if isinstance(ev, dict) else ''
+                  val = ev.get('value', '') if isinstance(ev, dict) else ''
+                  if not key:
+                      continue
+                  if key == 'CONTROL_PLANE_BOOTSTRAP_ENABLED':
+                      items.append({'key': key, 'value': 'false'})
+                  else:
+                      items.append({'key': key, 'value': val})
+          print(json.dumps(items))
+          PY
+          )
+
+          echo "Updating ${#items} env vars on Render (setting CONTROL_PLANE_BOOTSTRAP_ENABLED=false)..."
+          echo "${PAYLOAD}" > /tmp/render-payload.json
+
+          STATUS=$(curl -sS -o /tmp/render-update-response.json -w "%{http_code}" \
+            --max-time 60 \
+            -X PUT "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data @/tmp/render-payload.json)
+
+          echo "Render env update returned HTTP ${STATUS}"
+          if [ "${STATUS}" != "200" ] && [ "${STATUS}" != "202" ]; then
+            echo "Failed to update env vars. Response:"
+            head -c 500 /tmp/render-update-response.json
+            exit 1
+          fi
+
+          # Trigger a redeploy so the new env var takes effect.
+          echo "Triggering redeploy..."
+          DEPLOY_STATUS=$(curl -sS -o /tmp/render-deploy-response.json -w "%{http_code}" \
+            --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data '{"clearCache": "clear"}')
+
+          echo "Render deploy trigger returned HTTP ${DEPLOY_STATUS}"
+          if [ "${DEPLOY_STATUS}" != "201" ] && [ "${DEPLOY_STATUS}" != "200" ] && [ "${DEPLOY_STATUS}" != "202" ]; then
+            echo "Failed to trigger redeploy. Response:"
+            head -c 500 /tmp/render-deploy-response.json
+            exit 1
+          fi
+
+          echo "Bootstrap flag set to false and redeploy triggered."
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f /tmp/render-env.json /tmp/render-payload.json /tmp/render-update-response.json /tmp/render-deploy-response.json
+          echo "Temporary files removed."
