@@ -1,0 +1,31 @@
+name: Owner Governance Check
+
+on:
+  pull_request:
+    paths:
+      - 'docs/governance/**'
+      - 'docs/release/OWNER-PRODUCTION-GO-CHECKLIST.md'
+      - 'docs/security/OWNER-RISK-ACCEPTANCE-REGISTER.md'
+      - 'scripts/ci/check_owner_governance.py'
+      - '.github/workflows/owner-governance.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/governance/**'
+      - 'docs/release/OWNER-PRODUCTION-GO-CHECKLIST.md'
+      - 'docs/security/OWNER-RISK-ACCEPTANCE-REGISTER.md'
+      - 'scripts/ci/check_owner_governance.py'
+      - '.github/workflows/owner-governance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  owner-governance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/ci/check_owner_governance.py
