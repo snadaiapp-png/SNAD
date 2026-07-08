@@ -74,7 +74,13 @@ public class SecurityConfig {
                                 "/api/v1/auth/forgot-password",
                                 "/api/v1/auth/reset-password",
                                 "/actuator/health",
-                                "/actuator/health/**"
+                                "/actuator/health/**",
+                                // One-time, token-gated Control Plane admin bootstrap.
+                                // The endpoint itself enforces CONTROL_PLANE_BOOTSTRAP_ENABLED
+                                // and a constant-time check against CONTROL_PLANE_BOOTSTRAP_TOKEN;
+                                // Spring Security permits the path so the request reaches the
+                                // controller without a JWT. Disable by setting the env flag to false.
+                                "/api/v1/internal/control-plane/bootstrap-admin"
                         ).permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/**").authenticated()
@@ -153,7 +159,10 @@ public class SecurityConfig {
 
         configuration.setAllowedHeaders(
                 List.of("Authorization", "Content-Type", "Accept",
-                        "X-Requested-With", "X-SANAD-Refresh-Token"));
+                        "X-Requested-With", "X-SANAD-Refresh-Token",
+                        // Bootstrap-only header: required for the one-time
+                        // /api/v1/internal/control-plane/bootstrap-admin endpoint.
+                        "X-Control-Plane-Bootstrap-Token"));
 
         configuration.setExposedHeaders(
                 List.of("X-SANAD-Refresh-Token", "Location"));
