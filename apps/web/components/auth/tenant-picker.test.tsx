@@ -7,19 +7,22 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TenantPicker } from "./tenant-picker";
+import { I18nProvider } from "@/lib/i18n/I18nProvider";
 
 const onSelectMock = vi.fn();
 const onDismissMock = vi.fn();
 
 function renderPicker(overrides: Partial<React.ComponentProps<typeof TenantPicker>> = {}) {
   return render(
-    <TenantPicker
-      tenantIds={["tenant-aaaa-bbbb-8F21", "tenant-cccc-dddd-C742"]}
-      onSelect={onSelectMock}
-      onDismiss={onDismissMock}
-      authenticating={false}
-      {...overrides}
-    />,
+    <I18nProvider>
+      <TenantPicker
+        tenantIds={["tenant-aaaa-bbbb-8F21", "tenant-cccc-dddd-C742"]}
+        onSelect={onSelectMock}
+        onDismiss={onDismissMock}
+        authenticating={false}
+        {...overrides}
+      />
+    </I18nProvider>,
   );
 }
 
@@ -48,7 +51,7 @@ describe("TenantPicker", () => {
     const user = userEvent.setup();
     renderPicker();
     await user.click(screen.getByText("مساحة عمل •••• 8F21"));
-    await user.click(screen.getByRole("button", { name: "المتابعة" }));
+    await user.click(screen.getByRole("button", { name: "متابعة" }));
     expect(onSelectMock).toHaveBeenCalledWith("tenant-aaaa-bbbb-8F21");
   });
 

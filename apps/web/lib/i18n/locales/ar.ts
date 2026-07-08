@@ -196,4 +196,36 @@ export const ar: TranslationDictionary = {
   "common.actions": "إجراءات",
   "common.optional": "اختياري",
   "common.required": "مطلوب",
+
+  // === Login Form (migrated from hardcoded strings) ===
+  "auth.login.welcomeTitle": "مرحبًا بعودتك",
+  "auth.login.welcomeSubtitle": "سجّل دخولك للوصول إلى منصة تشغيل الأعمال.",
+  "auth.login.emailRequired": "البريد الإلكتروني مطلوب.",
+  "auth.login.emailInvalid": "صيغة البريد الإلكتروني غير صالحة.",
+  "auth.login.passwordRequired": "كلمة المرور مطلوبة.",
+  "auth.login.sessionExpiredTitle": "انتهت الجلسة",
+  "auth.login.sessionExpiredMessage": "انتهت صلاحية جلستك. يرجى تسجيل الدخول مرة أخرى.",
+  "auth.login.logoAlt": "شعار سند — SNAD Business Operating System",
+  "auth.login.showPassword": "إظهار كلمة المرور",
+  "auth.login.hidePassword": "إخفاء كلمة المرور",
+  "auth.login.goToWorkspace": "الذهاب إلى مساحة العمل",
+  "auth.login.helpLink": "تحتاج مساعدة في الدخول؟",
+  "auth.login.helpText": "تواصل مع مسؤول النظام أو فريق الدعم لاستعادة الوصول إلى حسابك. إذا استلمت رابط استرداد آمنًا، افتح الرابط نفسه لإكمال العملية.",
+
+  // === Tenant Picker (migrated) ===
+  "auth.tenant.welcomeTitle": "اختيار مساحة العمل",
+  "auth.tenant.welcomeSubtitle": "البريد مرتبط بأكثر من مساحة عمل. اختر المساحة المطلوبة.",
+  "auth.tenant.workspaceLabel": "مساحات العمل",
+  "auth.tenant.workspacePrefix": "مساحة عمل",
+  "auth.tenant.entering": "جارٍ الدخول…",
+  "auth.tenant.backToLogin": "العودة إلى تسجيل الدخول",
+
+  // === Workspace (migrated) ===
+  "workspace.defaultUser": "المستخدم",
+  "workspace.loginSuccess": "تم تسجيل الدخول بنجاح",
+  "workspace.userInfo": "المستخدم",
+  "workspace.tenantInfo": "مساحة العمل",
+  "workspace.sessionStatus": "حالة الجلسة",
+  "workspace.sessionActive": "نشطة",
+  "workspace.openControlPlane": "فتح مركز الإدارة العليا",
 };
