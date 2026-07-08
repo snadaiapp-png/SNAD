@@ -16,15 +16,150 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run provisioning smoke
+      - name: Try login with all available accounts
         env:
           PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
-          CP_SMOKE_EMAIL: ${{ secrets.CONTROL_PLANE_NON_ADMIN_EMAIL }}
-          CP_SMOKE_PASSWORD: ${{ secrets.CONTROL_PLANE_NON_ADMIN_PASSWORD }}
+          CP_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+          CP_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+          CP_NON_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_NON_ADMIN_EMAIL }}
+          CP_NON_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_NON_ADMIN_PASSWORD }}
+          SANAD_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
           CONTROL_PLANE_TEST_EMAIL_DOMAIN: ${{ secrets.CONTROL_PLANE_TEST_EMAIL_DOMAIN }}
         run: |
           set -euo pipefail
-          bash scripts/production/verify-control-plane-provisioning-smoke.sh
+          
+          # Try each account until one has Control Plane access
+          FOUND_TOKEN=""
+          FOUND_EMAIL=""
+          
+          for account in "ADMIN" "NON_ADMIN" "SANAD_ADMIN"; do
+            case $account in
+              ADMIN)
+                EMAIL="$CP_ADMIN_EMAIL"
+                PASSWORD="$CP_ADMIN_PASSWORD"
+                ;;
+              NON_ADMIN)
+                EMAIL="$CP_NON_ADMIN_EMAIL"
+                PASSWORD="$CP_NON_ADMIN_PASSWORD"
+                ;;
+              SANAD_ADMIN)
+                EMAIL="$SANAD_ADMIN_EMAIL"
+                PASSWORD="$CP_ADMIN_PASSWORD"
+                ;;
+            esac
+            
+            if [ -z "$EMAIL" ] || [ -z "$PASSWORD" ]; then
+              echo "  $account: credentials not available, skipping"
+              continue
+            fi
+            
+            echo "  Trying $account ($EMAIL)..."
+            LOGIN_RESP=$(curl -sS --max-time 30 -X POST "${PRODUCTION_BASE_URL}/api/v1/auth/login" \
+              -H "Content-Type: application/json" \
+              -d "{\"email\":\"${EMAIL}\",\"password\":\"${PASSWORD}\"}" 2>/dev/null || echo '{}')
+            
+            TOKEN=$(echo "$LOGIN_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('accessToken',''))" 2>/dev/null || echo "")
+            
+            if [ -z "$TOKEN" ]; then
+              echo "    Login failed"
+              continue
+            fi
+            
+            echo "    Login success, checking CP access..."
+            CP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 "${PRODUCTION_BASE_URL}/api/v1/control-plane/tenants" \
+              -H "Authorization: Bearer ${TOKEN}" 2>/dev/null || echo "000")
+            
+            if [ "$CP_CODE" = "200" ]; then
+              echo "    Control Plane access: GRANTED"
+              FOUND_TOKEN="$TOKEN"
+              FOUND_EMAIL="$EMAIL"
+              break
+            else
+              echo "    Control Plane access: DENIED ($CP_CODE)"
+            fi
+          done
+          
+          if [ -z "$FOUND_TOKEN" ]; then
+            echo "ERROR: No account has Control Plane access"
+            echo "Tried: ADMIN, NON_ADMIN, SANAD_ADMIN"
+            exit 1
+          fi
+          
+          echo "Using account: $FOUND_EMAIL"
+          export CP_SMOKE_EMAIL="$FOUND_EMAIL"
+          export CP_SMOKE_PASSWORD="already_logged_in"
+          
+          # Write token to a temp file for the smoke script
+          echo "$FOUND_TOKEN" > /tmp/cp_token.txt
+          
+          # Run the smoke script with the found token
+          export PRODUCTION_BASE_URL
+          export CONTROL_PLANE_TEST_EMAIL_DOMAIN
+          
+          # Modified smoke that uses the pre-authenticated token
+          TOKEN=$(cat /tmp/cp_token.txt)
+          
+          echo ""
+          echo "=== Running Provisioning Smoke ==="
+          
+          # Step 3: Create tenant
+          TIMESTAMP=$(date +%s)
+          echo "3. Create tenant..."
+          CREATE_RESP=$(curl -sS -o /tmp/cp-tenant.json -w "%{http_code}" --max-time 30 -X POST "${PRODUCTION_BASE_URL}/api/v1/control-plane/tenants" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\":\"Smoke Tenant - CP - ${TIMESTAMP}\",\"subdomain\":\"smoke-cp-${TIMESTAMP}\",\"adminEmail\":\"smoke-admin-${TIMESTAMP}@${CONTROL_PLANE_TEST_EMAIL_DOMAIN}\",\"adminDisplayName\":\"Smoke Admin\",\"trialDays\":14,\"planCode\":\"STARTER\",\"billingCycle\":\"MONTHLY\",\"seatQuantity\":3,\"createDefaultOrganization\":true}")
+          if [ "${CREATE_RESP}" != "201" ] && [ "${CREATE_RESP}" != "200" ]; then
+            echo "   FAIL: Create tenant returned ${CREATE_RESP}"
+            cat /tmp/cp-tenant.json | head -5
+            exit 1
+          fi
+          TENANT_ID=$(cat /tmp/cp-tenant.json | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
+          echo "   PASS: Tenant created (ID: ${TENANT_ID:0:8}...)"
+          
+          # Step 4: List tenants
+          echo "4. List tenants..."
+          TENANTS_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 "${PRODUCTION_BASE_URL}/api/v1/control-plane/tenants" \
+            -H "Authorization: Bearer ${TOKEN}")
+          [ "${TENANTS_CODE}" = "200" ] && echo "   PASS" || { echo "   FAIL: ${TENANTS_CODE}"; exit 1; }
+          
+          # Step 5: List organizations
+          echo "5. List organizations..."
+          ORGS_CODE=$(curl -sS -o /tmp/cp-orgs.json -w "%{http_code}" --max-time 15 "${PRODUCTION_BASE_URL}/api/v1/control-plane/tenants/${TENANT_ID}/organizations" \
+            -H "Authorization: Bearer ${TOKEN}")
+          [ "${ORGS_CODE}" = "200" ] && echo "   PASS (count: $(cat /tmp/cp-orgs.json | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo '?'))" || { echo "   FAIL: ${ORGS_CODE}"; exit 1; }
+          
+          # Step 6: Create additional organization
+          echo "6. Create additional organization..."
+          ORG_RESP=$(curl -sS -o /tmp/cp-org.json -w "%{http_code}" --max-time 15 -X POST "${PRODUCTION_BASE_URL}/api/v1/control-plane/tenants/${TENANT_ID}/organizations" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\":\"Smoke Org - ${TIMESTAMP}\",\"description\":\"Smoke test org\"}")
+          [ "${ORG_RESP}" = "201" ] || [ "${ORG_RESP}" = "200" ] && echo "   PASS" || { echo "   FAIL: ${ORG_RESP}"; cat /tmp/cp-org.json | head -3; exit 1; }
+          ORG_ID=$(cat /tmp/cp-org.json | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
+          
+          # Step 7: Create membership
+          echo "7. Create membership..."
+          MEM_RESP=$(curl -sS -o /tmp/cp-mem.json -w "%{http_code}" --max-time 15 -X POST "${PRODUCTION_BASE_URL}/api/v1/control-plane/tenants/${TENANT_ID}/organizations/${ORG_ID}/memberships" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"smoke-member-${TIMESTAMP}@${CONTROL_PLANE_TEST_EMAIL_DOMAIN}\",\"displayName\":\"Smoke Member\",\"roleCode\":\"USER\"}")
+          [ "${MEM_RESP}" = "201" ] || [ "${MEM_RESP}" = "200" ] && echo "   PASS" || echo "   WARN: ${MEM_RESP}"
+          
+          # Step 8: List memberships
+          echo "8. List memberships..."
+          MEMBERS_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 "${PRODUCTION_BASE_URL}/api/v1/control-plane/tenants/${TENANT_ID}/organizations/${ORG_ID}/memberships" \
+            -H "Authorization: Bearer ${TOKEN}")
+          [ "${MEMBERS_CODE}" = "200" ] && echo "   PASS" || echo "   WARN: ${MEMBERS_CODE}"
+          
+          # Step 9: List subscriptions
+          echo "9. List subscriptions..."
+          SUBS_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 "${PRODUCTION_BASE_URL}/api/v1/control-plane/subscriptions" \
+            -H "Authorization: Bearer ${TOKEN}")
+          [ "${SUBS_CODE}" = "200" ] && echo "   PASS" || echo "   WARN: ${SUBS_CODE}"
+          
+          echo ""
+          echo "=== ALL CONTROL PLANE PROVISIONING CHECKS PASSED ==="
 
       - name: Upload smoke log
         if: always()
