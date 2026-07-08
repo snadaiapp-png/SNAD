@@ -45,7 +45,16 @@ export default defineConfig({
   timeout: 60_000,
   expect: {
     timeout: 10_000,
+    // Visual regression: screenshots stored under e2e/__screenshots__/
+    toHaveScreenshot: {
+      maxDiffPixelRatio: 0.01,
+      maxDiffPixels: 100,
+      threshold: 0.2,
+    },
   },
+  // Snapshot path template — keeps baselines in-repo for reviewable diffs
+  snapshotPathTemplate: "{snapshotDir}/{testFileDir}/__screenshots__/{arg}{ext}",
+  snapshotDir: "./e2e",
   use: {
     baseURL: BASE_URL,
     trace: "retain-on-failure",

@@ -1,9 +1,11 @@
 # ============================================================
 # SANAD Platform — CI Pipeline
 # DEFECT-010: API Regression Automation
+# Gate 8F Item 3: Backend Docker/Testcontainers CI
 # ============================================================
 # Runs on every push to main and on pull requests.
-# Executes Maven tests and reports results.
+# Executes Maven tests (including Testcontainers tests that require Docker)
+# and reports results.
 # ============================================================
 
 name: CI
@@ -35,6 +37,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Verify Docker availability (for Testcontainers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Docker version ==="
+          docker --version
+          echo "=== Docker daemon status ==="
+          docker info --format '{{.ServerVersion}}' || {
+            echo "::error::Docker daemon not available — Testcontainers tests will fail"
+            exit 1
+          }
+          echo "Docker is ready for Testcontainers"
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -42,7 +57,11 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Run tests
+      - name: Run tests (including Testcontainers)
+        env:
+          # Testcontainers reads these to connect to Docker
+          TESTCONTAINERS_RYUK_DISABLED: 'false'
+          TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
         run: mvn test -B -ntp -Dsurefire.useFile=false
 
       - name: Upload test reports
@@ -51,6 +70,18 @@ jobs:
         with:
           name: surefire-reports
           path: apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Testcontainers logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testcontainers-logs
+          path: |
+            apps/sanad-platform/target/surefire-reports/**/TEST-*.xml
+            /tmp/testcontainers*
+          if-no-files-found: warn
           retention-days: 7
 
       - name: Test summary
