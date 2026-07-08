@@ -7,6 +7,10 @@ on:
         description: "Type 'extract' to extract deploy failure logs"
         required: true
         default: "no"
+      stream_duration:
+        description: "Stream duration in seconds (default 300 = 5 min)"
+        required: false
+        default: "300"
 
 permissions:
   contents: read
@@ -16,7 +20,7 @@ jobs:
     name: Extract deploy failure logs from Render
     runs-on: ubuntu-latest
     environment: Production
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Confirm
         run: |
@@ -28,16 +32,17 @@ jobs:
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
         run: |
           set -euo pipefail
+          mkdir -p /tmp/diagnostics
           echo "=== Step 1: List recent deploys ==="
           curl -sS --max-time 30 \
-            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys?limit=3" \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys?limit=5" \
             -H "Authorization: Bearer ${RENDER_API_KEY}" \
-            -H "Accept: application/json" > /tmp/deploys.json
+            -H "Accept: application/json" > /tmp/diagnostics/deploys.json
 
           # Get the most recent failed deploy ID
           FAILED_DEPLOY_ID=$(python3 -c "
           import json
-          with open('/tmp/deploys.json') as f:
+          with open('/tmp/diagnostics/deploys.json') as f:
               data = json.load(f)
           if isinstance(data, list):
               for d in data:
@@ -50,28 +55,24 @@ jobs:
           echo "failed_deploy_id=${FAILED_DEPLOY_ID}" >> "$GITHUB_ENV"
 
           echo ""
-          echo "=== Step 2: Fetch deploy DETAIL (may include error fields) ==="
+          echo "=== Step 2: Fetch deploy DETAIL ==="
           curl -sS --max-time 30 \
             "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${FAILED_DEPLOY_ID}" \
             -H "Authorization: Bearer ${RENDER_API_KEY}" \
-            -H "Accept: application/json" > /tmp/deploy-detail.json
+            -H "Accept: application/json" > /tmp/diagnostics/deploy-detail.json
           echo "--- Deploy detail (full JSON) ---"
-          cat /tmp/deploy-detail.json
+          cat /tmp/diagnostics/deploy-detail.json
 
           echo ""
           echo "=== Step 3: Try deploy logs with different Accept headers ==="
+          : > /tmp/diagnostics/deploy-logs.txt
           for ACCEPT in "text/plain" "application/json" "text/event-stream" "*/*"; do
-            STATUS=$(curl -sS -o /tmp/deploy-logs.txt -w "%{http_code}" --max-time 15 \
+            STATUS=$(curl -sS -o /tmp/diagnostics/deploy-logs.txt -w "%{http_code}" --max-time 15 \
               "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${FAILED_DEPLOY_ID}/logs" \
               -H "Authorization: Bearer ${RENDER_API_KEY}" \
               -H "Accept: ${ACCEPT}")
-            echo "  Accept: ${ACCEPT} → HTTP ${STATUS}, body length: $(wc -c < /tmp/deploy-logs.txt)"
-            if [ "${STATUS}" = "200" ]; then
-              echo "--- Deploy logs (first 3000 chars) ---"
-              head -c 3000 /tmp/deploy-logs.txt
-              echo ""
-              echo "--- Deploy logs (last 3000 chars) ---"
-              tail -c 3000 /tmp/deploy-logs.txt
+            echo "  Accept: ${ACCEPT} → HTTP ${STATUS}, body length: $(wc -c < /tmp/diagnostics/deploy-logs.txt)"
+            if [ "${STATUS}" = "200" ] && [ "$(wc -c < /tmp/diagnostics/deploy-logs.txt)" -gt 0 ]; then
               break
             fi
           done
@@ -84,82 +85,276 @@ jobs:
           set -euo pipefail
           echo ""
           echo "=== Step 4: Fetch service events ==="
-          STATUS=$(curl -sS -o /tmp/events.json -w "%{http_code}" --max-time 30 \
-            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/events?limit=20" \
+          STATUS=$(curl -sS -o /tmp/diagnostics/events.json -w "%{http_code}" --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/events?limit=50" \
             -H "Authorization: Bearer ${RENDER_API_KEY}" \
             -H "Accept: application/json")
           echo "Events endpoint HTTP ${STATUS}"
           if [ "${STATUS}" = "200" ]; then
-            echo "--- Events (full JSON) ---"
+            echo "--- Events summary ---"
             python3 -c "
             import json
-            with open('/tmp/events.json') as f:
+            with open('/tmp/diagnostics/events.json') as f:
                 data = json.load(f)
             if isinstance(data, list):
-                for e in data[:20]:
+                for e in data[:50]:
                     print(json.dumps(e, indent=2))
             else:
                 print(json.dumps(data, indent=2))
-            " 2>/dev/null || cat /tmp/events.json
+            " 2>/dev/null || cat /tmp/diagnostics/events.json
           else
-            cat /tmp/events.json
+            cat /tmp/diagnostics/events.json
           fi
 
       - name: Trigger new deploy and stream service logs
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          STREAM_DURATION: ${{ github.event.inputs.stream_duration }}
         run: |
           set -euo pipefail
           echo ""
           echo "=== Step 5: Trigger new deploy and stream service logs ==="
           # Trigger deploy
-          DEPLOY_STATUS=$(curl -sS -o /tmp/new-deploy.json -w "%{http_code}" --max-time 30 \
+          DEPLOY_STATUS=$(curl -sS -o /tmp/diagnostics/new-deploy.json -w "%{http_code}" --max-time 30 \
             -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
             -H "Authorization: Bearer ${RENDER_API_KEY}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
             --data '{"clearCache": "do_not_clear"}')
           echo "Deploy trigger HTTP ${DEPLOY_STATUS}"
-          NEW_DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/new-deploy.json')).get('id', ''))" 2>/dev/null || echo "")
+          NEW_DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/diagnostics/new-deploy.json')).get('id', ''))" 2>/dev/null || echo "")
           echo "New deploy ID: ${NEW_DEPLOY_ID}"
+          echo "new_deploy_id=${NEW_DEPLOY_ID}" >> "$GITHUB_ENV"
 
-          # Wait a bit for the build to start
+          # Wait for build to start
           echo "Waiting 60s for build to progress..."
           sleep 60
 
-          # Stream service logs for 3 minutes
+          # Stream service logs for the configured duration (default 5 min)
+          DURATION=${STREAM_DURATION:-300}
           echo ""
-          echo "=== Step 6: Stream service logs (3 min) ==="
-          # Try the streaming logs endpoint
-          timeout 180 curl -sS --no-buffer --max-time 180 \
+          echo "=== Step 6: Stream service logs (${DURATION}s) ==="
+          # The Render API supports streaming logs via text/event-stream.
+          # We capture everything and save it for offline analysis.
+          timeout "${DURATION}" curl -sS --no-buffer --max-time "${DURATION}" \
             "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/logs" \
             -H "Authorization: Bearer ${RENDER_API_KEY}" \
-            -H "Accept: text/event-stream" > /tmp/service-logs.txt 2>/tmp/logs-stderr.txt || true
+            -H "Accept: text/event-stream" > /tmp/diagnostics/render-stream.log 2>/tmp/diagnostics/stream-stderr.txt || true
 
-          LOG_SIZE=$(wc -c < /tmp/service-logs.txt)
+          LOG_SIZE=$(wc -c < /tmp/diagnostics/render-stream.log)
           echo "Service logs size: ${LOG_SIZE} bytes"
           if [ "${LOG_SIZE}" -gt 0 ]; then
             echo "--- Service logs (last 5000 chars) ---"
-            tail -c 5000 /tmp/service-logs.txt
+            tail -c 5000 /tmp/diagnostics/render-stream.log
           else
             echo "(no service logs captured)"
             echo "stderr:"
-            cat /tmp/logs-stderr.txt
+            cat /tmp/diagnostics/stream-stderr.txt
           fi
 
-          # Also check the new deploy status
-          if [ -n "${NEW_DEPLOY_ID}" ]; then
-            echo ""
-            echo "=== Step 7: Check new deploy status ==="
-            sleep 10
+      - name: Poll new deploy status until terminal
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          NEW_DEPLOY_ID="${{ env.new_deploy_id }}"
+          if [ -z "${NEW_DEPLOY_ID}" ]; then
+            echo "No new deploy ID; skipping poll"
+            exit 0
+          fi
+          echo ""
+          echo "=== Step 7: Poll new deploy status ==="
+          FINAL_STATUS="unknown"
+          for i in $(seq 1 30); do
+            sleep 20
             STATUS=$(curl -sS --max-time 15 \
               "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${NEW_DEPLOY_ID}" \
               -H "Authorization: Bearer ${RENDER_API_KEY}" \
-              -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status', 'unknown'))")
-            echo "New deploy status: ${STATUS}"
+              -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status', 'unknown'))" 2>/dev/null || echo "unknown")
+            echo "  Attempt ${i}: deploy status = ${STATUS}"
+            FINAL_STATUS="${STATUS}"
+            if echo "${STATUS}" | grep -qE "live|failed|canceled|deactivated"; then
+              break
+            fi
+          done
+          echo "Final deploy status: ${FINAL_STATUS}"
+          echo "final_deploy_status=${FINAL_STATUS}" >> "$GITHUB_ENV"
+
+          # Fetch the final deploy detail (may include error/reason fields)
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${NEW_DEPLOY_ID}" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/diagnostics/new-deploy-detail.json
+          echo "--- Final deploy detail ---"
+          cat /tmp/diagnostics/new-deploy-detail.json
+
+      - name: Build render-error-summary.log
+        run: |
+          set -euo pipefail
+          echo ""
+          echo "=== Step 8: Build automated error summary ==="
+          SUMMARY=/tmp/diagnostics/render-error-summary.log
+          : > "${SUMMARY}"
+
+          echo "========================================================" >> "${SUMMARY}"
+          echo "RENDER DEPLOY DIAGNOSTICS — ERROR SUMMARY" >> "${SUMMARY}"
+          echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${SUMMARY}"
+          echo "========================================================" >> "${SUMMARY}"
+          echo "" >> "${SUMMARY}"
+
+          echo "## Deploy Status" >> "${SUMMARY}"
+          echo "Final deploy status: ${{ env.final_deploy_status }}" >> "${SUMMARY}"
+          echo "New deploy ID: ${{ env.new_deploy_id }}" >> "${SUMMARY}"
+          echo "Failed deploy ID (previous): ${{ env.failed_deploy_id }}" >> "${SUMMARY}"
+          echo "" >> "${SUMMARY}"
+
+          echo "## Files captured" >> "${SUMMARY}"
+          for f in /tmp/diagnostics/*; do
+            echo "  $(basename "$f"): $(wc -c < "$f") bytes" >> "${SUMMARY}"
+          done
+          echo "" >> "${SUMMARY}"
+
+          echo "## Error patterns found in render-stream.log" >> "${SUMMARY}"
+          PATTERNS="ERROR Error error Exception exception 'Caused by' BeanCreationException UnsatisfiedDependencyException NoSuchBeanDefinitionException OutOfMemory OOM Killed Memory 'Address already in use' 'Health check' 'Connection refused' Timeout Datasource DataSource Hikari PostgreSQL Flyway Hibernate Migration JWT SecurityConfig Actuator Tomcat Netty 'APPLICATION FAILED TO START' 'Failed to' 'Unable to' 'Could not' 'Cannot'"
+          if [ -f /tmp/diagnostics/render-stream.log ] && [ "$(wc -c < /tmp/diagnostics/render-stream.log)" -gt 0 ]; then
+            # Search for each pattern and collect matching lines (with context)
+            for PATTERN in ERROR Error Exception "Caused by" BeanCreationException UnsatisfiedDependencyException NoSuchBeanDefinitionException OutOfMemory OOM Killed "Address already in use" "Health check" "Connection refused" Timeout DataSource Hikari PostgreSQL Flyway Hibernate Migration JWT SecurityConfig Actuator Tomcat Netty "APPLICATION FAILED TO START" "Failed to" "Unable to" "Could not" "Cannot"; do
+              MATCHES=$(grep -i -n "${PATTERN}" /tmp/diagnostics/render-stream.log 2>/dev/null | head -20 || true)
+              if [ -n "${MATCHES}" ]; then
+                echo "" >> "${SUMMARY}"
+                echo "### Pattern: ${PATTERN}" >> "${SUMMARY}"
+                echo "${MATCHES}" >> "${SUMMARY}"
+              fi
+            done
+            # Also include the last 200 lines of the stream for context
+            echo "" >> "${SUMMARY}"
+            echo "## Last 200 lines of render-stream.log" >> "${SUMMARY}"
+            tail -200 /tmp/diagnostics/render-stream.log >> "${SUMMARY}" 2>/dev/null || true
+          else
+            echo "(render-stream.log is empty or missing — Render API may not expose streaming logs)" >> "${SUMMARY}"
           fi
+
+          echo "" >> "${SUMMARY}"
+          echo "## Error patterns found in deploy-logs.txt" >> "${SUMMARY}"
+          if [ -f /tmp/diagnostics/deploy-logs.txt ] && [ "$(wc -c < /tmp/diagnostics/deploy-logs.txt)" -gt 0 ]; then
+            for PATTERN in ERROR Error Exception "Caused by" BeanCreationException OutOfMemory OOM Killed "Connection refused" Timeout DataSource Flyway Hibernate Migration; do
+              MATCHES=$(grep -i -n "${PATTERN}" /tmp/diagnostics/deploy-logs.txt 2>/dev/null | head -20 || true)
+              if [ -n "${MATCHES}" ]; then
+                echo "" >> "${SUMMARY}"
+                echo "### Pattern: ${PATTERN}" >> "${SUMMARY}"
+                echo "${MATCHES}" >> "${SUMMARY}"
+              fi
+            done
+          else
+            echo "(deploy-logs.txt is empty or missing)" >> "${SUMMARY}"
+          fi
+
+          echo "" >> "${SUMMARY}"
+          echo "## Error patterns found in events.json" >> "${SUMMARY}"
+          if [ -f /tmp/diagnostics/events.json ] && [ "$(wc -c < /tmp/diagnostics/events.json)" -gt 0 ]; then
+            grep -i -E "error|fail|crash|kill|oom|timeout" /tmp/diagnostics/events.json 2>/dev/null | head -30 >> "${SUMMARY}" || echo "(no error/fail patterns in events)" >> "${SUMMARY}"
+          else
+            echo "(events.json is empty or missing)" >> "${SUMMARY}"
+          fi
+
+          echo "" >> "${SUMMARY}"
+          echo "## Deploy detail fields" >> "${SUMMARY}"
+          if [ -f /tmp/diagnostics/new-deploy-detail.json ]; then
+            python3 -c "
+            import json
+            with open('/tmp/diagnostics/new-deploy-detail.json') as f:
+                d = json.load(f)
+            for k, v in d.items():
+                if k in ('id','status','createdAt','finishedAt','commit','errorMessage','failureReason','reason','output','logs'):
+                    print(f'  {k}: {v}')
+            " >> "${SUMMARY}" 2>/dev/null || echo "(could not parse new-deploy-detail.json)" >> "${SUMMARY}"
+          fi
+          if [ -f /tmp/diagnostics/deploy-detail.json ]; then
+            echo "" >> "${SUMMARY}"
+            echo "### Previous failed deploy detail" >> "${SUMMARY}"
+            python3 -c "
+            import json
+            with open('/tmp/diagnostics/deploy-detail.json') as f:
+                d = json.load(f)
+            for k, v in d.items():
+                if k in ('id','status','createdAt','finishedAt','commit','errorMessage','failureReason','reason','output','logs'):
+                    print(f'  {k}: {v}')
+            " >> "${SUMMARY}" 2>/dev/null || echo "(could not parse deploy-detail.json)" >> "${SUMMARY}"
+          fi
+
+          echo "" >> "${SUMMARY}"
+          echo "========================================================" >> "${SUMMARY}"
+          echo "END OF ERROR SUMMARY" >> "${SUMMARY}"
+          echo "========================================================" >> "${SUMMARY}"
+
+          echo "--- render-error-summary.log (first 5000 chars) ---"
+          head -c 5000 "${SUMMARY}"
+
+      - name: Build render-health-summary.log
+        env:
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+        run: |
+          set -euo pipefail
+          echo ""
+          echo "=== Step 9: Build health summary ==="
+          HEALTH=/tmp/diagnostics/render-health-summary.log
+          : > "${HEALTH}"
+
+          echo "========================================================" >> "${HEALTH}"
+          echo "RENDER HEALTH SUMMARY" >> "${HEALTH}"
+          echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${HEALTH}"
+          echo "========================================================" >> "${HEALTH}"
+          echo "" >> "${HEALTH}"
+
+          # Check actuator/health
+          STATUS=$(curl -sS -o /tmp/diagnostics/health.json -w "%{http_code}" --max-time 30 \
+            "${PRODUCTION_BASE_URL}/actuator/health" || echo "000")
+          echo "Backend /actuator/health: HTTP ${STATUS}" >> "${HEALTH}"
+          cat /tmp/diagnostics/health.json >> "${HEALTH}" 2>/dev/null || echo "(no body)" >> "${HEALTH}"
+          echo "" >> "${HEALTH}"
+
+          # Check OpenAPI for bootstrap endpoint
+          STATUS=$(curl -sS -o /tmp/diagnostics/api-docs.json -w "%{http_code}" --max-time 30 \
+            "${PRODUCTION_BASE_URL}/v3/api-docs" || echo "000")
+          echo "Backend /v3/api-docs: HTTP ${STATUS}" >> "${HEALTH}"
+          if [ "${STATUS}" = "200" ]; then
+            BOOTSTRAP=$(python3 -c "
+            import json
+            with open('/tmp/diagnostics/api-docs.json') as f:
+                d = json.load(f)
+            paths = d.get('paths', {})
+            bootstrap = [p for p in paths if 'bootstrap' in p.lower()]
+            print(','.join(bootstrap) if bootstrap else 'NONE')
+            " 2>/dev/null || echo "parse-error")
+            echo "Bootstrap endpoint paths: ${BOOTSTRAP}" >> "${HEALTH}"
+          else
+            echo "Bootstrap endpoint: cannot verify (api-docs unavailable)" >> "${HEALTH}"
+          fi
+          echo "" >> "${HEALTH}"
+
+          # Check bootstrap endpoint directly (without token — expect 401 or 403, not 404)
+          STATUS=$(curl -sS -o /tmp/diagnostics/bootstrap-test.json -w "%{http_code}" --max-time 30 \
+            -X POST "${PRODUCTION_BASE_URL}/api/v1/internal/control-plane/bootstrap-admin" \
+            -H "Content-Type: application/json" \
+            --data '{}' || echo "000")
+          echo "Bootstrap endpoint (no token): HTTP ${STATUS}" >> "${HEALTH}"
+          cat /tmp/diagnostics/bootstrap-test.json >> "${HEALTH}" 2>/dev/null || echo "(no body)" >> "${HEALTH}"
+          echo "" >> "${HEALTH}"
+
+          echo "--- render-health-summary.log ---"
+          cat "${HEALTH}"
+
+      - name: Upload diagnostics artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-deploy-diagnostics
+          path: /tmp/diagnostics/
+          retention-days: 14
+          if-no-files-found: warn
 
       - name: Cleanup
         if: always()
-        run: rm -f /tmp/deploys.json /tmp/deploy-detail.json /tmp/deploy-logs.txt /tmp/events.json /tmp/new-deploy.json /tmp/service-logs.txt /tmp/logs-stderr.txt
+        run: rm -rf /tmp/diagnostics
