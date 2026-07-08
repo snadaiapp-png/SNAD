@@ -1,0 +1,31 @@
+name: Production GO Governance Guard
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'scripts/ci/check_production_go_governance.py'
+      - '.github/workflows/production-go-governance.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'scripts/ci/check_production_go_governance.py'
+      - '.github/workflows/production-go-governance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-go-governance:
+    name: Validate production GO governance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run fail-closed governance guard
+        run: python3 scripts/ci/check_production_go_governance.py
