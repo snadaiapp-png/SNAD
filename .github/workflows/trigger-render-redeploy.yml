@@ -1,0 +1,112 @@
+name: Trigger Render Redeploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'redeploy' to trigger a Render backend redeploy"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  redeploy:
+    name: Trigger Render backend redeploy
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "redeploy" ]; then
+            echo "Confirmation input must be the literal string 'redeploy'. Aborting."
+            exit 1
+          fi
+          echo "Confirmation accepted."
+
+      - name: Trigger Render deploy
+        id: deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo "Triggering Render deploy..."
+          STATUS=$(curl -sS -o /tmp/deploy.json -w "%{http_code}" \
+            --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data '{"clearCache": "clear"}')
+          echo "Render deploy trigger returned HTTP ${STATUS}"
+          if [ "${STATUS}" != "201" ] && [ "${STATUS}" != "200" ] && [ "${STATUS}" != "202" ]; then
+            echo "Failed to trigger deploy. Response:"
+            head -c 500 /tmp/deploy.json
+            exit 1
+          fi
+          DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/deploy.json')).get('id', ''))")
+          echo "Deploy ID: ${DEPLOY_ID}"
+          echo "deploy_id=${DEPLOY_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for deploy to complete
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          DEPLOY_ID="${{ steps.deploy.outputs.deploy_id }}"
+          echo "Waiting for deploy ${DEPLOY_ID} to complete..."
+          for i in $(seq 1 30); do
+            sleep 20
+            STATUS=$(curl -sS --max-time 15 \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status', 'unknown'))")
+            echo "  Attempt ${i}: deploy status = ${STATUS}"
+            if [ "${STATUS}" = "live" ]; then
+              echo "Deploy is live!"
+              exit 0
+            fi
+            if [ "${STATUS}" = "build_failed" ] || [ "${STATUS}" = "update_failed" ] || [ "${STATUS}" = "canceled" ] || [ "${STATUS}" = "deactivated" ]; then
+              echo "Deploy failed with status: ${STATUS}"
+              exit 1
+            fi
+          done
+          echo "Deploy did not complete within 10 minutes."
+          exit 1
+
+      - name: Verify health
+        env:
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+        run: |
+          set -euo pipefail
+          sleep 10
+          STATUS=$(curl -sS -o /tmp/health.json -w "%{http_code}" --max-time 30 \
+            "${PRODUCTION_BASE_URL}/actuator/health")
+          echo "Backend health HTTP ${STATUS}"
+          cat /tmp/health.json
+          if [ "${STATUS}" != "200" ]; then exit 1; fi
+
+          # Check if the bootstrap endpoint is deployed
+          curl -sS --max-time 30 "${PRODUCTION_BASE_URL}/v3/api-docs" > /tmp/api-docs.json
+          BOOTSTRAP_PATHS=$(python3 -c "
+          import json
+          with open('/tmp/api-docs.json') as f:
+              data = json.load(f)
+          paths = data.get('paths', {})
+          bootstrap = [p for p in paths if 'bootstrap' in p.lower()]
+          print(','.join(bootstrap) if bootstrap else 'NONE')
+          ")
+          echo "Bootstrap paths in OpenAPI: ${BOOTSTRAP_PATHS}"
+          if [ "${BOOTSTRAP_PATHS}" = "NONE" ]; then
+            echo "Bootstrap endpoint not yet deployed!"
+            exit 1
+          fi
+          echo "Bootstrap endpoint is deployed."
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/deploy.json /tmp/health.json /tmp/api-docs.json
