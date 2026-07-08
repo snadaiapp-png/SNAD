@@ -1,10 +1,5 @@
 name: Control Plane Provisioning Production Smoke
 
-# ============================================================
-# SNAD Platform — Control Plane Provisioning Smoke
-# Tests full tenant provisioning chain: tenant → subscription → org
-# ============================================================
-
 on:
   workflow_dispatch:
 
@@ -17,7 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: Production
     timeout-minutes: 10
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,8 +19,8 @@ jobs:
       - name: Run provisioning smoke
         env:
           PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
-          CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
-          CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+          CP_SMOKE_EMAIL: ${{ secrets.CONTROL_PLANE_NON_ADMIN_EMAIL }}
+          CP_SMOKE_PASSWORD: ${{ secrets.CONTROL_PLANE_NON_ADMIN_PASSWORD }}
           CONTROL_PLANE_TEST_EMAIL_DOMAIN: ${{ secrets.CONTROL_PLANE_TEST_EMAIL_DOMAIN }}
         run: |
           set -euo pipefail
@@ -37,7 +31,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: control-plane-smoke-log
-          path: |
-            /tmp/control-plane-smoke*.log
+          path: /tmp/cp-*.json
           if-no-files-found: warn
           retention-days: 14
