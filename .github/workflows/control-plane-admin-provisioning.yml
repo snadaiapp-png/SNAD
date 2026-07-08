@@ -1,0 +1,353 @@
+name: Control Plane Admin Provisioning
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    name: Provision Control Plane Admin
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: pip3 install bcrypt psycopg2-binary
+
+      - name: Get DATABASE_URL from Render and provision admin
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          CONTROL_PLANE_TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
+          CP_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+          CP_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+        run: |
+          set -euo pipefail
+          
+          echo "=== Step 1: Fetch ALL env vars from Render ==="
+          ENV_VARS_JSON=$(curl -sS --max-time 30 "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json")
+          
+          echo "Total env vars response length: ${#ENV_VARS_JSON}"
+          
+          # Extract ALL env vars as key=value pairs
+          DB_URL=""
+          ALL_VARS=$(echo "$ENV_VARS_JSON" | python3 -c "
+          import json, sys, os
+          d = json.load(sys.stdin)
+          env_vars = {}
+          if isinstance(d, list):
+              for item in d:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '') if isinstance(ev, dict) else ''
+                  val = ev.get('value', '') if isinstance(ev, dict) else ''
+                  if key:
+                      env_vars[key] = val
+                      # Check if this looks like a DB URL
+                      val_str = str(val)
+                      if any(x in key.upper() for x in ['DATABASE_URL', 'DATASOURCE', 'JDBC', 'POSTGRES', 'DB_URL', 'SPRING_DATASOURCE']):
+                          if val_str.startswith(('jdbc:postgresql:', 'postgresql:', 'postgres:')):
+                              print(f'DB_URL={val_str}')
+          elif isinstance(d, dict):
+              for k, v in d.items():
+                  env_vars[k] = v
+                  val_str = str(v)
+                  if any(x in k.upper() for x in ['DATABASE_URL', 'DATASOURCE', 'JDBC', 'POSTGRES', 'DB_URL', 'SPRING_DATASOURCE']):
+                      if val_str.startswith(('jdbc:postgresql:', 'postgresql:', 'postgres:')):
+                          print(f'DB_URL={val_str}')
+          
+          # Also export ALL env vars for the Python script
+          for k, v in env_vars.items():
+              print(f'EXPORT_{k}={v}')
+          " 2>/dev/null)
+          
+          # Extract DB_URL from the output
+          DB_URL=$(echo "$ALL_VARS" | grep "^DB_URL=" | head -1 | cut -d'=' -f2- || echo "")
+          
+          if [ -z "$DB_URL" ]; then
+              echo "DATABASE_URL not found in Render env vars matching expected patterns."
+              echo "Trying to fetch the full env-vars response and search more broadly..."
+              
+              # Get ALL values and search for any postgresql connection string
+              DB_URL=$(echo "$ENV_VARS_JSON" | python3 -c "
+          import json, sys, re
+          d = json.load(sys.stdin)
+          all_vals = []
+          if isinstance(d, list):
+              for item in d:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  val = ev.get('value', '') if isinstance(ev, dict) else ''
+                  if val:
+                      all_vals.append(str(val))
+          elif isinstance(d, dict):
+              for v in d.values():
+                  if v:
+                      all_vals.append(str(v))
+          
+          # Search for any value that looks like a PostgreSQL URL
+          for val in all_vals:
+              if 'postgresql://' in val or 'jdbc:postgresql:' in val or 'postgres://' in val:
+                  print(val)
+                  break
+          " 2>/dev/null || echo "")
+          fi
+          
+          if [ -z "$DB_URL" ]; then
+              echo "No PostgreSQL URL found in any Render env var."
+              echo "The DATABASE_URL might be an internal Render database link not exposed via API."
+              echo ""
+              echo "=== Attempting to use the Render API to find linked databases ==="
+              
+              # Try to get the full service details which might include database connections
+              SERVICE_DETAILS=$(curl -sS --max-time 30 "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" \
+                -H "Authorization: Bearer ${RENDER_API_KEY}" \
+                -H "Accept: application/json")
+              
+              # Search the full service details for any postgres URL
+              DB_URL=$(echo "$SERVICE_DETAILS" | python3 -c "
+          import json, sys, re
+          text = sys.stdin.read()
+          # Search for postgres URL patterns in the entire response
+          patterns = [
+              r'(jdbc:postgresql://[^\s\"\\]+)',
+              r'(postgresql://[^\s\"\\]+)',
+              r'(postgres://[^\s\"\\]+)',
+          ]
+          for pattern in patterns:
+              match = re.search(pattern, text)
+              if match:
+                  print(match.group(1))
+                  break
+          " 2>/dev/null || echo "")
+              
+              if [ -n "$DB_URL" ]; then
+                  echo "Found PostgreSQL URL in service details!"
+              fi
+          fi
+          
+          if [ -z "$DB_URL" ]; then
+              echo ""
+              echo "=== Last resort: Check if DATABASE_URL is in env-vars with different key ==="
+              # Print all keys and their first 20 chars to find the DB URL
+              echo "$ENV_VARS_JSON" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          if isinstance(d, list):
+              for item in d:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '') if isinstance(ev, dict) else ''
+                  val = str(ev.get('value', '')) if isinstance(ev, dict) else ''
+                  # Check if VALUE contains postgresql (even if key doesn't)
+                  if 'postgres' in val.lower() or 'jdbc:' in val.lower() or ':5432' in val:
+                      print(f'FOUND_IN_KEY={key}')
+                      print(f'VALUE_STARTS={val[:30]}')
+          " 2>/dev/null || echo "No postgres values found in any env var"
+              
+              echo ""
+              echo "ERROR: Cannot find DATABASE_URL in Render."
+              echo "The database connection string is not exposed via the Render API."
+              echo "Owner must manually copy DATABASE_URL from Render Dashboard to GitHub secret PRODUCTION_DATABASE_URL."
+              exit 1
+          fi
+          
+          echo "DATABASE_URL found! (length: ${#DB_URL})"
+          echo "DATABASE_URL starts with: $(echo "$DB_URL" | head -c 20)..."
+          
+          # Now provision the admin using the found DB URL
+          echo ""
+          echo "=== Step 2: Provision Control Plane Admin ==="
+          export DB_URL
+          python3 << 'PYEOF'
+          import os, sys, uuid, bcrypt, psycopg2
+          from psycopg2.extras import RealDictCursor
+          from datetime import datetime, timezone
+
+          raw_url = os.environ.get("DB_URL", "")
+          tenant_id_str = os.environ.get("CONTROL_PLANE_TENANT_ID", "")
+          admin_email = os.environ.get("CP_ADMIN_EMAIL", "")
+          admin_password = os.environ.get("CP_ADMIN_PASSWORD", "")
+
+          if not all([raw_url, tenant_id_str, admin_email, admin_password]):
+              print("ERROR: Missing required env vars")
+              sys.exit(1)
+
+          print(f"DB URL starts with: {raw_url[:20]}...")
+
+          conn = None
+          try:
+              if raw_url.startswith("jdbc:postgresql://"):
+                  pg_url = raw_url.replace("jdbc:postgresql://", "postgresql://", 1)
+                  conn = psycopg2.connect(pg_url)
+              elif raw_url.startswith("postgresql://") or raw_url.startswith("postgres://"):
+                  conn = psycopg2.connect(raw_url)
+              else:
+                  import re
+                  pairs = {}
+                  for match in re.finditer(r'(\w+)=(\S+)', raw_url):
+                      pairs[match.group(1)] = match.group(2)
+                  if pairs:
+                      conn = psycopg2.connect(**{k: v for k, v in pairs.items() if k in ['host', 'port', 'dbname', 'user', 'password', 'sslmode']})
+                  else:
+                      conn = psycopg2.connect(raw_url)
+              print("Database connection successful!")
+          except Exception as e:
+              print(f"Connection failed: {e}")
+              sys.exit(1)
+
+          try:
+              tenant_id = uuid.UUID(tenant_id_str)
+          except ValueError:
+              print(f"ERROR: CONTROL_PLANE_TENANT_ID is not a valid UUID")
+              sys.exit(1)
+
+          conn.autocommit = False
+          cur = conn.cursor(cursor_factory=RealDictCursor)
+
+          # 1. Verify tenant
+          print("\n1. Verifying Control Plane tenant...")
+          cur.execute("SELECT id, name, status FROM tenants WHERE id = %s", (tenant_id,))
+          tenant = cur.fetchone()
+          if not tenant:
+              print("ERROR: Control Plane tenant not found!")
+              cur.execute("SELECT id, name, status FROM tenants LIMIT 20")
+              for t in cur.fetchall():
+                  print(f"  id={t['id']} name={t['name']} status={t['status']}")
+              sys.exit(1)
+          print(f"   PASS: Tenant={tenant['name']} status={tenant['status']}")
+
+          now = datetime.now(timezone.utc)
+
+          # 2. Find or create org
+          print("\n2. Finding/creating organization...")
+          cur.execute("SELECT id FROM organizations WHERE tenant_id = %s LIMIT 1", (tenant_id,))
+          org = cur.fetchone()
+          if org:
+              org_id = org['id']
+          else:
+              org_id = uuid.uuid4()
+              cur.execute("INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at) VALUES (%s, %s, 'CP Admin Org', 'CP Admin', 'ACTIVE', %s, %s)", (org_id, tenant_id, now, now))
+          print(f"   Org ready (id={str(org_id)[:8]}...)")
+
+          # 3. Find or create user
+          print("\n3. Finding/creating admin user...")
+          cur.execute("SELECT id FROM users WHERE email = %s AND tenant_id = %s", (admin_email, tenant_id))
+          user_row = cur.fetchone()
+          pw_hash = bcrypt.hashpw(admin_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+          
+          if user_row:
+              user_id = user_row['id']
+              cur.execute("UPDATE users SET password_hash = %s, status = 'ACTIVE', updated_at = %s WHERE id = %s", (pw_hash, now, user_id))
+              print(f"   Updated user")
+          else:
+              user_id = uuid.uuid4()
+              cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'must_change_password'")
+              has_mcp = cur.fetchone()
+              if has_mcp:
+                  cur.execute("INSERT INTO users (id, tenant_id, email, display_name, password_hash, status, must_change_password, created_at, updated_at) VALUES (%s, %s, %s, 'CP Admin', %s, 'ACTIVE', false, %s, %s)", (user_id, tenant_id, admin_email, pw_hash, now, now))
+              else:
+                  cur.execute("INSERT INTO users (id, tenant_id, email, display_name, password_hash, status, created_at, updated_at) VALUES (%s, %s, %s, 'CP Admin', %s, 'ACTIVE', %s, %s)", (user_id, tenant_id, admin_email, pw_hash, now, now))
+              print(f"   Created user (id={str(user_id)[:8]}...)")
+
+          # 4. Membership
+          print("\n4. Finding/creating membership...")
+          cur.execute("SELECT id FROM organization_memberships WHERE tenant_id = %s AND organization_id = %s AND (user_id = %s OR email = %s)", (tenant_id, org_id, user_id, admin_email))
+          mem = cur.fetchone()
+          if not mem:
+              mem_id = uuid.uuid4()
+              cur.execute("INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, email, display_name, status, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, 'CP Admin', 'ACTIVE', %s, %s)", (mem_id, tenant_id, org_id, user_id, admin_email, now, now))
+              print(f"   Created membership")
+          else:
+              cur.execute("UPDATE organization_memberships SET status = 'ACTIVE' WHERE id = %s", (mem['id'],))
+              print(f"   Membership active")
+
+          # 5. ADMIN role
+          print("\n5. Finding/creating ADMIN role...")
+          cur.execute("SELECT id FROM roles WHERE tenant_id = %s AND code = 'ADMIN'", (tenant_id,))
+          role = cur.fetchone()
+          if role:
+              role_id = role['id']
+          else:
+              role_id = uuid.uuid4()
+              cur.execute("INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at) VALUES (%s, %s, 'ADMIN', 'Administrator', 'Admin', 'ACTIVE', %s, %s)", (role_id, tenant_id, now, now))
+          print(f"   Role ready")
+
+          # 6. Grant role
+          print("\n6. Granting ADMIN role...")
+          cur.execute("SELECT id FROM user_role_grants WHERE tenant_id = %s AND user_id = %s AND role_id = %s", (tenant_id, user_id, role_id))
+          grant = cur.fetchone()
+          if not grant:
+              grant_id = uuid.uuid4()
+              cur.execute("INSERT INTO user_role_grants (id, tenant_id, user_id, role_id, status, created_at, updated_at) VALUES (%s, %s, %s, %s, 'ACTIVE', %s, %s)", (grant_id, tenant_id, user_id, role_id, now, now))
+              print(f"   Created grant")
+          else:
+              cur.execute("UPDATE user_role_grants SET status = 'ACTIVE' WHERE id = %s", (grant['id'],))
+              print(f"   Grant active")
+
+          # 7. Capabilities
+          print("\n7. Ensuring capabilities...")
+          for cap_code in ['ROLE.READ', 'ROLE.WRITE']:
+              cur.execute("SELECT id FROM access_capabilities WHERE code = %s", (cap_code,))
+              cap = cur.fetchone()
+              if cap:
+                  cap_id = cap['id']
+              else:
+                  cap_id = uuid.uuid4()
+                  cur.execute("INSERT INTO access_capabilities (id, code, description, status, created_at, updated_at) VALUES (%s, %s, %s, 'ACTIVE', %s, %s)", (cap_id, cap_code, f'Cap {cap_code}', now, now))
+              cur.execute("SELECT id FROM role_capabilities WHERE role_id = %s AND capability_id = %s", (role_id, cap_id))
+              if not cur.fetchone():
+                  rc_id = uuid.uuid4()
+                  cur.execute("INSERT INTO role_capabilities (id, role_id, capability_id, status, created_at, updated_at) VALUES (%s, %s, %s, 'ACTIVE', %s, %s)", (rc_id, role_id, cap_id, now, now))
+              print(f"   {cap_code}: ready")
+
+          conn.commit()
+          print("\n=== PROVISIONING COMPLETE ===")
+
+          except_error = None
+          except Exception as e:
+              if conn:
+                  conn.rollback()
+              print(f"\nERROR: {e}")
+              sys.exit(1)
+          finally:
+              if conn:
+                  conn.close()
+          PYEOF
+
+      - name: Verify login and CP access
+        env:
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+          CP_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+          CP_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          echo "=== Verifying login ==="
+          LOGIN_RESP=$(curl -sS --max-time 30 -X POST "${PRODUCTION_BASE_URL}/api/v1/auth/login" \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"${CP_ADMIN_EMAIL}\",\"password\":\"${CP_ADMIN_PASSWORD}\"}")
+          TOKEN=$(echo "$LOGIN_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('accessToken',''))" 2>/dev/null || echo "")
+          if [ -z "$TOKEN" ]; then
+            echo "FAIL: Login failed"
+            exit 1
+          fi
+          echo "PASS: Login successful"
+          
+          echo "=== Verifying CP access ==="
+          TENANTS_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 "${PRODUCTION_BASE_URL}/api/v1/control-plane/tenants" \
+            -H "Authorization: Bearer ${TOKEN}")
+          if [ "$TENANTS_CODE" = "200" ]; then
+            echo "PASS: CP tenants 200"
+          elif [ "$TENANTS_CODE" = "403" ]; then
+            echo "FAIL: 403 Forbidden"
+            exit 1
+          else
+            echo "FAIL: $TENANTS_CODE"
+            exit 1
+          fi
+          echo "=== ADMIN PROVISIONING VERIFIED ==="

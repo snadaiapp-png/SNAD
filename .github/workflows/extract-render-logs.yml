@@ -1,0 +1,165 @@
+name: Extract Render Deploy Logs
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'extract' to extract deploy failure logs"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    name: Extract deploy failure logs from Render
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "extract" ]; then exit 1; fi
+
+      - name: Fetch failed deploy detail
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo "=== Step 1: List recent deploys ==="
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys?limit=3" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/deploys.json
+
+          # Get the most recent failed deploy ID
+          FAILED_DEPLOY_ID=$(python3 -c "
+          import json
+          with open('/tmp/deploys.json') as f:
+              data = json.load(f)
+          if isinstance(data, list):
+              for d in data:
+                  deploy = d.get('deploy', d) if isinstance(d, dict) else {}
+                  if deploy.get('status') == 'update_failed':
+                      print(deploy.get('id', ''))
+                      break
+          ")
+          echo "Failed deploy ID: ${FAILED_DEPLOY_ID}"
+          echo "failed_deploy_id=${FAILED_DEPLOY_ID}" >> "$GITHUB_ENV"
+
+          echo ""
+          echo "=== Step 2: Fetch deploy DETAIL (may include error fields) ==="
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${FAILED_DEPLOY_ID}" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/deploy-detail.json
+          echo "--- Deploy detail (full JSON) ---"
+          cat /tmp/deploy-detail.json
+
+          echo ""
+          echo "=== Step 3: Try deploy logs with different Accept headers ==="
+          for ACCEPT in "text/plain" "application/json" "text/event-stream" "*/*"; do
+            STATUS=$(curl -sS -o /tmp/deploy-logs.txt -w "%{http_code}" --max-time 15 \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${FAILED_DEPLOY_ID}/logs" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: ${ACCEPT}")
+            echo "  Accept: ${ACCEPT} → HTTP ${STATUS}, body length: $(wc -c < /tmp/deploy-logs.txt)"
+            if [ "${STATUS}" = "200" ]; then
+              echo "--- Deploy logs (first 3000 chars) ---"
+              head -c 3000 /tmp/deploy-logs.txt
+              echo ""
+              echo "--- Deploy logs (last 3000 chars) ---"
+              tail -c 3000 /tmp/deploy-logs.txt
+              break
+            fi
+          done
+
+      - name: Fetch service events
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo ""
+          echo "=== Step 4: Fetch service events ==="
+          STATUS=$(curl -sS -o /tmp/events.json -w "%{http_code}" --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/events?limit=20" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json")
+          echo "Events endpoint HTTP ${STATUS}"
+          if [ "${STATUS}" = "200" ]; then
+            echo "--- Events (full JSON) ---"
+            python3 -c "
+            import json
+            with open('/tmp/events.json') as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                for e in data[:20]:
+                    print(json.dumps(e, indent=2))
+            else:
+                print(json.dumps(data, indent=2))
+            " 2>/dev/null || cat /tmp/events.json
+          else
+            cat /tmp/events.json
+          fi
+
+      - name: Trigger new deploy and stream service logs
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo ""
+          echo "=== Step 5: Trigger new deploy and stream service logs ==="
+          # Trigger deploy
+          DEPLOY_STATUS=$(curl -sS -o /tmp/new-deploy.json -w "%{http_code}" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data '{"clearCache": "do_not_clear"}')
+          echo "Deploy trigger HTTP ${DEPLOY_STATUS}"
+          NEW_DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/new-deploy.json')).get('id', ''))" 2>/dev/null || echo "")
+          echo "New deploy ID: ${NEW_DEPLOY_ID}"
+
+          # Wait a bit for the build to start
+          echo "Waiting 60s for build to progress..."
+          sleep 60
+
+          # Stream service logs for 3 minutes
+          echo ""
+          echo "=== Step 6: Stream service logs (3 min) ==="
+          # Try the streaming logs endpoint
+          timeout 180 curl -sS --no-buffer --max-time 180 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/logs" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: text/event-stream" > /tmp/service-logs.txt 2>/tmp/logs-stderr.txt || true
+
+          LOG_SIZE=$(wc -c < /tmp/service-logs.txt)
+          echo "Service logs size: ${LOG_SIZE} bytes"
+          if [ "${LOG_SIZE}" -gt 0 ]; then
+            echo "--- Service logs (last 5000 chars) ---"
+            tail -c 5000 /tmp/service-logs.txt
+          else
+            echo "(no service logs captured)"
+            echo "stderr:"
+            cat /tmp/logs-stderr.txt
+          fi
+
+          # Also check the new deploy status
+          if [ -n "${NEW_DEPLOY_ID}" ]; then
+            echo ""
+            echo "=== Step 7: Check new deploy status ==="
+            sleep 10
+            STATUS=$(curl -sS --max-time 15 \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${NEW_DEPLOY_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status', 'unknown'))")
+            echo "New deploy status: ${STATUS}"
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/deploys.json /tmp/deploy-detail.json /tmp/deploy-logs.txt /tmp/events.json /tmp/new-deploy.json /tmp/service-logs.txt /tmp/logs-stderr.txt

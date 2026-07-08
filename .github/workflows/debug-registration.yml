@@ -1,0 +1,88 @@
+name: Debug Registration 500
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    name: Debug Registration Error
+    runs-on: ubuntu-latest
+    environment: Production
+    steps:
+      - name: Check backend health
+        run: |
+          curl -sS --max-time 60 "https://sanad-backend-mcrj.onrender.com/actuator/health" || echo "Backend unreachable"
+      
+      - name: Try registration
+        run: |
+          RESPONSE=$(curl -sS --max-time 30 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/register" \
+            -H "Content-Type: application/json" \
+            -d '{"email":"debug-test-3@snad.app","password":"DebugTest@2026","displayName":"Debug","organizationName":"Debug Org","subdomain":"debug-snad-003","mobileNumber":"0500000000","regionCode":"SA","countryCode":"+966","acceptTerms":true}')
+          echo "Response: $RESPONSE"
+      
+      - name: List Render services and get logs
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          echo "=== List all Render services ==="
+          SERVICES=$(curl -sS --max-time 30 "https://api.render.com/v1/services" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" 2>&1)
+          echo "$SERVICES" | python3 -c "
+          import json,sys
+          try:
+              d=json.load(sys.stdin)
+              if isinstance(d, list):
+                  for s in d:
+                      sid = s.get('id','?')
+                      name = s.get('name','?')
+                      stype = s.get('type','?')
+                      status = s.get('status','?')
+                      url = s.get('serviceUrl','?')
+                      print(f'  id={sid} name={name} type={stype} status={status} url={url}')
+              else:
+                  print(f'Response: {json.dumps(d, indent=2)[:1000]}')
+          except Exception as e:
+              print(f'Parse error: {e}')
+              print(sys.stdin.read()[:1000])
+          "
+          
+          echo ""
+          echo "=== Get service details for RENDER_SERVICE_ID ==="
+          curl -sS --max-time 30 "https://api.render.com/v1/services/$RENDER_SERVICE_ID" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" 2>&1 | python3 -c "
+          import json,sys
+          try:
+              d=json.load(sys.stdin)
+              print(f'  name: {d.get(\"name\",\"?\")}')
+              print(f'  status: {d.get(\"status\",\"?\")}')
+              print(f'  url: {d.get(\"serviceUrl\",\"?\")}')
+              print(f'  type: {d.get(\"type\",\"?\")}')
+              print(f'  ownerId: {d.get(\"ownerId\",\"?\")}')
+          except Exception as e:
+              print(f'Parse error: {e}')
+              print(sys.stdin.read()[:1000])
+          "
+          
+          echo ""
+          echo "=== Get recent deploy events ==="
+          curl -sS --max-time 30 "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=3" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" 2>&1 | python3 -c "
+          import json,sys
+          try:
+              d=json.load(sys.stdin)
+              if isinstance(d, list):
+                  for dep in d:
+                      print(f'  deploy id={dep.get(\"id\",\"?\")} status={dep.get(\"status\",\"?\")} created={dep.get(\"createdAt\",\"?\")} commit={dep.get(\"commit\",{}).get(\"id\",\"?\")}')
+              else:
+                  print(f'Response: {json.dumps(d, indent=2)[:1000]}')
+          except Exception as e:
+              print(f'Parse error: {e}')
+              print(sys.stdin.read()[:1000])
+          "
