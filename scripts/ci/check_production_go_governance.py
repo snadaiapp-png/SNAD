@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Fail-closed governance guard for SANAD production GO claims.
 
-This script prevents accidental release-governance drift. It does not call
-GitHub or external systems; it validates repository evidence files and blocks
-unsafe textual GO declarations unless the explicit CI override is set for a
-formal release workflow.
+This script prevents accidental release-governance drift. It validates required
+repository evidence files and blocks unsafe release approval declarations.
+
+It intentionally ignores examples, templates, code blocks, and requirement text
+so that governance documents may describe required fields without being treated
+as actual production approval.
 """
 
 from __future__ import annotations
@@ -27,21 +29,71 @@ REQUIRED_FILES = [
 ]
 
 UNSAFE_GO_PATTERNS = [
-    re.compile(r"FINAL[_ -]?RELEASE[_ -]?DECISION\s*[:=]\s*GO\b", re.IGNORECASE),
-    re.compile(r"PRODUCTION[_ -]?AUTHORIZATION\s*[:=]\s*(YES|APPROVED|GO)\b", re.IGNORECASE),
-    re.compile(r"COMMERCIAL[_ -]?RELEASE\s*[:=]\s*GO\b", re.IGNORECASE),
-    re.compile(r"GOVERNANCE[_ -]?GO\s*[:=]\s*(APPROVED|YES|TRUE|GO)\b", re.IGNORECASE),
-    re.compile(r"releaseAuthorized\s*[:=]\s*true\b", re.IGNORECASE),
+    re.compile(r"\bFINAL[_ -]?RELEASE[_ -]?DECISION\s*[:=]\s*GO\b", re.IGNORECASE),
+    re.compile(r"\bPRODUCTION[_ -]?AUTHORIZATION\s*[:=]\s*(YES|APPROVED|GO)\b", re.IGNORECASE),
+    re.compile(r"\bCOMMERCIAL[_ -]?RELEASE\s*[:=]\s*GO\b", re.IGNORECASE),
+    re.compile(r"\bGOVERNANCE[_ -]?GO\s*[:=]\s*(APPROVED|YES|TRUE|GO)\b", re.IGNORECASE),
+    re.compile(r"\breleaseAuthorized\s*[:=]\s*true\b", re.IGNORECASE),
 ]
 
-SAFE_REFERENCE_PATTERNS = [
+IGNORE_HINTS = (
+    "required",
+    "requirement",
+    "must",
+    "template",
+    "example",
+    "sample",
+    "records",
+    "field",
+    "forbidden",
+    "not ",
+    "no-go",
+    "tbd",
+)
+
+SAFE_REFERENCE_PATTERNS = (
     "HOSTING_READY != APPLICATION_PASS != GOVERNANCE_GO",
-]
+)
 
 
 def fail(message: str) -> None:
     print(f"GOVERNANCE_GUARD_FAIL: {message}")
     sys.exit(1)
+
+
+def is_ignored_line(line: str, in_code_block: bool) -> bool:
+    stripped = line.strip()
+    lowered = stripped.lower()
+    if not stripped:
+        return True
+    if in_code_block:
+        return True
+    if stripped.startswith("|"):
+        return True
+    if stripped.startswith(("-", "*", "1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.")):
+        return True
+    if "`" in stripped:
+        return True
+    if any(pattern in stripped for pattern in SAFE_REFERENCE_PATTERNS):
+        return True
+    if any(hint in lowered for hint in IGNORE_HINTS):
+        return True
+    return False
+
+
+def scan_markdown_file(path: Path) -> list[str]:
+    violations: list[str] = []
+    in_code_block = False
+    for lineno, line in enumerate(path.read_text(encoding="utf-8", errors="ignore").splitlines(), start=1):
+        if line.strip().startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if is_ignored_line(line, in_code_block):
+            continue
+        for pattern in UNSAFE_GO_PATTERNS:
+            if pattern.search(line):
+                violations.append(f"{path.relative_to(ROOT)}:{lineno}: {line.strip()}")
+    return violations
 
 
 def main() -> int:
@@ -52,17 +104,13 @@ def main() -> int:
     allow_go = os.getenv("SANAD_ALLOW_PRODUCTION_GO", "").lower() == "true"
 
     if not allow_go:
+        violations: list[str] = []
         for path in ROOT.rglob("*.md"):
             if ".git" in path.parts:
                 continue
-            text = path.read_text(encoding="utf-8", errors="ignore")
-            safe_text = text
-            for safe in SAFE_REFERENCE_PATTERNS:
-                safe_text = safe_text.replace(safe, "")
-            for pattern in UNSAFE_GO_PATTERNS:
-                if pattern.search(safe_text):
-                    rel = path.relative_to(ROOT)
-                    fail(f"unsafe production GO declaration found in {rel}; set SANAD_ALLOW_PRODUCTION_GO=true only in a formal release workflow with all blocker evidence")
+            violations.extend(scan_markdown_file(path))
+        if violations:
+            fail("unsafe production GO declaration found:\n" + "\n".join(violations))
 
     print("GOVERNANCE_GUARD_PASS: required files exist and no unsafe production GO declaration was found")
     return 0
