@@ -1,0 +1,157 @@
+name: Set Control Plane Bootstrap Env Vars on Render
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'set-bootstrap-env' to confirm setting bootstrap env vars on Render"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  set-env-vars:
+    name: Set bootstrap env vars on Render backend
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "set-bootstrap-env" ]; then
+            echo "Confirmation input must be the literal string 'set-bootstrap-env'. Aborting."
+            exit 1
+          fi
+          echo "Confirmation accepted."
+
+      - name: Set bootstrap env vars on Render
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          CONTROL_PLANE_BOOTSTRAP_TOKEN: ${{ secrets.CONTROL_PLANE_BOOTSTRAP_TOKEN }}
+          CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+          CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RENDER_API_KEY}" ]; then echo "RENDER_API_KEY missing"; exit 2; fi
+          if [ -z "${RENDER_SERVICE_ID}" ]; then echo "RENDER_SERVICE_ID missing"; exit 2; fi
+          if [ -z "${CONTROL_PLANE_BOOTSTRAP_TOKEN}" ]; then echo "CONTROL_PLANE_BOOTSTRAP_TOKEN missing"; exit 2; fi
+          if [ -z "${CONTROL_PLANE_ADMIN_EMAIL}" ]; then echo "CONTROL_PLANE_ADMIN_EMAIL missing"; exit 2; fi
+          if [ -z "${CONTROL_PLANE_ADMIN_PASSWORD}" ]; then echo "CONTROL_PLANE_ADMIN_PASSWORD missing"; exit 2; fi
+
+          echo "=== Step 1: Fetch existing env vars ==="
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/env-vars.json
+
+          # Count how many env vars we currently have (without printing values)
+          python3 - <<'PY'
+          import json
+          with open('/tmp/env-vars.json') as f:
+              data = json.load(f)
+          count = 0
+          keys = []
+          if isinstance(data, list):
+              for item in data:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '') if isinstance(ev, dict) else ''
+                  if key:
+                      count += 1
+                      keys.append(key)
+          print(f"Existing env var count: {count}")
+          print(f"Existing env var keys (values redacted): {', '.join(sorted(keys))}")
+          PY
+
+          echo "=== Step 2: Build updated env var payload ==="
+          # Build the new payload: preserve all existing vars, add/overwrite the 4 bootstrap vars.
+          python3 - <<'PY' > /tmp/payload.json
+          import json, os
+          with open('/tmp/env-vars.json') as f:
+              data = json.load(f)
+          items = []
+          seen_keys = set()
+          if isinstance(data, list):
+              for item in data:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '') if isinstance(ev, dict) else ''
+                  val = ev.get('value', '') if isinstance(ev, dict) else ''
+                  if not key:
+                      continue
+                  # Skip the four bootstrap keys; we'll re-add them below.
+                  if key in ('CONTROL_PLANE_BOOTSTRAP_ENABLED',
+                             'CONTROL_PLANE_BOOTSTRAP_TOKEN',
+                             'CONTROL_PLANE_ADMIN_EMAIL',
+                             'CONTROL_PLANE_ADMIN_PASSWORD'):
+                      continue
+                  items.append({'key': key, 'value': val})
+                  seen_keys.add(key)
+          # Add the four bootstrap env vars.
+          items.append({'key': 'CONTROL_PLANE_BOOTSTRAP_ENABLED', 'value': 'true'})
+          items.append({'key': 'CONTROL_PLANE_BOOTSTRAP_TOKEN',
+                        'value': os.environ['CONTROL_PLANE_BOOTSTRAP_TOKEN']})
+          items.append({'key': 'CONTROL_PLANE_ADMIN_EMAIL',
+                        'value': os.environ['CONTROL_PLANE_ADMIN_EMAIL']})
+          items.append({'key': 'CONTROL_PLANE_ADMIN_PASSWORD',
+                        'value': os.environ['CONTROL_PLANE_ADMIN_PASSWORD']})
+          print(json.dumps(items))
+          PY
+
+          PAYLOAD_COUNT=$(python3 -c "import json; print(len(json.load(open('/tmp/payload.json'))))")
+          echo "Payload contains ${PAYLOAD_COUNT} env vars (including 4 bootstrap vars)."
+
+          echo "=== Step 3: PUT updated env vars to Render ==="
+          STATUS=$(curl -sS -o /tmp/render-response.json -w "%{http_code}" \
+            --max-time 60 \
+            -X PUT "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data @/tmp/payload.json)
+
+          echo "Render env-vars PUT returned HTTP ${STATUS}"
+          if [ "${STATUS}" != "200" ] && [ "${STATUS}" != "202" ]; then
+            echo "Failed. Response (first 500 chars):"
+            head -c 500 /tmp/render-response.json
+            exit 1
+          fi
+
+          echo "=== Step 4: Verify env vars were set (keys only) ==="
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/verify.json
+
+          python3 - <<'PY'
+          import json
+          with open('/tmp/verify.json') as f:
+              data = json.load(f)
+          keys = set()
+          if isinstance(data, list):
+              for item in data:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '') if isinstance(ev, dict) else ''
+                  if key:
+                      keys.add(key)
+          required = {'CONTROL_PLANE_BOOTSTRAP_ENABLED',
+                      'CONTROL_PLANE_BOOTSTRAP_TOKEN',
+                      'CONTROL_PLANE_ADMIN_EMAIL',
+                      'CONTROL_PLANE_ADMIN_PASSWORD'}
+          missing = required - keys
+          if missing:
+              print(f"MISSING env vars: {missing}")
+              exit(1)
+          print("All 4 bootstrap env vars are present on Render (values not displayed).")
+          PY
+
+          echo "=== Done. Note: a redeploy is required for the new env vars to take effect. ==="
+          echo "The Control Plane Bootstrap Disable workflow will trigger a redeploy after setting ENABLED=false."
+          echo "For now, you may manually trigger a redeploy via the Render dashboard, or wait for PR #416 to merge and auto-deploy."
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f /tmp/env-vars.json /tmp/payload.json /tmp/render-response.json /tmp/verify.json
+          echo "Temporary files removed."
