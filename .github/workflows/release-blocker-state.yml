@@ -1,0 +1,53 @@
+name: Release Blocker State Report
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/ci/check_release_blockers.py'
+      - '.github/workflows/release-blocker-state.yml'
+      - 'docs/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/ci/check_release_blockers.py'
+      - '.github/workflows/release-blocker-state.yml'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      formal_release_go:
+        description: 'Fail if any blocker issue is open or unverifiable'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  release-blocker-state:
+    name: Report release blocker state
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate blocker report
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SANAD_FORMAL_RELEASE_GO: ${{ github.event.inputs.formal_release_go || 'false' }}
+        run: |
+          mkdir -p build/release-governance
+          python3 scripts/ci/check_release_blockers.py | tee build/release-governance/release-blockers.json
+
+      - name: Upload blocker report
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-blocker-state-report
+          path: build/release-governance/release-blockers.json
+          if-no-files-found: error
