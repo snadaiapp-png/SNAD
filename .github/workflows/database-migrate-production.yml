@@ -1,0 +1,91 @@
+name: Database Migration Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'migrate' to run Flyway migrations against production"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: Run Flyway migrations against production PostgreSQL
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "migrate" ]; then exit 1; fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Run Flyway migrations via Docker
+        env:
+          FLYWAY_URL: ${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}
+          FLYWAY_USER: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+          FLYWAY_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          
+          MIGRATIONS_DIR="$(pwd)/apps/sanad-platform/src/main/resources/db/migration"
+          
+          if [ ! -d "$MIGRATIONS_DIR" ]; then
+            echo "ERROR: Migrations directory not found: $MIGRATIONS_DIR"
+            exit 1
+          fi
+          
+          MIGRATION_COUNT=$(ls -1 "$MIGRATIONS_DIR"/*.sql 2>/dev/null | wc -l)
+          echo "Found $MIGRATION_COUNT SQL migration files in $MIGRATIONS_DIR"
+          
+          echo ""
+          echo "=== Step 1: Flyway info (before migration) ==="
+          docker run --rm \
+            -v "$MIGRATIONS_DIR:/flyway/sql:ro" \
+            flyway/flyway:10 \
+            -url="$FLYWAY_URL" \
+            -user="$FLYWAY_USER" \
+            -password="$FLYWAY_PASSWORD" \
+            -baselineOnMigrate=true \
+            -validateOnMigrate=false \
+            -connectRetries=5 \
+            -table=flyway_schema_history \
+            info
+          
+          echo ""
+          echo "=== Step 2: Flyway migrate ==="
+          docker run --rm \
+            -v "$MIGRATIONS_DIR:/flyway/sql:ro" \
+            flyway/flyway:10 \
+            -url="$FLYWAY_URL" \
+            -user="$FLYWAY_USER" \
+            -password="$FLYWAY_PASSWORD" \
+            -baselineOnMigrate=true \
+            -validateOnMigrate=false \
+            -connectRetries=5 \
+            -table=flyway_schema_history \
+            migrate
+          
+          echo ""
+          echo "=== Step 3: Flyway info (after migration) ==="
+          docker run --rm \
+            -v "$MIGRATIONS_DIR:/flyway/sql:ro" \
+            flyway/flyway:10 \
+            -url="$FLYWAY_URL" \
+            -user="$FLYWAY_USER" \
+            -password="$FLYWAY_PASSWORD" \
+            -baselineOnMigrate=true \
+            -validateOnMigrate=false \
+            -connectRetries=5 \
+            -table=flyway_schema_history \
+            info
+          
+          echo ""
+          echo "=== Migration completed successfully ==="
