@@ -28,7 +28,7 @@ WORKDIR /app
 
 COPY --from=builder /workspace/target/sanad-platform-*.jar app.jar
 
-ENV JAVA_OPTS="-XX:MaxRAMPercentage=40.0 -XX:+UseG1GC -XX:MaxMetaspaceSize=96m -Dfile.encoding=UTF-8"
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=35.0 -XX:+UseSerialGC -XX:MaxMetaspaceSize=80m -Xss256k -XX:TieredStopAtLevel=1 -Dfile.encoding=UTF-8"
 ENV SPRING_PROFILES_ACTIVE=prod
 
 USER sanad
