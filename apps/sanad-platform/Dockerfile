@@ -38,8 +38,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=420s --retries=3 \
   CMD curl -f http://localhost:8080/actuator/health || exit 1
 
-# Capture Java output to a log file while still sending it to stdout/stderr
-# (via tee). If the JVM exits with a non-zero code (startup failure), print
-# a marker and the last 200 lines of the log. The `exec` ensures Java
-# receives signals directly (SIGTERM for graceful shutdown).
-ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar 2>&1 | tee /tmp/startup.log; EXIT_CODE=${PIPESTATUS[0]}; if [ $EXIT_CODE -ne 0 ]; then echo '=== STARTUP FAILED (exit code '$EXIT_CODE') ==='; echo '=== Last 200 lines of startup log ==='; tail -200 /tmp/startup.log; fi; exit $EXIT_CODE"]
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
