@@ -1,0 +1,49 @@
+name: Test Pooler Connection
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'test' to test Supabase pooler connection"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test Supabase pooler IPv4 connection
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "test" ]; then exit 1; fi
+
+      - name: Test pooler connection with psql
+        env:
+          POOLER_HOST: aws-0-eu-central-1.pooler.supabase.com
+          POOLER_USER: postgres.eyoupksefusnslvdnflt
+          POOLER_PASS: ${{ secrets.DATABASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          echo "=== Install psql ==="
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          
+          echo "=== Test pooler connection (port 5432 - session mode) ==="
+          PGPASSWORD="${POOLER_PASS}" psql -h "${POOLER_HOST}" -p 5432 -U "${POOLER_USER}" -d postgres -c "SELECT 1 as test;" 2>&1 || echo "Port 5432 failed"
+          
+          echo ""
+          echo "=== Test pooler connection (port 6543 - transaction mode) ==="
+          PGPASSWORD="${POOLER_PASS}" psql -h "${POOLER_HOST}" -p 6543 -U "${POOLER_USER}" -d postgres -c "SELECT 1 as test;" 2>&1 || echo "Port 6543 failed"
+          
+          echo ""
+          echo "=== Check pooler IPv4 resolution ==="
+          python3 -c "
+          import socket
+          ips = socket.getaddrinfo('aws-0-eu-central-1.pooler.supabase.com', 5432, socket.AF_INET)
+          for ip in ips:
+              print(f'  IPv4: {ip[4][0]}')
+          "
