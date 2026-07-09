@@ -4,36 +4,31 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 
 import javax.sql.DataSource;
-import java.time.Duration;
 
 /**
  * Stage 08 Sprint 1 — ST8-S1-005 Connection Pool Governance.
  *
- * Enforces HikariCP pool governance:
- *   - maxPoolSize: 200 (production)
- *   - minIdle: 20
- *   - idleTimeout: 10 minutes
- *   - maxLifetime: 30 minutes
- *   - connectionTimeout: 5 seconds (acquire)
- *   - leakDetectionThreshold: 60 seconds
+ * Enforces HikariCP pool governance with environment-variable-controlled
+ * sizing so that the production deployment (Render free tier, 512MB RAM)
+ * is not OOM-killed by an oversized connection pool.
  *
- * Per-tenant sub-pool isolation is provided by tenant-aware routing
- * (separate concern, ST8-S1-004 Noisy-Neighbor Protection).
+ * Pool sizing is read from the same DATABASE_POOL_* environment variables
+ * used by application-prod.yml, ensuring that the @Primary DataSource bean
+ * and the YAML-configured pool stay in sync:
+ *   - DATABASE_POOL_MAX (default 5, was 200 — too large for free tier)
+ *   - DATABASE_POOL_MIN (default 1, was 20 — too many idle connections)
+ *   - DATABASE_POOL_TIMEOUT (default 30000ms)
  *
- * Observability: Hikari exposes metrics via micrometer; the
- * {@code hikaricp.connections.active} gauge is the primary utilization
- * signal. Alert at > 80% utilization.
- *
- * Note: This config reuses the existing Spring Boot DataSourceProperties
- * bean (auto-configured from spring.datasource.* properties). It does NOT
- * declare its own DataSourceProperties bean to avoid duplicate bean
- * conflicts.
+ * Leak detection is retained at 60s as a non-memory-impacting governance
+ * control. Connection validation (SELECT 1) is retained for stale-connection
+ * detection.
  */
 @Configuration
 public class ConnectionPoolGovernanceConfig {
@@ -42,7 +37,12 @@ public class ConnectionPoolGovernanceConfig {
 
     @Bean
     @Primary
-    public DataSource governedDataSource(DataSourceProperties properties) {
+    public DataSource governedDataSource(
+            DataSourceProperties properties,
+            @Value("${spring.datasource.hikari.maximum-pool-size:5}") int maxPoolSize,
+            @Value("${spring.datasource.hikari.minimum-idle:1}") int minIdle,
+            @Value("${spring.datasource.hikari.connection-timeout:30000}") long connectionTimeout
+    ) {
         HikariConfig config = new HikariConfig();
         config.setPoolName("SanadHikariCP-Governed");
         config.setJdbcUrl(properties.getUrl());
@@ -50,20 +50,23 @@ public class ConnectionPoolGovernanceConfig {
         config.setPassword(properties.getPassword());
         config.setDriverClassName(properties.getDriverClassName());
 
-        // Pool governance — ST8-S1-005
-        config.setMaximumPoolSize(200);
-        config.setMinimumIdle(20);
-        config.setIdleTimeout(Duration.ofMinutes(10).toMillis());
-        config.setMaxLifetime(Duration.ofMinutes(30).toMillis());
-        config.setConnectionTimeout(Duration.ofSeconds(5).toMillis());
-        config.setLeakDetectionThreshold(Duration.ofSeconds(60).toMillis());
+        // Pool sizing — environment-variable controlled via DATABASE_POOL_*
+        config.setMaximumPoolSize(maxPoolSize);
+        config.setMinimumIdle(minIdle);
+        config.setConnectionTimeout(connectionTimeout);
+
+        // Governance controls that do not impact memory
+        config.setIdleTimeout(600000);              // 10 minutes
+        config.setMaxLifetime(1800000);              // 30 minutes
+        config.setLeakDetectionThreshold(60000);    // 60 seconds
 
         // Validation
         config.setConnectionTestQuery("SELECT 1");
-        config.setValidationTimeout(Duration.ofSeconds(2).toMillis());
+        config.setValidationTimeout(2000);          // 2 seconds
 
-        log.info("HikariCP pool governance configured: maxPoolSize=200 minIdle=20 "
-                + "idleTimeout=600s maxLifetime=1800s connectionTimeout=5s leakDetection=60s");
+        log.info("HikariCP pool governance configured: maxPoolSize={} minIdle={} "
+                + "connectionTimeout={}ms idleTimeout=600s maxLifetime=1800s leakDetection=60s",
+                maxPoolSize, minIdle, connectionTimeout);
 
         return new HikariDataSource(config);
     }
