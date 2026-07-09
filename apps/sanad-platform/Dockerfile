@@ -28,14 +28,14 @@ WORKDIR /app
 
 COPY --from=builder /workspace/target/sanad-platform-*.jar app.jar
 
-ENV JAVA_OPTS="-XX:MaxRAMPercentage=50.0 -XX:+UseG1GC -XX:MaxMetaspaceSize=128m -Dfile.encoding=UTF-8"
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=40.0 -XX:+UseG1GC -XX:MaxMetaspaceSize=96m -Dfile.encoding=UTF-8"
 ENV SPRING_PROFILES_ACTIVE=prod
 
 USER sanad
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=5 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=420s --retries=3 \
   CMD curl -f http://localhost:8080/actuator/health || exit 1
 
 # Capture Java output to a log file while still sending it to stdout/stderr
