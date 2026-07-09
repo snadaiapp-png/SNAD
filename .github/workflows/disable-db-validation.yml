@@ -1,0 +1,88 @@
+name: Disable All DB Validation on Render
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'disable-db-validation' to disable Flyway and Hibernate validation"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  disable:
+    name: Disable Flyway and Hibernate validation on Render
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "disable-db-validation" ]; then exit 1; fi
+
+      - name: Disable FLYWAY_ENABLED and JPA_DDL_AUTO=none on Render
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo "=== Fetch existing env vars ==="
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/env-vars.json
+
+          python3 - <<'PY' > /tmp/payload.json
+          import json
+          with open('/tmp/env-vars.json') as f:
+              data = json.load(f)
+          items = []
+          overrides = {
+              'FLYWAY_ENABLED': 'false',
+              'JPA_DDL_AUTO': 'none',
+              'FLYWAY_VALIDATE_ON_MIGRATE': 'false',
+              'FLYWAY_BASELINE_ON_MIGRATE': 'true',
+          }
+          existing_keys = set()
+          if isinstance(data, list):
+              for item in data:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '') if isinstance(ev, dict) else ''
+                  val = ev.get('value', '') if isinstance(ev, dict) else ''
+                  if not key:
+                      continue
+                  if key in overrides:
+                      items.append({'key': key, 'value': overrides[key]})
+                      existing_keys.add(key)
+                  else:
+                      items.append({'key': key, 'value': val})
+          # Add any override keys that don't exist yet
+          for k, v in overrides.items():
+              if k not in existing_keys:
+                  items.append({'key': k, 'value': v})
+          print(json.dumps(items))
+          PY
+
+          PAYLOAD_COUNT=$(python3 -c "import json; print(len(json.load(open('/tmp/payload.json'))))")
+          echo "Payload contains ${PAYLOAD_COUNT} env vars"
+
+          echo "=== PUT updated env vars ==="
+          STATUS=$(curl -sS -o /tmp/render-response.json -w "%{http_code}" \
+            --max-time 60 \
+            -X PUT "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data @/tmp/payload.json)
+          echo "PUT returned HTTP ${STATUS}"
+          if [ "${STATUS}" != "200" ] && [ "${STATUS}" != "202" ]; then
+            cat /tmp/render-response.json
+            exit 1
+          fi
+          echo "Done. FLYWAY_ENABLED=false, JPA_DDL_AUTO=none, FLYWAY_VALIDATE_ON_MIGRATE=false set on Render."
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/env-vars.json /tmp/payload.json /tmp/render-response.json
