@@ -51,6 +51,7 @@ spring:
       connection-timeout: ${DATABASE_POOL_TIMEOUT:30000}
       idle-timeout: 600000
       max-lifetime: 1800000
+      initialization-fail-timeout: -1
 
   jpa:
     open-in-view: false
