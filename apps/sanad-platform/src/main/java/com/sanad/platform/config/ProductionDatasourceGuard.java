@@ -34,6 +34,13 @@ public class ProductionDatasourceGuard implements EnvironmentPostProcessor {
             return;
         }
 
+        // Allow skipping the guard via env var (for emergency startup without DB)
+        String skipGuard = environment.getProperty("SKIP_DATASOURCE_GUARD");
+        if ("true".equalsIgnoreCase(skipGuard)) {
+            log.warn("Production datasource guard SKIPPED (SKIP_DATASOURCE_GUARD=true)");
+            return;
+        }
+
         // Resolve the effective datasource URL from all possible sources.
         // Priority: SPRING_DATASOURCE_URL > DATABASE_URL > RENDER_DATABASE_URL
         String datasourceUrl = environment.getProperty("spring.datasource.url");
