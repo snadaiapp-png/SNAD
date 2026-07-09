@@ -1,0 +1,165 @@
+name: Find PostgreSQL Database (Comprehensive)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'find' to comprehensively search for PostgreSQL database"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  find:
+    name: Comprehensive PostgreSQL database search
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "find" ]; then exit 1; fi
+
+      - name: List ALL services with full details
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          set -euo pipefail
+          echo "=== List ALL services (full details) ==="
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services?limit=50" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/services.json
+          python3 -c "
+          import json
+          with open('/tmp/services.json') as f:
+              data = json.load(f)
+          print(f'Total services found: {len(data) if isinstance(data, list) else 0}')
+          if isinstance(data, list):
+              for i, item in enumerate(data):
+                  svc = item.get('service', item) if isinstance(item, dict) else {}
+                  print(f'--- Service {i+1} ---')
+                  for k, v in svc.items():
+                      # Skip potentially sensitive values
+                      if k in ('envVars',):
+                          continue
+                      if isinstance(v, dict):
+                          print(f'  {k}:')
+                          for k2, v2 in v.items():
+                              if k2 in ('host','port','database','dbName','name','region','plan','createdAt'):
+                                  print(f'    {k2}: {v2}')
+                              else:
+                                  print(f'    {k2}: (present, not displayed)')
+                      elif isinstance(v, str) and len(v) > 100:
+                          print(f'  {k}: (long value, length={len(v)})')
+                      else:
+                          print(f'  {k}: {v}')
+          "
+
+      - name: Check sanad-backend env vars for any database hints
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo ""
+          echo "=== sanad-backend env var KEYS (values not displayed) ==="
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/env-vars.json
+          python3 -c "
+          import json
+          with open('/tmp/env-vars.json') as f:
+              data = json.load(f)
+          if isinstance(data, list):
+              for item in data:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '') if isinstance(ev, dict) else ''
+                  val = ev.get('value', '') if isinstance(ev, dict) else ''
+                  if key:
+                      # Show key and whether value is empty
+                      val_status = 'EMPTY' if not val else f'set (length={len(val)})'
+                      print(f'  {key}: {val_status}')
+          "
+
+      - name: Try to get sanad-backend service details (may include linked database)
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo ""
+          echo "=== sanad-backend full service details ==="
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/backend-detail.json
+          python3 -c "
+          import json
+          with open('/tmp/backend-detail.json') as f:
+              d = json.load(f)
+          for k, v in d.items():
+              if k == 'envVars':
+                  continue
+              if isinstance(v, dict):
+                  print(f'  {k}:')
+                  for k2, v2 in v.items():
+                      print(f'    {k2}: {v2}')
+              elif isinstance(v, list):
+                  print(f'  {k}: [{len(v)} items]')
+                  for item in v[:5]:
+                      if isinstance(item, dict):
+                          print(f'    {json.dumps(item, default=str)[:200]}')
+                      else:
+                          print(f'    {item}')
+              elif isinstance(v, str) and len(v) > 200:
+                  print(f'  {k}: (long, length={len(v)})')
+              else:
+                  print(f'  {k}: {v}')
+          "
+
+      - name: Check if there are owners/teams with databases
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          set -euo pipefail
+          echo ""
+          echo "=== Try /v1/owners ==="
+          STATUS=$(curl -sS -o /tmp/owners.json -w "%{http_code}" --max-time 15 \
+            "https://api.render.com/v1/owners" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json")
+          echo "HTTP ${STATUS}"
+          if [ "$STATUS" = "200" ]; then
+            cat /tmp/owners.json | python3 -m json.tool 2>/dev/null | head -30
+          fi
+
+      - name: Try listing with different type filters
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          set -euo pipefail
+          echo ""
+          echo "=== Try type=database ==="
+          STATUS=$(curl -sS -o /tmp/db-type.json -w "%{http_code}" --max-time 15 \
+            "https://api.render.com/v1/services?type=database&limit=20" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json")
+          echo "HTTP ${STATUS}"
+          cat /tmp/db-type.json | python3 -m json.tool 2>/dev/null | head -30
+
+          echo ""
+          echo "=== Try type=psql ==="
+          STATUS=$(curl -sS -o /tmp/psql-type.json -w "%{http_code}" --max-time 15 \
+            "https://api.render.com/v1/services?type=psql&limit=20" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json")
+          echo "HTTP ${STATUS}"
+          cat /tmp/psql-type.json | python3 -m json.tool 2>/dev/null | head -30
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/services.json /tmp/env-vars.json /tmp/backend-detail.json /tmp/owners.json /tmp/db-type.json /tmp/psql-type.json
