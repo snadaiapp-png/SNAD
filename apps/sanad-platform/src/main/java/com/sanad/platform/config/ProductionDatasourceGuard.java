@@ -51,10 +51,16 @@ public class ProductionDatasourceGuard implements EnvironmentPostProcessor {
         if (datasourceUrl == null || datasourceUrl.isBlank()) {
             throw new IllegalStateException(
                     "FATAL: Production datasource URL is not configured. "
-                    + "Set SPRING_DATASOURCE_URL or DATABASE_URL to a valid PostgreSQL JDBC URL "
-                    + "(e.g., jdbc:postgresql://host:5432/dbname). "
+                    + "Checked env vars: SPRING_DATASOURCE_URL, DATABASE_URL, RENDER_DATABASE_URL — all empty. "
+                    + "Set DATABASE_URL to a valid PostgreSQL JDBC URL "
+                    + "(e.g., jdbc:postgresql://host:5432/dbname) "
+                    + "or raw PostgreSQL URL (postgresql://user:pass@host:5432/dbname). "
                     + "H2 is not allowed in production.");
         }
+
+        // Log the URL scheme for diagnostics (never log credentials)
+        String scheme = extractScheme(datasourceUrl);
+        log.info("Production datasource guard: URL scheme detected = '{}'", scheme);
 
         // Check if the URL points to H2
         String lowerUrl = datasourceUrl.toLowerCase();
@@ -63,7 +69,7 @@ public class ProductionDatasourceGuard implements EnvironmentPostProcessor {
                     "FATAL: Invalid production datasource: H2 is not allowed in prod. "
                     + "The datasource URL must be a PostgreSQL JDBC URL "
                     + "(e.g., jdbc:postgresql://host:5432/dbname). "
-                    + "Found URL starting with: " + maskUrl(datasourceUrl));
+                    + "Found URL scheme: " + scheme);
         }
 
         // Check if the URL is a raw PostgreSQL URI (not JDBC format)
@@ -74,7 +80,7 @@ public class ProductionDatasourceGuard implements EnvironmentPostProcessor {
                     + "RenderDatabaseUrlConverter will convert it to JDBC format.");
         }
 
-        log.info("Production datasource guard: PASS (URL configured, not H2)");
+        log.info("Production datasource guard: PASS (URL scheme={}, not H2)", scheme);
     }
 
     private boolean isProdProfile(ConfigurableEnvironment environment) {
@@ -93,6 +99,23 @@ public class ProductionDatasourceGuard implements EnvironmentPostProcessor {
             }
         }
         return false;
+    }
+
+    /**
+     * Extract the URL scheme for logging — never returns credentials.
+     * Examples: "jdbc:postgresql", "jdbc:h2", "postgresql", "postgres", "unknown"
+     */
+    private static String extractScheme(String url) {
+        if (url == null || url.isBlank()) return "empty";
+        if (url.startsWith("jdbc:postgresql:")) return "jdbc:postgresql";
+        if (url.startsWith("jdbc:h2:")) return "jdbc:h2";
+        if (url.startsWith("postgresql://")) return "postgresql";
+        if (url.startsWith("postgres://")) return "postgres";
+        // For any other URL, return only the scheme (before "://")
+        int idx = url.indexOf("://");
+        if (idx > 0) return url.substring(0, idx);
+        if (url.length() > 20) return url.substring(0, 20) + "...";
+        return url;
     }
 
     /**
