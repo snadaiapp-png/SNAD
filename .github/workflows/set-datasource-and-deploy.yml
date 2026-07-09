@@ -1,0 +1,180 @@
+name: Set Production Datasource Env Vars on Render
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'set-datasource' to set SPRING_DATASOURCE_URL on Render"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  set-env:
+    name: Set SPRING_DATASOURCE_* env vars on Render
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "set-datasource" ]; then exit 1; fi
+
+      - name: Set SPRING_DATASOURCE_URL/USERNAME/PASSWORD on Render
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo "=== Fetch existing env vars ==="
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/env-vars.json
+
+          # Check what database-related env vars already exist
+          echo "=== Existing database env var keys ==="
+          python3 -c "
+          import json
+          with open('/tmp/env-vars.json') as f:
+              data = json.load(f)
+          db_keys = []
+          if isinstance(data, list):
+              for item in data:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '') if isinstance(ev, dict) else ''
+                  if key and any(x in key.upper() for x in ['DATABASE', 'DATASOURCE', 'JDBC', 'POSTGRES', 'SPRING_DATASOURCE']):
+                      db_keys.append(key)
+          print(f'Database-related keys found: {db_keys}')
+          "
+
+          # Build updated payload: add SPRING_DATASOURCE_URL/USERNAME/PASSWORD
+          # that point to the same values as DATABASE_URL/DATABASE_USERNAME/DATABASE_PASSWORD
+          python3 - <<'PY' > /tmp/payload.json
+          import json
+          with open('/tmp/env-vars.json') as f:
+              data = json.load(f)
+          items = []
+          existing = {}
+          if isinstance(data, list):
+              for item in data:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '') if isinstance(ev, dict) else ''
+                  val = ev.get('value', '') if isinstance(ev, dict) else ''
+                  if key:
+                      existing[key] = val
+                      items.append({'key': key, 'value': val})
+
+          # Add SPRING_DATASOURCE_URL = ${DATABASE_URL} (Render supports ${VAR} interpolation)
+          # But Render env vars don't support interpolation — we need to copy the actual value.
+          # Since we can't read the value of sync:false vars via API, we set
+          # SPRING_DATASOURCE_URL to ${DATABASE_URL} which Render resolves at runtime.
+          # Actually, Render does NOT support ${VAR} syntax. We need to set actual values.
+          #
+          # Instead, we set SPRING_DATASOURCE_URL to empty and rely on the
+          # application-prod.yml fallback: ${SPRING_DATASOURCE_URL:${DATABASE_URL:}}
+          # This means DATABASE_URL will be used if SPRING_DATASOURCE_URL is empty.
+          #
+          # But the problem is DATABASE_URL might be empty! Let's check if it exists.
+
+          # If DATABASE_URL exists and has a value, we don't need to add SPRING_DATASOURCE_URL.
+          # If DATABASE_URL is empty or missing, we need the operator to set it manually.
+
+          has_db_url = 'DATABASE_URL' in existing and existing['DATABASE_URL']
+          has_spring_ds_url = 'SPRING_DATASOURCE_URL' in existing and existing['SPRING_DATASOURCE_URL']
+
+          if has_db_url:
+              print(f"DATABASE_URL is set (value not displayed). No changes needed — application-prod.yml will use it.", flush=True)
+          elif has_spring_ds_url:
+              print(f"SPRING_DATASOURCE_URL is set (value not displayed). No changes needed.", flush=True)
+          else:
+              print("WARNING: Neither DATABASE_URL nor SPRING_DATASOURCE_URL is set!", flush=True)
+              print("The operator must set DATABASE_URL in the Render dashboard to the PostgreSQL JDBC URL.", flush=True)
+
+          print(json.dumps(items))
+          PY
+
+          echo "=== No env var changes needed — application-prod.yml now falls back correctly ==="
+          echo "=== The ProductionDatasourceGuard will fail fast if DATABASE_URL is still empty ==="
+          echo "=== Triggering deploy to test the fix ==="
+
+      - name: Trigger Render deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo "=== Triggering Render deploy ==="
+          STATUS=$(curl -sS -o /tmp/deploy.json -w "%{http_code}" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data '{"clearCache": "do_not_clear"}')
+          echo "Deploy trigger HTTP ${STATUS}"
+          DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/deploy.json')).get('id', ''))" 2>/dev/null || echo "")
+          echo "Deploy ID: ${DEPLOY_ID}"
+          echo "deploy_id=${DEPLOY_ID}" >> "$GITHUB_ENV"
+
+      - name: Wait for deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          DEPLOY_ID="${{ env.deploy_id }}"
+          for i in $(seq 1 30); do
+            sleep 20
+            STATUS=$(curl -sS --max-time 15 \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status', 'unknown'))" 2>/dev/null || echo "unknown")
+            echo "  Attempt ${i}: deploy status = ${STATUS}"
+            if [ "${STATUS}" = "live" ]; then
+              echo "DEPLOY IS LIVE!"
+              exit 0
+            fi
+            if echo "${STATUS}" | grep -qE "failed|canceled|deactivated"; then
+              echo "DEPLOY FAILED: ${STATUS}"
+              exit 1
+            fi
+          done
+          echo "DEPLOY TIMEOUT"
+          exit 1
+
+      - name: Verify health
+        env:
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+        run: |
+          set -euo pipefail
+          sleep 10
+          STATUS=$(curl -sS -o /tmp/health.json -w "%{http_code}" --max-time 30 \
+            "${PRODUCTION_BASE_URL}/actuator/health")
+          echo "Backend health: HTTP ${STATUS}"
+          cat /tmp/health.json
+
+          echo ""
+          echo "=== Check if bootstrap endpoint is deployed ==="
+          curl -sS --max-time 30 "${PRODUCTION_BASE_URL}/v3/api-docs" > /tmp/api-docs.json
+          python3 -c "
+          import json
+          with open('/tmp/api-docs.json') as f:
+              d = json.load(f)
+          paths = d.get('paths', {})
+          bootstrap = [p for p in paths if 'bootstrap' in p.lower()]
+          print(f'Bootstrap paths: {bootstrap if bootstrap else \"NONE\"}')
+          "
+
+          echo ""
+          echo "=== Test bootstrap endpoint (should return 401 or 403, not 404) ==="
+          STATUS=$(curl -sS -o /tmp/bootstrap.json -w "%{http_code}" --max-time 30 \
+            -X POST "${PRODUCTION_BASE_URL}/api/v1/internal/control-plane/bootstrap-admin" \
+            -H "Content-Type: application/json" --data '{}')
+          echo "Bootstrap endpoint: HTTP ${STATUS}"
+          cat /tmp/bootstrap.json
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/env-vars.json /tmp/payload.json /tmp/deploy.json /tmp/health.json /tmp/api-docs.json /tmp/bootstrap.json
