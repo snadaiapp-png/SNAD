@@ -63,6 +63,8 @@ spring:
         jdbc:
           time_zone: UTC
         format_sql: false
+        boot:
+          allow_jdbc_metadata_access: false
     show-sql: false
 
   flyway:
