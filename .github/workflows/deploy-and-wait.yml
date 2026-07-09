@@ -1,0 +1,130 @@
+name: Deploy and Wait (Robust)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'deploy' to trigger Render deploy and wait"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Trigger Render deploy and wait for result
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 15
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "deploy" ]; then exit 1; fi
+
+      - name: Trigger Render deploy
+        id: trigger
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo "Triggering Render deploy..."
+          HTTP_STATUS=$(curl -sS -o /tmp/deploy-response.json -w "%{http_code}" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d '{"clearCache":"do_not_clear"}')
+          echo "Render API returned HTTP ${HTTP_STATUS}"
+          if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "201" ] && [ "$HTTP_STATUS" != "202" ]; then
+            echo "Failed to trigger deploy. Response:"
+            cat /tmp/deploy-response.json
+            exit 1
+          fi
+          DEPLOY_ID=$(python3 -c "import json; d=json.load(open('/tmp/deploy-response.json')); print(d.get('id',''))")
+          echo "Deploy ID: ${DEPLOY_ID}"
+          echo "deploy_id=${DEPLOY_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for deploy to complete
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          DEPLOY_ID="${{ steps.trigger.outputs.deploy_id }}"
+          echo "Waiting for deploy ${DEPLOY_ID} to complete..."
+          FINAL_STATUS="unknown"
+          for i in $(seq 1 40); do
+            sleep 20
+            STATUS=$(curl -sS --max-time 15 \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('status','unknown'))" 2>/dev/null || echo "unknown")
+            echo "  Attempt ${i}: status = ${STATUS}"
+            FINAL_STATUS="$STATUS"
+            if [ "$STATUS" = "live" ]; then
+              echo "✅ DEPLOY IS LIVE!"
+              exit 0
+            fi
+            case "$STATUS" in
+              build_failed|update_failed|canceled|deactivated)
+                echo "❌ DEPLOY FAILED: ${STATUS}"
+                exit 1
+                ;;
+            esac
+          done
+          echo "⏰ TIMEOUT after ~13 minutes. Last status: ${FINAL_STATUS}"
+          exit 1
+
+      - name: Verify health and bootstrap endpoint
+        env:
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+        run: |
+          set -euo pipefail
+          echo "Waiting 15s for app to fully start..."
+          sleep 15
+
+          echo ""
+          echo "=== Backend health ==="
+          HEALTH_STATUS=$(curl -sS -o /tmp/health.json -w "%{http_code}" --max-time 30 \
+            "${PRODUCTION_BASE_URL}/actuator/health")
+          echo "HTTP ${HEALTH_STATUS}"
+          cat /tmp/health.json
+          if [ "$HEALTH_STATUS" != "200" ]; then
+            echo "❌ Backend health check FAILED"
+            exit 1
+          fi
+
+          echo ""
+          echo "=== Bootstrap endpoint (no token — should be 401 or 403, NOT 404) ==="
+          BOOTSTRAP_STATUS=$(curl -sS -o /tmp/bootstrap.json -w "%{http_code}" --max-time 30 \
+            -X POST "${PRODUCTION_BASE_URL}/api/v1/internal/control-plane/bootstrap-admin" \
+            -H "Content-Type: application/json" -d '{}')
+          echo "HTTP ${BOOTSTRAP_STATUS}"
+          cat /tmp/bootstrap.json
+          if [ "$BOOTSTRAP_STATUS" = "404" ]; then
+            echo "❌ Bootstrap endpoint returned 404 — new code is NOT deployed!"
+            exit 1
+          fi
+
+          echo ""
+          echo "=== access-check endpoint (new code) ==="
+          AC_STATUS=$(curl -sS -o /tmp/access.json -w "%{http_code}" --max-time 30 \
+            "${PRODUCTION_BASE_URL}/api/v1/control-plane/access-check")
+          echo "HTTP ${AC_STATUS}"
+          cat /tmp/access.json
+
+          echo ""
+          echo "=== BFF backend-status ==="
+          BFF_STATUS=$(curl -sS -o /tmp/bff.json -w "%{http_code}" --max-time 30 \
+            "https://snad-app.vercel.app/api/system/backend-status")
+          echo "HTTP ${BFF_STATUS}"
+          cat /tmp/bff.json
+
+          echo ""
+          echo "✅ All health checks passed!"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/deploy-response.json /tmp/health.json /tmp/bootstrap.json /tmp/access.json /tmp/bff.json
