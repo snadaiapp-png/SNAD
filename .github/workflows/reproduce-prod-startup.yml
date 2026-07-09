@@ -1,0 +1,159 @@
+name: Reproduce Production Startup (Old Schema + New Code)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'reproduce-prod' to reproduce the exact production scenario"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    name: Run new code against old-schema database
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: sanad
+          POSTGRES_DB: sanad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sanad"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "reproduce-prod" ]; then exit 1; fi
+
+      - name: Checkout main (new code)
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Maven
+        uses: stCarolas/setup-maven@v5
+        with:
+          maven-version: 3.9.9
+
+      - name: Build NEW JAR
+        working-directory: apps/sanad-platform
+        run: |
+          mvn -B -ntp -q clean package -DskipTests -Dgit.commit="new"
+          cp target/sanad-platform-*.jar /tmp/new-app.jar
+
+      - name: Checkout OLD code (6ae8b69 - last successful deploy)
+        uses: actions/checkout@v4
+        with:
+          ref: 6ae8b694c320
+
+      - name: Build OLD JAR
+        working-directory: apps/sanad-platform
+        run: |
+          mvn -B -ntp -q clean package -DskipTests -Dgit.commit="old"
+          cp target/sanad-platform-*.jar /tmp/old-app.jar
+
+      - name: Run OLD app to populate database schema
+        working-directory: apps/sanad-platform
+        run: |
+          echo "=== Starting OLD app (6ae8b69) to create database schema ==="
+          timeout 90 java \
+            -Dspring.profiles.active=prod \
+            -DDATABASE_URL="jdbc:postgresql://localhost:5432/sanad" \
+            -DDATABASE_USERNAME="sanad" \
+            -DDATABASE_PASSWORD="sanad" \
+            -DDATABASE_DRIVER="org.postgresql.Driver" \
+            -DJWT_SECRET="old-jwt-secret-for-testing-only-not-production-12345678901234567890" \
+            -DSANAD_CORS_ALLOWED_ORIGINS="https://snad-app.vercel.app" \
+            -DSANAD_CONTROL_PLANE_TENANT_ID="" \
+            -DBOOTSTRAP_ENABLED=false \
+            -jar /tmp/old-app.jar > /tmp/old-startup.log 2>&1 || true
+
+          echo "=== OLD app exit code: $? ==="
+          echo "=== OLD app startup log (last 30 lines) ==="
+          tail -30 /tmp/old-startup.log
+
+          # Verify the old app started successfully
+          if grep -q "Started SanadPlatformApplication" /tmp/old-startup.log; then
+            echo "=== OLD app started successfully — database schema created ==="
+          else
+            echo "=== OLD app failed to start — check log ==="
+            cat /tmp/old-startup.log
+            exit 1
+          fi
+
+      - name: Verify database has old schema (no tenant_quota table)
+        run: |
+          PGPASSWORD=sanad psql -h localhost -U sanad -d sanad -c "\dt" 2>&1 | head -40
+          echo "=== Check flyway_schema_history ==="
+          PGPASSWORD=sanad psql -h localhost -U sanad -d sanad -c "SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank;" 2>&1
+          echo "=== Check if tenant_quota exists (should NOT) ==="
+          PGPASSWORD=sanad psql -h localhost -U sanad -d sanad -c "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'tenant_quota');" 2>&1
+
+      - name: Checkout main (new code) again
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Run NEW app against old-schema database
+        working-directory: apps/sanad-platform
+        run: |
+          echo "=== Starting NEW app (main) against old-schema database ==="
+          echo "=== This reproduces the EXACT Render production scenario ==="
+          timeout 120 java \
+            -XX:MaxRAMPercentage=40.0 -XX:+UseG1GC -XX:MaxMetaspaceSize=96m \
+            -Dfile.encoding=UTF-8 \
+            -Dspring.profiles.active=prod \
+            -DDATABASE_URL="jdbc:postgresql://localhost:5432/sanad" \
+            -DDATABASE_USERNAME="sanad" \
+            -DDATABASE_PASSWORD="sanad" \
+            -DDATABASE_DRIVER="org.postgresql.Driver" \
+            -DJWT_SECRET="new-jwt-secret-for-testing-only-not-production-12345678901234567890" \
+            -DSANAD_CORS_ALLOWED_ORIGINS="https://snad-app.vercel.app" \
+            -DSANAD_CONTROL_PLANE_TENANT_ID="" \
+            -DBOOTSTRAP_ENABLED=false \
+            -DFLYWAY_ENABLED=true \
+            -DFLYWAY_VALIDATE_ON_MIGRATE=false \
+            -DFLYWAY_BASELINE_ON_MIGRATE=true \
+            -DJPA_DDL_AUTO=validate \
+            -jar /tmp/new-app.jar 2>&1 | tee /tmp/new-startup.log || true
+
+          NEW_EXIT=$?
+          echo ""
+          echo "=== NEW app exit code: $NEW_EXIT ==="
+          echo ""
+          echo "=== Last 100 lines of NEW app startup log ==="
+          tail -100 /tmp/new-startup.log
+
+          if grep -q "Started SanadPlatformApplication" /tmp/new-startup.log; then
+            echo "=== NEW app started successfully — no reproduction ==="
+          else
+            echo "=== NEW app FAILED TO START — reproduction successful ==="
+            echo "=== Error lines ==="
+            grep -iE "ERROR|FAILED|Caused by|Exception|BeanCreation|Flyway|Hibernate|Hikari|DataSource|APPLICATION FAILED" /tmp/new-startup.log | head -30
+          fi
+
+      - name: Upload all logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-reproduction-logs
+          path: |
+            /tmp/old-startup.log
+            /tmp/new-startup.log
+          retention-days: 14
