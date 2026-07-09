@@ -29,6 +29,10 @@ import java.util.UUID;
  */
 @Configuration
 @Profile({"prod", "local"})
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+    name = "sanad.security.bootstrap.enabled",
+    havingValue = "true",
+    matchIfMissing = false)
 public class CredentialBootstrapConfig {
 
     private static final Logger log = LoggerFactory.getLogger(CredentialBootstrapConfig.class);
