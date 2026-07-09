@@ -43,8 +43,10 @@ USER sanad
 
 EXPOSE 8080
 
-# Extended start period: 7 minutes for Render's slow CPU
-HEALTHCHECK --interval=30s --timeout=10s --start-period=420s --retries=3 \
+# Start period matches the expected startup time (~10-15s in CI).
+# Render's platform has its own deploy timeout (~60-90s for the update phase).
+# If the health check doesn't pass within Render's timeout, the deploy fails.
+HEALTHCHECK --interval=10s --timeout=10s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:8080/actuator/health || exit 1
 
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
