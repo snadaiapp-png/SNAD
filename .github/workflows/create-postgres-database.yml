@@ -29,14 +29,14 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Creating PostgreSQL database on Render ==="
-          # Create a free-tier PostgreSQL database in Frankfurt (same region as backend)
+          # Render API uses POST /v1/services with type=psql for PostgreSQL databases
           STATUS=$(curl -sS -o /tmp/create-db.json -w "%{http_code}" --max-time 60 \
-            -X POST "https://api.render.com/v1/databases" \
+            -X POST "https://api.render.com/v1/services" \
             -H "Authorization: Bearer ${RENDER_API_KEY}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
             -d '{
-              "type": "postgresql",
+              "type": "psql",
               "name": "sanad-database",
               "region": "frankfurt",
               "plan": "free"
@@ -46,9 +46,31 @@ jobs:
           cat /tmp/create-db.json | python3 -m json.tool 2>/dev/null | head -30
 
           if [ "$STATUS" != "201" ] && [ "$STATUS" != "200" ] && [ "$STATUS" != "202" ]; then
+            echo "Failed to create database with type=psql. Trying type=postgresql..."
+            STATUS=$(curl -sS -o /tmp/create-db.json -w "%{http_code}" --max-time 60 \
+              -X POST "https://api.render.com/v1/services" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -d '{
+                "type": "postgresql",
+                "name": "sanad-database",
+                "region": "frankfurt",
+                "plan": "free"
+              }')
+            echo "Create database (type=postgresql) HTTP ${STATUS}"
+            cat /tmp/create-db.json | python3 -m json.tool 2>/dev/null | head -30
+          fi
+
+          if [ "$STATUS" != "201" ] && [ "$STATUS" != "200" ] && [ "$STATUS" != "202" ]; then
             echo "Failed to create database."
-            echo "Response:"
+            echo "Full response:"
             cat /tmp/create-db.json
+            echo ""
+            echo "The Render API key may not have permission to create databases."
+            echo "The operator must create a PostgreSQL database via the Render Dashboard manually:"
+            echo "  Render Dashboard → New + → PostgreSQL"
+            echo "  Then set DATABASE_URL on sanad-backend to the Internal Database URL."
             exit 1
           fi
 
