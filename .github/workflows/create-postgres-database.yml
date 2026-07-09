@@ -1,0 +1,222 @@
+name: Create PostgreSQL Database on Render
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'create-db' to create a new PostgreSQL database on Render"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  create-db:
+    name: Create PostgreSQL database and link to backend
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 15
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "create-db" ]; then exit 1; fi
+
+      - name: Create PostgreSQL database via Render API
+        id: create
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          set -euo pipefail
+          echo "=== Creating PostgreSQL database on Render ==="
+          # Create a free-tier PostgreSQL database in Frankfurt (same region as backend)
+          STATUS=$(curl -sS -o /tmp/create-db.json -w "%{http_code}" --max-time 60 \
+            -X POST "https://api.render.com/v1/databases" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d '{
+              "type": "postgresql",
+              "name": "sanad-database",
+              "region": "frankfurt",
+              "plan": "free"
+            }')
+
+          echo "Create database HTTP ${STATUS}"
+          cat /tmp/create-db.json | python3 -m json.tool 2>/dev/null | head -30
+
+          if [ "$STATUS" != "201" ] && [ "$STATUS" != "200" ] && [ "$STATUS" != "202" ]; then
+            echo "Failed to create database."
+            echo "Response:"
+            cat /tmp/create-db.json
+            exit 1
+          fi
+
+          DB_ID=$(python3 -c "import json; d=json.load(open('/tmp/create-db.json')); print(d.get('id',''))" 2>/dev/null || echo "")
+          echo "Database ID: ${DB_ID}"
+          echo "db_id=${DB_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for database to be ready
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          set -euo pipefail
+          DB_ID="${{ steps.create.outputs.db_id }}"
+          echo "Waiting for database ${DB_ID} to become available..."
+          for i in $(seq 1 30); do
+            sleep 20
+            STATUS=$(curl -sS --max-time 15 \
+              "https://api.render.com/v1/databases/${DB_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('status','unknown'))" 2>/dev/null || echo "unknown")
+            echo "  Attempt ${i}: database status = ${STATUS}"
+            if [ "$STATUS" = "available" ] || [ "$STATUS" = "active" ]; then
+              echo "✅ Database is available!"
+              exit 0
+            fi
+            if [ "$STATUS" = "failed" ] || [ "$STATUS" = "deactivated" ]; then
+              echo "❌ Database creation failed: ${STATUS}"
+              exit 1
+            fi
+          done
+          echo "⏰ Timeout waiting for database"
+          exit 1
+
+      - name: Get database connection string
+        id: conn
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          set -euo pipefail
+          DB_ID="${{ steps.create.outputs.db_id }}"
+          echo "=== Fetching database connection info ==="
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/databases/${DB_ID}" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/db-detail.json
+
+          # Extract connection string (NOT displayed in logs)
+          CONNECTION_STRING=$(python3 -c "
+          import json
+          with open('/tmp/db-detail.json') as f:
+              d = json.load(f)
+          ci = d.get('connectionInfo', {})
+          url = ci.get('databaseUrl') or ci.get('psqlConnectionString') or ci.get('connectionString') or d.get('connectionString', '')
+          print(url)
+          ")
+
+          if [ -z "${CONNECTION_STRING}" ]; then
+            echo "ERROR: No connection string found in database details."
+            echo "Database detail keys:"
+            python3 -c "import json; d=json.load(open('/tmp/db-detail.json')); print(list(d.keys()))"
+            echo "Connection info:"
+            python3 -c "import json; d=json.load(open('/tmp/db-detail.json')); ci=d.get('connectionInfo',{}); print(json.dumps(ci, indent=2))" 2>/dev/null
+            exit 1
+          fi
+
+          echo "Found connection string (length: ${#CONNECTION_STRING}, not displayed)"
+          # Save to GITHUB_ENV for next step (NOT printed in logs)
+          echo "CONNECTION_STRING=${CONNECTION_STRING}" >> "$GITHUB_ENV"
+
+      - name: Set DATABASE_URL on sanad-backend
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo "=== Setting DATABASE_URL on sanad-backend ==="
+
+          # Fetch existing env vars
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/env-vars.json
+
+          # Build payload with DATABASE_URL set to the real connection string
+          python3 - <<'PYEOF' > /tmp/payload.json
+          import json, os
+          with open('/tmp/env-vars.json') as f:
+              data = json.load(f)
+          items = []
+          found = False
+          conn = os.environ['CONNECTION_STRING']
+          if isinstance(data, list):
+              for item in data:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '') if isinstance(ev, dict) else ''
+                  val = ev.get('value', '') if isinstance(ev, dict) else ''
+                  if not key:
+                      continue
+                  if key == 'DATABASE_URL':
+                      items.append({'key': key, 'value': conn})
+                      found = True
+                  else:
+                      items.append({'key': key, 'value': val})
+          if not found:
+              items.append({'key': 'DATABASE_URL', 'value': conn})
+          print(json.dumps(items))
+          PYEOF
+
+          STATUS=$(curl -sS -o /tmp/render-response.json -w "%{http_code}" \
+            --max-time 60 \
+            -X PUT "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data @/tmp/payload.json)
+          echo "PUT returned HTTP ${STATUS}"
+          if [ "$STATUS" != "200" ] && [ "$STATUS" != "202" ]; then
+            echo "Failed!"
+            cat /tmp/render-response.json
+            exit 1
+          fi
+          echo "✅ DATABASE_URL set on sanad-backend"
+
+      - name: Trigger deploy and wait
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo "=== Triggering deploy ==="
+          HTTP_STATUS=$(curl -sS -o /tmp/deploy.json -w "%{http_code}" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d '{"clearCache":"do_not_clear"}')
+          echo "Deploy trigger HTTP ${HTTP_STATUS}"
+          DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/deploy.json')).get('id',''))" 2>/dev/null || echo "")
+          echo "Deploy ID: ${DEPLOY_ID}"
+
+          echo "=== Waiting for deploy ==="
+          for i in $(seq 1 40); do
+            sleep 20
+            STATUS=$(curl -sS --max-time 15 \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null || echo "unknown")
+            echo "  Attempt ${i}: status = ${STATUS}"
+            if [ "$STATUS" = "live" ]; then echo "✅ DEPLOY LIVE!"; exit 0; fi
+            case "$STATUS" in
+              build_failed|update_failed|canceled|deactivated) echo "❌ FAILED: ${STATUS}"; exit 1 ;;
+            esac
+          done
+          echo "⏰ TIMEOUT"; exit 1
+
+      - name: Verify health and bootstrap endpoint
+        env:
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+        run: |
+          sleep 15
+          echo "=== Health ==="
+          curl -sS -w "\nHTTP %{http_code}\n" --max-time 30 "${PRODUCTION_BASE_URL}/actuator/health"
+          echo ""
+          echo "=== Bootstrap endpoint (should NOT be 404) ==="
+          curl -sS -w "\nHTTP %{http_code}\n" --max-time 30 \
+            -X POST "${PRODUCTION_BASE_URL}/api/v1/internal/control-plane/bootstrap-admin" \
+            -H "Content-Type: application/json" -d '{}'
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/create-db.json /tmp/db-detail.json /tmp/env-vars.json /tmp/payload.json /tmp/render-response.json /tmp/deploy.json
