@@ -29,45 +29,31 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Creating PostgreSQL database on Render ==="
-          # Render API uses POST /v1/services with type=psql for PostgreSQL databases
+          # The ownerID was found from the comprehensive search: tea-d8r7tc1o3t8c73cs3org
+          # This is the team/owner ID for the sanad-backend service.
+          OWNER_ID="tea-d8r7tc1o3t8c73cs3org"
+
           STATUS=$(curl -sS -o /tmp/create-db.json -w "%{http_code}" --max-time 60 \
             -X POST "https://api.render.com/v1/services" \
             -H "Authorization: Bearer ${RENDER_API_KEY}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
-            -d '{
-              "type": "psql",
-              "name": "sanad-database",
-              "region": "frankfurt",
-              "plan": "free"
-            }')
+            -d "{
+              \"type\": \"psql\",
+              \"name\": \"sanad-database\",
+              \"ownerId\": \"${OWNER_ID}\",
+              \"region\": \"frankfurt\",
+              \"plan\": \"free\"
+            }")
 
           echo "Create database HTTP ${STATUS}"
           cat /tmp/create-db.json | python3 -m json.tool 2>/dev/null | head -30
-
-          if [ "$STATUS" != "201" ] && [ "$STATUS" != "200" ] && [ "$STATUS" != "202" ]; then
-            echo "Failed to create database with type=psql. Trying type=postgresql..."
-            STATUS=$(curl -sS -o /tmp/create-db.json -w "%{http_code}" --max-time 60 \
-              -X POST "https://api.render.com/v1/services" \
-              -H "Authorization: Bearer ${RENDER_API_KEY}" \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
-              -d '{
-                "type": "postgresql",
-                "name": "sanad-database",
-                "region": "frankfurt",
-                "plan": "free"
-              }')
-            echo "Create database (type=postgresql) HTTP ${STATUS}"
-            cat /tmp/create-db.json | python3 -m json.tool 2>/dev/null | head -30
-          fi
 
           if [ "$STATUS" != "201" ] && [ "$STATUS" != "200" ] && [ "$STATUS" != "202" ]; then
             echo "Failed to create database."
             echo "Full response:"
             cat /tmp/create-db.json
             echo ""
-            echo "The Render API key may not have permission to create databases."
             echo "The operator must create a PostgreSQL database via the Render Dashboard manually:"
             echo "  Render Dashboard → New + → PostgreSQL"
             echo "  Then set DATABASE_URL on sanad-backend to the Internal Database URL."
