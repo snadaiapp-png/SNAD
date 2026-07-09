@@ -38,4 +38,8 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=5 \
   CMD curl -f http://localhost:8080/actuator/health || exit 1
 
-ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
+# Capture Java output to a log file. If the JVM exits with a non-zero code
+# (startup failure), print the last 200 lines of the log to stderr so the
+# Spring Boot stack trace appears in the Render deploy logs. This makes it
+# possible to diagnose startup failures without dashboard access.
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar > /tmp/startup.log 2>&1; EXIT_CODE=$?; if [ $EXIT_CODE -ne 0 ]; then echo '=== STARTUP FAILED (exit code '$EXIT_CODE') ==='; echo '=== Last 200 lines of startup log ==='; tail -200 /tmp/startup.log; fi; exit $EXIT_CODE"]
