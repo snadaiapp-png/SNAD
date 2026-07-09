@@ -40,6 +40,7 @@ jobs:
       - name: Checkout main (new code)
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: false
 
       - name: Setup Java
@@ -61,7 +62,6 @@ jobs:
 
       - name: Checkout OLD code (6ae8b69 - last successful deploy)
         run: |
-          git fetch origin 6ae8b694c320 --depth=1
           git checkout 6ae8b694c320 -- apps/sanad-platform
           echo "=== Checked out old backend code ==="
           ls apps/sanad-platform/pom.xml
