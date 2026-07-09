@@ -43,10 +43,10 @@ USER sanad
 
 EXPOSE 8080
 
-# Start period matches the expected startup time (~10-15s in CI).
-# Render's platform has its own deploy timeout (~60-90s for the update phase).
-# If the health check doesn't pass within Render's timeout, the deploy fails.
-HEALTHCHECK --interval=10s --timeout=10s --start-period=30s --retries=3 \
+# Start period 600s (10 min) to allow Flyway migrations + Hibernate init on Render free tier.
+# The app takes 3-18 minutes to start depending on Flyway and DB connection.
+# Render's platform allows up to ~30 minutes for the update phase before marking failed.
+HEALTHCHECK --interval=15s --timeout=10s --start-period=600s --retries=5 \
   CMD curl -f http://localhost:8080/actuator/health || exit 1
 
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
