@@ -60,10 +60,11 @@ jobs:
           cp target/sanad-platform-*.jar /tmp/new-app.jar
 
       - name: Checkout OLD code (6ae8b69 - last successful deploy)
-        uses: actions/checkout@v4
-        with:
-          ref: 6ae8b694c320
-          submodules: false
+        run: |
+          git fetch origin 6ae8b694c320 --depth=1
+          git checkout 6ae8b694c320 -- apps/sanad-platform
+          echo "=== Checked out old backend code ==="
+          ls apps/sanad-platform/pom.xml
 
       - name: Build OLD JAR
         working-directory: apps/sanad-platform
@@ -109,10 +110,10 @@ jobs:
           PGPASSWORD=sanad psql -h localhost -U sanad -d sanad -c "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'tenant_quota');" 2>&1
 
       - name: Checkout main (new code) again
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          submodules: false
+        run: |
+          git checkout main -- apps/sanad-platform
+          echo "=== Checked out new backend code ==="
+          ls apps/sanad-platform/pom.xml
 
       - name: Run NEW app against old-schema database
         working-directory: apps/sanad-platform
