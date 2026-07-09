@@ -1,0 +1,93 @@
+name: Reproduce Render Startup Failure
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'reproduce' to reproduce the Render startup failure locally"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    name: Run backend with PostgreSQL to capture startup error
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: sanad
+          POSTGRES_DB: sanad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sanad"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "reproduce" ]; then exit 1; fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Maven
+        uses: stCarolas/setup-maven@v5
+        with:
+          maven-version: 3.9.9
+
+      - name: Build JAR
+        working-directory: apps/sanad-platform
+        run: |
+          mvn -B -ntp -q clean package -DskipTests -Dgit.commit="reproduce"
+
+      - name: Run with prod profile against PostgreSQL
+        working-directory: apps/sanad-platform
+        run: |
+          echo "=== Running Spring Boot with prod profile ==="
+          echo "=== This reproduces the Render production environment ==="
+          timeout 120 java \
+            -XX:MaxRAMPercentage=50.0 -XX:+UseG1GC -XX:MaxMetaspaceSize=128m \
+            -Dfile.encoding=UTF-8 \
+            -Dspring.profiles.active=prod \
+            -DDATABASE_URL="jdbc:postgresql://localhost:5432/sanad" \
+            -DDATABASE_USERNAME="sanad" \
+            -DDATABASE_PASSWORD="sanad" \
+            -DDATABASE_DRIVER="org.postgresql.Driver" \
+            -DJWT_SECRET="reproduction-jwt-secret-for-testing-only-not-production-12345678901234567890" \
+            -DSANAD_CORS_ALLOWED_ORIGINS="https://snad-app.vercel.app" \
+            -DSANAD_CONTROL_PLANE_TENANT_ID="" \
+            -DBOOTSTRAP_ENABLED=false \
+            -DFLYWAY_ENABLED=true \
+            -DJPA_DDL_AUTO=validate \
+            -jar target/sanad-platform-*.jar 2>&1 | tee /tmp/startup-output.log || true
+
+          EXIT_CODE=$?
+          echo ""
+          echo "=== Exit code: $EXIT_CODE ==="
+          echo ""
+          echo "=== Last 100 lines of startup output ==="
+          tail -100 /tmp/startup-output.log
+
+      - name: Upload startup log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-reproduction-log
+          path: /tmp/startup-output.log
+          retention-days: 14
