@@ -244,3 +244,96 @@ Bootstrap execution: BLOCKED (depends on deploy)
 Authenticated smoke: BLOCKED (depends on bootstrap)
 FINAL STATUS: BLOCKED — requires Render dashboard log investigation
 ```
+
+---
+
+## Root Cause Confirmed — Render Dashboard Logs (July 9)
+
+### Exact Error from Render Deploy Logs
+
+```
+Caused by: org.springframework.beans.factory.BeanCreationException:
+Error creating bean with name 'flywayInitializer'
+
+Driver org.postgresql.Driver claims to not accept jdbcUrl:
+jdbc:h2:mem:...
+```
+
+### Root Cause Classification
+
+**Category B: Missing or invalid environment variable**
+
+`DATABASE_URL` is NOT set in the Render `sanad-backend` environment.
+When `DATABASE_URL` is empty, Spring Boot auto-configures an embedded
+H2 in-memory database. But the prod profile explicitly sets the driver
+to `org.postgresql.Driver`, which rejects H2 URLs.
+
+### Evidence from Render API
+
+1. Comprehensive service search (PR #455) confirmed:
+   - Only ONE service exists: `sanad-backend` (type: `web_service`)
+   - NO PostgreSQL database service exists on Render
+   - The `DATABASE_URL` env var is NOT present in `sanad-backend` env vars
+
+2. Render API cannot create PostgreSQL databases:
+   - `POST /v1/databases` returns HTTP 404 (token lacks permission)
+   - `POST /v1/services` only supports: `[static_site, web_service,
+     private_service, background_worker, cron_job, workflow]`
+   - PostgreSQL databases must be created via the Render Dashboard
+
+### Code Fixes Applied (all merged to main, commit 61e2f45)
+
+| PR | Fix |
+|-----|-----|
+| #449 | `application-prod.yml` uses `${SPRING_DATASOURCE_URL:${DATABASE_URL:}}` + `ProductionDatasourceGuard` (fails fast if H2 detected) |
+| #451 | `RenderDatabaseUrlConverter` handles `DATABASE_URL` and converts `postgresql://` → `jdbc:postgresql://` |
+| #452 | Guard logs URL scheme for Render dashboard diagnostics |
+| #453 | Robust deploy-and-wait workflow |
+| #454 | Workflow to find PostgreSQL database |
+| #455 | Comprehensive database search (confirmed no DB exists) |
+| #456-458 | Workflow to create PostgreSQL database (blocked by API permissions) |
+| #459 | Workflow to create external Neon PostgreSQL and link to Render |
+
+### Reproduction Evidence
+
+Local reproduction (workflow run 28996654798) confirmed the code starts
+successfully in 9.6 seconds against a fresh PostgreSQL database with all
+24 Flyway migrations applied. The issue is purely the missing
+`DATABASE_URL` environment variable on Render.
+
+### Owner Action Required (The ONLY Remaining Blocker)
+
+**Option A — Create PostgreSQL on Render Dashboard:**
+1. Render Dashboard → New + → PostgreSQL
+2. Create database (region: Frankfurt, plan: Free)
+3. Copy Internal Database URL
+4. sanad-backend → Environment → add `DATABASE_URL = <Internal Database URL>`
+5. Save (triggers redeploy)
+
+**Option B — Use External PostgreSQL (Neon):**
+1. Get a free Neon API key at https://console.neon.tech
+2. Run the "Create External PostgreSQL (Neon)" workflow with the API key
+3. The workflow creates the database, sets DATABASE_URL, and deploys
+
+### What Happens After DATABASE_URL Is Set
+
+1. `RenderDatabaseUrlConverter` converts `postgresql://user:pass@host:5432/db`
+   → `jdbc:postgresql://host:5432/db`
+2. `ProductionDatasourceGuard` verifies URL is not H2 (logs URL scheme)
+3. Flyway runs all 24 migrations
+4. Hibernate validation passes
+5. Tomcat starts, app is live
+6. Bootstrap endpoint becomes available at
+   `POST /api/v1/internal/control-plane/bootstrap-admin`
+7. Then run: Bootstrap Admin → Production Smoke → Bootstrap Disable
+
+### Current status
+```
+Root cause: CONFIRMED — DATABASE_URL not configured on Render
+Code fixes: ALL MERGED (PRs #449, #451, #452)
+Render API: CANNOT create PostgreSQL (token lacks databases:write)
+Production deploy: BLOCKED (DATABASE_URL empty → H2 fallback → crash)
+Bootstrap execution: BLOCKED (depends on deploy)
+Authenticated smoke: BLOCKED (depends on bootstrap)
+FINAL STATUS: BLOCKED — RENDER DATABASE URL NOT CONFIGURED
+```
