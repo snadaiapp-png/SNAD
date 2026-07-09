@@ -5,6 +5,7 @@ import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,22 +16,34 @@ import javax.sql.DataSource;
 /**
  * Stage 08 Sprint 1 — ST8-S1-005 Connection Pool Governance.
  *
- * Enforces HikariCP pool governance with environment-variable-controlled
- * sizing so that the production deployment (Render free tier, 512MB RAM)
- * is not OOM-killed by an oversized connection pool.
+ * <p>Provides an alternative HikariCP DataSource with governance controls
+ * (leak detection, connection validation). This bean is DISABLED by default
+ * and only activates when {@code sanad.scale.connection-pool-governance.enabled}
+ * is set to {@code true}.</p>
  *
- * Pool sizing is read from the same DATABASE_POOL_* environment variables
- * used by application-prod.yml, ensuring that the @Primary DataSource bean
- * and the YAML-configured pool stay in sync:
- *   - DATABASE_POOL_MAX (default 5, was 200 — too large for free tier)
- *   - DATABASE_POOL_MIN (default 1, was 20 — too many idle connections)
- *   - DATABASE_POOL_TIMEOUT (default 30000ms)
+ * <p>When disabled, Spring Boot's auto-configured DataSource (from
+ * {@code spring.datasource.hikari.*} properties in {@code application-prod.yml})
+ * is used. This is the production-safe default because:</p>
+ * <ol>
+ *   <li>The YAML-configured pool already reads from {@code DATABASE_POOL_*}
+ *       env vars with appropriate defaults for each deployment target.</li>
+ *   <li>The auto-configured DataSource initializes lazily and does not call
+ *       {@code checkFailFast()} aggressively, avoiding startup crashes when
+ *       the database is briefly unreachable.</li>
+ *   <li>On constrained environments (e.g. Render free tier, 512 MB RAM),
+ *       the auto-configured pool with {@code maxPoolSize=5, minIdle=1} is
+ *       memory-safe.</li>
+ * </ol>
  *
- * Leak detection is retained at 60s as a non-memory-impacting governance
- * control. Connection validation (SELECT 1) is retained for stale-connection
- * detection.
+ * <p>When enabled, this config creates a {@code @Primary} DataSource that
+ * overrides the auto-configured one. Pool sizing is read from the same
+ * {@code spring.datasource.hikari.*} properties to stay in sync with YAML.</p>
  */
 @Configuration
+@ConditionalOnProperty(
+        name = "sanad.scale.connection-pool-governance.enabled",
+        havingValue = "true",
+        matchIfMissing = false)
 public class ConnectionPoolGovernanceConfig {
 
     private static final Logger log = LoggerFactory.getLogger(ConnectionPoolGovernanceConfig.class);
