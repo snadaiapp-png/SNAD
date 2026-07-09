@@ -1,0 +1,287 @@
+name: Supabase Migrate and Enable Pooler
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'go' to run migrations via Supabase API and enable pooler"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: Run migrations via Supabase API and enable pooler
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 15
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "go" ]; then exit 1; fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Read all migration SQL files
+        id: read-migrations
+        run: |
+          MIGRATIONS_DIR="$(pwd)/apps/sanad-platform/src/main/resources/db/migration"
+          echo "Found $(ls -1 $MIGRATIONS_DIR/*.sql 2>/dev/null | wc -l) SQL migration files"
+          
+          # Combine all SQL migrations into one file, ordered by version
+          cat $(ls -1 $MIGRATIONS_DIR/V*.sql $MIGRATIONS_DIR/V2*.sql 2>/dev/null | sort) > /tmp/all-migrations.sql 2>/dev/null || true
+          
+          # Also include any Java migration info (V15 is Java-based, skip it)
+          echo "-- Skipping V15 (Java-based migration, runs at app startup)" >> /tmp/all-migrations.sql
+          
+          SQL_SIZE=$(wc -c < /tmp/all-migrations.sql)
+          echo "Combined SQL size: ${SQL_SIZE} bytes"
+          echo "sql_file=/tmp/all-migrations.sql" >> "$GITHUB_OUTPUT"
+
+      - name: Check if flyway_schema_history exists
+        env:
+          SUPABASE_URL: https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          echo "=== Checking if flyway_schema_history exists ==="
+          RESPONSE=$(curl -sS -w "\n%{http_code}" --max-time 30 \
+            "${SUPABASE_URL}/rest/v1/flyway_schema_history?select=id&limit=1" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP: ${HTTP_CODE}"
+          echo "Body: ${BODY}"
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "flyway_schema_history table exists"
+            echo "table_exists=true" >> "$GITHUB_ENV"
+          elif echo "$BODY" | grep -q "Does not exist\|does not exist\|PGRST205"; then
+            echo "flyway_schema_history table does NOT exist"
+            echo "table_exists=false" >> "$GITHUB_ENV"
+          else
+            echo "Unexpected response — table may not exist"
+            echo "table_exists=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Create tables via Supabase SQL API
+        env:
+          SUPABASE_URL: https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          
+          if [ "${table_exists}" = "true" ]; then
+            echo "=== Tables already exist, skipping migration ==="
+            exit 0
+          fi
+          
+          echo "=== Running migrations via Supabase SQL API ==="
+          echo "=== Using /rest/v1/rpc endpoint ==="
+          
+          # Supabase doesn't have a direct SQL execution endpoint via REST API.
+          # But we can use the Management API to execute SQL.
+          # The Management API endpoint is: POST https://api.supabase.com/v1/projects/{ref}/database/query
+          
+          echo "=== Trying Management API SQL endpoint ==="
+          
+          # Read the SQL content
+          SQL_CONTENT=$(cat /tmp/all-migrations.sql)
+          
+          # Try the Management API query endpoint
+          RESPONSE=$(curl -sS -w "\n%{http_code}" --max-time 60 \
+            -X POST "https://api.supabase.com/v1/projects/${{ secrets.SUPABASE_PROJECT_REF }}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$(python3 -c "import json, sys; print(json.dumps({'query': sys.stdin.read()}))" < /tmp/all-migrations.sql)")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP: ${HTTP_CODE}"
+          
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+            echo "✅ Migrations executed successfully!"
+            echo "$BODY" | head -20
+          else
+            echo "❌ Management API query failed"
+            echo "Response: $BODY" | head -20
+            
+            # Try alternative: use the database/query endpoint with different format
+            echo ""
+            echo "=== Trying alternative endpoint ==="
+            RESPONSE2=$(curl -sS -w "\n%{http_code}" --max-time 60 \
+              -X POST "https://api.supabase.com/v1/projects/${{ secrets.SUPABASE_PROJECT_REF }}/database/sql" \
+              -H "Authorization: Bearer ${SUPABASE_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "$(python3 -c "import json, sys; print(json.dumps({'query': sys.stdin.read()}))" < /tmp/all-migrations.sql)")
+            
+            HTTP_CODE2=$(echo "$RESPONSE2" | tail -1)
+            BODY2=$(echo "$RESPONSE2" | head -n -1)
+            echo "HTTP: ${HTTP_CODE2}"
+            
+            if [ "$HTTP_CODE2" = "200" ] || [ "$HTTP_CODE2" = "201" ]; then
+              echo "✅ Migrations executed via alternative endpoint!"
+            else
+              echo "❌ Alternative endpoint also failed"
+              echo "$BODY2" | head -20
+              exit 1
+            fi
+          fi
+
+      - name: Create flyway_schema_history table
+        env:
+          SUPABASE_URL: https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          if [ "${table_exists}" = "true" ]; then
+            echo "flyway_schema_history already exists, skipping"
+            exit 0
+          fi
+          
+          echo "=== Creating flyway_schema_history table ==="
+          # Use Supabase Management API to create the flyway schema history table
+          SQL='CREATE TABLE IF NOT EXISTS flyway_schema_history (
+            installed_rank INT NOT NULL,
+            version VARCHAR(50),
+            description VARCHAR(200) NOT NULL,
+            type VARCHAR(20) NOT NULL,
+            script VARCHAR(1000) NOT NULL,
+            checksum INT,
+            installed_by VARCHAR(100) NOT NULL,
+            installed_on TIMESTAMP NOT NULL DEFAULT now(),
+            execution_time INT NOT NULL,
+            success BOOLEAN NOT NULL,
+            PRIMARY KEY (installed_rank)
+          );'
+          
+          RESPONSE=$(curl -sS -w "\n%{http_code}" --max-time 30 \
+            -X POST "https://api.supabase.com/v1/projects/${{ secrets.SUPABASE_PROJECT_REF }}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$(python3 -c "import json; print(json.dumps({'query': '''$SQL'''}))")")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          echo "HTTP: ${HTTP_CODE}"
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+            echo "✅ flyway_schema_history created"
+          else
+            echo "⚠️ Could not create flyway_schema_history (may already exist)"
+          fi
+
+      - name: Enable Supavisor Connection Pooler
+        env:
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          echo "=== Checking Supabase database settings ==="
+          
+          # Get database settings (includes pooler config)
+          RESPONSE=$(curl -sS -w "\n%{http_code}" --max-time 30 \
+            "https://api.supabase.com/v1/projects/${PROJECT_REF}/config/database" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            -H "Accept: application/json")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP: ${HTTP_CODE}"
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "=== Database config ==="
+            echo "$BODY" | python3 -c "
+            import json, sys
+            try:
+                d = json.load(sys.stdin)
+                # Look for pooler-related settings
+                for k, v in d.items():
+                    if 'pool' in k.lower() or 'supavisor' in k.lower() or 'pgbouncer' in k.lower():
+                        print(f'  {k}: {v}')
+                # Also check for connection strings
+                for k, v in d.items():
+                    if 'url' in k.lower() or 'connection' in k.lower():
+                        if v and len(str(v)) > 10:
+                            print(f'  {k}: (present, length={len(str(v))})')
+                        else:
+                            print(f'  {k}: {v}')
+            except:
+                print('(could not parse config)')
+                print(sys.stdin.read()[:500])
+            " 2>/dev/null || echo "$BODY" | head -20
+          else
+            echo "Could not fetch database config"
+            echo "$BODY" | head -10
+          fi
+          
+          # Try to get the pooler connection string
+          echo ""
+          echo "=== Trying to get pooler URL ==="
+          RESPONSE2=$(curl -sS -w "\n%{http_code}" --max-time 30 \
+            "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/pooler" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            -H "Accept: application/json")
+          
+          HTTP_CODE2=$(echo "$RESPONSE2" | tail -1)
+          BODY2=$(echo "$RESPONSE2" | head -n -1)
+          echo "HTTP: ${HTTP_CODE2}"
+          
+          if [ "$HTTP_CODE2" = "200" ]; then
+            echo "=== Pooler config ==="
+            echo "$BODY2" | python3 -m json.tool 2>/dev/null | head -30 || echo "$BODY2" | head -20
+          else
+            echo "Pooler endpoint not available, trying to enable it..."
+            
+            # Try to enable pooler via PATCH
+            RESPONSE3=$(curl -sS -w "\n%{http_code}" --max-time 30 \
+              -X PATCH "https://api.supabase.com/v1/projects/${PROJECT_REF}/config/database" \
+              -H "Authorization: Bearer ${SUPABASE_KEY}" \
+              -H "Content-Type: application/json" \
+              -d '{"pgbouncer_enabled": true, "supavisor_enabled": true}')
+            
+            HTTP_CODE3=$(echo "$RESPONSE3" | tail -1)
+            echo "Enable pooler HTTP: ${HTTP_CODE3}"
+            echo "$RESPONSE3" | head -n -1 | head -10
+          fi
+
+      - name: Get connection strings
+        env:
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          echo "=== Fetching all database connection info ==="
+          
+          # Try the database endpoint
+          RESPONSE=$(curl -sS -w "\n%{http_code}" --max-time 30 \
+            "https://api.supabase.com/v1/projects/${PROJECT_REF}/database" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            -H "Accept: application/json")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP: ${HTTP_CODE}"
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "=== Database info ==="
+            echo "$BODY" | python3 -c "
+            import json, sys
+            d = json.load(sys.stdin)
+            # Print all keys (values may contain connection strings — don't print full values)
+            for k, v in d.items():
+                if isinstance(v, str) and len(v) > 50:
+                    print(f'  {k}: (length={len(v)})')
+                elif isinstance(v, dict):
+                    print(f'  {k}:')
+                    for k2, v2 in v.items():
+                        if isinstance(v2, str) and len(v2) > 50:
+                            print(f'    {k2}: (length={len(v2)})')
+                        else:
+                            print(f'    {k2}: {v2}')
+                else:
+                    print(f'  {k}: {v}')
+            " 2>/dev/null || echo "$BODY" | head -30
+          else
+            echo "$BODY" | head -10
+          fi
