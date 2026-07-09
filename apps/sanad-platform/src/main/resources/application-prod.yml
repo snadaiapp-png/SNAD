@@ -40,10 +40,10 @@ spring:
   main:
     lazy-initialization: ${LAZY_INIT:true}
   datasource:
-    url: ${DATABASE_URL:}
-    username: ${DATABASE_USERNAME:}
-    password: ${DATABASE_PASSWORD:}
-    driver-class-name: ${DATABASE_DRIVER:org.postgresql.Driver}
+    url: ${SPRING_DATASOURCE_URL:${DATABASE_URL:}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DATABASE_USERNAME:}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DATABASE_PASSWORD:}}
+    driver-class-name: ${SPRING_DATASOURCE_DRIVER_CLASS_NAME:${DATABASE_DRIVER:org.postgresql.Driver}}
     hikari:
       pool-name: SanadProdHikariCP
       maximum-pool-size: ${DATABASE_POOL_MAX:5}
