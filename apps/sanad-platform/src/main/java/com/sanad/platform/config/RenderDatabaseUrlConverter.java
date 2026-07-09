@@ -38,57 +38,93 @@ public class RenderDatabaseUrlConverter implements EnvironmentPostProcessor {
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
-        String renderUrl = environment.getProperty("RENDER_DATABASE_URL");
-        if (renderUrl == null || renderUrl.isBlank()) {
-            return;
-        }
-
         if (!isProdProfile(environment)) {
             return;
         }
 
-        try {
-            ParsedUrl parsed = parse(renderUrl);
+        // Try multiple sources for the database URL.
+        // Render provides DATABASE_URL (sync:false) and sometimes RENDER_DATABASE_URL.
+        // Both may be in raw PostgreSQL format: postgresql://user:pass@host:port/db
+        // Spring Boot needs JDBC format: jdbc:postgresql://host:port/db
+        String renderUrl = environment.getProperty("RENDER_DATABASE_URL");
+        String databaseUrl = environment.getProperty("DATABASE_URL");
+        String springDatasourceUrl = environment.getProperty("SPRING_DATASOURCE_URL");
 
-            String existingDbUrl = environment.getProperty("DATABASE_URL");
-            String existingUsername = environment.getProperty("DATABASE_USERNAME");
-            String existingPassword = environment.getProperty("DATABASE_PASSWORD");
-
-            Map<String, Object> props = new HashMap<>();
-
-            if (existingDbUrl != null && !existingDbUrl.isBlank()) {
-                props.put("spring.datasource.url", existingDbUrl);
-                props.put("sanad.database.url", existingDbUrl);
-            } else {
-                props.put("spring.datasource.url", parsed.jdbcUrl);
-                props.put("sanad.database.url", parsed.jdbcUrl);
-            }
-
-            if (existingUsername != null && !existingUsername.isBlank()) {
-                props.put("spring.datasource.username", existingUsername);
-                props.put("sanad.database.username", existingUsername);
-            } else {
-                props.put("spring.datasource.username", parsed.username);
-                props.put("sanad.database.username", parsed.username);
-            }
-
-            if (existingPassword != null && !existingPassword.isBlank()) {
-                props.put("spring.datasource.password", existingPassword);
-                props.put("sanad.database.password", existingPassword);
-            } else {
-                props.put("spring.datasource.password", parsed.password);
-                props.put("sanad.database.password", parsed.password);
-            }
-
-            environment.getPropertySources()
-                    .addFirst(new MapPropertySource("renderDatabaseUrlConversion", props));
-
-            log.info("Render database configuration conversion completed");
-
-        } catch (IllegalArgumentException e) {
-            log.error("Render database configuration conversion failed: {}", e.getMessage());
-            throw e;
+        // If SPRING_DATASOURCE_URL is already set and is a valid JDBC URL, use it directly.
+        if (springDatasourceUrl != null && !springDatasourceUrl.isBlank()
+                && springDatasourceUrl.startsWith("jdbc:")) {
+            log.info("Using SPRING_DATASOURCE_URL (already in JDBC format)");
+            setProperties(environment, springDatasourceUrl,
+                    environment.getProperty("SPRING_DATASOURCE_USERNAME"),
+                    environment.getProperty("SPRING_DATASOURCE_PASSWORD"));
+            return;
         }
+
+        // If DATABASE_URL is set and is already a JDBC URL, use it directly.
+        if (databaseUrl != null && !databaseUrl.isBlank()
+                && databaseUrl.startsWith("jdbc:postgresql:")) {
+            log.info("Using DATABASE_URL (already in JDBC format)");
+            setProperties(environment, databaseUrl,
+                    environment.getProperty("DATABASE_USERNAME"),
+                    environment.getProperty("DATABASE_PASSWORD"));
+            return;
+        }
+
+        // If DATABASE_URL is set but in raw PostgreSQL format, convert it.
+        if (databaseUrl != null && !databaseUrl.isBlank()
+                && (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres://"))) {
+            log.info("Converting DATABASE_URL from raw PostgreSQL format to JDBC format");
+            try {
+                ParsedUrl parsed = parse(databaseUrl);
+                setProperties(environment, parsed.jdbcUrl, parsed.username, parsed.password);
+                return;
+            } catch (IllegalArgumentException e) {
+                log.error("Failed to convert DATABASE_URL: {}", e.getMessage());
+                throw e;
+            }
+        }
+
+        // If RENDER_DATABASE_URL is set, convert it.
+        if (renderUrl != null && !renderUrl.isBlank()) {
+            log.info("Converting RENDER_DATABASE_URL to JDBC format");
+            try {
+                ParsedUrl parsed = parse(renderUrl);
+
+                // Explicit DATABASE_USERNAME / DATABASE_PASSWORD override the parsed values
+                String username = environment.getProperty("DATABASE_USERNAME");
+                String password = environment.getProperty("DATABASE_PASSWORD");
+
+                setProperties(environment, parsed.jdbcUrl,
+                        (username != null && !username.isBlank()) ? username : parsed.username,
+                        (password != null && !password.isBlank()) ? password : parsed.password);
+                return;
+            } catch (IllegalArgumentException e) {
+                log.error("Failed to convert RENDER_DATABASE_URL: {}", e.getMessage());
+                throw e;
+            }
+        }
+
+        // If we get here, no database URL source was found.
+        // The ProductionDatasourceGuard will fail fast with a clear error.
+        log.warn("No database URL source found (RENDER_DATABASE_URL, DATABASE_URL, SPRING_DATASOURCE_URL all empty)");
+    }
+
+    private void setProperties(ConfigurableEnvironment environment,
+                                String jdbcUrl, String username, String password) {
+        Map<String, Object> props = new HashMap<>();
+        props.put("spring.datasource.url", jdbcUrl);
+        props.put("sanad.database.url", jdbcUrl);
+        if (username != null && !username.isBlank()) {
+            props.put("spring.datasource.username", username);
+            props.put("sanad.database.username", username);
+        }
+        if (password != null && !password.isBlank()) {
+            props.put("spring.datasource.password", password);
+            props.put("sanad.database.password", password);
+        }
+        environment.getPropertySources()
+                .addFirst(new MapPropertySource("renderDatabaseUrlConversion", props));
+        log.info("Render database configuration conversion completed");
     }
 
     private boolean isProdProfile(ConfigurableEnvironment environment) {
