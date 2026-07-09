@@ -36,7 +36,7 @@ COPY --from=builder /workspace/target/sanad-platform-*.jar app.jar
 # 256k thread stack: half the default
 # TieredStopAtLevel=1: skip C2 for faster startup
 # -XX:+ExitOnOutOfMemoryError: crash immediately on OOM (clean exit code)
-ENV JAVA_OPTS="-XX:MaxRAMPercentage=25.0 -XX:+UseSerialGC -XX:MaxMetaspaceSize=48m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"
+ENV JAVA_OPTS="-Xmx128m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC -XX:MaxMetaspaceSize=48m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"
 ENV SPRING_PROFILES_ACTIVE=prod
 
 USER sanad
