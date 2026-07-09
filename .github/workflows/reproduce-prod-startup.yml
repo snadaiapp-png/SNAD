@@ -62,6 +62,7 @@ jobs:
 
       - name: Checkout OLD code (6ae8b69 - last successful deploy)
         run: |
+          rm -rf apps/sanad-platform
           git checkout 6ae8b694c320 -- apps/sanad-platform
           echo "=== Checked out old backend code ==="
           ls apps/sanad-platform/pom.xml
@@ -111,6 +112,7 @@ jobs:
 
       - name: Checkout main (new code) again
         run: |
+          rm -rf apps/sanad-platform
           git checkout main -- apps/sanad-platform
           echo "=== Checked out new backend code ==="
           ls apps/sanad-platform/pom.xml
