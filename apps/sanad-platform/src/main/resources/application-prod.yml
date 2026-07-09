@@ -67,8 +67,9 @@ spring:
   flyway:
     enabled: ${FLYWAY_ENABLED:true}
     locations: classpath:db/migration
-    baseline-on-migrate: false
-    validate-on-migrate: true
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:true}
+    validate-on-migrate: ${FLYWAY_VALIDATE_ON_MIGRATE:true}
+    validate-migration-naming: ${FLYWAY_VALIDATE_MIGRATION_NAMING:false}
     clean-disabled: true
 
   lifecycle:
