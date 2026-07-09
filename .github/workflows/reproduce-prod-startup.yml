@@ -39,6 +39,8 @@ jobs:
 
       - name: Checkout main (new code)
         uses: actions/checkout@v4
+        with:
+          submodules: false
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -61,6 +63,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: 6ae8b694c320
+          submodules: false
 
       - name: Build OLD JAR
         working-directory: apps/sanad-platform
@@ -109,6 +112,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: main
+          submodules: false
 
       - name: Run NEW app against old-schema database
         working-directory: apps/sanad-platform
