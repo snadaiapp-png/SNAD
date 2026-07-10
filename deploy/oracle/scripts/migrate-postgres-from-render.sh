@@ -35,6 +35,7 @@ docker run --rm \
   -v "${BACKUP_DIR}:/backup" \
   postgres:16-alpine \
   sh -ec 'pg_dump "$SOURCE_DATABASE_URL" --format=custom --no-owner --no-privileges --file=/backup/'"$(basename "${DUMP_FILE}")"
+unset SOURCE_DATABASE_URL
 
 echo "[2/6] Verifying dump structure"
 docker run --rm -v "${BACKUP_DIR}:/backup:ro" postgres:16-alpine \
@@ -51,12 +52,20 @@ fi
 echo "[3/6] Starting only the Oracle PostgreSQL service"
 "${COMPOSE[@]}" up -d postgres
 
+READY=false
 for _ in $(seq 1 30); do
-  if "${COMPOSE[@]}" exec -T postgres pg_isready -U "${DATABASE_USERNAME:-sanad_app}" >/dev/null 2>&1; then
+  if "${COMPOSE[@]}" exec -T postgres sh -ec 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null 2>&1; then
+    READY=true
     break
   fi
   sleep 2
 done
+
+if [[ "${READY}" != "true" ]]; then
+  echo "Target PostgreSQL did not become ready." >&2
+  "${COMPOSE[@]}" logs --tail=100 postgres >&2
+  exit 1
+fi
 
 echo "[4/6] Terminating target connections before restore"
 "${COMPOSE[@]}" exec -T postgres sh -ec \
