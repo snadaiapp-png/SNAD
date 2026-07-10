@@ -1,0 +1,59 @@
+name: Local Cloudflare hosting validation
+
+on:
+  pull_request:
+    paths:
+      - 'deploy/local/**'
+      - '.github/workflows/local-cloudflare-validation.yml'
+  push:
+    branches:
+      - infra/local-cloudflare-hosting
+    paths:
+      - 'deploy/local/**'
+      - '.github/workflows/local-cloudflare-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Docker Compose
+        run: |
+          docker compose \
+            --env-file deploy/local/.env.local.example \
+            -f deploy/local/docker-compose.local.yml \
+            config --quiet
+
+      - name: Enforce network exposure policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -Eq '^[[:space:]]*-[[:space:]]*"?[0.0.0.0:]*5432:' deploy/local/docker-compose.local.yml
+          grep -F '127.0.0.1:${BACKEND_DEBUG_PORT:-18080}:8080' deploy/local/docker-compose.local.yml
+          grep -F 'http://backend:8080' deploy/local/README.md
+
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          $Failed = $false
+          Get-ChildItem deploy/local/scripts/*.ps1 | ForEach-Object {
+            $Tokens = $null
+            $Errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$Tokens, [ref]$Errors) | Out-Null
+            if ($Errors.Count -gt 0) {
+              $Failed = $true
+              Write-Error "PowerShell parse errors in $($_.FullName): $($Errors | Out-String)"
+            }
+          }
+          if ($Failed) { exit 1 }
+
+      - name: Verify multi-architecture images
+        run: |
+          docker buildx imagetools inspect postgres:16-alpine >/dev/null
+          docker buildx imagetools inspect cloudflare/cloudflared:latest >/dev/null
+          docker buildx imagetools inspect maven:3.9-eclipse-temurin-21 >/dev/null
+          docker buildx imagetools inspect eclipse-temurin:21-jre-jammy >/dev/null
