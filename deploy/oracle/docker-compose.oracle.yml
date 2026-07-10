@@ -1,0 +1,132 @@
+name: sanad-oracle
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sanad}
+      POSTGRES_USER: ${DATABASE_USERNAME:?DATABASE_USERNAME must be set}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    expose:
+      - "5432"
+    volumes:
+      - sanad_oracle_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME} -d ${POSTGRES_DB:-sanad}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - sanad_private
+
+  backend:
+    build:
+      context: ../../apps/sanad-platform
+      dockerfile: Dockerfile
+      args:
+        RENDER_GIT_COMMIT: ${GIT_COMMIT:-oracle-self-hosted}
+    image: sanad-backend:oracle
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SERVER_PORT: "8080"
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set and contain at least 32 bytes}
+      DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-sanad}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:?DATABASE_USERNAME must be set}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set}
+      DATABASE_DRIVER: org.postgresql.Driver
+      JPA_DDL_AUTO: validate
+      FLYWAY_ENABLED: "true"
+      SANAD_CORS_ALLOWED_ORIGINS: ${SANAD_CORS_ALLOWED_ORIGINS:?SANAD_CORS_ALLOWED_ORIGINS must be set}
+      COOKIE_SAME_SITE: ${COOKIE_SAME_SITE:-None}
+      COOKIE_SECURE: "true"
+      BOOTSTRAP_ENABLED: ${BOOTSTRAP_ENABLED:-false}
+      BOOTSTRAP_TENANT_ID: ${BOOTSTRAP_TENANT_ID:-}
+      BOOTSTRAP_TENANT_NAME: ${BOOTSTRAP_TENANT_NAME:-}
+      BOOTSTRAP_TENANT_SUBDOMAIN: ${BOOTSTRAP_TENANT_SUBDOMAIN:-}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_DISPLAY_NAME: ${BOOTSTRAP_ADMIN_DISPLAY_NAME:-SANAD Admin}
+      BOOTSTRAP_AUDIT_ACTOR: ${BOOTSTRAP_AUDIT_ACTOR:-oracle-bootstrap}
+      SANAD_CONTROL_PLANE_TENANT_ID: ${SANAD_CONTROL_PLANE_TENANT_ID:-}
+      LOG_LEVEL_ROOT: ${LOG_LEVEL_ROOT:-WARN}
+      LOG_LEVEL_SANAD: ${LOG_LEVEL_SANAD:-INFO}
+      MANAGEMENT_ENDPOINTS: health
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+      DATABASE_POOL_MIN: ${DATABASE_POOL_MIN:-2}
+      DATABASE_POOL_TIMEOUT: ${DATABASE_POOL_TIMEOUT:-30000}
+      SECURITY_NOTIFICATION_PROVIDER: ${SECURITY_NOTIFICATION_PROVIDER:-resend}
+      SECURITY_NOTIFICATION_FROM: ${SECURITY_NOTIFICATION_FROM:-}
+      SECURITY_NOTIFICATION_RESEND_API_KEY: ${SECURITY_NOTIFICATION_RESEND_API_KEY:-}
+      SECURITY_NOTIFICATION_ENDPOINT: ${SECURITY_NOTIFICATION_ENDPOINT:-}
+      SECURITY_NOTIFICATION_BEARER_TOKEN: ${SECURITY_NOTIFICATION_BEARER_TOKEN:-}
+      APPLICATION_BASE_URL: ${APPLICATION_BASE_URL:?APPLICATION_BASE_URL must be set}
+      JAVA_OPTS: ${JAVA_OPTS:--Xms256m -Xmx2048m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8}
+    ports:
+      - "127.0.0.1:${BACKEND_DEBUG_PORT:-18080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - sanad_private
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      SANAD_API_DOMAIN: ${SANAD_API_DOMAIN:?SANAD_API_DOMAIN must be set}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - sanad_private
+
+volumes:
+  sanad_oracle_pgdata:
+  caddy_data:
+  caddy_config:
+
+networks:
+  sanad_private:
+    driver: bridge
