@@ -1,0 +1,52 @@
+name: Oracle migration validation
+
+on:
+  pull_request:
+    paths:
+      - "deploy/oracle/**"
+      - "apps/sanad-platform/Dockerfile"
+      - ".github/workflows/oracle-migration-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Validate shell scripts
+        run: shellcheck --severity=error deploy/oracle/scripts/*.sh
+
+      - name: Validate Docker Compose rendering
+        run: |
+          docker compose \
+            --env-file deploy/oracle/.env.oracle.example \
+            -f deploy/oracle/docker-compose.oracle.yml \
+            config --quiet
+
+      - name: Validate Caddy configuration
+        run: |
+          docker run --rm \
+            -e SANAD_API_DOMAIN=api.example.com \
+            -e ACME_EMAIL=admin@example.com \
+            -v "$PWD/deploy/oracle/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine \
+            caddy validate --config /etc/caddy/Caddyfile
+
+      - name: Verify ARM64 base image availability
+        run: |
+          docker buildx imagetools inspect maven:3.9-eclipse-temurin-21 | grep -q 'linux/arm64'
+          docker buildx imagetools inspect eclipse-temurin:21-jre-jammy | grep -q 'linux/arm64'
+          docker buildx imagetools inspect postgres:16-alpine | grep -q 'linux/arm64'
+          docker buildx imagetools inspect caddy:2-alpine | grep -q 'linux/arm64'
