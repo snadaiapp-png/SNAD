@@ -158,8 +158,8 @@ public class AdminPlatformService {
                 defaultValue(request.locale(), "ar-SA"),
                 defaultValue(request.timezone(), "Asia/Riyadh"),
                 defaultValue(upperOrNull(request.currencyCode()), "SAR"),
-                trialEndsAt,
-                now,
+                trialEndsAt == null ? null : Timestamp.from(trialEndsAt),
+                Timestamp.from(now),
                 tenantId
         );
 
@@ -197,7 +197,7 @@ public class AdminPlatformService {
                 .contains(requestedStatus) ? request.reason().trim() : null;
         jdbcTemplate.update(
                 "UPDATE tenants SET status = ?, suspension_reason = ?, updated_at = ? WHERE id = ?",
-                requestedStatus, operationalReason, Instant.now(), tenantId);
+                requestedStatus, operationalReason, Timestamp.from(Instant.now()), tenantId);
         TenantResponse after = getTenant(tenantId);
         auditService.success(
                 authentication, tenantId, "TENANT.STATUS.CHANGE", "TENANT", tenantId.toString(),
@@ -230,10 +230,10 @@ public class AdminPlatformService {
                 "UPDATE system_services SET status = ?, last_checked_at = ?, last_latency_ms = ?, "
                         + "last_message = ?, updated_at = ? WHERE id = ?",
                 status,
-                Instant.now(),
+                Timestamp.from(Instant.now()),
                 request.latencyMs(),
                 blankToNull(request.message()),
-                Instant.now(),
+                Timestamp.from(Instant.now()),
                 serviceId
         );
         SystemServiceResponse after = getSystemService(serviceId);
