@@ -1,0 +1,191 @@
+name: Render Production Preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Governance issue to close after successful verification
+        required: true
+        default: "52"
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  EXPECTED_REPOSITORY: snadaiapp-png/SNAD
+  EXPECTED_BRANCH: main
+  EXPECTED_SERVICE_NAME: ${{ vars.RENDER_SERVICE_NAME || 'sanad-backend' }}
+  PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+
+jobs:
+  provider-preflight:
+    name: Verify Render production identity and configuration
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+      DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+    steps:
+      - name: Checkout infrastructure contract
+        uses: actions/checkout@v4
+
+      - name: Validate protected configuration inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_DATABASE_URL DATABASE_USERNAME DATABASE_PASSWORD PRODUCTION_BASE_URL; do
+            test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
+          done
+          [[ "$PRODUCTION_BASE_URL" == https://* ]]
+
+      - name: Install PostgreSQL client
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+
+      - name: Read authoritative Render service
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID" > /tmp/render-service.json
+
+          jq -e \
+            --arg id "$RENDER_SERVICE_ID" \
+            --arg name "$EXPECTED_SERVICE_NAME" \
+            --arg repo "$EXPECTED_REPOSITORY" \
+            --arg branch "$EXPECTED_BRANCH" '
+              (.id == $id) and
+              (.name == $name) and
+              ((.repo // "") | endswith($repo)) and
+              (.branch == $branch)
+            ' /tmp/render-service.json >/dev/null
+
+          provider_url=$(jq -r '.serviceDetails.url // .url // empty' /tmp/render-service.json)
+          test -n "$provider_url"
+          provider_url="${provider_url%/}"
+          configured_url="${PRODUCTION_BASE_URL%/}"
+          [ "$provider_url" = "$configured_url" ] || {
+            echo "::error::PRODUCTION_BASE_URL does not match the authoritative Render service URL."
+            exit 1
+          }
+
+          echo "AUTHORITATIVE_RENDER_URL=$provider_url" >> "$GITHUB_ENV"
+          jq '{id, name, type, repo, branch, providerUrl: (.serviceDetails.url // .url)}' \
+            /tmp/render-service.json > render-service-evidence.json
+
+      - name: Verify environment-key and bootstrap policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" > /tmp/render-env.json
+
+          [ "$(jq 'length' /tmp/render-env.json)" -lt 100 ] || {
+            echo "::error::Cannot prove complete Render environment pagination."
+            exit 1
+          }
+
+          jq '[.[]? | (.envVar // .)]' /tmp/render-env.json > /tmp/render-env-normalized.json
+          jq '[.[].key] | sort' /tmp/render-env-normalized.json > render-env-keys-evidence.json
+
+          required=(SPRING_PROFILES_ACTIVE DATABASE_URL DATABASE_USERNAME DATABASE_PASSWORD JWT_SECRET BOOTSTRAP_ENABLED SANAD_CONTROL_PLANE_TENANT_ID)
+          forbidden=(BOOTSTRAP_TENANT_ID BOOTSTRAP_TENANT_NAME BOOTSTRAP_TENANT_SUBDOMAIN BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_PASSWORD BOOTSTRAP_ADMIN_DISPLAY_NAME BOOTSTRAP_AUDIT_ACTOR BOOTSTRAP_FORCE_RESET SANAD_SECURITY_BOOTSTRAP_ENABLED SANAD_SECURITY_BOOTSTRAP_TENANT_ID SANAD_SECURITY_BOOTSTRAP_TENANT_NAME SANAD_SECURITY_BOOTSTRAP_TENANT_SUBDOMAIN SANAD_SECURITY_BOOTSTRAP_ADMIN_EMAIL SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD SANAD_SECURITY_BOOTSTRAP_ADMIN_DISPLAY_NAME)
+
+          for key in "${required[@]}"; do
+            jq -e --arg key "$key" 'any(.[]; .key == $key and ((.value // "") | length > 0))' \
+              /tmp/render-env-normalized.json >/dev/null || {
+              echo "::error::Required Render environment value is missing: $key"
+              exit 1
+            }
+          done
+
+          for key in "${forbidden[@]}"; do
+            if jq -e --arg key "$key" 'any(.[]; .key == $key)' /tmp/render-env-normalized.json >/dev/null; then
+              echo "::error::Temporary bootstrap key must be removed: $key"
+              exit 1
+            fi
+          done
+
+          bootstrap_value=$(jq -r '.[] | select(.key == "BOOTSTRAP_ENABLED") | .value // empty' /tmp/render-env-normalized.json)
+          [ "$bootstrap_value" = "false" ] || {
+            echo "::error::BOOTSTRAP_ENABLED must equal false in production."
+            exit 1
+          }
+
+          control_tenant_id=$(jq -r '.[] | select(.key == "SANAD_CONTROL_PLANE_TENANT_ID") | .value // empty' /tmp/render-env-normalized.json)
+          [[ "$control_tenant_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]] || {
+            echo "::error::SANAD_CONTROL_PLANE_TENANT_ID must be a valid UUID."
+            exit 1
+          }
+          echo "::add-mask::$control_tenant_id"
+          echo "CONTROL_PLANE_TENANT_ID=$control_tenant_id" >> "$GITHUB_ENV"
+
+      - name: Verify Control Plane tenant in production database
+        shell: bash
+        run: bash scripts/production/verify-control-plane-tenant.sh
+
+      - name: Verify production health and identity URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          health_url="${AUTHORITATIVE_RENDER_URL%/}/actuator/health"
+          healthy=false
+          for attempt in $(seq 1 36); do
+            http_status=$(curl --silent --show-error --location \
+              --connect-timeout 10 --max-time 20 \
+              --output /tmp/render-health.json --write-out '%{http_code}' \
+              "$health_url" || true)
+            if [ "$http_status" = "200" ] && jq -e '.status == "UP"' /tmp/render-health.json >/dev/null 2>&1; then
+              healthy=true
+              break
+            fi
+            echo "Health attempt $attempt/36 returned HTTP ${http_status:-000}."
+            sleep 10
+          done
+          [ "$healthy" = "true" ] || { echo "::error::Production health did not become UP."; exit 1; }
+          jq '{status}' /tmp/render-health.json > render-health-evidence.json
+
+      - name: Upload sanitized evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-production-preflight-${{ github.run_id }}
+          path: |
+            render-service-evidence.json
+            render-env-keys-evidence.json
+            render-health-evidence.json
+          retention-days: 30
+
+      - name: Record provider approval and close governance issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Render production preflight passed: service identity, repository and branch, required environment values, BOOTSTRAP_ENABLED=false, temporary bootstrap removal, Control Plane tenant database validation, and production health were verified by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. No secret values were recorded."
+          gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --reason completed
+
+      - name: Write gate summary
+        shell: bash
+        run: |
+          {
+            echo "## Render Production Preflight"
+            echo "- Service identity: VERIFIED"
+            echo "- Repository and branch: VERIFIED"
+            echo "- Required environment values: VERIFIED"
+            echo "- Temporary bootstrap keys absent: VERIFIED"
+            echo "- BOOTSTRAP_ENABLED=false: VERIFIED"
+            echo "- Control Plane tenant database validation: PASSED"
+            echo "- Production health: VERIFIED"
+          } >> "$GITHUB_STEP_SUMMARY"

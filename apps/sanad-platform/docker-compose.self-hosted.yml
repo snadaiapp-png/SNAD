@@ -1,0 +1,92 @@
+# ============================================================
+# SANAD Platform — Docker Compose for Self-Hosted Production
+# ============================================================
+# This compose file runs the SANAD backend with a local PostgreSQL
+# instance, designed for self-hosted deployment on a dedicated server.
+#
+# Usage:
+#   1. Copy scripts/.env.example to /srv/sanad/config/.env
+#   2. Fill in all values in .env (especially JWT_SECRET, DATABASE_PASSWORD)
+#   3. Run: docker compose -f docker-compose.self-hosted.yml --env-file /srv/sanad/config/.env up -d --build
+#   4. Check health: curl http://localhost:8080/actuator/health
+#
+# To use an EXTERNAL database (Supabase) instead of local PostgreSQL:
+#   Set USE_EXTERNAL_DB=true in .env, and provide DATABASE_URL/USERNAME/PASSWORD
+# ============================================================
+
+services:
+  # ─── PostgreSQL (local, only if USE_EXTERNAL_DB is not true) ───
+  postgres:
+    image: postgres:16-alpine
+    container_name: sanad-postgres
+    restart: unless-stopped
+    profiles: ["local-db"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sanad}
+      POSTGRES_USER: ${DATABASE_USERNAME:?DATABASE_USERNAME must be set}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set}
+    expose:
+      - "5432"
+    volumes:
+      - sanad-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME} -d ${POSTGRES_DB:-sanad}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ─── SANAD Backend ───
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sanad-backend:latest
+    container_name: sanad-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      SERVER_PORT: ${SERVER_PORT:-8080}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set (at least 32 bytes)}
+      # Use local postgres if USE_EXTERNAL_DB is not true; otherwise use external DATABASE_URL
+      DATABASE_URL: ${DATABASE_URL:-jdbc:postgresql://postgres:5432/${POSTGRES_DB:-sanad}}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:?DATABASE_USERNAME must be set}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set}
+      DATABASE_DRIVER: org.postgresql.Driver
+      JPA_DDL_AUTO: ${JPA_DDL_AUTO:-validate}
+      FLYWAY_ENABLED: ${FLYWAY_ENABLED:-true}
+      SANAD_CONTROL_PLANE_TENANT_ID: ${SANAD_CONTROL_PLANE_TENANT_ID:?SANAD_CONTROL_PLANE_TENANT_ID must be set}
+      SANAD_CORS_ALLOWED_ORIGINS: ${SANAD_CORS_ALLOWED_ORIGINS:-https://snad-app.vercel.app}
+      COOKIE_SAME_SITE: ${COOKIE_SAME_SITE:-None}
+      COOKIE_SECURE: "true"
+      BOOTSTRAP_ENABLED: ${BOOTSTRAP_ENABLED:-false}
+      CONTROL_PLANE_BOOTSTRAP_ENABLED: ${CONTROL_PLANE_BOOTSTRAP_ENABLED:-false}
+      LOG_LEVEL_ROOT: ${LOG_LEVEL_ROOT:-WARN}
+      LOG_LEVEL_SANAD: ${LOG_LEVEL_SANAD:-INFO}
+      MANAGEMENT_ENDPOINTS: ${MANAGEMENT_ENDPOINTS:-health}
+      APPLICATION_BASE_URL: ${APPLICATION_BASE_URL:-https://snad-app.vercel.app}
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-5}
+      DATABASE_POOL_MIN: ${DATABASE_POOL_MIN:-1}
+      DATABASE_POOL_TIMEOUT: ${DATABASE_POOL_TIMEOUT:-30000}
+      SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-30s}
+      JAVA_OPTS: "-XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -Dfile.encoding=UTF-8"
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+volumes:
+  sanad-pgdata:
