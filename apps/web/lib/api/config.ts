@@ -9,7 +9,7 @@ const PRODUCTION_BFF_BASE_URL = "/api/platform";
 function readBaseUrl(): string {
   // Production browser traffic must use the same-origin Next.js BFF. This keeps
   // refresh tokens in an HttpOnly first-party cookie and avoids cross-site
-  // cookie/CORS failures between Vercel and the Render API.
+  // cookie/CORS failures between Vercel and the configured SANAD backend.
   if (process.env.NODE_ENV === "production") return PRODUCTION_BFF_BASE_URL;
 
   const raw = process.env.NEXT_PUBLIC_API_BASE_URL || "";
