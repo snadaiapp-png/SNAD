@@ -96,7 +96,7 @@ public class SaasAdministrationService {
                         + "VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 id, code, request.name().trim(), blankToNull(request.description()),
                 normalizeCurrency(request.currencyCode()), request.monthlyPriceMinor(), request.annualPriceMinor(),
-                request.trialDays(), request.maxUsers(), request.maxOrganizations(), request.storageMb(), now, now);
+                request.trialDays(), request.maxUsers(), request.maxOrganizations(), request.storageMb(), Timestamp.from(now), Timestamp.from(now));
         replaceEntitlements(id, request.entitlements());
         PlanResponse created = getPlan(id);
         auditService.success(authentication, null, "PLAN.CREATE", "SAAS_PLAN", id.toString(),
@@ -129,7 +129,7 @@ public class SaasAdministrationService {
                         + "updated_at = ? WHERE id = ?",
                 request.name().trim(), blankToNull(request.description()), normalizeCurrency(request.currencyCode()),
                 request.monthlyPriceMinor(), request.annualPriceMinor(), request.trialDays(), request.maxUsers(),
-                request.maxOrganizations(), request.storageMb(), Instant.now(), planId);
+                request.maxOrganizations(), request.storageMb(), Timestamp.from(Instant.now()), planId);
         replaceEntitlements(planId, request.entitlements());
         PlanResponse after = getPlan(planId);
         auditService.success(authentication, null, "PLAN.UPDATE", "SAAS_PLAN", planId.toString(),
@@ -150,7 +150,7 @@ public class SaasAdministrationService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported plan status");
         }
         jdbcTemplate.update("UPDATE saas_plans SET status = ?, updated_at = ? WHERE id = ?",
-                status, Instant.now(), planId);
+                status, Timestamp.from(Instant.now()), planId);
         PlanResponse after = getPlan(planId);
         auditService.success(authentication, null, "PLAN.STATUS.CHANGE", "SAAS_PLAN", planId.toString(),
                 reason, before, after);
@@ -226,7 +226,7 @@ public class SaasAdministrationService {
                         + "current_period_end, cancel_at_period_end, cancelled_at, created_at, updated_at) "
                         + "VALUES (?, ?, ?, NULL, ?, ?, NULL, ?, 0, ?, ?, ?, ?, FALSE, NULL, ?, ?)",
                 id, request.tenantId(), request.planId(), status, billingCycle, request.seatQuantity(),
-                now, trialEndsAt, now, periodEnd, now, now);
+                Timestamp.from(now), Timestamp.from(trialEndsAt), Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), Timestamp.from(now));
         recordEvent(id, request.tenantId(), "SUBSCRIPTION.CREATED", null, request.planId(), "IMMEDIATE", 0,
                 "Subscription created", now, authentication);
         SubscriptionResponse created = getSubscription(id);
@@ -256,7 +256,7 @@ public class SaasAdministrationService {
         if (mode.equals("NEXT_CYCLE")) {
             jdbcTemplate.update(
                     "UPDATE tenant_subscriptions SET pending_plan_id = ?, pending_billing_cycle = ?, updated_at = ? WHERE id = ?",
-                    targetPlan.id(), targetCycle, Instant.now(), subscriptionId);
+                    targetPlan.id(), targetCycle, Timestamp.from(Instant.now()), subscriptionId);
             recordEvent(subscriptionId, before.tenantId(), "PLAN.CHANGE.SCHEDULED", before.planId(), targetPlan.id(),
                     mode, 0, request.reason(), before.currentPeriodEnd(), authentication);
         } else {
@@ -267,12 +267,12 @@ public class SaasAdministrationService {
                         "UPDATE tenant_subscriptions SET credit_balance_minor = credit_balance_minor + ?, "
                                 + "plan_id = ?, billing_cycle = ?, pending_plan_id = NULL, pending_billing_cycle = NULL, updated_at = ? "
                                 + "WHERE id = ?",
-                        Math.abs(adjustment), targetPlan.id(), targetCycle, Instant.now(), subscriptionId);
+                        Math.abs(adjustment), targetPlan.id(), targetCycle, Timestamp.from(Instant.now()), subscriptionId);
             } else {
                 jdbcTemplate.update(
                         "UPDATE tenant_subscriptions SET plan_id = ?, billing_cycle = ?, pending_plan_id = NULL, "
                                 + "pending_billing_cycle = NULL, updated_at = ? WHERE id = ?",
-                        targetPlan.id(), targetCycle, Instant.now(), subscriptionId);
+                        targetPlan.id(), targetCycle, Timestamp.from(Instant.now()), subscriptionId);
             }
             if (adjustment > 0) {
                 issueInvoice(getSubscription(subscriptionId), adjustment,
@@ -307,11 +307,11 @@ public class SaasAdministrationService {
             if (adjustment < 0) {
                 jdbcTemplate.update(
                         "UPDATE tenant_subscriptions SET seat_quantity = ?, credit_balance_minor = credit_balance_minor + ?, updated_at = ? WHERE id = ?",
-                        newSeats, Math.abs(adjustment), Instant.now(), subscriptionId);
+                        newSeats, Math.abs(adjustment), Timestamp.from(Instant.now()), subscriptionId);
             } else {
                 jdbcTemplate.update(
                         "UPDATE tenant_subscriptions SET seat_quantity = ?, updated_at = ? WHERE id = ?",
-                        newSeats, Instant.now(), subscriptionId);
+                        newSeats, Timestamp.from(Instant.now()), subscriptionId);
             }
             if (adjustment > 0) {
                 issueInvoice(getSubscription(subscriptionId), adjustment,
@@ -339,13 +339,13 @@ public class SaasAdministrationService {
             jdbcTemplate.update(
                     "UPDATE tenant_subscriptions SET status = 'CANCELLED', cancel_at_period_end = FALSE, "
                             + "cancelled_at = ?, updated_at = ? WHERE id = ?",
-                    now, now, subscriptionId);
+                    Timestamp.from(now), Timestamp.from(now), subscriptionId);
             recordEvent(subscriptionId, before.tenantId(), "SUBSCRIPTION.CANCELLED", before.planId(), null,
                     "IMMEDIATE", 0, request.reason(), now, authentication);
         } else {
             jdbcTemplate.update(
                     "UPDATE tenant_subscriptions SET cancel_at_period_end = TRUE, updated_at = ? WHERE id = ?",
-                    now, subscriptionId);
+                    Timestamp.from(now), subscriptionId);
             recordEvent(subscriptionId, before.tenantId(), "SUBSCRIPTION.CANCELLATION.SCHEDULED", before.planId(), null,
                     "NEXT_CYCLE", 0, request.reason(), before.currentPeriodEnd(), authentication);
         }
@@ -362,7 +362,7 @@ public class SaasAdministrationService {
         if (!"CANCELLED".equals(before.status())) {
             jdbcTemplate.update(
                     "UPDATE tenant_subscriptions SET cancel_at_period_end = FALSE, updated_at = ? WHERE id = ?",
-                    now, subscriptionId);
+                    Timestamp.from(now), subscriptionId);
         } else {
             PlanResponse plan = activePlan(before.planId());
             validateUsageAgainstPlan(before.tenantId(), before.seatQuantity(), plan);
@@ -370,7 +370,7 @@ public class SaasAdministrationService {
             jdbcTemplate.update(
                     "UPDATE tenant_subscriptions SET status = 'ACTIVE', cancel_at_period_end = FALSE, cancelled_at = NULL, "
                             + "current_period_start = ?, current_period_end = ?, updated_at = ? WHERE id = ?",
-                    now, periodEnd, now, subscriptionId);
+                    Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), subscriptionId);
             issueRecurringInvoice(getSubscription(subscriptionId), plan, "Subscription resumed");
         }
         recordEvent(subscriptionId, before.tenantId(), "SUBSCRIPTION.RESUMED", before.planId(), before.planId(),
@@ -391,7 +391,7 @@ public class SaasAdministrationService {
         if (before.cancelAtPeriodEnd()) {
             jdbcTemplate.update(
                     "UPDATE tenant_subscriptions SET status = 'CANCELLED', cancel_at_period_end = FALSE, cancelled_at = ?, updated_at = ? WHERE id = ?",
-                    now, now, subscriptionId);
+                    Timestamp.from(now), Timestamp.from(now), subscriptionId);
             recordEvent(subscriptionId, before.tenantId(), "SUBSCRIPTION.CANCELLED", before.planId(), null,
                     "NEXT_CYCLE", 0, "Scheduled cancellation applied", now, authentication);
             return getSubscription(subscriptionId);
@@ -406,7 +406,7 @@ public class SaasAdministrationService {
                 "UPDATE tenant_subscriptions SET plan_id = ?, billing_cycle = ?, pending_plan_id = NULL, "
                         + "pending_billing_cycle = NULL, status = 'ACTIVE', trial_ends_at = NULL, "
                         + "current_period_start = ?, current_period_end = ?, updated_at = ? WHERE id = ?",
-                planId, billingCycle, now, periodEnd, now, subscriptionId);
+                planId, billingCycle, Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), subscriptionId);
         SubscriptionResponse renewed = getSubscription(subscriptionId);
         issueRecurringInvoice(renewed, plan, "Subscription renewal");
         recordEvent(subscriptionId, before.tenantId(), "SUBSCRIPTION.RENEWED", before.planId(), planId,
@@ -441,7 +441,7 @@ public class SaasAdministrationService {
         jdbcTemplate.update(
                 "UPDATE billing_invoices SET status = 'PAID', amount_paid_minor = total_minor, paid_at = ?, "
                         + "payment_reference = ?, updated_at = ? WHERE id = ?",
-                now, request.paymentReference().trim(), now, invoiceId);
+                Timestamp.from(now), request.paymentReference().trim(), Timestamp.from(now), invoiceId);
         InvoiceResponse after = getInvoice(invoiceId);
         auditService.success(authentication, before.tenantId(), "INVOICE.MARK.PAID", "BILLING_INVOICE",
                 invoiceId.toString(), request.reason(), before, after);
@@ -506,7 +506,7 @@ public class SaasAdministrationService {
                     "INSERT INTO saas_plan_entitlements "
                             + "(id, plan_id, feature_code, enabled, limit_value, created_at, updated_at) "
                             + "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    UUID.randomUUID(), planId, featureCode, entitlement.enabled(), entitlement.limitValue(), now, now);
+                    UUID.randomUUID(), planId, featureCode, entitlement.enabled(), entitlement.limitValue(), Timestamp.from(now), Timestamp.from(now));
         }
     }
 
@@ -593,11 +593,11 @@ public class SaasAdministrationService {
                         + "period_end, due_at, paid_at, payment_reference, created_at, updated_at) "
                         + "VALUES (?, ?, ?, ?, 'OPEN', ?, ?, ?, 0, ?, 0, ?, ?, ?, ?, NULL, NULL, ?, ?)",
                 invoiceId, subscription.tenantId(), subscription.id(), invoiceNumber(), subscription.currencyCode(),
-                subtotal, credit, total, description, periodStart, periodEnd, now.plus(Duration.ofDays(14)), now, now);
+                subtotal, credit, total, description, Timestamp.from(periodStart), Timestamp.from(periodEnd), Timestamp.from(now.plus(Duration.ofDays(14))), Timestamp.from(now), Timestamp.from(now));
         if (credit > 0) {
             jdbcTemplate.update(
                     "UPDATE tenant_subscriptions SET credit_balance_minor = credit_balance_minor - ?, updated_at = ? WHERE id = ?",
-                    credit, now, subscription.id());
+                    credit, Timestamp.from(now), subscription.id());
         }
     }
 
@@ -650,7 +650,7 @@ public class SaasAdministrationService {
                         + "adjustment_minor, reason, actor_tenant_id, actor_user_id, effective_at, created_at) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 UUID.randomUUID(), subscriptionId, tenantId, action, oldPlanId, newPlanId, effectiveMode,
-                adjustment, blankToNull(reason), principal.tenantId(), principal.userId(), effectiveAt, Instant.now());
+                adjustment, blankToNull(reason), principal.tenantId(), principal.userId(), Timestamp.from(effectiveAt), Timestamp.from(Instant.now()));
     }
 
     private void ensureTenant(UUID tenantId) {

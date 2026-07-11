@@ -74,7 +74,7 @@ public class TenantDirectoryAdministrationService {
         jdbcTemplate.update(
                 "INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at) "
                         + "VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?)",
-                id, tenantId, name, blankToNull(request.description()), now, now);
+                id, tenantId, name, blankToNull(request.description()), Timestamp.from(now), Timestamp.from(now));
         OrganizationAdminResponse created = getOrganization(tenantId, id);
         auditService.success(authentication, tenantId, "ORGANIZATION.CREATE", "ORGANIZATION", id.toString(),
                 "Created from control plane", null, created);
@@ -97,7 +97,7 @@ public class TenantDirectoryAdministrationService {
         }
         jdbcTemplate.update(
                 "UPDATE organizations SET name = ?, description = ?, updated_at = ? WHERE tenant_id = ? AND id = ?",
-                name, blankToNull(request.description()), Instant.now(), tenantId, organizationId);
+                name, blankToNull(request.description()), Timestamp.from(Instant.now()), tenantId, organizationId);
         OrganizationAdminResponse after = getOrganization(tenantId, organizationId);
         auditService.success(authentication, tenantId, "ORGANIZATION.UPDATE", "ORGANIZATION", organizationId.toString(),
                 "Updated from control plane", before, after);
@@ -119,7 +119,7 @@ public class TenantDirectoryAdministrationService {
         }
         jdbcTemplate.update(
                 "UPDATE organizations SET status = ?, updated_at = ? WHERE tenant_id = ? AND id = ?",
-                status, Instant.now(), tenantId, organizationId);
+                status, Timestamp.from(Instant.now()), tenantId, organizationId);
         OrganizationAdminResponse after = getOrganization(tenantId, organizationId);
         auditService.success(authentication, tenantId, "ORGANIZATION.STATUS.CHANGE", "ORGANIZATION",
                 organizationId.toString(), reason, before, after);
@@ -177,7 +177,7 @@ public class TenantDirectoryAdministrationService {
                         + "(id, tenant_id, organization_id, user_id, email, display_name, role_code, status, created_at, updated_at) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 membershipId, tenantId, organizationId, userId, email,
-                blankToNull(request.displayName()), roleCode, status, now, now);
+                blankToNull(request.displayName()), roleCode, status, Timestamp.from(now), Timestamp.from(now));
         if (userId != null) {
             activateGrant(tenantId, organizationId, userId, roleId);
         }
@@ -206,7 +206,7 @@ public class TenantDirectoryAdministrationService {
         jdbcTemplate.update(
                 "UPDATE organization_memberships SET status = ?, role_code = ?, updated_at = ? "
                         + "WHERE tenant_id = ? AND organization_id = ? AND id = ?",
-                status, roleCode, now, tenantId, organizationId, membershipId);
+                status, roleCode, Timestamp.from(now), tenantId, organizationId, membershipId);
 
         if (before.userId() != null) {
             revokeOrganizationGrants(tenantId, organizationId, before.userId());
@@ -270,7 +270,7 @@ public class TenantDirectoryAdministrationService {
         jdbcTemplate.update(
                 "INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at) "
                         + "VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?)",
-                id, tenantId, roleCode, roleCode, "Created by control-plane membership administration", now, now);
+                id, tenantId, roleCode, roleCode, "Created by control-plane membership administration", Timestamp.from(now), Timestamp.from(now));
         return id;
     }
 
@@ -285,11 +285,11 @@ public class TenantDirectoryAdministrationService {
                     "INSERT INTO user_role_assignments "
                             + "(id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at) "
                             + "VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?)",
-                    UUID.randomUUID(), tenantId, userId, roleId, organizationId, now, now);
+                    UUID.randomUUID(), tenantId, userId, roleId, organizationId, Timestamp.from(now), Timestamp.from(now));
         } else {
             jdbcTemplate.update(
                     "UPDATE user_role_assignments SET status = 'ACTIVE', updated_at = ? WHERE id = ?",
-                    now, existing.get(0));
+                    Timestamp.from(now), existing.get(0));
         }
     }
 
@@ -297,7 +297,7 @@ public class TenantDirectoryAdministrationService {
         jdbcTemplate.update(
                 "UPDATE user_role_assignments SET status = 'REVOKED', updated_at = ? "
                         + "WHERE tenant_id = ? AND organization_id = ? AND user_id = ?",
-                Instant.now(), tenantId, organizationId, userId);
+                Timestamp.from(Instant.now()), tenantId, organizationId, userId);
     }
 
     private void ensureTenant(UUID tenantId) {
