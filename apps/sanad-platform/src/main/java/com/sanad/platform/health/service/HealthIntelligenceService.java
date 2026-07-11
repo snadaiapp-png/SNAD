@@ -370,7 +370,7 @@ public class HealthIntelligenceService {
             jdbcTemplate.update(
                     "UPDATE system_services SET last_checked_at = ?, last_latency_ms = ?, "
                             + "last_message = ?, updated_at = ? WHERE id = ?",
-                    Instant.now(), latencyMs, "Controlled diagnostic completed", Instant.now(), targetId);
+                    Timestamp.from(Instant.now()), latencyMs, "Controlled diagnostic completed", Timestamp.from(Instant.now()), targetId);
         }
         return "Controlled diagnostics completed; database latency " + latencyMs + " ms";
     }
@@ -386,12 +386,12 @@ public class HealthIntelligenceService {
         jdbcTemplate.update(
                 "UPDATE system_services SET status = 'OPERATIONAL', last_checked_at = ?, "
                         + "last_latency_ms = ?, last_message = ?, updated_at = ? WHERE code = 'DATABASE'",
-                Instant.now(), latencyMs, "Database probe passed during platform auto-heal", Instant.now());
+                Timestamp.from(Instant.now()), latencyMs, "Database probe passed during platform auto-heal", Timestamp.from(Instant.now()));
         jdbcTemplate.update(
                 "UPDATE system_services SET status = ?, last_checked_at = ?, last_latency_ms = ?, "
                         + "last_message = ?, updated_at = ? WHERE code = 'API'",
-                apiStatus, Instant.now(), latencyMs,
-                "Runtime and database checks completed during platform auto-heal", Instant.now());
+                apiStatus, Timestamp.from(Instant.now()), latencyMs,
+                "Runtime and database checks completed during platform auto-heal", Timestamp.from(Instant.now()));
         return "Platform auto-heal completed; API status " + apiStatus + ", database operational";
     }
 
@@ -418,7 +418,7 @@ public class HealthIntelligenceService {
         int updated = jdbcTemplate.update(
                 "UPDATE system_services SET status = ?, last_checked_at = ?, last_latency_ms = ?, "
                         + "last_message = ?, updated_at = ? WHERE id = ?",
-                status, Instant.now(), latencyMs, message, Instant.now(), serviceId);
+                status, Timestamp.from(Instant.now()), latencyMs, message, Timestamp.from(Instant.now()), serviceId);
         if (updated == 0) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "System service not found");
         }

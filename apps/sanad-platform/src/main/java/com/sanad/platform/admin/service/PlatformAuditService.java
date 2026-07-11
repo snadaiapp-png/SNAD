@@ -49,13 +49,13 @@ public class PlatformAuditService {
                 principal.tenantId(),
                 principal.userId(),
                 targetTenantId,
-                action,
-                resourceType,
-                resourceId,
-                blankToNull(reason),
+                AuditLengthGuard.guardAction(action),
+                AuditLengthGuard.guardResourceType(resourceType),
+                AuditLengthGuard.guardResourceId(resourceId),
+                AuditLengthGuard.guardReason(blankToNull(reason)),
                 json(beforeState),
                 json(afterState),
-                correlationId(),
+                AuditLengthGuard.guardCorrelationId(correlationId()),
                 java.sql.Timestamp.from(Instant.now())
         );
     }
@@ -148,4 +148,31 @@ public class PlatformAuditService {
 
     private record PrincipalIds(UUID tenantId, UUID userId) {
     }
+}
+
+/**
+ * Defensive length guard for platform_audit_logs varchar columns.
+ * Prevents "value too long for type character varying(N)" errors.
+ */
+final class AuditLengthGuard {
+    static final String TRUNCATION_SUFFIX = "...[TRUNCATED]";
+    static final int TRUNCATION_MARGIN = 15;
+
+    private AuditLengthGuard() {}
+
+    static String guard(String value, int limit) {
+        if (value == null) return null;
+        if (value.length() <= limit) return value;
+        int maxContent = limit - TRUNCATION_MARGIN;
+        if (maxContent <= 0) return value.substring(0, Math.min(value.length(), limit));
+        return value.substring(0, maxContent) + TRUNCATION_SUFFIX;
+    }
+
+    static String guardAction(String action) { return guard(action, 150); }
+    static String guardResourceType(String resourceType) { return guard(resourceType, 100); }
+    static String guardResourceId(String resourceId) { return guard(resourceId, 100); }
+    static String guardReason(String reason) { return guard(reason, 500); }
+    static String guardResult(String result) { return guard(result, 20); }
+    static String guardCorrelationId(String correlationId) { return guard(correlationId, 100); }
+    static String guardFailureReason(String failureReason) { return guard(failureReason, 500); }
 }
