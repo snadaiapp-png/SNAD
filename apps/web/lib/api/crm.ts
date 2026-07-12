@@ -233,6 +233,16 @@ export const crmApi = {
     searchable?: boolean;
     required?: boolean;
   }) => apiClient.post<CrmCustomField, typeof body>(`${root}/custom-fields`, body),
-  customFieldValues: (entityType: string, entityId: string) => apiClient.get<CrmCustomFieldValues>(`${root}/custom-fields/values/${entityType}/${entityId}`, { cache: "no-store" }),
+  customFieldValues: async (entityType: string, entityId: string) => {
+    const response = await apiClient.get<Partial<CrmCustomFieldValues>>(
+      `${root}/custom-fields/values/${entityType}/${entityId}`,
+      { cache: "no-store" },
+    );
+    return {
+      entityType: response.entityType ?? entityType,
+      entityId: response.entityId ?? entityId,
+      values: Array.isArray(response.values) ? response.values : [],
+    } satisfies CrmCustomFieldValues;
+  },
   upsertCustomFieldValues: (entityType: string, entityId: string, values: Record<string, unknown>) => apiClient.put<CrmCustomFieldValues, { values: Record<string, unknown> }>(`${root}/custom-fields/values/${entityType}/${entityId}`, { values }),
 };

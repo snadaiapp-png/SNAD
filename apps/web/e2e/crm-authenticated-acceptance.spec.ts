@@ -36,45 +36,13 @@
  *   - CRM_TENANT_A_EMAIL
  *   - CRM_TENANT_A_PASSWORD
  */
-import { test, expect, type APIResponse, type Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+import { loginThroughUi as loginViaBFF } from "./crm-auth-session";
 
 const TENANT_A_EMAIL = process.env.CRM_TENANT_A_EMAIL ?? "";
 const TENANT_A_PASSWORD = process.env.CRM_TENANT_A_PASSWORD ?? "";
 
-interface LoginResponse {
-  accessToken: string;
-  expiresAt: string;
-  user: {
-    id: string;
-    tenantId: string;
-    email: string;
-    displayName: string | null;
-    status: string;
-  };
-}
 
-/**
- * Login via the BFF proxy (/api/platform/api/v1/auth/login). The BFF
- * sets the `sanad_refresh` HttpOnly cookie from the upstream
- * X-SANAD-Refresh-Token header. Playwright's APIRequestContext shares
- * the cookie jar with the page context, so subsequent page.goto()
- * navigations will have the cookie available for the SPA's silent
- * refresh on bootstrap.
- *
- * Returns the access token (for direct API calls) and the parsed user.
- */
-async function loginViaBFF(page: Page, email: string, password: string): Promise<LoginResponse> {
-  const response: APIResponse = await page.request.post("/api/platform/api/v1/auth/login", {
-    data: { email, password },
-    headers: { "Content-Type": "application/json" },
-  });
-  expect(response.ok(), `Login failed: ${response.status()} ${response.statusText()}`).toBe(true);
-  const body = (await response.json()) as LoginResponse;
-  expect(body.accessToken, "Login response missing accessToken").toBeTruthy();
-  expect(body.user, "Login response missing user").toBeTruthy();
-  expect(body.user.tenantId, "Login user missing tenantId").toBeTruthy();
-  return body;
-}
 
 /**
  * Wait for the SPA to finish bootstrapping and reach the AUTHENTICATED
@@ -101,9 +69,13 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
 
   let accessToken: string;
 
-  test("login as Tenant A admin and store auth state", async ({ page }) => {
+  test.beforeEach(async ({ page }) => {
     const login = await loginViaBFF(page, TENANT_A_EMAIL, TENANT_A_PASSWORD);
     accessToken = login.accessToken;
+  });
+
+  test("login as Tenant A admin and store auth state", async ({ page }) => {
+    expect(accessToken, "beforeEach must establish the Tenant A browser session").toBeTruthy();
     // Smoke-check the token by hitting /me via the BFF.
     const me = await page.request.get("/api/platform/api/v1/auth/me", {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -119,8 +91,9 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
 
   test("dashboard renders KPIs", async ({ page }) => {
     await waitForCrmReady(page, "/crm/overview");
-    // The overview page renders KPI metric tiles. The h1 is "CRM Overview".
-    await expect(page.locator("h1").first()).toContainText(/CRM Overview|نظرة عامة/i);
+    // The shell h1 names the CRM application; the route-specific title
+    // is rendered inside the operational content region.
+    await expect(page.locator("#crm-operational-content")).toContainText(/CRM Overview|نظرة عامة/i);
     // At least one metric tile (accounts/contacts/leads/opportunities) must
     // render a numeric value. We accept 0 as a valid value (seeded data may
     // be the only data) but the tile must be present.
@@ -144,7 +117,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
     await accountLink.click();
     await page.waitForURL(/\/crm\/accounts\/[0-9a-fA-F-]{36}/, { timeout: 15_000 });
     // Customer 360 renders the account display name as the page description.
-    await expect(page.locator("h1").first()).toContainText(/Customer 360|العميل 360/i);
+    await expect(page.locator("#crm-operational-content")).toContainText(/Customer 360|العميل 360/i);
     await expect(page.locator("body")).toContainText(unique);
   });
 
@@ -290,7 +263,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
     const opportunityId = opportunities[0].id;
     await page.goto(`/crm/opportunities/${opportunityId}`);
     await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
-    await expect(page.locator("h1").first()).toContainText(/Opportunity Detail|تفاصيل الفرصة/i);
+    await expect(page.locator("#crm-operational-content")).toContainText(/Opportunity Detail|تفاصيل الفرصة/i);
   });
 
   test("create an activity and complete it via UI", async ({ page }) => {
@@ -358,7 +331,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
     // should land back on /crm/contacts with the shell visible.
     await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
     expect(page.url()).toMatch(/\/crm\/contacts/);
-    await expect(page.locator("h1").first()).toContainText(/Contacts|جهات الاتصال/i);
+    await expect(page.locator("#crm-operational-content")).toContainText(/Contacts|جهات الاتصال/i);
   });
 
   test("back/forward navigation preserves route and auth", async ({ page }) => {

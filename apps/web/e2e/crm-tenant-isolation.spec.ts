@@ -11,8 +11,8 @@
  *
  *   • Account     aa00aa00-aa00-4aa0-8aa0-aa00aa00aa01
  *   • Contact     cc00cc00-cc00-4cc0-8cc0-cc00cc00cc01
- *   • Lead        ll00ll00-ll00-4ll0-8ll0-ll00ll00ll01
- *   • Opportunity oo00oo00-oo00-4oo0-8oo0-oo00oo00oo01
+ *   • Lead        ee964f6d-cff1-502b-a687-ae61611761de
+ *   • Opportunity 5ff572da-a04a-5893-be50-d50e5ea64165
  *
  * Tenant B must:
  *   1. Receive 404 (or 403) when fetching these IDs via the API.
@@ -24,7 +24,8 @@
  *   - CRM_TENANT_B_EMAIL
  *   - CRM_TENANT_B_PASSWORD
  */
-import { test, expect, type APIResponse, type Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+import { loginThroughUi } from "./crm-auth-session";
 
 const TENANT_B_EMAIL = process.env.CRM_TENANT_B_EMAIL ?? "";
 const TENANT_B_PASSWORD = process.env.CRM_TENANT_B_PASSWORD ?? "";
@@ -32,8 +33,8 @@ const TENANT_B_PASSWORD = process.env.CRM_TENANT_B_PASSWORD ?? "";
 // Stable Tenant A entity UUIDs from the seed SQL.
 const TENANT_A_ACCOUNT_ID = "aa00aa00-aa00-4aa0-8aa0-aa00aa00aa01";
 const TENANT_A_CONTACT_ID = "cc00cc00-cc00-4cc0-8cc0-cc00cc00cc01";
-const TENANT_A_LEAD_ID = "ll00ll00-ll00-4ll0-8ll0-ll00ll00ll01";
-const TENANT_A_OPPORTUNITY_ID = "oo00oo00-oo00-4oo0-8oo0-oo00oo00oo01";
+const TENANT_A_LEAD_ID = "ee964f6d-cff1-502b-a687-ae61611761de";
+const TENANT_A_OPPORTUNITY_ID = "5ff572da-a04a-5893-be50-d50e5ea64165";
 // Known Tenant A display names — must never appear in Tenant B's lists.
 const TENANT_A_ACCOUNT_NAME = "Tenant A Sample Account";
 const TENANT_A_CONTACT_NAME = "Aisha Al-Saud";
@@ -41,23 +42,7 @@ const TENANT_A_LEAD_NAME = "Tenant A Sample Lead";
 const TENANT_A_OPPORTUNITY_NAME = "Tenant A Sample Opportunity";
 const TENANT_A_ORG_NAME = "Tenant A Org";
 
-interface LoginResponse {
-  accessToken: string;
-  user: { id: string; tenantId: string; email: string; displayName: string | null; status: string };
-}
 
-async function loginTenantB(page: Page): Promise<string> {
-  const response: APIResponse = await page.request.post("/api/platform/api/v1/auth/login", {
-    data: { email: TENANT_B_EMAIL, password: TENANT_B_PASSWORD },
-    headers: { "Content-Type": "application/json" },
-  });
-  expect(response.ok(), `Tenant B login failed: ${response.status()}`).toBe(true);
-  const body = (await response.json()) as LoginResponse;
-  expect(body.user.tenantId, "Tenant B user should be in a different tenant than A").not.toBe(
-    "11111111-1111-4111-8111-111111111111",
-  );
-  return body.accessToken;
-}
 
 async function waitForCrmReady(page: Page, route: string): Promise<void> {
   await page.goto(route);
@@ -75,12 +60,12 @@ test.describe("CRM Tenant Isolation — Tenant B cannot see Tenant A data", () =
 
   let accessToken: string;
 
-  test.beforeAll(async ({ browser }) => {
-    // Use a throwaway page to login and harvest the access token.
-    const context = await browser.newContext();
-    const page = await context.newPage();
-    accessToken = await loginTenantB(page);
-    await context.close();
+  test.beforeEach(async ({ page }) => {
+    const login = await loginThroughUi(page, TENANT_B_EMAIL, TENANT_B_PASSWORD);
+    expect(login.user.tenantId, "Tenant B must not resolve to Tenant A").not.toBe(
+      "11111111-1111-4111-8111-111111111111",
+    );
+    accessToken = login.accessToken;
   });
 
   test("Tenant B cannot fetch Tenant A's account via API", async ({ page }) => {

@@ -648,3 +648,6 @@ echo "Detected ${#VIOLATIONS[@]} drift violation(s):" >&2
 printf '  - %s\n' "${VIOLATIONS[@]}" >&2
 exit 1
 
+
+# CRM acceptance seed UUID integrity
+python3 scripts/crm/validate_seed_uuids.py apps/sanad-platform/src/test/resources/sql/crm-acceptance-seed.sql

@@ -19,7 +19,8 @@
  *   - PLAYWRIGHT_BASE_URL
  *   - CRM_TENANT_A_EMAIL, CRM_TENANT_A_PASSWORD
  */
-import { test, expect, type APIResponse, type Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+import { loginThroughUi } from "./crm-auth-session";
 
 const TENANT_A_EMAIL = process.env.CRM_TENANT_A_EMAIL ?? "";
 const TENANT_A_PASSWORD = process.env.CRM_TENANT_A_PASSWORD ?? "";
@@ -37,22 +38,7 @@ const CRM_ROUTES = [
   "/crm/command-center",
 ] as const;
 
-interface LoginResponse {
-  accessToken: string;
-  user: { id: string; tenantId: string; email: string; displayName: string | null; status: string };
-}
 
-async function loginAsAdmin(page: Page): Promise<void> {
-  expect(TENANT_A_EMAIL, "CRM_TENANT_A_EMAIL env var must be set").toBeTruthy();
-  expect(TENANT_A_PASSWORD, "CRM_TENANT_A_PASSWORD env var must be set").toBeTruthy();
-  const response: APIResponse = await page.request.post("/api/platform/api/v1/auth/login", {
-    data: { email: TENANT_A_EMAIL, password: TENANT_A_PASSWORD },
-    headers: { "Content-Type": "application/json" },
-  });
-  expect(response.ok(), `Login failed: ${response.status()}`).toBe(true);
-  const body = (await response.json()) as LoginResponse;
-  expect(body.accessToken).toBeTruthy();
-}
 
 /**
  * Attach console + pageerror listeners. Returns an array that the
@@ -102,24 +88,18 @@ function severeErrors(errors: string[]): string[] {
 }
 
 async function waitForCrmShell(page: Page): Promise<void> {
-  await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
+  const contentSelector = new URL(page.url()).pathname === "/crm/command-center"
+    ? "#crm-command-center-content"
+    : "#crm-operational-content";
+  await page.waitForSelector(contentSelector, { timeout: 30_000 });
   await page.waitForLoadState("networkidle");
 }
 
 test.describe("CRM Route Smoke — strict assertions (authenticated)", () => {
   test.describe.configure({ mode: "serial" });
 
-  test.beforeAll(async ({ browser }) => {
-    // Login once and persist the cookie in the shared browser context
-    // so every test in this suite starts authenticated.
-    const context = await browser.newContext();
-    const page = await context.newPage();
-    await loginAsAdmin(page);
-    // Touch /crm/overview to ensure the SPA bootstraps successfully
-    // before the per-route tests start.
-    await page.goto("/crm/overview");
-    await waitForCrmShell(page);
-    await context.close();
+  test.beforeEach(async ({ page }) => {
+    await loginThroughUi(page, TENANT_A_EMAIL, TENANT_A_PASSWORD);
   });
 
   // ────────────────────────────────────────────────────────────────────
