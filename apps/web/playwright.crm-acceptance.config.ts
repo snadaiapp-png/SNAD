@@ -1,5 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
-const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001";
+
+const configuredBaseUrl = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3001";
+// Next.js reconstructs request.nextUrl.origin from the Host header. Using one
+// canonical loopback hostname prevents a false CSRF-origin mismatch between
+// localhost and 127.0.0.1 while preserving the same-origin security check.
+const BASE_URL = configuredBaseUrl.replace("127.0.0.1", "localhost");
+
 export default defineConfig({
   testDir: "./e2e",
   testMatch: [
