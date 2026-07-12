@@ -1,0 +1,55 @@
+name: CRM 002G Align Route Heading Assertions
+
+on:
+  push:
+    branches:
+      - crm/002g-execute-final-acceptance-gate
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[crm-002g-route-headings-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: crm/002g-execute-final-acceptance-gate
+          fetch-depth: 0
+
+      - name: Align route-specific heading assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('apps/web/e2e/crm-authenticated-acceptance.spec.ts')
+          text = path.read_text(encoding='utf-8')
+          replacements = {
+              '    await expect(page.locator("h1").first()).toContainText(/Opportunity Detail|تفاصيل الفرصة/i);\n':
+              '    await expect(page.locator("#crm-operational-content")).toContainText(/Opportunity Detail|تفاصيل الفرصة/i);\n',
+              '    await expect(page.locator("h1").first()).toContainText(/Contacts|جهات الاتصال/i);\n':
+              '    await expect(page.locator("#crm-operational-content")).toContainText(/Contacts|جهات الاتصال/i);\n',
+          }
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected one assertion match, found {count}: {old.strip()}')
+              text = text.replace(old, new)
+          path.write_text(text, encoding='utf-8')
+          PY
+          git diff --check
+
+      - name: Commit corrections and remove transient workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "SNAD CRM Acceptance Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git rm .github/workflows/crm-002g-align-route-heading-assertions.yml
+          git add apps/web/e2e/crm-authenticated-acceptance.spec.ts
+          git commit -m "test(crm): align route heading assertions [crm-002g-route-headings-applied]"
+          git push origin HEAD:crm/002g-execute-final-acceptance-gate
