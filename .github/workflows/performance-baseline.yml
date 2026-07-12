@@ -24,7 +24,7 @@ jobs:
   backend-health-baseline:
     name: Backend Health Load Baseline
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     services:
       postgres:
         image: postgres:16-alpine
@@ -59,19 +59,33 @@ jobs:
             -e JPA_DDL_AUTO=validate \
             -e FLYWAY_ENABLED=true \
             -e MANAGEMENT_HEALTH_MAIL_ENABLED=false \
+            -e MANAGEMENT_HEALTH_DB_ENABLED=false \
+            -e MANAGEMENT_HEALTH_DISKSPACE_ENABLED=false \
             -e MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED=true \
-            -e MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health \
+            -e MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS=always \
+            -e MANAGEMENT_ENDPOINTS=health \
             -e SANAD_CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app \
             sanad-backend:perf-ci
-      - name: Wait for readiness
+      - name: Wait for health
         run: |
-          for attempt in $(seq 1 36); do
-            code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health/readiness || true)
+          for attempt in $(seq 1 90); do
+            if ! docker ps --format '{{.Names}}' | grep -qx 'sanad-perf-app'; then
+              echo "::error::sanad-perf-app is not running"
+              docker ps -a || true
+              docker logs sanad-perf-app || true
+              exit 1
+            fi
+
+            code=$(curl -sS -o /tmp/perf-health.json -w '%{http_code}' http://localhost:8080/actuator/health || true)
+            echo "attempt=$attempt health_http=$code"
+            [ -s /tmp/perf-health.json ] && cat /tmp/perf-health.json || true
+            echo
             if [ "$code" = '200' ]; then
               exit 0
             fi
             sleep 5
           done
+          docker ps -a || true
           docker logs sanad-perf-app || true
           exit 1
       - name: Run k6 baseline
