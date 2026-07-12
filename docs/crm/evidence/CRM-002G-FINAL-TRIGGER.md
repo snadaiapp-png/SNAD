@@ -4,7 +4,9 @@ This record triggers the final pull-request validation matrix from a direct repo
 
 - Pull request: `#501`
 - Branch: `crm/002g-execute-final-acceptance-gate`
-- Latest repair parent SHA: `7a13af1b22af6e6c413403da4cf7e26d122983de`
-- Repair covered: normalization of an empty custom-field-values response from `{}` to a typed response with `values: []`, preventing the opportunity-detail runtime failure.
+- Latest repair parent SHA: `15c70e2c873774f3b6491e637dc38b8a6923858f`
+- Repairs covered:
+  - Normalize an empty custom-field-values response from `{}` to a typed response with `values: []`.
+  - Scope opportunity-detail and contact-refresh title assertions to `#crm-operational-content` instead of the application shell heading.
 - Governing rule: `CRM-G1` remains open until every required check on the exact final head SHA completes successfully.
 - This record does not itself claim acceptance, closure, or authorization of `EXEC-PROMPT-CRM-003`.
