@@ -19,19 +19,55 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
+      - name: Determine whether fixes are already applied
+        id: guard
+        shell: bash
+        run: |
+          if git log -1 --pretty=%B | grep -q '\[crm-002g-applied\]'; then
+            echo 'apply=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'apply=true' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Apply CRM-002G fixes
+        if: steps.guard.outputs.apply == 'true'
         run: python3 scripts/crm/apply_002g_fixes.py
 
+      - name: Preserve patched acceptance workflow
+        if: steps.guard.outputs.apply == 'true'
+        shell: bash
+        run: |
+          cp .github/workflows/crm-authenticated-acceptance.yml /tmp/crm-authenticated-acceptance.yml
+          ruby -e 'require "yaml"; YAML.load_file("/tmp/crm-authenticated-acceptance.yml"); puts "patched workflow valid"'
+
+      - name: Restore workflow and patch-runner files before branch push
+        if: steps.guard.outputs.apply == 'true'
+        shell: bash
+        run: |
+          git checkout -- .github/workflows scripts/crm/apply_002g_fixes.py
+          rm -f docs/crm/evidence/.crm-002g-trigger
+          rm -f docs/crm/evidence/CRM-002G-*.md
+
       - name: Validate generated repository state
+        if: steps.guard.outputs.apply == 'true'
         shell: bash
         run: |
           set -euo pipefail
           python3 scripts/crm/validate_seed_uuids.py \
             apps/sanad-platform/src/test/resources/sql/crm-acceptance-seed.sql
-          ruby -e 'require "yaml"; Dir[".github/workflows/*.{yml,yaml}"].sort.each { |f| YAML.load_file(f); puts "VALID: #{f}" }'
           git diff --check
 
-      - name: Commit fixes to PR branch
+      - name: Upload patched acceptance workflow
+        if: steps.guard.outputs.apply == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-002g-patched-workflow-${{ github.run_id }}
+          path: /tmp/crm-authenticated-acceptance.yml
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Commit non-workflow fixes to PR branch
+        if: steps.guard.outputs.apply == 'true'
         shell: bash
         run: |
           set -euo pipefail
