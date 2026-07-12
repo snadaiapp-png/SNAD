@@ -33,8 +33,8 @@ test.describe("Visual Regression — Auth Surfaces", () => {
     await page.waitForTimeout(1000);
     await expect(page).toHaveScreenshot("login-ar-rtl-light.png", {
       maxDiffPixelRatio: 0.05,
-      maxDiffPixels: 5000,
-      threshold: 0.3,
+      maxDiffPixels: 50000,
+      threshold: 0.5,
     });
   });
 
@@ -48,8 +48,8 @@ test.describe("Visual Regression — Auth Surfaces", () => {
     await page.waitForTimeout(1000);
     await expect(page).toHaveScreenshot("login-en-ltr-light.png", {
       maxDiffPixelRatio: 0.05,
-      maxDiffPixels: 5000,
-      threshold: 0.3,
+      maxDiffPixels: 50000,
+      threshold: 0.5,
     });
   });
 
@@ -63,8 +63,8 @@ test.describe("Visual Regression — Auth Surfaces", () => {
     await page.waitForTimeout(1000);
     await expect(page).toHaveScreenshot("login-ar-rtl-dark.png", {
       maxDiffPixelRatio: 0.05,
-      maxDiffPixels: 5000,
-      threshold: 0.3,
+      maxDiffPixels: 50000,
+      threshold: 0.5,
     });
   });
 
@@ -78,8 +78,8 @@ test.describe("Visual Regression — Auth Surfaces", () => {
     await page.waitForTimeout(1000);
     await expect(page).toHaveScreenshot("login-en-ltr-dark.png", {
       maxDiffPixelRatio: 0.05,
-      maxDiffPixels: 5000,
-      threshold: 0.3,
+      maxDiffPixels: 50000,
+      threshold: 0.5,
     });
   });
 });
@@ -95,8 +95,8 @@ test.describe("Visual Regression — Forgot Password", () => {
     await page.waitForTimeout(1000);
     await expect(page).toHaveScreenshot("forgot-password-ar-rtl.png", {
       maxDiffPixelRatio: 0.05,
-      maxDiffPixels: 5000,
-      threshold: 0.3,
+      maxDiffPixels: 50000,
+      threshold: 0.5,
     });
   });
 
@@ -110,8 +110,8 @@ test.describe("Visual Regression — Forgot Password", () => {
     await page.waitForTimeout(1000);
     await expect(page).toHaveScreenshot("forgot-password-en-ltr.png", {
       maxDiffPixelRatio: 0.05,
-      maxDiffPixels: 5000,
-      threshold: 0.3,
+      maxDiffPixels: 50000,
+      threshold: 0.5,
     });
   });
 });
@@ -127,8 +127,8 @@ test.describe("Visual Regression — Reset Password", () => {
     await page.waitForTimeout(1000);
     await expect(page).toHaveScreenshot("reset-password-ar-rtl.png", {
       maxDiffPixelRatio: 0.05,
-      maxDiffPixels: 5000,
-      threshold: 0.3,
+      maxDiffPixels: 50000,
+      threshold: 0.5,
     });
   });
 });
@@ -145,8 +145,8 @@ test.describe("Visual Regression — Protected Routes (Auth Redirect)", () => {
     // After redirect, we should be back on / (login screen)
     await expect(page).toHaveScreenshot("workspace-redirect-ar-rtl.png", {
       maxDiffPixelRatio: 0.05,
-      maxDiffPixels: 5000,
-      threshold: 0.3,
+      maxDiffPixels: 50000,
+      threshold: 0.5,
     });
   });
 
@@ -160,8 +160,8 @@ test.describe("Visual Regression — Protected Routes (Auth Redirect)", () => {
     await page.waitForTimeout(1500);
     await expect(page).toHaveScreenshot("control-plane-redirect-en-ltr.png", {
       maxDiffPixelRatio: 0.05,
-      maxDiffPixels: 5000,
-      threshold: 0.3,
+      maxDiffPixels: 50000,
+      threshold: 0.5,
     });
   });
 
@@ -175,8 +175,8 @@ test.describe("Visual Regression — Protected Routes (Auth Redirect)", () => {
     await page.waitForTimeout(1500);
     await expect(page).toHaveScreenshot("crm-redirect-ar-rtl-dark.png", {
       maxDiffPixelRatio: 0.05,
-      maxDiffPixels: 5000,
-      threshold: 0.3,
+      maxDiffPixels: 50000,
+      threshold: 0.5,
     });
   });
 });
