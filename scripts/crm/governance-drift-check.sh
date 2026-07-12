@@ -513,7 +513,122 @@ if [[ ! -f "$CRM_E2E_SPEC" ]]; then
 fi
 
 # ----------------------------------------------------------------------------
-# 14. Summary and exit
+# 14. CRM-002d authenticated acceptance environment (branch
+#     crm/002d-authenticated-acceptance-environment)
+# -----------------------------------------------------------------------------
+#
+# This block enforces that the authenticated acceptance infrastructure is
+# present and that the evidence file no longer carries the legacy "accepted
+# with limitations" or "documented" caveats for CRM-G1 requirements.
+#
+# Files that must exist:
+#   (a) .github/workflows/crm-authenticated-acceptance.yml
+#   (b) apps/web/e2e/crm-authenticated-acceptance.spec.ts
+#   (c) apps/web/e2e/crm-tenant-isolation.spec.ts
+#   (d) apps/web/e2e/crm-rbac-acceptance.spec.ts
+#   (e) apps/web/e2e/crm-accessibility.spec.ts
+#   (f) apps/web/e2e/crm-route-smoke.spec.ts
+#   (g) apps/web/app/crm/components/crm-custom-field-values-editor.tsx
+#   (h) apps/sanad-platform/src/test/resources/sql/crm-acceptance-seed.sql
+#
+# Evidence constraints (docs/crm/evidence/CRM-002-OPERATIONAL-UI-EVIDENCE.md):
+#   (i)  Must NOT contain "ACCEPTED WITH LIMITATIONS".
+#   (j)  Must NOT use "DOCUMENTED" as the status for any CRM-G1 requirement.
+#   (k)  Must explicitly declare "NONE for CRM-G1 requirements" in the
+#        Known Limitations section.
+
+CRM_AUTH_WORKFLOW="${REPO_ROOT}/.github/workflows/crm-authenticated-acceptance.yml"
+CRM_AUTH_ACCEPTANCE_SPEC="${REPO_ROOT}/apps/web/e2e/crm-authenticated-acceptance.spec.ts"
+CRM_TENANT_ISOLATION_SPEC="${REPO_ROOT}/apps/web/e2e/crm-tenant-isolation.spec.ts"
+CRM_RBAC_ACCEPTANCE_SPEC="${REPO_ROOT}/apps/web/e2e/crm-rbac-acceptance.spec.ts"
+CRM_ACCESSIBILITY_SPEC="${REPO_ROOT}/apps/web/e2e/crm-accessibility.spec.ts"
+CRM_ROUTE_SMOKE_SPEC="${REPO_ROOT}/apps/web/e2e/crm-route-smoke.spec.ts"
+CRM_CUSTOM_FIELD_EDITOR="${REPO_ROOT}/apps/web/app/crm/components/crm-custom-field-values-editor.tsx"
+CRM_ACCEPTANCE_SEED_SQL="${REPO_ROOT}/apps/sanad-platform/src/test/resources/sql/crm-acceptance-seed.sql"
+CRM_002_EVIDENCE="${REPO_ROOT}/docs/crm/evidence/CRM-002-OPERATIONAL-UI-EVIDENCE.md"
+
+# (a) workflow
+if [[ ! -s "$CRM_AUTH_WORKFLOW" ]]; then
+  add_violation ".github/workflows/crm-authenticated-acceptance.yml is missing or empty; the authenticated acceptance workflow must exist."
+fi
+
+# (b) authenticated acceptance spec
+if [[ ! -s "$CRM_AUTH_ACCEPTANCE_SPEC" ]]; then
+  add_violation "apps/web/e2e/crm-authenticated-acceptance.spec.ts is missing or empty; the authenticated acceptance Playwright suite must exist."
+fi
+
+# (c) tenant isolation spec
+if [[ ! -s "$CRM_TENANT_ISOLATION_SPEC" ]]; then
+  add_violation "apps/web/e2e/crm-tenant-isolation.spec.ts is missing or empty; the tenant isolation Playwright suite must exist."
+fi
+
+# (d) RBAC acceptance spec
+if [[ ! -s "$CRM_RBAC_ACCEPTANCE_SPEC" ]]; then
+  add_violation "apps/web/e2e/crm-rbac-acceptance.spec.ts is missing or empty; the RBAC acceptance Playwright suite must exist."
+fi
+
+# (e) accessibility spec
+if [[ ! -s "$CRM_ACCESSIBILITY_SPEC" ]]; then
+  add_violation "apps/web/e2e/crm-accessibility.spec.ts is missing or empty; the accessibility Playwright suite must exist."
+fi
+
+# (f) strict route-smoke spec
+if [[ ! -s "$CRM_ROUTE_SMOKE_SPEC" ]]; then
+  add_violation "apps/web/e2e/crm-route-smoke.spec.ts is missing or empty; the strict route-smoke Playwright suite must exist."
+fi
+
+# (g) custom field values editor component
+if [[ ! -s "$CRM_CUSTOM_FIELD_EDITOR" ]]; then
+  add_violation "apps/web/app/crm/components/crm-custom-field-values-editor.tsx is missing or empty; the reusable custom-field values editor must exist."
+fi
+
+# (h) seed SQL
+if [[ ! -s "$CRM_ACCEPTANCE_SEED_SQL" ]]; then
+  add_violation "apps/sanad-platform/src/test/resources/sql/crm-acceptance-seed.sql is missing or empty; the CRM acceptance seed SQL must exist."
+fi
+
+# (i) no "ACCEPTED WITH LIMITATIONS" in the evidence file
+if [[ -s "$CRM_002_EVIDENCE" ]]; then
+  if grep -Eq 'ACCEPTED WITH LIMITATIONS' "$CRM_002_EVIDENCE" 2>/dev/null; then
+    add_violation "docs/crm/evidence/CRM-002-OPERATIONAL-UI-EVIDENCE.md still contains 'ACCEPTED WITH LIMITATIONS'; CRM-G1 requirements must not be accepted with limitations."
+  fi
+else
+  add_violation "docs/crm/evidence/CRM-002-OPERATIONAL-UI-EVIDENCE.md is missing or empty; the CRM-002 evidence file must exist."
+fi
+
+# (j) no "DOCUMENTED" status for CRM-G1 requirements in the evidence file
+#     We scan lines that mention a CRM-G1 requirement and check that the
+#     status column is not "DOCUMENTED".
+if [[ -s "$CRM_002_EVIDENCE" ]]; then
+  # Match table rows where the first cell starts with "CRM-G1" and the
+  # status cell (last cell) is "DOCUMENTED". We use awk so we can apply
+  # the per-line check reliably across markdown table formats.
+  if awk '
+    BEGIN { found=0 }
+    {
+      line=$0
+      # Only consider table rows that mention CRM-G1.
+      if (line !~ /CRM-G1/) next
+      # Skip lines that are descriptive (e.g. "CRM-G1 closure claims...").
+      if (line ~ /closure|claims|requirement|requirements|coverage/i) next
+      # If the line contains DOCUMENTED as the status, flag it.
+      if (line ~ /DOCUMENTED/) { found=1; exit }
+    }
+    END { exit (found?0:1) }
+  ' "$CRM_002_EVIDENCE" 2>/dev/null; then
+    add_violation "docs/crm/evidence/CRM-002-OPERATIONAL-UI-EVIDENCE.md uses 'DOCUMENTED' as the status for a CRM-G1 requirement; all CRM-G1 requirements must be fully implemented."
+  fi
+fi
+
+# (k) evidence must explicitly declare NONE for CRM-G1 limitations
+if [[ -s "$CRM_002_EVIDENCE" ]]; then
+  if ! grep -Eqi 'NONE for CRM-G1 requirements' "$CRM_002_EVIDENCE" 2>/dev/null; then
+    add_violation "docs/crm/evidence/CRM-002-OPERATIONAL-UI-EVIDENCE.md must declare 'NONE for CRM-G1 requirements' in the Known Limitations section."
+  fi
+fi
+
+# ----------------------------------------------------------------------------
+# 15. Summary and exit
 # ----------------------------------------------------------------------------
 
 if (( ${#VIOLATIONS[@]} == 0 )); then
@@ -523,6 +638,8 @@ if (( ${#VIOLATIONS[@]} == 0 )); then
   echo "  README status:   IMPLEMENTED_AND_CONNECTED"
   echo "  migrations:      ${#EXPECTED_CRM_MIGRATIONS[@]} expected, ${#actual_crm_migrations[@]} on disk"
   echo "  capability count: 18 (reconciled)"
+  echo "  002d acceptance: workflow + 5 specs + editor + seed SQL present"
+  echo "  002d evidence:   no 'ACCEPTED WITH LIMITATIONS', no 'DOCUMENTED' for CRM-G1"
   exit 0
 fi
 
@@ -531,9 +648,3 @@ echo "Detected ${#VIOLATIONS[@]} drift violation(s):" >&2
 printf '  - %s\n' "${VIOLATIONS[@]}" >&2
 exit 1
 
-# Check 14: Verify CRM-G1 closure claims have evidence
-if grep -q "CRM-G1: CLOSED" docs/crm/CRM-CURRENT-BASELINE.md 2>/dev/null; then
-  if ! grep -q "Known Limitations" docs/crm/evidence/CRM-002-OPERATIONAL-UI-EVIDENCE.md 2>/dev/null; then
-    fail "CRM-G1 claimed CLOSED but evidence file lacks Known Limitations section"
-  fi
-fi

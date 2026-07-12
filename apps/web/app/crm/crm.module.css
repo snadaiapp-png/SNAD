@@ -360,3 +360,18 @@
 .badgeSuccess { background: var(--snad-color-success-soft); color: var(--snad-color-success); }
 .badgeWarning { background: var(--snad-color-warning-soft, var(--snad-color-surface-secondary)); color: var(--snad-color-warning, var(--snad-color-text-secondary)); }
 .badgeError { background: var(--snad-color-error-soft); color: var(--snad-color-error); }
+
+/* ────────────────────────────────────────────────────────────
+ *  Custom Field Values Editor (crm-custom-field-values-editor)
+ * ──────────────────────────────────────────────────────────── */
+.formRow { display: flex; flex-direction: column; gap: 4px; }
+.formRow .fieldLabel { display: flex; flex-direction: column; gap: 6px; font-size: .9rem; font-weight: 700; }
+.formRow .checkboxLabel {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: .9rem;
+  font-weight: 700;
+}
+.formRow .checkboxLabel input { width: auto; }
