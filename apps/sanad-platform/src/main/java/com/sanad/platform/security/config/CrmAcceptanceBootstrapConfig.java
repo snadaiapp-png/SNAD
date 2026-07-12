@@ -8,9 +8,9 @@ import com.sanad.platform.tenant.repository.TenantRepository;
 import com.sanad.platform.user.repository.UserRepository;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
@@ -63,5 +63,4 @@ public class CrmAcceptanceBootstrapConfig {
                  )
                 """);
     }
-
 }
