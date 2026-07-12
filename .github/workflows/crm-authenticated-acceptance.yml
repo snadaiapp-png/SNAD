@@ -66,7 +66,7 @@ jobs:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
       SPRING_DATASOURCE_USERNAME: sanad_test
       SPRING_DATASOURCE_PASSWORD: sanad_test_pass
-      SPRING_PROFILES_ACTIVE: crm-acceptance
+      SPRING_PROFILES_ACTIVE: local,crm-acceptance
       SPRING_FLYWAY_OUT_OF_ORDER: 'true'
       FLYWAY_ENABLED: 'true'
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
@@ -186,7 +186,7 @@ jobs:
           BACKEND_LOG="$RUNNER_TEMP/crm-acceptance/backend.log"
           JAR_PATH="$(find apps/sanad-platform/target -name 'sanad-platform-*.jar' ! -name '*-sources.jar' | head -n1)"
           test -n "$JAR_PATH"
-          java -jar "$JAR_PATH" --spring.profiles.active=crm-acceptance --spring.flyway.out-of-order=true > "$BACKEND_LOG" 2>&1 &
+          java -jar "$JAR_PATH" --spring.profiles.active=local,crm-acceptance --spring.flyway.out-of-order=true > "$BACKEND_LOG" 2>&1 &
           BACKEND_PID=$!
           echo "pid=$BACKEND_PID" >> "$GITHUB_OUTPUT"
           echo "log=$BACKEND_LOG" >> "$GITHUB_OUTPUT"
