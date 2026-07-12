@@ -36,7 +36,8 @@
  *   - CRM_LEAD_WRITER_EMAIL, CRM_LEAD_WRITER_PASSWORD
  *   - CRM_IMPORT_READER_EMAIL, CRM_IMPORT_READER_PASSWORD
  */
-import { test, expect, type APIResponse, type Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+import { loginThroughUi } from "./crm-auth-session";
 
 const READONLY_EMAIL = process.env.CRM_READONLY_EMAIL ?? "";
 const READONLY_PASSWORD = process.env.CRM_READONLY_PASSWORD ?? "";
@@ -45,19 +46,9 @@ const LEAD_WRITER_PASSWORD = process.env.CRM_LEAD_WRITER_PASSWORD ?? "TestPass12
 const IMPORT_READER_EMAIL = process.env.CRM_IMPORT_READER_EMAIL ?? "tenant-a-import-reader@snad-crm-acceptance.example";
 const IMPORT_READER_PASSWORD = process.env.CRM_IMPORT_READER_PASSWORD ?? "TestPass123!";
 
-interface LoginResponse {
-  accessToken: string;
-  user: { id: string; tenantId: string; email: string; displayName: string | null; status: string };
-}
 
 async function login(page: Page, email: string, password: string): Promise<string> {
-  const response: APIResponse = await page.request.post("/api/platform/api/v1/auth/login", {
-    data: { email, password },
-    headers: { "Content-Type": "application/json" },
-  });
-  expect(response.ok(), `Login failed for ${email}: ${response.status()}`).toBe(true);
-  const body = (await response.json()) as LoginResponse;
-  return body.accessToken;
+  return (await loginThroughUi(page, email, password)).accessToken;
 }
 
 async function waitForCrmReady(page: Page, route: string): Promise<void> {
@@ -89,8 +80,11 @@ test.describe("CRM RBAC Acceptance — capability enforcement", () => {
   test.describe("CRM_READONLY — read-only user", () => {
     let accessToken: string;
 
-    test("login as read-only user", async ({ page }) => {
+    test.beforeEach(async ({ page }) => {
       accessToken = await login(page, READONLY_EMAIL, READONLY_PASSWORD);
+    });
+
+    test("login as read-only user", async ({ page }) => {
       expect(accessToken).toBeTruthy();
     });
 
@@ -144,8 +138,11 @@ test.describe("CRM RBAC Acceptance — capability enforcement", () => {
     let accessToken: string;
     let leadId: string;
 
-    test("login as lead-writer user", async ({ page }) => {
+    test.beforeEach(async ({ page }) => {
       accessToken = await login(page, LEAD_WRITER_EMAIL, LEAD_WRITER_PASSWORD);
+    });
+
+    test("login as lead-writer user", async ({ page }) => {
       expect(accessToken).toBeTruthy();
     });
 
@@ -201,8 +198,11 @@ test.describe("CRM RBAC Acceptance — capability enforcement", () => {
   test.describe("CRM_IMPORT_READER — upload button hidden, upload API 403", () => {
     let accessToken: string;
 
-    test("login as import-reader user", async ({ page }) => {
+    test.beforeEach(async ({ page }) => {
       accessToken = await login(page, IMPORT_READER_EMAIL, IMPORT_READER_PASSWORD);
+    });
+
+    test("login as import-reader user", async ({ page }) => {
       expect(accessToken).toBeTruthy();
     });
 

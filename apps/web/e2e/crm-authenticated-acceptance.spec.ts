@@ -36,45 +36,13 @@
  *   - CRM_TENANT_A_EMAIL
  *   - CRM_TENANT_A_PASSWORD
  */
-import { test, expect, type APIResponse, type Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+import { loginThroughUi as loginViaBFF } from "./crm-auth-session";
 
 const TENANT_A_EMAIL = process.env.CRM_TENANT_A_EMAIL ?? "";
 const TENANT_A_PASSWORD = process.env.CRM_TENANT_A_PASSWORD ?? "";
 
-interface LoginResponse {
-  accessToken: string;
-  expiresAt: string;
-  user: {
-    id: string;
-    tenantId: string;
-    email: string;
-    displayName: string | null;
-    status: string;
-  };
-}
 
-/**
- * Login via the BFF proxy (/api/platform/api/v1/auth/login). The BFF
- * sets the `sanad_refresh` HttpOnly cookie from the upstream
- * X-SANAD-Refresh-Token header. Playwright's APIRequestContext shares
- * the cookie jar with the page context, so subsequent page.goto()
- * navigations will have the cookie available for the SPA's silent
- * refresh on bootstrap.
- *
- * Returns the access token (for direct API calls) and the parsed user.
- */
-async function loginViaBFF(page: Page, email: string, password: string): Promise<LoginResponse> {
-  const response: APIResponse = await page.request.post("/api/platform/api/v1/auth/login", {
-    data: { email, password },
-    headers: { "Content-Type": "application/json" },
-  });
-  expect(response.ok(), `Login failed: ${response.status()} ${response.statusText()}`).toBe(true);
-  const body = (await response.json()) as LoginResponse;
-  expect(body.accessToken, "Login response missing accessToken").toBeTruthy();
-  expect(body.user, "Login response missing user").toBeTruthy();
-  expect(body.user.tenantId, "Login user missing tenantId").toBeTruthy();
-  return body;
-}
 
 /**
  * Wait for the SPA to finish bootstrapping and reach the AUTHENTICATED
@@ -107,8 +75,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
   });
 
   test("login as Tenant A admin and store auth state", async ({ page }) => {
-    const login = await loginViaBFF(page, TENANT_A_EMAIL, TENANT_A_PASSWORD);
-    accessToken = login.accessToken;
+    expect(accessToken, "beforeEach must establish the Tenant A browser session").toBeTruthy();
     // Smoke-check the token by hitting /me via the BFF.
     const me = await page.request.get("/api/platform/api/v1/auth/me", {
       headers: { Authorization: `Bearer ${accessToken}` },

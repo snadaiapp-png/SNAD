@@ -24,7 +24,8 @@
  *   - CRM_TENANT_B_EMAIL
  *   - CRM_TENANT_B_PASSWORD
  */
-import { test, expect, type APIResponse, type Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+import { loginThroughUi } from "./crm-auth-session";
 
 const TENANT_B_EMAIL = process.env.CRM_TENANT_B_EMAIL ?? "";
 const TENANT_B_PASSWORD = process.env.CRM_TENANT_B_PASSWORD ?? "";
@@ -41,23 +42,7 @@ const TENANT_A_LEAD_NAME = "Tenant A Sample Lead";
 const TENANT_A_OPPORTUNITY_NAME = "Tenant A Sample Opportunity";
 const TENANT_A_ORG_NAME = "Tenant A Org";
 
-interface LoginResponse {
-  accessToken: string;
-  user: { id: string; tenantId: string; email: string; displayName: string | null; status: string };
-}
 
-async function loginTenantB(page: Page): Promise<string> {
-  const response: APIResponse = await page.request.post("/api/platform/api/v1/auth/login", {
-    data: { email: TENANT_B_EMAIL, password: TENANT_B_PASSWORD },
-    headers: { "Content-Type": "application/json" },
-  });
-  expect(response.ok(), `Tenant B login failed: ${response.status()}`).toBe(true);
-  const body = (await response.json()) as LoginResponse;
-  expect(body.user.tenantId, "Tenant B user should be in a different tenant than A").not.toBe(
-    "11111111-1111-4111-8111-111111111111",
-  );
-  return body.accessToken;
-}
 
 async function waitForCrmReady(page: Page, route: string): Promise<void> {
   await page.goto(route);
@@ -75,12 +60,12 @@ test.describe("CRM Tenant Isolation — Tenant B cannot see Tenant A data", () =
 
   let accessToken: string;
 
-  test.beforeAll(async ({ browser }) => {
-    // Use a throwaway page to login and harvest the access token.
-    const context = await browser.newContext();
-    const page = await context.newPage();
-    accessToken = await loginTenantB(page);
-    await context.close();
+  test.beforeEach(async ({ page }) => {
+    const login = await loginThroughUi(page, TENANT_B_EMAIL, TENANT_B_PASSWORD);
+    expect(login.user.tenantId, "Tenant B must not resolve to Tenant A").not.toBe(
+      "11111111-1111-4111-8111-111111111111",
+    );
+    accessToken = login.accessToken;
   });
 
   test("Tenant B cannot fetch Tenant A's account via API", async ({ page }) => {

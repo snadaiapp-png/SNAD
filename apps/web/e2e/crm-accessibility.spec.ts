@@ -23,28 +23,14 @@
  * Required devDependency: @axe-core/playwright
  *   (The CI workflow installs it if missing.)
  */
-import { test, expect, type APIResponse, type Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+import { loginThroughUi } from "./crm-auth-session";
 import AxeBuilder from "@axe-core/playwright";
 
 const TENANT_A_EMAIL = process.env.CRM_TENANT_A_EMAIL ?? "";
 const TENANT_A_PASSWORD = process.env.CRM_TENANT_A_PASSWORD ?? "";
 
-interface LoginResponse {
-  accessToken: string;
-  user: { id: string; tenantId: string; email: string; displayName: string | null; status: string };
-}
 
-async function loginAsAdmin(page: Page): Promise<void> {
-  expect(TENANT_A_EMAIL, "CRM_TENANT_A_EMAIL env var must be set").toBeTruthy();
-  expect(TENANT_A_PASSWORD, "CRM_TENANT_A_PASSWORD env var must be set").toBeTruthy();
-  const response: APIResponse = await page.request.post("/api/platform/api/v1/auth/login", {
-    data: { email: TENANT_A_EMAIL, password: TENANT_A_PASSWORD },
-    headers: { "Content-Type": "application/json" },
-  });
-  expect(response.ok(), `Login failed: ${response.status()}`).toBe(true);
-  const body = (await response.json()) as LoginResponse;
-  expect(body.accessToken).toBeTruthy();
-}
 
 async function waitForCrmReady(page: Page, route: string): Promise<void> {
   await page.goto(route);
@@ -70,11 +56,8 @@ test.describe("CRM Accessibility — Axe automated checks", () => {
     expect(TENANT_A_PASSWORD).toBeTruthy();
   });
 
-  test("login as Tenant A admin (shared setup)", async ({ page }) => {
-    await loginAsAdmin(page);
-    // Touch /crm/overview to bootstrap the SPA so subsequent tests
-    // inherit the auth cookie via the shared browser context.
-    await waitForCrmReady(page, "/crm/overview");
+  test.beforeEach(async ({ page }) => {
+    await loginThroughUi(page, TENANT_A_EMAIL, TENANT_A_PASSWORD);
   });
 
   for (const route of CRM_ROUTES_FOR_A11Y) {

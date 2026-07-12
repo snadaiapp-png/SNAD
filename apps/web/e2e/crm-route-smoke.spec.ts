@@ -19,7 +19,8 @@
  *   - PLAYWRIGHT_BASE_URL
  *   - CRM_TENANT_A_EMAIL, CRM_TENANT_A_PASSWORD
  */
-import { test, expect, type APIResponse, type Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+import { loginThroughUi } from "./crm-auth-session";
 
 const TENANT_A_EMAIL = process.env.CRM_TENANT_A_EMAIL ?? "";
 const TENANT_A_PASSWORD = process.env.CRM_TENANT_A_PASSWORD ?? "";
@@ -37,22 +38,7 @@ const CRM_ROUTES = [
   "/crm/command-center",
 ] as const;
 
-interface LoginResponse {
-  accessToken: string;
-  user: { id: string; tenantId: string; email: string; displayName: string | null; status: string };
-}
 
-async function loginAsAdmin(page: Page): Promise<void> {
-  expect(TENANT_A_EMAIL, "CRM_TENANT_A_EMAIL env var must be set").toBeTruthy();
-  expect(TENANT_A_PASSWORD, "CRM_TENANT_A_PASSWORD env var must be set").toBeTruthy();
-  const response: APIResponse = await page.request.post("/api/platform/api/v1/auth/login", {
-    data: { email: TENANT_A_EMAIL, password: TENANT_A_PASSWORD },
-    headers: { "Content-Type": "application/json" },
-  });
-  expect(response.ok(), `Login failed: ${response.status()}`).toBe(true);
-  const body = (await response.json()) as LoginResponse;
-  expect(body.accessToken).toBeTruthy();
-}
 
 /**
  * Attach console + pageerror listeners. Returns an array that the
@@ -110,7 +96,7 @@ test.describe("CRM Route Smoke — strict assertions (authenticated)", () => {
   test.describe.configure({ mode: "serial" });
 
   test.beforeEach(async ({ page }) => {
-    await loginAsAdmin(page);
+    await loginThroughUi(page, TENANT_A_EMAIL, TENANT_A_PASSWORD);
   });
 
   // ────────────────────────────────────────────────────────────────────
