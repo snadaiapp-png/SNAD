@@ -1,0 +1,40 @@
+name: CRM 002G Latest Run Operator
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  apply:
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.issue.number == 501 &&
+      github.event.comment.body == '/prefer-latest-crm-002g-501'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout governed branch
+        uses: actions/checkout@v4
+        with:
+          ref: crm/002g-execute-final-acceptance-gate
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Apply latest-run patch
+        run: python3 scripts/crm/enable_latest_acceptance_runs.py
+
+      - name: Validate and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -e 'require "yaml"; YAML.load_file(".github/workflows/crm-authenticated-acceptance.yml"); YAML.load_file(".github/workflows/playwright-ci.yml")'
+          git diff --check
+          git config user.name "snad-crm-governance-bot"
+          git config user.email "snad-crm-governance-bot@users.noreply.github.com"
+          git add -A
+          git commit -m "ci(crm): prioritize latest acceptance head"
+          git push origin HEAD:crm/002g-execute-final-acceptance-gate
