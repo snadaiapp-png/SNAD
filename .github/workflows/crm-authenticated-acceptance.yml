@@ -1,0 +1,514 @@
+# ============================================================
+# SNAD Platform — CRM Authenticated Acceptance
+# ============================================================
+# Branch: crm/002d-authenticated-acceptance-environment
+#
+# This workflow runs the authenticated CRM Playwright acceptance
+# suite against a real Spring Boot backend backed by an ephemeral
+# PostgreSQL 16 service container. It proves that:
+#
+#   1. Flyway migrations run cleanly against PostgreSQL 16.
+#   2. The Spring Boot backend boots and reports healthy.
+#   3. The CRM seed SQL produces 2 tenants + 5 users with the
+#      required capability sets.
+#   4. The Next.js frontend builds and serves the CRM UI.
+#   5. Authenticated Playwright tests pass against the live stack:
+#      - crm-authenticated-acceptance.spec.ts
+#      - crm-tenant-isolation.spec.ts
+#      - crm-rbac-acceptance.spec.ts
+#      - crm-accessibility.spec.ts
+#      - crm-route-smoke.spec.ts
+#
+# All secrets (JWT signing key, control-plane tenant id, test
+# credentials) are generated inside the workflow — no externally
+# provisioned secrets are required.
+#
+# Artifacts uploaded on failure (and always for reports):
+#   - crm-playwright-report       (HTML report)
+#   - crm-playwright-traces       (per-test traces + screenshots + videos)
+#   - crm-backend-log             (Spring Boot stdout/stderr)
+#   - crm-frontend-log            (Next.js stdout/stderr)
+# ============================================================
+
+name: CRM Authenticated Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/security/**'
+      - 'apps/sanad-platform/src/main/resources/**'
+      - 'apps/sanad-platform/src/test/resources/**'
+      - 'apps/sanad-platform/pom.xml'
+      - 'apps/web/app/crm/**'
+      - 'apps/web/e2e/**'
+      - 'apps/web/lib/api/**'
+      - 'apps/web/package.json'
+      - 'apps/web/package-lock.json'
+      - 'apps/web/playwright.config.ts'
+      - 'scripts/crm/**'
+      - 'docs/crm/**'
+      - '.github/workflows/crm-authenticated-acceptance.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/**'
+      - 'apps/sanad-platform/src/main/resources/**'
+      - 'apps/sanad-platform/src/test/resources/**'
+      - 'apps/web/app/crm/**'
+      - 'apps/web/e2e/**'
+      - 'apps/web/lib/api/**'
+      - 'apps/web/playwright.config.ts'
+      - '.github/workflows/crm-authenticated-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-authenticated-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  authenticated-acceptance:
+    name: CRM Authenticated Acceptance (PostgreSQL + Spring Boot + Next.js + Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    # ──────────────────────────────────────────────────────────
+    # PostgreSQL 16 service container
+    # ──────────────────────────────────────────────────────────
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad_test
+          POSTGRES_PASSWORD: sanad_test_pass
+          POSTGRES_DB: sanad_test
+        ports:
+          - 5432:5432
+        # Wait until PostgreSQL is genuinely accepting connections
+        # before the workflow proceeds. The `pg_isready` check uses
+        # the same credentials as the application.
+        options: >-
+          --health-cmd "pg_isready -U sanad_test -d sanad_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # ── Backend datasource ────────────────────────────────────────────
+      DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
+      DATABASE_USERNAME: sanad_test
+      DATABASE_PASSWORD: sanad_test_pass
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
+      SPRING_DATASOURCE_USERNAME: sanad_test
+      SPRING_DATASOURCE_PASSWORD: sanad_test_pass
+      SPRING_PROFILES_ACTIVE: prod
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'true'
+      JPA_DDL_AUTO: validate
+      SERVER_PORT: '8080'
+      MANAGEMENT_ENDPOINTS: health,info
+      # ── Security ──────────────────────────────────────────────────────
+      # JWT_SECRET and SANAD_CONTROL_PLANE_TENANT_ID are generated per-run
+      # in the bootstrap step below; they are injected into the env via a
+      # file the subsequent steps source.
+      JWT_ISSUER: sanad-platform-ci
+      JWT_ACCESS_TOKEN_TTL: 60m
+      REFRESH_TOKEN_TTL: 720h
+      COOKIE_SECURE: 'false'
+      COOKIE_SAME_SITE: lax
+      BOOTSTRAP_ENABLED: 'false'
+      # ── CORS — allow the Playwright loopback origin ──────────────────
+      SANAD_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3001
+      # ── CRM import worker ────────────────────────────────────────────
+      SANAD_CRM_IMPORT_WORKER_ENABLED: 'true'
+      SANAD_CRM_IMPORT_WORKER_INITIAL_DELAY_MS: '2000'
+      SANAD_CRM_IMPORT_WORKER_DELAY_MS: '2000'
+      CRM_CUSTOM_FIELD_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      # ── Security notifications — disabled in CI ──────────────────────
+      SECURITY_NOTIFICATION_PROVIDER: disabled
+      # ── Frontend ─────────────────────────────────────────────────────
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
+      # ── Test credentials (env vars consumed by the Playwright specs) ─
+      # The workflow always uses the same password for every seeded user.
+      # The seed SQL (crm-acceptance-seed.sql) is the source of truth.
+      CRM_TENANT_A_EMAIL: tenant-a-admin@snad-crm-acceptance.example
+      CRM_TENANT_A_PASSWORD: TestPass123!
+      CRM_TENANT_B_EMAIL: tenant-b-admin@snad-crm-acceptance.example
+      CRM_TENANT_B_PASSWORD: TestPass123!
+      CRM_READONLY_EMAIL: tenant-a-readonly@snad-crm-acceptance.example
+      CRM_READONLY_PASSWORD: TestPass123!
+      CRM_LEAD_WRITER_EMAIL: tenant-a-lead-writer@snad-crm-acceptance.example
+      CRM_LEAD_WRITER_PASSWORD: TestPass123!
+      CRM_IMPORT_READER_EMAIL: tenant-a-import-reader@snad-crm-acceptance.example
+      CRM_IMPORT_READER_PASSWORD: TestPass123!
+
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ──────────────────────────────────────────────────────────
+      # 0. Generate per-run secrets (JWT signing key + control-plane tenant id)
+      # ──────────────────────────────────────────────────────────
+      - name: Generate per-run secrets
+        id: secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          JWT_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
+          CONTROL_PLANE_TENANT_ID="$(uuidgen)"
+          {
+            printf 'JWT_SECRET=%s\n' "$JWT_SECRET"
+            printf 'SANAD_CONTROL_PLANE_TENANT_ID=%s\n' "$CONTROL_PLANE_TENANT_ID"
+          } >> "$GITHUB_ENV"
+          # Also write to GITHUB_OUTPUT for the summary
+          echo "control_plane_tenant_id=$CONTROL_PLANE_TENANT_ID" >> "$GITHUB_OUTPUT"
+
+      # ──────────────────────────────────────────────────────────
+      # 1. JDK 21 (for Spring Boot backend build)
+      # ──────────────────────────────────────────────────────────
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # ──────────────────────────────────────────────────────────
+      # 2. Node 24 (for Next.js frontend build + Playwright run)
+      # ──────────────────────────────────────────────────────────
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      # ──────────────────────────────────────────────────────────
+      # 3. Build the Spring Boot backend JAR (skip tests; this workflow
+      #    is the test)
+      # ──────────────────────────────────────────────────────────
+      - name: Build Spring Boot backend
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn --batch-mode --no-transfer-progress \
+              -DskipTests \
+              -Dmaven.test.skip=true \
+              clean package
+
+      # ──────────────────────────────────────────────────────────
+      # 4. Run Flyway migrations against the ephemeral PostgreSQL
+      #    service container. This catches migration drift before
+      #    we attempt to boot the application.
+      # ──────────────────────────────────────────────────────────
+      - name: Run Flyway migrations
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Flyway CLI is invoked via the Maven plugin so we share the
+          # exact migration classpath the application will use.
+          mvn --batch-mode --no-transfer-progress \
+              flyway:migrate \
+              -Dflyway.url="$DATABASE_URL" \
+              -Dflyway.user="$DATABASE_USERNAME" \
+              -Dflyway.password="$DATABASE_PASSWORD" \
+              -Dflyway.locations=classpath:db/migration \
+              -Dflyway.baselineOnMigrate=true \
+              -Dflyway.validateOnMigrate=true \
+              -Dflyway.baselineVersion=0
+
+      # ──────────────────────────────────────────────────────────
+      # 5. Seed the CRM acceptance data (2 tenants + 5 users with
+      #    different capability sets, plus organizations and
+      #    memberships). The SQL is idempotent.
+      # ──────────────────────────────────────────────────────────
+      - name: Seed CRM acceptance data
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 \
+            -U "$DATABASE_USERNAME" \
+            -d "$DATABASE_USERNAME" \
+            -v ON_ERROR_STOP=1 \
+            -f src/test/resources/sql/crm-acceptance-seed.sql
+
+      # ──────────────────────────────────────────────────────────
+      # 6. Start the Spring Boot backend in the background and wait
+      #    for the health endpoint to return 200.
+      # ──────────────────────────────────────────────────────────
+      - name: Start Spring Boot backend
+        id: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/crm-acceptance"
+          BACKEND_LOG="$RUNNER_TEMP/crm-acceptance/backend.log"
+          JAR_PATH="$(find apps/sanad-platform/target -name 'sanad-platform-*.jar' ! -name '*-sources.jar' | head -n1)"
+          if [ -z "$JAR_PATH" ]; then
+            echo "::error::sanad-platform JAR not found under apps/sanad-platform/target"
+            exit 1
+          fi
+          echo "Using JAR: $JAR_PATH"
+          java -jar "$JAR_PATH" \
+            --spring.profiles.active=prod \
+            > "$BACKEND_LOG" 2>&1 &
+          BACKEND_PID=$!
+          echo "pid=$BACKEND_PID" >> "$GITHUB_OUTPUT"
+          echo "log=$BACKEND_LOG" >> "$GITHUB_OUTPUT"
+
+          # Wait for /actuator/health to return 200 (up to 180s)
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8080/actuator/health > /dev/null 2>&1; then
+              echo "Backend ready after $((i*3))s"
+              exit 0
+            fi
+            # Abort early if the process died
+            if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+              echo "::error::Backend process exited before becoming healthy"
+              tail -100 "$BACKEND_LOG" || true
+              exit 1
+            fi
+            sleep 3
+          done
+          echo "::error::Backend did not become healthy within 180s"
+          tail -100 "$BACKEND_LOG" || true
+          exit 1
+
+      # ──────────────────────────────────────────────────────────
+      # 7. Smoke-test the backend with the same login the Playwright
+      #    suite will use. This surfaces credential-seeding failures
+      #    before we spend time running Playwright.
+      # ──────────────────────────────────────────────────────────
+      - name: Smoke-test seeded login (Tenant A admin)
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl --fail --silent --show-error \
+            -X POST http://127.0.0.1:8080/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d "{\"email\":\"$CRM_TENANT_A_EMAIL\",\"password\":\"$CRM_TENANT_A_PASSWORD\"}")"
+          ACCESS_TOKEN="$(printf '%s' "$RESPONSE" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("accessToken",""))')"
+          if [ -z "$ACCESS_TOKEN" ]; then
+            echo "::error::Login response did not contain an accessToken"
+            echo "$RESPONSE"
+            exit 1
+          fi
+          echo "Tenant A admin login OK (access token length: ${#ACCESS_TOKEN})"
+
+      # ──────────────────────────────────────────────────────────
+      # 8. Build the Next.js frontend
+      # ──────────────────────────────────────────────────────────
+      - name: Install frontend dependencies
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+
+      - name: Add @axe-core/playwright devDependency (if missing)
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! npm ls @axe-core/playwright >/dev/null 2>&1; then
+            npm install --save-dev @axe-core/playwright
+          fi
+
+      - name: Install Playwright browsers
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx playwright install --with-deps chromium
+
+      - name: Build Next.js production bundle
+        working-directory: apps/web
+        shell: bash
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:8080
+        run: |
+          set -euo pipefail
+          npm run build
+
+      # ──────────────────────────────────────────────────────────
+      # 9. Start Next.js in the background on port 3001 and wait
+      #    for readiness.
+      # ──────────────────────────────────────────────────────────
+      - name: Start Next.js frontend
+        id: frontend
+        working-directory: apps/web
+        shell: bash
+        env:
+          # The BFF route (app/api/platform/[...path]/route.ts) reads
+          # BACKEND_API_BASE_URL to know where to proxy API requests.
+          # This must be set at runtime (not build time) because it is
+          # a server-side env var consumed by the Node.js runtime.
+          BACKEND_API_BASE_URL: http://127.0.0.1:8080
+        run: |
+          set -euo pipefail
+          FRONTEND_LOG="$RUNNER_TEMP/crm-acceptance/frontend.log"
+          NEXT_TELEMETRY_DISABLED=1 \
+          NODE_ENV=production \
+          BACKEND_API_BASE_URL="$BACKEND_API_BASE_URL" \
+          ./node_modules/.bin/next start -H 127.0.0.1 -p 3001 \
+            > "$FRONTEND_LOG" 2>&1 &
+          FRONTEND_PID=$!
+          echo "pid=$FRONTEND_PID" >> "$GITHUB_OUTPUT"
+          echo "log=$FRONTEND_LOG" >> "$GITHUB_OUTPUT"
+
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3001/ > /dev/null 2>&1; then
+              echo "Frontend ready after $((i*2))s"
+              exit 0
+            fi
+            if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
+              echo "::error::Frontend process exited before becoming ready"
+              tail -100 "$FRONTEND_LOG" || true
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "::error::Frontend did not become ready within 60s"
+          tail -100 "$FRONTEND_LOG" || true
+          exit 1
+
+      # ──────────────────────────────────────────────────────────
+      # 10. Run the authenticated CRM Playwright acceptance suite.
+      #     We deliberately scope the run to the five CRM-acceptance
+      #     spec files so the existing unauthenticated visual-regression
+      #     and bilingual-theme-matrix suites are not affected.
+      # ──────────────────────────────────────────────────────────
+      - name: Run CRM Playwright acceptance tests
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
+          CRM_TENANT_A_EMAIL: ${{ env.CRM_TENANT_A_EMAIL }}
+          CRM_TENANT_A_PASSWORD: ${{ env.CRM_TENANT_A_PASSWORD }}
+          CRM_TENANT_B_EMAIL: ${{ env.CRM_TENANT_B_EMAIL }}
+          CRM_TENANT_B_PASSWORD: ${{ env.CRM_TENANT_B_PASSWORD }}
+          CRM_READONLY_EMAIL: ${{ env.CRM_READONLY_EMAIL }}
+          CRM_READONLY_PASSWORD: ${{ env.CRM_READONLY_PASSWORD }}
+          CRM_LEAD_WRITER_EMAIL: ${{ env.CRM_LEAD_WRITER_EMAIL }}
+          CRM_LEAD_WRITER_PASSWORD: ${{ env.CRM_LEAD_WRITER_PASSWORD }}
+          CRM_IMPORT_READER_EMAIL: ${{ env.CRM_IMPORT_READER_EMAIL }}
+          CRM_IMPORT_READER_PASSWORD: ${{ env.CRM_IMPORT_READER_PASSWORD }}
+          SANAD_BACKEND_BASE_URL: http://127.0.0.1:8080
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx playwright test \
+            --project=en-ltr-light \
+            --reporter=html,list \
+            e2e/crm-authenticated-acceptance.spec.ts \
+            e2e/crm-tenant-isolation.spec.ts \
+            e2e/crm-rbac-acceptance.spec.ts \
+            e2e/crm-accessibility.spec.ts \
+            e2e/crm-route-smoke.spec.ts
+
+      # ──────────────────────────────────────────────────────────
+      # 11. Stop services (best-effort; always runs)
+      # ──────────────────────────────────────────────────────────
+      - name: Stop frontend
+        if: always()
+        shell: bash
+        run: |
+          kill ${{ steps.frontend.outputs.pid }} 2>/dev/null || true
+          wait ${{ steps.frontend.outputs.pid }} 2>/dev/null || true
+
+      - name: Stop backend
+        if: always()
+        shell: bash
+        run: |
+          kill ${{ steps.backend.outputs.pid }} 2>/dev/null || true
+          wait ${{ steps.backend.outputs.pid }} 2>/dev/null || true
+
+      # ──────────────────────────────────────────────────────────
+      # 12. Upload artifacts (always — even on success for the HTML report)
+      # ──────────────────────────────────────────────────────────
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-playwright-report-${{ github.run_id }}
+          path: apps/web/playwright-report/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload Playwright traces / screenshots / videos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-playwright-traces-${{ github.run_id }}
+          path: apps/web/test-results/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload backend log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-backend-log-${{ github.run_id }}
+          path: ${{ steps.backend.outputs.log }}
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload frontend log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-frontend-log-${{ github.run_id }}
+          path: ${{ steps.frontend.outputs.log }}
+          if-no-files-found: warn
+          retention-days: 14
+
+      # ──────────────────────────────────────────────────────────
+      # 13. Publish a job summary
+      # ──────────────────────────────────────────────────────────
+      - name: Publish acceptance summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## CRM Authenticated Acceptance'
+            echo ''
+            echo "**SHA:** \`${{ github.sha }}\`"
+            echo "**Run ID:** ${{ github.run_id }}"
+            echo "**Control-plane tenant id:** \`${{ steps.secrets.outputs.control_plane_tenant_id }}\`"
+            echo ''
+            echo '### Stack'
+            echo '| Layer | Value |'
+            echo '|---|---|'
+            echo '| Runner | ubuntu-latest |'
+            echo '| PostgreSQL | 16-alpine (service container) |'
+            echo '| JDK | 21 (temurin) |'
+            echo '| Node | 24 |'
+            echo '| Spring profile | prod |'
+            echo '| Flyway | enabled, baseline-on-migrate |'
+            echo ''
+            echo '### Test matrix'
+            echo '- `crm-authenticated-acceptance.spec.ts`'
+            echo '- `crm-tenant-isolation.spec.ts`'
+            echo '- `crm-rbac-acceptance.spec.ts`'
+            echo '- `crm-accessibility.spec.ts`'
+            echo '- `crm-route-smoke.spec.ts`'
+            echo ''
+            echo '### Artifacts'
+            echo '- `crm-playwright-report-${{ github.run_id }}` (HTML report)'
+            echo '- `crm-playwright-traces-${{ github.run_id }}` (traces, screenshots, videos)'
+            echo '- `crm-backend-log-${{ github.run_id }}`'
+            echo '- `crm-frontend-log-${{ github.run_id }}`'
+            echo ''
+            echo '### Gate status'
+            echo 'See final job conclusion above. PASS = all five spec files green.'
+          } >> "$GITHUB_STEP_SUMMARY"
