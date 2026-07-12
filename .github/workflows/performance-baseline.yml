@@ -24,33 +24,34 @@ jobs:
   backend-health-baseline:
     name: Backend Health Load Baseline
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build backend image
-        working-directory: apps/sanad-platform
-        run: docker build -t sanad-backend:perf-ci .
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
 
-      - name: Start backend
+      - name: Start backend on local CI profile
+        working-directory: apps/sanad-platform
         run: |
-          docker run -d --name sanad-perf-app \
-            --network host \
-            -e SERVER_PORT=8080 \
-            -e SPRING_PROFILES_ACTIVE=local \
-            -e JWT_SECRET \
-            -e MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,info \
-            -e MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS=always \
-            sanad-backend:perf-ci
+          mkdir -p ../../performance/results
+          nohup mvn -q -DskipTests spring-boot:run \
+            -Dspring-boot.run.profiles=local \
+            -Dspring-boot.run.arguments="--server.port=8080 --management.endpoints.web.exposure.include=health,info --management.endpoint.health.show-details=always" \
+            > ../../performance/results/backend-startup.log 2>&1 &
+          echo $! > /tmp/sanad-perf-app.pid
 
       - name: Wait for health
         run: |
-          for attempt in $(seq 1 90); do
-            if ! docker ps --format '{{.Names}}' | grep -qx 'sanad-perf-app'; then
-              echo "::error::sanad-perf-app is not running"
-              docker ps -a || true
-              docker logs sanad-perf-app || true
+          for attempt in $(seq 1 120); do
+            if ! kill -0 "$(cat /tmp/sanad-perf-app.pid)" 2>/dev/null; then
+              echo "::error::sanad local performance app process exited before becoming healthy"
+              cat performance/results/backend-startup.log || true
               exit 1
             fi
 
@@ -63,8 +64,8 @@ jobs:
             fi
             sleep 5
           done
-          docker ps -a || true
-          docker logs sanad-perf-app || true
+          echo "::error::SANAD local profile did not become healthy for performance baseline"
+          cat performance/results/backend-startup.log || true
           exit 1
 
       - name: Run k6 baseline
@@ -91,6 +92,7 @@ jobs:
             echo '- p99 target: below 1000 ms'
             echo '- Scope: CI baseline only; not a production capacity certification'
             echo '- Runtime profile: local CI health baseline using H2-backed startup path'
+            echo '- Startup log artifact: `backend-startup.log`'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload performance evidence
@@ -104,4 +106,7 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: docker rm -f sanad-perf-app || true
+        run: |
+          if [ -f /tmp/sanad-perf-app.pid ]; then
+            kill "$(cat /tmp/sanad-perf-app.pid)" 2>/dev/null || true
+          fi
