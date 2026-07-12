@@ -109,17 +109,8 @@ async function waitForCrmShell(page: Page): Promise<void> {
 test.describe("CRM Route Smoke — strict assertions (authenticated)", () => {
   test.describe.configure({ mode: "serial" });
 
-  test.beforeAll(async ({ browser }) => {
-    // Login once and persist the cookie in the shared browser context
-    // so every test in this suite starts authenticated.
-    const context = await browser.newContext();
-    const page = await context.newPage();
+  test.beforeEach(async ({ page }) => {
     await loginAsAdmin(page);
-    // Touch /crm/overview to ensure the SPA bootstraps successfully
-    // before the per-route tests start.
-    await page.goto("/crm/overview");
-    await waitForCrmShell(page);
-    await context.close();
   });
 
   // ────────────────────────────────────────────────────────────────────

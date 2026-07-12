@@ -194,11 +194,11 @@ Each user is linked to their tenant's organization via `organization_memberships
 ### Tenant A sample entities (for isolation tests)
 - Account `aa00aa00-aa00-4aa0-8aa0-aa00aa00aa01` — "Tenant A Sample Account"
 - Contact `cc00cc00-cc00-4cc0-8cc0-cc00cc00cc01` — "Aisha Al-Saud"
-- Lead `ll00ll00-ll00-4ll0-8ll0-ll00ll00ll01` — "Tenant A Sample Lead"
+- Lead `ee964f6d-cff1-502b-a687-ae61611761de` — "Tenant A Sample Lead"
 - Pipeline `pp00pp00-pp00-4pp0-8pp0-pp00pp00pp01` — "Tenant A Default Pipeline"
 - Stages (2): New, Won
-- Opportunity `oo00oo00-oo00-4oo0-8oo0-oo00oo00oo01` — "Tenant A Sample Opportunity"
-- Activity `tt00tt00-tt00-4tt0-8tt0-tt00tt00tt01` — "Tenant A Sample Follow-up"
+- Opportunity `5ff572da-a04a-5893-be50-d50e5ea64165` — "Tenant A Sample Opportunity"
+- Activity `c296c51d-fc46-5076-8f59-599ef2aaaa97` — "Tenant A Sample Follow-up"
 
 ### Password hashing
 `crypt('TestPass123!', gen_salt('bf', 10))` produces a `$2a$10$...` bcrypt
@@ -233,3 +233,12 @@ fully resolved by the crm/002d-authenticated-acceptance-environment branch.
 
 ## Next Prompt
 EXEC-PROMPT-CRM-003
+
+
+## CRM-002G Repository Delivery
+
+- Workflow YAML repaired and validated.
+- All UUID-shaped seed literals are validated before PostgreSQL execution.
+- Standard and authenticated Playwright matrices use separate explicit configs.
+- Anonymous and authenticated CRM route contracts are distinct.
+- Gate status remains pending until all required workflows complete successfully on the exact PR head SHA.

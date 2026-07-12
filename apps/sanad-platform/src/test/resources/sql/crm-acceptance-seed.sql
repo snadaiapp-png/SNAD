@@ -580,7 +580,7 @@ INSERT INTO crm_pipeline_stages (
     id, tenant_id, pipeline_id, name, sequence, probability, terminal_state, active
 )
 VALUES (
-    'ss00ss00-ss00-4ss0-8ss0-ss00ss00ss01',
+    '55f0b55f-d0a9-5448-b513-5b933efe1df2',
     '11111111-1111-4111-8111-111111111111',
     '0b00b000-0b00-4b00-8b00-0b00b000b001',
     'New',
@@ -595,7 +595,7 @@ INSERT INTO crm_pipeline_stages (
     id, tenant_id, pipeline_id, name, sequence, probability, terminal_state, active
 )
 VALUES (
-    'ss00ss00-ss00-4ss0-8ss0-ss00ss00ss02',
+    'f587e27b-482d-5b92-8cb2-feb623bc9595',
     '11111111-1111-4111-8111-111111111111',
     '0b00b000-0b00-4b00-8b00-0b00b000b001',
     'Won',
@@ -612,7 +612,7 @@ INSERT INTO crm_leads (
     created_by, updated_by, created_at, updated_at
 )
 VALUES (
-    'll00ll00-ll00-4ll0-8ll0-ll00ll00ll01',
+    'ee964f6d-cff1-502b-a687-ae61611761de',
     '11111111-1111-4111-8111-111111111111',
     0,
     'Tenant A Sample Lead',
@@ -638,13 +638,13 @@ INSERT INTO crm_opportunities (
     created_by, updated_by, created_at, updated_at
 )
 VALUES (
-    'oo00oo00-oo00-4oo0-8oo0-oo00oo00oo01',
+    '5ff572da-a04a-5893-be50-d50e5ea64165',
     '11111111-1111-4111-8111-111111111111',
     0,
     'aa00aa00-aa00-4aa0-8aa0-aa00aa00aa01',
     'cc00cc00-cc00-4cc0-8cc0-cc00cc00cc01',
     '0b00b000-0b00-4b00-8b00-0b00b000b001',
-    'ss00ss00-ss00-4ss0-8ss0-ss00ss00ss01',
+    '55f0b55f-d0a9-5448-b513-5b933efe1df2',
     'Tenant A Sample Opportunity',
     25000.000000,
     'SAR',
@@ -664,7 +664,7 @@ INSERT INTO crm_activities (
     updated_by, created_at, updated_at
 )
 VALUES (
-    'tt00tt00-tt00-4tt0-8tt0-tt00tt00tt01',
+    'c296c51d-fc46-5076-8f59-599ef2aaaa97',
     '11111111-1111-4111-8111-111111111111',
     0,
     'TASK',

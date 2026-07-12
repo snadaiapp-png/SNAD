@@ -11,8 +11,8 @@
  *
  *   • Account     aa00aa00-aa00-4aa0-8aa0-aa00aa00aa01
  *   • Contact     cc00cc00-cc00-4cc0-8cc0-cc00cc00cc01
- *   • Lead        ll00ll00-ll00-4ll0-8ll0-ll00ll00ll01
- *   • Opportunity oo00oo00-oo00-4oo0-8oo0-oo00oo00oo01
+ *   • Lead        ee964f6d-cff1-502b-a687-ae61611761de
+ *   • Opportunity 5ff572da-a04a-5893-be50-d50e5ea64165
  *
  * Tenant B must:
  *   1. Receive 404 (or 403) when fetching these IDs via the API.
@@ -32,8 +32,8 @@ const TENANT_B_PASSWORD = process.env.CRM_TENANT_B_PASSWORD ?? "";
 // Stable Tenant A entity UUIDs from the seed SQL.
 const TENANT_A_ACCOUNT_ID = "aa00aa00-aa00-4aa0-8aa0-aa00aa00aa01";
 const TENANT_A_CONTACT_ID = "cc00cc00-cc00-4cc0-8cc0-cc00cc00cc01";
-const TENANT_A_LEAD_ID = "ll00ll00-ll00-4ll0-8ll0-ll00ll00ll01";
-const TENANT_A_OPPORTUNITY_ID = "oo00oo00-oo00-4oo0-8oo0-oo00oo00oo01";
+const TENANT_A_LEAD_ID = "ee964f6d-cff1-502b-a687-ae61611761de";
+const TENANT_A_OPPORTUNITY_ID = "5ff572da-a04a-5893-be50-d50e5ea64165";
 // Known Tenant A display names — must never appear in Tenant B's lists.
 const TENANT_A_ACCOUNT_NAME = "Tenant A Sample Account";
 const TENANT_A_CONTACT_NAME = "Aisha Al-Saud";

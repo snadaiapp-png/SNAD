@@ -101,6 +101,11 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
 
   let accessToken: string;
 
+  test.beforeEach(async ({ page }) => {
+    const login = await loginViaBFF(page, TENANT_A_EMAIL, TENANT_A_PASSWORD);
+    accessToken = login.accessToken;
+  });
+
   test("login as Tenant A admin and store auth state", async ({ page }) => {
     const login = await loginViaBFF(page, TENANT_A_EMAIL, TENANT_A_PASSWORD);
     accessToken = login.accessToken;

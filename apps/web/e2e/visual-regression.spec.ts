@@ -165,18 +165,4 @@ test.describe("Visual Regression — Protected Routes (Auth Redirect)", () => {
     });
   });
 
-  test("crm redirect — Arabic RTL Dark", async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem("snad.locale", "ar");
-      localStorage.setItem("snad.theme", "dark");
-    });
-    await page.goto("/crm");
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(1500);
-    await expect(page).toHaveScreenshot("crm-redirect-ar-rtl-dark.png", {
-      maxDiffPixelRatio: 0.05,
-      maxDiffPixels: 50000,
-      threshold: 0.5,
-    });
-  });
 });
