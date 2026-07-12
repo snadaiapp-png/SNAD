@@ -263,7 +263,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
     const opportunityId = opportunities[0].id;
     await page.goto(`/crm/opportunities/${opportunityId}`);
     await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
-    await expect(page.locator("h1").first()).toContainText(/Opportunity Detail|تفاصيل الفرصة/i);
+    await expect(page.locator("#crm-operational-content")).toContainText(/Opportunity Detail|تفاصيل الفرصة/i);
   });
 
   test("create an activity and complete it via UI", async ({ page }) => {
@@ -331,7 +331,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
     // should land back on /crm/contacts with the shell visible.
     await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
     expect(page.url()).toMatch(/\/crm\/contacts/);
-    await expect(page.locator("h1").first()).toContainText(/Contacts|جهات الاتصال/i);
+    await expect(page.locator("#crm-operational-content")).toContainText(/Contacts|جهات الاتصال/i);
   });
 
   test("back/forward navigation preserves route and auth", async ({ page }) => {
