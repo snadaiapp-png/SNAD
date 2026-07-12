@@ -85,6 +85,14 @@ export default function WorkspacePage() {
             </div>
           </div>
 
+          <button
+            type="button"
+            className={styles.workspacePrimaryButton}
+            onClick={() => router.push("/crm")}
+          >
+            مركز قيادة CRM
+          </button>
+
           {hasAdministrativeRole ? (
             <button
               type="button"

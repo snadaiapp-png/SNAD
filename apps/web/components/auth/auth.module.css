@@ -687,3 +687,28 @@
   outline: 2px solid var(--snad-focus-ring);
   outline-offset: 2px;
 }
+
+.workspacePrimaryButton {
+  width: 100%;
+  padding: 0.75rem 1.5rem;
+  border: 1px solid var(--snad-brand-primary);
+  border-radius: var(--snad-radius-md);
+  background: var(--snad-brand-primary);
+  color: var(--snad-text-inverse);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  font-family: var(--snad-font-body);
+  cursor: pointer;
+  transition: background var(--snad-motion-fast);
+  margin-top: 1rem;
+}
+
+.workspacePrimaryButton:hover {
+  background: var(--snad-brand-primary-hover);
+  border-color: var(--snad-brand-primary-hover);
+}
+
+.workspacePrimaryButton:focus-visible {
+  outline: 2px solid var(--snad-focus-ring);
+  outline-offset: 2px;
+}
