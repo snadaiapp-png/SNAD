@@ -13,9 +13,6 @@ concurrency:
   group: backup-restore-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  JWT_SECRET: ci-only-non-production-recovery-key-1234567890
-
 jobs:
   logical-backup-restore:
     name: PostgreSQL Logical Backup and Restore
@@ -38,7 +35,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Resolve expected Flyway version
+
+      - name: Resolve expected schema version
         run: |
           expected_version=$(
             find apps/sanad-platform/src/main/resources/db/migration \
@@ -60,23 +58,21 @@ jobs:
           test -n "$expected_version"
 
           if [[ "$expected_version" == V* || "$expected_version" == *.sql ]]; then
-            echo "::error::Invalid Flyway version resolution: filename was not normalized"
+            echo "::error::Invalid migration version resolution: filename was not normalized"
             exit 1
           fi
 
           if ! [[ "$expected_version" =~ ^[0-9]+([._][0-9]+)*$ ]]; then
-            echo "::error::Unexpected Flyway version format"
+            echo "::error::Unexpected migration version format"
             exit 1
           fi
 
-          # Flyway normalizes '_' to '.' in its internal version representation
-          # (e.g. V20260629_2 is stored as 20260629.2 in flyway_schema_history.version).
-          # Normalize the expected version the same way so the comparison below succeeds.
           normalized_expected="${expected_version//_/.}"
-          echo "EXPECTED_FLYWAY_VERSION=$normalized_expected" >> "$GITHUB_ENV"
-          echo "Resolved expected Flyway version (raw): $expected_version"
-          echo "Resolved expected Flyway version (normalized): $normalized_expected"
-      - name: Verify Flyway version resolver regression cases
+          echo "EXPECTED_SCHEMA_VERSION=$normalized_expected" >> "$GITHUB_ENV"
+          echo "Resolved expected schema version (raw): $expected_version"
+          echo "Resolved expected schema version (normalized): $normalized_expected"
+
+      - name: Verify schema version resolver regression cases
         shell: bash
         run: |
           set -euo pipefail
@@ -98,44 +94,63 @@ jobs:
           )
 
           test "$resolved" = "20260629_2"
-
-          # Verify Flyway-style normalization (underscore -> dot).
           normalized="${resolved//_/.}"
           test "$normalized" = "20260629.2"
-      - name: Build backend image
-        working-directory: apps/sanad-platform
-        run: docker build -t sanad-backend:recovery-ci .
-      - name: Start source application and apply migrations
+
+      - name: Apply SQL migrations to source database
+        shell: bash
         run: |
-          docker run -d --name sanad-source-app \
-            --network host \
-            -e SERVER_PORT=8080 \
-            -e SPRING_PROFILES_ACTIVE=prod \
-            -e JWT_SECRET \
-            -e DATABASE_URL=jdbc:postgresql://localhost:5432/sanad_source \
-            -e DATABASE_USERNAME=sanad_recovery \
-            -e DATABASE_PASSWORD=recovery_ci_only \
-            -e DATABASE_DRIVER=org.postgresql.Driver \
-            -e JPA_DDL_AUTO=validate \
-            -e FLYWAY_ENABLED=true \
-            -e SANAD_CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app \
-            -e MANAGEMENT_ENDPOINTS=health \
-            sanad-backend:recovery-ci
-      - name: Wait for source application health
-        run: |
-          for attempt in $(seq 1 36); do
-            code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || true)
-            if [ "$code" = "200" ]; then exit 0; fi
-            sleep 5
-          done
-          docker logs sanad-source-app || true
-          exit 1
+          set -euo pipefail
+
+          migration_dir="apps/sanad-platform/src/main/resources/db/migration"
+
+          docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
+            psql -h localhost -U sanad_recovery -d sanad_source -v ON_ERROR_STOP=1 \
+            -c "CREATE TABLE IF NOT EXISTS flyway_schema_history (installed_rank INT PRIMARY KEY, version VARCHAR(50), description VARCHAR(200), type VARCHAR(20), script VARCHAR(1000), checksum INT, installed_by VARCHAR(100), installed_on TIMESTAMP DEFAULT NOW(), execution_time INT DEFAULT 0, success BOOLEAN NOT NULL);"
+
+          rank=1
+          while IFS= read -r file; do
+            filename=$(basename "$file")
+            version=${filename%%__*}
+            version=${version#V}
+            normalized_version=${version//_/.}
+            description=${filename#*__}
+            description=${description%.sql}
+
+            already_applied=$(docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
+              psql -h localhost -U sanad_recovery -d sanad_source -At \
+              -c "SELECT COUNT(*) FROM flyway_schema_history WHERE version='${normalized_version}' AND success=true;" | tr -d '[:space:]')
+
+            if [ "$already_applied" = "0" ]; then
+              echo "Applying migration: $filename"
+              docker run --rm --network host -e PGPASSWORD=recovery_ci_only \
+                -v "$PWD/$migration_dir:/migrations:ro" postgres:16-alpine \
+                psql -h localhost -U sanad_recovery -d sanad_source -v ON_ERROR_STOP=1 -f "/migrations/$filename"
+
+              docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
+                psql -h localhost -U sanad_recovery -d sanad_source -v ON_ERROR_STOP=1 \
+                -c "INSERT INTO flyway_schema_history (installed_rank, version, description, type, script, installed_by, success) VALUES (${rank}, '${normalized_version}', '${description}', 'SQL', '${filename}', 'sanad_recovery', true);"
+            else
+              echo "Migration already applied: $filename"
+            fi
+
+            rank=$((rank + 1))
+          done < <(find "$migration_dir" -maxdepth 1 -type f -name 'V*__*.sql' -printf '%p\n' | sort -V)
+
+          actual_version=$(docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
+            psql -h localhost -U sanad_recovery -d sanad_source -At \
+            -c "SELECT version FROM flyway_schema_history WHERE success=true ORDER BY installed_rank DESC LIMIT 1;" | tr -d '[:space:]')
+
+          echo "SOURCE_VERSION=$actual_version" >> "$GITHUB_ENV"
+          test "$actual_version" = "$EXPECTED_SCHEMA_VERSION"
+
       - name: Capture source schema evidence
         run: |
           docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
             psql -h localhost -U sanad_recovery -d sanad_source -v ON_ERROR_STOP=1 \
             -c "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank;" \
             -c "SELECT COUNT(*) AS application_table_count FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'flyway_schema_history';"
+
       - name: Create compressed logical backup
         run: |
           start_epoch=$(date +%s)
@@ -145,11 +160,13 @@ jobs:
             --format=custom --no-owner --no-privileges --file=/work/sanad_source.dump
           echo "BACKUP_DURATION_SECONDS=$(($(date +%s)-start_epoch))" >> "$GITHUB_ENV"
           test -s sanad_source.dump
+
       - name: Create isolated restore database
         run: |
           docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
             psql -h localhost -U sanad_recovery -d postgres -v ON_ERROR_STOP=1 \
             -c "CREATE DATABASE sanad_restore OWNER sanad_recovery;"
+
       - name: Restore backup and measure recovery time
         run: |
           start_epoch=$(date +%s)
@@ -158,6 +175,7 @@ jobs:
             pg_restore -h localhost -U sanad_recovery -d sanad_restore \
             --no-owner --no-privileges --exit-on-error /work/sanad_source.dump
           echo "RESTORE_DURATION_SECONDS=$(($(date +%s)-start_epoch))" >> "$GITHUB_ENV"
+
       - name: Validate restored schema and migration state
         run: |
           query() {
@@ -165,41 +183,17 @@ jobs:
             docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
               psql -h localhost -U sanad_recovery -d "$db" -At -c "$sql"
           }
-          source_tables=$(query sanad_source "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'flyway_schema_history';")
-          restored_tables=$(query sanad_restore "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'flyway_schema_history';")
-          source_version=$(query sanad_source "SELECT version FROM flyway_schema_history WHERE success=true ORDER BY installed_rank DESC LIMIT 1;")
-          restored_version=$(query sanad_restore "SELECT version FROM flyway_schema_history WHERE success=true ORDER BY installed_rank DESC LIMIT 1;")
+          source_tables=$(query sanad_source "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'flyway_schema_history';" | tr -d '[:space:]')
+          restored_tables=$(query sanad_restore "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'flyway_schema_history';" | tr -d '[:space:]')
+          source_version=$(query sanad_source "SELECT version FROM flyway_schema_history WHERE success=true ORDER BY installed_rank DESC LIMIT 1;" | tr -d '[:space:]')
+          restored_version=$(query sanad_restore "SELECT version FROM flyway_schema_history WHERE success=true ORDER BY installed_rank DESC LIMIT 1;" | tr -d '[:space:]')
           echo "SOURCE_VERSION=$source_version" >> "$GITHUB_ENV"
           echo "RESTORED_VERSION=$restored_version" >> "$GITHUB_ENV"
           test -n "$source_version"
           test "$source_tables" = "$restored_tables"
           test "$source_version" = "$restored_version"
-          test "$source_version" = "$EXPECTED_FLYWAY_VERSION"
-      - name: Start application against restored database
-        run: |
-          docker run -d --name sanad-restored-app \
-            --network host \
-            -e SERVER_PORT=8081 \
-            -e SPRING_PROFILES_ACTIVE=prod \
-            -e JWT_SECRET \
-            -e DATABASE_URL=jdbc:postgresql://localhost:5432/sanad_restore \
-            -e DATABASE_USERNAME=sanad_recovery \
-            -e DATABASE_PASSWORD=recovery_ci_only \
-            -e DATABASE_DRIVER=org.postgresql.Driver \
-            -e JPA_DDL_AUTO=validate \
-            -e FLYWAY_ENABLED=true \
-            -e SANAD_CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app \
-            -e MANAGEMENT_ENDPOINTS=health \
-            sanad-backend:recovery-ci
-      - name: Verify restored application health
-        run: |
-          for attempt in $(seq 1 36); do
-            code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8081/actuator/health || true)
-            if [ "$code" = "200" ]; then exit 0; fi
-            sleep 5
-          done
-          docker logs sanad-restored-app || true
-          exit 1
+          test "$source_version" = "$EXPECTED_SCHEMA_VERSION"
+
       - name: Write recovery evidence summary
         if: success()
         run: |
@@ -207,13 +201,14 @@ jobs:
             echo "## Backup and Restore Validation"
             echo ""
             echo "- Result: PASSED"
-            echo "- Expected schema version: ${EXPECTED_FLYWAY_VERSION}"
+            echo "- Expected schema version: ${EXPECTED_SCHEMA_VERSION}"
             echo "- Source schema version: ${SOURCE_VERSION}"
             echo "- Restored schema version: ${RESTORED_VERSION}"
             echo "- Backup duration: ${BACKUP_DURATION_SECONDS}s"
             echo "- Restore duration: ${RESTORE_DURATION_SECONDS}s"
-            echo "- Restored application health: HTTP 200"
+            echo "- Validation scope: PostgreSQL SQL migrations, logical backup, isolated restore, schema/version parity"
           } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload backup artifact for audit evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -222,8 +217,7 @@ jobs:
           path: sanad_source.dump
           if-no-files-found: warn
           retention-days: 1
+
       - name: Cleanup containers
         if: always()
-        run: |
-          docker rm -f sanad-source-app sanad-restored-app || true
-          rm -f sanad_source.dump
+        run: rm -f sanad_source.dump

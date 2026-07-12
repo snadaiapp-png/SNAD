@@ -33,7 +33,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(
     properties = {
         "sanad.cors.allowed-origins=https://snad-app.vercel.app",
-        "management.health.mail.enabled=false"
+        "management.health.mail.enabled=false",
+        // Required before DynamicPropertySource runs because ProductionDatasourceGuard
+        // is an EnvironmentPostProcessor. DynamicPropertySource still overrides this
+        // placeholder with the real Testcontainers PostgreSQL JDBC URL for the test.
+        "spring.datasource.url=jdbc:postgresql://localhost:5432/sanad_test_guard_placeholder",
+        "spring.datasource.username=sanad_test",
+        "spring.datasource.password=sanad_test"
     }
 )
 @Import(SecurityPermitAllTestConfig.class)
