@@ -179,3 +179,184 @@
   .salesGrid .listCard,
   .salesGrid .pipelineBoardSection { grid-column: auto; }
 }
+
+/* ============================================================================
+ *  Skeleton loaders (used by CrmLoading)
+ * ============================================================================ */
+
+.skeletonCard {
+  background: var(--snad-color-surface-primary);
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 14px;
+  padding: 17px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skeletonLine {
+  display: block;
+  width: 60%;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--snad-color-surface-secondary) 0%,
+    var(--snad-color-border-default) 50%,
+    var(--snad-color-surface-secondary) 100%
+  );
+  background-size: 200% 100%;
+  animation: snadCrmShimmer 1.4s ease-in-out infinite;
+}
+
+.skeletonLineWide {
+  display: block;
+  width: 90%;
+  height: 16px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--snad-color-surface-secondary) 0%,
+    var(--snad-color-border-default) 50%,
+    var(--snad-color-surface-secondary) 100%
+  );
+  background-size: 200% 100%;
+  animation: snadCrmShimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes snadCrmShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonLine,
+  .skeletonLineWide { animation: none; }
+}
+
+/* ============================================================================
+ *  KPI cards (used by overview and customer 360)
+ * ============================================================================ */
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.kpiCard {
+  background: var(--snad-color-surface-primary);
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: var(--snad-shadow-sm);
+}
+
+.kpiLabel {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--snad-color-text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.kpiValue {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: var(--snad-color-text-primary);
+  line-height: 1.15;
+}
+
+.kpiHint {
+  font-size: 0.74rem;
+  color: var(--snad-color-text-secondary);
+}
+
+.overviewSection {
+  background: var(--snad-color-surface-primary);
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: var(--snad-shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.overviewSectionTitle {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--snad-color-text-primary);
+}
+
+.pageTitle {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--snad-color-text-primary);
+  line-height: 1.25;
+}
+
+.pageDescription {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--snad-color-text-secondary);
+  line-height: 1.55;
+}
+
+.contentInner {
+  max-width: 1180px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.rowHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rowHeader h2 {
+  margin: 0;
+}
+
+.sectionHeading {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--snad-color-text-primary);
+}
+
+.notice {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--snad-color-surface-secondary);
+  color: var(--snad-color-text-secondary);
+  font-size: 0.86rem;
+}
+
+.booleanYes { color: var(--snad-color-success); font-weight: 700; }
+.booleanNo { color: var(--snad-color-text-muted); }
+
+.redacted { color: var(--snad-color-text-muted); font-style: italic; }
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  background: var(--snad-color-surface-secondary);
+  color: var(--snad-color-text-secondary);
+}
+
+.badgeSuccess { background: var(--snad-color-success-soft); color: var(--snad-color-success); }
+.badgeWarning { background: var(--snad-color-warning-soft, var(--snad-color-surface-secondary)); color: var(--snad-color-warning, var(--snad-color-text-secondary)); }
+.badgeError { background: var(--snad-color-error-soft); color: var(--snad-color-error); }

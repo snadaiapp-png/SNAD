@@ -106,6 +106,64 @@ export interface Customer360 {
   timeline: CrmTimelineEvent[];
 }
 
+/**
+ * CRM import job — backend representation.
+ * Field names mirror the JSON keys returned by /api/v1/crm/imports.
+ */
+export interface CrmImportJob {
+  id: string;
+  entityType: string;
+  status: string;
+  totalRows?: number | null;
+  processedRows?: number | null;
+  succeededRows?: number | null;
+  failedRows?: number | null;
+  fileName?: string | null;
+  uploadedAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  errorMessage?: string | null;
+}
+
+export interface CrmImportErrorRow {
+  rowNumber: number;
+  rawData?: string | null;
+  errorMessage?: string | null;
+  fieldErrors?: Record<string, string> | null;
+}
+
+/**
+ * CRM custom field definition — backend representation.
+ * Field names mirror the JSON keys returned by /api/v1/crm/custom-fields.
+ */
+export interface CrmCustomField {
+  id: string;
+  entityType: string;
+  fieldKey: string;
+  labelAr: string;
+  labelEn: string;
+  dataType: string;
+  sensitive: boolean;
+  searchable: boolean;
+  required: boolean;
+  active: boolean;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface CrmCustomFieldValueEntry {
+  fieldKey: string;
+  value: unknown;
+  displayValue?: string | null;
+  sensitive?: boolean;
+}
+
+export interface CrmCustomFieldValues {
+  entityType: string;
+  entityId: string;
+  values: CrmCustomFieldValueEntry[];
+}
+
 const root = "/api/v1/crm";
 
 export const crmApi = {
@@ -137,4 +195,38 @@ export const crmApi = {
   activities: (relatedType?: string, relatedId?: string, status?: string) => apiClient.get<CrmActivity[]>(`${root}/activities`, { query: { limit: 200, relatedType, relatedId, status }, cache: "no-store" }),
   createActivity: (body: { activityType: string; subject: string; body?: string; relatedType?: string; relatedId?: string; priority?: number; dueAt?: string }) => apiClient.post<CrmActivity, typeof body>(`${root}/activities`, body),
   completeActivity: (id: string, result?: string) => apiClient.patch<CrmActivity, { result?: string }>(`${root}/activities/${id}/complete`, { result }),
+
+  // ── Import jobs (CRM.IMPORT.READ / WRITE) ──────────────────────────────
+  imports: () => apiClient.get<CrmImportJob[]>(`${root}/imports`, { query: { limit: 200 }, cache: "no-store" }),
+  importJob: (jobId: string) => apiClient.get<CrmImportJob>(`${root}/imports/${jobId}`, { cache: "no-store" }),
+  importJobErrors: (jobId: string) => apiClient.get<CrmImportErrorRow[]>(`${root}/imports/${jobId}/errors`, { query: { limit: 500 }, cache: "no-store" }),
+  runImport: (jobId: string) => apiClient.post<CrmImportJob, undefined>(`${root}/imports/${jobId}/run`, undefined),
+  cancelImport: (jobId: string) => apiClient.post<CrmImportJob, undefined>(`${root}/imports/${jobId}/cancel`, undefined),
+  importErrorsCsvUrl: (jobId: string) => `${root}/imports/${jobId}/errors.csv`,
+  /** Fetch the import error log as a Blob (CSV). Uses authenticated fetch. */
+  downloadImportErrorsCsv: (jobId: string) => apiClient.getBlob(`${root}/imports/${jobId}/errors.csv`, { cache: "no-store" }),
+  uploadImport: (file: File, entityType: string, mapping?: Record<string, unknown>) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("entityType", entityType);
+    if (mapping) formData.append("mapping", JSON.stringify(mapping));
+    // Do NOT set Content-Type manually — the browser sets the multipart
+    // boundary automatically when the body is a FormData instance.
+    return apiClient.post<CrmImportJob, FormData>(`${root}/imports/upload`, formData);
+  },
+
+  // ── Custom fields (CRM.CUSTOM_FIELD.READ / WRITE) ──────────────────────
+  customFields: (entityType?: string) => apiClient.get<CrmCustomField[]>(`${root}/custom-fields`, { query: { entityType }, cache: "no-store" }),
+  createCustomField: (body: {
+    entityType: string;
+    fieldKey: string;
+    labelAr: string;
+    labelEn: string;
+    dataType: string;
+    sensitive?: boolean;
+    searchable?: boolean;
+    required?: boolean;
+  }) => apiClient.post<CrmCustomField, typeof body>(`${root}/custom-fields`, body),
+  customFieldValues: (entityType: string, entityId: string) => apiClient.get<CrmCustomFieldValues>(`${root}/custom-fields/values/${entityType}/${entityId}`, { cache: "no-store" }),
+  upsertCustomFieldValues: (entityType: string, entityId: string, values: Record<string, unknown>) => apiClient.put<CrmCustomFieldValues, { values: Record<string, unknown> }>(`${root}/custom-fields/values/${entityType}/${entityId}`, { values }),
 };

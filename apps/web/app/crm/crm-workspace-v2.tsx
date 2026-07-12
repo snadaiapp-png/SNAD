@@ -1,5 +1,11 @@
 "use client";
 
+/**
+ * @deprecated This component is superseded by route-based CRM pages.
+ * Functionality has been extracted to /crm/overview, /crm/accounts, etc.
+ * Kept for reference during transition. Will be removed in EXEC-PROMPT-CRM-003.
+ */
+
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";

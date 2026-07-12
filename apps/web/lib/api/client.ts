@@ -15,9 +15,25 @@ const PROTECTED_HEADERS = new Set(["host", "content-length", "connection", "orig
 /** Headers that callers cannot set via context.headers (but the client can set via setDefaultHeader). */
 const CALLER_PROTECTED_HEADERS = new Set(["host", "content-length", "connection", "origin", "authorization"]);
 
-function mergeHeaders(hasBody: boolean, contextHeaders?: Record<string, string>, clientDefaultHeaders?: Record<string, string>): Record<string, string> {
+/**
+ * Decide whether the request body should bypass JSON serialization and the
+ * default `Content-Type: application/json` header. FormData and Blob bodies
+ * must be handed to fetch verbatim so the browser can manage their framing
+ * (e.g. multipart boundary for FormData).
+ */
+function isRawBody(body: unknown): boolean {
+  if (body === undefined || body === null) return false;
+  if (typeof FormData !== "undefined" && body instanceof FormData) return true;
+  if (typeof Blob !== "undefined" && body instanceof Blob) return true;
+  return false;
+}
+
+function mergeHeaders(hasBody: boolean, body: unknown, contextHeaders?: Record<string, string>, clientDefaultHeaders?: Record<string, string>): Record<string, string> {
   const merged: Record<string, string> = { Accept: "application/json" };
-  if (hasBody) merged["Content-Type"] = "application/json";
+  // Only default to JSON Content-Type when the body is a JSON-serializable
+  // payload. FormData/Blob bodies must NOT set Content-Type — the browser
+  // sets the multipart boundary (or MIME type) itself.
+  if (hasBody && !isRawBody(body)) merged["Content-Type"] = "application/json";
   // Apply client default headers (e.g. Authorization from auth provider) — these CAN set Authorization
   if (clientDefaultHeaders) {
     for (const [key, value] of Object.entries(clientDefaultHeaders)) {
@@ -144,13 +160,22 @@ export class ApiClient {
     const hasBody = req.body !== undefined && req.body !== null;
     const timeoutMs = req.timeoutMs ?? this.defaultTimeoutMs;
     const fullUrl = this.buildUrl(req.path, req.query as QueryParams);
-    const headers = mergeHeaders(hasBody, req.context?.headers, this.defaultHeaders);
+    const headers = mergeHeaders(hasBody, req.body, req.context?.headers, this.defaultHeaders);
 
     let serializedBody: string | undefined;
+    let rawBody: BodyInit | undefined;
     if (hasBody && req.method !== "GET") {
-      try { serializedBody = JSON.stringify(req.body); }
-      catch (err) { throw new ApiRequestSerializationError(`Failed to serialize request body for ${req.method} ${req.path}`, err); }
-      if (serializedBody === undefined) throw new ApiRequestSerializationError(`Request body for ${req.method} ${req.path} is not JSON-serializable`);
+      if (typeof FormData !== "undefined" && req.body instanceof FormData) {
+        // FormData must be passed through verbatim so the browser can set the
+        // multipart boundary. JSON.stringify would produce "{}" and break uploads.
+        rawBody = req.body as unknown as BodyInit;
+      } else if (typeof Blob !== "undefined" && req.body instanceof Blob) {
+        rawBody = req.body as unknown as BodyInit;
+      } else {
+        try { serializedBody = JSON.stringify(req.body); }
+        catch (err) { throw new ApiRequestSerializationError(`Failed to serialize request body for ${req.method} ${req.path}`, err); }
+        if (serializedBody === undefined) throw new ApiRequestSerializationError(`Request body for ${req.method} ${req.path} is not JSON-serializable`);
+      }
     }
 
     const requestSignal = createRequestSignal(timeoutMs, req.signal);
@@ -161,6 +186,7 @@ export class ApiClient {
       const init: RequestInit = { method: req.method, headers, credentials: "include", signal: requestSignal.signal };
       if (req.cache !== undefined) init.cache = req.cache;
       if (serializedBody !== undefined) init.body = serializedBody;
+      else if (rawBody !== undefined) init.body = rawBody;
       let response = await fetch(fullUrl, init);
 
       // Auto-refresh on 401: if the token expired, attempt to refresh and retry once.
@@ -170,10 +196,11 @@ export class ApiClient {
         const refreshed = await this.unauthorizedHandler();
         if (refreshed) {
           // Rebuild headers with the new Authorization token and retry.
-          const retryHeaders = mergeHeaders(hasBody, req.context?.headers, this.defaultHeaders);
+          const retryHeaders = mergeHeaders(hasBody, req.body, req.context?.headers, this.defaultHeaders);
           const retryInit: RequestInit = { method: req.method, headers: retryHeaders, credentials: "include", signal: requestSignal.signal };
           if (req.cache !== undefined) retryInit.cache = req.cache;
           if (serializedBody !== undefined) retryInit.body = serializedBody;
+          else if (rawBody !== undefined) retryInit.body = rawBody;
           response = await fetch(fullUrl, retryInit);
         }
       }
@@ -205,6 +232,50 @@ export class ApiClient {
   put<TResponse, TBody = undefined>(path: string, body?: TBody, options?: RequestOptions): Promise<TResponse> { return this.request<TResponse, TBody>({ method: "PUT", path, body, ...options }); }
   patch<TResponse, TBody = undefined>(path: string, body?: TBody, options?: RequestOptions): Promise<TResponse> { return this.request<TResponse, TBody>({ method: "PATCH", path, body, ...options }); }
   delete<TResponse>(path: string, options?: RequestOptions): Promise<TResponse> { return this.request<TResponse>({ method: "DELETE", path, ...options }); }
+
+  /**
+   * Issue an authenticated GET and return the response body as a Blob.
+   *
+   * Used for endpoints that return non-JSON payloads (e.g. CSV downloads)
+   * where the JSON-deserializing request() method would discard the body.
+   * The same timeout, auth-header, and 401-refresh behavior applies.
+   */
+  async getBlob(path: string, options?: RequestOptions): Promise<Blob> {
+    validateBaseUrl(this.baseUrl);
+    const timeoutMs = options?.timeoutMs ?? this.defaultTimeoutMs;
+    const fullUrl = this.buildUrl(path, options?.query as QueryParams);
+    const headers = mergeHeaders(false, undefined, options?.context?.headers, this.defaultHeaders);
+    const requestSignal = createRequestSignal(timeoutMs, options?.signal);
+    try {
+      const init: RequestInit = { method: "GET", headers, credentials: "include", signal: requestSignal.signal };
+      if (options?.cache !== undefined) init.cache = options.cache;
+      let response = await fetch(fullUrl, init);
+      if (response.status === 401
+          && this.unauthorizedHandler
+          && !NO_REFRESH_PATHS.some((p) => path.startsWith(p))) {
+        const refreshed = await this.unauthorizedHandler();
+        if (refreshed) {
+          const retryHeaders = mergeHeaders(false, undefined, options?.context?.headers, this.defaultHeaders);
+          const retryInit: RequestInit = { method: "GET", headers: retryHeaders, credentials: "include", signal: requestSignal.signal };
+          if (options?.cache !== undefined) retryInit.cache = options.cache;
+          response = await fetch(fullUrl, retryInit);
+        }
+      }
+      if (!response.ok) {
+        const details = await extractErrorDetails(response);
+        throw new ApiHttpError(`HTTP ${details.status} ${details.error || ""}: GET ${path}`.trim(), details);
+      }
+      return await response.blob();
+    } catch (err) {
+      if (err instanceof ApiClientError) throw err;
+      const kind = requestSignal.abortKind();
+      if (kind === "timeout") throw new ApiTimeoutError(`Request to GET ${path} timed out after ${timeoutMs}ms`, timeoutMs, err);
+      if (kind === "external" || isAbortLike(err)) {
+        throw new ApiClientCancellation(`Request to GET ${path} was cancelled: ${safeErrorMessage(err)}`, err);
+      }
+      throw new ApiNetworkError(`Network error while requesting GET ${path}: ${safeErrorMessage(err)}`, err);
+    } finally { requestSignal.cleanup(); }
+  }
 }
 
 type RequestOptions = { query?: QueryParams; context?: ApiRequestContext; signal?: AbortSignal; timeoutMs?: number; cache?: RequestCache };

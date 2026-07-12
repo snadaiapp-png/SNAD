@@ -423,30 +423,35 @@ while IFS= read -r -d '' doc_file; do
 done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
 
 # ----------------------------------------------------------------------------
-# 12. Verify /crm page wires up the operational CrmWorkspaceV2 component
+# 12. Verify /crm page redirects to /crm/overview (CRM-002a route migration)
 # -----------------------------------------------------------------------------
 #
-# Branch crm/002-restore-operational-ui restored the operational CRM UX by
-# making `apps/web/app/crm/page.tsx` render `CrmWorkspaceV2` (the real,
-# API-connected workspace) instead of `CrmCommandCenterPage` (the empty-state
-# governance shell). We fail closed if the page regresses to the old shape so
-# the operational UI can never silently disappear behind empty states again.
+# Branch crm/002a-complete-operational-ui replaced the monolithic
+# CrmWorkspaceV2 mount at /crm with a server-side redirect to the new
+# route-based CRM pages under /crm/(operational)/*. We fail closed if:
+#   (a) /crm/page.tsx no longer redirects to /crm/overview (regression to the
+#       monolithic mount shape).
+#   (b) /crm/(operational)/overview/page.tsx is missing.
+#   (c) /crm/(operational)/accounts/page.tsx is missing.
+#   (d) /crm/(operational)/imports/page.tsx is missing.
+#   (e) /crm/(operational)/settings/custom-fields/page.tsx is missing.
+#   (f) /crm/command-center/page.tsx still renders CrmCommandCenterPage.
 #
-# Two conditions are asserted:
-#   (a) The /crm page imports CrmWorkspaceV2 from "./crm-workspace-v2".
-#   (b) The /crm page does NOT render CrmCommandCenterPage as its only content
-#       (it may import it, but only the command-center route should mount it).
-#   (c) The /crm/command-center route exists and renders CrmCommandCenterPage,
-#       preserving the governance + Execution Board UI.
+# The deprecated CrmWorkspaceV2 / CrmAdvancedView components are kept for
+# reference and may still be imported (e.g. by tests), so we no longer assert
+# that /crm/page.tsx imports CrmWorkspaceV2.
+
+CRM_OVERVIEW_ROUTE="${REPO_ROOT}/apps/web/app/crm/(operational)/overview/page.tsx"
+CRM_ACCOUNTS_ROUTE="${REPO_ROOT}/apps/web/app/crm/(operational)/accounts/page.tsx"
+CRM_IMPORTS_ROUTE="${REPO_ROOT}/apps/web/app/crm/(operational)/imports/page.tsx"
+CRM_CUSTOM_FIELDS_ROUTE="${REPO_ROOT}/apps/web/app/crm/(operational)/settings/custom-fields/page.tsx"
 
 if [[ -f "$CRM_PAGE" ]]; then
-  if ! grep -Eq 'from[[:space:]]+["'\'']\.\/crm-workspace-v2["'\'']' "$CRM_PAGE" \
-    && ! grep -Eq 'CrmWorkspaceV2' "$CRM_PAGE"; then
-    add_violation "apps/web/app/crm/page.tsx no longer imports CrmWorkspaceV2; the operational CRM UI has regressed to empty states."
+  if ! grep -Eq 'redirect\([[:space:]]*["'\'']/crm/overview["'\'']' "$CRM_PAGE"; then
+    add_violation "apps/web/app/crm/page.tsx no longer redirects to /crm/overview; the operational CRM route migration has regressed."
   fi
-
   # If the page imports CrmCommandCenterPage as its default content (the
-  # pre-002 shape), that is a regression even if CrmWorkspaceV2 is also
+  # pre-002 shape), that is a regression even if the redirect is also
   # present — the Command Center must only be mounted at /crm/command-center.
   if grep -Eq 'import[[:space:]]+CrmCommandCenterPage[[:space:]]+from[[:space:]]+["'\'']\.\/crm-command-center["'\'']' "$CRM_PAGE" \
     && grep -Eq '<CrmCommandCenterPage[[:space:]]*/?>' "$CRM_PAGE"; then
@@ -454,6 +459,22 @@ if [[ -f "$CRM_PAGE" ]]; then
   fi
 else
   add_violation "apps/web/app/crm/page.tsx is missing."
+fi
+
+if [[ ! -f "$CRM_OVERVIEW_ROUTE" ]]; then
+  add_violation "apps/web/app/crm/(operational)/overview/page.tsx is missing; the operational overview route must exist."
+fi
+
+if [[ ! -f "$CRM_ACCOUNTS_ROUTE" ]]; then
+  add_violation "apps/web/app/crm/(operational)/accounts/page.tsx is missing; the accounts route must exist."
+fi
+
+if [[ ! -f "$CRM_IMPORTS_ROUTE" ]]; then
+  add_violation "apps/web/app/crm/(operational)/imports/page.tsx is missing; the imports route must exist."
+fi
+
+if [[ ! -f "$CRM_CUSTOM_FIELDS_ROUTE" ]]; then
+  add_violation "apps/web/app/crm/(operational)/settings/custom-fields/page.tsx is missing; the custom fields admin route must exist."
 fi
 
 if [[ ! -f "$CRM_COMMAND_CENTER_ROUTE" ]]; then

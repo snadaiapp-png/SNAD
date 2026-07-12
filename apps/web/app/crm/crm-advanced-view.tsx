@@ -1,5 +1,11 @@
 "use client";
 
+/**
+ * @deprecated This component is superseded by route-based CRM pages.
+ * Functionality has been extracted to /crm/opportunities and /crm/pipelines.
+ * Kept for reference during transition. Will be removed in EXEC-PROMPT-CRM-003.
+ */
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth/auth-provider";
 import {
