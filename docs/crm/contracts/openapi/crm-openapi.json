@@ -1,0 +1,407 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SNAD CRM API",
+    "version": "2.0.0",
+    "description": "Stable, typed, paginated, concurrent, idempotent CRM API contract. Branch crm/003-stable-api-contracts. Gate CRM-G2."
+  },
+  "servers": [
+    { "url": "/api/v2/crm", "description": "CRM v2 API root" }
+  ],
+  "tags": [
+    { "name": "Accounts" },
+    { "name": "Contacts" },
+    { "name": "Leads" },
+    { "name": "Pipelines" },
+    { "name": "Opportunities" },
+    { "name": "Activities" },
+    { "name": "Timeline" },
+    { "name": "Imports" },
+    { "name": "Custom Fields" }
+  ],
+  "paths": {
+    "/accounts": {
+      "get": {
+        "tags": ["Accounts"],
+        "summary": "List accounts (cursor-paginated)",
+        "operationId": "listAccounts",
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/Cursor" },
+          { "$ref": "#/components/parameters/Sort" },
+          { "$ref": "#/components/parameters/Direction" },
+          { "name": "search", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of accounts",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccountListResponse" } } }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Accounts"],
+        "summary": "Create an account (idempotent)",
+        "operationId": "createAccount",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateAccountRequest" } } } },
+        "responses": {
+          "201": {
+            "description": "Account created",
+            "headers": { "ETag": { "$ref": "#/components/headers/ETag" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccountSingleResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/accounts/{accountId}": {
+      "get": {
+        "tags": ["Accounts"],
+        "summary": "Get an account by ID",
+        "operationId": "getAccount",
+        "parameters": [
+          { "$ref": "#/components/parameters/AccountId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Account",
+            "headers": { "ETag": { "$ref": "#/components/headers/ETag" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccountSingleResponse" } } }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "patch": {
+        "tags": ["Accounts"],
+        "summary": "Update an account (requires If-Match)",
+        "operationId": "updateAccount",
+        "parameters": [
+          { "$ref": "#/components/parameters/AccountId" },
+          { "$ref": "#/components/parameters/IfMatch" }
+        ],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateAccountRequest" } } } },
+        "responses": {
+          "200": {
+            "description": "Account updated",
+            "headers": { "ETag": { "$ref": "#/components/headers/ETag" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccountSingleResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "412": { "$ref": "#/components/responses/ConcurrencyConflict" }
+        }
+      }
+    },
+    "/accounts/{accountId}/archive": {
+      "patch": {
+        "tags": ["Accounts"],
+        "summary": "Archive an account (requires If-Match)",
+        "operationId": "archiveAccount",
+        "parameters": [
+          { "$ref": "#/components/parameters/AccountId" },
+          { "$ref": "#/components/parameters/IfMatch" }
+        ],
+        "responses": {
+          "200": { "description": "Account archived" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "412": { "$ref": "#/components/responses/ConcurrencyConflict" }
+        }
+      }
+    },
+    "/accounts/{accountId}/customer-360": {
+      "get": {
+        "tags": ["Accounts"],
+        "summary": "Customer 360 view",
+        "operationId": "customer360",
+        "parameters": [{ "$ref": "#/components/parameters/AccountId" }],
+        "responses": {
+          "200": { "description": "Customer 360" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/contacts": {
+      "get": { "tags": ["Contacts"], "summary": "List contacts", "operationId": "listContacts",
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" },
+          { "$ref": "#/components/parameters/Sort" }, { "$ref": "#/components/parameters/Direction" },
+          { "name": "accountId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "search", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Paginated list of contacts" } } },
+      "post": { "tags": ["Contacts"], "summary": "Create a contact", "operationId": "createContact",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "responses": { "201": { "description": "Contact created" } } }
+    },
+    "/contacts/{contactId}": {
+      "get": { "tags": ["Contacts"], "summary": "Get a contact", "operationId": "getContact",
+        "parameters": [{ "$ref": "#/components/parameters/ContactId" }],
+        "responses": { "200": { "description": "Contact" } } }
+    },
+    "/leads": {
+      "get": { "tags": ["Leads"], "summary": "List leads", "operationId": "listLeads",
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" },
+          { "$ref": "#/components/parameters/Sort" }, { "$ref": "#/components/parameters/Direction" },
+          { "name": "status", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Paginated list of leads" } } },
+      "post": { "tags": ["Leads"], "summary": "Create a lead", "operationId": "createLead",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "responses": { "201": { "description": "Lead created" } } }
+    },
+    "/leads/{leadId}": {
+      "get": { "tags": ["Leads"], "summary": "Get a lead", "operationId": "getLead",
+        "parameters": [{ "$ref": "#/components/parameters/LeadId" }],
+        "responses": { "200": { "description": "Lead" } } }
+    },
+    "/leads/{leadId}/convert": {
+      "post": { "tags": ["Leads"], "summary": "Convert a lead (idempotent)", "operationId": "convertLead",
+        "parameters": [{ "$ref": "#/components/parameters/LeadId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "responses": { "200": { "description": "Lead converted" }, "409": { "$ref": "#/components/responses/Conflict" } } }
+    },
+    "/pipelines": {
+      "get": { "tags": ["Pipelines"], "summary": "List pipelines", "operationId": "listPipelines",
+        "responses": { "200": { "description": "List of pipelines" } } }
+    },
+    "/pipelines/{pipelineId}/stages": {
+      "get": { "tags": ["Pipelines"], "summary": "List stages for a pipeline", "operationId": "listPipelineStages",
+        "parameters": [{ "$ref": "#/components/parameters/PipelineId" }],
+        "responses": { "200": { "description": "List of stages" } } }
+    },
+    "/opportunities": {
+      "get": { "tags": ["Opportunities"], "summary": "List opportunities", "operationId": "listOpportunities",
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" },
+          { "$ref": "#/components/parameters/Sort" }, { "$ref": "#/components/parameters/Direction" },
+          { "name": "accountId", "in": "query", "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": { "200": { "description": "Paginated list of opportunities" } } },
+      "post": { "tags": ["Opportunities"], "summary": "Create an opportunity", "operationId": "createOpportunity",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "responses": { "201": { "description": "Opportunity created" } } }
+    },
+    "/opportunities/{opportunityId}": {
+      "get": { "tags": ["Opportunities"], "summary": "Get an opportunity", "operationId": "getOpportunity",
+        "parameters": [{ "$ref": "#/components/parameters/OpportunityId" }],
+        "responses": { "200": { "description": "Opportunity" } } }
+    },
+    "/activities": {
+      "get": { "tags": ["Activities"], "summary": "List activities", "operationId": "listActivities",
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" },
+          { "$ref": "#/components/parameters/Sort" }, { "$ref": "#/components/parameters/Direction" },
+          { "name": "relatedType", "in": "query", "schema": { "type": "string" } },
+          { "name": "relatedId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "status", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Paginated list of activities" } } },
+      "post": { "tags": ["Activities"], "summary": "Create an activity", "operationId": "createActivity",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "responses": { "201": { "description": "Activity created" } } }
+    },
+    "/activities/{activityId}": {
+      "get": { "tags": ["Activities"], "summary": "Get an activity", "operationId": "getActivity",
+        "parameters": [{ "$ref": "#/components/parameters/ActivityId" }],
+        "responses": { "200": { "description": "Activity" } } }
+    },
+    "/timeline/{subjectType}/{subjectId}": {
+      "get": { "tags": ["Timeline"], "summary": "List timeline events", "operationId": "timeline",
+        "parameters": [
+          { "name": "subjectType", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "subjectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" },
+          { "$ref": "#/components/parameters/Sort" }, { "$ref": "#/components/parameters/Direction" }
+        ],
+        "responses": { "200": { "description": "Paginated list of timeline events" } } }
+    },
+    "/imports": {
+      "get": { "tags": ["Imports"], "summary": "List import jobs", "operationId": "listImportJobs",
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" },
+          { "$ref": "#/components/parameters/Sort" }, { "$ref": "#/components/parameters/Direction" }
+        ],
+        "responses": { "200": { "description": "Paginated list of import jobs" } } }
+    },
+    "/imports/{jobId}": {
+      "get": { "tags": ["Imports"], "summary": "Get an import job", "operationId": "getImportJob",
+        "parameters": [{ "name": "jobId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Import job" } } }
+    },
+    "/imports/{jobId}/errors": {
+      "get": { "tags": ["Imports"], "summary": "List import errors", "operationId": "listImportErrors",
+        "parameters": [
+          { "name": "jobId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" },
+          { "$ref": "#/components/parameters/Sort" }, { "$ref": "#/components/parameters/Direction" }
+        ],
+        "responses": { "200": { "description": "Paginated list of import errors" } } }
+    },
+    "/custom-fields": {
+      "get": { "tags": ["Custom Fields"], "summary": "List custom field definitions", "operationId": "listCustomFields",
+        "parameters": [
+          { "name": "entityType", "in": "query", "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" },
+          { "$ref": "#/components/parameters/Sort" }, { "$ref": "#/components/parameters/Direction" }
+        ],
+        "responses": { "200": { "description": "Paginated list of custom field definitions" } } }
+    },
+    "/custom-fields/values/{entityType}/{entityId}": {
+      "get": { "tags": ["Custom Fields"], "summary": "Read custom field values for an entity", "operationId": "readCustomFieldValues",
+        "parameters": [
+          { "name": "entityType", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "entityId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": { "200": { "description": "Custom field values" } } },
+      "put": { "tags": ["Custom Fields"], "summary": "Upsert custom field values for an entity", "operationId": "upsertCustomFieldValues",
+        "parameters": [
+          { "name": "entityType", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "entityId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": { "200": { "description": "Custom field values after upsert" } } }
+    }
+  },
+  "components": {
+    "parameters": {
+      "Limit": { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 } },
+      "Cursor": { "name": "cursor", "in": "query", "schema": { "type": "string" }, "description": "Opaque pagination cursor. Do NOT parse or modify — pass back the exact value returned in page.nextCursor." },
+      "Sort": { "name": "sort", "in": "query", "schema": { "type": "string", "enum": ["updatedAt", "createdAt", "displayName", "name", "status", "amount", "priority"], "default": "updatedAt" } },
+      "Direction": { "name": "direction", "in": "query", "schema": { "type": "string", "enum": ["asc", "desc"], "default": "desc" } },
+      "IfMatch": { "name": "If-Match", "in": "header", "required": true, "schema": { "type": "string" }, "description": "The ETag of the resource version the client last saw. Required on every PATCH." },
+      "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "schema": { "type": "string" }, "description": "Optional. If set, the API replays the previous response when the same key+payload is seen again." },
+      "AccountId": { "name": "accountId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+      "ContactId": { "name": "contactId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+      "LeadId": { "name": "leadId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+      "PipelineId": { "name": "pipelineId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+      "OpportunityId": { "name": "opportunityId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+      "ActivityId": { "name": "activityId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+    },
+    "headers": {
+      "ETag": { "description": "The current version of the resource. Pass this back as If-Match on PATCH.", "schema": { "type": "string" } }
+    },
+    "responses": {
+      "ValidationError": { "description": "Validation error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+      "NotFound": { "description": "Resource not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+      "Conflict": { "description": "Conflict", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+      "ConcurrencyConflict": { "description": "Precondition failed (stale ETag)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+    },
+    "schemas": {
+      "Meta": {
+        "type": "object",
+        "required": ["requestId", "timestamp"],
+        "properties": {
+          "requestId": { "type": "string", "format": "uuid" },
+          "timestamp": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Page": {
+        "type": "object",
+        "required": ["hasMore", "limit"],
+        "properties": {
+          "nextCursor": { "type": "string", "nullable": true },
+          "hasMore": { "type": "boolean" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message", "status", "requestId", "timestamp"],
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "status": { "type": "integer" },
+              "requestId": { "type": "string", "format": "uuid" },
+              "timestamp": { "type": "string", "format": "date-time" },
+              "fieldErrors": { "type": "array", "items": { "$ref": "#/components/schemas/FieldError" } },
+              "details": { "type": "object", "additionalProperties": true }
+            }
+          }
+        }
+      },
+      "FieldError": {
+        "type": "object",
+        "required": ["field", "code", "message"],
+        "properties": {
+          "field": { "type": "string" },
+          "code": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      },
+      "CreateAccountRequest": {
+        "type": "object",
+        "required": ["displayName"],
+        "properties": {
+          "displayName": { "type": "string", "maxLength": 240 },
+          "accountType": { "type": "string", "enum": ["BUSINESS", "PERSON", "PARTNER", "PROSPECT", "OTHER"] },
+          "ownerUserId": { "type": "string", "format": "uuid" },
+          "parentAccountId": { "type": "string", "format": "uuid" },
+          "primaryCurrencyCode": { "type": "string", "pattern": "^[A-Za-z]{3}$" },
+          "preferredLocale": { "type": "string", "maxLength": 35 },
+          "timeZone": { "type": "string", "maxLength": 64 },
+          "source": { "type": "string", "maxLength": 80 }
+        }
+      },
+      "UpdateAccountRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": { "type": "string", "maxLength": 240 },
+          "ownerUserId": { "type": "string", "format": "uuid" },
+          "parentAccountId": { "type": "string", "format": "uuid" },
+          "primaryCurrencyCode": { "type": "string", "pattern": "^[A-Za-z]{3}$" },
+          "preferredLocale": { "type": "string", "maxLength": 35 },
+          "timeZone": { "type": "string", "maxLength": 64 },
+          "source": { "type": "string", "maxLength": 80 }
+        }
+      },
+      "AccountResponse": {
+        "type": "object",
+        "required": ["id", "version", "displayName", "accountType", "lifecycleStatus"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "version": { "type": "integer", "format": "int64" },
+          "displayName": { "type": "string" },
+          "normalizedDisplayName": { "type": "string" },
+          "accountType": { "type": "string" },
+          "lifecycleStatus": { "type": "string" },
+          "primaryCurrencyCode": { "type": "string" },
+          "preferredLocale": { "type": "string" },
+          "timeZone": { "type": "string" },
+          "source": { "type": "string" },
+          "parentAccountId": { "type": "string", "format": "uuid", "nullable": true },
+          "ownerUserId": { "type": "string", "format": "uuid", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "AccountSingleResponse": {
+        "type": "object",
+        "required": ["data", "meta"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/AccountResponse" },
+          "meta": { "$ref": "#/components/schemas/Meta" }
+        }
+      },
+      "AccountListResponse": {
+        "type": "object",
+        "required": ["data", "page", "meta"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/AccountResponse" } },
+          "page": { "$ref": "#/components/schemas/Page" },
+          "meta": { "$ref": "#/components/schemas/Meta" }
+        }
+      }
+    },
+    "securitySchemes": {
+      "BearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+    }
+  },
+  "security": [ { "BearerAuth": [] } ]
+}
