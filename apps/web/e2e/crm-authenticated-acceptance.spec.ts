@@ -91,8 +91,9 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
 
   test("dashboard renders KPIs", async ({ page }) => {
     await waitForCrmReady(page, "/crm/overview");
-    // The overview page renders KPI metric tiles. The h1 is "CRM Overview".
-    await expect(page.locator("h1").first()).toContainText(/CRM Overview|نظرة عامة/i);
+    // The shell h1 names the CRM application; the route-specific title
+    // is rendered inside the operational content region.
+    await expect(page.locator("#crm-operational-content")).toContainText(/CRM Overview|نظرة عامة/i);
     // At least one metric tile (accounts/contacts/leads/opportunities) must
     // render a numeric value. We accept 0 as a valid value (seeded data may
     // be the only data) but the tile must be present.

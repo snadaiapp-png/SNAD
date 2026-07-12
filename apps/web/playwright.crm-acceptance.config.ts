@@ -5,6 +5,7 @@ const configuredBaseUrl = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3
 // canonical loopback hostname prevents a false CSRF-origin mismatch between
 // localhost and 127.0.0.1 while preserving the same-origin security check.
 const BASE_URL = configuredBaseUrl.replace("127.0.0.1", "localhost");
+process.env.PLAYWRIGHT_BASE_URL = BASE_URL;
 
 export default defineConfig({
   testDir: "./e2e",
