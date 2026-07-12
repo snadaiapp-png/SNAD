@@ -102,6 +102,7 @@ jobs:
       DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
       DATABASE_USERNAME: sanad_test
       DATABASE_PASSWORD: sanad_test_pass
+          DATABASE_NAME: sanad_test
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
       SPRING_DATASOURCE_USERNAME: sanad_test
       SPRING_DATASOURCE_PASSWORD: sanad_test_pass
@@ -246,7 +247,7 @@ jobs:
           PGPASSWORD="$DATABASE_PASSWORD" psql \
             -h 127.0.0.1 \
             -U "$DATABASE_USERNAME" \
-            -d "$DATABASE_USERNAME" \
+            -d "$DATABASE_NAME" \
             -v ON_ERROR_STOP=1 \
             -f src/test/resources/sql/crm-acceptance-seed.sql
 
@@ -414,7 +415,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx playwright test \
+          npx playwright test --config=playwright.crm-acceptance.config.ts \
             --project=en-ltr-light \
             --reporter=html,list \
             e2e/crm-authenticated-acceptance.spec.ts \

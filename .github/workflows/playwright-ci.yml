@@ -102,7 +102,7 @@ jobs:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
         run: |
           set -euo pipefail
-          npx playwright test --reporter=html,list --exclude="**/crm-authenticated-acceptance.spec.ts" --exclude="**/crm-tenant-isolation.spec.ts" --exclude="**/crm-rbac-acceptance.spec.ts" --exclude="**/crm-accessibility.spec.ts"
+          npx playwright test --config=playwright.standard.config.ts --reporter=html,list
 
       - name: Stop server
         if: always()
