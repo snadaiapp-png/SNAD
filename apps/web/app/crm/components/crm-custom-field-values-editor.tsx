@@ -264,7 +264,7 @@ export function CrmCustomFieldValuesEditor({
               <label htmlFor={inputId} className={isCheckbox ? styles.checkboxLabel : styles.fieldLabel}>
                 <span>
                   {label}
-                  {def.required ? <span aria-hidden="true" style={{ color: "var(--snad-color-status-error, #c0392b)" }}> *</span> : null}
+                  {def.required ? <span aria-hidden="true" style={{ color: "var(--snad-color-status-error, var(--snad-error))" }}> *</span> : null}
                   {def.sensitive ? (
                     <span className={`${styles.badge} ${styles.badgeWarning}`} style={{ marginLeft: 6 }}>
                       {t("crm.customFields.list.sensitive")}
