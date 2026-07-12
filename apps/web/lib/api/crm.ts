@@ -175,26 +175,32 @@ export const crmApi = {
   customer360: (id: string) => apiClient.get<Customer360>(`${root}/accounts/${id}/customer-360`, { cache: "no-store" }),
 
   contacts: (accountId?: string, search?: string) => apiClient.get<CrmContact[]>(`${root}/contacts`, { query: { limit: 200, accountId, search }, cache: "no-store" }),
+  contact: (id: string) => apiClient.get<CrmContact>(`${root}/contacts/${id}`, { cache: "no-store" }),
   createContact: (body: { accountId?: string; givenName: string; familyName?: string; primaryEmail?: string; primaryPhone?: string; preferredLocale: string; timeZone: string; consentSummary: string }) => apiClient.post<CrmContact, typeof body>(`${root}/contacts`, body),
   archiveContact: (id: string) => apiClient.patch<CrmContact>(`${root}/contacts/${id}/archive`),
   restoreContact: (id: string) => apiClient.patch<CrmContact>(`${root}/contacts/${id}/restore`),
 
   leads: (status?: string) => apiClient.get<CrmLead[]>(`${root}/leads`, { query: { limit: 200, status }, cache: "no-store" }),
+  lead: (id: string) => apiClient.get<CrmLead>(`${root}/leads/${id}`, { cache: "no-store" }),
   createLead: (body: { displayName: string; companyName?: string; email?: string; phone?: string; source?: string; score?: number }) => apiClient.post<CrmLead, typeof body>(`${root}/leads`, body),
   changeLeadStatus: (id: string, status: string) => apiClient.patch<CrmLead, { status: string }>(`${root}/leads/${id}/status`, { status }),
-  convertLead: (id: string, body: { createOpportunity: boolean; currencyCode: string; opportunityName?: string; amount?: number }) => apiClient.post<Record<string, unknown>, typeof body>(`${root}/leads/${id}/convert`, body),
+  convertLead: (id: string, body: { createOpportunity: boolean; currencyCode: string; opportunityName?: string; amount?: number; pipelineId?: string; stageId?: string }) => apiClient.post<Record<string, unknown>, typeof body>(`${root}/leads/${id}/convert`, body),
 
   pipelines: () => apiClient.get<CrmPipeline[]>(`${root}/pipelines`, { cache: "no-store" }),
   createPipeline: (body: { name: string; currencyCode: string; stages: string[] }) => apiClient.post<CrmPipeline & { stageIds: string[] }, typeof body>(`${root}/pipelines`, body),
   stages: (pipelineId: string) => apiClient.get<CrmStage[]>(`${root}/pipelines/${pipelineId}/stages`, { cache: "no-store" }),
 
   opportunities: (accountId?: string) => apiClient.get<CrmOpportunity[]>(`${root}/opportunities`, { query: { limit: 200, accountId }, cache: "no-store" }),
+  opportunity: (id: string) => apiClient.get<CrmOpportunity>(`${root}/opportunities/${id}`, { cache: "no-store" }),
   createOpportunity: (body: { accountId: string; contactId?: string; pipelineId: string; stageId: string; name: string; amount?: number; currencyCode: string; expectedCloseDate?: string }) => apiClient.post<CrmOpportunity, typeof body>(`${root}/opportunities`, body),
   moveOpportunity: (id: string, stageId: string, reason?: string) => apiClient.patch<CrmOpportunity, { stageId: string; reason?: string }>(`${root}/opportunities/${id}/stage`, { stageId, reason }),
 
   activities: (relatedType?: string, relatedId?: string, status?: string) => apiClient.get<CrmActivity[]>(`${root}/activities`, { query: { limit: 200, relatedType, relatedId, status }, cache: "no-store" }),
   createActivity: (body: { activityType: string; subject: string; body?: string; relatedType?: string; relatedId?: string; priority?: number; dueAt?: string }) => apiClient.post<CrmActivity, typeof body>(`${root}/activities`, body),
   completeActivity: (id: string, result?: string) => apiClient.patch<CrmActivity, { result?: string }>(`${root}/activities/${id}/complete`, { result }),
+
+  // ── Timeline (CRM.TIMELINE.READ) ──────────────────────────────────────
+  timeline: (subjectType: string, subjectId: string) => apiClient.get<CrmTimelineEvent[]>(`${root}/timeline/${subjectType}/${subjectId}`, { cache: "no-store" }),
 
   // ── Import jobs (CRM.IMPORT.READ / WRITE) ──────────────────────────────
   imports: () => apiClient.get<CrmImportJob[]>(`${root}/imports`, { query: { limit: 200 }, cache: "no-store" }),
