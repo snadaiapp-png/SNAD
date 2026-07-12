@@ -445,6 +445,11 @@ CRM_OVERVIEW_ROUTE="${REPO_ROOT}/apps/web/app/crm/(operational)/overview/page.ts
 CRM_ACCOUNTS_ROUTE="${REPO_ROOT}/apps/web/app/crm/(operational)/accounts/page.tsx"
 CRM_IMPORTS_ROUTE="${REPO_ROOT}/apps/web/app/crm/(operational)/imports/page.tsx"
 CRM_CUSTOM_FIELDS_ROUTE="${REPO_ROOT}/apps/web/app/crm/(operational)/settings/custom-fields/page.tsx"
+# CRM-002b detail routes
+CRM_CONTACT_DETAIL_ROUTE="${REPO_ROOT}/apps/web/app/crm/(operational)/contacts/[contactId]/page.tsx"
+CRM_LEAD_DETAIL_ROUTE="${REPO_ROOT}/apps/web/app/crm/(operational)/leads/[leadId]/page.tsx"
+CRM_OPPORTUNITY_DETAIL_ROUTE="${REPO_ROOT}/apps/web/app/crm/(operational)/opportunities/[opportunityId]/page.tsx"
+CRM_E2E_SPEC="${REPO_ROOT}/apps/web/e2e/crm-operational.spec.ts"
 
 if [[ -f "$CRM_PAGE" ]]; then
   if ! grep -Eq 'redirect\([[:space:]]*["'\'']/crm/overview["'\'']' "$CRM_PAGE"; then
@@ -484,7 +489,31 @@ elif ! grep -Eq 'CrmCommandCenterPage' "$CRM_COMMAND_CENTER_ROUTE"; then
 fi
 
 # ----------------------------------------------------------------------------
-# 13. Summary and exit
+# 13. Verify CRM-002b detail routes and E2E spec exist
+# -----------------------------------------------------------------------------
+#
+# Branch crm/002b-final-operational-acceptance added the three missing
+# detail routes (contact, lead, opportunity) plus the first Playwright E2E
+# suite for the operational CRM. We fail closed if any of these regress.
+
+if [[ ! -f "$CRM_CONTACT_DETAIL_ROUTE" ]]; then
+  add_violation "apps/web/app/crm/(operational)/contacts/[contactId]/page.tsx is missing; the contact detail route must exist."
+fi
+
+if [[ ! -f "$CRM_LEAD_DETAIL_ROUTE" ]]; then
+  add_violation "apps/web/app/crm/(operational)/leads/[leadId]/page.tsx is missing; the lead detail route must exist."
+fi
+
+if [[ ! -f "$CRM_OPPORTUNITY_DETAIL_ROUTE" ]]; then
+  add_violation "apps/web/app/crm/(operational)/opportunities/[opportunityId]/page.tsx is missing; the opportunity detail route must exist."
+fi
+
+if [[ ! -f "$CRM_E2E_SPEC" ]]; then
+  add_violation "apps/web/e2e/crm-operational.spec.ts is missing; the CRM operational E2E suite must exist."
+fi
+
+# ----------------------------------------------------------------------------
+# 14. Summary and exit
 # ----------------------------------------------------------------------------
 
 if (( ${#VIOLATIONS[@]} == 0 )); then

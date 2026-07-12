@@ -1,26 +1,42 @@
 # CRM-002: Operational UI Evidence
 
 ## Starting SHA
-18aa875819f41de34d972c56a9d2e15695c50eb8
+852d8a7309437bc0737fa6fab2577b9fcb253cb6
 
 ## Branch
-crm/002a-complete-operational-ui
+crm/002b-final-operational-acceptance
 
 ## Summary
-Migrated the operational CRM from a single monolithic page (`/crm` rendering
-`CrmWorkspaceV2` + `CrmAdvancedView` with `useState`-driven tab navigation)
-to a route-based architecture under `/crm/*` with URL-aware navigation,
+Completed the CRM operational UI acceptance gate (CRM-002b) on top of the
+CRM-002a route migration. This iteration closes the final operational gaps:
+
+- Adds the three missing detail routes (contact, lead, opportunity) that
+  the CRM-002a delivery left as known limitations.
+- Wires the custom-field values endpoints (read) into the detail pages
+  (write/edit will land in CRM-003).
+- Adds the first Playwright E2E suite for the operational CRM routes,
+  plus Vitest RBAC and route-structure tests.
+- Updates the governance drift check to fail closed if any of the new
+  detail routes or the E2E test file go missing.
+
+The original CRM-002a migration remains intact: the operational CRM was
+migrated from a single monolithic page (`/crm` rendering `CrmWorkspaceV2`
++ `CrmAdvancedView` with `useState`-driven tab navigation) to a
+route-based architecture under `/crm/*` with URL-aware navigation,
 per-route data loading, and dedicated pages for every CRM domain object.
 
-## Routes Implemented
+## Routes Implemented (15 total)
 - `/crm` — Server-side `redirect("/crm/overview")` (replaces monolithic mount)
 - `/crm/overview` — Dashboard with real KPIs from `crmApi.dashboard()`
 - `/crm/accounts` — Account list + create + archive/restore + search
 - `/crm/accounts/[accountId]` — Customer 360 detail (account + contacts + opportunities + activities + timeline)
 - `/crm/contacts` — Contact list + create + archive + search
+- `/crm/contacts/[contactId]` — Contact detail (identity, contact info, custom fields, related activities, archive/restore) **NEW (CRM-002b)**
 - `/crm/leads` — Lead list + create + status filter + qualify/disqualify + convert
+- `/crm/leads/[leadId]` — Lead detail (identity, status transitions, convert dialog, custom fields, timeline) **NEW (CRM-002b)**
 - `/crm/pipelines` — Pipeline list + create + stages inline display
 - `/crm/opportunities` — Pipeline board (drag-and-drop) + virtualized table + create form
+- `/crm/opportunities/[opportunityId]` — Opportunity detail (summary, stage movement, custom fields, related activities) **NEW (CRM-002b)**
 - `/crm/activities` — Activity list + create + status filter + complete
 - `/crm/imports` — File upload (CSV/XLSX) + job list + job detail + error CSV download
 - `/crm/settings/custom-fields` — Custom field definitions + create form + sensitive/searchable validation
@@ -41,14 +57,16 @@ All 45+ endpoints under `/api/v1/crm/*`:
 
 ### Contacts (CRM.CONTACT.READ / WRITE)
 - `GET /api/v1/crm/contacts` (list, filter by account, search)
+- `GET /api/v1/crm/contacts/{contactId}` (detail) **NEW (CRM-002b)**
 - `POST /api/v1/crm/contacts` (create)
 - `PATCH /api/v1/crm/contacts/{id}/archive`
 - `PATCH /api/v1/crm/contacts/{id}/restore`
 
 ### Leads (CRM.LEAD.READ / WRITE / CONVERT)
 - `GET /api/v1/crm/leads` (list, filter by status)
+- `GET /api/v1/crm/leads/{leadId}` (detail) **NEW (CRM-002b)**
 - `POST /api/v1/crm/leads` (create)
-- `PATCH /api/v1/crm/leads/{id}/status` (qualify / disqualify)
+- `PATCH /api/v1/crm/leads/{id}/status` (qualify / disqualify / status transitions)
 - `POST /api/v1/crm/leads/{id}/convert` (convert to opportunity)
 
 ### Pipelines (CRM.ADMIN / OPPORTUNITY.READ)
@@ -58,13 +76,17 @@ All 45+ endpoints under `/api/v1/crm/*`:
 
 ### Opportunities (CRM.OPPORTUNITY.READ / WRITE)
 - `GET /api/v1/crm/opportunities` (list, filter by account)
+- `GET /api/v1/crm/opportunities/{opportunityId}` (detail) **NEW (CRM-002b)**
 - `POST /api/v1/crm/opportunities` (create)
-- `PATCH /api/v1/crm/opportunities/{id}/stage` (move via board)
+- `PATCH /api/v1/crm/opportunities/{id}/stage` (move via board or detail dropdown)
 
 ### Activities (CRM.ACTIVITY.READ / WRITE)
 - `GET /api/v1/crm/activities` (list, filter by relatedType / relatedId / status)
 - `POST /api/v1/crm/activities` (create)
 - `PATCH /api/v1/crm/activities/{id}/complete`
+
+### Timeline (CRM.TIMELINE.READ) — NEW (CRM-002b)
+- `GET /api/v1/crm/timeline/{subjectType}/{subjectId}` (lead detail page timeline)
 
 ### Imports (CRM.IMPORT.READ / WRITE) — NEW
 - `GET /api/v1/crm/imports` (list jobs)
@@ -106,6 +128,10 @@ All 45+ endpoints under `/api/v1/crm/*`:
   - `downloadImportErrorsCsv(jobId)` → returns `Blob` via authenticated fetch
   - `uploadImport(file, entityType, mapping?)` — multipart FormData upload
   - `customFields(entityType?)`, `createCustomField(body)`, `customFieldValues(et, id)`, `upsertCustomFieldValues(et, id, values)`
+  - `contact(id)` — fetch a single contact by id **NEW (CRM-002b)**
+  - `lead(id)` — fetch a single lead by id **NEW (CRM-002b)**
+  - `opportunity(id)` — fetch a single opportunity by id **NEW (CRM-002b)**
+  - `timeline(subjectType, subjectId)` — fetch a subject's timeline events **NEW (CRM-002b)**
 - `apps/web/lib/api/client.ts`:
   - Added `ApiClient.getBlob(path, options)` for non-JSON authenticated GETs (CSV downloads)
   - Updated `mergeHeaders` + `request()` to detect FormData/Blob bodies and skip JSON serialization
@@ -118,6 +144,13 @@ All 45+ endpoints under `/api/v1/crm/*`:
   - State strings (loading, error, empty, retry)
   - Account/Contact/Lead/Pipeline/Opportunity/Activity/Import/CustomField labels
   - Custom field validation messages (sensitive+searchable conflict, fieldKey pattern)
+- Added ~80 new keys in CRM-002b for the detail pages:
+  - `crm.contactDetail.*` — contact detail page
+  - `crm.leadDetail.*` — lead detail page (incl. status label dictionary +
+    convert dialog strings)
+  - `crm.opportunityDetail.*` — opportunity detail page
+  - `crm.common.*` shared strings (customFields, activities, timeline,
+    notFound, archived, restored, back, converting, convertSubmit)
 - Both dictionaries stay in sync (CI `check-i18n-keys.py` enforces parity)
 
 ## CSS
@@ -165,9 +198,22 @@ All 45+ endpoints under `/api/v1/crm/*`:
   - `apps/web/lib/api/client.test.ts` — API client unit tests
   - `apps/web/lib/api/auth.test.ts`, `auth-flow.test.ts`, `auth-provider.test.ts(x)`
   - `apps/web/lib/i18n/I18nProvider.test.tsx`
-- New E2E coverage: existing visual regression tests under `apps/web/e2e/`
-  cover the `/crm` redirect behavior; the route now lands on `/crm/overview`
-  instead of the monolithic workspace.
+- New E2E coverage (CRM-002b):
+  - `apps/web/e2e/crm-operational.spec.ts` — smoke-tests every operational
+    route, asserts `/crm` redirects to `/crm/overview`, exercises
+    back/forward navigation + refresh-maintains-route, and verifies the
+    three new detail routes render without server error.
+- New Vitest coverage (CRM-002b):
+  - `apps/web/app/crm/crm-rbac.test.tsx` — asserts the CrmShell renders all
+    10 expected sidebar entries, that the active entry is driven by
+    `usePathname()` (including detail routes), and that the unauthorized
+    state hides the navigation surface (RBAC enforced by the absence of
+    the sidebar until AUTHENTICATED).
+  - `apps/web/app/crm/crm-routes.test.tsx` — asserts `/crm` exports a
+    redirect component, that all three new detail route modules export a
+    default React component, and that each detail component renders the
+    loading skeleton while data is in flight and the error state when the
+    API rejects.
 - Manual smoke: each route handles loading, error, empty, and success states
   explicitly per the task contract.
 
@@ -177,18 +223,13 @@ All 45+ endpoints under `/api/v1/crm/*`:
   for removal in EXEC-PROMPT-CRM-003.
 - The custom-fields page only creates new field definitions; editing or
   deactivating existing fields is not yet wired (backend endpoint exists
-  but is out of scope for CRM-002a).
+  but is out of scope for CRM-002b).
 - Import "mapping" (column-to-field mapping JSON) is accepted by the API
   client (`uploadImport(file, entityType, mapping)`) but the UI does not yet
   expose a mapping builder — the upload sends the file with no explicit
   mapping and lets the backend auto-detect.
-- Custom-field values (per-entity read/upsert) endpoints are wired in the
-  API client but not yet surfaced in a UI page; they will be used by the
-  Customer 360 detail page in a follow-up.
-- No Playwright E2E tests added for the new routes in this iteration —
-  existing visual regression tests cover the `/crm` redirect only.
-  New E2E tests for `/crm/overview`, `/crm/accounts`, etc. are scheduled
-  for CRM-002b.
+- Custom-field values are surfaced read-only on the new detail pages;
+  inline editing of those values is scheduled for CRM-003.
 
 ## Governance Drift Check Updates
 - `scripts/crm/governance-drift-check.sh` was updated to assert:
@@ -198,7 +239,12 @@ All 45+ endpoints under `/api/v1/crm/*`:
   - `/crm/(operational)/imports/page.tsx` exists
   - `/crm/(operational)/settings/custom-fields/page.tsx` exists
   - `/crm/command-center/page.tsx` still renders CrmCommandCenterPage (unchanged)
+  - `/crm/(operational)/contacts/[contactId]/page.tsx` exists **NEW (CRM-002b)**
+  - `/crm/(operational)/leads/[leadId]/page.tsx` exists **NEW (CRM-002b)**
+  - `/crm/(operational)/opportunities/[opportunityId]/page.tsx` exists **NEW (CRM-002b)**
+  - `apps/web/e2e/crm-operational.spec.ts` exists **NEW (CRM-002b)**
 
 ## Next Prompt
-EXEC-PROMPT-CRM-003 — remove deprecated components; wire custom-field values UI;
-add Playwright E2E coverage for the new operational routes.
+EXEC-PROMPT-CRM-003 — remove deprecated components; wire custom-field values
+inline editing UI; expand Playwright E2E coverage for authenticated CRM flows
+once a stable test backend is available.
