@@ -565,7 +565,7 @@ INSERT INTO crm_pipelines (
     created_by, created_at, updated_at
 )
 VALUES (
-    'pp00pp00-pp00-4pp0-8pp0-pp00pp00pp01',
+    '0b00b000-0b00-4b00-8b00-0b00b000b001',
     '11111111-1111-4111-8111-111111111111',
     'Tenant A Default Pipeline',
     'SAR',
@@ -582,7 +582,7 @@ INSERT INTO crm_pipeline_stages (
 VALUES (
     'ss00ss00-ss00-4ss0-8ss0-ss00ss00ss01',
     '11111111-1111-4111-8111-111111111111',
-    'pp00pp00-pp00-4pp0-8pp0-pp00pp00pp01',
+    '0b00b000-0b00-4b00-8b00-0b00b000b001',
     'New',
     1,
     10,
@@ -597,7 +597,7 @@ INSERT INTO crm_pipeline_stages (
 VALUES (
     'ss00ss00-ss00-4ss0-8ss0-ss00ss00ss02',
     '11111111-1111-4111-8111-111111111111',
-    'pp00pp00-pp00-4pp0-8pp0-pp00pp00pp01',
+    '0b00b000-0b00-4b00-8b00-0b00b000b001',
     'Won',
     2,
     100,
@@ -643,7 +643,7 @@ VALUES (
     0,
     'aa00aa00-aa00-4aa0-8aa0-aa00aa00aa01',
     'cc00cc00-cc00-4cc0-8cc0-cc00cc00cc01',
-    'pp00pp00-pp00-4pp0-8pp0-pp00pp00pp01',
+    '0b00b000-0b00-4b00-8b00-0b00b000b001',
     'ss00ss00-ss00-4ss0-8ss0-ss00ss00ss01',
     'Tenant A Sample Opportunity',
     25000.000000,
