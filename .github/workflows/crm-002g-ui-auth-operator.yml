@@ -13,8 +13,7 @@ jobs:
     if: >-
       github.event.issue.pull_request &&
       github.event.issue.number == 501 &&
-      github.event.comment.body == '/patch-crm-ui-auth' &&
-      github.event.comment.user.login == 'snadaiapp-png'
+      github.event.comment.body == '/patch-crm-ui-auth-501'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
