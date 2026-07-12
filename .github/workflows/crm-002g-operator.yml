@@ -1,8 +1,8 @@
 name: CRM 002G Branch Operator
 
 on:
-  pull_request_target:
-    types: [opened, reopened, synchronize]
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: write
@@ -11,12 +11,14 @@ permissions:
 jobs:
   apply:
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'crm/002g-execute-final-acceptance-gate'
+      github.event.issue.pull_request &&
+      github.event.issue.number == 501 &&
+      github.event.comment.body == '/apply-crm-002g' &&
+      github.event.comment.user.login == 'snadaiapp-png'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout trusted same-repository branch
+      - name: Checkout governed execution branch
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository }}
@@ -27,7 +29,7 @@ jobs:
       - name: Apply CRM-002G fixes
         run: python3 scripts/crm/apply_002g_fixes.py
 
-      - name: Remove bootstrap-only evidence files
+      - name: Remove bootstrap-only files
         shell: bash
         run: |
           set -euo pipefail
