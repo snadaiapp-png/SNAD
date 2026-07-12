@@ -530,3 +530,10 @@ echo "CRM_GOVERNANCE_DRIFT_CHECK: FAIL" >&2
 echo "Detected ${#VIOLATIONS[@]} drift violation(s):" >&2
 printf '  - %s\n' "${VIOLATIONS[@]}" >&2
 exit 1
+
+# Check 14: Verify CRM-G1 closure claims have evidence
+if grep -q "CRM-G1: CLOSED" docs/crm/CRM-CURRENT-BASELINE.md 2>/dev/null; then
+  if ! grep -q "Known Limitations" docs/crm/evidence/CRM-002-OPERATIONAL-UI-EVIDENCE.md 2>/dev/null; then
+    fail "CRM-G1 claimed CLOSED but evidence file lacks Known Limitations section"
+  fi
+fi
