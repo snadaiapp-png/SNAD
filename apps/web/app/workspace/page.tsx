@@ -90,7 +90,15 @@ export default function WorkspacePage() {
             className={styles.workspacePrimaryButton}
             onClick={() => router.push("/crm")}
           >
-            مركز قيادة CRM
+            {t("workspace.openCrm")}
+          </button>
+
+          <button
+            type="button"
+            className={styles.workspaceLogoutButton}
+            onClick={() => router.push("/crm/command-center")}
+          >
+            {t("workspace.openCrmCommandCenter")}
           </button>
 
           {hasAdministrativeRole ? (

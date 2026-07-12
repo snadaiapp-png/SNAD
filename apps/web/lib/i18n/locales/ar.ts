@@ -228,4 +228,6 @@ export const ar: TranslationDictionary = {
   "workspace.sessionStatus": "حالة الجلسة",
   "workspace.sessionActive": "نشطة",
   "workspace.openControlPlane": "فتح مركز الإدارة العليا",
+  "workspace.openCrm": "نظام CRM",
+  "workspace.openCrmCommandCenter": "مركز قيادة CRM",
 };

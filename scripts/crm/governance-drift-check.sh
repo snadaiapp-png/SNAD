@@ -22,6 +22,11 @@
 #     8. A doc hard-codes a stale CRM capability count (14 or 15) instead of
 #        the reconciled 18.
 #     9. docs/crm/README.md status block does not match the baseline.
+#    10. A doc claims a milestone is CLOSED without a stage report.
+#    11. (summary)
+#    12. apps/web/app/crm/page.tsx regresses to render CrmCommandCenterPage
+#        instead of the operational CrmWorkspaceV2 component, or the
+#        /crm/command-center route is missing. (crm/002-restore-operational-ui)
 #
 # Exit codes:
 #   0 — no drift detected
@@ -59,6 +64,8 @@ MIGRATION_DIR="${REPO_ROOT}/apps/sanad-platform/src/main/resources/db/migration"
 CRM_CONTROLLER="${REPO_ROOT}/apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmController.java"
 CRM_COMMAND_CENTER="${REPO_ROOT}/apps/web/app/crm/crm-command-center.tsx"
 CRM_EXECUTION_DATA="${REPO_ROOT}/apps/web/app/crm/crm-execution-data.ts"
+CRM_PAGE="${REPO_ROOT}/apps/web/app/crm/page.tsx"
+CRM_COMMAND_CENTER_ROUTE="${REPO_ROOT}/apps/web/app/crm/command-center/page.tsx"
 PRODUCTION_GO_RECORD="${DOCS_RELEASE_DIR}/CRM-PRODUCTION-GO.md"
 
 VIOLATIONS=()
@@ -416,7 +423,47 @@ while IFS= read -r -d '' doc_file; do
 done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
 
 # ----------------------------------------------------------------------------
-# 11. Summary and exit
+# 12. Verify /crm page wires up the operational CrmWorkspaceV2 component
+# -----------------------------------------------------------------------------
+#
+# Branch crm/002-restore-operational-ui restored the operational CRM UX by
+# making `apps/web/app/crm/page.tsx` render `CrmWorkspaceV2` (the real,
+# API-connected workspace) instead of `CrmCommandCenterPage` (the empty-state
+# governance shell). We fail closed if the page regresses to the old shape so
+# the operational UI can never silently disappear behind empty states again.
+#
+# Two conditions are asserted:
+#   (a) The /crm page imports CrmWorkspaceV2 from "./crm-workspace-v2".
+#   (b) The /crm page does NOT render CrmCommandCenterPage as its only content
+#       (it may import it, but only the command-center route should mount it).
+#   (c) The /crm/command-center route exists and renders CrmCommandCenterPage,
+#       preserving the governance + Execution Board UI.
+
+if [[ -f "$CRM_PAGE" ]]; then
+  if ! grep -Eq 'from[[:space:]]+["'\'']\.\/crm-workspace-v2["'\'']' "$CRM_PAGE" \
+    && ! grep -Eq 'CrmWorkspaceV2' "$CRM_PAGE"; then
+    add_violation "apps/web/app/crm/page.tsx no longer imports CrmWorkspaceV2; the operational CRM UI has regressed to empty states."
+  fi
+
+  # If the page imports CrmCommandCenterPage as its default content (the
+  # pre-002 shape), that is a regression even if CrmWorkspaceV2 is also
+  # present — the Command Center must only be mounted at /crm/command-center.
+  if grep -Eq 'import[[:space:]]+CrmCommandCenterPage[[:space:]]+from[[:space:]]+["'\'']\.\/crm-command-center["'\'']' "$CRM_PAGE" \
+    && grep -Eq '<CrmCommandCenterPage[[:space:]]*/?>' "$CRM_PAGE"; then
+    add_violation "apps/web/app/crm/page.tsx renders CrmCommandCenterPage directly; move it to /crm/command-center/page.tsx."
+  fi
+else
+  add_violation "apps/web/app/crm/page.tsx is missing."
+fi
+
+if [[ ! -f "$CRM_COMMAND_CENTER_ROUTE" ]]; then
+  add_violation "apps/web/app/crm/command-center/page.tsx is missing; the Command Center + Execution Board must remain accessible at /crm/command-center."
+elif ! grep -Eq 'CrmCommandCenterPage' "$CRM_COMMAND_CENTER_ROUTE"; then
+  add_violation "apps/web/app/crm/command-center/page.tsx does not render CrmCommandCenterPage."
+fi
+
+# ----------------------------------------------------------------------------
+# 13. Summary and exit
 # ----------------------------------------------------------------------------
 
 if (( ${#VIOLATIONS[@]} == 0 )); then

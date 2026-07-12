@@ -1,5 +1,11 @@
-import CrmCommandCenterPage from "./crm-command-center";
+import { CrmWorkspaceV2 } from "./crm-workspace-v2";
+import { CrmAdvancedView } from "./crm-advanced-view";
 
 export default function CrmPage() {
-  return <CrmCommandCenterPage />;
+  return (
+    <>
+      <CrmWorkspaceV2 />
+      <CrmAdvancedView />
+    </>
+  );
 }

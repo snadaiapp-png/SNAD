@@ -224,4 +224,6 @@ export const en: TranslationDictionary = {
   "workspace.sessionStatus": "Session status",
   "workspace.sessionActive": "Active",
   "workspace.openControlPlane": "Open Control Plane",
+  "workspace.openCrm": "Open CRM",
+  "workspace.openCrmCommandCenter": "CRM Command Center",
 };
