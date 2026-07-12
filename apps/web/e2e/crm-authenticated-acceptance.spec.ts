@@ -117,7 +117,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
     await accountLink.click();
     await page.waitForURL(/\/crm\/accounts\/[0-9a-fA-F-]{36}/, { timeout: 15_000 });
     // Customer 360 renders the account display name as the page description.
-    await expect(page.locator("h1").first()).toContainText(/Customer 360|العميل 360/i);
+    await expect(page.locator("#crm-operational-content")).toContainText(/Customer 360|العميل 360/i);
     await expect(page.locator("body")).toContainText(unique);
   });
 
