@@ -58,6 +58,7 @@ jobs:
             -e DATABASE_DRIVER=org.postgresql.Driver \
             -e JPA_DDL_AUTO=validate \
             -e FLYWAY_ENABLED=true \
+            -e MANAGEMENT_HEALTH_MAIL_ENABLED=false \
             -e SANAD_CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app \
             -e MANAGEMENT_ENDPOINTS=health \
             sanad-backend:perf-ci
