@@ -20,7 +20,7 @@ jobs:
   logical-backup-restore:
     name: PostgreSQL Logical Backup and Restore
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     services:
       postgres:
         image: postgres:16-alpine
@@ -69,9 +69,6 @@ jobs:
             exit 1
           fi
 
-          # Flyway normalizes '_' to '.' in its internal version representation
-          # (e.g. V20260629_2 is stored as 20260629.2 in flyway_schema_history.version).
-          # Normalize the expected version the same way so the comparison below succeeds.
           normalized_expected="${expected_version//_/.}"
           echo "EXPECTED_FLYWAY_VERSION=$normalized_expected" >> "$GITHUB_ENV"
           echo "Resolved expected Flyway version (raw): $expected_version"
@@ -98,8 +95,6 @@ jobs:
           )
 
           test "$resolved" = "20260629_2"
-
-          # Verify Flyway-style normalization (underscore -> dot).
           normalized="${resolved//_/.}"
           test "$normalized" = "20260629.2"
       - name: Build backend image
@@ -119,17 +114,41 @@ jobs:
             -e JPA_DDL_AUTO=validate \
             -e FLYWAY_ENABLED=true \
             -e MANAGEMENT_HEALTH_MAIL_ENABLED=false \
+            -e MANAGEMENT_HEALTH_DB_ENABLED=false \
+            -e MANAGEMENT_HEALTH_DISKSPACE_ENABLED=false \
             -e MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED=true \
-            -e MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health \
+            -e MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS=always \
+            -e MANAGEMENT_ENDPOINTS=health \
             -e SANAD_CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app \
             sanad-backend:recovery-ci
-      - name: Wait for source application health
+      - name: Wait for source migrations
         run: |
-          for attempt in $(seq 1 36); do
-            code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || true)
-            if [ "$code" = "200" ]; then exit 0; fi
+          for attempt in $(seq 1 90); do
+            if ! docker ps --format '{{.Names}}' | grep -qx 'sanad-source-app'; then
+              echo "::error::sanad-source-app is not running"
+              docker ps -a || true
+              docker logs sanad-source-app || true
+              exit 1
+            fi
+
+            version=$(docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
+              psql -h localhost -U sanad_recovery -d sanad_source -At \
+              -c "SELECT version FROM flyway_schema_history WHERE success=true ORDER BY installed_rank DESC LIMIT 1;" 2>/dev/null || true)
+
+            code=$(curl -sS -o /tmp/source-health.json -w '%{http_code}' http://localhost:8080/actuator/health || true)
+            echo "attempt=$attempt health_http=$code flyway_version=${version:-<none>}"
+            [ -s /tmp/source-health.json ] && cat /tmp/source-health.json || true
+            echo
+
+            if [ "$version" = "$EXPECTED_FLYWAY_VERSION" ]; then
+              echo "Source migrations reached expected Flyway version: $version"
+              exit 0
+            fi
             sleep 5
           done
+
+          echo "::error::Source database did not reach expected Flyway version: $EXPECTED_FLYWAY_VERSION"
+          docker ps -a || true
           docker logs sanad-source-app || true
           exit 1
       - name: Capture source schema evidence
@@ -191,17 +210,30 @@ jobs:
             -e JPA_DDL_AUTO=validate \
             -e FLYWAY_ENABLED=true \
             -e MANAGEMENT_HEALTH_MAIL_ENABLED=false \
+            -e MANAGEMENT_HEALTH_DB_ENABLED=false \
+            -e MANAGEMENT_HEALTH_DISKSPACE_ENABLED=false \
             -e MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED=true \
-            -e MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health \
+            -e MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS=always \
+            -e MANAGEMENT_ENDPOINTS=health \
             -e SANAD_CORS_ALLOWED_ORIGINS=https://snad-app.vercel.app \
             sanad-backend:recovery-ci
-      - name: Verify restored application health
+      - name: Verify restored application startup
         run: |
-          for attempt in $(seq 1 36); do
-            code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8081/actuator/health || true)
+          for attempt in $(seq 1 90); do
+            if ! docker ps --format '{{.Names}}' | grep -qx 'sanad-restored-app'; then
+              echo "::error::sanad-restored-app is not running"
+              docker ps -a || true
+              docker logs sanad-restored-app || true
+              exit 1
+            fi
+            code=$(curl -sS -o /tmp/restored-health.json -w '%{http_code}' http://localhost:8081/actuator/health || true)
+            echo "attempt=$attempt restored_health_http=$code"
+            [ -s /tmp/restored-health.json ] && cat /tmp/restored-health.json || true
+            echo
             if [ "$code" = "200" ]; then exit 0; fi
             sleep 5
           done
+          docker ps -a || true
           docker logs sanad-restored-app || true
           exit 1
       - name: Write recovery evidence summary
