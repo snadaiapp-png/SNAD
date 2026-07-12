@@ -27,6 +27,11 @@ class CrmPostgresMigrationTest {
      * Added in Stage 08 Sprint 1; must be reflected in migration order assertions.
      */
     private static final String TENANT_QUOTA_VERSION = "20260706.1";
+    /**
+     * Stage 29 verification compatibility — subscription change event migration.
+     * This migration is outside the CRM table set but still advances the Flyway schema history.
+     */
+    private static final String SUBSCRIPTION_CHANGE_EVENTS_VERSION = "20260711.1";
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
             "crm_pipeline_stages", "crm_opportunities", "crm_opportunity_stage_history",
@@ -54,7 +59,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_CORE_VERSION),
                         MigrationVersion.fromVersion(RECONCILER_VERSION),
                         MigrationVersion.fromVersion(CRM_COMPLETION_VERSION),
-                        MigrationVersion.fromVersion(TENANT_QUOTA_VERSION));
+                        MigrationVersion.fromVersion(TENANT_QUOTA_VERSION),
+                        MigrationVersion.fromVersion(SUBSCRIPTION_CHANGE_EVENTS_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -75,7 +81,8 @@ class CrmPostgresMigrationTest {
                 .containsExactly(
                         MigrationVersion.fromVersion(RECONCILER_VERSION),
                         MigrationVersion.fromVersion(CRM_COMPLETION_VERSION),
-                        MigrationVersion.fromVersion(TENANT_QUOTA_VERSION));
+                        MigrationVersion.fromVersion(TENANT_QUOTA_VERSION),
+                        MigrationVersion.fromVersion(SUBSCRIPTION_CHANGE_EVENTS_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -96,7 +103,8 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, RECONCILER_VERSION, "SQL", "reconcile admin role and capabilities");
         assertMigration(jdbc, CRM_COMPLETION_VERSION, "SQL", "complete crm imports custom fields");
         assertMigration(jdbc, TENANT_QUOTA_VERSION, "SQL", "create tenant quota");
-        assertThat(latestVersion(jdbc)).isEqualTo(TENANT_QUOTA_VERSION);
+        assertMigration(jdbc, SUBSCRIPTION_CHANGE_EVENTS_VERSION, "SQL", "create subscription change events");
+        assertThat(latestVersion(jdbc)).isEqualTo(SUBSCRIPTION_CHANGE_EVENTS_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
         assertThat(constraintExists(jdbc, "fk_crm_contacts_account_same_tenant")).isTrue();
