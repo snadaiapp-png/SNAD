@@ -1,0 +1,278 @@
+name: CRM OpenAPI Contract Sync
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm-openapi-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  JWT_SECRET: ci-only-non-production-validation-key-1234567890
+
+jobs:
+  sync:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Start backend
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          nohup mvn -q -DskipTests spring-boot:run \
+            -Dspring-boot.run.profiles=local \
+            -Dspring-boot.run.arguments="--server.port=8081 --management.endpoints.web.exposure.include=health" \
+            > /tmp/crm-openapi-backend.log 2>&1 &
+          echo $! > /tmp/crm-openapi-backend.pid
+
+      - name: Fetch runtime OpenAPI
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 120); do
+            if ! kill -0 "$(cat /tmp/crm-openapi-backend.pid)" 2>/dev/null; then
+              cat /tmp/crm-openapi-backend.log
+              exit 1
+            fi
+            code="$(curl -sS -o /tmp/platform-openapi.json -w '%{http_code}' http://localhost:8081/v3/api-docs || true)"
+            if [ "$code" = '200' ] && [ -s /tmp/platform-openapi.json ]; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/crm-openapi-backend.log
+          exit 1
+
+      - name: Build governed CRM v2 OpenAPI contract
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import collections
+          import copy
+          import json
+          from pathlib import Path
+
+          runtime = json.loads(Path('/tmp/platform-openapi.json').read_text(encoding='utf-8'))
+          methods = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'}
+          prefix = '/api/v2/crm'
+          paths = collections.OrderedDict()
+          for full_path in sorted(path for path in runtime['paths'] if path.startswith(prefix)):
+              paths[full_path[len(prefix):] or '/'] = copy.deepcopy(runtime['paths'][full_path])
+
+          idempotent_posts = {
+              '/accounts', '/contacts', '/leads', '/opportunities', '/activities',
+              '/leads/{leadId}/convert', '/imports/upload', '/imports/{jobId}/run',
+              '/custom-fields', '/custom-fields/values/{entityType}/{entityId}'
+          }
+          create_operations = {
+              'createAccount', 'createContact', 'createLead', 'createOpportunity',
+              'createActivity', 'createCustomField', 'uploadImport'
+          }
+
+          for path, item in paths.items():
+              for method, operation in list(item.items()):
+                  if method not in methods or not isinstance(operation, dict):
+                      continue
+                  parameters = operation.setdefault('parameters', [])
+                  if method == 'patch':
+                      found = False
+                      for parameter in parameters:
+                          if isinstance(parameter, dict) and parameter.get('name') == 'If-Match':
+                              parameter['required'] = True
+                              found = True
+                      if not found:
+                          parameters.append({'$ref': '#/components/parameters/IfMatch'})
+                      operation.setdefault('responses', {})['412'] = {'$ref': '#/components/responses/ConcurrencyConflict'}
+                      operation['responses']['428'] = {'$ref': '#/components/responses/PreconditionRequired'}
+                  if method == 'post' and path in idempotent_posts:
+                      found = False
+                      for parameter in parameters:
+                          if isinstance(parameter, dict) and parameter.get('name') == 'Idempotency-Key':
+                              parameter['required'] = True
+                              found = True
+                      if not found:
+                          parameters.append({'$ref': '#/components/parameters/IdempotencyKey'})
+                      operation.setdefault('responses', {})['400'] = {'$ref': '#/components/responses/ValidationError'}
+                      operation['responses']['409'] = {'$ref': '#/components/responses/Conflict'}
+                  if operation.get('operationId') in create_operations:
+                      responses = operation.setdefault('responses', {})
+                      if '200' in responses and '201' not in responses:
+                          responses['201'] = responses.pop('200')
+                          responses['201']['description'] = 'Created'
+                  for status, response in operation.get('responses', {}).items():
+                      if not status.startswith('2') or not isinstance(response, dict) or '$ref' in response:
+                          continue
+                      schema = ((response.get('content') or {}).get('application/json') or {}).get('schema', {})
+                      ref = schema.get('$ref', '') if isinstance(schema, dict) else ''
+                      if 'SingleResponse' in ref:
+                          response.setdefault('headers', {})['ETag'] = {'$ref': '#/components/headers/ETag'}
+
+          all_schemas = runtime.get('components', {}).get('schemas', {})
+          needed = set()
+
+          def scan(value):
+              if isinstance(value, dict):
+                  ref = value.get('$ref')
+                  if isinstance(ref, str) and ref.startswith('#/components/schemas/'):
+                      needed.add(ref.rsplit('/', 1)[-1])
+                  for child in value.values():
+                      scan(child)
+              elif isinstance(value, list):
+                  for child in value:
+                      scan(child)
+
+          scan(paths)
+          queue = list(needed)
+          while queue:
+              name = queue.pop()
+              schema = all_schemas.get(name)
+              if schema is None:
+                  continue
+              before = set(needed)
+              scan(schema)
+              queue.extend(needed - before)
+
+          schemas = collections.OrderedDict(
+              (name, copy.deepcopy(all_schemas[name]))
+              for name in sorted(needed)
+              if name in all_schemas
+          )
+          for standard in ('Meta', 'Page'):
+              if standard in all_schemas:
+                  schemas[standard] = copy.deepcopy(all_schemas[standard])
+          schemas['FieldError'] = {
+              'type': 'object',
+              'required': ['field', 'code', 'message'],
+              'properties': {
+                  'field': {'type': 'string'},
+                  'code': {'type': 'string'},
+                  'message': {'type': 'string'}
+              }
+          }
+          if 'ApiErrorResponse' in all_schemas:
+              schemas['ApiErrorResponse'] = copy.deepcopy(all_schemas['ApiErrorResponse'])
+              schemas['ErrorResponse'] = {'$ref': '#/components/schemas/ApiErrorResponse'}
+          else:
+              schemas['ErrorResponse'] = {
+                  'type': 'object',
+                  'required': ['error'],
+                  'properties': {
+                      'error': {
+                          'type': 'object',
+                          'required': ['code', 'message', 'status', 'requestId', 'timestamp'],
+                          'properties': {
+                              'code': {'type': 'string'},
+                              'message': {'type': 'string'},
+                              'status': {'type': 'integer'},
+                              'requestId': {'type': 'string', 'format': 'uuid'},
+                              'timestamp': {'type': 'string', 'format': 'date-time'},
+                              'fieldErrors': {'type': 'array', 'items': {'$ref': '#/components/schemas/FieldError'}}
+                          }
+                      }
+                  }
+              }
+
+          contract = {
+              'openapi': runtime.get('openapi', '3.1.0'),
+              'info': {
+                  'title': 'SNAD CRM API',
+                  'version': '2.0.0',
+                  'description': 'Runtime-derived governed CRM v2 API contract for CRM-G2.'
+              },
+              'servers': [{'url': '/api/v2/crm', 'description': 'CRM v2 API root'}],
+              'tags': [
+                  {'name': 'Accounts'}, {'name': 'Contacts'}, {'name': 'Leads'},
+                  {'name': 'Pipelines'}, {'name': 'Opportunities'}, {'name': 'Activities'},
+                  {'name': 'Timeline'}, {'name': 'Imports'}, {'name': 'Custom Fields'}
+              ],
+              'paths': paths,
+              'components': {
+                  'parameters': {
+                      'Limit': {'name': 'limit', 'in': 'query', 'schema': {'type': 'integer', 'minimum': 1, 'maximum': 200, 'default': 50}},
+                      'Cursor': {'name': 'cursor', 'in': 'query', 'schema': {'type': 'string'}, 'description': 'Opaque tenant-bound pagination cursor.'},
+                      'Sort': {'name': 'sort', 'in': 'query', 'schema': {'type': 'string', 'default': 'updatedAt'}},
+                      'Direction': {'name': 'direction', 'in': 'query', 'schema': {'type': 'string', 'enum': ['asc', 'desc'], 'default': 'desc'}},
+                      'IfMatch': {'name': 'If-Match', 'in': 'header', 'required': True, 'schema': {'type': 'string'}, 'description': 'Strong ETag required for versioned mutations.'},
+                      'IdempotencyKey': {'name': 'Idempotency-Key', 'in': 'header', 'required': True, 'schema': {'type': 'string', 'minLength': 1, 'maxLength': 255}, 'description': 'Required for governed idempotent POST operations.'}
+                  },
+                  'headers': {
+                      'ETag': {'description': 'Strong version ETag. Send it back as If-Match on mutations.', 'schema': {'type': 'string'}}
+                  },
+                  'responses': {
+                      'ValidationError': {'description': 'Validation error', 'content': {'application/json': {'schema': {'$ref': '#/components/schemas/ErrorResponse'}}}},
+                      'NotFound': {'description': 'Resource not found', 'content': {'application/json': {'schema': {'$ref': '#/components/schemas/ErrorResponse'}}}},
+                      'Conflict': {'description': 'Idempotency or state conflict', 'content': {'application/json': {'schema': {'$ref': '#/components/schemas/ErrorResponse'}}}},
+                      'ConcurrencyConflict': {'description': 'Stale ETag / optimistic concurrency conflict', 'content': {'application/json': {'schema': {'$ref': '#/components/schemas/ErrorResponse'}}}},
+                      'PreconditionRequired': {'description': 'If-Match header required', 'content': {'application/json': {'schema': {'$ref': '#/components/schemas/ErrorResponse'}}}}
+                  },
+                  'schemas': schemas,
+                  'securitySchemes': {
+                      'BearerAuth': {'type': 'http', 'scheme': 'bearer', 'bearerFormat': 'JWT'}
+                  }
+              },
+              'security': [{'BearerAuth': []}]
+          }
+
+          output = Path('docs/crm/contracts/openapi/crm-openapi.json')
+          output.write_text(json.dumps(contract, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+          operation_count = sum(
+              1 for item in paths.values() for method in item if method in methods
+          )
+          if len(paths) != 34 or operation_count != 46:
+              raise SystemExit(f'Unexpected CRM surface: paths={len(paths)} operations={operation_count}')
+          print(f'Generated governed CRM contract: {len(paths)} paths, {operation_count} operations, {len(schemas)} schemas')
+          PY
+
+      - name: Generate TypeScript contracts
+        run: |
+          set -euo pipefail
+          cd apps/web
+          npm ci
+          npm run crm:generate-api-types
+          npm run lint
+          npm run typecheck
+
+      - name: Commit generated contracts and remove temporary workflows
+        run: |
+          set -euo pipefail
+          git config user.name 'snad-ci-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git rm .github/workflows/crm-openapi-capture.yml .github/workflows/crm-openapi-sync.yml
+          git add docs/crm/contracts/openapi/crm-openapi.json apps/web/lib/api/generated/crm-api-types.ts
+          if git diff --cached --quiet; then
+            echo 'No contract changes to commit'
+            exit 0
+          fi
+          git commit -m 'docs(crm): synchronize runtime OpenAPI and generated types'
+          git push origin HEAD:${{ github.head_ref }}
+
+      - name: Cleanup
+        if: always()
+        run: |
+          if [ -f /tmp/crm-openapi-backend.pid ]; then
+            kill "$(cat /tmp/crm-openapi-backend.pid)" 2>/dev/null || true
+          fi
