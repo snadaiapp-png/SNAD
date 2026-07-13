@@ -33,7 +33,7 @@ permissions:
 
 concurrency:
   group: playwright-ci-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   playwright:
