@@ -28,7 +28,7 @@ export default defineConfig({
     channel: "chrome",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
-    video: "retain-on-failure",
+    video: "off",
   },
   projects: [{
     name: "crm-acceptance",
