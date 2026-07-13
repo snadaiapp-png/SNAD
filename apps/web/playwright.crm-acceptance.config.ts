@@ -25,6 +25,7 @@ export default defineConfig({
   reporter: [["html", { outputFolder: "crm-playwright-report" }], ["list"]],
   use: {
     baseURL: BASE_URL,
+    channel: "chrome",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
