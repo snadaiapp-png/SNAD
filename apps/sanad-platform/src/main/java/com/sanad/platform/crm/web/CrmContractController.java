@@ -672,7 +672,7 @@ public class CrmContractController {
                 // idempotency cache we store a best-effort string
                 // representation. A future iteration will inject an
                 // ObjectMapper to store the exact JSON.
-                service.complete(miss.operationId(), status.value(), body == null ? "" : body.toString());
+                service.complete(miss.operationId(), status.value(), body == null ? "" : body.toString(), null, "application/json");
             }
             HttpHeaders headers = new HttpHeaders();
             UUID id = extractId(body);

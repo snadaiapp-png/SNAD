@@ -33,6 +33,8 @@ public record IdempotencyRecord(
         String requestFingerprintSha256,
         int responseStatus,
         String responseBodyJson,
+        String responseHeadersJson,
+        String contentType,
         Instant createdAt,
         Instant expiresAt) {
 

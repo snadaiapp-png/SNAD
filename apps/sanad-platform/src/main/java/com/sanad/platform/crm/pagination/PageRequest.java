@@ -2,7 +2,6 @@ package com.sanad.platform.crm.pagination;
 
 import com.sanad.platform.crm.error.CrmContractException;
 import com.sanad.platform.crm.error.CrmErrorCode;
-import org.springframework.stereotype.Component;
 
 import java.util.Set;
 
@@ -20,7 +19,6 @@ import java.util.Set;
  * <p>
  * Branch: crm/003-stable-api-contracts
  */
-@Component
 public class PageRequest {
 
     public static final int DEFAULT_LIMIT = 50;

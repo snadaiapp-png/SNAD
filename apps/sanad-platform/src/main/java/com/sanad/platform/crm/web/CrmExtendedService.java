@@ -1932,4 +1932,111 @@ class CrmExtendedService {
             super("CRM import worker lease was lost");
         }
     }
+
+    @Transactional
+    public Map<String, Object> updateOpportunity(Authentication authentication, UUID opportunityId, java.math.BigDecimal amount, String name, UUID ownerUserId, long expectedVersion) {
+        UUID tenantId = tenantId(authentication);
+        UUID actorId = userId(authentication);
+        java.time.Instant now = java.time.Instant.now();
+        org.springframework.jdbc.core.namedparam.MapSqlParameterSource params = new org.springframework.jdbc.core.namedparam.MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("id", opportunityId)
+                .addValue("expectedVersion", expectedVersion)
+                .addValue("actorId", actorId)
+                .addValue("now", java.sql.Timestamp.from(now))
+                .addValue("amount", amount)
+                .addValue("name", name)
+                .addValue("ownerUserId", ownerUserId);
+        StringBuilder sql = new StringBuilder("UPDATE crm_opportunities SET version = version + 1, updated_by = :actorId, updated_at = :now");
+        if (amount != null) { sql.append(", amount = :amount"); }
+        if (name != null) { sql.append(", name = :name"); }
+        if (ownerUserId != null) { sql.append(", owner_user_id = :ownerUserId"); }
+        sql.append(" WHERE tenant_id = :tenantId AND id = :id AND version = :expectedVersion");
+        int updated = jdbc.update(sql.toString(), params);
+        if (updated == 0) {
+            throw new com.sanad.platform.crm.error.CrmContractException(com.sanad.platform.crm.error.CrmErrorCode.CRM_CONCURRENCY_CONFLICT);
+        }
+        return one("crm_opportunities", tenantId, opportunityId, "CRM opportunity not found");
+    }
+
+    @Transactional
+    public Map<String, Object> updateActivity(Authentication authentication, UUID activityId, String subject, String body, Integer priority, long expectedVersion) {
+        UUID tenantId = tenantId(authentication);
+        UUID actorId = userId(authentication);
+        java.time.Instant now = java.time.Instant.now();
+        org.springframework.jdbc.core.namedparam.MapSqlParameterSource params = new org.springframework.jdbc.core.namedparam.MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("id", activityId)
+                .addValue("expectedVersion", expectedVersion)
+                .addValue("actorId", actorId)
+                .addValue("now", java.sql.Timestamp.from(now))
+                .addValue("subject", subject)
+                .addValue("body", body)
+                .addValue("priority", priority);
+        StringBuilder sql = new StringBuilder("UPDATE crm_activities SET version = version + 1, updated_by = :actorId, updated_at = :now");
+        if (subject != null) { sql.append(", subject = :subject"); }
+        if (body != null) { sql.append(", body = :body"); }
+        if (priority != null) { sql.append(", priority = :priority"); }
+        sql.append(" WHERE tenant_id = :tenantId AND id = :id AND version = :expectedVersion");
+        int updated = jdbc.update(sql.toString(), params);
+        if (updated == 0) {
+            throw new com.sanad.platform.crm.error.CrmContractException(com.sanad.platform.crm.error.CrmErrorCode.CRM_CONCURRENCY_CONFLICT);
+        }
+        return one("crm_activities", tenantId, activityId, "CRM activity not found");
+    }
+
+    @Transactional
+    public Map<String, Object> updatePipeline(Authentication authentication, UUID pipelineId, String name, String currencyCode, long expectedVersion) {
+        UUID tenantId = tenantId(authentication);
+        UUID actorId = userId(authentication);
+        java.time.Instant now = java.time.Instant.now();
+        org.springframework.jdbc.core.namedparam.MapSqlParameterSource params = new org.springframework.jdbc.core.namedparam.MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("id", pipelineId)
+                .addValue("expectedVersion", expectedVersion)
+                .addValue("actorId", actorId)
+                .addValue("now", java.sql.Timestamp.from(now))
+                .addValue("name", name)
+                .addValue("currencyCode", currencyCode);
+        StringBuilder sql = new StringBuilder("UPDATE crm_pipelines SET version = version + 1, updated_by = :actorId, updated_at = :now");
+        if (name != null) { sql.append(", name = :name"); }
+        if (currencyCode != null) { sql.append(", currency_code = :currencyCode"); }
+        sql.append(" WHERE tenant_id = :tenantId AND id = :id AND version = :expectedVersion");
+        int updated = jdbc.update(sql.toString(), params);
+        if (updated == 0) {
+            throw new com.sanad.platform.crm.error.CrmContractException(com.sanad.platform.crm.error.CrmErrorCode.CRM_CONCURRENCY_CONFLICT);
+        }
+        return one("crm_pipelines", tenantId, pipelineId, "CRM pipeline not found");
+    }
+
+    @Transactional
+    public Map<String, Object> updateCustomField(Authentication authentication, UUID customFieldId, String labelAr, String labelEn, Boolean required, Boolean searchable, Boolean sensitive, long expectedVersion) {
+        UUID tenantId = tenantId(authentication);
+        UUID actorId = userId(authentication);
+        java.time.Instant now = java.time.Instant.now();
+        org.springframework.jdbc.core.namedparam.MapSqlParameterSource params = new org.springframework.jdbc.core.namedparam.MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("id", customFieldId)
+                .addValue("expectedVersion", expectedVersion)
+                .addValue("actorId", actorId)
+                .addValue("now", java.sql.Timestamp.from(now))
+                .addValue("labelAr", labelAr)
+                .addValue("labelEn", labelEn)
+                .addValue("required", required)
+                .addValue("searchable", searchable)
+                .addValue("sensitive", sensitive);
+        StringBuilder sql = new StringBuilder("UPDATE crm_custom_field_definitions SET version = version + 1, updated_by = :actorId, updated_at = :now");
+        if (labelAr != null) { sql.append(", label_ar = :labelAr"); }
+        if (labelEn != null) { sql.append(", label_en = :labelEn"); }
+        if (required != null) { sql.append(", required = :required"); }
+        if (searchable != null) { sql.append(", searchable = :searchable"); }
+        if (sensitive != null) { sql.append(", sensitive = :sensitive"); }
+        sql.append(" WHERE tenant_id = :tenantId AND id = :id AND version = :expectedVersion");
+        int updated = jdbc.update(sql.toString(), params);
+        if (updated == 0) {
+            throw new com.sanad.platform.crm.error.CrmContractException(com.sanad.platform.crm.error.CrmErrorCode.CRM_CONCURRENCY_CONFLICT);
+        }
+        return jdbc.queryForMap("SELECT * FROM crm_custom_field_definitions WHERE tenant_id = :tenantId AND id = :id",
+                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource().addValue("tenantId", tenantId).addValue("id", customFieldId));
+    }
 }

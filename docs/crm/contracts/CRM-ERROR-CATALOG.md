@@ -106,6 +106,18 @@ This is enforced by `CrmExceptionHandler` and verified by
 |---|---|---|---|
 | `RATE_LIMITED` | Too many requests. Please slow down. | Yes (after backoff) | The tenant has exceeded its per-window request quota. |
 
+## Precondition required (HTTP 428)
+
+| Code | Message | Retryable | When used |
+|---|---|---|---|
+| `CRM_PRECONDITION_REQUIRED` | The If-Match header is required for this operation. | No | PATCH endpoint called without `If-Match` header. The client MUST re-read the resource, obtain the ETag, then retry the PATCH with `If-Match` set. |
+
+## Idempotency key required (HTTP 400)
+
+| Code | Message | Retryable | When used |
+|---|---|---|---|
+| `CRM_IDEMPOTENCY_KEY_REQUIRED` | The Idempotency-Key header is required for this operation. | No | POST endpoint that requires idempotency was called without `Idempotency-Key` header. |
+
 ## Catch-all (HTTP 500)
 
 | Code | Message | Retryable | When used |

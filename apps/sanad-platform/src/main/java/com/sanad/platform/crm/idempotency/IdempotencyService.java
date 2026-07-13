@@ -58,7 +58,7 @@ public interface IdempotencyService {
      */
     Replay begin(UUID tenantId, UUID principalId, String endpoint, String idempotencyKey, String requestFingerprint);
 
-    void complete(UUID operationId, int responseStatus, String responseBodyJson);
+    void complete(UUID operationId, int responseStatus, String responseBodyJson, String responseHeadersJson, String contentType);
 
     void fail(UUID operationId);
 
@@ -117,7 +117,7 @@ public interface IdempotencyService {
             UUID operationId = UUID.randomUUID();
             IdempotencyRecord fresh = new IdempotencyRecord(
                     operationId, tenantId, principalId, endpoint, idempotencyKey,
-                    requestFingerprint, 0, null, Instant.now(),
+                    requestFingerprint, 0, null, null, null, Instant.now(),
                     Instant.now().plus(DEFAULT_RETENTION));
             byOperation.put(operationId, fresh);
             byKey.put(compositeKey, fresh);
@@ -125,13 +125,13 @@ public interface IdempotencyService {
         }
 
         @Override
-        public synchronized void complete(UUID operationId, int responseStatus, String responseBodyJson) {
+        public synchronized void complete(UUID operationId, int responseStatus, String responseBodyJson, String responseHeadersJson, String contentType) {
             IdempotencyRecord record = byOperation.get(operationId);
             if (record == null) return;
             IdempotencyRecord updated = new IdempotencyRecord(
                     record.id(), record.tenantId(), record.principalId(), record.endpoint(),
                     record.idempotencyKey(), record.requestFingerprintSha256(),
-                    responseStatus, responseBodyJson, record.createdAt(), record.expiresAt());
+                    responseStatus, responseBodyJson, responseHeadersJson, contentType, record.createdAt(), record.expiresAt());
             byOperation.put(operationId, updated);
             byKey.put(compositeKey(record.tenantId(), record.principalId(), record.endpoint(), record.idempotencyKey()), updated);
         }

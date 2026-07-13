@@ -63,8 +63,7 @@ public class ETagService {
      */
     public void validateIfMatch(String ifMatchHeader, String entityType, UUID id, long currentVersion) {
         if (ifMatchHeader == null || ifMatchHeader.isBlank()) {
-            throw new CrmContractException(CrmErrorCode.VALIDATION_ERROR,
-                    "If-Match header is required for this operation.");
+            throw new CrmContractException(CrmErrorCode.CRM_PRECONDITION_REQUIRED);
         }
         // RFC 7232 allows a comma-separated list; treat any match as success.
         String[] candidates = ifMatchHeader.split(",");

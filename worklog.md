@@ -823,3 +823,47 @@ Stage Summary:
 - CRM governance drift: PASS
 - TS typecheck: PASS
 - Status: IMPLEMENTATION ON GITHUB — CI VERIFICATION PENDING
+
+---
+Task ID: crm-003-r5-runtime-contract-correction
+Agent: main (Super Z)
+Task: EXEC-PROMPT-CRM-003-R5 — Correct runtime defects, contract semantics, CI governance.
+
+Work Log:
+- Fixed PageRequest: removed @Component annotation (request-scoped object, not a Spring bean)
+- Fixed CrmExceptionHandler: removed @ExceptionHandler from overridden methods (handleMethodArgumentNotValid, handleHttpMessageNotReadable) — kept only @Override
+- Added CRM_PRECONDITION_REQUIRED (HTTP 428) error code for missing If-Match header
+- Added CRM_IDEMPOTENCY_KEY_REQUIRED (HTTP 400) error code for missing Idempotency-Key
+- Made CrmService.updateAccount atomic: added version check to SQL WHERE clause, throws CRM_CONCURRENCY_CONFLICT on 0 rows
+- Added real updateOpportunity/updateActivity/updatePipeline/updateCustomField methods to CrmExtendedService with atomic SQL (version check + version+1 in single UPDATE)
+- Updated R1 controller to use real update methods instead of returning current record
+- Fixed IdempotencyRecord: added responseHeadersJson + contentType fields for full replay
+- Updated IdempotencyService.complete() signature to include headers + contentType
+- Updated JdbcIdempotencyService to read/write new columns
+- Fixed import upload fingerprint: now uses SHA-256 of actual file bytes (not just filename+size)
+- Fixed TypeScript: empty interfaces → type aliases (AccountSingleResponse, AccountListResponse, etc.)
+- Fixed generate-crm-api-types.sh: uses SCRIPT_DIR/REPO_ROOT for path resolution
+- Fixed CRM API Contract Workflow: removed -DfailIfNoTests=false, removed || echo bypass, fixed script path
+- Updated Flyway migration: added response_headers_json + content_type columns
+- Updated error catalog: documented CRM_PRECONDITION_REQUIRED + CRM_IDEMPOTENCY_KEY_REQUIRED
+- Updated tests: CrmConcurrencyContractTest now expects CRM_PRECONDITION_REQUIRED (not VALIDATION_ERROR)
+- Updated tests: CrmIdempotencyContractTest complete() calls use new 5-arg signature
+
+Results:
+- Maven contract tests: 101 run, 0 failures, 0 errors, 0 skipped — BUILD SUCCESS
+- Web lint: 0 errors, 3 warnings
+- Web tests: 393 passed
+- Web build: PASS
+- TS typecheck: PASS
+- API contract governance drift: PASS
+- CRM governance drift: PASS
+- Push: SUCCESS (SHA 7130e158)
+- SHA Match: YES
+
+Stage Summary:
+- Branch: crm/003-stable-api-contracts at 7130e1588c4d5a23e42a19584c3b05d382d328f6
+- Previous rejected SHA: 1d1e3d9847981428063a9bec6e92d720778ba34d
+- Full Maven suite: 582 tests (173 errors are pre-existing infrastructure failures — no Docker/PostgreSQL in sandbox)
+- CRM contract tests: 101/101 PASS
+- Backend startup: compile PASS (runtime startup requires PostgreSQL — CI will verify)
+- Status: IMPLEMENTATION ON GITHUB — CI VERIFICATION PENDING

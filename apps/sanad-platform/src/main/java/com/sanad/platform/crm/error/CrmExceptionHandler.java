@@ -83,7 +83,6 @@ public class CrmExceptionHandler extends ResponseEntityExceptionHandler {
         return simple(CrmErrorCode.VALIDATION_ERROR, request, ex);
     }
 
-    @ExceptionHandler(MethodArgumentNotValidException.class)
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
@@ -115,7 +114,6 @@ public class CrmExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }
 
-    @ExceptionHandler(HttpMessageNotReadableException.class)
     @Override
     protected ResponseEntity<Object> handleHttpMessageNotReadable(
             HttpMessageNotReadableException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {

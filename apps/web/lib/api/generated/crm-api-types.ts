@@ -117,8 +117,8 @@ export interface ArchiveAccountResponse {
   updatedAt: string;
 }
 
-export interface AccountSingleResponse extends SingleResponse<AccountResponse> {}
-export interface AccountListResponse extends ListResponse<AccountResponse> {}
+export type AccountSingleResponse = SingleResponse<AccountResponse>;
+export type AccountListResponse = ListResponse<AccountResponse>;
 
 // ──────────────────────────────────────────────────────────────────────
 // Contacts

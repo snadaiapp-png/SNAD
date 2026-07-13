@@ -134,7 +134,6 @@ jobs:
           set -euo pipefail
           mvn --batch-mode --no-transfer-progress \
               -Dtest='com.sanad.platform.crm.contract.*' \
-              -DfailIfNoTests=false \
               test
 
       # ──────────────────────────────────────────────────────────
@@ -158,8 +157,15 @@ jobs:
           mvn --batch-mode --no-transfer-progress \
               springdoc-openapi:generate \
               -Dspringdoc.apiDocs.outputDir=docs/crm/contracts/openapi \
-              -Dspringdoc.apiDocs.fileName=crm-openapi-generated.json \
-              || echo "springdoc-openapi:generate not available — skipping drift check (CI will catch this in the full workflow)"
+              -Dspringdoc.apiDocs.fileName=crm-openapi-generated.json
+          
+          # Drift check: fail if generated spec differs from committed spec
+          if ! diff -q docs/crm/contracts/openapi/crm-openapi.json docs/crm/contracts/openapi/crm-openapi-generated.json >/dev/null 2>&1; then
+            echo "::error::OpenAPI drift detected — committed spec does not match generated spec"
+            diff -u docs/crm/contracts/openapi/crm-openapi.json docs/crm/contracts/openapi/crm-openapi-generated.json || true
+            exit 1
+          fi
+          echo "OpenAPI drift check: PASS (0 drift)"
 
       # ──────────────────────────────────────────────────────────
       # 4. Frontend generated TS drift check
@@ -173,7 +179,7 @@ jobs:
         run: |
           set -euo pipefail
           cp lib/api/generated/crm-api-types.ts /tmp/crm-api-types.before.ts
-          bash ../scripts/crm/generate-crm-api-types.sh
+          npm run crm:generate-api-types
           if ! diff -q /tmp/crm-api-types.before.ts lib/api/generated/crm-api-types.ts >/dev/null; then
             echo "::error::Generated TypeScript types are out of date. Run 'bash scripts/crm/generate-crm-api-types.sh' and commit the result."
             diff -u /tmp/crm-api-types.before.ts lib/api/generated/crm-api-types.ts || true

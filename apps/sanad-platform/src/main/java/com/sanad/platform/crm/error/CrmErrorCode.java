@@ -44,6 +44,12 @@ public enum CrmErrorCode {
     CRM_IMPORT_MAPPING_INVALID(422, "The import mapping is invalid or incomplete.", false),
     CRM_CUSTOM_FIELD_VALIDATION_FAILED(422, "One or more custom field values failed validation.", false),
 
+    // ── Precondition required (HTTP 428) ─────────────────────────────────
+    CRM_PRECONDITION_REQUIRED(428, "The If-Match header is required for this operation.", false),
+
+    // ── Idempotency key required (HTTP 400) ──────────────────────────────
+    CRM_IDEMPOTENCY_KEY_REQUIRED(400, "The Idempotency-Key header is required for this operation.", false),
+
     // ── Concurrency (HTTP 412) ───────────────────────────────────────────
     CRM_CONCURRENCY_CONFLICT(412, "The resource was modified by another operation. Please refresh and retry.", true),
 

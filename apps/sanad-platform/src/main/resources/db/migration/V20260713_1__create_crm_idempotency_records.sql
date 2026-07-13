@@ -54,3 +54,7 @@ BEGIN
             ADD COLUMN version BIGINT NOT NULL DEFAULT 0;
     END IF;
 END $$;
+
+-- Add response_headers_json and content_type columns for full replay
+ALTER TABLE crm_idempotency_records ADD COLUMN IF NOT EXISTS response_headers_json TEXT;
+ALTER TABLE crm_idempotency_records ADD COLUMN IF NOT EXISTS content_type VARCHAR(255);

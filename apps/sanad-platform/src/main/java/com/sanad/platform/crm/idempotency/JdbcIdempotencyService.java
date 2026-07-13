@@ -41,7 +41,7 @@ public class JdbcIdempotencyService implements IdempotencyService {
         try {
             Map<String, Object> row = jdbc.queryForMap(
                     "SELECT id, tenant_id, principal_id, endpoint, idempotency_key, request_fingerprint_sha256, " +
-                    "       response_status, response_body_json, created_at, expires_at " +
+                    "       response_status, response_body_json, response_headers_json, content_type, created_at, expires_at " +
                     "FROM crm_idempotency_records " +
                     "WHERE tenant_id = :tenantId AND principal_id = :principalId " +
                     "  AND endpoint = :endpoint AND idempotency_key = :key", params);
@@ -70,8 +70,8 @@ public class JdbcIdempotencyService implements IdempotencyService {
             jdbc.update(
                     "INSERT INTO crm_idempotency_records " +
                     "(id, tenant_id, principal_id, endpoint, idempotency_key, request_fingerprint_sha256, " +
-                    " response_status, response_body_json, created_at, expires_at) " +
-                    "VALUES (:id, :tenantId, :principalId, :endpoint, :key, :fp, 0, NULL, :now, :expires)",
+                    " response_status, response_body_json, response_headers_json, content_type, created_at, expires_at) " +
+                    "VALUES (:id, :tenantId, :principalId, :endpoint, :key, :fp, 0, NULL, NULL, NULL, :now, :expires)",
                     new MapSqlParameterSource()
                             .addValue("id", operationId)
                             .addValue("tenantId", tenantId)
@@ -89,15 +89,17 @@ public class JdbcIdempotencyService implements IdempotencyService {
     }
 
     @Override
-    public void complete(UUID operationId, int responseStatus, String responseBodyJson) {
+    public void complete(UUID operationId, int responseStatus, String responseBodyJson, String responseHeadersJson, String contentType) {
         jdbc.update(
                 "UPDATE crm_idempotency_records " +
-                "SET response_status = :status, response_body_json = :body " +
+                "SET response_status = :status, response_body_json = :body, response_headers_json = :headers, content_type = :ct " +
                 "WHERE id = :id",
                 new MapSqlParameterSource()
                         .addValue("id", operationId)
                         .addValue("status", responseStatus)
-                        .addValue("body", responseBodyJson));
+                        .addValue("body", responseBodyJson)
+                        .addValue("headers", responseHeadersJson)
+                        .addValue("ct", contentType));
     }
 
     @Override
@@ -116,6 +118,8 @@ public class JdbcIdempotencyService implements IdempotencyService {
                 (String) row.get("request_fingerprint_sha256"),
                 row.get("response_status") == null ? 0 : ((Number) row.get("response_status")).intValue(),
                 (String) row.get("response_body_json"),
+                (String) row.get("response_headers_json"),
+                (String) row.get("content_type"),
                 row.get("created_at") == null ? null : ((Timestamp) row.get("created_at")).toInstant(),
                 row.get("expires_at") == null ? null : ((Timestamp) row.get("expires_at")).toInstant());
     }

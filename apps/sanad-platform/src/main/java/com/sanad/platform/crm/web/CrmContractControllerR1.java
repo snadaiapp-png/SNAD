@@ -208,7 +208,7 @@ public class CrmContractControllerR1 {
             if (replay instanceof IdempotencyService.Replay.ReplayHit hit) return ResponseEntity.status(hit.record().responseStatus()).body(SingleResponse.of(null, requestId(req)));
             try {
                 CustomFieldResponse r = mapper.toCustomFieldResponse(extended.createCustomField(auth, body));
-                if (replay instanceof IdempotencyService.Replay.ReplayMiss miss) idempotency.complete(miss.operationId(), HttpStatus.CREATED.value(), r == null ? "" : r.toString());
+                if (replay instanceof IdempotencyService.Replay.ReplayMiss miss) idempotency.complete(miss.operationId(), HttpStatus.CREATED.value(), r == null ? "" : r.toString(), null, "application/json");
                 return ResponseEntity.status(HttpStatus.CREATED).body(SingleResponse.of(r, requestId(req)));
             } catch (RuntimeException ex) { if (replay instanceof IdempotencyService.Replay.ReplayMiss miss) idempotency.fail(miss.operationId()); throw ex; }
         }
@@ -223,8 +223,10 @@ public class CrmContractControllerR1 {
             @RequestHeader(value = "If-Match", required = false) String ifMatch, HttpServletRequest req) {
         List<Map<String, Object>> fields = extended.listCustomFields(auth, null);
         Map<String, Object> current = fields.stream().filter(f -> customFieldId.equals(f.get("id"))).findFirst().orElseThrow(() -> new CrmContractException(CrmErrorCode.CRM_CUSTOM_FIELD_NOT_FOUND));
-        etags.validateIfMatch(ifMatch, "custom-field", customFieldId, asLong(current.get("version")));
-        CustomFieldResponse r = mapper.toCustomFieldResponse(current);
+        long expectedVersion = asLong(current.get("version"));
+        etags.validateIfMatch(ifMatch, "custom-field", customFieldId, expectedVersion);
+        Map<String, Object> updated = extended.updateCustomField(auth, customFieldId, body.labelAr(), body.labelEn(), body.required(), body.searchable(), body.sensitive(), expectedVersion);
+        CustomFieldResponse r = mapper.toCustomFieldResponse(updated);
         HttpHeaders h = new HttpHeaders(); h.set(HttpHeaders.ETAG, etags.etag("custom-field", customFieldId, r.version()));
         return ResponseEntity.ok().headers(h).body(SingleResponse.of(r, requestId(req)));
     }
@@ -239,13 +241,15 @@ public class CrmContractControllerR1 {
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
             UUID t = extractTenantId(auth), p = extractPrincipalId(auth);
             String endpoint = "POST:/api/v2/crm/imports/upload";
-            String fpMaterial = entityType + "|" + (mapping == null ? "" : mapping) + "|" + file.getOriginalFilename() + "|" + file.getSize();
+            String fileHash;
+            try { fileHash = sha256(file.getBytes()); } catch (Exception e) { fileHash = "error"; }
+            String fpMaterial = entityType + "|" + (mapping == null ? "" : mapping) + "|" + file.getOriginalFilename() + "|" + file.getSize() + "|" + fileHash;
             String fp = IdempotencyService.fingerprint("POST", endpoint, fpMaterial);
             IdempotencyService.Replay replay = idempotency.begin(t, p, endpoint, idempotencyKey, fp);
             if (replay instanceof IdempotencyService.Replay.ReplayHit hit) return ResponseEntity.status(hit.record().responseStatus()).body(SingleResponse.of(null, requestId(req)));
             try {
                 ImportJobResponse r = mapper.toImportJobResponse(extended.uploadImport(auth, entityType, mapping, file));
-                if (replay instanceof IdempotencyService.Replay.ReplayMiss miss) idempotency.complete(miss.operationId(), HttpStatus.CREATED.value(), r == null ? "" : r.toString());
+                if (replay instanceof IdempotencyService.Replay.ReplayMiss miss) idempotency.complete(miss.operationId(), HttpStatus.CREATED.value(), r == null ? "" : r.toString(), null, "application/json");
                 return ResponseEntity.status(HttpStatus.CREATED).body(SingleResponse.of(r, requestId(req)));
             } catch (RuntimeException ex) { if (replay instanceof IdempotencyService.Replay.ReplayMiss miss) idempotency.fail(miss.operationId()); throw ex; }
         }
@@ -265,7 +269,7 @@ public class CrmContractControllerR1 {
             if (replay instanceof IdempotencyService.Replay.ReplayHit hit) return ResponseEntity.status(hit.record().responseStatus()).body(SingleResponse.of(null, requestId(req)));
             try {
                 ImportRunResponse r = mapImportRun(extended.runImport(auth, jobId));
-                if (replay instanceof IdempotencyService.Replay.ReplayMiss miss) idempotency.complete(miss.operationId(), HttpStatus.OK.value(), r == null ? "" : r.toString());
+                if (replay instanceof IdempotencyService.Replay.ReplayMiss miss) idempotency.complete(miss.operationId(), HttpStatus.OK.value(), r == null ? "" : r.toString(), null, "application/json");
                 return ResponseEntity.ok().body(SingleResponse.of(r, requestId(req)));
             } catch (RuntimeException ex) { if (replay instanceof IdempotencyService.Replay.ReplayMiss miss) idempotency.fail(miss.operationId()); throw ex; }
         }
@@ -309,7 +313,7 @@ public class CrmContractControllerR1 {
             if (replay instanceof IdempotencyService.Replay.ReplayHit) return SingleResponse.of(null, requestId(req));
             try {
                 CustomFieldValuesResponse r = mapper.toCustomFieldValuesResponse(entityType, entityId, extended.upsertCustomFieldValues(auth, entityType, entityId, body));
-                if (replay instanceof IdempotencyService.Replay.ReplayMiss miss) idempotency.complete(miss.operationId(), HttpStatus.OK.value(), r == null ? "" : r.toString());
+                if (replay instanceof IdempotencyService.Replay.ReplayMiss miss) idempotency.complete(miss.operationId(), HttpStatus.OK.value(), r == null ? "" : r.toString(), null, "application/json");
                 return SingleResponse.of(r, requestId(req));
             } catch (RuntimeException ex) { if (replay instanceof IdempotencyService.Replay.ReplayMiss miss) idempotency.fail(miss.operationId()); throw ex; }
         }
@@ -341,5 +345,15 @@ public class CrmContractControllerR1 {
     private static ImportRunResponse mapImportRun(Map<String, Object> row) {
         return new ImportRunResponse((UUID) row.get("id"), String.valueOf(row.getOrDefault("status", "RUNNING")),
                 asLong(row.get("processed_rows")), asLong(row.get("successful_rows")), asLong(row.get("failed_rows")), null);
+    }
+
+    private static String sha256(byte[] bytes) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(bytes);
+            return java.util.HexFormat.of().formatHex(digest);
+        } catch (Exception e) {
+            return "error";
+        }
     }
 }

@@ -60,15 +60,16 @@ class CrmConcurrencyContractTest {
     void missingIfMatchHeaderIsRejected() {
         CrmContractException ex = assertThrows(CrmContractException.class,
                 () -> etags.validateIfMatch(null, "account", id, 4L));
-        assertEquals(CrmErrorCode.VALIDATION_ERROR, ex.code(),
-                "Missing If-Match must yield VALIDATION_ERROR, not concurrency conflict");
+        assertEquals(CrmErrorCode.CRM_PRECONDITION_REQUIRED, ex.code(),
+                "Missing If-Match must yield CRM_PRECONDITION_REQUIRED (HTTP 428)");
+        assertEquals(428, CrmErrorCode.CRM_PRECONDITION_REQUIRED.httpStatus());
     }
 
     @Test
     void blankIfMatchHeaderIsRejected() {
         CrmContractException ex = assertThrows(CrmContractException.class,
                 () -> etags.validateIfMatch("  ", "account", id, 4L));
-        assertEquals(CrmErrorCode.VALIDATION_ERROR, ex.code());
+        assertEquals(CrmErrorCode.CRM_PRECONDITION_REQUIRED, ex.code());
     }
 
     @Test
