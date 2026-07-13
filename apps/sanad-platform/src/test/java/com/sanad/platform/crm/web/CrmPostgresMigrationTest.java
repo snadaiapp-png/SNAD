@@ -13,6 +13,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -22,32 +23,22 @@ class CrmPostgresMigrationTest {
     private static final String CRM_CORE_VERSION = "20260702.1";
     private static final String RECONCILER_VERSION = "20260702.2";
     private static final String CRM_COMPLETION_VERSION = "20260702.3";
-    /**
-     * Stage 08 Sprint 1 — ST8-S1-002 tenant_quota migration.
-     * Added in Stage 08 Sprint 1; must be reflected in migration order assertions.
-     */
     private static final String TENANT_QUOTA_VERSION = "20260706.1";
-    /**
-     * Stage 29 verification compatibility — subscription change event migration.
-     * This migration is outside the CRM table set but still advances the Flyway schema history.
-     */
     private static final String SUBSCRIPTION_CHANGE_EVENTS_VERSION = "20260711.1";
-    /**
-     * CRM-G2 — Idempotency records table.
-     */
     private static final String CRM_IDEMPOTENCY_VERSION = "20260713.1";
-    /**
-     * CRM-G2 — Add version column to crm_pipelines.
-     */
     private static final String CRM_PIPELINE_VERSION_COLUMN = "20260713.2";
+
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
             "crm_pipeline_stages", "crm_opportunities", "crm_opportunity_stage_history",
             "crm_activities", "crm_timeline_events", "crm_import_jobs",
-            "crm_custom_field_definitions",
-            "crm_idempotency_records");
+            "crm_custom_field_definitions");
+
     private static final List<String> CRM_COMPLETION_TABLES = List.of(
             "crm_import_files", "crm_import_errors", "crm_custom_field_values");
+
+    private static final List<String> CRM_G2_TABLES = List.of(
+            "crm_idempotency_records");
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
@@ -75,9 +66,6 @@ class CrmPostgresMigrationTest {
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
-        // CRM-G2: verify idempotency table and pipeline version column
-        assertThat(existingTables(jdbc)).contains("crm_idempotency_records");
-        assertThat(latestVersion(jdbc)).isEqualTo(CRM_PIPELINE_VERSION_COLUMN);
     }
 
     @Test
@@ -89,6 +77,7 @@ class CrmPostgresMigrationTest {
         assertThat(latestVersion(jdbc)).isEqualTo(CRM_CORE_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(CRM_CORE_TABLES);
         assertThat(existingTables(jdbc)).doesNotContainAnyElementsOf(CRM_COMPLETION_TABLES);
+        assertThat(existingTables(jdbc)).doesNotContainAnyElementsOf(CRM_G2_TABLES);
 
         Flyway completion = flyway(null);
         assertThat(Arrays.stream(completion.info().pending()).map(MigrationInfo::getVersion))
@@ -96,7 +85,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(RECONCILER_VERSION),
                         MigrationVersion.fromVersion(CRM_COMPLETION_VERSION),
                         MigrationVersion.fromVersion(TENANT_QUOTA_VERSION),
-                        MigrationVersion.fromVersion(SUBSCRIPTION_CHANGE_EVENTS_VERSION));
+                        MigrationVersion.fromVersion(SUBSCRIPTION_CHANGE_EVENTS_VERSION),
+                        MigrationVersion.fromVersion(CRM_IDEMPOTENCY_VERSION),
+                        MigrationVersion.fromVersion(CRM_PIPELINE_VERSION_COLUMN));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -118,23 +109,34 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_COMPLETION_VERSION, "SQL", "complete crm imports custom fields");
         assertMigration(jdbc, TENANT_QUOTA_VERSION, "SQL", "create tenant quota");
         assertMigration(jdbc, SUBSCRIPTION_CHANGE_EVENTS_VERSION, "SQL", "create subscription change events");
-        assertThat(latestVersion(jdbc)).isEqualTo(SUBSCRIPTION_CHANGE_EVENTS_VERSION);
+        assertMigration(jdbc, CRM_IDEMPOTENCY_VERSION, "SQL", "create crm idempotency records");
+        assertMigration(jdbc, CRM_PIPELINE_VERSION_COLUMN, "SQL", "add pipeline version column");
+
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_PIPELINE_VERSION_COLUMN);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
+
         assertThat(constraintExists(jdbc, "fk_crm_contacts_account_same_tenant")).isTrue();
         assertThat(constraintExists(jdbc, "fk_crm_import_files_job_same_tenant")).isTrue();
         assertThat(constraintExists(jdbc, "fk_crm_import_errors_job_same_tenant")).isTrue();
         assertThat(constraintExists(jdbc, "fk_crm_custom_field_values_definition_same_tenant")).isTrue();
         assertThat(constraintExists(jdbc, "ck_crm_custom_field_value_exactly_one")).isTrue();
+        assertThat(constraintExists(jdbc, "crm_idempotency_records_unique")).isTrue();
+
+        assertThat(columnExists(jdbc, "crm_idempotency_records", "response_headers_json")).isTrue();
+        assertThat(columnExists(jdbc, "crm_idempotency_records", "content_type")).isTrue();
+        assertThat(columnExists(jdbc, "crm_pipelines", "version")).isTrue();
+
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.%' AND status='ACTIVE'",
                 Long.class)).isEqualTo(18L);
     }
 
     private List<String> allCrmTables() {
-        return java.util.stream.Stream.concat(
-                        CRM_CORE_TABLES.stream(), CRM_COMPLETION_TABLES.stream())
-                .sorted().toList();
+        return Stream.of(CRM_CORE_TABLES, CRM_COMPLETION_TABLES, CRM_G2_TABLES)
+                .flatMap(List::stream)
+                .sorted()
+                .toList();
     }
 
     private Flyway flyway(MigrationVersion target) {
@@ -183,6 +185,13 @@ class CrmPostgresMigrationTest {
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.table_constraints WHERE constraint_schema='public' AND constraint_name=?",
                 Long.class, constraint);
+        return count != null && count == 1L;
+    }
+
+    private boolean columnExists(JdbcTemplate jdbc, String table, String column) {
+        Long count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name=? AND column_name=?",
+                Long.class, table, column);
         return count != null && count == 1L;
     }
 }
