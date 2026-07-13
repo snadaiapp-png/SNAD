@@ -1,4 +1,12 @@
 package com.sanad.platform.crm.web;
+import com.sanad.platform.crm.party.application.AccountUseCases;
+import com.sanad.platform.crm.party.application.ContactUseCases;
+import com.sanad.platform.crm.party.domain.AccountRepository.AccountRecord;
+import com.sanad.platform.crm.party.domain.AccountRepository.CreateAccountCommand;
+import com.sanad.platform.crm.party.domain.AccountRepository.UpdateAccountCommand;
+import com.sanad.platform.crm.party.domain.ContactRepository.ContactRecord;
+import com.sanad.platform.crm.party.domain.ContactRepository.CreateContactCommand;
+import com.sanad.platform.crm.party.domain.ContactRepository.UpdateContactCommand;
 
 import com.sanad.platform.crm.concurrency.ETagService;
 import com.sanad.platform.crm.dto.CrmDtos.AccountResponse;
@@ -52,6 +60,8 @@ import java.util.UUID;
 public class CrmContractController {
     private final CrmService legacy;
     private final CrmExtendedService extended;
+    private final AccountUseCases accountUseCases;
+    private final ContactUseCases contactUseCases;
     private final CrmV2AtomicMutationService atomic;
     private final CrmDtoMapper mapper;
     private final ETagService etags;
@@ -61,6 +71,8 @@ public class CrmContractController {
     public CrmContractController(
             CrmService legacy,
             CrmExtendedService extended,
+            AccountUseCases accountUseCases,
+            ContactUseCases contactUseCases,
             CrmV2AtomicMutationService atomic,
             CrmDtoMapper mapper,
             ETagService etags,
@@ -68,6 +80,8 @@ public class CrmContractController {
             CrmIdempotencyHttpSupport idempotency) {
         this.legacy = legacy;
         this.extended = extended;
+        this.accountUseCases = accountUseCases;
+        this.contactUseCases = contactUseCases;
         this.atomic = atomic;
         this.mapper = mapper;
         this.etags = etags;

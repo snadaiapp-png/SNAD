@@ -1,4 +1,14 @@
 package com.sanad.platform.crm.web;
+import com.sanad.platform.crm.party.application.AccountUseCases;
+import com.sanad.platform.crm.party.application.ContactUseCases;
+import com.sanad.platform.crm.lead.application.LeadUseCases;
+import com.sanad.platform.crm.opportunity.application.OpportunityUseCases;
+import com.sanad.platform.crm.activity.application.ActivityUseCases;
+import com.sanad.platform.crm.configuration.application.ConfigurationUseCases;
+import com.sanad.platform.crm.party.domain.AccountRepository.AccountRecord;
+import com.sanad.platform.crm.party.domain.AccountRepository.UpdateAccountCommand;
+import com.sanad.platform.crm.party.domain.ContactRepository.ContactRecord;
+import com.sanad.platform.crm.party.domain.ContactRepository.UpdateContactCommand;
 
 import com.sanad.platform.crm.concurrency.ETagService;
 import com.sanad.platform.crm.dto.CrmDtos.AccountResponse;
@@ -52,6 +62,12 @@ import java.util.UUID;
 public class CrmContractControllerR1 {
     private final CrmService legacy;
     private final CrmExtendedService extended;
+    private final AccountUseCases accountUseCases;
+    private final ContactUseCases contactUseCases;
+    private final LeadUseCases leadUseCases;
+    private final OpportunityUseCases opportunityUseCases;
+    private final ActivityUseCases activityUseCases;
+    private final ConfigurationUseCases configurationUseCases;
     private final CrmV2AtomicMutationService atomic;
     private final CrmDtoMapper mapper;
     private final ETagService etags;
@@ -60,12 +76,24 @@ public class CrmContractControllerR1 {
     public CrmContractControllerR1(
             CrmService legacy,
             CrmExtendedService extended,
+            AccountUseCases accountUseCases,
+            ContactUseCases contactUseCases,
+            LeadUseCases leadUseCases,
+            OpportunityUseCases opportunityUseCases,
+            ActivityUseCases activityUseCases,
+            ConfigurationUseCases configurationUseCases,
             CrmV2AtomicMutationService atomic,
             CrmDtoMapper mapper,
             ETagService etags,
             CrmIdempotencyHttpSupport idempotency) {
         this.legacy = legacy;
         this.extended = extended;
+        this.accountUseCases = accountUseCases;
+        this.contactUseCases = contactUseCases;
+        this.leadUseCases = leadUseCases;
+        this.opportunityUseCases = opportunityUseCases;
+        this.activityUseCases = activityUseCases;
+        this.configurationUseCases = configurationUseCases;
         this.atomic = atomic;
         this.mapper = mapper;
         this.etags = etags;
