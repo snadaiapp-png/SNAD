@@ -23,7 +23,7 @@ import java.util.UUID;
  * successful If-Match check cannot be invalidated by a concurrent writer.
  */
 @Service
-final class CrmV2AtomicMutationService {
+public class CrmV2AtomicMutationService {
     private static final Map<String, Set<String>> LEAD_TRANSITIONS = Map.of(
             "NEW", Set.of("ASSIGNED", "CONTACTED", "QUALIFIED", "DISQUALIFIED", "ARCHIVED"),
             "ASSIGNED", Set.of("CONTACTED", "QUALIFIED", "DISQUALIFIED", "ARCHIVED"),
@@ -34,7 +34,7 @@ final class CrmV2AtomicMutationService {
 
     private final NamedParameterJdbcTemplate jdbc;
 
-    CrmV2AtomicMutationService(NamedParameterJdbcTemplate jdbc) {
+    public CrmV2AtomicMutationService(NamedParameterJdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
