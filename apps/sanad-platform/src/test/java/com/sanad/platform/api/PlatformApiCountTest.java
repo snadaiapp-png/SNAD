@@ -41,7 +41,8 @@ class PlatformApiCountTest {
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
         assertThat(count(paths, "/api/v1/control-plane")).isEqualTo(35);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(44);
-        assertThat(count(paths, null)).isEqualTo(133);
+        assertThat(count(paths, "/api/v2/crm")).isEqualTo(46);
+        assertThat(count(paths, null)).isEqualTo(179);
         assertThat(has(paths, "/api/v1/auth/change-credential", "post")).isTrue();
         assertThat(has(paths, "/api/v1/access/evaluation", "get")).isTrue();
         assertThat(has(paths, "/api/v1/control-plane/dashboard", "get")).isTrue();
@@ -57,6 +58,9 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/crm/custom-fields", "post")).isTrue();
         assertThat(has(paths, "/api/v1/crm/custom-fields/values/{entityType}/{entityId}", "put")).isTrue();
         assertThat(has(paths, "/api/v1/crm/custom-fields/search", "get")).isTrue();
+        assertThat(has(paths, "/api/v2/crm/accounts", "post")).isTrue();
+        assertThat(has(paths, "/api/v2/crm/opportunities/{opportunityId}", "patch")).isTrue();
+        assertThat(has(paths, "/api/v2/crm/imports/upload", "post")).isTrue();
     }
 
     private static boolean has(JsonNode paths, String path, String method) {

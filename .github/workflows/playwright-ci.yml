@@ -3,16 +3,10 @@ name: Playwright E2E & Visual Regression
 # ============================================================
 # SNAD Platform — Playwright CI Hardening (Gate 8F Item 5)
 # ------------------------------------------------------------
-# Runs the full Playwright test suite in GitHub Actions:
-#   - Bilingual theme matrix (48 tests, 6 projects)
-#   - Visual regression with baseline comparison (10 tests)
-#
-# Total: 58 tests, fail-closed (no continue-on-error).
-#
-# Artifacts uploaded on failure:
-#   - playwright-report (HTML report)
-#   - test-results (screenshots, traces, videos)
-#   - visual-diffs (baseline diff images)
+# Runs the full Playwright test suite in GitHub Actions using the
+# Google Chrome installation provided by the GitHub runner image.
+# This avoids an external browser CDN dependency while preserving
+# the full E2E and visual-regression matrix.
 # ============================================================
 
 on:
@@ -33,7 +27,7 @@ permissions:
 
 concurrency:
   group: playwright-ci-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   playwright:
@@ -63,10 +57,10 @@ jobs:
           set -euo pipefail
           npm ci
 
-      - name: Install Playwright browsers
+      - name: Verify runner Chrome
         run: |
           set -euo pipefail
-          npx playwright install --with-deps chromium
+          google-chrome --version
 
       - name: Build Next.js production
         run: |
@@ -85,7 +79,6 @@ jobs:
           SERVER_PID=$!
           echo "pid=$SERVER_PID" >> "$GITHUB_OUTPUT"
 
-          # Wait for readiness (up to 60s)
           for i in $(seq 1 20); do
             if curl --fail --silent http://127.0.0.1:3001/ > /dev/null 2>&1; then
               echo "Server ready after $((i*3))s"

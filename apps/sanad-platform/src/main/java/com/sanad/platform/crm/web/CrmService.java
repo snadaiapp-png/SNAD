@@ -68,7 +68,7 @@ class CrmService {
         if (request.parentAccountId() != null) { account(tenantId, request.parentAccountId()); assertNoAccountCycle(tenantId, accountId, request.parentAccountId()); }
         extended.validateOwner(tenantId, request.ownerUserId());
         Instant now = Instant.now();
-        jdbc.update("UPDATE crm_accounts SET display_name=COALESCE(:displayName,display_name),normalized_name=COALESCE(:normalizedName,normalized_name),parent_account_id=:parentAccountId,owner_user_id=COALESCE(:ownerUserId,owner_user_id),primary_currency_code=COALESCE(:currency,primary_currency_code),preferred_locale=COALESCE(:locale,preferred_locale),time_zone=COALESCE(:timeZone,time_zone),source=COALESCE(:source,source),updated_by=:actorId,updated_at=:now,version=version+1 WHERE tenant_id=:tenantId AND id=:id", p().addValue("tenantId", tenantId).addValue("id", accountId).addValue("displayName", optional(request.displayName(), 240, "displayName")).addValue("normalizedName", request.displayName() == null ? null : norm(request.displayName())).addValue("parentAccountId", request.parentAccountId()).addValue("ownerUserId", request.ownerUserId()).addValue("currency", currency(request.primaryCurrencyCode())).addValue("locale", locale(request.preferredLocale())).addValue("timeZone", zone(request.timeZone())).addValue("source", optional(request.source(), 80, "source")).addValue("actorId", actorId).addValue("now", Timestamp.from(now)));
+        long expectedVersion = asLong(current.get("version")); int updatedRows = jdbc.update("UPDATE crm_accounts SET display_name=COALESCE(:displayName,display_name),normalized_name=COALESCE(:normalizedName,normalized_name),parent_account_id=:parentAccountId,owner_user_id=COALESCE(:ownerUserId,owner_user_id),primary_currency_code=COALESCE(:currency,primary_currency_code),preferred_locale=COALESCE(:locale,preferred_locale),time_zone=COALESCE(:timeZone,time_zone),source=COALESCE(:source,source),updated_by=:actorId,updated_at=:now,version=version+1 WHERE tenant_id=:tenantId AND id=:id AND version=:expectedVersion", p().addValue("tenantId", tenantId).addValue("id", accountId).addValue("expectedVersion", expectedVersion).addValue("displayName", optional(request.displayName(), 240, "displayName")).addValue("normalizedName", request.displayName() == null ? null : norm(request.displayName())).addValue("parentAccountId", request.parentAccountId()).addValue("ownerUserId", request.ownerUserId()).addValue("currency", currency(request.primaryCurrencyCode())).addValue("locale", locale(request.preferredLocale())).addValue("timeZone", zone(request.timeZone())).addValue("source", optional(request.source(), 80, "source")).addValue("actorId", actorId).addValue("now", Timestamp.from(now))); if (updatedRows == 0) { throw new com.sanad.platform.crm.error.CrmContractException(com.sanad.platform.crm.error.CrmErrorCode.CRM_CONCURRENCY_CONFLICT); }
         timeline(tenantId, "ACCOUNT", accountId, "crm.account.updated", "Account updated", "CRM_ACCOUNT", accountId, actorId, now);
         return account(tenantId, accountId);
     }
@@ -213,4 +213,10 @@ class CrmService {
     private static ResponseStatusException bad(String message) { return new ResponseStatusException(HttpStatus.BAD_REQUEST, message); }
     private static ResponseStatusException missing(String message) { return new ResponseStatusException(HttpStatus.NOT_FOUND, message); }
     private static ResponseStatusException conflict(String message) { return new ResponseStatusException(HttpStatus.CONFLICT, message); }
+
+    private static long asLong(Object v) {
+        if (v == null) return 0L;
+        if (v instanceof Number n) return n.longValue();
+        try { return Long.parseLong(String.valueOf(v)); } catch (NumberFormatException e) { return 0L; }
+    }
 }

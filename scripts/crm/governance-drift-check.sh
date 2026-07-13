@@ -134,6 +134,7 @@ EXPECTED_CRM_MIGRATIONS=(
   "V20260702_3__complete_crm_imports_custom_fields.sql"
   "V20260706_1__create_tenant_quota.sql"
   "V20260711_1__create_subscription_change_events.sql"
+  "V20260713_1__create_crm_idempotency_records.sql"
 )
 
 for migration in "${EXPECTED_CRM_MIGRATIONS[@]}"; do
