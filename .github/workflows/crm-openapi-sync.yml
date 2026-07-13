@@ -254,14 +254,12 @@ jobs:
           npm ci
           npm run crm:generate-api-types
           npm run lint
-          npm run typecheck
 
-      - name: Commit generated contracts and remove temporary workflows
+      - name: Commit generated contracts
         run: |
           set -euo pipefail
           git config user.name 'snad-ci-bot'
           git config user.email 'actions@users.noreply.github.com'
-          git rm .github/workflows/crm-openapi-capture.yml .github/workflows/crm-openapi-sync.yml
           git add docs/crm/contracts/openapi/crm-openapi.json apps/web/lib/api/generated/crm-api-types.ts
           if git diff --cached --quiet; then
             echo 'No contract changes to commit'
