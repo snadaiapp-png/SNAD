@@ -1,10 +1,7 @@
 # CRM Module Boundaries
-
 ## Overview
 The CRM module has been refactored from a monolithic service structure to a Modular Monolith with 8 bounded context modules.
-
 ## Module Map
-
 | Module | Responsibility | Key Entities |
 |---|---|---|
 | `crm.party` | Accounts, Contacts, Customer identity | Account, Contact |
@@ -15,7 +12,6 @@ The CRM module has been refactored from a monolithic service structure to a Modu
 | `crm.dataquality` | Data validation policies (future: dedup, merge) | DataQualityPolicy |
 | `crm.query` | Read models, Dashboard, Timeline, Customer 360, Search | TimelineEvent, DashboardKpi |
 | `crm.integration` | Audit, Security context, Outbox adapters | AuditPort, TenantContextPort |
-
 ## Layer Structure (per module)
 ```
 <module>/
@@ -24,13 +20,11 @@ The CRM module has been refactored from a monolithic service structure to a Modu
 ├── domain/           # Repository ports, domain policies, value objects
 └── infrastructure/   # JDBC adapters, repository implementations
 ```
-
 ## Dependency Rules
 - `api → application` (controllers call use cases)
 - `application → domain` (use cases call repository ports)
 - `infrastructure → domain` (adapters implement ports)
 - Cross-module: only via declared ports, never via implementation classes
-
 ## Forbidden Dependencies
 - controller → JDBC/SQL
 - domain → Spring Web / JDBC / JPA

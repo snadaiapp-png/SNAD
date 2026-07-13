@@ -1,7 +1,6 @@
 package com.sanad.platform.crm.integration.domain;
 
 import java.time.Instant;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -10,5 +9,7 @@ import java.util.UUID;
  */
 public interface AuditPort {
     void record(UUID tenantId, UUID actorId, String action, String entityType, UUID entityId,
-                Map<String, Object> before, Map<String, Object> after, Instant timestamp);
+                AuditChange change, Instant timestamp);
+
+    record AuditChange(String beforeJson, String afterJson) {}
 }

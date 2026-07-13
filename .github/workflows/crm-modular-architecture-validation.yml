@@ -6,6 +6,10 @@ on:
     paths:
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/**'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/**'
+      - 'apps/sanad-platform/pom.xml'
+      - 'scripts/crm/**'
+      - 'docs/crm/architecture/**'
+      - 'docs/crm/adr/**'
       - '.github/workflows/crm-modular-architecture-validation.yml'
   push:
     branches: [main]
@@ -35,6 +39,12 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+
+      - name: Run modular architecture governance check
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/crm/modular-architecture-check.sh
 
       - name: Run architecture tests
         working-directory: apps/sanad-platform

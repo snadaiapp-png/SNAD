@@ -1,13 +1,29 @@
 package com.sanad.platform.crm.query.domain;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
  * Read-only Customer 360 query port.
- * Composes data from multiple read models — never writes.
+ * Returns typed read models — never writes.
  */
 public interface Customer360QueryPort {
-    Map<String, Object> getCustomer360(UUID tenantId, UUID accountId);
+    Customer360View getCustomer360(UUID tenantId, UUID accountId);
+
+    record Customer360View(
+            UUID accountId,
+            String displayName,
+            String accountType,
+            String lifecycleStatus,
+            int contactCount,
+            int opportunityCount,
+            int activityCount,
+            int timelineEventCount,
+            List<ContactSummary> contacts,
+            List<OpportunitySummary> opportunities,
+            List<ActivitySummary> activities) {}
+
+    record ContactSummary(UUID id, String displayName, String primaryEmail, String lifecycleStatus) {}
+    record OpportunitySummary(UUID id, String name, java.math.BigDecimal amount, String currencyCode, String status) {}
+    record ActivitySummary(UUID id, String activityType, String subject, String status) {}
 }

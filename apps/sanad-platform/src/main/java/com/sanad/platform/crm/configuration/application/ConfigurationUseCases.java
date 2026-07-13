@@ -4,10 +4,12 @@ import com.sanad.platform.crm.configuration.domain.CustomFieldRepository;
 import com.sanad.platform.crm.configuration.domain.CustomFieldRepository.CustomFieldRecord;
 import com.sanad.platform.crm.configuration.domain.CustomFieldRepository.CreateCustomFieldCommand;
 import com.sanad.platform.crm.configuration.domain.CustomFieldRepository.UpdateCustomFieldCommand;
+import com.sanad.platform.crm.configuration.domain.CustomFieldRepository.CustomFieldValueSet;
+import com.sanad.platform.crm.configuration.domain.CustomFieldRepository.CustomFieldValueCommand;
+import com.sanad.platform.crm.configuration.domain.CustomFieldRepository.CustomFieldSearchResult;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -20,8 +22,8 @@ public class ConfigurationUseCases {
     public List<CustomFieldRecord> listFields(UUID tenantId, String entityType) { return repo.findAll(tenantId, entityType); }
     @Transactional
     public CustomFieldRecord updateField(UUID tenantId, UUID actorId, UUID fieldId, UpdateCustomFieldCommand cmd, long expectedVersion) { return repo.update(tenantId, actorId, fieldId, cmd, expectedVersion); }
-    public Map<String, Object> readValues(UUID tenantId, String entityType, UUID entityId, boolean includeSensitive) { return repo.readValues(tenantId, entityType, entityId, includeSensitive); }
+    public CustomFieldValueSet readValues(UUID tenantId, String entityType, UUID entityId, boolean includeSensitive) { return repo.readValues(tenantId, entityType, entityId, includeSensitive); }
     @Transactional
-    public Map<String, Object> upsertValues(UUID tenantId, UUID actorId, String entityType, UUID entityId, Map<String, Object> values) { return repo.upsertValues(tenantId, actorId, entityType, entityId, values); }
-    public List<Map<String, Object>> searchValues(UUID tenantId, String entityType, String fieldKey, String query, int limit) { return repo.searchValues(tenantId, entityType, fieldKey, query, limit); }
+    public CustomFieldValueSet upsertValues(UUID tenantId, UUID actorId, String entityType, UUID entityId, CustomFieldValueCommand cmd) { return repo.upsertValues(tenantId, actorId, entityType, entityId, cmd); }
+    public List<CustomFieldSearchResult> searchValues(UUID tenantId, String entityType, String fieldKey, String query, int limit) { return repo.searchValues(tenantId, entityType, fieldKey, query, limit); }
 }

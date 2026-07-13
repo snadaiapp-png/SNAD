@@ -1,12 +1,13 @@
 package com.sanad.platform.crm.query.application;
 
 import com.sanad.platform.crm.query.domain.Customer360QueryPort;
+import com.sanad.platform.crm.query.domain.Customer360QueryPort.Customer360View;
 import com.sanad.platform.crm.query.domain.DashboardQueryPort;
+import com.sanad.platform.crm.query.domain.DashboardQueryPort.DashboardKpisView;
 import com.sanad.platform.crm.query.domain.TimelineProjectionRepository;
 import com.sanad.platform.crm.query.domain.TimelineProjectionRepository.TimelineEvent;
 import org.springframework.stereotype.Service;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -29,6 +30,6 @@ public class QueryUseCases {
         return timelineRepo.findBySubject(tenantId, subjectType, subjectId, limit);
     }
 
-    public Map<String, Object> getDashboard(UUID tenantId) { return dashboardPort.getDashboardKpis(tenantId); }
-    public Map<String, Object> getCustomer360(UUID tenantId, UUID accountId) { return customer360Port.getCustomer360(tenantId, accountId); }
+    public DashboardKpisView getDashboard(UUID tenantId) { return dashboardPort.getDashboardKpis(tenantId); }
+    public Customer360View getCustomer360(UUID tenantId, UUID accountId) { return customer360Port.getCustomer360(tenantId, accountId); }
 }

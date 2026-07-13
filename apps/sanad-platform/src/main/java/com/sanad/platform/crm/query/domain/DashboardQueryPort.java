@@ -1,12 +1,23 @@
 package com.sanad.platform.crm.query.domain;
 
-import java.util.Map;
 import java.util.UUID;
 
 /**
  * Read-only dashboard query port.
- * Returns aggregate KPIs for the CRM dashboard.
+ * Returns typed KPIs — never writes.
  */
 public interface DashboardQueryPort {
-    Map<String, Object> getDashboardKpis(UUID tenantId);
+    DashboardKpisView getDashboardKpis(UUID tenantId);
+
+    record DashboardKpisView(
+            long totalAccounts,
+            long activeAccounts,
+            long totalContacts,
+            long totalLeads,
+            long openLeads,
+            long totalOpportunities,
+            long openOpportunities,
+            long totalActivities,
+            long openActivities,
+            java.math.BigDecimal totalPipelineAmount) {}
 }
