@@ -575,7 +575,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateActivityRequest"
+                "$ref": "#/components/schemas/UpdateActivityRequest"
               }
             }
           },
@@ -2152,7 +2152,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateOpportunityRequest"
+                "$ref": "#/components/schemas/UpdateOpportunityRequest"
               }
             }
           },
@@ -2293,7 +2293,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreatePipelineRequest"
+                "$ref": "#/components/schemas/UpdatePipelineRequest"
               }
             }
           },
@@ -3130,33 +3130,6 @@
           "name",
           "pipelineId",
           "stageId"
-        ]
-      },
-      "CreatePipelineRequest": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "maxLength": 160,
-            "minLength": 0
-          },
-          "currencyCode": {
-            "type": "string",
-            "pattern": "[A-Za-z]{3}"
-          },
-          "stages": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "maxLength": 160,
-              "minLength": 0
-            },
-            "maxItems": 20,
-            "minItems": 2
-          }
-        },
-        "required": [
-          "name"
         ]
       },
       "CustomFieldResponse": {
@@ -4064,6 +4037,35 @@
           }
         }
       },
+      "UpdateActivityRequest": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 0
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 0
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 0
+          },
+          "startAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dueAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "UpdateContactRequest": {
         "type": "object",
         "properties": {
@@ -4165,6 +4167,42 @@
         "required": [
           "status"
         ]
+      },
+      "UpdateOpportunityRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 0
+          },
+          "amount": {
+            "type": "number",
+            "minimum": 0.0
+          },
+          "ownerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedCloseDate": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "UpdatePipelineRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 0
+          },
+          "currencyCode": {
+            "type": "string",
+            "pattern": "[A-Za-z]{3}"
+          }
+        }
       },
       "FieldError": {
         "type": "object",

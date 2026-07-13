@@ -764,11 +764,6 @@ export type components = {
             /** Format: uuid */
             readonly ownerUserId?: string;
         };
-        readonly CreatePipelineRequest: {
-            readonly name: string;
-            readonly currencyCode?: string;
-            readonly stages?: readonly string[];
-        };
         readonly CustomFieldResponse: {
             /** Format: uuid */
             readonly id?: string;
@@ -1107,6 +1102,16 @@ export type components = {
             readonly timeZone?: string;
             readonly source?: string;
         };
+        readonly UpdateActivityRequest: {
+            readonly subject?: string;
+            readonly body?: string;
+            /** Format: int32 */
+            readonly priority?: number;
+            /** Format: date-time */
+            readonly startAt?: string;
+            /** Format: date-time */
+            readonly dueAt?: string;
+        };
         readonly UpdateContactRequest: {
             /** Format: uuid */
             readonly accountId?: string;
@@ -1136,6 +1141,18 @@ export type components = {
         readonly UpdateLeadStatusRequest: {
             readonly status: string;
             readonly reason?: string;
+        };
+        readonly UpdateOpportunityRequest: {
+            readonly name?: string;
+            readonly amount?: number;
+            /** Format: uuid */
+            readonly ownerUserId?: string;
+            /** Format: date */
+            readonly expectedCloseDate?: string;
+        };
+        readonly UpdatePipelineRequest: {
+            readonly name?: string;
+            readonly currencyCode?: string;
         };
         readonly FieldError: {
             readonly field: string;
@@ -1500,7 +1517,7 @@ export interface operations {
         };
         readonly requestBody: {
             readonly content: {
-                readonly "application/json": components["schemas"]["CreateActivityRequest"];
+                readonly "application/json": components["schemas"]["UpdateActivityRequest"];
             };
         };
         readonly responses: {
@@ -2320,7 +2337,7 @@ export interface operations {
         };
         readonly requestBody: {
             readonly content: {
-                readonly "application/json": components["schemas"]["CreateOpportunityRequest"];
+                readonly "application/json": components["schemas"]["UpdateOpportunityRequest"];
             };
         };
         readonly responses: {
@@ -2402,7 +2419,7 @@ export interface operations {
         };
         readonly requestBody: {
             readonly content: {
-                readonly "application/json": components["schemas"]["CreatePipelineRequest"];
+                readonly "application/json": components["schemas"]["UpdatePipelineRequest"];
             };
         };
         readonly responses: {
