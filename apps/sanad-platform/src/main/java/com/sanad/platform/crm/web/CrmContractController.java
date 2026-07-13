@@ -153,11 +153,14 @@ public class CrmContractController {
             @Valid @RequestBody UpdateAccountRequest body,
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             HttpServletRequest request) {
-        Map<String, Object> current = legacy.getAccount(auth, accountId);
-        long expectedVersion = asLong(current.get("version"));
+        AccountRecord current = accountUseCases.getById(tenantId(auth), accountId);
+        long expectedVersion = current.version();
         etags.validateIfMatch(ifMatch, "account", accountId, expectedVersion);
-        AccountResponse response = mapper.toAccountResponse(
-                atomic.updateAccount(auth, accountId, body, expectedVersion));
+        AccountRecord updated = accountUseCases.update(tenantId(auth), userId(auth), accountId,
+                new UpdateAccountCommand(body.displayName(), body.ownerUserId(), body.parentAccountId(),
+                        body.primaryCurrencyCode(), body.preferredLocale(), body.timeZone(), body.source()),
+                expectedVersion);
+        AccountResponse response = mapper.toAccountResponse(toAccountMap(updated));
         return wrapSingle(response, "account", response.version(), request);
     }
 
@@ -168,11 +171,11 @@ public class CrmContractController {
             @PathVariable UUID accountId,
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             HttpServletRequest request) {
-        Map<String, Object> current = legacy.getAccount(auth, accountId);
-        long expectedVersion = asLong(current.get("version"));
+        AccountRecord current = accountUseCases.getById(tenantId(auth), accountId);
+        long expectedVersion = current.version();
         etags.validateIfMatch(ifMatch, "account", accountId, expectedVersion);
-        ArchiveAccountResponse response = mapper.toArchiveAccountResponse(
-                atomic.setAccountArchived(auth, accountId, true, expectedVersion));
+        AccountRecord archived = accountUseCases.archive(tenantId(auth), userId(auth), accountId, expectedVersion);
+        ArchiveAccountResponse response = new ArchiveAccountResponse(archived.id(), archived.version(), archived.lifecycleStatus(), null);
         return wrapSingle(response, "account", response.version(), request);
     }
 
