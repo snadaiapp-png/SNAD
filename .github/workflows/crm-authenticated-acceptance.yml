@@ -221,9 +221,11 @@ jobs:
         working-directory: apps/web
         run: npm install --no-save --no-package-lock @axe-core/playwright@4.10.2
 
-      - name: Install Playwright Chromium
+      - name: Verify runner Chrome
         working-directory: apps/web
-        run: npx playwright install --with-deps chromium
+        run: |
+          set -euo pipefail
+          google-chrome --version
 
       - name: Build Next.js production bundle
         working-directory: apps/web
