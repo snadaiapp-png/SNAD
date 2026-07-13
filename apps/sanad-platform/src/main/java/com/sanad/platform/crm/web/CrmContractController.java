@@ -52,6 +52,7 @@ import java.util.UUID;
 public class CrmContractController {
     private final CrmService legacy;
     private final CrmExtendedService extended;
+    private final CrmV2AtomicMutationService atomic;
     private final CrmDtoMapper mapper;
     private final ETagService etags;
     private final CursorCodec cursors;
@@ -60,12 +61,14 @@ public class CrmContractController {
     public CrmContractController(
             CrmService legacy,
             CrmExtendedService extended,
+            CrmV2AtomicMutationService atomic,
             CrmDtoMapper mapper,
             ETagService etags,
             CursorCodec cursors,
             CrmIdempotencyHttpSupport idempotency) {
         this.legacy = legacy;
         this.extended = extended;
+        this.atomic = atomic;
         this.mapper = mapper;
         this.etags = etags;
         this.cursors = cursors;
@@ -127,8 +130,10 @@ public class CrmContractController {
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             HttpServletRequest request) {
         Map<String, Object> current = legacy.getAccount(auth, accountId);
-        etags.validateIfMatch(ifMatch, "account", accountId, asLong(current.get("version")));
-        AccountResponse response = mapper.toAccountResponse(legacy.updateAccount(auth, accountId, body));
+        long expectedVersion = asLong(current.get("version"));
+        etags.validateIfMatch(ifMatch, "account", accountId, expectedVersion);
+        AccountResponse response = mapper.toAccountResponse(
+                atomic.updateAccount(auth, accountId, body, expectedVersion));
         return wrapSingle(response, "account", response.version(), request);
     }
 
@@ -140,8 +145,10 @@ public class CrmContractController {
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             HttpServletRequest request) {
         Map<String, Object> current = legacy.getAccount(auth, accountId);
-        etags.validateIfMatch(ifMatch, "account", accountId, asLong(current.get("version")));
-        ArchiveAccountResponse response = mapper.toArchiveAccountResponse(legacy.archiveAccount(auth, accountId));
+        long expectedVersion = asLong(current.get("version"));
+        etags.validateIfMatch(ifMatch, "account", accountId, expectedVersion);
+        ArchiveAccountResponse response = mapper.toArchiveAccountResponse(
+                atomic.setAccountArchived(auth, accountId, true, expectedVersion));
         return wrapSingle(response, "account", response.version(), request);
     }
 
