@@ -52,6 +52,7 @@ import java.util.UUID;
 public class CrmContractControllerR1 {
     private final CrmService legacy;
     private final CrmExtendedService extended;
+    private final CrmV2AtomicMutationService atomic;
     private final CrmDtoMapper mapper;
     private final ETagService etags;
     private final CrmIdempotencyHttpSupport idempotency;
@@ -59,11 +60,13 @@ public class CrmContractControllerR1 {
     public CrmContractControllerR1(
             CrmService legacy,
             CrmExtendedService extended,
+            CrmV2AtomicMutationService atomic,
             CrmDtoMapper mapper,
             ETagService etags,
             CrmIdempotencyHttpSupport idempotency) {
         this.legacy = legacy;
         this.extended = extended;
+        this.atomic = atomic;
         this.mapper = mapper;
         this.etags = etags;
         this.idempotency = idempotency;
@@ -77,8 +80,10 @@ public class CrmContractControllerR1 {
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             HttpServletRequest request) {
         Map<String, Object> current = legacy.getAccount(auth, accountId);
-        etags.validateIfMatch(ifMatch, "account", accountId, asLong(current.get("version")));
-        AccountResponse response = mapper.toAccountResponse(extended.restoreAccount(auth, accountId));
+        long expectedVersion = asLong(current.get("version"));
+        etags.validateIfMatch(ifMatch, "account", accountId, expectedVersion);
+        AccountResponse response = mapper.toAccountResponse(
+                atomic.setAccountArchived(auth, accountId, false, expectedVersion));
         return withEtag(response, "account", accountId, response.version(), request);
     }
 
@@ -91,8 +96,10 @@ public class CrmContractControllerR1 {
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             HttpServletRequest request) {
         Map<String, Object> current = extended.getContact(auth, contactId);
-        etags.validateIfMatch(ifMatch, "contact", contactId, asLong(current.get("version")));
-        ContactResponse response = mapper.toContactResponse(extended.updateContact(auth, contactId, body));
+        long expectedVersion = asLong(current.get("version"));
+        etags.validateIfMatch(ifMatch, "contact", contactId, expectedVersion);
+        ContactResponse response = mapper.toContactResponse(
+                atomic.updateContact(auth, contactId, body, expectedVersion));
         return withEtag(response, "contact", contactId, response.version(), request);
     }
 
@@ -104,8 +111,10 @@ public class CrmContractControllerR1 {
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             HttpServletRequest request) {
         Map<String, Object> current = extended.getContact(auth, contactId);
-        etags.validateIfMatch(ifMatch, "contact", contactId, asLong(current.get("version")));
-        ContactResponse response = mapper.toContactResponse(extended.archiveContact(auth, contactId));
+        long expectedVersion = asLong(current.get("version"));
+        etags.validateIfMatch(ifMatch, "contact", contactId, expectedVersion);
+        ContactResponse response = mapper.toContactResponse(
+                atomic.setContactArchived(auth, contactId, true, expectedVersion));
         return withEtag(response, "contact", contactId, response.version(), request);
     }
 
@@ -117,8 +126,10 @@ public class CrmContractControllerR1 {
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             HttpServletRequest request) {
         Map<String, Object> current = extended.getContact(auth, contactId);
-        etags.validateIfMatch(ifMatch, "contact", contactId, asLong(current.get("version")));
-        ContactResponse response = mapper.toContactResponse(extended.restoreContact(auth, contactId));
+        long expectedVersion = asLong(current.get("version"));
+        etags.validateIfMatch(ifMatch, "contact", contactId, expectedVersion);
+        ContactResponse response = mapper.toContactResponse(
+                atomic.setContactArchived(auth, contactId, false, expectedVersion));
         return withEtag(response, "contact", contactId, response.version(), request);
     }
 
@@ -131,8 +142,10 @@ public class CrmContractControllerR1 {
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             HttpServletRequest request) {
         Map<String, Object> current = extended.getLead(auth, leadId);
-        etags.validateIfMatch(ifMatch, "lead", leadId, asLong(current.get("version")));
-        LeadResponse response = mapper.toLeadResponse(extended.changeLeadStatus(auth, leadId, body));
+        long expectedVersion = asLong(current.get("version"));
+        etags.validateIfMatch(ifMatch, "lead", leadId, expectedVersion);
+        LeadResponse response = mapper.toLeadResponse(
+                atomic.changeLeadStatus(auth, leadId, body, expectedVersion));
         return withEtag(response, "lead", leadId, response.version(), request);
     }
 
@@ -162,9 +175,10 @@ public class CrmContractControllerR1 {
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             HttpServletRequest request) {
         Map<String, Object> current = extended.getOpportunity(auth, opportunityId);
-        etags.validateIfMatch(ifMatch, "opportunity", opportunityId, asLong(current.get("version")));
+        long expectedVersion = asLong(current.get("version"));
+        etags.validateIfMatch(ifMatch, "opportunity", opportunityId, expectedVersion);
         OpportunityResponse response = mapper.toOpportunityResponse(
-                legacy.moveOpportunity(auth, opportunityId, body));
+                atomic.moveOpportunityStage(auth, opportunityId, body, expectedVersion));
         return withEtag(response, "opportunity", opportunityId, response.version(), request);
     }
 
@@ -194,9 +208,10 @@ public class CrmContractControllerR1 {
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             HttpServletRequest request) {
         Map<String, Object> current = extended.getActivity(auth, activityId);
-        etags.validateIfMatch(ifMatch, "activity", activityId, asLong(current.get("version")));
+        long expectedVersion = asLong(current.get("version"));
+        etags.validateIfMatch(ifMatch, "activity", activityId, expectedVersion);
         ActivityResponse response = mapper.toActivityResponse(
-                extended.completeActivity(auth, activityId, body));
+                atomic.completeActivity(auth, activityId, body, expectedVersion));
         return withEtag(response, "activity", activityId, response.version(), request);
     }
 
