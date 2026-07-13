@@ -902,3 +902,40 @@ Stage Summary:
 - Previous rejected SHA: 3fe080df0580f3b9f11236b124192764cac5e23c
 - 52 files changed, 7364 insertions
 - Status: IMPLEMENTATION ON GITHUB — CI VERIFICATION PENDING
+
+---
+Task ID: crm-003-r6-final-verification
+Agent: main (Super Z)
+Task: EXEC-PROMPT-CRM-003-R6 — Final verification and push.
+
+Work Log:
+- Synced to origin/crm/003-stable-api-contracts at e59afac6
+- Fixed deployment readiness workflow YAML: branches: ain] → branches: [main] (raw bytes verified via od -c)
+- All R6 corrections already in place:
+  * Migration V20260713_1: portable SQL (no DO block), CLOB columns, works on H2+PostgreSQL
+  * Migration V20260713_2: ALTER TABLE IF NOT EXISTS for pipeline version column
+  * CrmPostgresMigrationTest: includes 20260713.1 + 20260713.2 in expected versions
+  * Update DTOs: UpdateOpportunityRequest, UpdateActivityRequest, UpdatePipelineRequest, UpdateCustomFieldRequest
+  * R1 controller: uses Update DTOs for all PATCH operations
+  * Real update methods with atomic SQL (version check in WHERE + version+1 in SET)
+  * Import upload fingerprint: SHA-256 of file bytes, rejects unreadable files
+  * CRM_PRECONDITION_REQUIRED (HTTP 428) for missing If-Match
+  * IdempotencyRecord: stores responseHeadersJson + contentType for full replay
+  * CRM Deployment Readiness: compares runtime deps only (not scripts/devDeps)
+  * compare-runtime-dependencies.mjs script
+
+Final Results:
+- Maven contract tests: 101/101 PASS (0 failures, 0 errors, 0 skipped)
+- Web lint: 0 errors (3 warnings)
+- Web tests: 393 passed
+- Web build: PASS
+- TS typecheck: PASS
+- API contract governance drift: PASS
+- CRM governance drift: PASS
+- All 79 workflow YAML files: valid
+- SHA Match: YES (1880f9df)
+
+Stage Summary:
+- Branch: crm/003-stable-api-contracts at 1880f9dff360ce54aff115e45c608a79a2a219ff
+- 52 files changed
+- Status: IMPLEMENTATION ON GITHUB — CI VERIFICATION PENDING
