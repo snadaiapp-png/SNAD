@@ -7,12 +7,10 @@ import com.sanad.platform.crm.configuration.domain.CustomFieldRepository.UpdateC
 import com.sanad.platform.crm.configuration.domain.CustomFieldRepository.CustomFieldValueSet;
 import com.sanad.platform.crm.configuration.domain.CustomFieldRepository.CustomFieldValueCommand;
 import com.sanad.platform.crm.configuration.domain.CustomFieldRepository.CustomFieldSearchResult;
-import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.UUID;
 
-@Service
 public class ConfigurationUseCases {
     private final CustomFieldRepository repo;
     public ConfigurationUseCases(CustomFieldRepository repo) { this.repo = repo; }

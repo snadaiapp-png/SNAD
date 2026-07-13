@@ -51,7 +51,7 @@ jobs:
         run: |
           set -euo pipefail
           mvn --batch-mode --no-transfer-progress \
-            -Dtest='*ArchitectureTest,*ArchUnitTest' \
+            -Dtest='*ArchitectureTest,*ArchUnitTest,*ModuleWiringTest' \
             test
 
       - name: Verify architecture tests executed (not zero)

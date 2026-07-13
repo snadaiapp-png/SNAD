@@ -4,7 +4,6 @@ import com.sanad.platform.crm.party.domain.AccountRepository;
 import com.sanad.platform.crm.party.domain.AccountRepository.AccountRecord;
 import com.sanad.platform.crm.party.domain.AccountRepository.CreateAccountCommand;
 import com.sanad.platform.crm.party.domain.AccountRepository.UpdateAccountCommand;
-import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.UUID;
@@ -13,7 +12,6 @@ import java.util.UUID;
  * Application use cases for Account operations.
  * Orchestrates domain logic + repository port — no SQL, no HTTP.
  */
-@Service
 public class AccountUseCases {
     private final AccountRepository repo;
 

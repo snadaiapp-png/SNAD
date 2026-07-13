@@ -7,12 +7,10 @@ import com.sanad.platform.crm.opportunity.domain.OpportunityRepository.UpdateOpp
 import com.sanad.platform.crm.opportunity.domain.PipelineRepository;
 import com.sanad.platform.crm.opportunity.domain.PipelineRepository.PipelineRecord;
 import com.sanad.platform.crm.opportunity.domain.PipelineRepository.StageRecord;
-import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.UUID;
 
-@Service
 public class OpportunityUseCases {
     private final OpportunityRepository oppRepo;
     private final PipelineRepository pipelineRepo;

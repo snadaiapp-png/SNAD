@@ -4,12 +4,10 @@ import com.sanad.platform.crm.party.domain.ContactRepository;
 import com.sanad.platform.crm.party.domain.ContactRepository.ContactRecord;
 import com.sanad.platform.crm.party.domain.ContactRepository.CreateContactCommand;
 import com.sanad.platform.crm.party.domain.ContactRepository.UpdateContactCommand;
-import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.UUID;
 
-@Service
 public class ContactUseCases {
     private final ContactRepository repo;
     public ContactUseCases(ContactRepository repo) { this.repo = repo; }

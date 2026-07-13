@@ -6,7 +6,6 @@ import com.sanad.platform.crm.query.domain.DashboardQueryPort;
 import com.sanad.platform.crm.query.domain.DashboardQueryPort.DashboardKpisView;
 import com.sanad.platform.crm.query.domain.TimelineProjectionRepository;
 import com.sanad.platform.crm.query.domain.TimelineProjectionRepository.TimelineEvent;
-import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,7 +13,6 @@ import java.util.UUID;
  * Read-only query use cases.
  * Never performs writes — only composes read models.
  */
-@Service
 public class QueryUseCases {
     private final TimelineProjectionRepository timelineRepo;
     private final DashboardQueryPort dashboardPort;

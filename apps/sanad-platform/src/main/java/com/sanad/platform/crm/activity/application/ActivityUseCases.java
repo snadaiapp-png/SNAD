@@ -4,12 +4,10 @@ import com.sanad.platform.crm.activity.domain.ActivityRepository;
 import com.sanad.platform.crm.activity.domain.ActivityRepository.ActivityRecord;
 import com.sanad.platform.crm.activity.domain.ActivityRepository.CreateActivityCommand;
 import com.sanad.platform.crm.activity.domain.ActivityRepository.UpdateActivityCommand;
-import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.UUID;
 
-@Service
 public class ActivityUseCases {
     private final ActivityRepository repo;
     public ActivityUseCases(ActivityRepository repo) { this.repo = repo; }

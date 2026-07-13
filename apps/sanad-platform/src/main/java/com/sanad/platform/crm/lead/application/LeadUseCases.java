@@ -6,12 +6,10 @@ import com.sanad.platform.crm.lead.domain.LeadRepository.LeadRecord;
 import com.sanad.platform.crm.lead.domain.LeadRepository.CreateLeadCommand;
 import com.sanad.platform.crm.lead.domain.LeadRepository.ConvertLeadCommand;
 import com.sanad.platform.crm.lead.domain.LeadRepository.LeadConversionRecord;
-import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.UUID;
 
-@Service
 public class LeadUseCases {
     private final LeadRepository repo;
     public LeadUseCases(LeadRepository repo) { this.repo = repo; }
