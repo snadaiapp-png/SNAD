@@ -1,0 +1,94 @@
+name: CRM Wire Atomic Account Mutations
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm-wire-atomic-account.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  wire:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Wire version-scoped account mutations
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmContractController.java')
+          text = path.read_text(encoding='utf-8')
+
+          old = '''    private final CrmService legacy;
+              private final CrmExtendedService extended;
+              private final CrmDtoMapper mapper;'''.replace('              ', '    ')
+          new = '''    private final CrmService legacy;
+              private final CrmExtendedService extended;
+              private final CrmV2AtomicMutationService atomic;
+              private final CrmDtoMapper mapper;'''.replace('              ', '    ')
+          if text.count(old) != 1:
+              raise SystemExit('field block did not match exactly once')
+          text = text.replace(old, new)
+
+          old = '''            CrmService legacy,
+                      CrmExtendedService extended,
+                      CrmDtoMapper mapper,'''.replace('                      ', '            ')
+          new = '''            CrmService legacy,
+                      CrmExtendedService extended,
+                      CrmV2AtomicMutationService atomic,
+                      CrmDtoMapper mapper,'''.replace('                      ', '            ')
+          if text.count(old) != 1:
+              raise SystemExit('constructor parameters did not match exactly once')
+          text = text.replace(old, new)
+
+          old = '''        this.legacy = legacy;
+                  this.extended = extended;
+                  this.mapper = mapper;'''.replace('                  ', '        ')
+          new = '''        this.legacy = legacy;
+                  this.extended = extended;
+                  this.atomic = atomic;
+                  this.mapper = mapper;'''.replace('                  ', '        ')
+          if text.count(old) != 1:
+              raise SystemExit('constructor assignments did not match exactly once')
+          text = text.replace(old, new)
+
+          old = '''        Map<String, Object> current = legacy.getAccount(auth, accountId);
+                  etags.validateIfMatch(ifMatch, "account", accountId, asLong(current.get("version")));
+                  AccountResponse response = mapper.toAccountResponse(legacy.updateAccount(auth, accountId, body));'''.replace('                  ', '        ')
+          new = '''        Map<String, Object> current = legacy.getAccount(auth, accountId);
+                  long expectedVersion = asLong(current.get("version"));
+                  etags.validateIfMatch(ifMatch, "account", accountId, expectedVersion);
+                  AccountResponse response = mapper.toAccountResponse(
+                          atomic.updateAccount(auth, accountId, body, expectedVersion));'''.replace('                  ', '        ').replace('                          ', '                ')
+          if text.count(old) != 1:
+              raise SystemExit('account update block did not match exactly once')
+          text = text.replace(old, new)
+
+          old = '''        Map<String, Object> current = legacy.getAccount(auth, accountId);
+                  etags.validateIfMatch(ifMatch, "account", accountId, asLong(current.get("version")));
+                  ArchiveAccountResponse response = mapper.toArchiveAccountResponse(legacy.archiveAccount(auth, accountId));'''.replace('                  ', '        ')
+          new = '''        Map<String, Object> current = legacy.getAccount(auth, accountId);
+                  long expectedVersion = asLong(current.get("version"));
+                  etags.validateIfMatch(ifMatch, "account", accountId, expectedVersion);
+                  ArchiveAccountResponse response = mapper.toArchiveAccountResponse(
+                          atomic.setAccountArchived(auth, accountId, true, expectedVersion));'''.replace('                  ', '        ').replace('                          ', '                ')
+          if text.count(old) != 1:
+              raise SystemExit('account archive block did not match exactly once')
+          text = text.replace(old, new)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+          git diff --check
+          git config user.name 'snad-ci-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmContractController.java
+          git commit -m 'fix(crm): bind account mutations to version-scoped SQL'
+          git push origin HEAD:${{ github.head_ref }}
