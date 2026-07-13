@@ -37,7 +37,7 @@ permissions:
 
 concurrency:
   group: crm-authenticated-acceptance-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   authenticated-acceptance:
