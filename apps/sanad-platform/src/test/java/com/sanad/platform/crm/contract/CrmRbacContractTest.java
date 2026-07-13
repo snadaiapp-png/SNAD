@@ -1,6 +1,6 @@
 package com.sanad.platform.crm.contract;
 
-import com.sanad.platform.crm.api.CrmContractController;
+import com.sanad.platform.crm.web.CrmContractController;
 import com.sanad.platform.crm.error.CrmErrorCode;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -13,6 +13,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**

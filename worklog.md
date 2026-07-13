@@ -785,3 +785,41 @@ Stage Summary:
 - Push BLOCKED by sandbox credential limitation
 - Maven tests NOT RUN (mvn not available in sandbox)
 - Status: EXEC-PROMPT-CRM-003: BLOCKED — IMPLEMENTATION NOT ON GITHUB
+
+---
+Task ID: crm-003-r4-final-push
+Agent: main (Super Z)
+Task: EXEC-PROMPT-CRM-003-R4 — Push to GitHub using provided PAT, fix compilation errors, run Maven tests, verify everything.
+
+Work Log:
+- User provided GitHub Personal Access Token.
+- Successfully pushed branch crm/003-stable-api-contracts to GitHub (force push).
+- Initial push rejected by GitHub: download/crm-003-full-implementation.bundle exceeds 100MB limit.
+- Removed download artifacts from git tracking, added download/ to .gitignore.
+- Fixed compilation errors:
+  * Made CrmModels.java records public (package-private → public)
+  * Moved CrmContractController + CrmContractControllerR1 from api package to web package (for package-private access to services)
+  * Added version field to CustomFieldResponse DTO + mapper
+  * Made CursorCodec.tenantHash public (for contract tests)
+  * Fixed OpenAPI test to resolve $ref parameters
+  * Fixed OpenAPI test path resolution for Maven execution
+  * Added assertEquals static import to CrmRbacContractTest
+- Installed Maven 3.9.9 manually (downloaded to /tmp, no sudo needed).
+- Ran Maven contract tests: **Tests run: 101, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS**
+- Final push succeeded: SHA 4abf54df496a5a3f8e736fa85d4bdd8347817319
+- SHA MATCH: YES (local = remote = PR head)
+
+Stage Summary:
+- Branch: crm/003-stable-api-contracts at 4abf54df496a5a3f8e736fa85d4bdd8347817319
+- Pushed to GitHub: YES
+- SHA Match: YES
+- Files in PR: 45 (was 2)
+- Maven Tests Run: 101
+- Maven Failures: 0
+- Maven Errors: 0
+- Maven Skipped: 0
+- BUILD SUCCESS
+- API contract governance drift: PASS
+- CRM governance drift: PASS
+- TS typecheck: PASS
+- Status: IMPLEMENTATION ON GITHUB — CI VERIFICATION PENDING

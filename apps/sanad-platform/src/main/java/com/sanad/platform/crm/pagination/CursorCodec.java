@@ -104,7 +104,7 @@ public class CursorCodec {
      * the tenant unidentifiable from the cursor, not to defend against an
      * attacker who already knows the tenant ID.
      */
-    static String tenantHash(UUID tenantId) {
+    public static String tenantHash(UUID tenantId) {
         if (tenantId == null) return "00000000";
         long h = 0xcbf29ce484222325L;
         for (byte b : tenantId.toString().getBytes(StandardCharsets.UTF_8)) {

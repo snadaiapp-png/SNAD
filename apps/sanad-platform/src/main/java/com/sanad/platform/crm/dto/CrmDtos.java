@@ -264,6 +264,7 @@ public final class CrmDtos {
 
     public record CustomFieldResponse(
             UUID id,
+            long version,
             String entityType,
             String fieldKey,
             String labelAr,

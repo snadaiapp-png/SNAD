@@ -307,6 +307,7 @@ public class CrmDtoMapper {
         if (row == null) return null;
         return new CustomFieldResponse(
                 uuid(row.get("id")),
+                longVal(row.get("version")),
                 str(row.get("entity_type")),
                 str(row.get("field_key")),
                 str(row.get("label_ar")),

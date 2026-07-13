@@ -1,4 +1,4 @@
-package com.sanad.platform.crm.api;
+package com.sanad.platform.crm.web;
 
 import com.sanad.platform.crm.concurrency.ETagService;
 import com.sanad.platform.crm.dto.CrmDtos.AccountResponse;

@@ -38,7 +38,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 class CrmOpenApiContractTest {
 
     private static final Path OPENAPI_PATH =
-            Path.of("docs/crm/contracts/openapi/crm-openapi.json");
+            Path.of(System.getProperty("user.dir")).getParent().getParent().resolve("docs/crm/contracts/openapi/crm-openapi.json");
 
     private JsonNode loadSpec() throws Exception {
         assertTrue(Files.exists(OPENAPI_PATH),
@@ -139,13 +139,21 @@ class CrmOpenApiContractTest {
     @Test
     void accountPatchRequiresIfMatchHeader() throws Exception {
         JsonNode spec = loadSpec();
-        JsonNode ifMatch = spec.path("paths").path("/accounts/{accountId}").path("patch")
+        JsonNode parameters = spec.path("paths").path("/accounts/{accountId}").path("patch")
                 .path("parameters");
+        JsonNode componentParams = spec.path("components").path("parameters");
         boolean foundIfMatchRequired = false;
-        for (JsonNode param : ifMatch) {
-            if ("If-Match".equals(param.path("name").asText())
-                    && "header".equals(param.path("in").asText())
-                    && param.path("required").asBoolean(false)) {
+        for (JsonNode param : parameters) {
+            // Resolve $ref if present
+            JsonNode resolved = param;
+            if (param.has("$ref")) {
+                String ref = param.get("$ref").asText();
+                String paramName = ref.substring(ref.lastIndexOf("/") + 1);
+                resolved = componentParams.path(paramName);
+            }
+            if ("If-Match".equals(resolved.path("name").asText())
+                    && "header".equals(resolved.path("in").asText())
+                    && resolved.path("required").asBoolean(false)) {
                 foundIfMatchRequired = true;
                 break;
             }
