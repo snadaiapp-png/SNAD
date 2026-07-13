@@ -867,3 +867,38 @@ Stage Summary:
 - CRM contract tests: 101/101 PASS
 - Backend startup: compile PASS (runtime startup requires PostgreSQL — CI will verify)
 - Status: IMPLEMENTATION ON GITHUB — CI VERIFICATION PENDING
+
+---
+Task ID: crm-003-r6-migration-and-closure
+Agent: main (Super Z)
+Task: EXEC-PROMPT-CRM-003-R6 — Fix migration H2 compatibility, Update DTOs, deployment readiness, and push.
+
+Work Log:
+- Fixed Flyway migration V20260713_1: rewrote as portable SQL (no DO block), works on H2+PostgreSQL
+- Split migration: V20260713_1 (idempotency table) + V20260713_2 (pipeline version column)
+- Used CLOB instead of TEXT for H2 compatibility
+- Used ALTER TABLE IF NOT EXISTS for version column (portable)
+- Updated CrmPostgresMigrationTest: added 20260713.1 + 20260713.2 to expected versions
+- Added crm_idempotency_records to CRM_CORE_TABLES list
+- Created Update DTOs: UpdateOpportunityRequest, UpdateActivityRequest, UpdatePipelineRequest, UpdateCustomFieldRequest, UpdateLeadRequest
+- Updated R1 controller: use Update DTOs instead of Create DTOs for PATCH operations
+- Fixed import upload fingerprint: reject unreadable files instead of using 'error' fallback
+- Fixed CRM Deployment Readiness: compare runtime deps only (not scripts/devDeps)
+- Added compare-runtime-dependencies.mjs script
+
+Results:
+- Maven contract tests: 101/101 PASS (0 failures, 0 errors, 0 skipped)
+- Web lint: 0 errors (3 warnings)
+- Web tests: 393 passed
+- Web build: PASS
+- TS typecheck: PASS
+- API contract governance drift: PASS
+- CRM governance drift: PASS
+- Push: SUCCESS (SHA 88404b89)
+- SHA Match: YES
+
+Stage Summary:
+- Branch: crm/003-stable-api-contracts at 88404b89f72b151877ca68441b21f2bd11bb0dbe
+- Previous rejected SHA: 3fe080df0580f3b9f11236b124192764cac5e23c
+- 52 files changed, 7364 insertions
+- Status: IMPLEMENTATION ON GITHUB — CI VERIFICATION PENDING

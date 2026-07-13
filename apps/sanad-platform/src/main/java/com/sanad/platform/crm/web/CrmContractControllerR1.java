@@ -219,7 +219,7 @@ public class CrmContractControllerR1 {
     @PatchMapping("/custom-fields/{customFieldId}")
     public ResponseEntity<SingleResponse<CustomFieldResponse>> updateCustomField(
             Authentication auth, @PathVariable UUID customFieldId,
-            @Valid @RequestBody com.sanad.platform.crm.web.CreateCustomFieldRequest body,
+            @Valid @RequestBody com.sanad.platform.crm.web.CrmUpdateDtos.UpdateCustomFieldRequest body,
             @RequestHeader(value = "If-Match", required = false) String ifMatch, HttpServletRequest req) {
         List<Map<String, Object>> fields = extended.listCustomFields(auth, null);
         Map<String, Object> current = fields.stream().filter(f -> customFieldId.equals(f.get("id"))).findFirst().orElseThrow(() -> new CrmContractException(CrmErrorCode.CRM_CUSTOM_FIELD_NOT_FOUND));
@@ -241,8 +241,13 @@ public class CrmContractControllerR1 {
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
             UUID t = extractTenantId(auth), p = extractPrincipalId(auth);
             String endpoint = "POST:/api/v2/crm/imports/upload";
-            String fileHash;
-            try { fileHash = sha256(file.getBytes()); } catch (Exception e) { fileHash = "error"; }
+            byte[] fileBytes;
+            try { fileBytes = file.getBytes(); } catch (Exception e) {
+                throw new com.sanad.platform.crm.error.CrmContractException(
+                    com.sanad.platform.crm.error.CrmErrorCode.VALIDATION_ERROR,
+                    "Unable to read uploaded file for fingerprinting.");
+            }
+            String fileHash = sha256(fileBytes);
             String fpMaterial = entityType + "|" + (mapping == null ? "" : mapping) + "|" + file.getOriginalFilename() + "|" + file.getSize() + "|" + fileHash;
             String fp = IdempotencyService.fingerprint("POST", endpoint, fpMaterial);
             IdempotencyService.Replay replay = idempotency.begin(t, p, endpoint, idempotencyKey, fp);

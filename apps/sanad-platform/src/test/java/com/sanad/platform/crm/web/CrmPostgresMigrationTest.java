@@ -32,11 +32,20 @@ class CrmPostgresMigrationTest {
      * This migration is outside the CRM table set but still advances the Flyway schema history.
      */
     private static final String SUBSCRIPTION_CHANGE_EVENTS_VERSION = "20260711.1";
+    /**
+     * CRM-G2 — Idempotency records table.
+     */
+    private static final String CRM_IDEMPOTENCY_VERSION = "20260713.1";
+    /**
+     * CRM-G2 — Add version column to crm_pipelines.
+     */
+    private static final String CRM_PIPELINE_VERSION_COLUMN = "20260713.2";
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
             "crm_pipeline_stages", "crm_opportunities", "crm_opportunity_stage_history",
             "crm_activities", "crm_timeline_events", "crm_import_jobs",
-            "crm_custom_field_definitions");
+            "crm_custom_field_definitions",
+            "crm_idempotency_records");
     private static final List<String> CRM_COMPLETION_TABLES = List.of(
             "crm_import_files", "crm_import_errors", "crm_custom_field_values");
 
@@ -60,10 +69,15 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(RECONCILER_VERSION),
                         MigrationVersion.fromVersion(CRM_COMPLETION_VERSION),
                         MigrationVersion.fromVersion(TENANT_QUOTA_VERSION),
-                        MigrationVersion.fromVersion(SUBSCRIPTION_CHANGE_EVENTS_VERSION));
+                        MigrationVersion.fromVersion(SUBSCRIPTION_CHANGE_EVENTS_VERSION),
+                        MigrationVersion.fromVersion(CRM_IDEMPOTENCY_VERSION),
+                        MigrationVersion.fromVersion(CRM_PIPELINE_VERSION_COLUMN));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
+        // CRM-G2: verify idempotency table and pipeline version column
+        assertThat(existingTables(jdbc)).contains("crm_idempotency_records");
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_PIPELINE_VERSION_COLUMN);
     }
 
     @Test
