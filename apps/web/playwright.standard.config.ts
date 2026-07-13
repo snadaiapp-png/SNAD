@@ -53,36 +53,29 @@ export default defineConfig({
   timeout: 60_000,
   expect: {
     timeout: 10_000,
-    // Visual regression: screenshots stored under e2e/__screenshots__/
-    // Cross-environment tolerance: CI runners render slightly differently
-    // than local dev machines (font rendering, anti-aliasing, GPU). The
-    // thresholds below allow for these minor differences while still
-    // catching significant visual regressions (>5% pixel diff).
     toHaveScreenshot: {
       maxDiffPixelRatio: 0.05,
       maxDiffPixels: 5000,
       threshold: 0.3,
     },
   },
-  // Snapshot path template — keeps baselines in-repo for reviewable diffs
   snapshotPathTemplate: "{snapshotDir}/{testFileDir}/__screenshots__/{arg}{ext}",
   snapshotDir: "./e2e",
   use: {
     baseURL: BASE_URL,
+    channel: "chrome",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },
 
   projects: [
-    // === Arabic + RTL ===
     {
       name: "ar-rtl-light",
       use: {
         ...devices["Desktop Chrome"],
         locale: "ar",
         colorScheme: "light",
-        // Pre-set localStorage before first navigation to avoid FOUC
         storageState: {
           cookies: [],
           origins: [
@@ -124,7 +117,7 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         locale: "ar",
-        colorScheme: "light", // system mode resolves to light
+        colorScheme: "light",
         storageState: {
           cookies: [],
           origins: [
@@ -140,8 +133,6 @@ export default defineConfig({
       },
       metadata: { expectedDir: "rtl", expectedLang: "ar" },
     },
-
-    // === English + LTR ===
     {
       name: "en-ltr-light",
       use: {
@@ -189,7 +180,7 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         locale: "en",
-        colorScheme: "dark", // system mode resolves to dark
+        colorScheme: "dark",
         storageState: {
           cookies: [],
           origins: [
