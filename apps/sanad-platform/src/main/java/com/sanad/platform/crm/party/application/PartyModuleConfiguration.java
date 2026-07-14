@@ -1,21 +1,21 @@
 package com.sanad.platform.crm.party.application;
 
-import com.sanad.platform.crm.party.domain.AccountRepository;
-import com.sanad.platform.crm.party.domain.ContactRepository;
+import com.sanad.platform.crm.party.domain.*;
+import com.sanad.platform.crm.integration.domain.AuditPort;
+import com.sanad.platform.crm.integration.domain.TimelineEventPort;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/**
- * Explicit Spring configuration for the Party module.
- * Registers use case beans ONLY when their repository adapters exist.
- * Branch: crm/004-modular-domain-architecture
- */
 @Configuration
 public class PartyModuleConfiguration {
 
     @Bean
-    public AccountUseCases accountUseCases(AccountRepository accountRepository) {
-        return new AccountUseCases(accountRepository);
+    public AccountUseCases accountUseCases(AccountRepository accountRepository,
+                                           AccountHierarchyPort hierarchyPort,
+                                           OwnerValidationPort ownerValidationPort,
+                                           AuditPort auditPort,
+                                           TimelineEventPort timelineEventPort) {
+        return new AccountUseCases(accountRepository, hierarchyPort, ownerValidationPort, auditPort, timelineEventPort);
     }
 
     @Bean
