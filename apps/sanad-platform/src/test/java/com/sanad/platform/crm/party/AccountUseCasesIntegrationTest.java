@@ -32,7 +32,6 @@ class AccountUseCasesIntegrationTest {
     org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate jdbc;
 
     private UUID seedTenantAndOwner() {
-        if (jdbc == null) return UUID.randomUUID();
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) VALUES (:id, 'Test Tenant', 'test-" + tenantId.toString().substring(0, 8) + "', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
