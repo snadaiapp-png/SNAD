@@ -1,27 +1,30 @@
 package com.sanad.platform.crm.party;
 
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.*;
+
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Account V2 HTTP integration tests using MockMvc with real authentication.
@@ -33,6 +36,11 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 @ActiveProfiles("local")
 @Transactional
 class AccountV2HttpIntegrationTest {
+
+    private static final List<String> ACCOUNT_CAPABILITIES = List.of(
+            "CRM.ACCOUNT.READ",
+            "CRM.ACCOUNT.WRITE"
+    );
 
     @Autowired
     MockMvc mockMvc;
@@ -47,7 +55,39 @@ class AccountV2HttpIntegrationTest {
                 new MapSqlParameterSource("id", tenantId));
         jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) VALUES (:id, :tenantId, :email, 'Test Owner', 'ACTIVE', 'dummy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
                 new MapSqlParameterSource("id", userId).addValue("tenantId", tenantId).addValue("email", "owner-" + userId.toString().substring(0, 8) + "@test.example"));
+        seedAccountCapabilities(tenantId, userId);
         return tenantId;
+    }
+
+    private void seedAccountCapabilities(UUID tenantId, UUID userId) {
+        UUID roleId = UUID.randomUUID();
+        jdbc.update("INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at) "
+                        + "VALUES (:id, :tenantId, 'TEST_CRM_ADMIN', 'Test CRM Admin', 'HTTP integration-test role', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                new MapSqlParameterSource("id", roleId).addValue("tenantId", tenantId));
+
+        List<UUID> capabilityIds = jdbc.query(
+                "SELECT id FROM access_capabilities WHERE code IN (:codes)",
+                new MapSqlParameterSource("codes", ACCOUNT_CAPABILITIES),
+                (resultSet, rowNumber) -> resultSet.getObject("id", UUID.class));
+        if (capabilityIds.size() != ACCOUNT_CAPABILITIES.size()) {
+            throw new IllegalStateException("Required CRM account capabilities are missing from the test catalog");
+        }
+
+        for (UUID capabilityId : capabilityIds) {
+            jdbc.update("INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at) "
+                            + "VALUES (:id, :tenantId, :roleId, :capabilityId, CURRENT_TIMESTAMP)",
+                    new MapSqlParameterSource("id", UUID.randomUUID())
+                            .addValue("tenantId", tenantId)
+                            .addValue("roleId", roleId)
+                            .addValue("capabilityId", capabilityId));
+        }
+
+        jdbc.update("INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at) "
+                        + "VALUES (:id, :tenantId, :userId, :roleId, NULL, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                new MapSqlParameterSource("id", UUID.randomUUID())
+                        .addValue("tenantId", tenantId)
+                        .addValue("userId", userId)
+                        .addValue("roleId", roleId));
     }
 
     private Authentication buildAuth(UUID tenantId, UUID userId) {
@@ -87,16 +127,13 @@ class AccountV2HttpIntegrationTest {
         UUID tenantId = seedTenantAndOwner();
         UUID userId = jdbc.queryForObject("SELECT id FROM users WHERE tenant_id = :t LIMIT 1",
                 new MapSqlParameterSource("t", tenantId), UUID.class);
-        // Seed an account via API first
         String createResponse = mockMvc.perform(post("/api/v2/crm/accounts")
                         .with(authentication(buildAuth(tenantId, userId)))
                         .contentType("application/json")
                         .content("{\"displayName\":\"Test Acct\",\"accountType\":\"BUSINESS\",\"ownerUserId\":\"" + userId + "\",\"primaryCurrencyCode\":\"SAR\",\"preferredLocale\":\"ar-SA\",\"timeZone\":\"Asia/Riyadh\"}"))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        // Extract account ID from response
         UUID accountId = extractUuidFromJson(createResponse, "id");
-        // PATCH without If-Match
         mockMvc.perform(patch("/api/v2/crm/accounts/" + accountId)
                         .with(authentication(buildAuth(tenantId, userId)))
                         .contentType("application/json")
@@ -110,7 +147,6 @@ class AccountV2HttpIntegrationTest {
         UUID tenantId = seedTenantAndOwner();
         UUID userId = jdbc.queryForObject("SELECT id FROM users WHERE tenant_id = :t LIMIT 1",
                 new MapSqlParameterSource("t", tenantId), UUID.class);
-        // Create account
         String createResponse = mockMvc.perform(post("/api/v2/crm/accounts")
                         .with(authentication(buildAuth(tenantId, userId)))
                         .contentType("application/json")
@@ -118,7 +154,6 @@ class AccountV2HttpIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID accountId = extractUuidFromJson(createResponse, "id");
-        // PATCH with wrong/stale ETag
         mockMvc.perform(patch("/api/v2/crm/accounts/" + accountId)
                         .with(authentication(buildAuth(tenantId, userId)))
                         .header("If-Match", "\"account-" + accountId + "-v999-fakehash\"")
@@ -146,7 +181,6 @@ class AccountV2HttpIntegrationTest {
         UUID tenantId = seedTenantAndOwner();
         UUID userId = jdbc.queryForObject("SELECT id FROM users WHERE tenant_id = :t LIMIT 1",
                 new MapSqlParameterSource("t", tenantId), UUID.class);
-        // Create
         String createResponse = mockMvc.perform(post("/api/v2/crm/accounts")
                         .with(authentication(buildAuth(tenantId, userId)))
                         .contentType("application/json")
@@ -154,7 +188,6 @@ class AccountV2HttpIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID accountId = extractUuidFromJson(createResponse, "id");
-        // GET and verify ETag header
         mockMvc.perform(get("/api/v2/crm/accounts/" + accountId)
                         .with(authentication(buildAuth(tenantId, userId))))
                 .andExpect(status().isOk())
@@ -162,7 +195,6 @@ class AccountV2HttpIntegrationTest {
     }
 
     private UUID extractUuidFromJson(String json, String field) {
-        // Simple extraction: find "field":"value"
         String search = "\"" + field + "\":\"";
         int start = json.indexOf(search);
         if (start < 0) return UUID.randomUUID();
