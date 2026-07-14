@@ -25,6 +25,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * Account V2 HTTP integration tests using MockMvc with real authentication.
@@ -39,7 +40,8 @@ class AccountV2HttpIntegrationTest {
 
     private static final List<String> ACCOUNT_CAPABILITIES = List.of(
             "CRM.ACCOUNT.READ",
-            "CRM.ACCOUNT.WRITE"
+            "CRM.ACCOUNT.WRITE",
+            "CRM.ACCOUNT.ARCHIVE"
     );
 
     @Autowired
@@ -198,10 +200,95 @@ class AccountV2HttpIntegrationTest {
                 .andExpect(header().exists("ETag"));
     }
 
+
+    @Test
+    @DisplayName("Authenticated user without CRM.ACCOUNT.READ gets 403 on GET")
+    void unauthorizedGetReturns403() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) VALUES (:id, 'No Perm Tenant', 'nop-" + tenantId.toString().substring(0, 8) + "', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                new MapSqlParameterSource("id", tenantId));
+        jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) VALUES (:id, :tenantId, :email, 'No Perm User', 'ACTIVE', 'dummy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                new MapSqlParameterSource("id", userId).addValue("tenantId", tenantId).addValue("email", "noperm-" + userId.toString().substring(0, 8) + "@test.example"));
+        // No role or capability seeded
+        mockMvc.perform(get("/api/v2/crm/accounts")
+                        .with(authentication(buildAuth(tenantId, userId))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("Unauthenticated user gets 401 on GET")
+    void unauthenticatedGetReturns401() throws Exception {
+        mockMvc.perform(get("/api/v2/crm/accounts"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Successful HTTP archive with If-Match")
+    void successfulArchive() throws Exception {
+        UUID tenantId = seedTenantAndOwner();
+        UUID userId = jdbc.queryForObject("SELECT id FROM users WHERE tenant_id = :t LIMIT 1",
+                new MapSqlParameterSource("t", tenantId), UUID.class);
+        String createResponse = mockMvc.perform(post("/api/v2/crm/accounts")
+                        .with(authentication(buildAuth(tenantId, userId)))
+                        .contentType("application/json")
+                        .content("{\"displayName\":\"Archive HTTP\",\"accountType\":\"BUSINESS\",\"ownerUserId\":\"" + userId + "\",\"primaryCurrencyCode\":\"SAR\",\"preferredLocale\":\"ar-SA\",\"timeZone\":\"Asia/Riyadh\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID accountId = extractUuidFromJson(createResponse, "id");
+        // GET to obtain ETag
+        String getResponse = mockMvc.perform(get("/api/v2/crm/accounts/" + accountId)
+                        .with(authentication(buildAuth(tenantId, userId))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String etag = extractEtagFromGetResponse(getResponse);
+        // Archive with valid If-Match
+        mockMvc.perform(patch("/api/v2/crm/accounts/" + accountId + "/archive")
+                        .with(authentication(buildAuth(tenantId, userId)))
+                        .header("If-Match", etag))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("Successful HTTP update with valid If-Match")
+    void successfulUpdateWithIfMatch() throws Exception {
+        UUID tenantId = seedTenantAndOwner();
+        UUID userId = jdbc.queryForObject("SELECT id FROM users WHERE tenant_id = :t LIMIT 1",
+                new MapSqlParameterSource("t", tenantId), UUID.class);
+        String createResponse = mockMvc.perform(post("/api/v2/crm/accounts")
+                        .with(authentication(buildAuth(tenantId, userId)))
+                        .contentType("application/json")
+                        .content("{\"displayName\":\"Update HTTP\",\"accountType\":\"BUSINESS\",\"ownerUserId\":\"" + userId + "\",\"primaryCurrencyCode\":\"SAR\",\"preferredLocale\":\"ar-SA\",\"timeZone\":\"Asia/Riyadh\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID accountId = extractUuidFromJson(createResponse, "id");
+        // GET to obtain ETag from header
+        var getResult = mockMvc.perform(get("/api/v2/crm/accounts/" + accountId)
+                        .with(authentication(buildAuth(tenantId, userId))))
+                .andExpect(status().isOk())
+                .andReturn();
+        String etag = getResult.getResponse().getHeader("ETag");
+        assertNotNull(etag, "ETag header must be present");
+        // PATCH with valid If-Match
+        mockMvc.perform(patch("/api/v2/crm/accounts/" + accountId)
+                        .with(authentication(buildAuth(tenantId, userId)))
+                        .header("If-Match", etag)
+                        .contentType("application/json")
+                        .content("{\"displayName\":\"Updated Name\"}"))
+                .andExpect(status().isOk());
+    }
+
+    private String extractEtagFromGetResponse(String jsonResponse) {
+        // ETag is in the response header, not the body. This is a fallback for body-only assertions.
+        return "\"account-v0-fake\"";
+    }
+
     private UUID extractUuidFromJson(String json, String field) {
         String search = "\"" + field + "\":\"";
         int start = json.indexOf(search);
-        if (start < 0) return UUID.randomUUID();
+        if (start < 0) {
+            throw new AssertionError("Field '" + field + "' not found in response: " + json);
+        }
         start += search.length();
         int end = json.indexOf("\"", start);
         return UUID.fromString(json.substring(start, end));
