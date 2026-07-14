@@ -129,6 +129,7 @@ class AccountV2HttpIntegrationTest {
                 new MapSqlParameterSource("t", tenantId), UUID.class);
         String createResponse = mockMvc.perform(post("/api/v2/crm/accounts")
                         .with(authentication(buildAuth(tenantId, userId)))
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType("application/json")
                         .content("{\"displayName\":\"Test Acct\",\"accountType\":\"BUSINESS\",\"ownerUserId\":\"" + userId + "\",\"primaryCurrencyCode\":\"SAR\",\"preferredLocale\":\"ar-SA\",\"timeZone\":\"Asia/Riyadh\"}"))
                 .andExpect(status().isCreated())
@@ -149,6 +150,7 @@ class AccountV2HttpIntegrationTest {
                 new MapSqlParameterSource("t", tenantId), UUID.class);
         String createResponse = mockMvc.perform(post("/api/v2/crm/accounts")
                         .with(authentication(buildAuth(tenantId, userId)))
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType("application/json")
                         .content("{\"displayName\":\"Stale Test\",\"accountType\":\"BUSINESS\",\"ownerUserId\":\"" + userId + "\",\"primaryCurrencyCode\":\"SAR\",\"preferredLocale\":\"ar-SA\",\"timeZone\":\"Asia/Riyadh\"}"))
                 .andExpect(status().isCreated())
@@ -170,6 +172,7 @@ class AccountV2HttpIntegrationTest {
                 new MapSqlParameterSource("t", tenantId), UUID.class);
         mockMvc.perform(post("/api/v2/crm/accounts")
                         .with(authentication(buildAuth(tenantId, userId)))
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType("application/json")
                         .content("{}"))
                 .andExpect(status().isBadRequest());
@@ -183,6 +186,7 @@ class AccountV2HttpIntegrationTest {
                 new MapSqlParameterSource("t", tenantId), UUID.class);
         String createResponse = mockMvc.perform(post("/api/v2/crm/accounts")
                         .with(authentication(buildAuth(tenantId, userId)))
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType("application/json")
                         .content("{\"displayName\":\"ETag Test\",\"accountType\":\"BUSINESS\",\"ownerUserId\":\"" + userId + "\",\"primaryCurrencyCode\":\"SAR\",\"preferredLocale\":\"ar-SA\",\"timeZone\":\"Asia/Riyadh\"}"))
                 .andExpect(status().isCreated())
