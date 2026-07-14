@@ -23,7 +23,7 @@ public class JdbcAccountHierarchyAdapter implements AccountHierarchyPort {
         if (parentAccountId == null) return false;
         // Walk up the hierarchy to detect cycles (max 10 levels)
         UUID current = parentAccountId;
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 50; i++) {
             if (current.equals(accountId)) return true;
             try {
                 UUID next = jdbc.queryForObject(
@@ -36,7 +36,9 @@ public class JdbcAccountHierarchyAdapter implements AccountHierarchyPort {
                 return false;
             }
         }
-        return false;
+        // If we traversed 50 levels without finding a cycle or a null parent,
+        // the hierarchy is unreasonably deep — reject as a safety measure.
+        return true;
     }
 
     public boolean hasActiveChildren(UUID tenantId, UUID accountId) {

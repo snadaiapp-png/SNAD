@@ -40,7 +40,7 @@ public class JdbcAccountRepository implements AccountRepository {
 
     @Override
     public List<AccountRecord> findAll(UUID tenantId, int limit, String search) {
-        String sql = "SELECT * FROM crm_accounts WHERE tenant_id = :tenantId";
+        String sql = "SELECT * FROM crm_accounts WHERE tenant_id = :tenantId AND lifecycle_status <> 'ARCHIVED'";
         MapSqlParameterSource params = new MapSqlParameterSource().addValue("tenantId", tenantId);
         if (search != null && !search.isBlank()) {
             sql += " AND (LOWER(display_name) LIKE LOWER(:search) OR LOWER(normalized_name) LIKE LOWER(:search))";

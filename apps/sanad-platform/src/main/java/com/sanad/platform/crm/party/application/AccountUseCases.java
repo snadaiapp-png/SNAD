@@ -5,6 +5,7 @@ import com.sanad.platform.crm.party.domain.AccountRepository.AccountRecord;
 import com.sanad.platform.crm.party.domain.AccountRepository.CreateAccountCommand;
 import com.sanad.platform.crm.party.domain.AccountRepository.UpdateAccountCommand;
 import com.sanad.platform.crm.integration.domain.AuditPort;
+import com.sanad.platform.crm.integration.domain.AuditPort.AuditChange;
 import com.sanad.platform.crm.integration.domain.TimelineEventPort;
 import com.sanad.platform.crm.error.CrmContractException;
 import com.sanad.platform.crm.error.CrmErrorCode;
@@ -51,7 +52,8 @@ public class AccountUseCases {
         Instant now = Instant.now();
         timeline.record(tenantId, "ACCOUNT", created.id(), "crm.account.created", "Account created",
                 "CRM_ACCOUNT", created.id(), actorId, now);
-        audit.record(tenantId, actorId, "CREATE", "ACCOUNT", created.id(), null, now);
+        audit.record(tenantId, actorId, "CREATE", "ACCOUNT", created.id(),
+                new AuditPort.AuditChange(null, serializeAccount(created)), now);
         return created;
     }
 
@@ -83,7 +85,8 @@ public class AccountUseCases {
         Instant now = Instant.now();
         timeline.record(tenantId, "ACCOUNT", accountId, "crm.account.updated", "Account updated",
                 "CRM_ACCOUNT", accountId, actorId, now);
-        audit.record(tenantId, actorId, "UPDATE", "ACCOUNT", accountId, null, now);
+        audit.record(tenantId, actorId, "UPDATE", "ACCOUNT", accountId,
+                new AuditPort.AuditChange(serializeAccount(current), serializeAccount(updated)), now);
         return updated;
     }
 
@@ -93,11 +96,13 @@ public class AccountUseCases {
             throw new CrmContractException(CrmErrorCode.VALIDATION_ERROR,
                     "Cannot archive account with active child accounts");
         }
+        AccountRecord current = repo.findById(tenantId, accountId);
         AccountRecord archived = repo.archive(tenantId, actorId, accountId, expectedVersion);
         Instant now = Instant.now();
         timeline.record(tenantId, "ACCOUNT", accountId, "crm.account.archived", "Account archived",
                 "CRM_ACCOUNT", accountId, actorId, now);
-        audit.record(tenantId, actorId, "ARCHIVE", "ACCOUNT", accountId, null, now);
+        audit.record(tenantId, actorId, "ARCHIVE", "ACCOUNT", accountId,
+                new AuditPort.AuditChange(serializeAccount(current), serializeAccount(archived)), now);
         return archived;
     }
 
@@ -107,7 +112,14 @@ public class AccountUseCases {
         Instant now = Instant.now();
         timeline.record(tenantId, "ACCOUNT", accountId, "crm.account.restored", "Account restored",
                 "CRM_ACCOUNT", accountId, actorId, now);
-        audit.record(tenantId, actorId, "RESTORE", "ACCOUNT", accountId, null, now);
+        audit.record(tenantId, actorId, "RESTORE", "ACCOUNT", accountId,
+                new AuditPort.AuditChange(null, serializeAccount(restored)), now);
         return restored;
+    }
+
+    private static String serializeAccount(AccountRecord r) {
+        if (r == null) return null;
+        return String.format("{\"id\":\"%s\",\"version\":%d,\"displayName\":\"%s\",\"lifecycleStatus\":\"%s\"}",
+                r.id(), r.version(), r.displayName() == null ? "" : r.displayName(), r.lifecycleStatus());
     }
 }
