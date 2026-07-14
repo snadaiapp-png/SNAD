@@ -14,26 +14,24 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Application use cases for Account operations.
- * Orchestrates domain policies, repository, audit, and timeline — all within
- * a single transaction. No SQL, no HTTP.
- */
 public class AccountUseCases {
     private final AccountRepository repo;
     private final AccountHierarchyPort hierarchy;
     private final OwnerValidationPort ownerValidation;
     private final AuditPort audit;
     private final TimelineEventPort timeline;
+    private final com.fasterxml.jackson.databind.ObjectMapper mapper;
 
     public AccountUseCases(AccountRepository repo, AccountHierarchyPort hierarchy,
                            OwnerValidationPort ownerValidation, AuditPort audit,
-                           TimelineEventPort timeline) {
+                           TimelineEventPort timeline,
+                           com.fasterxml.jackson.databind.ObjectMapper mapper) {
         this.repo = repo;
         this.hierarchy = hierarchy;
         this.ownerValidation = ownerValidation;
         this.audit = audit;
         this.timeline = timeline;
+        this.mapper = mapper;
     }
 
     @Transactional
@@ -53,7 +51,7 @@ public class AccountUseCases {
         timeline.record(tenantId, "ACCOUNT", created.id(), "crm.account.created", "Account created",
                 "CRM_ACCOUNT", created.id(), actorId, now);
         audit.record(tenantId, actorId, "CREATE", "ACCOUNT", created.id(),
-                new AuditPort.AuditChange(null, serializeAccount(created)), now);
+                new AuditChange(null, serializeAccount(created)), now);
         return created;
     }
 
@@ -86,7 +84,7 @@ public class AccountUseCases {
         timeline.record(tenantId, "ACCOUNT", accountId, "crm.account.updated", "Account updated",
                 "CRM_ACCOUNT", accountId, actorId, now);
         audit.record(tenantId, actorId, "UPDATE", "ACCOUNT", accountId,
-                new AuditPort.AuditChange(serializeAccount(current), serializeAccount(updated)), now);
+                new AuditChange(serializeAccount(current), serializeAccount(updated)), now);
         return updated;
     }
 
@@ -102,7 +100,7 @@ public class AccountUseCases {
         timeline.record(tenantId, "ACCOUNT", accountId, "crm.account.archived", "Account archived",
                 "CRM_ACCOUNT", accountId, actorId, now);
         audit.record(tenantId, actorId, "ARCHIVE", "ACCOUNT", accountId,
-                new AuditPort.AuditChange(serializeAccount(current), serializeAccount(archived)), now);
+                new AuditChange(serializeAccount(current), serializeAccount(archived)), now);
         return archived;
     }
 
@@ -114,27 +112,21 @@ public class AccountUseCases {
         timeline.record(tenantId, "ACCOUNT", accountId, "crm.account.restored", "Account restored",
                 "CRM_ACCOUNT", accountId, actorId, now);
         audit.record(tenantId, actorId, "RESTORE", "ACCOUNT", accountId,
-                new AuditPort.AuditChange(serializeAccount(before), serializeAccount(restored)), now);
+                new AuditChange(serializeAccount(before), serializeAccount(restored)), now);
         return restored;
     }
 
-    private static final com.fasterxml.jackson.databind.ObjectMapper AUDIT_MAPPER = new com.fasterxml.jackson.databind.ObjectMapper();
-
-    private static String serializeAccount(AccountRecord r) {
+    private com.fasterxml.jackson.databind.JsonNode serializeAccount(AccountRecord r) {
         if (r == null) return null;
-        try {
-            var node = AUDIT_MAPPER.createObjectNode();
-            node.put("id", r.id() == null ? null : r.id().toString());
-            node.put("version", r.version());
-            node.put("displayName", r.displayName());
-            node.put("accountType", r.accountType());
-            node.put("lifecycleStatus", r.lifecycleStatus());
-            node.put("primaryCurrencyCode", r.primaryCurrencyCode());
-            node.put("ownerUserId", r.ownerUserId() == null ? null : r.ownerUserId().toString());
-            node.put("parentAccountId", r.parentAccountId() == null ? null : r.parentAccountId().toString());
-            return AUDIT_MAPPER.writeValueAsString(node);
-        } catch (Exception e) {
-            return null;
-        }
+        var node = mapper.createObjectNode();
+        node.put("id", r.id() == null ? null : r.id().toString());
+        node.put("version", r.version());
+        node.put("displayName", r.displayName());
+        node.put("accountType", r.accountType());
+        node.put("lifecycleStatus", r.lifecycleStatus());
+        node.put("primaryCurrencyCode", r.primaryCurrencyCode());
+        if (r.ownerUserId() != null) node.put("ownerUserId", r.ownerUserId().toString());
+        if (r.parentAccountId() != null) node.put("parentAccountId", r.parentAccountId().toString());
+        return node;
     }
 }
