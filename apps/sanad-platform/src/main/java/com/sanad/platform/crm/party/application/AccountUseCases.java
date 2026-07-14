@@ -108,18 +108,33 @@ public class AccountUseCases {
 
     @Transactional
     public AccountRecord restore(UUID tenantId, UUID actorId, UUID accountId, long expectedVersion) {
+        AccountRecord before = repo.findById(tenantId, accountId);
         AccountRecord restored = repo.restore(tenantId, actorId, accountId, expectedVersion);
         Instant now = Instant.now();
         timeline.record(tenantId, "ACCOUNT", accountId, "crm.account.restored", "Account restored",
                 "CRM_ACCOUNT", accountId, actorId, now);
         audit.record(tenantId, actorId, "RESTORE", "ACCOUNT", accountId,
-                new AuditPort.AuditChange(null, serializeAccount(restored)), now);
+                new AuditPort.AuditChange(serializeAccount(before), serializeAccount(restored)), now);
         return restored;
     }
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper AUDIT_MAPPER = new com.fasterxml.jackson.databind.ObjectMapper();
+
     private static String serializeAccount(AccountRecord r) {
         if (r == null) return null;
-        return String.format("{\"id\":\"%s\",\"version\":%d,\"displayName\":\"%s\",\"lifecycleStatus\":\"%s\"}",
-                r.id(), r.version(), r.displayName() == null ? "" : r.displayName(), r.lifecycleStatus());
+        try {
+            var node = AUDIT_MAPPER.createObjectNode();
+            node.put("id", r.id() == null ? null : r.id().toString());
+            node.put("version", r.version());
+            node.put("displayName", r.displayName());
+            node.put("accountType", r.accountType());
+            node.put("lifecycleStatus", r.lifecycleStatus());
+            node.put("primaryCurrencyCode", r.primaryCurrencyCode());
+            node.put("ownerUserId", r.ownerUserId() == null ? null : r.ownerUserId().toString());
+            node.put("parentAccountId", r.parentAccountId() == null ? null : r.parentAccountId().toString());
+            return AUDIT_MAPPER.writeValueAsString(node);
+        } catch (Exception e) {
+            return null;
+        }
     }
 }
