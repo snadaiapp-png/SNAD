@@ -23,10 +23,13 @@ public class PlatformAuditService {
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final PlatformAuditWriter auditWriter;
 
-    public PlatformAuditService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
+    public PlatformAuditService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper,
+                                PlatformAuditWriter auditWriter) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+        this.auditWriter = auditWriter;
     }
 
     public void success(
@@ -40,23 +43,18 @@ public class PlatformAuditService {
             Object afterState
     ) {
         PrincipalIds principal = principal(authentication);
-        jdbcTemplate.update(
-                "INSERT INTO platform_audit_logs "
-                        + "(id, actor_tenant_id, actor_user_id, target_tenant_id, action, resource_type, "
-                        + "resource_id, reason, before_state, after_state, result, correlation_id, created_at) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUCCESS', ?, ?)",
-                UUID.randomUUID(),
+        auditWriter.writeSuccess(
                 principal.tenantId(),
                 principal.userId(),
                 targetTenantId,
-                AuditLengthGuard.guardAction(action),
-                AuditLengthGuard.guardResourceType(resourceType),
-                AuditLengthGuard.guardResourceId(resourceId),
-                AuditLengthGuard.guardReason(blankToNull(reason)),
-                json(beforeState),
-                json(afterState),
-                AuditLengthGuard.guardCorrelationId(correlationId()),
-                java.sql.Timestamp.from(Instant.now())
+                action,
+                resourceType,
+                resourceId,
+                reason,
+                beforeState,
+                afterState,
+                correlationId(),
+                Instant.now()
         );
     }
 

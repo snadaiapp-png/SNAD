@@ -1,0 +1,71 @@
+name: CRM Modular Architecture Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/**'
+      - 'apps/sanad-platform/pom.xml'
+      - 'scripts/crm/**'
+      - 'docs/crm/architecture/**'
+      - 'docs/crm/adr/**'
+      - '.github/workflows/crm-modular-architecture-validation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-arch-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  architecture-validation:
+    name: CRM Modular Architecture Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run modular architecture governance check
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/crm/modular-architecture-check.sh
+
+      - name: Run architecture tests
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          mvn --batch-mode --no-transfer-progress \
+            -Dtest='*ArchitectureTest,*ArchUnitTest,*ModuleWiringTest' \
+            test
+
+      - name: Verify architecture tests executed (not zero)
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          if [ ! -d target/surefire-reports ]; then
+            echo "::error::No surefire reports found — architecture tests did not run"
+            exit 1
+          fi
+          test_count="$(grep -h 'tests=' target/surefire-reports/TEST-*.xml 2>/dev/null | sed -E 's/.*tests="([0-9]+)".*/\1/' | awk '{sum += $1} END {print sum + 0}')"
+          echo "Architecture tests run: $test_count"
+          if [ "$test_count" -eq 0 ]; then
+            echo "::error::Zero architecture tests executed — CRM-G3A requires at least 1"
+            exit 1
+          fi
+          echo "Architecture validation: PASS ($test_count tests)"

@@ -1,4 +1,12 @@
 package com.sanad.platform.crm.web;
+import com.sanad.platform.crm.party.application.AccountUseCases;
+import com.sanad.platform.crm.party.application.ContactUseCases;
+import com.sanad.platform.crm.party.domain.AccountRepository.AccountRecord;
+import com.sanad.platform.crm.party.domain.AccountRepository.CreateAccountCommand;
+import com.sanad.platform.crm.party.domain.AccountRepository.UpdateAccountCommand;
+import com.sanad.platform.crm.party.domain.ContactRepository.ContactRecord;
+import com.sanad.platform.crm.party.domain.ContactRepository.CreateContactCommand;
+import com.sanad.platform.crm.party.domain.ContactRepository.UpdateContactCommand;
 
 import com.sanad.platform.crm.concurrency.ETagService;
 import com.sanad.platform.crm.dto.CrmDtos.AccountResponse;
@@ -43,6 +51,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -52,6 +61,8 @@ import java.util.UUID;
 public class CrmContractController {
     private final CrmService legacy;
     private final CrmExtendedService extended;
+    private final AccountUseCases accountUseCases;
+    private final ContactUseCases contactUseCases;
     private final CrmV2AtomicMutationService atomic;
     private final CrmDtoMapper mapper;
     private final ETagService etags;
@@ -61,6 +72,8 @@ public class CrmContractController {
     public CrmContractController(
             CrmService legacy,
             CrmExtendedService extended,
+            AccountUseCases accountUseCases,
+            ContactUseCases contactUseCases,
             CrmV2AtomicMutationService atomic,
             CrmDtoMapper mapper,
             ETagService etags,
@@ -68,6 +81,8 @@ public class CrmContractController {
             CrmIdempotencyHttpSupport idempotency) {
         this.legacy = legacy;
         this.extended = extended;
+        this.accountUseCases = accountUseCases;
+        this.contactUseCases = contactUseCases;
         this.atomic = atomic;
         this.mapper = mapper;
         this.etags = etags;
@@ -79,7 +94,8 @@ public class CrmContractController {
     @GetMapping("/accounts/{accountId}")
     public ResponseEntity<SingleResponse<AccountResponse>> getAccount(
             Authentication auth, @PathVariable UUID accountId, HttpServletRequest request) {
-        AccountResponse body = mapper.toAccountResponse(legacy.getAccount(auth, accountId));
+        AccountRecord record = accountUseCases.getById(tenantId(auth), accountId);
+        AccountResponse body = mapper.toAccountResponse(toAccountMap(record));
         return wrapSingle(body, "account", body.version(), request);
     }
 
@@ -94,12 +110,16 @@ public class CrmContractController {
             @RequestParam(required = false) String search,
             HttpServletRequest request) {
         PageRequest page = page(limit, cursor, sort, direction, auth);
-        return paginate(
-                legacy.listAccounts(auth, page.limit() + 1, search),
-                page,
-                auth,
-                request,
-                mapper::toAccountResponse);
+        List<AccountRecord> rows = accountUseCases.list(tenantId(auth), page.limit() + 1, search);
+        boolean hasMore = rows.size() > page.limit();
+        List<AccountRecord> pageRows = hasMore ? rows.subList(0, page.limit()) : rows;
+        List<AccountResponse> data = pageRows.stream().map(r -> mapper.toAccountResponse(toAccountMap(r))).toList();
+        CrmEnvelopes.Page pageInfo = hasMore && !pageRows.isEmpty() ? CrmEnvelopes.Page.of(
+                cursors.encode(tenantId(auth), page.sort(), page.direction(),
+                        pageRows.get(pageRows.size()-1).updatedAt() == null ? null : pageRows.get(pageRows.size()-1).updatedAt().toString(),
+                        pageRows.get(pageRows.size()-1).id()),
+                true, page.limit()) : CrmEnvelopes.Page.empty(page.limit());
+        return ListResponse.of(data, pageInfo, requestId(request));
     }
 
     @RequireCapability("CRM.ACCOUNT.WRITE")
@@ -112,7 +132,11 @@ public class CrmContractController {
         var guard = idempotency.begin(auth, "POST:/api/v2/crm/accounts", key, body, request);
         if (guard.isReplay()) return idempotency.replay(guard, AccountResponse.class);
         try {
-            AccountResponse response = mapper.toAccountResponse(legacy.createAccount(auth, body));
+            AccountRecord record = accountUseCases.create(tenantId(auth), userId(auth),
+                    new CreateAccountCommand(body.displayName(), body.accountType(), body.ownerUserId(),
+                            body.parentAccountId(), body.primaryCurrencyCode(), body.preferredLocale(),
+                            body.timeZone(), body.source()));
+            AccountResponse response = mapper.toAccountResponse(toAccountMap(record));
             return idempotency.complete(
                     guard, response, "account", response.version(), HttpStatus.CREATED);
         } catch (RuntimeException exception) {
@@ -129,11 +153,14 @@ public class CrmContractController {
             @Valid @RequestBody UpdateAccountRequest body,
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             HttpServletRequest request) {
-        Map<String, Object> current = legacy.getAccount(auth, accountId);
-        long expectedVersion = asLong(current.get("version"));
+        AccountRecord current = accountUseCases.getById(tenantId(auth), accountId);
+        long expectedVersion = current.version();
         etags.validateIfMatch(ifMatch, "account", accountId, expectedVersion);
-        AccountResponse response = mapper.toAccountResponse(
-                atomic.updateAccount(auth, accountId, body, expectedVersion));
+        AccountRecord updated = accountUseCases.update(tenantId(auth), userId(auth), accountId,
+                new UpdateAccountCommand(body.displayName(), body.ownerUserId(), body.parentAccountId(),
+                        body.primaryCurrencyCode(), body.preferredLocale(), body.timeZone(), body.source()),
+                expectedVersion);
+        AccountResponse response = mapper.toAccountResponse(toAccountMap(updated));
         return wrapSingle(response, "account", response.version(), request);
     }
 
@@ -144,11 +171,11 @@ public class CrmContractController {
             @PathVariable UUID accountId,
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             HttpServletRequest request) {
-        Map<String, Object> current = legacy.getAccount(auth, accountId);
-        long expectedVersion = asLong(current.get("version"));
+        AccountRecord current = accountUseCases.getById(tenantId(auth), accountId);
+        long expectedVersion = current.version();
         etags.validateIfMatch(ifMatch, "account", accountId, expectedVersion);
-        ArchiveAccountResponse response = mapper.toArchiveAccountResponse(
-                atomic.setAccountArchived(auth, accountId, true, expectedVersion));
+        AccountRecord archived = accountUseCases.archive(tenantId(auth), userId(auth), accountId, expectedVersion);
+        ArchiveAccountResponse response = new ArchiveAccountResponse(archived.id(), archived.version(), archived.lifecycleStatus(), null);
         return wrapSingle(response, "account", response.version(), request);
     }
 
@@ -172,7 +199,8 @@ public class CrmContractController {
     @GetMapping("/contacts/{contactId}")
     public ResponseEntity<SingleResponse<ContactResponse>> getContact(
             Authentication auth, @PathVariable UUID contactId, HttpServletRequest request) {
-        ContactResponse body = mapper.toContactResponse(extended.getContact(auth, contactId));
+        ContactRecord contactRecord = contactUseCases.getById(tenantId(auth), contactId);
+        ContactResponse body = mapper.toContactResponse(toContactMap(contactRecord));
         return wrapSingle(body, "contact", body.version(), request);
     }
 
@@ -188,12 +216,16 @@ public class CrmContractController {
             @RequestParam(required = false) String search,
             HttpServletRequest request) {
         PageRequest page = page(limit, cursor, sort, direction, auth);
-        return paginate(
-                legacy.listContacts(auth, page.limit() + 1, accountId, search),
-                page,
-                auth,
-                request,
-                mapper::toContactResponse);
+        List<ContactRecord> contactRows = contactUseCases.list(tenantId(auth), page.limit() + 1, accountId, search);
+        boolean contactHasMore = contactRows.size() > page.limit();
+        List<ContactRecord> contactPageRows = contactHasMore ? contactRows.subList(0, page.limit()) : contactRows;
+        List<ContactResponse> contactData = contactPageRows.stream().map(r -> mapper.toContactResponse(toContactMap(r))).toList();
+        CrmEnvelopes.Page contactPageInfo = contactHasMore && !contactPageRows.isEmpty() ? CrmEnvelopes.Page.of(
+                cursors.encode(tenantId(auth), page.sort(), page.direction(),
+                        contactPageRows.get(contactPageRows.size()-1).updatedAt() == null ? null : contactPageRows.get(contactPageRows.size()-1).updatedAt().toString(),
+                        contactPageRows.get(contactPageRows.size()-1).id()),
+                true, page.limit()) : CrmEnvelopes.Page.empty(page.limit());
+        return ListResponse.of(contactData, contactPageInfo, requestId(request));
     }
 
     @RequireCapability("CRM.CONTACT.WRITE")
@@ -206,7 +238,12 @@ public class CrmContractController {
         var guard = idempotency.begin(auth, "POST:/api/v2/crm/contacts", key, body, request);
         if (guard.isReplay()) return idempotency.replay(guard, ContactResponse.class);
         try {
-            ContactResponse response = mapper.toContactResponse(legacy.createContact(auth, body));
+            ContactRecord record = contactUseCases.create(tenantId(auth), userId(auth),
+                    new com.sanad.platform.crm.party.domain.ContactRepository.CreateContactCommand(
+                            body.accountId(), body.givenName(), body.familyName(), body.primaryEmail(),
+                            body.primaryPhone(), body.preferredLocale(), body.timeZone(),
+                            body.ownerUserId(), body.consentSummary()));
+            ContactResponse response = mapper.toContactResponse(toContactMap(record));
             return idempotency.complete(
                     guard, response, "contact", response.version(), HttpStatus.CREATED);
         } catch (RuntimeException exception) {
@@ -599,5 +636,51 @@ public class CrmContractController {
         } catch (NumberFormatException exception) {
             return 0L;
         }
+    }
+
+
+    private static UUID tenantId(Authentication auth) {
+        if (auth == null || auth.getDetails() == null) return null;
+        Object d = auth.getDetails();
+        if (d instanceof Map<?, ?> m && m.get("tenant_id") != null) {
+            try { return UUID.fromString(m.get("tenant_id").toString()); } catch (Exception e) { return null; }
+        }
+        return null;
+    }
+
+    private static UUID userId(Authentication auth) {
+        if (auth == null || auth.getDetails() == null) return null;
+        Object d = auth.getDetails();
+        if (d instanceof Map<?, ?> m && m.get("user_id") != null) {
+            try { return UUID.fromString(m.get("user_id").toString()); } catch (Exception e) { return null; }
+        }
+        return null;
+    }
+
+    private static Map<String, Object> toAccountMap(AccountRecord r) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", r.id()); m.put("version", r.version()); m.put("display_name", r.displayName());
+        m.put("normalized_name", r.normalizedName()); m.put("account_type", r.accountType());
+        m.put("lifecycle_status", r.lifecycleStatus()); m.put("primary_currency_code", r.primaryCurrencyCode());
+        m.put("preferred_locale", r.preferredLocale()); m.put("time_zone", r.timeZone());
+        m.put("source", r.source()); m.put("parent_account_id", r.parentAccountId());
+        m.put("owner_user_id", r.ownerUserId());
+        m.put("created_at", r.createdAt() == null ? null : java.sql.Timestamp.from(r.createdAt()));
+        m.put("updated_at", r.updatedAt() == null ? null : java.sql.Timestamp.from(r.updatedAt()));
+        return m;
+    }
+
+    private static java.util.Map<String, Object> toContactMap(ContactRecord r) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", r.id()); m.put("version", r.version()); m.put("account_id", r.accountId());
+        m.put("given_name", r.givenName()); m.put("family_name", r.familyName());
+        m.put("display_name", r.displayName()); m.put("primary_email", r.primaryEmail());
+        m.put("normalized_email", r.normalizedEmail()); m.put("primary_phone", r.primaryPhone());
+        m.put("preferred_locale", r.preferredLocale()); m.put("time_zone", r.timeZone());
+        m.put("lifecycle_status", r.lifecycleStatus()); m.put("owner_user_id", r.ownerUserId());
+        m.put("consent_summary", r.consentSummary());
+        m.put("created_at", r.createdAt() == null ? null : java.sql.Timestamp.from(r.createdAt()));
+        m.put("updated_at", r.updatedAt() == null ? null : java.sql.Timestamp.from(r.updatedAt()));
+        return m;
     }
 }

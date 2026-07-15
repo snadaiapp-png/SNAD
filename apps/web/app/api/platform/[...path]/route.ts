@@ -76,11 +76,20 @@ function hasValidOrigin(request: NextRequest): boolean {
   return !origin || origin === request.nextUrl.origin;
 }
 
-function requestHeaders(request: NextRequest, path: string): Headers {
+function requestHeaders(request: NextRequest, path: string, baseUrl: string): Headers {
   const headers = new Headers();
   for (const name of FORWARDED_REQUEST_HEADERS) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
+  }
+
+  // ngrok free-tier returns ERR_NGROK_6024 (browser warning page) for any request
+  // that looks like it came from a browser. The BFF is a server-side fetch, but
+  // ngrok's heuristic still matches because of the default User-Agent. Adding
+  // this header bypasses the warning. We only add it when the backend is an
+  // ngrok host so we don't pollute requests to other backends.
+  if (baseUrl.includes("ngrok")) {
+    headers.set("ngrok-skip-browser-warning", "any-value");
   }
 
   if (path === REFRESH_PATH) {
@@ -187,7 +196,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
   if (!path) return jsonError("Not found", 404);
 
   const target = `${baseUrl}${path}${request.nextUrl.search}`;
-  const headers = requestHeaders(request, path);
+  const headers = requestHeaders(request, path, baseUrl);
   const supportsBody = !["GET", "HEAD"].includes(request.method);
   const body = supportsBody ? await request.arrayBuffer() : undefined;
 

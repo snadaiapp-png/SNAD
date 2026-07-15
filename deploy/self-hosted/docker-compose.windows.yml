@@ -1,0 +1,87 @@
+name: snad-selfhost
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: snad-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sanad}
+      POSTGRES_USER: ${POSTGRES_USER:-sanad}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - snad_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sanad} -d ${POSTGRES_DB:-sanad}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - snad_internal
+
+  backend:
+    build:
+      context: ../../apps/sanad-platform
+      dockerfile: Dockerfile
+    image: snad/backend:local
+    container_name: snad-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-sanad}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-sanad}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${CRM_CUSTOM_FIELD_ENCRYPTION_KEY:?CRM_CUSTOM_FIELD_ENCRYPTION_KEY is required}
+      SANAD_CORS_ALLOWED_ORIGINS: ${SANAD_CORS_ALLOWED_ORIGINS:-https://snad-app.vercel.app}
+      COOKIE_SECURE: "true"
+      COOKIE_SAME_SITE: ${COOKIE_SAME_SITE:-none}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      APPLICATION_BASE_URL: ${APPLICATION_BASE_URL:-https://snad-app.vercel.app}
+      SERVER_PORT: "8080"
+      MANAGEMENT_ENDPOINTS: health
+      FLYWAY_ENABLED: "true"
+      FLYWAY_VALIDATE_ON_MIGRATE: "true"
+      JPA_DDL_AUTO: validate
+      BOOTSTRAP_ENABLED: ${BOOTSTRAP_ENABLED:-false}
+      SECURITY_NOTIFICATION_PROVIDER: ${SECURITY_NOTIFICATION_PROVIDER:-disabled}
+      JAVA_OPTS: ${JAVA_OPTS:--Xms256m -Xmx1024m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8}
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+    networks:
+      - snad_internal
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: snad-cloudflared
+    restart: unless-stopped
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+      - --token
+      - ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required}
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - snad_internal
+
+volumes:
+  snad_postgres_data:
+    name: snad_postgres_data
+
+networks:
+  snad_internal:
+    name: snad_internal
+    driver: bridge
