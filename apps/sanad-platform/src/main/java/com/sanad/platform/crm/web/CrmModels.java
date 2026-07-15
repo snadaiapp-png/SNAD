@@ -132,3 +132,6 @@ record CreateCustomFieldRequest(
 
 record UpdateCustomFieldValuesRequest(
         @NotNull @Size(max = 100) Map<@NotBlank @Size(max = 120) String, Object> values) { }
+
+// Task request DTOs are defined in com.sanad.platform.crm.task.web package
+// (TaskModels.java) for proper encapsulation within the Task bounded context.

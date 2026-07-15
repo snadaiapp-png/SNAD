@@ -156,3 +156,9 @@ tool-results/
 upload/
 .secure/
 download/
+
+# SNAD Platform secure token files (never commit)
+.env.snad-secrets
+.env.local.secret
+*.token
+*.secrets

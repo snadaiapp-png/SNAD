@@ -164,6 +164,30 @@ export interface CrmCustomFieldValues {
   values: CrmCustomFieldValueEntry[];
 }
 
+/**
+ * CRM Task — first-class work item.
+ * Field names mirror the JSON keys returned by /api/v1/crm/tasks.
+ * Branch: feature/crm-tasks
+ */
+export interface CrmTask {
+  id: string;
+  version: number;
+  title: string;
+  description?: string | null;
+  related_type?: string | null;
+  related_id?: string | null;
+  assignee_user_id?: string | null;
+  owner_user_id?: string | null;
+  status: string;
+  priority: number;
+  start_at?: string | null;
+  due_at?: string | null;
+  completed_at?: string | null;
+  result?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 const root = "/api/v1/crm";
 
 export const crmApi = {
@@ -245,4 +269,31 @@ export const crmApi = {
     } satisfies CrmCustomFieldValues;
   },
   upsertCustomFieldValues: (entityType: string, entityId: string, values: Record<string, unknown>) => apiClient.put<CrmCustomFieldValues, { values: Record<string, unknown> }>(`${root}/custom-fields/values/${entityType}/${entityId}`, { values }),
+
+  // ── Tasks (CRM.TASK.READ / WRITE) — feature/crm-tasks ──────────────────
+  tasks: (status?: string, assigneeId?: string, relatedId?: string) =>
+    apiClient.get<CrmTask[]>(`${root}/tasks`, { query: { limit: 200, status, assigneeId, relatedId }, cache: "no-store" }),
+  task: (id: string) => apiClient.get<CrmTask>(`${root}/tasks/${id}`, { cache: "no-store" }),
+  createTask: (body: {
+    title: string;
+    description?: string;
+    relatedType?: string;
+    relatedId?: string;
+    assigneeUserId?: string;
+    ownerUserId?: string;
+    priority?: number;
+    startAt?: string;
+    dueAt?: string;
+  }) => apiClient.post<CrmTask, typeof body>(`${root}/tasks`, body),
+  updateTask: (id: string, body: {
+    title?: string;
+    description?: string;
+    assigneeUserId?: string;
+    priority?: number;
+    startAt?: string;
+    dueAt?: string;
+  }) => apiClient.patch<CrmTask, typeof body>(`${root}/tasks/${id}`, body),
+  startTask: (id: string) => apiClient.patch<CrmTask, Record<string, never>>(`${root}/tasks/${id}/start`, {}),
+  completeTask: (id: string, result?: string) => apiClient.patch<CrmTask, { result?: string }>(`${root}/tasks/${id}/complete`, { result }),
+  cancelTask: (id: string, reason?: string) => apiClient.patch<CrmTask, { reason?: string }>(`${root}/tasks/${id}/cancel`, { reason }),
 };
