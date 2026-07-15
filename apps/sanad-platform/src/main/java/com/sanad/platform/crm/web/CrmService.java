@@ -1,5 +1,9 @@
 package com.sanad.platform.crm.web;
 
+import com.sanad.platform.crm.party.application.AccountUseCases;
+import com.sanad.platform.crm.party.domain.AccountRepository;
+import com.sanad.platform.crm.party.domain.AccountRepository.AccountRecord;
+
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -23,68 +27,100 @@ import java.util.UUID;
 
 @Service
 class CrmService {
-    private static final Set<String> TABLES = Set.of("crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines", "crm_opportunities", "crm_activities");
+    private static final Set<String> TABLES = Set.of("crm_contacts", "crm_leads", "crm_pipelines", "crm_opportunities", "crm_activities");
     private final NamedParameterJdbcTemplate jdbc;
     private final CrmExtendedService extended;
+    private final AccountUseCases accountUseCases;
 
-    CrmService(NamedParameterJdbcTemplate jdbc, CrmExtendedService extended) {
+    CrmService(NamedParameterJdbcTemplate jdbc, CrmExtendedService extended, AccountUseCases accountUseCases) {
         this.jdbc = jdbc;
         this.extended = extended;
+        this.accountUseCases = accountUseCases;
     }
+
+    // ------------------------------------------------------------------
+    // Account V1 — delegates to AccountUseCases (modular domain layer).
+    // No raw SQL remains here; the dual-SQL pattern is removed.
+    // ------------------------------------------------------------------
 
     @Transactional
     Map<String, Object> createAccount(Authentication authentication, CreateAccountRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
-        UUID id = UUID.randomUUID();
-        Instant now = Instant.now();
-        if (request.parentAccountId() != null) account(tenantId, request.parentAccountId());
-        extended.validateOwner(tenantId, request.ownerUserId());
-        jdbc.update("INSERT INTO crm_accounts (id,tenant_id,display_name,normalized_name,account_type,lifecycle_status,parent_account_id,owner_user_id,primary_currency_code,preferred_locale,time_zone,source,created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,:displayName,:normalizedName,:accountType,'ACTIVE',:parentAccountId,:ownerUserId,:currency,:locale,:timeZone,:source,:actorId,:actorId,:now,:now)", p().addValue("id", id).addValue("tenantId", tenantId).addValue("displayName", required(request.displayName(), 240, "displayName")).addValue("normalizedName", norm(request.displayName())).addValue("accountType", value(request.accountType(), "BUSINESS").toUpperCase(Locale.ROOT)).addValue("parentAccountId", request.parentAccountId()).addValue("ownerUserId", request.ownerUserId()).addValue("currency", currency(request.primaryCurrencyCode())).addValue("locale", locale(request.preferredLocale())).addValue("timeZone", zone(request.timeZone())).addValue("source", optional(request.source(), 80, "source")).addValue("actorId", actorId).addValue("now", Timestamp.from(now)));
-        timeline(tenantId, "ACCOUNT", id, "crm.account.created", "Account created", "CRM_ACCOUNT", id, actorId, now);
-        return account(tenantId, id);
+        AccountRecord created = accountUseCases.create(tenantId, actorId, new AccountRepository.CreateAccountCommand(
+                required(request.displayName(), 240, "displayName"),
+                value(request.accountType(), "BUSINESS").toUpperCase(Locale.ROOT),
+                request.ownerUserId(),
+                request.parentAccountId(),
+                currency(request.primaryCurrencyCode()),
+                locale(request.preferredLocale()),
+                zone(request.timeZone()),
+                optional(request.source(), 80, "source")));
+        return toAccountRow(created);
     }
 
     @Transactional(readOnly = true)
     List<Map<String, Object>> listAccounts(Authentication authentication, int requestedLimit, String search) {
         UUID tenantId = tenantId(authentication);
-        StringBuilder sql = new StringBuilder("SELECT * FROM crm_accounts WHERE tenant_id=:tenantId AND lifecycle_status<>'ARCHIVED'");
-        MapSqlParameterSource params = p().addValue("tenantId", tenantId);
-        if (search != null && !search.isBlank()) { sql.append(" AND normalized_name LIKE :search"); params.addValue("search", "%" + norm(search) + "%"); }
-        sql.append(" ORDER BY updated_at DESC,id LIMIT :limit");
-        params.addValue("limit", limit(requestedLimit));
-        return jdbc.queryForList(sql.toString(), params);
+        return accountUseCases.list(tenantId, limit(requestedLimit), search).stream()
+                .map(this::toAccountRow)
+                .toList();
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> getAccount(Authentication authentication, UUID accountId) { return account(tenantId(authentication), accountId); }
+    Map<String, Object> getAccount(Authentication authentication, UUID accountId) {
+        return toAccountRow(accountUseCases.getById(tenantId(authentication), accountId));
+    }
 
     @Transactional
     Map<String, Object> updateAccount(Authentication authentication, UUID accountId, UpdateAccountRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
-        Map<String, Object> current = account(tenantId, accountId);
-        if ("ARCHIVED".equals(current.get("lifecycle_status"))) throw conflict("Archived CRM account cannot be updated");
-        if (request.parentAccountId() != null) { account(tenantId, request.parentAccountId()); assertNoAccountCycle(tenantId, accountId, request.parentAccountId()); }
-        extended.validateOwner(tenantId, request.ownerUserId());
-        Instant now = Instant.now();
-        long expectedVersion = asLong(current.get("version")); int updatedRows = jdbc.update("UPDATE crm_accounts SET display_name=COALESCE(:displayName,display_name),normalized_name=COALESCE(:normalizedName,normalized_name),parent_account_id=:parentAccountId,owner_user_id=COALESCE(:ownerUserId,owner_user_id),primary_currency_code=COALESCE(:currency,primary_currency_code),preferred_locale=COALESCE(:locale,preferred_locale),time_zone=COALESCE(:timeZone,time_zone),source=COALESCE(:source,source),updated_by=:actorId,updated_at=:now,version=version+1 WHERE tenant_id=:tenantId AND id=:id AND version=:expectedVersion", p().addValue("tenantId", tenantId).addValue("id", accountId).addValue("expectedVersion", expectedVersion).addValue("displayName", optional(request.displayName(), 240, "displayName")).addValue("normalizedName", request.displayName() == null ? null : norm(request.displayName())).addValue("parentAccountId", request.parentAccountId()).addValue("ownerUserId", request.ownerUserId()).addValue("currency", currency(request.primaryCurrencyCode())).addValue("locale", locale(request.preferredLocale())).addValue("timeZone", zone(request.timeZone())).addValue("source", optional(request.source(), 80, "source")).addValue("actorId", actorId).addValue("now", Timestamp.from(now))); if (updatedRows == 0) { throw new com.sanad.platform.crm.error.CrmContractException(com.sanad.platform.crm.error.CrmErrorCode.CRM_CONCURRENCY_CONFLICT); }
-        timeline(tenantId, "ACCOUNT", accountId, "crm.account.updated", "Account updated", "CRM_ACCOUNT", accountId, actorId, now);
-        return account(tenantId, accountId);
+        AccountRecord current = accountUseCases.getById(tenantId, accountId);
+        AccountRecord updated = accountUseCases.update(tenantId, actorId, accountId,
+                new AccountRepository.UpdateAccountCommand(
+                        request.displayName(),
+                        request.ownerUserId(),
+                        request.parentAccountId(),
+                        currency(request.primaryCurrencyCode()),
+                        locale(request.preferredLocale()),
+                        zone(request.timeZone()),
+                        optional(request.source(), 80, "source")),
+                current.version());
+        return toAccountRow(updated);
     }
 
     @Transactional
     Map<String, Object> archiveAccount(Authentication authentication, UUID accountId) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
-        account(tenantId, accountId);
-        Long activeChildren = jdbc.queryForObject("SELECT COUNT(*) FROM crm_accounts WHERE tenant_id=:tenantId AND parent_account_id=:accountId AND lifecycle_status<>'ARCHIVED'", p().addValue("tenantId", tenantId).addValue("accountId", accountId), Long.class);
-        if (activeChildren != null && activeChildren > 0) throw conflict("CRM account has active child accounts");
-        Instant now = Instant.now();
-        int changed = jdbc.update("UPDATE crm_accounts SET lifecycle_status='ARCHIVED',archived_at=:now,updated_at=:now,updated_by=:actorId,version=version+1 WHERE tenant_id=:tenantId AND id=:id AND lifecycle_status<>'ARCHIVED'", context(tenantId, actorId, accountId, now));
-        if (changed != 1) throw conflict("CRM account is already archived");
-        timeline(tenantId, "ACCOUNT", accountId, "crm.account.archived", "Account archived", "CRM_ACCOUNT", accountId, actorId, now);
-        return account(tenantId, accountId);
+        AccountRecord current = accountUseCases.getById(tenantId, accountId);
+        return toAccountRow(accountUseCases.archive(tenantId, actorId, accountId, current.version()));
+    }
+
+    /**
+     * Maps an {@link AccountRecord} (camelCase domain record) to the V1-compatible
+     * row shape (snake_case keys matching the {@code crm_accounts} table columns).
+     * This preserves the V1 API contract while removing the legacy SQL.
+     */
+    private Map<String, Object> toAccountRow(AccountRecord r) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", r.id());
+        row.put("version", r.version());
+        row.put("tenant_id", null);
+        row.put("display_name", r.displayName());
+        row.put("normalized_name", r.normalizedName());
+        row.put("account_type", r.accountType());
+        row.put("lifecycle_status", r.lifecycleStatus());
+        row.put("parent_account_id", r.parentAccountId());
+        row.put("owner_user_id", r.ownerUserId());
+        row.put("primary_currency_code", r.primaryCurrencyCode());
+        row.put("preferred_locale", r.preferredLocale());
+        row.put("time_zone", r.timeZone());
+        row.put("source", r.source());
+        row.put("created_at", r.createdAt() == null ? null : Timestamp.from(r.createdAt()));
+        row.put("updated_at", r.updatedAt() == null ? null : Timestamp.from(r.updatedAt()));
+        return row;
     }
 
     @Transactional
@@ -183,10 +219,11 @@ class CrmService {
     @Transactional(readOnly = true)
     List<Map<String, Object>> timeline(Authentication authentication, String subjectType, UUID subjectId, int requestedLimit) { UUID tenantId = tenantId(authentication); extended.validateRelated(tenantId, subjectType, subjectId); return jdbc.queryForList("SELECT * FROM crm_timeline_events WHERE tenant_id=:tenantId AND subject_type=:subjectType AND subject_id=:subjectId ORDER BY occurred_at DESC,id LIMIT :limit", p().addValue("tenantId", tenantId).addValue("subjectType", subjectType.toUpperCase(Locale.ROOT)).addValue("subjectId", subjectId).addValue("limit", limit(requestedLimit))); }
 
-    private void assertNoAccountCycle(UUID tenantId, UUID accountId, UUID proposedParentId) { UUID cursor = proposedParentId; HashSet<UUID> visited = new HashSet<>(); for (int depth = 0; cursor != null && depth < 100; depth++) { if (cursor.equals(accountId)) throw bad("parentAccountId creates an account hierarchy cycle"); if (!visited.add(cursor)) throw conflict("Existing CRM account hierarchy contains a cycle"); List<UUID> parents = jdbc.query("SELECT parent_account_id FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id", p().addValue("tenantId", tenantId).addValue("id", cursor), (rs, rowNum) -> rs.getObject("parent_account_id", UUID.class)); cursor = parents.isEmpty() ? null : parents.get(0); } if (cursor != null) throw conflict("CRM account hierarchy exceeds maximum depth"); }
+    // assertNoAccountCycle removed: AccountUseCases.update performs the cycle check
+    // via the modular domain layer.
     private Map<String, Object> ensureDefaultPipeline(Authentication authentication, String currencyCode) { UUID tenantId = tenantId(authentication); List<Map<String, Object>> existing = jdbc.queryForList("SELECT * FROM crm_pipelines WHERE tenant_id=:tenantId AND name='Default Sales Pipeline' AND active=TRUE", p().addValue("tenantId", tenantId)); return existing.isEmpty() ? createPipeline(authentication, new CreatePipelineRequest("Default Sales Pipeline", currencyCode, List.of("New", "Qualified", "Proposal", "Won", "Lost"))) : existing.get(0); }
     private UUID firstStage(UUID tenantId, UUID pipelineId) { return jdbc.queryForObject("SELECT id FROM crm_pipeline_stages WHERE tenant_id=:tenantId AND pipeline_id=:pipelineId AND active=TRUE ORDER BY sequence,id LIMIT 1", p().addValue("tenantId", tenantId).addValue("pipelineId", pipelineId), UUID.class); }
-    private Map<String, Object> account(UUID tenantId, UUID id) { return one("crm_accounts", tenantId, id, "CRM account not found"); }
+    private Map<String, Object> account(UUID tenantId, UUID id) { return toAccountRow(accountUseCases.getById(tenantId, id)); }
     private Map<String, Object> contact(UUID tenantId, UUID id) { return one("crm_contacts", tenantId, id, "CRM contact not found"); }
     private Map<String, Object> lead(UUID tenantId, UUID id) { return one("crm_leads", tenantId, id, "CRM lead not found"); }
     private Map<String, Object> pipeline(UUID tenantId, UUID id) { return one("crm_pipelines", tenantId, id, "CRM pipeline not found"); }
