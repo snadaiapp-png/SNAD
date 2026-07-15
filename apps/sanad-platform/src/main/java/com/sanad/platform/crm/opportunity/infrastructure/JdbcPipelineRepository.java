@@ -23,10 +23,27 @@ public class JdbcPipelineRepository implements PipelineRepository {
         UUID id = UUID.randomUUID(); Instant now = Instant.now();
         jdbc.update("INSERT INTO crm_pipelines (id,tenant_id,version,name,currency_code,active,created_by,created_at,updated_at) VALUES (:id,:t,0,:name,:currencyCode,TRUE,:actorId,:now,:now)",
                 new MapSqlParameterSource().addValue("id",id).addValue("t",t).addValue("name",cmd.name()).addValue("currencyCode",cmd.currencyCode()).addValue("actorId",actorId).addValue("now",Timestamp.from(now)));
-        for (int i = 0; i < cmd.stages().size(); i++) {
+        List<String> stages = cmd.stages();
+        for (int i = 0; i < stages.size(); i++) {
             UUID stageId = UUID.randomUUID();
-            jdbc.update("INSERT INTO crm_pipeline_stages (id,tenant_id,pipeline_id,name,sequence,probability,terminal_state,active) VALUES (:id,:t,:pipelineId,:name,:seq,:prob,NULL,TRUE)",
-                    new MapSqlParameterSource().addValue("id",stageId).addValue("t",t).addValue("pipelineId",id).addValue("name",cmd.stages().get(i)).addValue("seq",i+1).addValue("prob",java.math.BigDecimal.ZERO));
+            String stageName = stages.get(i);
+            // Compute terminal_state and probability to match V1 semantics:
+            //   "Won" -> terminal WON, probability 100
+            //   "Lost" -> terminal LOST, probability 0
+            //   other -> non-terminal, probability scaled by position
+            String terminal = stageName.equalsIgnoreCase("Won") ? "WON"
+                    : stageName.equalsIgnoreCase("Lost") ? "LOST" : null;
+            java.math.BigDecimal probability;
+            if (terminal == null) {
+                int probPct = Math.min(90, Math.round((i * 100f) / Math.max(1, stages.size() - 1)));
+                probability = java.math.BigDecimal.valueOf(probPct);
+            } else {
+                probability = "WON".equals(terminal)
+                        ? java.math.BigDecimal.valueOf(100)
+                        : java.math.BigDecimal.ZERO;
+            }
+            jdbc.update("INSERT INTO crm_pipeline_stages (id,tenant_id,pipeline_id,name,sequence,probability,terminal_state,active) VALUES (:id,:t,:pipelineId,:name,:seq,:prob,:terminal,TRUE)",
+                    new MapSqlParameterSource().addValue("id",stageId).addValue("t",t).addValue("pipelineId",id).addValue("name",stageName).addValue("seq",i+1).addValue("prob",probability).addValue("terminal",terminal));
         }
         return findById(t, id);
     }
