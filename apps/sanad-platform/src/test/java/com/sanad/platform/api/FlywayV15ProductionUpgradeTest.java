@@ -3,9 +3,12 @@ package com.sanad.platform.api;
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -19,6 +22,17 @@ class FlywayV15ProductionUpgradeTest {
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+
+    /**
+     * Skip gracefully on machines without Docker (e.g. dev Windows boxes).
+     * On CI runners with Docker, the test runs normally.
+     */
+    @BeforeAll
+    static void requireDocker() {
+        Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(),
+                "Docker is not available — skipping FlywayV15ProductionUpgradeTest. " +
+                "Run on a CI runner with Docker to exercise the production upgrade path.");
+    }
 
     @Test
     void preservesProductionDataAndCompletesAdminGrants() {
