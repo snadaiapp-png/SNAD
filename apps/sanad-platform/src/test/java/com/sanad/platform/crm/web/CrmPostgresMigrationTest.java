@@ -30,6 +30,7 @@ class CrmPostgresMigrationTest {
     private static final String SUBSCRIPTION_CHANGE_EVENTS_VERSION = "20260711.1";
     private static final String CRM_IDEMPOTENCY_VERSION = "20260713.1";
     private static final String CRM_PIPELINE_VERSION_COLUMN = "20260713.2";
+    private static final String CRM_TAGS_VERSION = "20260716.3";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -42,6 +43,9 @@ class CrmPostgresMigrationTest {
 
     private static final List<String> CRM_G2_TABLES = List.of(
             "crm_idempotency_records");
+
+    private static final List<String> CRM_TAGS_TABLES = List.of(
+            "crm_tags", "crm_tag_assignments");
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
@@ -87,7 +91,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(TENANT_QUOTA_VERSION),
                         MigrationVersion.fromVersion(SUBSCRIPTION_CHANGE_EVENTS_VERSION),
                         MigrationVersion.fromVersion(CRM_IDEMPOTENCY_VERSION),
-                        MigrationVersion.fromVersion(CRM_PIPELINE_VERSION_COLUMN));
+                        MigrationVersion.fromVersion(CRM_PIPELINE_VERSION_COLUMN),
+                        MigrationVersion.fromVersion(CRM_TAGS_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -112,7 +117,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(TENANT_QUOTA_VERSION),
                         MigrationVersion.fromVersion(SUBSCRIPTION_CHANGE_EVENTS_VERSION),
                         MigrationVersion.fromVersion(CRM_IDEMPOTENCY_VERSION),
-                        MigrationVersion.fromVersion(CRM_PIPELINE_VERSION_COLUMN));
+                        MigrationVersion.fromVersion(CRM_PIPELINE_VERSION_COLUMN),
+                        MigrationVersion.fromVersion(CRM_TAGS_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -136,8 +142,9 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, SUBSCRIPTION_CHANGE_EVENTS_VERSION, "SQL", "create subscription change events");
         assertMigration(jdbc, CRM_IDEMPOTENCY_VERSION, "SQL", "create crm idempotency records");
         assertMigration(jdbc, CRM_PIPELINE_VERSION_COLUMN, "SQL", "add pipeline version column");
+        assertMigration(jdbc, CRM_TAGS_VERSION, "SQL", "create crm tags");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(CRM_PIPELINE_VERSION_COLUMN);
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_TAGS_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 
@@ -152,13 +159,14 @@ class CrmPostgresMigrationTest {
         assertThat(columnExists(jdbc, "crm_idempotency_records", "content_type")).isTrue();
         assertThat(columnExists(jdbc, "crm_pipelines", "version")).isTrue();
 
+        // CRM capabilities: 18 (core) + 2 (CRM.TAG.READ/WRITE) = 20
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.%' AND status='ACTIVE'",
-                Long.class)).isEqualTo(18L);
+                Long.class)).isEqualTo(20L);
     }
 
     private List<String> allCrmTables() {
-        return Stream.of(CRM_CORE_TABLES, CRM_COMPLETION_TABLES, CRM_G2_TABLES)
+        return Stream.of(CRM_CORE_TABLES, CRM_COMPLETION_TABLES, CRM_G2_TABLES, CRM_TAGS_TABLES)
                 .flatMap(List::stream)
                 .sorted()
                 .toList();

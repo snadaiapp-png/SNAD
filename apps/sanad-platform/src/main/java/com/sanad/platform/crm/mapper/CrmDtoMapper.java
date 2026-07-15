@@ -400,4 +400,32 @@ public class CrmDtoMapper {
         if (v instanceof java.util.Date d) return d.toInstant().atOffset(ZoneOffset.UTC).toLocalDate();
         try { return LocalDate.parse(String.valueOf(v)); } catch (Exception e) { return null; }
     }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Tags (feature/crm-tags)
+    // ────────────────────────────────────────────────────────────────────
+
+    public com.sanad.platform.crm.dto.CrmDtos.TagResponse toTagResponse(Map<String, Object> row) {
+        if (row == null) return null;
+        return new com.sanad.platform.crm.dto.CrmDtos.TagResponse(
+                uuid(row.get("id")),
+                longVal(row.get("version")),
+                str(row.get("name")),
+                str(row.get("color")),
+                offsetDateTime(row.get("created_at")),
+                offsetDateTime(row.get("updated_at")));
+    }
+
+    public com.sanad.platform.crm.dto.CrmDtos.TagAssignmentResponse toTagAssignmentResponse(
+            Map<String, Object> row, String tagName, String tagColor) {
+        if (row == null) return null;
+        return new com.sanad.platform.crm.dto.CrmDtos.TagAssignmentResponse(
+                uuid(row.get("id")),
+                uuid(row.get("tag_id")),
+                tagName,
+                tagColor,
+                str(row.get("subject_type")),
+                uuid(row.get("subject_id")),
+                offsetDateTime(row.get("assigned_at")));
+    }
 }

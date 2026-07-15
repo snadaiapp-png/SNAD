@@ -164,6 +164,30 @@ export interface CrmCustomFieldValues {
   values: CrmCustomFieldValueEntry[];
 }
 
+/**
+ * CRM Tag — reusable label that can be assigned to any CRM entity.
+ * Branch: feature/crm-tags
+ */
+export interface CrmTag {
+  id: string;
+  version: number;
+  name: string;
+  color?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CrmTagAssignment {
+  id: string;
+  tag_id: string;
+  tag_name: string;
+  tag_color?: string | null;
+  subject_type: string;
+  subject_id: string;
+  assigned_by?: string | null;
+  assigned_at: string;
+}
+
 const root = "/api/v1/crm";
 
 export const crmApi = {
@@ -245,4 +269,20 @@ export const crmApi = {
     } satisfies CrmCustomFieldValues;
   },
   upsertCustomFieldValues: (entityType: string, entityId: string, values: Record<string, unknown>) => apiClient.put<CrmCustomFieldValues, { values: Record<string, unknown> }>(`${root}/custom-fields/values/${entityType}/${entityId}`, { values }),
+
+  // ── Tags (CRM.TAG.READ / WRITE) — feature/crm-tags ───────────────────
+  tags: (search?: string) =>
+    apiClient.get<CrmTag[]>(`${root}/tags`, { query: { limit: 200, search }, cache: "no-store" }),
+  tag: (id: string) => apiClient.get<CrmTag>(`${root}/tags/${id}`, { cache: "no-store" }),
+  createTag: (body: { name: string; color?: string }) =>
+    apiClient.post<CrmTag, typeof body>(`${root}/tags`, body),
+  updateTag: (id: string, body: { name?: string; color?: string }) =>
+    apiClient.patch<CrmTag, typeof body>(`${root}/tags/${id}`, body),
+  deleteTag: (id: string) => apiClient.delete<void>(`${root}/tags/${id}`),
+  tagAssignmentsBySubject: (subjectType: string, subjectId: string) =>
+    apiClient.get<CrmTagAssignment[]>(`${root}/tags/assignments/by-subject`, { query: { subjectType, subjectId }, cache: "no-store" }),
+  assignTag: (tagId: string, body: { subjectType: string; subjectId: string }) =>
+    apiClient.post<CrmTagAssignment, typeof body>(`${root}/tags/${tagId}/assignments`, body),
+  unassignTag: (tagId: string, subjectType: string, subjectId: string) =>
+    apiClient.delete<void>(`${root}/tags/${tagId}/assignments`, { query: { subjectType, subjectId } }),
 };

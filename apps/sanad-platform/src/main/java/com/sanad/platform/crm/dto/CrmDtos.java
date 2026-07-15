@@ -281,4 +281,25 @@ public final class CrmDtos {
             String entityType,
             UUID entityId,
             Map<String, Object> values) {}
+
+    // ────────────────────────────────────────────────────────────────────
+    // Tags (feature/crm-tags)
+    // ────────────────────────────────────────────────────────────────────
+
+    public record TagResponse(
+            UUID id,
+            long version,
+            String name,
+            String color,
+            OffsetDateTime createdAt,
+            OffsetDateTime updatedAt) {}
+
+    public record TagAssignmentResponse(
+            UUID id,
+            UUID tagId,
+            String tagName,
+            String tagColor,
+            String subjectType,
+            UUID subjectId,
+            OffsetDateTime assignedAt) {}
 }
