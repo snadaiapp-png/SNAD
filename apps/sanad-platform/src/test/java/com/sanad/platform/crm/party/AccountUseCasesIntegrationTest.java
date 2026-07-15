@@ -478,4 +478,65 @@ class AccountUseCasesIntegrationTest {
                 "When no X-Correlation-ID header is supplied, audit correlation_id must be a UUID");
     }
 
+    @Test
+    @DisplayName("Timeline events are tenant-isolated")
+    void timelineTenantIsolation() {
+        UUID tenantA = seedTenantAndOwner();
+        UUID actorA = jdbc.queryForObject("SELECT id FROM users WHERE tenant_id = :t LIMIT 1",
+                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantA), UUID.class);
+        AccountRecord created = accountUseCases.create(tenantA, actorA,
+                new CreateAccountCommand("Isolated Timeline", "BUSINESS", actorA, null, "SAR", "ar-SA", "Asia/Riyadh", "TEST"));
+
+        // Tenant A should see the timeline event
+        Integer countA = jdbc.queryForObject(
+                "SELECT count(*) FROM crm_timeline_events WHERE tenant_id = :t AND subject_id = :sid AND event_type = 'crm.account.created'",
+                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantA)
+                        .addValue("sid", created.id()), Integer.class);
+        assertTrue(countA > 0, "Tenant A should see its own timeline event");
+
+        // Tenant B should NOT see tenant A's timeline event
+        UUID tenantB = seedTenantAndOwner();
+        Integer countB = jdbc.queryForObject(
+                "SELECT count(*) FROM crm_timeline_events WHERE tenant_id = :t AND subject_id = :sid",
+                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantB)
+                        .addValue("sid", created.id()), Integer.class);
+        assertEquals(0, countB, "Tenant B must not see Tenant A's timeline events (tenant isolation)");
+    }
+
+    @Test
+    @DisplayName("No duplicate timeline events on create (single write path)")
+    void noDuplicateTimelineEventsOnCreate() {
+        UUID tenantId = seedTenantAndOwner();
+        UUID actorId = jdbc.queryForObject("SELECT id FROM users WHERE tenant_id = :t LIMIT 1",
+                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId), UUID.class);
+        AccountRecord created = accountUseCases.create(tenantId, actorId,
+                new CreateAccountCommand("No Dup Timeline", "BUSINESS", actorId, null, "SAR", "ar-SA", "Asia/Riyadh", "TEST"));
+
+        // Exactly ONE 'crm.account.created' event should exist — not two (which would
+        // indicate both AccountUseCases AND a V1 compat layer wrote it).
+        Integer count = jdbc.queryForObject(
+                "SELECT count(*) FROM crm_timeline_events WHERE tenant_id = :t AND subject_id = :sid AND event_type = 'crm.account.created'",
+                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId)
+                        .addValue("sid", created.id()), Integer.class);
+        assertEquals(1, count, "Exactly one timeline event should be written on create — no duplicates from dual write paths");
+    }
+
+    @Test
+    @DisplayName("No duplicate timeline events on update (single write path)")
+    void noDuplicateTimelineEventsOnUpdate() {
+        UUID tenantId = seedTenantAndOwner();
+        UUID actorId = jdbc.queryForObject("SELECT id FROM users WHERE tenant_id = :t LIMIT 1",
+                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId), UUID.class);
+        AccountRecord created = accountUseCases.create(tenantId, actorId,
+                new CreateAccountCommand("No Dup Update", "BUSINESS", actorId, null, "SAR", "ar-SA", "Asia/Riyadh", "TEST"));
+        accountUseCases.update(tenantId, actorId, created.id(),
+                new UpdateAccountCommand("Updated", null, null, null, null, null, null), created.version());
+
+        Integer count = jdbc.queryForObject(
+                "SELECT count(*) FROM crm_timeline_events WHERE tenant_id = :t AND subject_id = :sid AND event_type = 'crm.account.updated'",
+                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId)
+                        .addValue("sid", created.id()), Integer.class);
+        assertEquals(1, count, "Exactly one 'crm.account.updated' event — no duplicates from dual write paths");
+    }
+
 }
