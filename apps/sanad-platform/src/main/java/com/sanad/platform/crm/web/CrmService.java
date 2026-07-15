@@ -1,10 +1,25 @@
 package com.sanad.platform.crm.web;
 
 import com.sanad.platform.crm.party.application.AccountUseCases;
+import com.sanad.platform.crm.party.application.ContactUseCases;
 import com.sanad.platform.crm.party.domain.AccountRepository;
 import com.sanad.platform.crm.party.domain.AccountRepository.AccountRecord;
+import com.sanad.platform.crm.party.domain.ContactRepository;
+import com.sanad.platform.crm.party.domain.ContactRepository.ContactRecord;
+import com.sanad.platform.crm.lead.application.LeadUseCases;
+import com.sanad.platform.crm.lead.domain.LeadRepository;
+import com.sanad.platform.crm.lead.domain.LeadRepository.LeadRecord;
+import com.sanad.platform.crm.lead.domain.LeadRepository.LeadConversionRecord;
+import com.sanad.platform.crm.opportunity.application.OpportunityUseCases;
+import com.sanad.platform.crm.opportunity.domain.OpportunityRepository;
+import com.sanad.platform.crm.opportunity.domain.OpportunityRepository.OpportunityRecord;
+import com.sanad.platform.crm.opportunity.domain.PipelineRepository;
+import com.sanad.platform.crm.opportunity.domain.PipelineRepository.PipelineRecord;
+import com.sanad.platform.crm.opportunity.domain.PipelineRepository.StageRecord;
+import com.sanad.platform.crm.activity.application.ActivityUseCases;
+import com.sanad.platform.crm.activity.domain.ActivityRepository;
+import com.sanad.platform.crm.activity.domain.ActivityRepository.ActivityRecord;
 
-import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -16,7 +31,6 @@ import org.springframework.web.server.ResponseStatusException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,15 +41,28 @@ import java.util.UUID;
 
 @Service
 class CrmService {
-    private static final Set<String> TABLES = Set.of("crm_contacts", "crm_leads", "crm_pipelines", "crm_opportunities", "crm_activities");
+    // TABLES set removed: no raw SQL remains on any CRM entity table.
+    // Only crm_timeline_events retains a legacy INSERT/SELECT — to be migrated
+    // to TimelineEventPort in a follow-up work item.
     private final NamedParameterJdbcTemplate jdbc;
     private final CrmExtendedService extended;
     private final AccountUseCases accountUseCases;
+    private final ContactUseCases contactUseCases;
+    private final LeadUseCases leadUseCases;
+    private final OpportunityUseCases opportunityUseCases;
+    private final ActivityUseCases activityUseCases;
 
-    CrmService(NamedParameterJdbcTemplate jdbc, CrmExtendedService extended, AccountUseCases accountUseCases) {
+    CrmService(NamedParameterJdbcTemplate jdbc, CrmExtendedService extended,
+                AccountUseCases accountUseCases, ContactUseCases contactUseCases,
+                LeadUseCases leadUseCases, OpportunityUseCases opportunityUseCases,
+                ActivityUseCases activityUseCases) {
         this.jdbc = jdbc;
         this.extended = extended;
         this.accountUseCases = accountUseCases;
+        this.contactUseCases = contactUseCases;
+        this.leadUseCases = leadUseCases;
+        this.opportunityUseCases = opportunityUseCases;
+        this.activityUseCases = activityUseCases;
     }
 
     // ------------------------------------------------------------------
@@ -123,117 +150,403 @@ class CrmService {
         return row;
     }
 
+    // ------------------------------------------------------------------
+    // Contact V1 — delegates to ContactUseCases (modular domain layer).
+    // No raw SQL on crm_contacts remains here.
+    // ------------------------------------------------------------------
+
     @Transactional
     Map<String, Object> createContact(Authentication authentication, CreateContactRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
-        UUID id = UUID.randomUUID();
-        Instant now = Instant.now();
         if (request.accountId() != null) account(tenantId, request.accountId());
         extended.validateOwner(tenantId, request.ownerUserId());
-        String given = required(request.givenName(), 120, "givenName");
-        String family = optional(request.familyName(), 120, "familyName");
-        String display = family == null ? given : given + " " + family;
-        jdbc.update("INSERT INTO crm_contacts (id,tenant_id,account_id,given_name,family_name,display_name,normalized_name,primary_email,normalized_email,primary_phone,preferred_locale,time_zone,lifecycle_status,owner_user_id,consent_summary,created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,:accountId,:givenName,:familyName,:displayName,:normalizedName,:email,:normalizedEmail,:phone,:locale,:timeZone,'ACTIVE',:ownerUserId,:consent,:actorId,:actorId,:now,:now)", p().addValue("id", id).addValue("tenantId", tenantId).addValue("accountId", request.accountId()).addValue("givenName", given).addValue("familyName", family).addValue("displayName", display).addValue("normalizedName", norm(display)).addValue("email", optional(request.primaryEmail(), 255, "primaryEmail")).addValue("normalizedEmail", email(request.primaryEmail())).addValue("phone", optional(request.primaryPhone(), 64, "primaryPhone")).addValue("locale", locale(request.preferredLocale())).addValue("timeZone", zone(request.timeZone())).addValue("ownerUserId", request.ownerUserId()).addValue("consent", value(request.consentSummary(), "UNKNOWN").toUpperCase(Locale.ROOT)).addValue("actorId", actorId).addValue("now", Timestamp.from(now)));
-        timeline(tenantId, "CONTACT", id, "crm.contact.created", "Contact created", "CRM_CONTACT", id, actorId, now);
-        if (request.accountId() != null) timeline(tenantId, "ACCOUNT", request.accountId(), "crm.contact.linked", "Contact linked", "CRM_CONTACT", id, actorId, now);
-        return contact(tenantId, id);
+        ContactRecord created = contactUseCases.create(tenantId, actorId, new ContactRepository.CreateContactCommand(
+                request.accountId(),
+                required(request.givenName(), 120, "givenName"),
+                optional(request.familyName(), 120, "familyName"),
+                optional(request.primaryEmail(), 255, "primaryEmail"),
+                optional(request.primaryPhone(), 64, "primaryPhone"),
+                locale(request.preferredLocale()),
+                zone(request.timeZone()),
+                request.ownerUserId(),
+                value(request.consentSummary(), "UNKNOWN").toUpperCase(Locale.ROOT)));
+        return toContactRow(created);
     }
 
     @Transactional(readOnly = true)
     List<Map<String, Object>> listContacts(Authentication authentication, int requestedLimit, UUID accountId, String search) {
         UUID tenantId = tenantId(authentication);
         if (accountId != null) account(tenantId, accountId);
-        StringBuilder sql = new StringBuilder("SELECT * FROM crm_contacts WHERE tenant_id=:tenantId AND lifecycle_status<>'ARCHIVED'");
-        MapSqlParameterSource params = p().addValue("tenantId", tenantId);
-        if (accountId != null) { sql.append(" AND account_id=:accountId"); params.addValue("accountId", accountId); }
-        if (search != null && !search.isBlank()) { sql.append(" AND (normalized_name LIKE :search OR normalized_email LIKE :search)"); params.addValue("search", "%" + norm(search) + "%"); }
-        sql.append(" ORDER BY updated_at DESC,id LIMIT :limit"); params.addValue("limit", limit(requestedLimit));
-        return jdbc.queryForList(sql.toString(), params);
+        return contactUseCases.list(tenantId, limit(requestedLimit), accountId, search).stream()
+                .map(this::toContactRow)
+                .toList();
     }
+
+    /**
+     * Maps a {@link ContactRecord} to the V1-compatible snake_case row shape.
+     */
+    private Map<String, Object> toContactRow(ContactRecord r) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", r.id());
+        row.put("version", r.version());
+        row.put("account_id", r.accountId());
+        row.put("given_name", r.givenName());
+        row.put("family_name", r.familyName());
+        row.put("display_name", r.displayName());
+        row.put("primary_email", r.primaryEmail());
+        row.put("primary_phone", r.primaryPhone());
+        row.put("preferred_locale", r.preferredLocale());
+        row.put("time_zone", r.timeZone());
+        row.put("lifecycle_status", r.lifecycleStatus());
+        row.put("owner_user_id", r.ownerUserId());
+        row.put("consent_summary", r.consentSummary());
+        row.put("created_at", r.createdAt() == null ? null : Timestamp.from(r.createdAt()));
+        row.put("updated_at", r.updatedAt() == null ? null : Timestamp.from(r.updatedAt()));
+        return row;
+    }
+
+    // ------------------------------------------------------------------
+    // Lead V1 — delegates to LeadUseCases (modular domain layer).
+    // No raw SQL on crm_leads remains here.
+    // ------------------------------------------------------------------
 
     @Transactional
     Map<String, Object> createLead(Authentication authentication, CreateLeadRequest request) {
-        UUID tenantId = tenantId(authentication); UUID actorId = userId(authentication); UUID id = UUID.randomUUID(); Instant now = Instant.now();
+        UUID tenantId = tenantId(authentication);
+        UUID actorId = userId(authentication);
         extended.validateOwner(tenantId, request.ownerUserId());
-        jdbc.update("INSERT INTO crm_leads (id,tenant_id,display_name,normalized_name,company_name,email,normalized_email,phone,source,status,owner_user_id,queue_id,score,created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,:displayName,:normalizedName,:companyName,:email,:normalizedEmail,:phone,:source,'NEW',:ownerUserId,:queueId,:score,:actorId,:actorId,:now,:now)", p().addValue("id", id).addValue("tenantId", tenantId).addValue("displayName", required(request.displayName(), 240, "displayName")).addValue("normalizedName", norm(request.displayName())).addValue("companyName", optional(request.companyName(), 240, "companyName")).addValue("email", optional(request.email(), 255, "email")).addValue("normalizedEmail", email(request.email())).addValue("phone", optional(request.phone(), 64, "phone")).addValue("source", optional(request.source(), 120, "source")).addValue("ownerUserId", request.ownerUserId()).addValue("queueId", request.queueId()).addValue("score", request.score()).addValue("actorId", actorId).addValue("now", Timestamp.from(now)));
-        timeline(tenantId, "LEAD", id, "crm.lead.created", "Lead created", "CRM_LEAD", id, actorId, now); return lead(tenantId, id);
+        LeadRecord created = leadUseCases.create(tenantId, actorId, new LeadRepository.CreateLeadCommand(
+                required(request.displayName(), 240, "displayName"),
+                optional(request.companyName(), 240, "companyName"),
+                optional(request.email(), 255, "email"),
+                optional(request.phone(), 64, "phone"),
+                optional(request.source(), 120, "source"),
+                request.ownerUserId(),
+                request.score()));
+        return toLeadRow(created);
     }
 
     @Transactional(readOnly = true)
     List<Map<String, Object>> listLeads(Authentication authentication, int requestedLimit, String status) {
-        UUID tenantId = tenantId(authentication); StringBuilder sql = new StringBuilder("SELECT * FROM crm_leads WHERE tenant_id=:tenantId"); MapSqlParameterSource params = p().addValue("tenantId", tenantId);
-        if (status != null && !status.isBlank()) { sql.append(" AND status=:status"); params.addValue("status", status.trim().toUpperCase(Locale.ROOT)); }
-        sql.append(" ORDER BY updated_at DESC,id LIMIT :limit"); params.addValue("limit", limit(requestedLimit)); return jdbc.queryForList(sql.toString(), params);
+        UUID tenantId = tenantId(authentication);
+        String normalizedStatus = status == null || status.isBlank() ? null : status.trim().toUpperCase(Locale.ROOT);
+        return leadUseCases.list(tenantId, limit(requestedLimit), normalizedStatus).stream()
+                .map(this::toLeadRow)
+                .toList();
     }
 
     @Transactional
     Map<String, Object> convertLead(Authentication authentication, UUID leadId, ConvertLeadRequest request) {
-        UUID tenantId = tenantId(authentication); UUID actorId = userId(authentication); Map<String, Object> lead = lead(tenantId, leadId);
-        if ("CONVERTED".equals(lead.get("status"))) { LinkedHashMap<String, Object> replay = new LinkedHashMap<>(); replay.put("lead", lead); replay.put("accountId", lead.get("converted_account_id")); replay.put("contactId", lead.get("converted_contact_id")); replay.put("opportunityId", lead.get("converted_opportunity_id")); replay.put("idempotent", true); return replay; }
-        if ("ARCHIVED".equals(lead.get("status")) || "DISQUALIFIED".equals(lead.get("status"))) throw conflict("Lead must be active before conversion");
-        Map<String, Object> account = createAccount(authentication, new CreateAccountRequest(value(request.accountName(), String.valueOf(lead.get("display_name"))), "PROSPECT", (UUID) lead.get("owner_user_id"), null, value(request.currencyCode(), "SAR"), "ar-SA", "Asia/Riyadh", "LEAD_CONVERSION"));
-        String displayName = String.valueOf(lead.get("display_name")).trim(); int separator = displayName.indexOf(' '); String givenName = separator < 0 ? displayName : displayName.substring(0, separator); String familyName = separator < 0 ? null : displayName.substring(separator + 1).trim();
-        Map<String, Object> contact = createContact(authentication, new CreateContactRequest((UUID) account.get("id"), givenName, familyName, (String) lead.get("email"), (String) lead.get("phone"), "ar-SA", "Asia/Riyadh", (UUID) lead.get("owner_user_id"), "UNKNOWN"));
+        UUID tenantId = tenantId(authentication);
+        UUID actorId = userId(authentication);
+        LeadRecord lead = leadUseCases.getById(tenantId, leadId);
+        if ("CONVERTED".equals(lead.status())) {
+            LinkedHashMap<String, Object> replay = new LinkedHashMap<>();
+            replay.put("lead", toLeadRow(lead));
+            replay.put("accountId", lead.convertedAccountId());
+            replay.put("contactId", lead.convertedContactId());
+            replay.put("opportunityId", lead.convertedOpportunityId());
+            replay.put("idempotent", true);
+            return replay;
+        }
+        // createAccount/createContact/createOpportunity already use the modular use cases
+        Map<String, Object> account = createAccount(authentication, new CreateAccountRequest(
+                value(request.accountName(), lead.displayName()), "PROSPECT", lead.ownerUserId(),
+                null, value(request.currencyCode(), "SAR"), "ar-SA", "Asia/Riyadh", "LEAD_CONVERSION"));
+        String displayName = lead.displayName().trim();
+        int separator = displayName.indexOf(' ');
+        String givenName = separator < 0 ? displayName : displayName.substring(0, separator);
+        String familyName = separator < 0 ? null : displayName.substring(separator + 1).trim();
+        Map<String, Object> contact = createContact(authentication, new CreateContactRequest(
+                (UUID) account.get("id"), givenName, familyName, lead.email(), lead.phone(),
+                "ar-SA", "Asia/Riyadh", lead.ownerUserId(), "UNKNOWN"));
         Map<String, Object> opportunity = null;
-        if (Boolean.TRUE.equals(request.createOpportunity())) { Map<String, Object> pipeline = request.pipelineId() == null ? ensureDefaultPipeline(authentication, value(request.currencyCode(), "SAR")) : pipeline(tenantId, request.pipelineId()); UUID pipelineId = (UUID) pipeline.get("id"); UUID stageId = request.stageId() == null ? firstStage(tenantId, pipelineId) : request.stageId(); opportunity = createOpportunity(authentication, new CreateOpportunityRequest((UUID) account.get("id"), (UUID) contact.get("id"), pipelineId, stageId, value(request.opportunityName(), "Opportunity - " + lead.get("display_name")), request.amount(), value(request.currencyCode(), "SAR"), request.expectedCloseDate(), (UUID) lead.get("owner_user_id"))); }
-        Instant now = Instant.now();
-        jdbc.update("UPDATE crm_leads SET status='CONVERTED',converted_account_id=:accountId,converted_contact_id=:contactId,converted_opportunity_id=:opportunityId,updated_by=:actorId,updated_at=:now,version=version+1 WHERE tenant_id=:tenantId AND id=:leadId AND status<>'CONVERTED'", p().addValue("tenantId", tenantId).addValue("leadId", leadId).addValue("accountId", account.get("id")).addValue("contactId", contact.get("id")).addValue("opportunityId", opportunity == null ? null : opportunity.get("id")).addValue("actorId", actorId).addValue("now", Timestamp.from(now)));
-        timeline(tenantId, "LEAD", leadId, "crm.lead.converted", "Lead converted", "CRM_LEAD", leadId, actorId, now);
-        LinkedHashMap<String, Object> result = new LinkedHashMap<>(); result.put("lead", lead(tenantId, leadId)); result.put("account", account); result.put("contact", contact); result.put("opportunity", opportunity); result.put("idempotent", false); return result;
+        if (Boolean.TRUE.equals(request.createOpportunity())) {
+            Map<String, Object> pipeline = request.pipelineId() == null
+                    ? ensureDefaultPipeline(authentication, value(request.currencyCode(), "SAR"))
+                    : pipeline(tenantId, request.pipelineId());
+            UUID pipelineId = (UUID) pipeline.get("id");
+            UUID stageId = request.stageId() == null ? firstStage(tenantId, pipelineId) : request.stageId();
+            opportunity = createOpportunity(authentication, new CreateOpportunityRequest(
+                    (UUID) account.get("id"), (UUID) contact.get("id"), pipelineId, stageId,
+                    value(request.opportunityName(), "Opportunity - " + lead.displayName()),
+                    request.amount(), value(request.currencyCode(), "SAR"),
+                    request.expectedCloseDate(), lead.ownerUserId()));
+        }
+        LeadConversionRecord conversion = leadUseCases.convert(tenantId, actorId, leadId,
+                new LeadRepository.ConvertLeadCommand(
+                        value(request.accountName(), lead.displayName()),
+                        request.createOpportunity(),
+                        request.pipelineId(),
+                        request.stageId(),
+                        value(request.opportunityName(), "Opportunity - " + lead.displayName()),
+                        request.amount(),
+                        value(request.currencyCode(), "SAR"),
+                        request.expectedCloseDate()),
+                lead.version());
+        LinkedHashMap<String, Object> result = new LinkedHashMap<>();
+        result.put("lead", toLeadRow(conversion.lead()));
+        result.put("account", account);
+        result.put("contact", contact);
+        result.put("opportunity", opportunity);
+        result.put("idempotent", conversion.idempotent());
+        return result;
     }
+
+    /**
+     * Maps a {@link LeadRecord} to the V1-compatible snake_case row shape.
+     */
+    private Map<String, Object> toLeadRow(LeadRecord r) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", r.id());
+        row.put("version", r.version());
+        row.put("display_name", r.displayName());
+        row.put("company_name", r.companyName());
+        row.put("email", r.email());
+        row.put("phone", r.phone());
+        row.put("source", r.source());
+        row.put("status", r.status());
+        row.put("owner_user_id", r.ownerUserId());
+        row.put("score", r.score());
+        row.put("converted_account_id", r.convertedAccountId());
+        row.put("converted_contact_id", r.convertedContactId());
+        row.put("converted_opportunity_id", r.convertedOpportunityId());
+        row.put("created_at", r.createdAt() == null ? null : Timestamp.from(r.createdAt()));
+        row.put("updated_at", r.updatedAt() == null ? null : Timestamp.from(r.updatedAt()));
+        return row;
+    }
+
+    // ------------------------------------------------------------------
+    // Opportunity / Pipeline V1 — delegates to OpportunityUseCases.
+    // No raw SQL on crm_opportunities or crm_pipelines remains here.
+    // ------------------------------------------------------------------
 
     @Transactional
     Map<String, Object> createPipeline(Authentication authentication, CreatePipelineRequest request) {
-        UUID tenantId = tenantId(authentication); UUID actorId = userId(authentication); UUID id = UUID.randomUUID(); Instant now = Instant.now();
-        List<String> stages = request.stages() == null || request.stages().isEmpty() ? List.of("New", "Qualified", "Proposal", "Won", "Lost") : request.stages();
+        UUID tenantId = tenantId(authentication);
+        UUID actorId = userId(authentication);
+        List<String> stages = request.stages() == null || request.stages().isEmpty()
+                ? List.of("New", "Qualified", "Proposal", "Won", "Lost") : request.stages();
         if (stages.size() < 2 || stages.size() > 20) throw bad("pipeline stages must contain 2 to 20 items");
-        HashSet<String> uniqueStages = new HashSet<>(); for (String stageName : stages) if (!uniqueStages.add(norm(required(stageName, 160, "stage")))) throw bad("pipeline stage names must be unique");
-        jdbc.update("INSERT INTO crm_pipelines (id,tenant_id,name,currency_code,active,created_by,created_at,updated_at) VALUES (:id,:tenantId,:name,:currency,TRUE,:actorId,:now,:now)", p().addValue("id", id).addValue("tenantId", tenantId).addValue("name", required(request.name(), 160, "name")).addValue("currency", currency(request.currencyCode())).addValue("actorId", actorId).addValue("now", Timestamp.from(now)));
-        List<UUID> stageIds = new ArrayList<>();
-        for (int i = 0; i < stages.size(); i++) { UUID stageId = UUID.randomUUID(); stageIds.add(stageId); String stageName = required(stages.get(i), 160, "stage"); String terminal = stageName.equalsIgnoreCase("Won") ? "WON" : stageName.equalsIgnoreCase("Lost") ? "LOST" : null; int probability = terminal == null ? Math.min(90, Math.round((i * 100f) / Math.max(1, stages.size() - 1))) : ("WON".equals(terminal) ? 100 : 0); jdbc.update("INSERT INTO crm_pipeline_stages (id,tenant_id,pipeline_id,name,sequence,probability,terminal_state,active) VALUES (:id,:tenantId,:pipelineId,:name,:sequence,:probability,:terminal,TRUE)", p().addValue("id", stageId).addValue("tenantId", tenantId).addValue("pipelineId", id).addValue("name", stageName).addValue("sequence", i).addValue("probability", probability).addValue("terminal", terminal)); }
-        LinkedHashMap<String, Object> result = new LinkedHashMap<>(pipeline(tenantId, id)); result.put("stageIds", stageIds); return result;
+        HashSet<String> uniqueStages = new HashSet<>();
+        for (String stageName : stages) if (!uniqueStages.add(norm(required(stageName, 160, "stage")))) throw bad("pipeline stage names must be unique");
+        PipelineRecord created = opportunityUseCases.createPipeline(tenantId, actorId,
+                new PipelineRepository.CreatePipelineCommand(
+                        required(request.name(), 160, "name"),
+                        currency(request.currencyCode()),
+                        stages));
+        // Surface stageIds to maintain V1 response shape
+        List<StageRecord> createdStages = opportunityUseCases.listStages(tenantId, created.id());
+        LinkedHashMap<String, Object> result = new LinkedHashMap<>(toPipelineRow(created));
+        result.put("stageIds", createdStages.stream().map(StageRecord::id).toList());
+        return result;
     }
 
     @Transactional(readOnly = true)
-    List<Map<String, Object>> listPipelines(Authentication authentication) { return jdbc.queryForList("SELECT * FROM crm_pipelines WHERE tenant_id=:tenantId AND active=TRUE ORDER BY created_at DESC,id", p().addValue("tenantId", tenantId(authentication))); }
+    List<Map<String, Object>> listPipelines(Authentication authentication) {
+        UUID tenantId = tenantId(authentication);
+        return opportunityUseCases.listPipelines(tenantId).stream()
+                .map(this::toPipelineRow)
+                .toList();
+    }
 
     @Transactional
     Map<String, Object> createOpportunity(Authentication authentication, CreateOpportunityRequest request) {
-        UUID tenantId = tenantId(authentication); UUID actorId = userId(authentication); account(tenantId, request.accountId());
-        if (request.contactId() != null) { Map<String, Object> contact = contact(tenantId, request.contactId()); Object contactAccountId = contact.get("account_id"); if (contactAccountId != null && !request.accountId().equals(contactAccountId)) throw bad("CRM contact is not linked to the selected account"); }
-        pipeline(tenantId, request.pipelineId()); Map<String, Object> stage = stage(tenantId, request.pipelineId(), request.stageId()); extended.validateOwner(tenantId, request.ownerUserId()); UUID id = UUID.randomUUID(); Instant now = Instant.now(); String terminal = stage.get("terminal_state") == null ? null : stage.get("terminal_state").toString(); String status = terminal == null ? "OPEN" : terminal;
-        jdbc.update("INSERT INTO crm_opportunities (id,tenant_id,account_id,contact_id,pipeline_id,stage_id,name,amount,currency_code,probability,forecast_category,expected_close_date,owner_user_id,status,created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,:accountId,:contactId,:pipelineId,:stageId,:name,:amount,:currency,:probability,'PIPELINE',:expectedCloseDate,:ownerUserId,:status,:actorId,:actorId,:now,:now)", p().addValue("id", id).addValue("tenantId", tenantId).addValue("accountId", request.accountId()).addValue("contactId", request.contactId()).addValue("pipelineId", request.pipelineId()).addValue("stageId", request.stageId()).addValue("name", required(request.name(), 240, "name")).addValue("amount", request.amount()).addValue("currency", currency(request.currencyCode())).addValue("probability", stage.get("probability")).addValue("expectedCloseDate", request.expectedCloseDate()).addValue("ownerUserId", request.ownerUserId()).addValue("status", status).addValue("actorId", actorId).addValue("now", Timestamp.from(now)));
-        stageHistory(tenantId, id, null, request.stageId(), actorId, "created"); timeline(tenantId, "OPPORTUNITY", id, "crm.opportunity.created", "Opportunity created", "CRM_OPPORTUNITY", id, actorId, now); return opportunity(tenantId, id);
+        UUID tenantId = tenantId(authentication);
+        UUID actorId = userId(authentication);
+        account(tenantId, request.accountId());
+        if (request.contactId() != null) {
+            Map<String, Object> contact = contact(tenantId, request.contactId());
+            Object contactAccountId = contact.get("account_id");
+            if (contactAccountId != null && !request.accountId().equals(contactAccountId))
+                throw bad("CRM contact is not linked to the selected account");
+        }
+        pipeline(tenantId, request.pipelineId());
+        extended.validateOwner(tenantId, request.ownerUserId());
+        OpportunityRecord created = opportunityUseCases.create(tenantId, actorId,
+                new OpportunityRepository.CreateOpportunityCommand(
+                        request.accountId(), request.contactId(), request.pipelineId(), request.stageId(),
+                        required(request.name(), 240, "name"), request.amount(),
+                        currency(request.currencyCode()), request.expectedCloseDate(),
+                        request.ownerUserId()));
+        return toOpportunityRow(created);
     }
 
     @Transactional(readOnly = true)
-    List<Map<String, Object>> listOpportunities(Authentication authentication, int requestedLimit, UUID accountId) { UUID tenantId = tenantId(authentication); StringBuilder sql = new StringBuilder("SELECT * FROM crm_opportunities WHERE tenant_id=:tenantId"); MapSqlParameterSource params = p().addValue("tenantId", tenantId); if (accountId != null) { account(tenantId, accountId); sql.append(" AND account_id=:accountId"); params.addValue("accountId", accountId); } sql.append(" ORDER BY updated_at DESC,id LIMIT :limit"); params.addValue("limit", limit(requestedLimit)); return jdbc.queryForList(sql.toString(), params); }
+    List<Map<String, Object>> listOpportunities(Authentication authentication, int requestedLimit, UUID accountId) {
+        UUID tenantId = tenantId(authentication);
+        if (accountId != null) account(tenantId, accountId);
+        return opportunityUseCases.list(tenantId, limit(requestedLimit), accountId).stream()
+                .map(this::toOpportunityRow)
+                .toList();
+    }
 
     @Transactional
-    Map<String, Object> moveOpportunity(Authentication authentication, UUID opportunityId, MoveOpportunityRequest request) { UUID tenantId = tenantId(authentication); UUID actorId = userId(authentication); Map<String, Object> opportunity = opportunity(tenantId, opportunityId); String currentStatus = String.valueOf(opportunity.get("status")); UUID currentStage = (UUID) opportunity.get("stage_id"); if (Set.of("WON", "LOST", "CANCELLED", "ARCHIVED").contains(currentStatus) && !currentStage.equals(request.stageId())) throw conflict("Terminal CRM opportunity cannot move to another stage"); UUID pipelineId = (UUID) opportunity.get("pipeline_id"); Map<String, Object> target = stage(tenantId, pipelineId, request.stageId()); String terminal = target.get("terminal_state") == null ? null : target.get("terminal_state").toString(); String status = terminal == null ? value(request.status(), "OPEN").toUpperCase(Locale.ROOT) : terminal; Instant now = Instant.now(); jdbc.update("UPDATE crm_opportunities SET stage_id=:stageId,status=:status,probability=:probability,win_loss_reason=:reason,updated_by=:actorId,updated_at=:now,version=version+1 WHERE tenant_id=:tenantId AND id=:id", context(tenantId, actorId, opportunityId, now).addValue("stageId", request.stageId()).addValue("status", status).addValue("probability", target.get("probability")).addValue("reason", optional(request.reason(), 500, "reason"))); stageHistory(tenantId, opportunityId, currentStage, request.stageId(), actorId, request.reason()); timeline(tenantId, "OPPORTUNITY", opportunityId, "crm.opportunity.stage_changed", "Opportunity stage changed", "CRM_OPPORTUNITY", opportunityId, actorId, now); return opportunity(tenantId, opportunityId); }
+    Map<String, Object> moveOpportunity(Authentication authentication, UUID opportunityId, MoveOpportunityRequest request) {
+        UUID tenantId = tenantId(authentication);
+        UUID actorId = userId(authentication);
+        OpportunityRecord opp = opportunityUseCases.getById(tenantId, opportunityId);
+        if (Set.of("WON", "LOST", "CANCELLED", "ARCHIVED").contains(opp.status()) && !opp.stageId().equals(request.stageId()))
+            throw conflict("Terminal CRM opportunity cannot move to another stage");
+        // Stage target validation (terminal state lookup) - via UseCases
+        StageRecord target = opportunityUseCases.listStages(tenantId, opp.pipelineId()).stream()
+                .filter(s -> s.id().equals(request.stageId()))
+                .findFirst()
+                .orElseThrow(() -> missing("CRM pipeline stage not found"));
+        String status = target.terminalState() == null
+                ? value(request.status(), "OPEN").toUpperCase(Locale.ROOT)
+                : target.terminalState();
+        OpportunityRecord moved = opportunityUseCases.moveStage(tenantId, actorId, opportunityId,
+                request.stageId(), status, optional(request.reason(), 500, "reason"), opp.version());
+        return toOpportunityRow(moved);
+    }
+
+    // ------------------------------------------------------------------
+    // Activity V1 — delegates to ActivityUseCases.
+    // No raw SQL on crm_activities remains here.
+    // ------------------------------------------------------------------
 
     @Transactional
-    Map<String, Object> createActivity(Authentication authentication, CreateActivityRequest request) { UUID tenantId = tenantId(authentication); UUID actorId = userId(authentication); extended.validateOwner(tenantId, request.ownerUserId()); extended.validateRelated(tenantId, request.relatedType(), request.relatedId()); if (request.startAt() != null && request.dueAt() != null && request.dueAt().isBefore(request.startAt())) throw bad("dueAt cannot be before startAt"); UUID id = UUID.randomUUID(); Instant now = Instant.now(); String relatedType = request.relatedType() == null ? null : request.relatedType().toUpperCase(Locale.ROOT); jdbc.update("INSERT INTO crm_activities (id,tenant_id,activity_type,subject,body,related_type,related_id,owner_user_id,status,priority,start_at,due_at,created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,:type,:subject,:body,:relatedType,:relatedId,:ownerUserId,'OPEN',:priority,:startAt,:dueAt,:actorId,:actorId,:now,:now)", p().addValue("id", id).addValue("tenantId", tenantId).addValue("type", value(request.activityType(), "TASK").toUpperCase(Locale.ROOT)).addValue("subject", required(request.subject(), 240, "subject")).addValue("body", optional(request.body(), 4000, "body")).addValue("relatedType", relatedType).addValue("relatedId", request.relatedId()).addValue("ownerUserId", request.ownerUserId()).addValue("priority", request.priority() == null ? 50 : request.priority()).addValue("startAt", request.startAt()).addValue("dueAt", request.dueAt()).addValue("actorId", actorId).addValue("now", Timestamp.from(now))); if (relatedType != null && request.relatedId() != null) timeline(tenantId, relatedType, request.relatedId(), "crm.activity.created", "Activity created", "CRM_ACTIVITY", id, actorId, now); return activity(tenantId, id); }
+    Map<String, Object> createActivity(Authentication authentication, CreateActivityRequest request) {
+        UUID tenantId = tenantId(authentication);
+        UUID actorId = userId(authentication);
+        extended.validateOwner(tenantId, request.ownerUserId());
+        extended.validateRelated(tenantId, request.relatedType(), request.relatedId());
+        if (request.startAt() != null && request.dueAt() != null && request.dueAt().isBefore(request.startAt()))
+            throw bad("dueAt cannot be before startAt");
+        String relatedType = request.relatedType() == null ? null : request.relatedType().toUpperCase(Locale.ROOT);
+        ActivityRecord created = activityUseCases.create(tenantId, actorId,
+                new ActivityRepository.CreateActivityCommand(
+                        value(request.activityType(), "TASK").toUpperCase(Locale.ROOT),
+                        required(request.subject(), 240, "subject"),
+                        optional(request.body(), 4000, "body"),
+                        relatedType,
+                        request.relatedId(),
+                        request.ownerUserId(),
+                        request.priority() == null ? 50 : request.priority(),
+                        request.startAt(),
+                        request.dueAt()));
+        return toActivityRow(created);
+    }
 
     @Transactional(readOnly = true)
-    List<Map<String, Object>> timeline(Authentication authentication, String subjectType, UUID subjectId, int requestedLimit) { UUID tenantId = tenantId(authentication); extended.validateRelated(tenantId, subjectType, subjectId); return jdbc.queryForList("SELECT * FROM crm_timeline_events WHERE tenant_id=:tenantId AND subject_type=:subjectType AND subject_id=:subjectId ORDER BY occurred_at DESC,id LIMIT :limit", p().addValue("tenantId", tenantId).addValue("subjectType", subjectType.toUpperCase(Locale.ROOT)).addValue("subjectId", subjectId).addValue("limit", limit(requestedLimit))); }
+    List<Map<String, Object>> timeline(Authentication authentication, String subjectType, UUID subjectId, int requestedLimit) {
+        UUID tenantId = tenantId(authentication);
+        extended.validateRelated(tenantId, subjectType, subjectId);
+        return jdbc.queryForList("SELECT * FROM crm_timeline_events WHERE tenant_id=:tenantId AND subject_type=:subjectType AND subject_id=:subjectId ORDER BY occurred_at DESC,id LIMIT :limit",
+                p().addValue("tenantId", tenantId).addValue("subjectType", subjectType.toUpperCase(Locale.ROOT)).addValue("subjectId", subjectId).addValue("limit", limit(requestedLimit)));
+    }
+
+    // ------------------------------------------------------------------
+    // Row mappers (camelCase domain record -> snake_case V1 shape)
+    // ------------------------------------------------------------------
+
+    private Map<String, Object> toPipelineRow(PipelineRecord r) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", r.id());
+        row.put("version", r.version());
+        row.put("name", r.name());
+        row.put("currency_code", r.currencyCode());
+        row.put("active", r.active());
+        row.put("created_at", r.createdAt() == null ? null : Timestamp.from(r.createdAt()));
+        row.put("updated_at", r.updatedAt() == null ? null : Timestamp.from(r.updatedAt()));
+        return row;
+    }
+
+    private Map<String, Object> toOpportunityRow(OpportunityRecord r) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", r.id());
+        row.put("version", r.version());
+        row.put("account_id", r.accountId());
+        row.put("contact_id", r.contactId());
+        row.put("pipeline_id", r.pipelineId());
+        row.put("stage_id", r.stageId());
+        row.put("name", r.name());
+        row.put("amount", r.amount());
+        row.put("currency_code", r.currencyCode());
+        row.put("probability", r.probability());
+        row.put("status", r.status());
+        row.put("win_loss_reason", r.winLossReason());
+        row.put("expected_close_date", r.expectedCloseDate());
+        row.put("owner_user_id", r.ownerUserId());
+        row.put("created_at", r.createdAt() == null ? null : Timestamp.from(r.createdAt()));
+        row.put("updated_at", r.updatedAt() == null ? null : Timestamp.from(r.updatedAt()));
+        return row;
+    }
+
+    private Map<String, Object> toActivityRow(ActivityRecord r) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", r.id());
+        row.put("version", r.version());
+        row.put("activity_type", r.activityType());
+        row.put("subject", r.subject());
+        row.put("body", r.body());
+        row.put("related_type", r.relatedType());
+        row.put("related_id", r.relatedId());
+        row.put("owner_user_id", r.ownerUserId());
+        row.put("status", r.status());
+        row.put("priority", r.priority());
+        row.put("start_at", r.startAt());
+        row.put("due_at", r.dueAt());
+        row.put("completed_at", r.completedAt());
+        row.put("result", r.result());
+        row.put("created_at", r.createdAt() == null ? null : Timestamp.from(r.createdAt()));
+        row.put("updated_at", r.updatedAt() == null ? null : Timestamp.from(r.updatedAt()));
+        return row;
+    }
 
     // assertNoAccountCycle removed: AccountUseCases.update performs the cycle check
     // via the modular domain layer.
-    private Map<String, Object> ensureDefaultPipeline(Authentication authentication, String currencyCode) { UUID tenantId = tenantId(authentication); List<Map<String, Object>> existing = jdbc.queryForList("SELECT * FROM crm_pipelines WHERE tenant_id=:tenantId AND name='Default Sales Pipeline' AND active=TRUE", p().addValue("tenantId", tenantId)); return existing.isEmpty() ? createPipeline(authentication, new CreatePipelineRequest("Default Sales Pipeline", currencyCode, List.of("New", "Qualified", "Proposal", "Won", "Lost"))) : existing.get(0); }
-    private UUID firstStage(UUID tenantId, UUID pipelineId) { return jdbc.queryForObject("SELECT id FROM crm_pipeline_stages WHERE tenant_id=:tenantId AND pipeline_id=:pipelineId AND active=TRUE ORDER BY sequence,id LIMIT 1", p().addValue("tenantId", tenantId).addValue("pipelineId", pipelineId), UUID.class); }
+    private Map<String, Object> ensureDefaultPipeline(Authentication authentication, String currencyCode) {
+        UUID tenantId = tenantId(authentication);
+        // Look up via UseCases to avoid raw SQL on crm_pipelines
+        return opportunityUseCases.listPipelines(tenantId).stream()
+                .filter(p -> "Default Sales Pipeline".equals(p.name()) && p.active())
+                .findFirst()
+                .map(this::toPipelineRow)
+                .orElseGet(() -> createPipeline(authentication,
+                        new CreatePipelineRequest("Default Sales Pipeline", currencyCode,
+                                List.of("New", "Qualified", "Proposal", "Won", "Lost"))));
+    }
+    private UUID firstStage(UUID tenantId, UUID pipelineId) {
+        return opportunityUseCases.listStages(tenantId, pipelineId).stream()
+                .filter(StageRecord::active)
+                .map(StageRecord::id)
+                .findFirst()
+                .orElseThrow(() -> missing("CRM pipeline has no active stage"));
+    }
     private Map<String, Object> account(UUID tenantId, UUID id) { return toAccountRow(accountUseCases.getById(tenantId, id)); }
-    private Map<String, Object> contact(UUID tenantId, UUID id) { return one("crm_contacts", tenantId, id, "CRM contact not found"); }
-    private Map<String, Object> lead(UUID tenantId, UUID id) { return one("crm_leads", tenantId, id, "CRM lead not found"); }
-    private Map<String, Object> pipeline(UUID tenantId, UUID id) { return one("crm_pipelines", tenantId, id, "CRM pipeline not found"); }
-    private Map<String, Object> opportunity(UUID tenantId, UUID id) { return one("crm_opportunities", tenantId, id, "CRM opportunity not found"); }
-    private Map<String, Object> activity(UUID tenantId, UUID id) { return one("crm_activities", tenantId, id, "CRM activity not found"); }
-    private Map<String, Object> stage(UUID tenantId, UUID pipelineId, UUID stageId) { try { return jdbc.queryForMap("SELECT * FROM crm_pipeline_stages WHERE tenant_id=:tenantId AND pipeline_id=:pipelineId AND id=:stageId AND active=TRUE", p().addValue("tenantId", tenantId).addValue("pipelineId", pipelineId).addValue("stageId", stageId)); } catch (EmptyResultDataAccessException exception) { throw missing("CRM pipeline stage not found"); } }
-    private Map<String, Object> one(String table, UUID tenantId, UUID id, String message) { if (!TABLES.contains(table)) throw new IllegalArgumentException("Unsupported CRM table"); try { return jdbc.queryForMap("SELECT * FROM " + table + " WHERE tenant_id=:tenantId AND id=:id", p().addValue("tenantId", tenantId).addValue("id", id)); } catch (EmptyResultDataAccessException exception) { throw missing(message); } }
-    private void stageHistory(UUID tenantId, UUID opportunityId, UUID fromStage, UUID toStage, UUID actorId, String reason) { jdbc.update("INSERT INTO crm_opportunity_stage_history (id,tenant_id,opportunity_id,from_stage_id,to_stage_id,changed_by,changed_at,reason) VALUES (:id,:tenantId,:opportunityId,:fromStage,:toStage,:actorId,:now,:reason)", p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId).addValue("opportunityId", opportunityId).addValue("fromStage", fromStage).addValue("toStage", toStage).addValue("actorId", actorId).addValue("now", Timestamp.from(Instant.now())).addValue("reason", optional(reason, 500, "reason"))); }
+    private Map<String, Object> contact(UUID tenantId, UUID id) { return toContactRow(contactUseCases.getById(tenantId, id)); }
+    private Map<String, Object> lead(UUID tenantId, UUID id) { return toLeadRow(leadUseCases.getById(tenantId, id)); }
+    private Map<String, Object> pipeline(UUID tenantId, UUID id) { return toPipelineRow(opportunityUseCases.getPipeline(tenantId, id)); }
+    private Map<String, Object> opportunity(UUID tenantId, UUID id) { return toOpportunityRow(opportunityUseCases.getById(tenantId, id)); }
+    private Map<String, Object> activity(UUID tenantId, UUID id) { return toActivityRow(activityUseCases.getById(tenantId, id)); }
+    private Map<String, Object> stage(UUID tenantId, UUID pipelineId, UUID stageId) {
+        return opportunityUseCases.listStages(tenantId, pipelineId).stream()
+                .filter(s -> s.id().equals(stageId) && s.active())
+                .findFirst()
+                .map(this::toStageRow)
+                .orElseThrow(() -> missing("CRM pipeline stage not found"));
+    }
+    private Map<String, Object> toStageRow(StageRecord r) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", r.id());
+        row.put("pipeline_id", r.pipelineId());
+        row.put("name", r.name());
+        row.put("sequence", r.sequence());
+        row.put("probability", r.probability());
+        row.put("terminal_state", r.terminalState());
+        row.put("active", r.active());
+        return row;
+    }
+    // one() helper removed: all entity lookups now go through UseCases.
+    // stageHistory() helper removed: OpportunityUseCases.moveStage records stage
+    // history via the modular domain layer.
     private void timeline(UUID tenantId, String subjectType, UUID subjectId, String eventType, String summary, String sourceType, UUID sourceId, UUID actorId, Instant now) { jdbc.update("INSERT INTO crm_timeline_events (id,tenant_id,subject_type,subject_id,event_type,summary,source_type,source_id,occurred_at,created_by) VALUES (:id,:tenantId,:subjectType,:subjectId,:eventType,:summary,:sourceType,:sourceId,:now,:actorId)", p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId).addValue("subjectType", subjectType).addValue("subjectId", subjectId).addValue("eventType", eventType).addValue("summary", summary).addValue("sourceType", sourceType).addValue("sourceId", sourceId).addValue("now", Timestamp.from(now)).addValue("actorId", actorId)); }
-    private MapSqlParameterSource context(UUID tenantId, UUID actorId, UUID id, Instant now) { return p().addValue("tenantId", tenantId).addValue("actorId", actorId).addValue("id", id).addValue("now", Timestamp.from(now)); }
+    // context(UUID, UUID, UUID, Instant) helper removed: it was only used by the
+    // legacy moveOpportunity / stageHistory path which is now delegated to
+    // OpportunityUseCases.moveStage.
     private UUID tenantId(Authentication authentication) { return context(authentication, "tenant_id"); }
     private UUID userId(Authentication authentication) { return context(authentication, "user_id"); }
     private UUID context(Authentication authentication, String key) { if (authentication == null || !authentication.isAuthenticated() || !(authentication.getDetails() instanceof Map<?, ?> details) || details.get(key) == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authenticated CRM context is required"); try { return UUID.fromString(details.get(key).toString()); } catch (IllegalArgumentException exception) { throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid authenticated CRM context", exception); } }
