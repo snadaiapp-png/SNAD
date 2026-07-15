@@ -89,6 +89,15 @@ function ActivitiesIcon() {
   );
 }
 
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="7" cy="7" r="4" />
+      <path d="M10 10l3 3" />
+    </svg>
+  );
+}
+
 function NotesIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -164,6 +173,7 @@ const MAIN_NAV: NavItem[] = [
   { href: "/crm/pipelines", labelKey: "crm.nav.pipelines", Icon: PipelinesIcon },
   { href: "/crm/opportunities", labelKey: "crm.nav.opportunities", Icon: OpportunitiesIcon },
   { href: "/crm/activities", labelKey: "crm.nav.activities", Icon: ActivitiesIcon },
+  { href: "/crm/search", labelKey: "crm.nav.search", Icon: SearchIcon },
   { href: "/crm/notes", labelKey: "crm.nav.notes", Icon: NotesIcon },
   { href: "/crm/tasks", labelKey: "crm.nav.tasks", Icon: TasksIcon },
 ];
