@@ -258,7 +258,7 @@ class AccountV2HttpIntegrationTest {
                         .header("If-Match", etag))
                 .andExpect(status().isOk())
                 .andExpect(header().exists("ETag"))
-                .andExpect(jsonPath("$.lifecycleStatus").value("ARCHIVED"))
+                .andExpect(jsonPath("$.data.lifecycleStatus").value("ARCHIVED"))
                 .andReturn();
 
         // Verify the returned ETag changes after archive
@@ -301,7 +301,7 @@ class AccountV2HttpIntegrationTest {
                         .content("{\"displayName\":\"Updated Name\"}"))
                 .andExpect(status().isOk())
                 .andExpect(header().exists("ETag"))
-                .andExpect(jsonPath("$.displayName").value("Updated Name"))
+                .andExpect(jsonPath("$.data.displayName").value("Updated Name"))
                 .andReturn();
 
         // Verify the returned ETag changes after the mutation
