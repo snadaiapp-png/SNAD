@@ -101,7 +101,7 @@ export default function CrmSearchPage() {
             autoFocus
             style={{ width: "100%", padding: "0.5rem", fontSize: "1rem" }}
           />
-          <p style={{ fontSize: "0.75rem", color: "#6B7280", marginTop: "0.5rem" }}>
+          <p style={{ fontSize: "0.75rem", opacity: 0.7, marginTop: "0.5rem" }}>
             {t("crm.search.hint")}
           </p>
 
@@ -161,7 +161,7 @@ export default function CrmSearchPage() {
                         </a>
                       </td>
                       <td>{r.secondary_info || "—"}</td>
-                      <td style={{ fontSize: "0.75rem", color: "#6B7280" }}>{r.matched_field}</td>
+                      <td style={{ fontSize: "0.75rem", opacity: 0.7 }}>{r.matched_field}</td>
                     </tr>
                   ))}
                 </tbody>
