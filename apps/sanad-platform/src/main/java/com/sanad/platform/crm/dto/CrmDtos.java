@@ -302,4 +302,51 @@ public final class CrmDtos {
             String subjectType,
             UUID subjectId,
             OffsetDateTime assignedAt) {}
+    // Notes (feature/crm-notes)
+    // ────────────────────────────────────────────────────────────────────
+
+    public record NoteResponse(
+            UUID id,
+            long version,
+            String subjectType,
+            UUID subjectId,
+            String body,
+            UUID authorUserId,
+            boolean archived,
+            OffsetDateTime createdAt,
+            OffsetDateTime updatedAt) {}
+
+    public record NoteSummaryResponse(
+            UUID id,
+            UUID authorUserId,
+            String bodyPreview,
+            OffsetDateTime createdAt) {}
+    // Tasks (feature/crm-tasks)
+    // ────────────────────────────────────────────────────────────────────
+
+    public record TaskResponse(
+            UUID id,
+            long version,
+            String title,
+            String description,
+            String relatedType,
+            UUID relatedId,
+            UUID assigneeUserId,
+            UUID ownerUserId,
+            String status,
+            Integer priority,
+            OffsetDateTime startAt,
+            OffsetDateTime dueAt,
+            OffsetDateTime completedAt,
+            String result,
+            OffsetDateTime createdAt,
+            OffsetDateTime updatedAt) {}
+
+    public record TaskSummaryResponse(
+            UUID id,
+            String title,
+            String status,
+            Integer priority,
+            OffsetDateTime dueAt,
+            OffsetDateTime updatedAt) {}
 }

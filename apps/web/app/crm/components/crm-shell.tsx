@@ -94,6 +94,23 @@ function TagsIcon() {
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M2 8l5-5h6v6l-5 5z" />
       <circle cx="10" cy="5" r="1" fill="currentColor" />
+function NotesIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 2h8l3 3v9a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" />
+      <path d="M11 2v3h3" />
+      <path d="M5 8h6M5 11h4" />
+    </svg>
+  );
+}
+
+function TasksIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 4h10M3 8h10M3 12h6" />
+      <rect x="0.5" y="2.5" width="2" height="2" rx="0.3" />
+      <rect x="0.5" y="6.5" width="2" height="2" rx="0.3" />
+      <rect x="0.5" y="10.5" width="2" height="2" rx="0.3" />
     </svg>
   );
 }
@@ -153,6 +170,8 @@ const MAIN_NAV: NavItem[] = [
   { href: "/crm/opportunities", labelKey: "crm.nav.opportunities", Icon: OpportunitiesIcon },
   { href: "/crm/activities", labelKey: "crm.nav.activities", Icon: ActivitiesIcon },
   { href: "/crm/tags", labelKey: "crm.nav.tags", Icon: TagsIcon },
+  { href: "/crm/notes", labelKey: "crm.nav.notes", Icon: NotesIcon },
+  { href: "/crm/tasks", labelKey: "crm.nav.tasks", Icon: TasksIcon },
 ];
 
 const ADMIN_NAV: NavItem[] = [

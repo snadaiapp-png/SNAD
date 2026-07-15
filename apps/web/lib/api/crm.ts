@@ -173,6 +173,17 @@ export interface CrmTag {
   version: number;
   name: string;
   color?: string | null;
+ * CRM Note — plain-text note attached to any CRM entity.
+ * Branch: feature/crm-notes
+ */
+export interface CrmNote {
+  id: string;
+  version: number;
+  subject_type: string;
+  subject_id: string;
+  body: string;
+  author_user_id?: string | null;
+  archived: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -186,6 +197,28 @@ export interface CrmTagAssignment {
   subject_id: string;
   assigned_by?: string | null;
   assigned_at: string;
+/**
+ * CRM Task — first-class work item.
+ * Field names mirror the JSON keys returned by /api/v1/crm/tasks.
+ * Branch: feature/crm-tasks
+ */
+export interface CrmTask {
+  id: string;
+  version: number;
+  title: string;
+  description?: string | null;
+  related_type?: string | null;
+  related_id?: string | null;
+  assignee_user_id?: string | null;
+  owner_user_id?: string | null;
+  status: string;
+  priority: number;
+  start_at?: string | null;
+  due_at?: string | null;
+  completed_at?: string | null;
+  result?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 const root = "/api/v1/crm";
@@ -285,4 +318,41 @@ export const crmApi = {
     apiClient.post<CrmTagAssignment, typeof body>(`${root}/tags/${tagId}/assignments`, body),
   unassignTag: (tagId: string, subjectType: string, subjectId: string) =>
     apiClient.delete<void>(`${root}/tags/${tagId}/assignments`, { query: { subjectType, subjectId } }),
+  // ── Notes (CRM.NOTE.READ / WRITE) — feature/crm-notes ──────────────────
+  notes: (subjectType: string, subjectId: string, includeArchived?: boolean) =>
+    apiClient.get<CrmNote[]>(`${root}/notes`, { query: { subjectType, subjectId, includeArchived: includeArchived ?? false, limit: 200 }, cache: "no-store" }),
+  note: (id: string) => apiClient.get<CrmNote>(`${root}/notes/${id}`, { cache: "no-store" }),
+  createNote: (body: {
+    subjectType: string;
+    subjectId: string;
+    body: string;
+    authorUserId?: string;
+  }) => apiClient.post<CrmNote, typeof body>(`${root}/notes`, body),
+  archiveNote: (id: string) => apiClient.patch<CrmNote, Record<string, never>>(`${root}/notes/${id}/archive`, {}),
+  // ── Tasks (CRM.TASK.READ / WRITE) — feature/crm-tasks ──────────────────
+  tasks: (status?: string, assigneeId?: string, relatedId?: string) =>
+    apiClient.get<CrmTask[]>(`${root}/tasks`, { query: { limit: 200, status, assigneeId, relatedId }, cache: "no-store" }),
+  task: (id: string) => apiClient.get<CrmTask>(`${root}/tasks/${id}`, { cache: "no-store" }),
+  createTask: (body: {
+    title: string;
+    description?: string;
+    relatedType?: string;
+    relatedId?: string;
+    assigneeUserId?: string;
+    ownerUserId?: string;
+    priority?: number;
+    startAt?: string;
+    dueAt?: string;
+  }) => apiClient.post<CrmTask, typeof body>(`${root}/tasks`, body),
+  updateTask: (id: string, body: {
+    title?: string;
+    description?: string;
+    assigneeUserId?: string;
+    priority?: number;
+    startAt?: string;
+    dueAt?: string;
+  }) => apiClient.patch<CrmTask, typeof body>(`${root}/tasks/${id}`, body),
+  startTask: (id: string) => apiClient.patch<CrmTask, Record<string, never>>(`${root}/tasks/${id}/start`, {}),
+  completeTask: (id: string, result?: string) => apiClient.patch<CrmTask, { result?: string }>(`${root}/tasks/${id}/complete`, { result }),
+  cancelTask: (id: string, reason?: string) => apiClient.patch<CrmTask, { reason?: string }>(`${root}/tasks/${id}/cancel`, { reason }),
 };
