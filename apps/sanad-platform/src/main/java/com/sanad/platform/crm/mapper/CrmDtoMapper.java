@@ -402,19 +402,6 @@ public class CrmDtoMapper {
     }
 
     // ────────────────────────────────────────────────────────────────────
-    // Notes (feature/crm-notes)
-    // ────────────────────────────────────────────────────────────────────
-
-    public com.sanad.platform.crm.dto.CrmDtos.NoteResponse toNoteResponse(Map<String, Object> row) {
-        if (row == null) return null;
-        return new com.sanad.platform.crm.dto.CrmDtos.NoteResponse(
-                uuid(row.get("id")),
-                longVal(row.get("version")),
-                str(row.get("subject_type")),
-                uuid(row.get("subject_id")),
-                str(row.get("body")),
-                uuid(row.get("author_user_id")),
-                boolVal(row.get("archived")),
     // Tasks (feature/crm-tasks)
     // ────────────────────────────────────────────────────────────────────
 
@@ -439,15 +426,6 @@ public class CrmDtoMapper {
                 offsetDateTime(row.get("updated_at")));
     }
 
-    public com.sanad.platform.crm.dto.CrmDtos.NoteSummaryResponse toNoteSummary(Map<String, Object> row) {
-        if (row == null) return null;
-        String body = str(row.get("body"));
-        String preview = body == null ? "" : (body.length() > 140 ? body.substring(0, 140) + "..." : body);
-        return new com.sanad.platform.crm.dto.CrmDtos.NoteSummaryResponse(
-                uuid(row.get("id")),
-                uuid(row.get("author_user_id")),
-                preview,
-                offsetDateTime(row.get("created_at")));
     public com.sanad.platform.crm.dto.CrmDtos.TaskSummaryResponse toTaskSummary(Map<String, Object> row) {
         if (row == null) return null;
         return new com.sanad.platform.crm.dto.CrmDtos.TaskSummaryResponse(
@@ -457,5 +435,34 @@ public class CrmDtoMapper {
                 row.get("priority") == null ? null : intVal(row.get("priority")),
                 offsetDateTime(row.get("due_at")),
                 offsetDateTime(row.get("updated_at")));
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Notes (feature/crm-notes)
+    // ────────────────────────────────────────────────────────────────────
+
+    public com.sanad.platform.crm.dto.CrmDtos.NoteResponse toNoteResponse(Map<String, Object> row) {
+        if (row == null) return null;
+        return new com.sanad.platform.crm.dto.CrmDtos.NoteResponse(
+                uuid(row.get("id")),
+                longVal(row.get("version")),
+                str(row.get("subject_type")),
+                uuid(row.get("subject_id")),
+                str(row.get("body")),
+                uuid(row.get("author_user_id")),
+                boolVal(row.get("archived")),
+                offsetDateTime(row.get("created_at")),
+                offsetDateTime(row.get("updated_at")));
+    }
+
+    public com.sanad.platform.crm.dto.CrmDtos.NoteSummaryResponse toNoteSummary(Map<String, Object> row) {
+        if (row == null) return null;
+        String body = str(row.get("body"));
+        String preview = body == null ? "" : (body.length() > 140 ? body.substring(0, 140) + "..." : body);
+        return new com.sanad.platform.crm.dto.CrmDtos.NoteSummaryResponse(
+                uuid(row.get("id")),
+                uuid(row.get("author_user_id")),
+                preview,
+                offsetDateTime(row.get("created_at")));
     }
 }

@@ -176,6 +176,11 @@ export interface CrmNote {
   body: string;
   author_user_id?: string | null;
   archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
  * CRM Task — first-class work item.
  * Field names mirror the JSON keys returned by /api/v1/crm/tasks.
  * Branch: feature/crm-tasks
