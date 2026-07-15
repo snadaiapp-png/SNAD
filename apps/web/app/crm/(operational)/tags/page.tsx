@@ -4,20 +4,22 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { crmApi, type CrmTag, type CrmAccount, type CrmTagAssignment } from "@/lib/api/crm";
 import { toUserFacingError } from "@/lib/api/user-facing-errors";
 import { useI18n } from "@/lib/i18n/I18nProvider";
-import { formValue, optionalValue, formatDateTime } from "../../crm-view-utils";
+import { formValue, optionalValue } from "../../crm-view-utils";
 import { CrmLoading } from "../../components/crm-loading";
 import { CrmEmpty } from "../../components/crm-empty";
 import styles from "../../crm.module.css";
 
-const TAG_COLORS = ["", "#EF4444", "#F59E0B", "#10B981", "#3B82F6", "#8B5CF6", "#EC4899", "#6B7280"];
+const TAG_COLOR_NAMES = ["", "red", "amber", "green", "blue", "purple", "pink", "gray"] as const;
+type TagColorName = (typeof TAG_COLOR_NAMES)[number];
 
 /**
  * CRM Tags route — /crm/tags
  *
  * Two-panel layout:
- *   - Left: tag catalog management (create/edit/delete tags)
- *   - Right: when an account is selected, shows tag assignments for that
- *            account and allows assign/unassign
+ *   - Left: tag catalog management (create/delete tags)
+ *   - Right: when an account is selected, shows tag assignments
+ *
+ * Uses CSS classes instead of hardcoded hex colors (SDS compliant).
  *
  * Branch: feature/crm-tags
  */
@@ -31,7 +33,6 @@ export default function CrmTagsPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [selectedAccountId, setSelectedAccountId] = useState("");
-  const [editingTagId, setEditingTagId] = useState<string | null>(null);
 
   const reload = useCallback(async (accountId?: string) => {
     setLoading(true);
@@ -122,7 +123,6 @@ export default function CrmTagsPage() {
       {notice ? <div className={styles.success} role="status">{notice}</div> : null}
 
       <section className={styles.workspace}>
-        {/* Left: Tag catalog */}
         <div className={styles.formCard}>
           <h2 className={styles.sectionHeading}>{t("crm.tags.create.title")}</h2>
           <form onSubmit={handleCreate}>
@@ -133,7 +133,7 @@ export default function CrmTagsPage() {
             <label>
               {t("crm.tags.create.color")}
               <select name="color" defaultValue="" disabled={busy}>
-                {TAG_COLORS.map((c) => (
+                {TAG_COLOR_NAMES.map((c) => (
                   <option key={c} value={c}>{c === "" ? t("crm.tags.create.colorNone") : c}</option>
                 ))}
               </select>
@@ -150,33 +150,13 @@ export default function CrmTagsPage() {
             ) : (
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
                 {tags.map((tag) => (
-                  <span
-                    key={tag.id}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "0.25rem",
-                      padding: "0.25rem 0.5rem",
-                      borderRadius: "9999px",
-                      backgroundColor: tag.color || "#E5E7EB",
-                      color: tag.color ? "#FFFFFF" : "#1F2937",
-                      fontSize: "0.75rem",
-                    }}
-                  >
+                  <span key={tag.id} className={styles.badge} style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
                     {tag.name}
                     <button
                       type="button"
                       onClick={() => void handleDelete(tag.id)}
                       disabled={busy}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: "inherit",
-                        cursor: "pointer",
-                        padding: 0,
-                        fontSize: "1rem",
-                        lineHeight: 1,
-                      }}
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: "1rem", lineHeight: 1, opacity: 0.6 }}
                       title={t("crm.tags.delete")}
                       aria-label={t("crm.tags.delete")}
                     >
@@ -189,7 +169,6 @@ export default function CrmTagsPage() {
           </div>
         </div>
 
-        {/* Right: Assignments for selected account */}
         <div className={styles.listCard}>
           <div className={styles.rowHeader}>
             <h2 className={styles.sectionHeading}>{t("crm.tags.assignments.title")}</h2>
@@ -217,29 +196,17 @@ export default function CrmTagsPage() {
             <div>
               <h3 className={styles.sectionHeading}>{t("crm.tags.assignments.assigned")}</h3>
               {assignments.length === 0 ? (
-                <p style={{ color: "#6B7280", fontSize: "0.875rem" }}>{t("crm.tags.assignments.noneAssigned")}</p>
+                <p style={{ opacity: 0.6, fontSize: "0.875rem" }}>{t("crm.tags.assignments.noneAssigned")}</p>
               ) : (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "1rem" }}>
                   {assignments.map((a) => (
-                    <span
-                      key={a.id}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "0.25rem",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "9999px",
-                        backgroundColor: a.tag_color || "#E5E7EB",
-                        color: a.tag_color ? "#FFFFFF" : "#1F2937",
-                        fontSize: "0.75rem",
-                      }}
-                    >
+                    <span key={a.id} className={styles.badge} style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
                       {a.tag_name}
                       <button
                         type="button"
                         onClick={() => void handleUnassign(a.tag_id)}
                         disabled={busy}
-                        style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0, fontSize: "1rem", lineHeight: 1 }}
+                        style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: "1rem", lineHeight: 1, opacity: 0.6 }}
                         title={t("crm.tags.unassign")}
                         aria-label={t("crm.tags.unassign")}
                       >
@@ -252,7 +219,7 @@ export default function CrmTagsPage() {
 
               <h3 className={styles.sectionHeading}>{t("crm.tags.assignments.available")}</h3>
               {tags.filter((tag) => !assignedTagIds.has(tag.id)).length === 0 ? (
-                <p style={{ color: "#6B7280", fontSize: "0.875rem" }}>{t("crm.tags.assignments.allAssigned")}</p>
+                <p style={{ opacity: 0.6, fontSize: "0.875rem" }}>{t("crm.tags.assignments.allAssigned")}</p>
               ) : (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
                   {tags.filter((tag) => !assignedTagIds.has(tag.id)).map((tag) => (
@@ -261,15 +228,8 @@ export default function CrmTagsPage() {
                       type="button"
                       onClick={() => void handleAssign(tag.id)}
                       disabled={busy}
-                      style={{
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "9999px",
-                        backgroundColor: tag.color || "#E5E7EB",
-                        color: tag.color ? "#FFFFFF" : "#1F2937",
-                        fontSize: "0.75rem",
-                        border: "1px dashed currentColor",
-                        cursor: "pointer",
-                      }}
+                      className={styles.badge}
+                      style={{ cursor: "pointer", border: "1px dashed currentColor", opacity: 0.7 }}
                     >
                       + {tag.name}
                     </button>
