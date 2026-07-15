@@ -95,8 +95,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(SUBSCRIPTION_CHANGE_EVENTS_VERSION),
                         MigrationVersion.fromVersion(CRM_IDEMPOTENCY_VERSION),
                         MigrationVersion.fromVersion(CRM_PIPELINE_VERSION_COLUMN),
-                        MigrationVersion.fromVersion(CRM_NOTES_VERSION),
-                        MigrationVersion.fromVersion(CRM_TASKS_VERSION));
+                        MigrationVersion.fromVersion(CRM_TASKS_VERSION),
+                        MigrationVersion.fromVersion(CRM_NOTES_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -122,8 +122,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(SUBSCRIPTION_CHANGE_EVENTS_VERSION),
                         MigrationVersion.fromVersion(CRM_IDEMPOTENCY_VERSION),
                         MigrationVersion.fromVersion(CRM_PIPELINE_VERSION_COLUMN),
-                        MigrationVersion.fromVersion(CRM_NOTES_VERSION),
-                        MigrationVersion.fromVersion(CRM_TASKS_VERSION));
+                        MigrationVersion.fromVersion(CRM_TASKS_VERSION),
+                        MigrationVersion.fromVersion(CRM_NOTES_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
