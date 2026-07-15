@@ -24,6 +24,7 @@ public enum CrmErrorCode {
     CRM_LEAD_NOT_FOUND(404, "The requested CRM lead was not found.", false),
     CRM_OPPORTUNITY_NOT_FOUND(404, "The requested CRM opportunity was not found.", false),
     CRM_ACTIVITY_NOT_FOUND(404, "The requested CRM activity was not found.", false),
+    CRM_TASK_NOT_FOUND(404, "The requested CRM task was not found.", false),
     CRM_PIPELINE_NOT_FOUND(404, "The requested CRM pipeline was not found.", false),
     CRM_STAGE_NOT_FOUND(404, "The requested CRM pipeline stage was not found.", false),
     CRM_IMPORT_NOT_FOUND(404, "The requested CRM import job was not found.", false),
@@ -41,6 +42,7 @@ public enum CrmErrorCode {
     // ── Invalid state-transition codes (HTTP 422) ────────────────────────
     CRM_INVALID_LEAD_TRANSITION(422, "The requested lead status transition is not allowed.", false),
     CRM_INVALID_OPPORTUNITY_STAGE(422, "The requested opportunity stage move is not allowed.", false),
+    CRM_INVALID_TASK_TRANSITION(422, "The requested task status transition is not allowed.", false),
     CRM_IMPORT_MAPPING_INVALID(422, "The import mapping is invalid or incomplete.", false),
     CRM_CUSTOM_FIELD_VALIDATION_FAILED(422, "One or more custom field values failed validation.", false),
 

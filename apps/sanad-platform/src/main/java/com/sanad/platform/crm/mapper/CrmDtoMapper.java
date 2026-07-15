@@ -400,4 +400,40 @@ public class CrmDtoMapper {
         if (v instanceof java.util.Date d) return d.toInstant().atOffset(ZoneOffset.UTC).toLocalDate();
         try { return LocalDate.parse(String.valueOf(v)); } catch (Exception e) { return null; }
     }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Tasks (feature/crm-tasks)
+    // ────────────────────────────────────────────────────────────────────
+
+    public com.sanad.platform.crm.dto.CrmDtos.TaskResponse toTaskResponse(Map<String, Object> row) {
+        if (row == null) return null;
+        return new com.sanad.platform.crm.dto.CrmDtos.TaskResponse(
+                uuid(row.get("id")),
+                longVal(row.get("version")),
+                str(row.get("title")),
+                str(row.get("description")),
+                str(row.get("related_type")),
+                uuid(row.get("related_id")),
+                uuid(row.get("assignee_user_id")),
+                uuid(row.get("owner_user_id")),
+                str(row.get("status")),
+                row.get("priority") == null ? null : intVal(row.get("priority")),
+                offsetDateTime(row.get("start_at")),
+                offsetDateTime(row.get("due_at")),
+                offsetDateTime(row.get("completed_at")),
+                str(row.get("result")),
+                offsetDateTime(row.get("created_at")),
+                offsetDateTime(row.get("updated_at")));
+    }
+
+    public com.sanad.platform.crm.dto.CrmDtos.TaskSummaryResponse toTaskSummary(Map<String, Object> row) {
+        if (row == null) return null;
+        return new com.sanad.platform.crm.dto.CrmDtos.TaskSummaryResponse(
+                uuid(row.get("id")),
+                str(row.get("title")),
+                str(row.get("status")),
+                row.get("priority") == null ? null : intVal(row.get("priority")),
+                offsetDateTime(row.get("due_at")),
+                offsetDateTime(row.get("updated_at")));
+    }
 }
