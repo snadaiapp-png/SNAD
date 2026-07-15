@@ -89,6 +89,16 @@ function ActivitiesIcon() {
   );
 }
 
+function NotesIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 2h8l3 3v9a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" />
+      <path d="M11 2v3h3" />
+      <path d="M5 8h6M5 11h4" />
+    </svg>
+  );
+}
+
 function ImportsIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -143,6 +153,7 @@ const MAIN_NAV: NavItem[] = [
   { href: "/crm/pipelines", labelKey: "crm.nav.pipelines", Icon: PipelinesIcon },
   { href: "/crm/opportunities", labelKey: "crm.nav.opportunities", Icon: OpportunitiesIcon },
   { href: "/crm/activities", labelKey: "crm.nav.activities", Icon: ActivitiesIcon },
+  { href: "/crm/notes", labelKey: "crm.nav.notes", Icon: NotesIcon },
 ];
 
 const ADMIN_NAV: NavItem[] = [

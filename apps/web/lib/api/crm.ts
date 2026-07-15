@@ -164,6 +164,22 @@ export interface CrmCustomFieldValues {
   values: CrmCustomFieldValueEntry[];
 }
 
+/**
+ * CRM Note — plain-text note attached to any CRM entity.
+ * Branch: feature/crm-notes
+ */
+export interface CrmNote {
+  id: string;
+  version: number;
+  subject_type: string;
+  subject_id: string;
+  body: string;
+  author_user_id?: string | null;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 const root = "/api/v1/crm";
 
 export const crmApi = {
@@ -245,4 +261,16 @@ export const crmApi = {
     } satisfies CrmCustomFieldValues;
   },
   upsertCustomFieldValues: (entityType: string, entityId: string, values: Record<string, unknown>) => apiClient.put<CrmCustomFieldValues, { values: Record<string, unknown> }>(`${root}/custom-fields/values/${entityType}/${entityId}`, { values }),
+
+  // ── Notes (CRM.NOTE.READ / WRITE) — feature/crm-notes ──────────────────
+  notes: (subjectType: string, subjectId: string, includeArchived?: boolean) =>
+    apiClient.get<CrmNote[]>(`${root}/notes`, { query: { subjectType, subjectId, includeArchived: includeArchived ?? false, limit: 200 }, cache: "no-store" }),
+  note: (id: string) => apiClient.get<CrmNote>(`${root}/notes/${id}`, { cache: "no-store" }),
+  createNote: (body: {
+    subjectType: string;
+    subjectId: string;
+    body: string;
+    authorUserId?: string;
+  }) => apiClient.post<CrmNote, typeof body>(`${root}/notes`, body),
+  archiveNote: (id: string) => apiClient.patch<CrmNote, Record<string, never>>(`${root}/notes/${id}/archive`, {}),
 };

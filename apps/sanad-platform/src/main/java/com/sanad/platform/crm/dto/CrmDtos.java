@@ -281,4 +281,25 @@ public final class CrmDtos {
             String entityType,
             UUID entityId,
             Map<String, Object> values) {}
+
+    // ────────────────────────────────────────────────────────────────────
+    // Notes (feature/crm-notes)
+    // ────────────────────────────────────────────────────────────────────
+
+    public record NoteResponse(
+            UUID id,
+            long version,
+            String subjectType,
+            UUID subjectId,
+            String body,
+            UUID authorUserId,
+            boolean archived,
+            OffsetDateTime createdAt,
+            OffsetDateTime updatedAt) {}
+
+    public record NoteSummaryResponse(
+            UUID id,
+            UUID authorUserId,
+            String bodyPreview,
+            OffsetDateTime createdAt) {}
 }

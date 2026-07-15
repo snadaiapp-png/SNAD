@@ -34,6 +34,8 @@ a code is a BREAKING change and must follow the deprecation policy in
 | `CRM_LEAD_NOT_FOUND` | The requested CRM lead was not found. | No | Yes | GET/PATCH `/leads/{id}` — same rules. |
 | `CRM_OPPORTUNITY_NOT_FOUND` | The requested CRM opportunity was not found. | No | Yes | GET/PATCH `/opportunities/{id}` — same rules. |
 | `CRM_ACTIVITY_NOT_FOUND` | The requested CRM activity was not found. | No | Yes | GET/PATCH `/activities/{id}` — same rules. |
+| `CRM_TASK_NOT_FOUND` | The requested CRM task was not found. | No | Yes | GET/PATCH `/tasks/{id}` — same rules. |
+| `CRM_NOTE_NOT_FOUND` | The requested CRM note was not found. | No | Yes | GET `/notes/{id}` — same rules. |
 | `CRM_PIPELINE_NOT_FOUND` | The requested CRM pipeline was not found. | No | Yes | GET `/pipelines/{id}` — same rules. |
 | `CRM_STAGE_NOT_FOUND` | The requested CRM pipeline stage was not found. | No | Yes | GET `/pipelines/{id}/stages/{stageId}` — same rules. |
 | `CRM_IMPORT_NOT_FOUND` | The requested CRM import job was not found. | No | Yes | GET `/imports/{jobId}` — same rules. |
@@ -54,6 +56,7 @@ This is enforced by `CrmExceptionHandler` and verified by
 | `CRM_DUPLICATE_CONTACT` | A contact with the same email already exists. | No | POST `/contacts` with a duplicate `primaryEmail`. |
 | `CRM_DUPLICATE_LEAD` | A lead with the same identity already exists. | No | POST `/leads` with a duplicate `email + displayName` pair. |
 | `CRM_LEAD_ALREADY_CONVERTED` | The lead has already been converted and cannot be converted again. | No | POST `/leads/{id}/convert` when the lead's `status` is already `CONVERTED`. |
+| `CRM_NOTE_ALREADY_ARCHIVED` | The note has already been archived. | No | PATCH `/notes/{id}/archive` when the note's `archived` flag is already TRUE. |
 | `CRM_IDEMPOTENCY_CONFLICT` | The Idempotency-Key was already used with a different request payload. | No | POST with `Idempotency-Key` already seen, but the request body hash differs. |
 | `CONFLICT` | The request conflicts with the current state of the resource. | No | Generic 409 fallback. |
 
@@ -63,6 +66,7 @@ This is enforced by `CrmExceptionHandler` and verified by
 |---|---|---|---|
 | `CRM_INVALID_LEAD_TRANSITION` | The requested lead status transition is not allowed. | No | PATCH `/leads/{id}/status` with an invalid `NEW → ARCHIVED` skip, etc. |
 | `CRM_INVALID_OPPORTUNITY_STAGE` | The requested opportunity stage move is not allowed. | No | PATCH `/opportunities/{id}/stage` to a stage belonging to a different pipeline, or moving a terminal opportunity. |
+| `CRM_INVALID_TASK_TRANSITION` | The requested task status transition is not allowed. | No | PATCH `/tasks/{id}/start` / `/complete` / `/cancel` from a terminal state (COMPLETED or CANCELLED), or `/start` from a non-OPEN state. |
 | `CRM_IMPORT_MAPPING_INVALID` | The import mapping is invalid or incomplete. | No | POST `/imports/{id}/run` when required columns are unmapped. |
 | `CRM_CUSTOM_FIELD_VALIDATION_FAILED` | One or more custom field values failed validation. | No | PUT `/custom-fields/values/{entityType}/{entityId}` with a value that violates the field's data type. |
 
