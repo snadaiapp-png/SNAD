@@ -166,6 +166,12 @@ FLYWAY_ENABLED (preflight, staging, CI): true — enforced by scripts/crm/deploy
 | `20260711.1` | `V20260711_1__create_subscription_change_events.sql` | `subscription_change_events` (billing, not CRM-only). | `IMPLEMENTED_AND_CONNECTED` |
 | `20260713.1` | `V20260713_1__create_crm_idempotency_records.sql` | `crm_idempotency_records` table for V2 idempotent POST endpoints. | `IMPLEMENTED_AND_CONNECTED` |
 | `20260713.2` | `V20260713_2__add_pipeline_version_column.sql` | Adds `version` column to `crm_pipelines` for optimistic locking. | `IMPLEMENTED_AND_CONNECTED` |
+| `20260716.1` | `V20260716_1__create_crm_tasks.sql` | `crm_tasks` table (first-class task management, separate from `crm_activities`). Seeds `CRM.TASK.READ/WRITE` capabilities. | `IMPLEMENTED_AND_CONNECTED` |
+| `20260716.2` | `V20260716_2__create_crm_notes.sql` | `crm_notes` table (append-only notes attached to any CRM entity). Seeds `CRM.NOTE.READ/WRITE` capabilities. | `IMPLEMENTED_AND_CONNECTED` |
+
+### 4.3 CRM RBAC capabilities
+
+22 active `CRM.*` capabilities are seeded by `V20260702_1`, `V20260702_3`, `V20260716_1`, and `V20260716_2`:
 | `20260716.1` | `V20260716_1__create_crm_tasks.sql` | `crm_tasks` table (first-class task management, separate from `crm_activities`). Seeds `CRM.TASK.READ/WRITE` capabilities and grants them to ADMIN role. | `IMPLEMENTED_AND_CONNECTED` |
 
 ### 4.3 CRM RBAC capabilities
@@ -179,12 +185,16 @@ CRM.LEAD.READ           CRM.LEAD.WRITE          CRM.LEAD.CONVERT
 CRM.OPPORTUNITY.READ    CRM.OPPORTUNITY.WRITE
 CRM.ACTIVITY.READ       CRM.ACTIVITY.WRITE
 CRM.TASK.READ           CRM.TASK.WRITE
+CRM.NOTE.READ           CRM.NOTE.WRITE
 CRM.IMPORT.READ         CRM.IMPORT.WRITE
 CRM.CUSTOM_FIELD.READ   CRM.CUSTOM_FIELD.WRITE
 CRM.ADMIN
 ```
 
 The previous `CRM-DEPLOYMENT-READINESS.md` claim of "14 CRM capabilities" is
+**stale**; the reconciled count after `V20260716_2` is **22** (was 18 before
+Tasks + Notes migrations). The drift check flags any document or workflow that
+hard-codes `14`, `15`, `18`, or `20`.
 **stale**; the reconciled count after `V20260716_1` is **20** (was 18 before
 the Tasks migration). The drift check flags any document or workflow that
 hard-codes `14`, `15`, or `18`.

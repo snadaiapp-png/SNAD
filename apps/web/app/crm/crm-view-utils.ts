@@ -15,3 +15,9 @@ export function formatDate(value: string | null | undefined): string {
     ? new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium" }).format(new Date(value))
     : "—";
 }
+
+export function formatDateTime(value: string | null | undefined): string {
+  return value
+    ? new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
+    : "—";
+}
