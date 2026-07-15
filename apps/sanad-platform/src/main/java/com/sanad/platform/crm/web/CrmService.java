@@ -19,10 +19,11 @@ import com.sanad.platform.crm.opportunity.domain.PipelineRepository.StageRecord;
 import com.sanad.platform.crm.activity.application.ActivityUseCases;
 import com.sanad.platform.crm.activity.domain.ActivityRepository;
 import com.sanad.platform.crm.activity.domain.ActivityRepository.ActivityRecord;
+import com.sanad.platform.crm.integration.domain.TimelineEventPort;
+import com.sanad.platform.crm.query.application.QueryUseCases;
+import com.sanad.platform.crm.query.domain.TimelineProjectionRepository.TimelineEvent;
 
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,27 +43,31 @@ import java.util.UUID;
 @Service
 class CrmService {
     // TABLES set removed: no raw SQL remains on any CRM entity table.
-    // Only crm_timeline_events retains a legacy INSERT/SELECT — to be migrated
-    // to TimelineEventPort in a follow-up work item.
-    private final NamedParameterJdbcTemplate jdbc;
+    // Timeline writes go through TimelineEventPort; reads go through QueryUseCases.
+    // CrmService is now a thin V1 compatibility delegate — no JDBC, no SQL.
     private final CrmExtendedService extended;
     private final AccountUseCases accountUseCases;
     private final ContactUseCases contactUseCases;
     private final LeadUseCases leadUseCases;
     private final OpportunityUseCases opportunityUseCases;
     private final ActivityUseCases activityUseCases;
+    private final TimelineEventPort timelineEventPort;
+    private final QueryUseCases queryUseCases;
 
-    CrmService(NamedParameterJdbcTemplate jdbc, CrmExtendedService extended,
+    CrmService(CrmExtendedService extended,
                 AccountUseCases accountUseCases, ContactUseCases contactUseCases,
                 LeadUseCases leadUseCases, OpportunityUseCases opportunityUseCases,
-                ActivityUseCases activityUseCases) {
-        this.jdbc = jdbc;
+                ActivityUseCases activityUseCases,
+                TimelineEventPort timelineEventPort,
+                QueryUseCases queryUseCases) {
         this.extended = extended;
         this.accountUseCases = accountUseCases;
         this.contactUseCases = contactUseCases;
         this.leadUseCases = leadUseCases;
         this.opportunityUseCases = opportunityUseCases;
         this.activityUseCases = activityUseCases;
+        this.timelineEventPort = timelineEventPort;
+        this.queryUseCases = queryUseCases;
     }
 
     // ------------------------------------------------------------------
@@ -453,8 +458,25 @@ class CrmService {
     List<Map<String, Object>> timeline(Authentication authentication, String subjectType, UUID subjectId, int requestedLimit) {
         UUID tenantId = tenantId(authentication);
         extended.validateRelated(tenantId, subjectType, subjectId);
-        return jdbc.queryForList("SELECT * FROM crm_timeline_events WHERE tenant_id=:tenantId AND subject_type=:subjectType AND subject_id=:subjectId ORDER BY occurred_at DESC,id LIMIT :limit",
-                p().addValue("tenantId", tenantId).addValue("subjectType", subjectType.toUpperCase(Locale.ROOT)).addValue("subjectId", subjectId).addValue("limit", limit(requestedLimit)));
+        // Delegate read to QueryUseCases (crm.query module) — no direct SQL.
+        return queryUseCases.getTimeline(tenantId, subjectType, subjectId, limit(requestedLimit)).stream()
+                .map(this::toTimelineRow)
+                .toList();
+    }
+
+    private Map<String, Object> toTimelineRow(TimelineEvent e) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", e.id());
+        row.put("tenant_id", null);
+        row.put("subject_type", e.subjectType());
+        row.put("subject_id", e.subjectId());
+        row.put("event_type", e.eventType());
+        row.put("summary", e.summary());
+        row.put("source_type", e.sourceType());
+        row.put("source_id", e.sourceId());
+        row.put("occurred_at", e.occurredAt() == null ? null : Timestamp.from(e.occurredAt()));
+        row.put("created_by", e.createdBy());
+        return row;
     }
 
     // ------------------------------------------------------------------
@@ -562,14 +584,20 @@ class CrmService {
     // one() helper removed: all entity lookups now go through UseCases.
     // stageHistory() helper removed: OpportunityUseCases.moveStage records stage
     // history via the modular domain layer.
-    private void timeline(UUID tenantId, String subjectType, UUID subjectId, String eventType, String summary, String sourceType, UUID sourceId, UUID actorId, Instant now) { jdbc.update("INSERT INTO crm_timeline_events (id,tenant_id,subject_type,subject_id,event_type,summary,source_type,source_id,occurred_at,created_by) VALUES (:id,:tenantId,:subjectType,:subjectId,:eventType,:summary,:sourceType,:sourceId,:now,:actorId)", p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId).addValue("subjectType", subjectType).addValue("subjectId", subjectId).addValue("eventType", eventType).addValue("summary", summary).addValue("sourceType", sourceType).addValue("sourceId", sourceId).addValue("now", Timestamp.from(now)).addValue("actorId", actorId)); }
+    /**
+     * Delegates timeline event recording to {@link TimelineEventPort}.
+     * No direct SQL — the JdbcTimelineEventAdapter in crm.integration handles persistence.
+     */
+    private void timeline(UUID tenantId, String subjectType, UUID subjectId, String eventType, String summary, String sourceType, UUID sourceId, UUID actorId, Instant now) {
+        timelineEventPort.record(tenantId, subjectType, subjectId, eventType, summary, sourceType, sourceId, actorId, now);
+    }
     // context(UUID, UUID, UUID, Instant) helper removed: it was only used by the
     // legacy moveOpportunity / stageHistory path which is now delegated to
     // OpportunityUseCases.moveStage.
     private UUID tenantId(Authentication authentication) { return context(authentication, "tenant_id"); }
     private UUID userId(Authentication authentication) { return context(authentication, "user_id"); }
     private UUID context(Authentication authentication, String key) { if (authentication == null || !authentication.isAuthenticated() || !(authentication.getDetails() instanceof Map<?, ?> details) || details.get(key) == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authenticated CRM context is required"); try { return UUID.fromString(details.get(key).toString()); } catch (IllegalArgumentException exception) { throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid authenticated CRM context", exception); } }
-    private static MapSqlParameterSource p() { return new MapSqlParameterSource(); }
+    // p() helper removed: no more MapSqlParameterSource usage in CrmService.
     private static int limit(int requested) { return Math.max(1, Math.min(requested, 200)); }
     private static String required(String value, int max, String field) { String result = value == null ? "" : value.trim(); if (result.isEmpty()) throw bad(field + " is required"); if (result.length() > max) throw bad(field + " exceeds " + max); return result; }
     private static String optional(String value, int max, String field) { if (value == null || value.isBlank()) return null; String result = value.trim(); if (result.length() > max) throw bad(field + " exceeds " + max); return result; }
