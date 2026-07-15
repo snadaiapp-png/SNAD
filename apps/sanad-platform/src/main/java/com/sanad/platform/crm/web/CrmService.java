@@ -177,6 +177,9 @@ class CrmService {
                 zone(request.timeZone()),
                 ownerUserId,
                 value(request.consentSummary(), "UNKNOWN").toUpperCase(Locale.ROOT)));
+        Instant now = Instant.now();
+        timeline(tenantId, "CONTACT", created.id(), "crm.contact.created", "Contact created", "CRM_CONTACT", created.id(), actorId, now);
+        if (request.accountId() != null) timeline(tenantId, "ACCOUNT", request.accountId(), "crm.contact.linked", "Contact linked", "CRM_CONTACT", created.id(), actorId, now);
         return toContactRow(created);
     }
 
@@ -232,6 +235,7 @@ class CrmService {
                 optional(request.source(), 120, "source"),
                 ownerUserId,
                 request.score()));
+        timeline(tenantId, "LEAD", created.id(), "crm.lead.created", "Lead created", "CRM_LEAD", created.id(), actorId, Instant.now());
         return toLeadRow(created);
     }
 
@@ -293,6 +297,7 @@ class CrmService {
                         value(request.currencyCode(), "SAR"),
                         request.expectedCloseDate()),
                 lead.version());
+        timeline(tenantId, "LEAD", leadId, "crm.lead.converted", "Lead converted", "CRM_LEAD", leadId, actorId, Instant.now());
         LinkedHashMap<String, Object> result = new LinkedHashMap<>();
         result.put("lead", toLeadRow(conversion.lead()));
         result.put("account", account);
@@ -379,6 +384,7 @@ class CrmService {
                         required(request.name(), 240, "name"), request.amount(),
                         currency(request.currencyCode()), request.expectedCloseDate(),
                         ownerUserId));
+        timeline(tenantId, "OPPORTUNITY", created.id(), "crm.opportunity.created", "Opportunity created", "CRM_OPPORTUNITY", created.id(), actorId, Instant.now());
         return toOpportunityRow(created);
     }
 
@@ -408,6 +414,7 @@ class CrmService {
                 : target.terminalState();
         OpportunityRecord moved = opportunityUseCases.moveStage(tenantId, actorId, opportunityId,
                 request.stageId(), status, optional(request.reason(), 500, "reason"), opp.version());
+        timeline(tenantId, "OPPORTUNITY", opportunityId, "crm.opportunity.stage_changed", "Opportunity stage changed", "CRM_OPPORTUNITY", opportunityId, actorId, Instant.now());
         return toOpportunityRow(moved);
     }
 
@@ -438,6 +445,7 @@ class CrmService {
                         request.priority() == null ? 50 : request.priority(),
                         request.startAt(),
                         request.dueAt()));
+        if (relatedType != null && request.relatedId() != null) timeline(tenantId, relatedType, request.relatedId(), "crm.activity.created", "Activity created", "CRM_ACTIVITY", created.id(), actorId, Instant.now());
         return toActivityRow(created);
     }
 
