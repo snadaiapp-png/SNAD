@@ -402,16 +402,6 @@ public class CrmDtoMapper {
     }
 
     // ────────────────────────────────────────────────────────────────────
-    // Tags (feature/crm-tags)
-    // ────────────────────────────────────────────────────────────────────
-
-    public com.sanad.platform.crm.dto.CrmDtos.TagResponse toTagResponse(Map<String, Object> row) {
-        if (row == null) return null;
-        return new com.sanad.platform.crm.dto.CrmDtos.TagResponse(
-                uuid(row.get("id")),
-                longVal(row.get("version")),
-                str(row.get("name")),
-                str(row.get("color")),
     // Tasks (feature/crm-tasks)
     // ────────────────────────────────────────────────────────────────────
 
@@ -436,17 +426,6 @@ public class CrmDtoMapper {
                 offsetDateTime(row.get("updated_at")));
     }
 
-    public com.sanad.platform.crm.dto.CrmDtos.TagAssignmentResponse toTagAssignmentResponse(
-            Map<String, Object> row, String tagName, String tagColor) {
-        if (row == null) return null;
-        return new com.sanad.platform.crm.dto.CrmDtos.TagAssignmentResponse(
-                uuid(row.get("id")),
-                uuid(row.get("tag_id")),
-                tagName,
-                tagColor,
-                str(row.get("subject_type")),
-                uuid(row.get("subject_id")),
-                offsetDateTime(row.get("assigned_at")));
     public com.sanad.platform.crm.dto.CrmDtos.TaskSummaryResponse toTaskSummary(Map<String, Object> row) {
         if (row == null) return null;
         return new com.sanad.platform.crm.dto.CrmDtos.TaskSummaryResponse(
@@ -485,5 +464,33 @@ public class CrmDtoMapper {
                 uuid(row.get("author_user_id")),
                 preview,
                 offsetDateTime(row.get("created_at")));
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Tags (feature/crm-tags)
+    // ────────────────────────────────────────────────────────────────────
+
+    public com.sanad.platform.crm.dto.CrmDtos.TagResponse toTagResponse(Map<String, Object> row) {
+        if (row == null) return null;
+        return new com.sanad.platform.crm.dto.CrmDtos.TagResponse(
+                uuid(row.get("id")),
+                longVal(row.get("version")),
+                str(row.get("name")),
+                str(row.get("color")),
+                offsetDateTime(row.get("created_at")),
+                offsetDateTime(row.get("updated_at")));
+    }
+
+    public com.sanad.platform.crm.dto.CrmDtos.TagAssignmentResponse toTagAssignmentResponse(
+            Map<String, Object> row, String tagName, String tagColor) {
+        if (row == null) return null;
+        return new com.sanad.platform.crm.dto.CrmDtos.TagAssignmentResponse(
+                uuid(row.get("id")),
+                uuid(row.get("tag_id")),
+                tagName,
+                tagColor,
+                str(row.get("subject_type")),
+                uuid(row.get("subject_id")),
+                offsetDateTime(row.get("assigned_at")));
     }
 }

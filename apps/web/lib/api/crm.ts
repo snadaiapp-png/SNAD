@@ -173,6 +173,22 @@ export interface CrmTag {
   version: number;
   name: string;
   color?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CrmTagAssignment {
+  id: string;
+  tag_id: string;
+  tag_name: string;
+  tag_color?: string | null;
+  subject_type: string;
+  subject_id: string;
+  assigned_by?: string | null;
+  assigned_at: string;
+}
+
+/**
  * CRM Note — plain-text note attached to any CRM entity.
  * Branch: feature/crm-notes
  */
@@ -188,18 +204,8 @@ export interface CrmNote {
   updated_at: string;
 }
 
-export interface CrmTagAssignment {
-  id: string;
-  tag_id: string;
-  tag_name: string;
-  tag_color?: string | null;
-  subject_type: string;
-  subject_id: string;
-  assigned_by?: string | null;
-  assigned_at: string;
 /**
  * CRM Task — first-class work item.
- * Field names mirror the JSON keys returned by /api/v1/crm/tasks.
  * Branch: feature/crm-tasks
  */
 export interface CrmTask {
