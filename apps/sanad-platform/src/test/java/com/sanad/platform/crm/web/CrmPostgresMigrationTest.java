@@ -55,7 +55,15 @@ class CrmPostgresMigrationTest {
      */
     @BeforeAll
     static void requireDocker() {
-        Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(),
+        boolean dockerAvailable = false;
+        try {
+            dockerAvailable = DockerClientFactory.instance().isDockerAvailable();
+        } catch (Throwable t) {
+            // isDockerAvailable can itself throw on some Windows configs where
+            // the Docker client library can't initialize. Treat as "not available".
+            dockerAvailable = false;
+        }
+        Assumptions.assumeTrue(dockerAvailable,
                 "Docker is not available — skipping CrmPostgresMigrationTest. " +
                 "Run on a CI runner with Docker to exercise PostgreSQL migrations.");
     }

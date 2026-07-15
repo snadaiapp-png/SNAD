@@ -29,7 +29,13 @@ class FlywayV15ProductionUpgradeTest {
      */
     @BeforeAll
     static void requireDocker() {
-        Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(),
+        boolean dockerAvailable = false;
+        try {
+            dockerAvailable = DockerClientFactory.instance().isDockerAvailable();
+        } catch (Throwable t) {
+            dockerAvailable = false;
+        }
+        Assumptions.assumeTrue(dockerAvailable,
                 "Docker is not available — skipping FlywayV15ProductionUpgradeTest. " +
                 "Run on a CI runner with Docker to exercise the production upgrade path.");
     }

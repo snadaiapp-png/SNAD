@@ -74,10 +74,14 @@ class CrmService {
     Map<String, Object> createAccount(Authentication authentication, CreateAccountRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
+        // V1 backward-compat: if ownerUserId is null, default to the actor (creator).
+        // The legacy SQL path allowed NULL owner_user_id; the modular UseCases require
+        // a non-null owner. Defaulting to the actor preserves V1 behavior.
+        UUID ownerUserId = request.ownerUserId() != null ? request.ownerUserId() : actorId;
         AccountRecord created = accountUseCases.create(tenantId, actorId, new AccountRepository.CreateAccountCommand(
                 required(request.displayName(), 240, "displayName"),
                 value(request.accountType(), "BUSINESS").toUpperCase(Locale.ROOT),
-                request.ownerUserId(),
+                ownerUserId,
                 request.parentAccountId(),
                 currency(request.primaryCurrencyCode()),
                 locale(request.preferredLocale()),
@@ -160,7 +164,9 @@ class CrmService {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
         if (request.accountId() != null) account(tenantId, request.accountId());
-        extended.validateOwner(tenantId, request.ownerUserId());
+        // V1 backward-compat: default owner to actor if not specified.
+        UUID ownerUserId = request.ownerUserId() != null ? request.ownerUserId() : actorId;
+        extended.validateOwner(tenantId, ownerUserId);
         ContactRecord created = contactUseCases.create(tenantId, actorId, new ContactRepository.CreateContactCommand(
                 request.accountId(),
                 required(request.givenName(), 120, "givenName"),
@@ -169,7 +175,7 @@ class CrmService {
                 optional(request.primaryPhone(), 64, "primaryPhone"),
                 locale(request.preferredLocale()),
                 zone(request.timeZone()),
-                request.ownerUserId(),
+                ownerUserId,
                 value(request.consentSummary(), "UNKNOWN").toUpperCase(Locale.ROOT)));
         return toContactRow(created);
     }
@@ -215,14 +221,16 @@ class CrmService {
     Map<String, Object> createLead(Authentication authentication, CreateLeadRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
-        extended.validateOwner(tenantId, request.ownerUserId());
+        // V1 backward-compat: default owner to actor if not specified.
+        UUID ownerUserId = request.ownerUserId() != null ? request.ownerUserId() : actorId;
+        extended.validateOwner(tenantId, ownerUserId);
         LeadRecord created = leadUseCases.create(tenantId, actorId, new LeadRepository.CreateLeadCommand(
                 required(request.displayName(), 240, "displayName"),
                 optional(request.companyName(), 240, "companyName"),
                 optional(request.email(), 255, "email"),
                 optional(request.phone(), 64, "phone"),
                 optional(request.source(), 120, "source"),
-                request.ownerUserId(),
+                ownerUserId,
                 request.score()));
         return toLeadRow(created);
     }
@@ -364,12 +372,13 @@ class CrmService {
         }
         pipeline(tenantId, request.pipelineId());
         extended.validateOwner(tenantId, request.ownerUserId());
+        UUID ownerUserId = request.ownerUserId() != null ? request.ownerUserId() : actorId;
         OpportunityRecord created = opportunityUseCases.create(tenantId, actorId,
                 new OpportunityRepository.CreateOpportunityCommand(
                         request.accountId(), request.contactId(), request.pipelineId(), request.stageId(),
                         required(request.name(), 240, "name"), request.amount(),
                         currency(request.currencyCode()), request.expectedCloseDate(),
-                        request.ownerUserId()));
+                        ownerUserId));
         return toOpportunityRow(created);
     }
 
@@ -411,7 +420,9 @@ class CrmService {
     Map<String, Object> createActivity(Authentication authentication, CreateActivityRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
-        extended.validateOwner(tenantId, request.ownerUserId());
+        // V1 backward-compat: default owner to actor if not specified.
+        UUID ownerUserId = request.ownerUserId() != null ? request.ownerUserId() : actorId;
+        extended.validateOwner(tenantId, ownerUserId);
         extended.validateRelated(tenantId, request.relatedType(), request.relatedId());
         if (request.startAt() != null && request.dueAt() != null && request.dueAt().isBefore(request.startAt()))
             throw bad("dueAt cannot be before startAt");
@@ -423,7 +434,7 @@ class CrmService {
                         optional(request.body(), 4000, "body"),
                         relatedType,
                         request.relatedId(),
-                        request.ownerUserId(),
+                        ownerUserId,
                         request.priority() == null ? 50 : request.priority(),
                         request.startAt(),
                         request.dueAt()));
