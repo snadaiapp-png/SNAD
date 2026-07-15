@@ -24,8 +24,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Account V2 HTTP integration tests using MockMvc with real authentication.
@@ -231,22 +235,37 @@ class AccountV2HttpIntegrationTest {
                 new MapSqlParameterSource("t", tenantId), UUID.class);
         String createResponse = mockMvc.perform(post("/api/v2/crm/accounts")
                         .with(authentication(buildAuth(tenantId, userId)))
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType("application/json")
                         .content("{\"displayName\":\"Archive HTTP\",\"accountType\":\"BUSINESS\",\"ownerUserId\":\"" + userId + "\",\"primaryCurrencyCode\":\"SAR\",\"preferredLocale\":\"ar-SA\",\"timeZone\":\"Asia/Riyadh\"}"))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID accountId = extractUuidFromJson(createResponse, "id");
-        // GET to obtain ETag
-        String getResponse = mockMvc.perform(get("/api/v2/crm/accounts/" + accountId)
+
+        // GET to obtain the real ETag from the response header
+        var getResult = mockMvc.perform(get("/api/v2/crm/accounts/" + accountId)
                         .with(authentication(buildAuth(tenantId, userId))))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        String etag = extractEtagFromGetResponse(getResponse);
-        // Archive with valid If-Match
-        mockMvc.perform(patch("/api/v2/crm/accounts/" + accountId + "/archive")
+                .andExpect(header().exists("ETag"))
+                .andReturn();
+        String etag = getResult.getResponse().getHeader("ETag");
+        assertNotNull(etag, "ETag header must be present on GET response");
+        assertFalse(etag == null || etag.isBlank(), "ETag header must be non-blank");
+
+        // Archive with the real If-Match
+        var archiveResult = mockMvc.perform(patch("/api/v2/crm/accounts/" + accountId + "/archive")
                         .with(authentication(buildAuth(tenantId, userId)))
                         .header("If-Match", etag))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(header().exists("ETag"))
+                .andExpect(jsonPath("$.lifecycleStatus").value("ARCHIVED"))
+                .andReturn();
+
+        // Verify the returned ETag changes after archive
+        String postArchiveEtag = archiveResult.getResponse().getHeader("ETag");
+        assertNotNull(postArchiveEtag, "ETag header must be present on archive response");
+        assertNotEquals(etag, postArchiveEtag,
+                "ETag must change after a successful archive mutation");
     }
 
     @Test
@@ -257,30 +276,39 @@ class AccountV2HttpIntegrationTest {
                 new MapSqlParameterSource("t", tenantId), UUID.class);
         String createResponse = mockMvc.perform(post("/api/v2/crm/accounts")
                         .with(authentication(buildAuth(tenantId, userId)))
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType("application/json")
                         .content("{\"displayName\":\"Update HTTP\",\"accountType\":\"BUSINESS\",\"ownerUserId\":\"" + userId + "\",\"primaryCurrencyCode\":\"SAR\",\"preferredLocale\":\"ar-SA\",\"timeZone\":\"Asia/Riyadh\"}"))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID accountId = extractUuidFromJson(createResponse, "id");
+
         // GET to obtain ETag from header
         var getResult = mockMvc.perform(get("/api/v2/crm/accounts/" + accountId)
                         .with(authentication(buildAuth(tenantId, userId))))
                 .andExpect(status().isOk())
+                .andExpect(header().exists("ETag"))
                 .andReturn();
         String etag = getResult.getResponse().getHeader("ETag");
         assertNotNull(etag, "ETag header must be present");
-        // PATCH with valid If-Match
-        mockMvc.perform(patch("/api/v2/crm/accounts/" + accountId)
+        assertFalse(etag == null || etag.isBlank(), "ETag header must be non-blank");
+
+        // PATCH with valid If-Match and verify the response body reflects the mutation
+        var updateResult = mockMvc.perform(patch("/api/v2/crm/accounts/" + accountId)
                         .with(authentication(buildAuth(tenantId, userId)))
                         .header("If-Match", etag)
                         .contentType("application/json")
                         .content("{\"displayName\":\"Updated Name\"}"))
-                .andExpect(status().isOk());
-    }
+                .andExpect(status().isOk())
+                .andExpect(header().exists("ETag"))
+                .andExpect(jsonPath("$.displayName").value("Updated Name"))
+                .andReturn();
 
-    private String extractEtagFromGetResponse(String jsonResponse) {
-        // ETag is in the response header, not the body. This is a fallback for body-only assertions.
-        return "\"account-v0-fake\"";
+        // Verify the returned ETag changes after the mutation
+        String postUpdateEtag = updateResult.getResponse().getHeader("ETag");
+        assertNotNull(postUpdateEtag, "ETag header must be present on update response");
+        assertNotEquals(etag, postUpdateEtag,
+                "ETag must change after a successful update mutation");
     }
 
     private UUID extractUuidFromJson(String json, String field) {
