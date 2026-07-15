@@ -616,7 +616,6 @@ Stage Summary:
 - FINAL STATUS: COMPLETE
 
 ---
-<<<<<<< Updated upstream
 Task ID: crm-003-stable-api-contracts
 Agent: main (Super Z)
 Task: EXEC-PROMPT-CRM-003 — establish stable API contracts, typed DTOs, cursor pagination, optimistic concurrency, idempotency, OpenAPI generation, frontend type generation, contract tests, and drift detection.
@@ -702,7 +701,6 @@ Stage Summary:
 - CRM-G2: PENDING INDEPENDENT VERIFICATION.
 - Cannot push to GitHub from this sandbox (no credentials). Owner must push the branch, open the PR, wait for CI green on head SHA, merge, then verify post-merge.
 - Next authorized prompt: EXEC-PROMPT-CRM-004 (only after CI green + PR merged + project manager independent verification).
-=======
 Task ID: crm-003-correction-and-resubmission
 Agent: main (Super Z)
 Task: EXEC-PROMPT-CRM-003 correction — integrate the full implementation (commit 066b60ee) onto the existing PR #502 branch (crm/003-stable-api-contracts at remote SHA 61a703811) and prepare for push.
@@ -751,7 +749,6 @@ Stage Summary:
 - PR #502 must NOT be merged until: push complete + CI green on exact head SHA + independent verification
 - CRM-G2: PENDING INDEPENDENT VERIFICATION
 - EXEC-PROMPT-CRM-003: SUBMITTED FOR VERIFICATION (pending push)
->>>>>>> Stashed changes
 
 
 ---

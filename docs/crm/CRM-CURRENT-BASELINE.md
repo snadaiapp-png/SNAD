@@ -172,6 +172,11 @@ FLYWAY_ENABLED (preflight, staging, CI): true — enforced by scripts/crm/deploy
 ### 4.3 CRM RBAC capabilities
 
 22 active `CRM.*` capabilities are seeded by `V20260702_1`, `V20260702_3`, `V20260716_1`, and `V20260716_2`:
+| `20260716.1` | `V20260716_1__create_crm_tasks.sql` | `crm_tasks` table (first-class task management, separate from `crm_activities`). Seeds `CRM.TASK.READ/WRITE` capabilities and grants them to ADMIN role. | `IMPLEMENTED_AND_CONNECTED` |
+
+### 4.3 CRM RBAC capabilities
+
+20 active `CRM.*` capabilities are seeded by `V20260702_1`, `V20260702_3`, and `V20260716_1`:
 
 ```text
 CRM.ACCOUNT.READ        CRM.ACCOUNT.WRITE       CRM.ACCOUNT.ARCHIVE
@@ -190,6 +195,9 @@ The previous `CRM-DEPLOYMENT-READINESS.md` claim of "14 CRM capabilities" is
 **stale**; the reconciled count after `V20260716_2` is **22** (was 18 before
 Tasks + Notes migrations). The drift check flags any document or workflow that
 hard-codes `14`, `15`, `18`, or `20`.
+**stale**; the reconciled count after `V20260716_1` is **20** (was 18 before
+the Tasks migration). The drift check flags any document or workflow that
+hard-codes `14`, `15`, or `18`.
 
 ### 4.4 G1 extension tables (planned but not yet applied)
 
