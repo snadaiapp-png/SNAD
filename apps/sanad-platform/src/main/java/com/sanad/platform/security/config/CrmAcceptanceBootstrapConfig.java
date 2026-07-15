@@ -30,7 +30,9 @@ public class CrmAcceptanceBootstrapConfig {
             UserRoleGrantRepository userRoleGrantRepository,
             OrganizationRepository organizationRepository,
             OrganizationMembershipRepository organizationMembershipRepository,
-            PasswordEncoder passwordEncoder
+            PasswordEncoder passwordEncoder,
+            com.sanad.platform.access.capability.AccessCapabilityRepository accessCapabilityRepository,
+            com.sanad.platform.access.role.RoleCapabilityRepository roleCapabilityRepository
     ) {
         return new CredentialBootstrapService(
                 tenantRepository,
@@ -39,7 +41,9 @@ public class CrmAcceptanceBootstrapConfig {
                 userRoleGrantRepository,
                 organizationRepository,
                 organizationMembershipRepository,
-                passwordEncoder
+                passwordEncoder,
+                accessCapabilityRepository,
+                roleCapabilityRepository
         );
     }
 

@@ -22,6 +22,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import com.sanad.platform.access.capability.AccessCapability;
+import com.sanad.platform.access.capability.AccessCapabilityRepository;
+import com.sanad.platform.access.capability.CapabilityStatus;
+import com.sanad.platform.access.role.RoleCapability;
+import com.sanad.platform.access.role.RoleCapabilityRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -60,6 +65,8 @@ public class CredentialBootstrapService {
     private final OrganizationRepository organizationRepository;
     private final OrganizationMembershipRepository organizationMembershipRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AccessCapabilityRepository accessCapabilityRepository;
+    private final RoleCapabilityRepository roleCapabilityRepository;
 
     public CredentialBootstrapService(
             TenantRepository tenantRepository,
@@ -68,7 +75,9 @@ public class CredentialBootstrapService {
             UserRoleGrantRepository userRoleGrantRepository,
             OrganizationRepository organizationRepository,
             OrganizationMembershipRepository organizationMembershipRepository,
-            PasswordEncoder passwordEncoder
+            PasswordEncoder passwordEncoder,
+            AccessCapabilityRepository accessCapabilityRepository,
+            RoleCapabilityRepository roleCapabilityRepository
     ) {
         this.tenantRepository = tenantRepository;
         this.userRepository = userRepository;
@@ -77,6 +86,8 @@ public class CredentialBootstrapService {
         this.organizationRepository = organizationRepository;
         this.organizationMembershipRepository = organizationMembershipRepository;
         this.passwordEncoder = passwordEncoder;
+        this.accessCapabilityRepository = accessCapabilityRepository;
+        this.roleCapabilityRepository = roleCapabilityRepository;
     }
 
     /**
@@ -333,5 +344,30 @@ public class CredentialBootstrapService {
             grant.setStatus(UserGrantStatus.ACTIVE);
         }
         userRoleGrantRepository.save(grant);
+        ensureAdminAllCapabilities(resolvedTenantId, adminRole.getId());
+    }
+
+    /**
+     * Ensures the ADMIN role has ALL active capabilities.
+     * This is critical because V15 migration runs before the tenant exists,
+     * so it cannot assign CRM.* capabilities to the ADMIN role.
+     * This method is idempotent — it only adds missing grants.
+     */
+    private void ensureAdminAllCapabilities(UUID tenantId, UUID roleId) {
+        List<AccessCapability> activeCapabilities = accessCapabilityRepository
+                .findByStatusOrderByCodeAsc(CapabilityStatus.ACTIVE);
+        int added = 0;
+        for (AccessCapability cap : activeCapabilities) {
+            boolean exists = roleCapabilityRepository
+                    .existsByTenantIdAndRoleIdAndCapabilityId(tenantId, roleId, cap.getId());
+            if (!exists) {
+                roleCapabilityRepository.save(new RoleCapability(tenantId, roleId, cap.getId()));
+                added++;
+            }
+        }
+        if (added > 0) {
+            log.info("ADMIN role granted {} additional active capabilities (total active: {})",
+                    added, activeCapabilities.size());
+        }
     }
 }
