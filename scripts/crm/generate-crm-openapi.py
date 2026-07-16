@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
-"""Extract the governed CRM v2 contract from the platform runtime OpenAPI document."""
+"""Merge new runtime CRM operations into the previously governed CRM contract.
+
+The baseline contract contains deliberate governance enrichments that Springdoc does
+not infer reliably: reusable pagination parameters, standard error schemas,
+security schemes, precise create response codes, ETag headers and concurrency
+responses. This generator therefore never replaces existing governed operations.
+It adds runtime-only paths and the component graph required by those paths.
+"""
 
 from __future__ import annotations
 
+import copy
 import json
 import sys
 from collections import deque
@@ -36,96 +44,112 @@ def lookup_component(spec: dict[str, Any], ref: str) -> tuple[str, str, Any]:
     return section, name, value
 
 
-def extract(runtime: dict[str, Any]) -> dict[str, Any]:
-    crm_paths: dict[str, Any] = {}
+def relative_runtime_paths(runtime: dict[str, Any]) -> dict[str, Any]:
+    paths: dict[str, Any] = {}
     for full_path, item in runtime.get("paths", {}).items():
         if not full_path.startswith(CRM_PREFIX):
             continue
         relative = full_path.removeprefix(CRM_PREFIX) or "/"
-        crm_paths[relative] = item
-
-    if not crm_paths:
+        paths[relative] = item
+    if not paths:
         raise RuntimeError("Runtime OpenAPI contains no /api/v2/crm operations")
+    return paths
 
-    filtered_components: dict[str, dict[str, Any]] = {}
-    pending = deque(sorted(set(component_refs(crm_paths))))
+
+def merge_contract(
+    baseline: dict[str, Any], runtime: dict[str, Any]
+) -> tuple[dict[str, Any], list[str]]:
+    governed = copy.deepcopy(baseline)
+    runtime_paths = relative_runtime_paths(runtime)
+    governed_paths = governed.setdefault("paths", {})
+
+    new_paths = sorted(path for path in runtime_paths if path not in governed_paths)
+    for path in new_paths:
+        governed_paths[path] = copy.deepcopy(runtime_paths[path])
+
+    # Existing governed operations are intentionally immutable here. A runtime
+    # change to an existing operation is evaluated by the semantic drift gate,
+    # not silently accepted by this generator.
+    components = governed.setdefault("components", {})
+    pending = deque(sorted(set(component_refs({path: runtime_paths[path] for path in new_paths}))))
     visited: set[str] = set()
     while pending:
         ref = pending.popleft()
         if ref in visited:
             continue
         visited.add(ref)
-        section, name, value = lookup_component(runtime, ref)
-        filtered_components.setdefault(section, {})[name] = value
-        for nested in component_refs(value):
+        section, name, runtime_value = lookup_component(runtime, ref)
+        section_values = components.setdefault(section, {})
+        if name not in section_values:
+            section_values[name] = copy.deepcopy(runtime_value)
+        selected = section_values[name]
+        for nested in component_refs(selected):
             if nested not in visited:
                 pending.append(nested)
 
-    # Keep security schemes because operation-level security references them by name,
-    # not by $ref. No non-CRM schemas are pulled in by this rule.
-    security_schemes = runtime.get("components", {}).get("securitySchemes")
-    if security_schemes:
-        filtered_components["securitySchemes"] = security_schemes
-
-    tags_used = {
+    # Runtime operation tags may not be declared at the OpenAPI root. Add only
+    # missing tag declarations while preserving the curated baseline order.
+    tags = governed.setdefault("tags", [])
+    declared = {tag.get("name") for tag in tags if isinstance(tag, dict)}
+    used = {
         tag
-        for item in crm_paths.values()
-        for method, operation in item.items()
+        for path in new_paths
+        for method, operation in runtime_paths[path].items()
         if method in HTTP_METHODS and isinstance(operation, dict)
         for tag in operation.get("tags", [])
     }
-    runtime_tags = runtime.get("tags", [])
-    tags = [tag for tag in runtime_tags if tag.get("name") in tags_used]
+    for tag in sorted(used - declared):
+        tags.append({"name": tag})
 
-    info = dict(runtime.get("info", {}))
-    info.update(
-        {
-            "title": "SNAD CRM API",
-            "version": "2.1.0",
-            "description": (
-                "Runtime-derived governed CRM v2 API contract including "
-                "EXEC-PROMPT-CRM-005 Enterprise Account and Customer Master."
-            ),
-        }
+    info = governed.setdefault("info", {})
+    info["title"] = "SNAD CRM API"
+    info["version"] = "2.1.0"
+    info["description"] = (
+        "Governed CRM v2 API contract extended by EXEC-PROMPT-CRM-005 "
+        "Enterprise Account and Customer Master. Existing CRM-G2 operations "
+        "retain their reviewed security, pagination, response and concurrency semantics."
     )
 
-    return {
-        "openapi": runtime.get("openapi", "3.1.0"),
-        "info": info,
-        "servers": [{"url": CRM_PREFIX, "description": "CRM v2 API root"}],
-        "tags": tags,
-        "paths": dict(sorted(crm_paths.items())),
-        "components": {
-            section: dict(sorted(values.items()))
-            for section, values in sorted(filtered_components.items())
-        },
+    governed["paths"] = dict(sorted(governed_paths.items()))
+    governed["components"] = {
+        section: dict(sorted(values.items()))
+        for section, values in sorted(components.items())
     }
+    return governed, new_paths
+
+
+def operation_count(spec: dict[str, Any]) -> int:
+    return sum(
+        1
+        for item in spec.get("paths", {}).values()
+        for method in item
+        if method in HTTP_METHODS
+    )
 
 
 def main() -> None:
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         raise SystemExit(
-            "Usage: generate-crm-openapi.py <runtime-openapi.json> <output-crm-openapi.json>"
+            "Usage: generate-crm-openapi.py "
+            "<baseline-governed.json> <runtime-openapi.json> <output-crm-openapi.json>"
         )
-    runtime_path = Path(sys.argv[1])
-    output_path = Path(sys.argv[2])
+    baseline_path = Path(sys.argv[1])
+    runtime_path = Path(sys.argv[2])
+    output_path = Path(sys.argv[3])
+    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
     runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
-    governed = extract(runtime)
+    governed, new_paths = merge_contract(baseline, runtime)
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
         json.dumps(governed, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    operations = sum(
-        1
-        for item in governed["paths"].values()
-        for method in item
-        if method in HTTP_METHODS
-    )
     print(
         f"Generated {output_path}: {len(governed['paths'])} paths, "
-        f"{operations} operations, "
-        f"{sum(len(v) for v in governed['components'].values())} components"
+        f"{operation_count(governed)} operations, "
+        f"{sum(len(v) for v in governed['components'].values())} components; "
+        f"added paths={new_paths}"
     )
 
 
