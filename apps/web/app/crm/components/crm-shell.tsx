@@ -112,6 +112,12 @@ function ProductsIcon() {
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M2 4l6-2 6 2v8l-6 2-6-2z" />
       <path d="M2 4l6 2 6-2M8 6v8" />
+function ReportsIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="9" width="3" height="5" />
+      <rect x="6.5" y="5" width="3" height="9" />
+      <rect x="11" y="2" width="3" height="12" />
     </svg>
   );
 }
@@ -194,6 +200,7 @@ const MAIN_NAV: NavItem[] = [
   { href: "/crm/tags", labelKey: "crm.nav.tags", Icon: TagsIcon },
   { href: "/crm/search", labelKey: "crm.nav.search", Icon: SearchIcon },
   { href: "/crm/products", labelKey: "crm.nav.products", Icon: ProductsIcon },
+  { href: "/crm/reports", labelKey: "crm.nav.reports", Icon: ReportsIcon },
   { href: "/crm/notes", labelKey: "crm.nav.notes", Icon: NotesIcon },
   { href: "/crm/tasks", labelKey: "crm.nav.tasks", Icon: TasksIcon },
 ];

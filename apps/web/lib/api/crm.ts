@@ -373,6 +373,8 @@ export const crmApi = {
   updateProduct: (id: string, body: Record<string, unknown>) =>
     apiClient.patch<CrmProduct, typeof body>(`${root}/products/${id}`, body),
   deleteProduct: (id: string) => apiClient.delete<void>(`${root}/products/${id}`),
+  // ── Reports (CRM.ACCOUNT.READ) — feature/crm-reports ──────────────────
+  reports: () => apiClient.get<Record<string, unknown>>(`${root}/reports/dashboard`, { cache: "no-store" }),
 
   // ── Search (CRM.ACCOUNT.READ) — feature/crm-search-export ─────────────
   search: (q: string, limit?: number) =>
