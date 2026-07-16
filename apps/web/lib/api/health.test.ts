@@ -109,13 +109,24 @@ describe("checkBackendIntegration", () => {
     expect(result.checkedAt).toBeDefined();
   });
 
-  it("uses cache: no-store for the health request", async () => {
+  it("uses cache: no-store and the tunneled-backend timeout for the health request", async () => {
     const client = new ApiClient({ baseUrl: "https://api.example.com" });
     const spy = vi.spyOn(client, "get").mockResolvedValue({ status: "UP" });
     await checkBackendIntegration(client);
     expect(spy).toHaveBeenCalledWith(
       "/actuator/health",
-      expect.objectContaining({ cache: "no-store", timeoutMs: 4_000 }),
+      expect.objectContaining({ cache: "no-store", timeoutMs: 15_000 }),
+    );
+  });
+
+  it("honors a bounded backend timeout override", async () => {
+    vi.stubEnv("BACKEND_REQUEST_TIMEOUT_MS", "20000");
+    const client = new ApiClient({ baseUrl: "https://api.example.com" });
+    const spy = vi.spyOn(client, "get").mockResolvedValue({ status: "UP" });
+    await checkBackendIntegration(client);
+    expect(spy).toHaveBeenCalledWith(
+      "/actuator/health",
+      expect.objectContaining({ timeoutMs: 20_000 }),
     );
   });
 

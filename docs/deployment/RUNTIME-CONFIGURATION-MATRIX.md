@@ -2,152 +2,123 @@
 
 ## 1. Purpose
 
-This document is the canonical map of runtime configuration for the SNAD pilot environment. It classifies values as public configuration or deployment-managed secrets and defines verification requirements.
+This document is the canonical runtime configuration map for the current SNAD pilot topology:
+
+```text
+Browser → Vercel Next.js BFF → Public HTTPS tunnel → Local Windows backend → PostgreSQL
+```
+
+The backend is not currently hosted on Render. It runs on the project owner's Windows computer and is exposed to Vercel through an approved HTTPS tunnel.
 
 ## 2. Frontend — Vercel
 
 | Variable | Classification | Required | Purpose | Validation |
 |---|---|---:|---|---|
-| `BACKEND_API_BASE_URL` | Server-side deployment configuration | Yes | HTTPS base URL used only by the trusted same-origin Next.js BFF | Must be a valid HTTPS URL outside localhost and must not contain credentials |
-| `NEXT_PUBLIC_API_BASE_URL` | Public local/development configuration | No in production | Direct API base URL for local development only | Production browser traffic must use `/api/platform`; do not expose backend secrets or credentials |
-| Node version | Project configuration | Yes | Next.js build runtime | Must match `24.x` project configuration |
+| `BACKEND_API_BASE_URL` | Server-side deployment configuration | Yes | Public HTTPS tunnel origin used by the trusted Next.js BFF | HTTPS origin, no credentials, no path/query/fragment |
+| `BACKEND_REQUEST_TIMEOUT_MS` | Server-side deployment configuration | No | Bounded upstream timeout for tunneled requests | `1000..25000`; default `15000` |
+| `NEXT_PUBLIC_API_BASE_URL` | Public direct-development override | No | Bypasses the BFF during explicit local diagnostics | Normally unset |
+| Node version | Project configuration | Yes | Next.js build/runtime | `24.x` |
 
-The public frontend URL is `https://snad-app.vercel.app`.
+Public frontend:
 
-Production browser requests use the same-origin BFF namespace:
+```text
+https://snad-app.vercel.app
+```
+
+Browser API namespace:
 
 ```text
 /api/platform/api/v1/**
 ```
 
-The BFF forwards only `/api/v1/**` routes, keeps rotating refresh tokens in a Secure HttpOnly first-party cookie, forwards bearer authorization for protected calls, rejects foreign origins for state-changing requests, and fails closed when the backend URL is unavailable or invalid.
+The BFF forwards only `/api/v1/**`, protects state-changing requests with same-origin checks, stores refresh tokens in a Secure HttpOnly first-party cookie, forwards bearer authorization, and fails closed when the upstream URL is invalid or unreachable.
 
-## 3. Backend — Render
+## 3. Backend — Local Windows Server
+
+### Network
+
+| Value | Required | Purpose |
+|---|---:|---|
+| `server.address=0.0.0.0` | Yes | Allows the local tunnel agent to reach Spring Boot |
+| `server.port=8080` | Yes | Canonical local backend port |
+| ngrok/approved tunnel process | Yes for Vercel | Creates the public HTTPS origin |
+| `PRODUCTION_BASE_URL` GitHub variable | Yes for monitoring | Must equal the active public tunnel origin |
 
 ### Core runtime
 
-| Variable | Classification | Required | Purpose |
-|---|---|---:|---|
-| `SPRING_PROFILES_ACTIVE` | Non-secret | Yes | Selects the production profile |
-| `SERVER_PORT` | Non-secret | Yes | Backend listening port |
-| `JWT_SECRET` | Secret | Yes | JWT signing material |
-| `SANAD_CONTROL_PLANE_TENANT_ID` | Secret deployment configuration | Yes for Control Plane | Dedicated platform-control tenant UUID; must never reference a client tenant |
-| `SANAD_CORS_ALLOWED_ORIGINS` | Non-secret | Yes | Approved frontend origin |
-| `COOKIE_SECURE` | Non-secret | Yes | Requires secure cookies in deployed environments |
-| `COOKIE_SAME_SITE` | Non-secret | Yes | Cookie cross-site policy |
-| `BOOTSTRAP_ENABLED` | Non-secret | Yes | Must remain false after controlled bootstrap |
-| `LOG_LEVEL_ROOT` | Non-secret | No | Root logging level |
-| `LOG_LEVEL_SANAD` | Non-secret | No | Application logging level |
+| Variable | Required | Purpose |
+|---|---:|---|
+| `SPRING_PROFILES_ACTIVE=prod` | Yes | Production-like profile |
+| `JWT_SECRET` | Yes | JWT signing material |
+| `SANAD_CONTROL_PLANE_TENANT_ID` | Yes for Control Plane | Dedicated platform-control tenant UUID |
+| `SANAD_CORS_ALLOWED_ORIGINS` | Yes | Exact direct-browser origins for controlled development/diagnostics |
+| `BOOTSTRAP_ENABLED=false` | Yes after provisioning | Prevents uncontrolled bootstrap |
+| `SERVER_PORT=8080` | Yes | Backend listener |
 
 ### Database
 
-| Variable | Classification | Required | Purpose |
-|---|---|---:|---|
-| `DATABASE_URL` or mapped Spring datasource URL | Secret-sensitive connection configuration | Yes | PostgreSQL JDBC endpoint |
-| `DATABASE_USERNAME` | Secret | Yes | Database login |
-| `DATABASE_PASSWORD` | Secret | Yes | Database credential |
-| `JPA_DDL_AUTO` | Non-secret | Yes | Must be `validate` in the deployed environment |
-| `FLYWAY_ENABLED` | Non-secret | Yes | Enables controlled schema migrations |
-| `DATABASE_POOL_MAX` | Non-secret | Yes | Pilot connection-pool upper limit |
-| `DATABASE_POOL_MIN` | Non-secret | Yes | Pilot connection-pool lower limit |
-| `DATABASE_POOL_TIMEOUT` | Non-secret | Yes | Connection acquisition timeout |
+| Variable | Required | Purpose |
+|---|---:|---|
+| `DATABASE_URL` | Yes | PostgreSQL JDBC endpoint |
+| `DATABASE_USERNAME` | Yes | Database login |
+| `DATABASE_PASSWORD` | Yes | Database credential |
+| `JPA_DDL_AUTO=validate` | Yes | Prevents uncontrolled schema mutation |
+| `FLYWAY_ENABLED=true` | Yes | Controlled migrations |
 
-### Account recovery notifications
+## 4. Local Frontend Development
 
-| Variable | Classification | Required for real email | Purpose |
-|---|---|---:|---|
-| `SECURITY_NOTIFICATION_PROVIDER` | Non-secret | Yes | Selects the approved notification provider |
-| `SECURITY_NOTIFICATION_ENDPOINT` | Secret-sensitive configuration | Only for HTTP provider | Authorized HTTPS delivery endpoint |
-| `SECURITY_NOTIFICATION_BEARER_TOKEN` | Secret | Usually for HTTP provider | Authenticates the backend to the delivery endpoint |
-| `SECURITY_NOTIFICATION_FROM` | Controlled configuration | Yes | Approved SNAD sender identity |
-| `APPLICATION_BASE_URL` | Non-secret | Yes | Builds recovery links to the public frontend |
-| `SPRING_MAIL_PASSWORD` | Secret | Required for SMTP provider | SMTP application credential stored only in Render |
+Create `apps/web/.env.local` from `apps/web/.env.local.example`:
 
-## 4. Secret-handling policy
+```dotenv
+BACKEND_API_BASE_URL=http://127.0.0.1:8080
+BACKEND_REQUEST_TIMEOUT_MS=15000
+```
 
-- Store secrets only in Render, Vercel, or an approved secret manager.
-- Do not commit `.env` files containing credentials.
-- Do not include credentials in JDBC URLs.
-- Do not print secret values in CI, deployment, or application logs.
-- Rotate secrets after suspected exposure.
-- Use the smallest provider permission scope possible.
-- Treat application passwords, deploy hooks, refresh tokens, and bearer values as credentials.
-- Never expose `BACKEND_API_BASE_URL` through a `NEXT_PUBLIC_*` variable in production unless it is intentionally public and reviewed.
+Local browser traffic also uses `/api/platform`, so the Next.js server—not the browser—connects to Spring Boot. This removes local CORS and cross-site refresh-cookie failure modes.
 
-## 5. Environment states
+## 5. Connection Bootstrap
 
-### Local
+Run:
 
-- External email delivery is not required.
-- Local notification behavior may capture or suppress messages.
-- HTTP localhost API URLs are permitted.
-- Direct `NEXT_PUBLIC_API_BASE_URL` access is permitted for local development.
-- Test data only.
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\windows\connect-local-backend.ps1
+```
 
-### CI/Test
+The script validates local health, starts/reuses ngrok, validates public health, writes the local frontend environment, and updates `PRODUCTION_BASE_URL` through GitHub CLI when available.
 
-- No external email connection.
-- Deterministic test gateway.
-- Ephemeral PostgreSQL or approved test database.
-- Secrets provided only when a test explicitly requires them.
-- BFF tests must prove route allowlisting, same-origin enforcement, refresh-token cookie handling, and generic upstream-failure responses.
+The printed tunnel origin must also be configured in Vercel as `BACKEND_API_BASE_URL`, followed by a production redeployment.
 
-### Pilot
-
-- Vercel frontend.
-- Render backend.
-- Supabase PostgreSQL.
-- HTTPS only.
-- Same-origin BFF for browser-to-backend traffic.
-- Controlled pilot users and data.
-- Free-tier constraints acknowledged.
-- No commercial production authorization.
-
-### Commercial production
-
-Not authorized. Requires a separate infrastructure, security, compliance, capacity, disaster-recovery, and owner-approval decision.
-
-## 6. Deployment verification checklist
+## 6. Verification Gate
 
 ```text
-FRONTEND_DEPLOYMENT_READY: PASS
+LOCAL_BACKEND_HEALTH_HTTP_200: PASS
+PUBLIC_TUNNEL_HEALTH_HTTP_200: PASS
 FRONTEND_PUBLIC_URL_HTTP_200: PASS
 BFF_ROUTE_INCLUDED_IN_BUILD: PASS
 BFF_AUTH_ME_UNAUTHENTICATED_HTTP_401: PASS
 BFF_AUTH_ME_NOT_404_502_503: PASS
-BACKEND_HEALTH_UP: PASS
-BACKEND_LIVENESS_UP: PASS
-BACKEND_READINESS_UP: PASS
+BACKEND_STATUS_CONFIGURED_TRUE: PASS
+BACKEND_STATUS_REACHABLE_TRUE: PASS
 DATABASE_MIGRATIONS_VALID: PASS
-CONTROL_PLANE_TENANT_ID_PRESENT: PASS
-CONTROL_PLANE_TENANT_IS_NOT_CLIENT_TENANT: PASS
-CORS_ORIGIN_EXACT: PASS
 JWT_SECRET_PRESENT: PASS
 BOOTSTRAP_DISABLED: PASS
-NOTIFICATION_PROVIDER_CONFIGURED: PASS or DOCUMENTED_DISABLED
-NO_SECRET_IN_LOGS: PASS
-RECOVERY_LINK_BASE_URL_CORRECT: PASS
 ```
 
-A Vercel build is not accepted when its route inventory omits:
+Failure interpretation:
 
-```text
-ƒ /api/platform/[...path]
-```
+- `404`: BFF catch-all route is missing from the Vercel deployment.
+- `503`: Vercel `BACKEND_API_BASE_URL` is missing or invalid.
+- `502`: Vercel cannot reach the tunnel, the tunnel cannot reach the computer, or the backend is not healthy.
+- `401` from `/api/v1/auth/me` without a token: expected and proves the authentication boundary is reachable.
 
-An unauthenticated request to the deployed BFF session endpoint must return `401`. The following results are release blockers:
+## 7. Secret Handling
 
-- `404`: BFF route was not included in the deployed build.
-- `503`: `BACKEND_API_BASE_URL` is missing or invalid.
-- `502`: the configured backend is unreachable or failed during proxying.
+- Keep database credentials, JWT secrets, tunnel tokens, and Vercel/GitHub tokens out of the repository.
+- Never place credentials inside `BACKEND_API_BASE_URL`.
+- Do not commit `.env.local`.
+- Do not print authentication tokens in CI or application logs.
+- Rotate credentials after suspected exposure.
 
-## 7. Configuration change control
+## 8. Availability Constraint
 
-Every change to a secret name, external endpoint, sender identity, CORS origin, cookie policy, database connection, control-plane tenant binding, authentication value, or BFF route must include:
-
-1. A reviewed repository or deployment change.
-2. An owner and rollback plan.
-3. Sanitized verification evidence.
-4. No secret value in the pull request.
-5. Updated documentation.
-6. A new end-to-end test when authentication, account recovery, or Control Plane access is affected.
+The Vercel application is available only while the local computer, backend, database, internet connection, and tunnel process are running. Temporary ngrok URLs change when the tunnel restarts; Vercel and GitHub must point to the same active URL. Use a reserved/static tunnel domain for a stable pilot endpoint.

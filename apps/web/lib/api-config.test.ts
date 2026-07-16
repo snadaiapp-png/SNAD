@@ -45,11 +45,18 @@ describe("legacy API compatibility", () => {
     expect(result).toMatchObject({ configured: true, reachable: true, statusCode: 200 });
   });
 
-  it("keeps unconfigured integration behavior compatible", async () => {
+  it("uses the local same-origin BFF when public configuration is absent", async () => {
     delete process.env.NEXT_PUBLIC_API_BASE_URL;
     delete process.env.BACKEND_API_BASE_URL;
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("backend unavailable")));
+
     const integration = await import("./api-integration");
     const result = await integration.checkBackendIntegration();
-    expect(result).toMatchObject({ configured: false, reachable: false, statusCode: null });
+
+    expect(result).toMatchObject({ configured: true, reachable: false, statusCode: null });
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/platform/api/v1/auth/me",
+      expect.objectContaining({ cache: "no-store" }),
+    );
   });
 });
