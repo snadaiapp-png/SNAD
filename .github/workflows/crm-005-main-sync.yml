@@ -1,0 +1,29 @@
+name: CRM-005 Main Synchronization
+
+on:
+  push:
+    branches:
+      - crm/005-enterprise-account-master
+    paths:
+      - '.github/workflows/crm-005-main-sync.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  synchronize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: crm/005-enterprise-account-master
+          fetch-depth: 0
+
+      - name: Merge current main without rewriting history
+        run: |
+          set -euo pipefail
+          git config user.name "SANAD Governance Bot"
+          git config user.email "governance@sanad.local"
+          git fetch origin main
+          git merge --no-edit origin/main
+          git push origin HEAD:crm/005-enterprise-account-master
