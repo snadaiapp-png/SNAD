@@ -197,7 +197,11 @@ if (-not $SkipVercelVariableUpdate) {
         try {
             $env:VERCEL_ORG_ID = $VercelOrgId
             $env:VERCEL_PROJECT_ID = $VercelProjectId
-            Push-Location $WebDir
+
+            # The Vercel project Root Directory is already configured as
+            # apps/web. Run the CLI from the repository root; running it from
+            # apps/web would incorrectly resolve apps/web/apps/web.
+            Push-Location $RepositoryRoot
             try {
                 $baseUpdated = Set-VercelProductionVariable `
                     -VercelCommand $vercel `
@@ -213,7 +217,7 @@ if (-not $SkipVercelVariableUpdate) {
                     Write-Host "  Vercel production variables updated." -ForegroundColor Green
 
                     if ($DeployVercelProduction) {
-                        Write-Host "  Deploying current apps/web source to Vercel production..." -ForegroundColor Cyan
+                        Write-Host "  Deploying repository source to Vercel production..." -ForegroundColor Cyan
                         & $vercel.Source deploy --prod --yes
                         if ($LASTEXITCODE -ne 0) {
                             throw "Vercel production deployment failed."
