@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { crmApi, type Customer360 } from "@/lib/api/crm";
 import { toUserFacingError } from "@/lib/api/user-facing-errors";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import { CustomerMasterPanel } from "./customer-master-panel";
 import { formatDate, formatNumber } from "../../../crm-view-utils";
 import { CrmLoading } from "../../../components/crm-loading";
 import { CrmError } from "../../../components/crm-error";
@@ -14,9 +15,9 @@ import styles from "../../../crm.module.css";
 /**
  * Customer 360 route — /crm/accounts/[accountId]
  *
- * Loads `crmApi.customer360(accountId)` and renders the account summary,
- * related contacts, opportunities, activities, and timeline as separate
- * sections. Each section degrades gracefully when empty.
+ * Loads the existing Customer 360 read model and the CRM-005 enterprise
+ * customer-master workspace. Operational relationships remain separated into
+ * their existing read sections while master identity is governed in one place.
  */
 export default function Customer360Page() {
   const { t } = useI18n();
@@ -102,6 +103,8 @@ export default function Customer360Page() {
           <article><span>{t("crm.accounts.list.updated")}</span><strong>{formatDate(account.updated_at)}</strong></article>
         </div>
       </section>
+
+      <CustomerMasterPanel accountId={accountId} />
 
       <section className={styles.overviewSection} aria-label={t("crm.customer360.contacts")}>
         <h2 className={styles.overviewSectionTitle}>{t("crm.customer360.contacts")}</h2>
