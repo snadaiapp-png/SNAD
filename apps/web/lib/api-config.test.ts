@@ -55,7 +55,7 @@ describe("legacy API compatibility", () => {
 
     expect(result).toMatchObject({ configured: true, reachable: false, statusCode: null });
     expect(fetch).toHaveBeenCalledWith(
-      "/api/platform/actuator/health",
+      "/api/platform/api/v1/auth/me",
       expect.objectContaining({ cache: "no-store" }),
     );
   });
