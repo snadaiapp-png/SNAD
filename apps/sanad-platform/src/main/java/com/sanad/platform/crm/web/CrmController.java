@@ -1,5 +1,7 @@
 package com.sanad.platform.crm.web;
 
+import com.sanad.platform.crm.legacy.infrastructure.LegacyCrmInfrastructureService;
+
 import com.sanad.platform.security.authorization.RequireCapability;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
@@ -27,9 +29,9 @@ import java.util.UUID;
 @RequestMapping("/api/v1/crm")
 public class CrmController {
     private final CrmService crm;
-    private final CrmExtendedService extended;
+    private final LegacyCrmInfrastructureService extended;
 
-    public CrmController(CrmService crm, CrmExtendedService extended) {
+    public CrmController(CrmService crm, LegacyCrmInfrastructureService extended) {
         this.crm = crm;
         this.extended = extended;
     }

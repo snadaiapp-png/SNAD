@@ -1,4 +1,7 @@
 package com.sanad.platform.crm.web;
+
+import com.sanad.platform.crm.legacy.infrastructure.LegacyCrmInfrastructureService;
+import com.sanad.platform.crm.legacy.infrastructure.CrmV2AtomicMutationInfrastructureService;
 import com.sanad.platform.crm.party.application.AccountUseCases;
 import com.sanad.platform.crm.party.application.ContactUseCases;
 import com.sanad.platform.crm.lead.application.LeadUseCases;
@@ -61,28 +64,28 @@ import java.util.UUID;
 @RequestMapping("/api/v2/crm")
 public class CrmContractControllerR1 {
     private final CrmService legacy;
-    private final CrmExtendedService extended;
+    private final LegacyCrmInfrastructureService extended;
     private final AccountUseCases accountUseCases;
     private final ContactUseCases contactUseCases;
     private final LeadUseCases leadUseCases;
     private final OpportunityUseCases opportunityUseCases;
     private final ActivityUseCases activityUseCases;
     private final ConfigurationUseCases configurationUseCases;
-    private final CrmV2AtomicMutationService atomic;
+    private final CrmV2AtomicMutationInfrastructureService atomic;
     private final CrmDtoMapper mapper;
     private final ETagService etags;
     private final CrmIdempotencyHttpSupport idempotency;
 
     public CrmContractControllerR1(
             CrmService legacy,
-            CrmExtendedService extended,
+            LegacyCrmInfrastructureService extended,
             AccountUseCases accountUseCases,
             ContactUseCases contactUseCases,
             LeadUseCases leadUseCases,
             OpportunityUseCases opportunityUseCases,
             ActivityUseCases activityUseCases,
             ConfigurationUseCases configurationUseCases,
-            CrmV2AtomicMutationService atomic,
+            CrmV2AtomicMutationInfrastructureService atomic,
             CrmDtoMapper mapper,
             ETagService etags,
             CrmIdempotencyHttpSupport idempotency) {

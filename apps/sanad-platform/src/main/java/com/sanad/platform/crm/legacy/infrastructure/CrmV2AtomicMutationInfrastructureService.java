@@ -1,4 +1,6 @@
-package com.sanad.platform.crm.web;
+package com.sanad.platform.crm.legacy.infrastructure;
+
+import com.sanad.platform.crm.web.*;
 
 import com.sanad.platform.crm.error.CrmContractException;
 import com.sanad.platform.crm.error.CrmErrorCode;
@@ -23,7 +25,7 @@ import java.util.UUID;
  * successful If-Match check cannot be invalidated by a concurrent writer.
  */
 @Service
-public class CrmV2AtomicMutationService {
+public class CrmV2AtomicMutationInfrastructureService {
     private static final Map<String, Set<String>> LEAD_TRANSITIONS = Map.of(
             "NEW", Set.of("ASSIGNED", "CONTACTED", "QUALIFIED", "DISQUALIFIED", "ARCHIVED"),
             "ASSIGNED", Set.of("CONTACTED", "QUALIFIED", "DISQUALIFIED", "ARCHIVED"),
@@ -34,7 +36,7 @@ public class CrmV2AtomicMutationService {
 
     private final NamedParameterJdbcTemplate jdbc;
 
-    public CrmV2AtomicMutationService(NamedParameterJdbcTemplate jdbc) {
+    public CrmV2AtomicMutationInfrastructureService(NamedParameterJdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

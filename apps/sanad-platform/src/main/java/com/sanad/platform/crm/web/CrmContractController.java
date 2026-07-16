@@ -1,4 +1,7 @@
 package com.sanad.platform.crm.web;
+
+import com.sanad.platform.crm.legacy.infrastructure.LegacyCrmInfrastructureService;
+import com.sanad.platform.crm.legacy.infrastructure.CrmV2AtomicMutationInfrastructureService;
 import com.sanad.platform.crm.party.application.AccountUseCases;
 import com.sanad.platform.crm.party.application.ContactUseCases;
 import com.sanad.platform.crm.party.domain.AccountRepository.AccountRecord;
@@ -60,10 +63,10 @@ import java.util.UUID;
 @RequestMapping("/api/v2/crm")
 public class CrmContractController {
     private final CrmService legacy;
-    private final CrmExtendedService extended;
+    private final LegacyCrmInfrastructureService extended;
     private final AccountUseCases accountUseCases;
     private final ContactUseCases contactUseCases;
-    private final CrmV2AtomicMutationService atomic;
+    private final CrmV2AtomicMutationInfrastructureService atomic;
     private final CrmDtoMapper mapper;
     private final ETagService etags;
     private final CursorCodec cursors;
@@ -71,10 +74,10 @@ public class CrmContractController {
 
     public CrmContractController(
             CrmService legacy,
-            CrmExtendedService extended,
+            LegacyCrmInfrastructureService extended,
             AccountUseCases accountUseCases,
             ContactUseCases contactUseCases,
-            CrmV2AtomicMutationService atomic,
+            CrmV2AtomicMutationInfrastructureService atomic,
             CrmDtoMapper mapper,
             ETagService etags,
             CursorCodec cursors,

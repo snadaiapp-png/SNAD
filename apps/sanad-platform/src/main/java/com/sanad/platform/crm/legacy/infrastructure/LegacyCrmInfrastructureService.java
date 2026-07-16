@@ -1,4 +1,6 @@
-package com.sanad.platform.crm.web;
+package com.sanad.platform.crm.legacy.infrastructure;
+
+import com.sanad.platform.crm.web.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -58,8 +60,8 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 @Service
-class CrmExtendedService {
-    private static final Logger log = LoggerFactory.getLogger(CrmExtendedService.class);
+public class LegacyCrmInfrastructureService {
+    private static final Logger log = LoggerFactory.getLogger(LegacyCrmInfrastructureService.class);
     private static final int MAX_IMPORT_BYTES = 10 * 1024 * 1024;
     private static final int MAX_EXPANDED_XLSX_BYTES = 50 * 1024 * 1024;
     private static final int MAX_IMPORT_ROWS = 10_000;
@@ -105,7 +107,7 @@ class CrmExtendedService {
     private final String workerId = UUID.randomUUID().toString();
     private final SecretKeySpec customFieldKey;
 
-    CrmExtendedService(
+    public LegacyCrmInfrastructureService(
             NamedParameterJdbcTemplate jdbc,
             ObjectMapper objectMapper,
             PlatformTransactionManager transactionManager,
@@ -511,7 +513,7 @@ class CrmExtendedService {
     }
 
     @Transactional(readOnly = true)
-    String importErrorsCsv(Authentication authentication, UUID jobId) {
+    public String importErrorsCsv(Authentication authentication, UUID jobId) {
         List<Map<String, Object>> errors = listImportErrors(authentication, jobId, 5000);
         StringBuilder csv = new StringBuilder();
         csv.append("row_number,field_name,error_code,message,raw_row\r\n");
@@ -537,7 +539,7 @@ class CrmExtendedService {
         }
     }
 
-    boolean processNextImportNow() {
+    public boolean processNextImportNow() {
         UUID jobId = transaction.execute(status -> claimNextImport());
         if (jobId == null) return false;
         try {
@@ -1146,7 +1148,7 @@ class CrmExtendedService {
         }
     }
 
-    void validateOwner(UUID tenantId, UUID ownerId) {
+    public void validateOwner(UUID tenantId, UUID ownerId) {
         if (ownerId == null) return;
         if (scalarLong(
                 "SELECT COUNT(*) FROM users WHERE tenant_id=:tenantId AND id=:ownerId AND status='ACTIVE'",
@@ -1155,7 +1157,7 @@ class CrmExtendedService {
         }
     }
 
-    void validateRelated(UUID tenantId, String relatedType, UUID relatedId) {
+    public void validateRelated(UUID tenantId, String relatedType, UUID relatedId) {
         if (relatedType == null && relatedId == null) return;
         if (relatedType == null || relatedId == null) {
             throw bad("relatedType and relatedId must be supplied together");
