@@ -1,5 +1,7 @@
 package com.sanad.platform.crm.web;
 
+import com.sanad.platform.crm.legacy.infrastructure.LegacyCrmInfrastructureService;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
@@ -40,7 +42,7 @@ class CrmImportAndCustomFieldIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired JdbcTemplate jdbc;
-    @Autowired CrmExtendedService extended;
+    @Autowired LegacyCrmInfrastructureService extended;
 
     private UUID tenantA;
     private UUID tenantB;

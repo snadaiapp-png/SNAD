@@ -1,15 +1,16 @@
 package com.sanad.platform.crm.architecture;
 
+import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
-/**
- * Enforces the final CRM-004 modular boundaries.
- */
-@AnalyzeClasses(packages = "com.sanad.platform.crm")
+/** Enforces the final CRM-004 modular boundaries on production classes. */
+@AnalyzeClasses(
+        packages = "com.sanad.platform.crm",
+        importOptions = ImportOption.DoNotIncludeTests.class)
 class CrmArchitectureTest {
 
     @ArchTest
@@ -38,6 +39,18 @@ class CrmArchitectureTest {
             .because("Query module is read-only");
 
     @ArchTest
+    static final ArchRule crmWebMustNotDependOnJdbc = noClasses()
+            .that().resideInAPackage("..web..")
+            .should().dependOnClassesThat().resideInAPackage("org.springframework.jdbc..")
+            .because("CRM web packages are HTTP boundaries, not persistence infrastructure");
+
+    @ArchTest
+    static final ArchRule crmWebMustNotOwnTransactions = noClasses()
+            .that().resideInAPackage("..web..")
+            .should().dependOnClassesThat().resideInAPackage("org.springframework.transaction..")
+            .because("Transaction ownership belongs outside CRM web packages");
+
+    @ArchTest
     static final ArchRule crmServiceShouldNotDependOnJdbc = noClasses()
             .that().haveSimpleName("CrmService")
             .should().dependOnClassesThat().resideInAPackage("org.springframework.jdbc..")
@@ -51,17 +64,10 @@ class CrmArchitectureTest {
 
     @ArchTest
     static final ArchRule controllersShouldNotAccessJdbcDirectly = noClasses()
-            .that().resideInAPackage("..crm.web..")
-            .and().haveSimpleNameEndingWith("Controller")
+            .that().haveSimpleNameEndingWith("Controller")
             .should().dependOnClassesThat().resideInAPackage("org.springframework.jdbc..")
             .because("CRM controllers must call application services");
 
-    /*
-     * Explicit acyclic dependency direction for core bounded modules.
-     * Lead may orchestrate Party and Opportunity during conversion. Reverse
-     * dependencies are forbidden, which prevents a cycle without treating
-     * shared cross-cutting packages (error, integration and web) as domains.
-     */
     @ArchTest
     static final ArchRule partyMustNotDependOnLeadOpportunityOrActivity = noClasses()
             .that().resideInAPackage("..crm.party..")

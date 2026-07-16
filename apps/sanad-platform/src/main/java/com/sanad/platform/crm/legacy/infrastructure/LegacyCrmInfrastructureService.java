@@ -1,4 +1,6 @@
-package com.sanad.platform.crm.web;
+package com.sanad.platform.crm.legacy.infrastructure;
+
+import com.sanad.platform.crm.web.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -58,8 +60,8 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 @Service
-class CrmExtendedService {
-    private static final Logger log = LoggerFactory.getLogger(CrmExtendedService.class);
+public class LegacyCrmInfrastructureService {
+    private static final Logger log = LoggerFactory.getLogger(LegacyCrmInfrastructureService.class);
     private static final int MAX_IMPORT_BYTES = 10 * 1024 * 1024;
     private static final int MAX_EXPANDED_XLSX_BYTES = 50 * 1024 * 1024;
     private static final int MAX_IMPORT_ROWS = 10_000;
@@ -105,7 +107,7 @@ class CrmExtendedService {
     private final String workerId = UUID.randomUUID().toString();
     private final SecretKeySpec customFieldKey;
 
-    CrmExtendedService(
+    public LegacyCrmInfrastructureService(
             NamedParameterJdbcTemplate jdbc,
             ObjectMapper objectMapper,
             PlatformTransactionManager transactionManager,
@@ -121,7 +123,7 @@ class CrmExtendedService {
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> dashboard(Authentication authentication) {
+    public Map<String, Object> dashboard(Authentication authentication) {
         UUID tenantId = tenantId(authentication);
         MapSqlParameterSource params = p().addValue("tenantId", tenantId);
         LinkedHashMap<String, Object> result = new LinkedHashMap<>();
@@ -151,7 +153,7 @@ class CrmExtendedService {
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> customer360(Authentication authentication, UUID accountId) {
+    public Map<String, Object> customer360(Authentication authentication, UUID accountId) {
         UUID tenantId = tenantId(authentication);
         LinkedHashMap<String, Object> result = new LinkedHashMap<>();
         result.put("account", one("crm_accounts", tenantId, accountId, "CRM account not found"));
@@ -178,7 +180,7 @@ class CrmExtendedService {
     }
 
     @Transactional
-    Map<String, Object> restoreAccount(Authentication authentication, UUID accountId) {
+    public Map<String, Object> restoreAccount(Authentication authentication, UUID accountId) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
         Instant now = Instant.now();
@@ -193,7 +195,7 @@ class CrmExtendedService {
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> getContact(Authentication authentication, UUID contactId) {
+    public Map<String, Object> getContact(Authentication authentication, UUID contactId) {
         UUID tenantId = tenantId(authentication);
         LinkedHashMap<String, Object> result =
                 new LinkedHashMap<>(one("crm_contacts", tenantId, contactId, "CRM contact not found"));
@@ -202,7 +204,7 @@ class CrmExtendedService {
     }
 
     @Transactional
-    Map<String, Object> updateContact(
+    public Map<String, Object> updateContact(
             Authentication authentication, UUID contactId, UpdateContactRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
@@ -254,12 +256,12 @@ class CrmExtendedService {
     }
 
     @Transactional
-    Map<String, Object> archiveContact(Authentication authentication, UUID contactId) {
+    public Map<String, Object> archiveContact(Authentication authentication, UUID contactId) {
         return changeContactArchive(authentication, contactId, true);
     }
 
     @Transactional
-    Map<String, Object> restoreContact(Authentication authentication, UUID contactId) {
+    public Map<String, Object> restoreContact(Authentication authentication, UUID contactId) {
         return changeContactArchive(authentication, contactId, false);
     }
 
@@ -287,7 +289,7 @@ class CrmExtendedService {
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> getLead(Authentication authentication, UUID leadId) {
+    public Map<String, Object> getLead(Authentication authentication, UUID leadId) {
         UUID tenantId = tenantId(authentication);
         LinkedHashMap<String, Object> result =
                 new LinkedHashMap<>(one("crm_leads", tenantId, leadId, "CRM lead not found"));
@@ -296,7 +298,7 @@ class CrmExtendedService {
     }
 
     @Transactional
-    Map<String, Object> changeLeadStatus(
+    public Map<String, Object> changeLeadStatus(
             Authentication authentication, UUID leadId, UpdateLeadStatusRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
@@ -317,7 +319,7 @@ class CrmExtendedService {
     }
 
     @Transactional(readOnly = true)
-    List<Map<String, Object>> listPipelineStages(
+    public List<Map<String, Object>> listPipelineStages(
             Authentication authentication, UUID pipelineId) {
         UUID tenantId = tenantId(authentication);
         one("crm_pipelines", tenantId, pipelineId, "CRM pipeline not found");
@@ -327,7 +329,7 @@ class CrmExtendedService {
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> getOpportunity(Authentication authentication, UUID opportunityId) {
+    public Map<String, Object> getOpportunity(Authentication authentication, UUID opportunityId) {
         UUID tenantId = tenantId(authentication);
         LinkedHashMap<String, Object> result =
                 new LinkedHashMap<>(one("crm_opportunities", tenantId, opportunityId,
@@ -346,7 +348,7 @@ class CrmExtendedService {
     }
 
     @Transactional(readOnly = true)
-    List<Map<String, Object>> listActivities(
+    public List<Map<String, Object>> listActivities(
             Authentication authentication, int requestedLimit,
             String relatedType, UUID relatedId, String status) {
         UUID tenantId = tenantId(authentication);
@@ -371,7 +373,7 @@ class CrmExtendedService {
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> getActivity(Authentication authentication, UUID activityId) {
+    public Map<String, Object> getActivity(Authentication authentication, UUID activityId) {
         UUID tenantId = tenantId(authentication);
         LinkedHashMap<String, Object> result =
                 new LinkedHashMap<>(one("crm_activities", tenantId, activityId,
@@ -382,7 +384,7 @@ class CrmExtendedService {
     }
 
     @Transactional
-    Map<String, Object> completeActivity(
+    public Map<String, Object> completeActivity(
             Authentication authentication, UUID activityId, CompleteActivityRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
@@ -410,7 +412,7 @@ class CrmExtendedService {
     }
 
     @Transactional
-    Map<String, Object> uploadImport(
+    public Map<String, Object> uploadImport(
             Authentication authentication, String requestedEntityType,
             String mappingJson, MultipartFile file) {
         UUID tenantId = tenantId(authentication);
@@ -446,7 +448,7 @@ class CrmExtendedService {
     }
 
     @Transactional(readOnly = true)
-    List<Map<String, Object>> listImportJobs(
+    public List<Map<String, Object>> listImportJobs(
             Authentication authentication, int requestedLimit) {
         return jdbc.queryForList(
                 "SELECT job.*,(SELECT COUNT(*) FROM crm_import_errors error " +
@@ -458,12 +460,12 @@ class CrmExtendedService {
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> getImportJob(Authentication authentication, UUID jobId) {
+    public Map<String, Object> getImportJob(Authentication authentication, UUID jobId) {
         return getImportJobInternal(tenantId(authentication), jobId);
     }
 
     @Transactional
-    Map<String, Object> runImport(Authentication authentication, UUID jobId) {
+    public Map<String, Object> runImport(Authentication authentication, UUID jobId) {
         UUID tenantId = tenantId(authentication);
         Map<String, Object> job = one("crm_import_jobs", tenantId, jobId, "CRM import job not found");
         String status = String.valueOf(job.get("status"));
@@ -484,7 +486,7 @@ class CrmExtendedService {
     }
 
     @Transactional
-    Map<String, Object> cancelImport(Authentication authentication, UUID jobId) {
+    public Map<String, Object> cancelImport(Authentication authentication, UUID jobId) {
         UUID tenantId = tenantId(authentication);
         int changed = jdbc.update(
                 "UPDATE crm_import_jobs SET status='CANCELLED',worker_id=NULL,lease_expires_at=NULL," +
@@ -499,7 +501,7 @@ class CrmExtendedService {
     }
 
     @Transactional(readOnly = true)
-    List<Map<String, Object>> listImportErrors(
+    public List<Map<String, Object>> listImportErrors(
             Authentication authentication, UUID jobId, int requestedLimit) {
         UUID tenantId = tenantId(authentication);
         one("crm_import_jobs", tenantId, jobId, "CRM import job not found");
@@ -511,7 +513,7 @@ class CrmExtendedService {
     }
 
     @Transactional(readOnly = true)
-    String importErrorsCsv(Authentication authentication, UUID jobId) {
+    public String importErrorsCsv(Authentication authentication, UUID jobId) {
         List<Map<String, Object>> errors = listImportErrors(authentication, jobId, 5000);
         StringBuilder csv = new StringBuilder();
         csv.append("row_number,field_name,error_code,message,raw_row\r\n");
@@ -537,7 +539,7 @@ class CrmExtendedService {
         }
     }
 
-    boolean processNextImportNow() {
+    public boolean processNextImportNow() {
         UUID jobId = transaction.execute(status -> claimNextImport());
         if (jobId == null) return false;
         try {
@@ -925,7 +927,7 @@ class CrmExtendedService {
     }
 
     @Transactional
-    Map<String, Object> createCustomField(
+    public Map<String, Object> createCustomField(
             Authentication authentication, CreateCustomFieldRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID id = UUID.randomUUID();
@@ -960,7 +962,7 @@ class CrmExtendedService {
     }
 
     @Transactional(readOnly = true)
-    List<Map<String, Object>> listCustomFields(
+    public List<Map<String, Object>> listCustomFields(
             Authentication authentication, String entityType) {
         UUID tenantId = tenantId(authentication);
         if (entityType == null || entityType.isBlank()) {
@@ -973,7 +975,7 @@ class CrmExtendedService {
     }
 
     @Transactional
-    Map<String, Object> upsertCustomFieldValues(
+    public Map<String, Object> upsertCustomFieldValues(
             Authentication authentication, String requestedEntityType,
             UUID entityId, UpdateCustomFieldValuesRequest request) {
         UUID tenantId = tenantId(authentication);
@@ -984,7 +986,7 @@ class CrmExtendedService {
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> readCustomFieldValues(
+    public Map<String, Object> readCustomFieldValues(
             Authentication authentication, String requestedEntityType,
             UUID entityId, boolean includeSensitive) {
         UUID tenantId = tenantId(authentication);
@@ -994,7 +996,7 @@ class CrmExtendedService {
     }
 
     @Transactional(readOnly = true)
-    List<Map<String, Object>> searchCustomFieldValues(
+    public List<Map<String, Object>> searchCustomFieldValues(
             Authentication authentication, String requestedEntityType,
             String fieldKey, String query, int requestedLimit) {
         UUID tenantId = tenantId(authentication);
@@ -1146,7 +1148,7 @@ class CrmExtendedService {
         }
     }
 
-    void validateOwner(UUID tenantId, UUID ownerId) {
+    public void validateOwner(UUID tenantId, UUID ownerId) {
         if (ownerId == null) return;
         if (scalarLong(
                 "SELECT COUNT(*) FROM users WHERE tenant_id=:tenantId AND id=:ownerId AND status='ACTIVE'",
@@ -1155,7 +1157,7 @@ class CrmExtendedService {
         }
     }
 
-    void validateRelated(UUID tenantId, String relatedType, UUID relatedId) {
+    public void validateRelated(UUID tenantId, String relatedType, UUID relatedId) {
         if (relatedType == null && relatedId == null) return;
         if (relatedType == null || relatedId == null) {
             throw bad("relatedType and relatedId must be supplied together");

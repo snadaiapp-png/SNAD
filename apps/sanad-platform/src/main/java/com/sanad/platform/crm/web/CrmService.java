@@ -1,5 +1,7 @@
 package com.sanad.platform.crm.web;
 
+import com.sanad.platform.crm.legacy.infrastructure.LegacyCrmInfrastructureService;
+
 import com.sanad.platform.crm.activity.application.ActivityUseCases;
 import com.sanad.platform.crm.activity.domain.ActivityRepository;
 import com.sanad.platform.crm.activity.domain.ActivityRepository.ActivityRecord;
@@ -42,7 +44,7 @@ import java.util.UUID;
  */
 @Service
 class CrmService {
-    private final CrmExtendedService extended;
+    private final LegacyCrmInfrastructureService extended;
     private final AccountUseCases accountUseCases;
     private final ContactUseCases contactUseCases;
     private final LeadUseCases leadUseCases;
@@ -51,7 +53,7 @@ class CrmService {
     private final ActivityUseCases activityUseCases;
     private final QueryUseCases queryUseCases;
 
-    CrmService(CrmExtendedService extended,
+    CrmService(LegacyCrmInfrastructureService extended,
                AccountUseCases accountUseCases,
                ContactUseCases contactUseCases,
                LeadUseCases leadUseCases,

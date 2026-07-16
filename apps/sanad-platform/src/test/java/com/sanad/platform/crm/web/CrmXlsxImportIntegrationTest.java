@@ -1,5 +1,7 @@
 package com.sanad.platform.crm.web;
 
+import com.sanad.platform.crm.legacy.infrastructure.LegacyCrmInfrastructureService;
+
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("local")
 class CrmXlsxImportIntegrationTest {
     @Autowired JdbcTemplate jdbc;
-    @Autowired CrmExtendedService extended;
+    @Autowired LegacyCrmInfrastructureService extended;
 
     private UUID tenantId;
     private UUID userId;

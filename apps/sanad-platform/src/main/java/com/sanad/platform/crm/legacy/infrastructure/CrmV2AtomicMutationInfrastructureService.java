@@ -1,4 +1,6 @@
-package com.sanad.platform.crm.web;
+package com.sanad.platform.crm.legacy.infrastructure;
+
+import com.sanad.platform.crm.web.*;
 
 import com.sanad.platform.crm.error.CrmContractException;
 import com.sanad.platform.crm.error.CrmErrorCode;
@@ -23,7 +25,7 @@ import java.util.UUID;
  * successful If-Match check cannot be invalidated by a concurrent writer.
  */
 @Service
-public class CrmV2AtomicMutationService {
+public class CrmV2AtomicMutationInfrastructureService {
     private static final Map<String, Set<String>> LEAD_TRANSITIONS = Map.of(
             "NEW", Set.of("ASSIGNED", "CONTACTED", "QUALIFIED", "DISQUALIFIED", "ARCHIVED"),
             "ASSIGNED", Set.of("CONTACTED", "QUALIFIED", "DISQUALIFIED", "ARCHIVED"),
@@ -34,12 +36,12 @@ public class CrmV2AtomicMutationService {
 
     private final NamedParameterJdbcTemplate jdbc;
 
-    public CrmV2AtomicMutationService(NamedParameterJdbcTemplate jdbc) {
+    public CrmV2AtomicMutationInfrastructureService(NamedParameterJdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
     @Transactional
-    Map<String, Object> updateAccount(
+    public Map<String, Object> updateAccount(
             Authentication authentication,
             UUID accountId,
             UpdateAccountRequest request,
@@ -82,7 +84,7 @@ public class CrmV2AtomicMutationService {
     }
 
     @Transactional
-    Map<String, Object> setAccountArchived(
+    public Map<String, Object> setAccountArchived(
             Authentication authentication,
             UUID accountId,
             boolean archived,
@@ -124,7 +126,7 @@ public class CrmV2AtomicMutationService {
     }
 
     @Transactional
-    Map<String, Object> updateContact(
+    public Map<String, Object> updateContact(
             Authentication authentication,
             UUID contactId,
             UpdateContactRequest request,
@@ -177,7 +179,7 @@ public class CrmV2AtomicMutationService {
     }
 
     @Transactional
-    Map<String, Object> setContactArchived(
+    public Map<String, Object> setContactArchived(
             Authentication authentication,
             UUID contactId,
             boolean archived,
@@ -209,7 +211,7 @@ public class CrmV2AtomicMutationService {
     }
 
     @Transactional
-    Map<String, Object> changeLeadStatus(
+    public Map<String, Object> changeLeadStatus(
             Authentication authentication,
             UUID leadId,
             UpdateLeadStatusRequest request,
@@ -233,7 +235,7 @@ public class CrmV2AtomicMutationService {
     }
 
     @Transactional
-    Map<String, Object> moveOpportunityStage(
+    public Map<String, Object> moveOpportunityStage(
             Authentication authentication,
             UUID opportunityId,
             MoveOpportunityRequest request,
@@ -286,7 +288,7 @@ public class CrmV2AtomicMutationService {
     }
 
     @Transactional
-    Map<String, Object> completeActivity(
+    public Map<String, Object> completeActivity(
             Authentication authentication,
             UUID activityId,
             CompleteActivityRequest request,
