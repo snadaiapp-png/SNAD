@@ -33,13 +33,10 @@ CREATE TABLE IF NOT EXISTS crm_tags (
 
     CONSTRAINT pk_crm_tags PRIMARY KEY (id),
     CONSTRAINT uk_crm_tags_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT uk_crm_tags_tenant_name UNIQUE (tenant_id, name),
     CONSTRAINT fk_crm_tags_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
     CONSTRAINT ck_crm_tags_name_not_empty CHECK (LENGTH(TRIM(name)) > 0)
 );
-
--- Function-based unique index for case-insensitive tag name per tenant
-CREATE UNIQUE INDEX IF NOT EXISTS uk_crm_tags_tenant_name_lower
-    ON crm_tags (tenant_id, LOWER(name));
 
 CREATE INDEX IF NOT EXISTS idx_crm_tags_tenant_name
     ON crm_tags (tenant_id, name);
