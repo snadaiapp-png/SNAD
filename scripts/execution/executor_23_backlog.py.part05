@@ -1,0 +1,31 @@
+: {r['integration']}"""
+   h.write(json.dumps({"external_id":r["external_id"],"title":r["summary"],"body":body,"labels":sorted(set(labs)),"parent_external_id":r["parent_id"]},ensure_ascii=False,separators=(",",":"))+"\n")
+ risks=[{"risk_id":f"RISK-{i:03d}","platform_code":p["code"],"platform":p["name"],"description":p["risk"],"probability":"High" if p["priority"]=="Highest" else "Medium","impact":"Critical" if p["priority"]=="Highest" else "High","rating":"P0" if p["priority"]=="Highest" else "P1","mitigation":p["mitigation"],"trigger":f"Failed acceptance, isolation, contract, release or dependency in E-{p['code']}.","owner_role":p["owner"],"contingency":"Stop promotion; isolate scope; restore last verified version; corrective action.","status":"Open"} for i,p in enumerate(ps,1)];wc(o/"risk-register.csv",list(risks[0]),risks)
+ ss=[];start=date(2026,7,20)
+ for i in range(1,21):
+  a=[p["code"] for p in ps if BS[p["code"]]<=i<=min(20,BS[p["code"]]+2)]
+  if "QAR" not in a:a.append("QAR")
+  d=start+timedelta(days=14*(i-1));ss.append({"sprint":f"SANAD Sprint {i:02d}","start_date":d.isoformat(),"end_date":(d+timedelta(days=13)).isoformat(),"primary_scope":", ".join(a),"entry_criteria":"Dependencies accepted/waived; refined stories; testable AC; security/data/integration impacts identified.","exit_criteria":"DoD met; exact-SHA tests pass; no P0; evidence and approvals recorded.","roles":"Product Owner; Engineering Lead; QA Lead; Security Reviewer; Operations","blocker_policy":"P0, isolation, financial integrity, migration or critical dependency failure blocks acceptance/release."})
+ wc(o/"delivery-plan.csv",list(ss[0]),ss)
+ tr=[{"platform_code":p["code"],"platform":p["name"],"master_reference":p["ref"],"epic_external_id":"E-"+p["code"],"board":p["board"],"component":p["component"],"depends_on_epics":";".join("E-"+x for x in p["deps"]),"saas_core":"Tenant context, entitlements, quotas and config inheritance.","workflow":"Approvals, tasks, transitions, escalation and audit.","ai":"Governed AI contracts and human approval for material actions.","security":"Authorization, isolation, audit, privacy, secrets, threat model and negative tests.","api_first":"Versioned API/event contracts and compatibility.","qa":"Unit, integration, contract, E2E, regression, migration, performance and release evidence."} for p in ps];wc(o/"traceability-matrix.csv",list(tr[0]),tr)
+ names=["canonical-backlog.csv","jira-import.csv","azure-devops-import.csv","github-issues-import.ndjson","risk-register.csv","delivery-plan.csv","traceability-matrix.csv"]
+ m={"schema_version":"1.0","executor":"23","hierarchy":["Epic","Feature","User Story","Task"],"counts":dict(Counter(r["issue_type"] for r in rs)),"total_items":len(rs),"platform_count":20,"sprint_count":20,"risk_count":20,"files":{x:{"sha256":sh(o/x),"bytes":(o/x).stat().st_size} for x in names},"deferred_scope":["backend hosting/tunnel remediation","backend/tunnel-dependent authentication remediation"]}
+ (o/"manifest.json").write_text(json.dumps(m,ensure_ascii=False,indent=2)+"\n",encoding="utf-8");print(f"Generated {o}")
+def val(o=OUT):
+ rs=rc(o/"canonical-backlog.csv");q(len(rs)==440,"count");by={};seen=set();ch=defaultdict(list);co=Counter()
+ for r in rs:
+  i,t,p=r["external_id"],r["issue_type"],r["parent_id"];q(i and i not in by,"id");q(t in T,"type")
+  for x in ("summary","description","acceptance_criteria","definition_of_done","priority","board","sprint","component","labels","owner_role","qa_coverage","security_coverage","data_migration","integration","traceability"):q(r[x].strip(),f"{i} empty {x}")
+  if T[t] is None:q(not p and r["epic_id"]==i,"epic")
+  else:q(p in seen and by[p]["issue_type"]==T[t],f"{i} parent");ch[p].append(r)
+  for d in filter(None,r["dependencies"].split(";")):q(d in seen,f"{i} dep {d}")
+  if t=="Task":q(set(r["labels"].split(","))&{"implementation","verification","security","operations"} and r["original_estimate_hours"].isdigit(),f"{i} task")
+  by[i]=r;seen.add(i);co[t]+=1
+ q(dict(co)==C,"counts")
+ for i,r in by.items():
+  n=sum(x["issue_type"]=={"Epic":"Feature","Feature":"User Story","User Story":"Task"}.get(r["issue_type"]) for x in ch[i])
+  if r["issue_type"] in ("Epic","Feature","User Story"):q(n>={"Epic":3,"Feature":2,"User Story":2}[r["issue_type"]],f"{i} children")
+ q({x[2:] for x in by if x.startswith("E-")}==set(BS),"coverage")
+ j=rc(o/"jira-import.csv");q(len(j)==440,"jira count");ids=set()
+ for r in j:
+  q(r["Issue ID"].isdigit() and r["Issue ID"] not in ids,"jir

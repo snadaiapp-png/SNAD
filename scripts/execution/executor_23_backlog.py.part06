@@ -1,0 +1,43 @@
+a id")
+  if r["Parent"]:q(r["Parent"] in ids,"jira parent")
+  ids.add(r["Issue ID"])
+ a=rc(o/"azure-devops-import.csv");q(len(a)==440,"azure count");stack={};dm={"Epic":1,"Feature":2,"User Story":3,"Task":4}
+ for r in a:
+  d=dm[r["Work Item Type"]];q([i for i in range(1,5) if r[f"Title {i}"]]==[d],"azure indent")
+  if d>1:q(d-1 in stack,"azure parent")
+  stack[d]=r["External ID"];[stack.pop(x,None) for x in range(d+1,5)]
+ gs=[];gseen=set()
+ for l in (o/"github-issues-import.ndjson").read_text(encoding="utf-8").splitlines():
+  x=json.loads(l);q(x["external_id"] in by and x["title"] and x["body"] and x["labels"],"github")
+  if x["parent_external_id"]:q(x["parent_external_id"] in gseen,"github parent")
+  gseen.add(x["external_id"]);gs.append(x)
+ q(len(gs)==440 and len(rc(o/"risk-register.csv"))==20 and len(rc(o/"delivery-plan.csv"))==20 and len(rc(o/"traceability-matrix.csv"))==20,"support")
+ m=json.loads((o/"manifest.json").read_text());q(m["counts"]==C and m["total_items"]==440,"manifest")
+ for n,x in m["files"].items():q(sh(o/n)==x["sha256"],f"hash {n}")
+ print("EXECUTOR-23 VALIDATION PASSED\nTotal items: 440\nEpic=20 Feature=60 User Story=120 Task=240\nPlatforms=20 Sprints=20 Risks=20\nDry-run: Jira=PASS Azure=PASS GitHub=PASS")
+def imp(o,repo,project,execute,delay):
+ xs=[json.loads(x) for x in (o/"github-issues-import.ndjson").read_text(encoding="utf-8").splitlines()]
+ if not execute:print(f"DRY RUN PASS: {len(xs)} issues; no mutation.");return
+ q(repo and project,"--execute requires --repo and --project-id");made={}
+ def api(args,p=None):
+  z=subprocess.run(args,input=json.dumps(p) if p else None,text=True,capture_output=True)
+  q(z.returncode==0,z.stderr);return json.loads(z.stdout)
+ for k,x in enumerate(xs,1):
+  y=api(["gh","api","--method","POST",f"repos/{repo}/issues","--header","X-GitHub-Api-Version: 2026-03-10","--input","-"],{"title":x["title"],"body":x["body"],"labels":x["labels"]});made[x["external_id"]]=y
+  api(["gh","api","graphql","-f","query=mutation($p:ID!,$c:ID!){addProjectV2ItemById(input:{projectId:$p,contentId:$c}){item{id}}}","-F",f"p={project}","-F",f"c={y['node_id']}"])
+  if x["parent_external_id"]:
+   p=made[x["parent_external_id"]];api(["gh","api","--method","POST",f"repos/{repo}/issues/{p['number']}/sub_issues","--header","X-GitHub-Api-Version: 2026-03-10","--input","-"],{"sub_issue_id":y["id"]})
+  print(f"[{k}/440] {x['external_id']} -> #{y['number']}");time.sleep(delay)
+def main():
+ p=argparse.ArgumentParser();s=p.add_subparsers(dest="c",required=True)
+ g=s.add_parser("generate");g.add_argument("--output",type=Path,default=OUT)
+ v=s.add_parser("validate");v.add_argument("--package",type=Path,default=OUT)
+ i=s.add_parser("github-import");i.add_argument("--package",type=Path,default=OUT);i.add_argument("--repo");i.add_argument("--project-id");i.add_argument("--execute",action="store_true");i.add_argument("--delay-seconds",type=float,default=.4)
+ a=p.parse_args()
+ try:
+  if a.c=="generate":gen(a.output)
+  elif a.c=="validate":val(a.package)
+  else:imp(a.package,a.repo,a.project_id,a.execute,a.delay_seconds)
+ except (E,OSError,KeyError,ValueError,json.JSONDecodeError) as e:print("EXECUTOR-23 ERROR:",e,file=sys.stderr);return 1
+ return 0
+if __name__=="__main__":raise SystemExit(main())
