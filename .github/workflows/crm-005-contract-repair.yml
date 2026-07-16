@@ -1,0 +1,128 @@
+name: CRM-005 Governed Contract Repair
+
+on:
+  push:
+    branches:
+      - crm/005-enterprise-account-master
+    paths:
+      - '.github/workflows/crm-005-contract-repair.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      JWT_SECRET: ci-only-non-production-validation-key-1234567890
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: crm/005-enterprise-account-master
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Capture current governed baseline from main
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git show origin/main:docs/crm/contracts/openapi/crm-openapi.json \
+            > /tmp/crm-governed-baseline.json
+
+      - name: Start platform runtime
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          nohup mvn -q -DskipTests spring-boot:run \
+            -Dspring-boot.run.profiles=local \
+            -Dspring-boot.run.arguments="--server.port=8081" \
+            > /tmp/crm005-contract-backend.log 2>&1 &
+          echo $! > /tmp/crm005-contract-backend.pid
+
+      - name: Fetch runtime OpenAPI
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 120); do
+            if ! kill -0 "$(cat /tmp/crm005-contract-backend.pid)" 2>/dev/null; then
+              cat /tmp/crm005-contract-backend.log
+              exit 1
+            fi
+            code="$(curl -sS -o /tmp/platform-openapi.json -w '%{http_code}' http://localhost:8081/v3/api-docs || true)"
+            if [ "$code" = '200' ] && [ -s /tmp/platform-openapi.json ]; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/crm005-contract-backend.log
+          exit 1
+
+      - name: Merge runtime-only CRM-005 paths into governed contract
+        run: |
+          set -euo pipefail
+          python3 scripts/crm/generate-crm-openapi.py \
+            /tmp/crm-governed-baseline.json \
+            /tmp/platform-openapi.json \
+            docs/crm/contracts/openapi/crm-openapi.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          methods = {'get','post','put','patch','delete','head','options','trace'}
+          spec = json.loads(Path('docs/crm/contracts/openapi/crm-openapi.json').read_text(encoding='utf-8'))
+          operations = sum(1 for item in spec['paths'].values() for method in item if method in methods)
+          assert len(spec['paths']) == 45, (len(spec['paths']), operations)
+          assert operations == 61, (len(spec['paths']), operations)
+          assert 'BearerAuth' in spec['components']['securitySchemes']
+          assert 'Limit' in spec['components']['parameters']
+          assert 'ErrorResponse' in spec['components']['schemas']
+          assert '201' in spec['paths']['/accounts']['post']['responses']
+          assert any(p.get('name') == 'If-Match' and p.get('required') is True
+                     for p in spec['paths']['/accounts/{accountId}']['patch']['parameters'])
+          print('Governed CRM-005 contract invariants: PASS')
+          PY
+
+      - name: Run OpenAPI contract tests against repaired artifact
+        working-directory: apps/sanad-platform
+        run: mvn --batch-mode --no-transfer-progress -Dtest=CrmOpenApiContractTest test
+
+      - name: Generate TypeScript types
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run crm:generate-api-types
+          git checkout -- package.json package-lock.json
+
+      - name: Commit repaired artifacts
+        run: |
+          set -euo pipefail
+          git config user.name "SANAD Governance Bot"
+          git config user.email "governance@sanad.local"
+          git add docs/crm/contracts/openapi/crm-openapi.json \
+                  apps/web/lib/api/generated/crm-api-types.ts
+          if git diff --cached --quiet; then
+            echo "Governed contract artifacts already synchronized"
+            exit 0
+          fi
+          git commit -m "fix(crm): preserve governed semantics in CRM-005 contract"
+          git push origin HEAD:crm/005-enterprise-account-master
+
+      - name: Stop runtime
+        if: always()
+        run: |
+          if [ -f /tmp/crm005-contract-backend.pid ]; then
+            kill "$(cat /tmp/crm005-contract-backend.pid)" 2>/dev/null || true
+          fi
