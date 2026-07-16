@@ -154,7 +154,10 @@ public class CustomerMasterUseCases {
                 .put("targetAccountId", targetAccountId.toString())
                 .put("contactsMoved", result.contactsMoved())
                 .put("opportunitiesMoved", result.opportunitiesMoved())
-                .put("activitiesMoved", result.activitiesMoved());
+                .put("activitiesMoved", result.activitiesMoved())
+                .put("addressesMoved", result.addressesMoved())
+                .put("identifiersMoved", result.identifiersMoved())
+                .put("relationshipsMoved", result.relationshipsMoved());
         audit.record(tenantId, actorId, "MERGE", "ACCOUNT", sourceAccountId,
                 new AuditChange(json(sourceBefore), mergeState), now);
         audit.record(tenantId, actorId, "MERGE_TARGET", "ACCOUNT", targetAccountId,

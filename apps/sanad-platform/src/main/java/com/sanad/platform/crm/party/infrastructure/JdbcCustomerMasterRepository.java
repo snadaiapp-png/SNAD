@@ -262,6 +262,21 @@ public class JdbcCustomerMasterRepository implements CustomerMasterRepository {
         MapSqlParameterSource params = p().addValue("tenantId", tenantId).addValue("sourceId", sourceAccountId)
                 .addValue("targetId", targetAccountId).addValue("actorId", actorId)
                 .addValue("now", Timestamp.from(now));
+        params.addValue("sourceLegalName", source.legalName())
+                .addValue("sourceTradingName", source.tradingName())
+                .addValue("sourceRegistrationNumber", source.registrationNumber())
+                .addValue("sourceTaxNumber", source.taxNumber())
+                .addValue("sourceIndustryCode", source.industryCode())
+                .addValue("sourceSegment", source.customerSegment())
+                .addValue("sourceTier", source.customerTier())
+                .addValue("sourceWebsite", source.website())
+                .addValue("sourceEmail", source.primaryEmail())
+                .addValue("sourcePhone", source.primaryPhone())
+                .addValue("sourceCountry", source.countryCode())
+                .addValue("sourceRisk", source.riskRating())
+                .addValue("sourceCreditLimit", source.creditLimit())
+                .addValue("sourcePaymentTerms", source.paymentTermsDays())
+                .addValue("sourceQuality", source.dataQualityScore());
         int contacts = jdbc.update(
                 "UPDATE crm_contacts SET account_id=:targetId,updated_by=:actorId,updated_at=:now,version=version+1 " +
                         "WHERE tenant_id=:tenantId AND account_id=:sourceId", params);
@@ -271,6 +286,22 @@ public class JdbcCustomerMasterRepository implements CustomerMasterRepository {
         int activities = jdbc.update(
                 "UPDATE crm_activities SET related_id=:targetId,updated_by=:actorId,updated_at=:now,version=version+1 " +
                         "WHERE tenant_id=:tenantId AND related_type='ACCOUNT' AND related_id=:sourceId", params);
+        int addresses = jdbc.update(
+                "UPDATE crm_account_addresses SET account_id=:targetId,primary_address=FALSE,updated_by=:actorId," +
+                        "updated_at=:now,version=version+1 WHERE tenant_id=:tenantId AND account_id=:sourceId", params);
+        int identifiers = jdbc.update(
+                "UPDATE crm_account_identifiers SET account_id=:targetId,primary_identifier=FALSE " +
+                        "WHERE tenant_id=:tenantId AND account_id=:sourceId", params);
+        jdbc.update(
+                "DELETE FROM crm_account_relationships WHERE tenant_id=:tenantId AND " +
+                        "((source_account_id=:sourceId AND target_account_id=:targetId) OR " +
+                        "(source_account_id=:targetId AND target_account_id=:sourceId))", params);
+        int relationships = jdbc.update(
+                "UPDATE crm_account_relationships SET source_account_id=:targetId,updated_at=:now " +
+                        "WHERE tenant_id=:tenantId AND source_account_id=:sourceId", params);
+        relationships += jdbc.update(
+                "UPDATE crm_account_relationships SET target_account_id=:targetId,updated_at=:now " +
+                        "WHERE tenant_id=:tenantId AND target_account_id=:sourceId", params);
         jdbc.update(
                 "UPDATE crm_accounts SET parent_account_id=:targetId,updated_by=:actorId,updated_at=:now,version=version+1 " +
                         "WHERE tenant_id=:tenantId AND parent_account_id=:sourceId AND id<>:targetId", params);
@@ -280,7 +311,19 @@ public class JdbcCustomerMasterRepository implements CustomerMasterRepository {
                         "AND version=:sourceVersion",
                 params.addValue("sourceVersion", expectedSourceVersion));
         int targetUpdated = jdbc.update(
-                "UPDATE crm_accounts SET updated_by=:actorId,updated_at=:now,version=version+1 " +
+                "UPDATE crm_accounts SET legal_name=COALESCE(legal_name,:sourceLegalName)," +
+                        "trading_name=COALESCE(trading_name,:sourceTradingName)," +
+                        "registration_number=COALESCE(registration_number,:sourceRegistrationNumber)," +
+                        "tax_number=COALESCE(tax_number,:sourceTaxNumber)," +
+                        "industry_code=COALESCE(industry_code,:sourceIndustryCode)," +
+                        "customer_segment=COALESCE(customer_segment,:sourceSegment)," +
+                        "customer_tier=COALESCE(customer_tier,:sourceTier),website=COALESCE(website,:sourceWebsite)," +
+                        "primary_email=COALESCE(primary_email,:sourceEmail),primary_phone=COALESCE(primary_phone,:sourcePhone)," +
+                        "country_code=COALESCE(country_code,:sourceCountry),risk_rating=COALESCE(risk_rating,:sourceRisk)," +
+                        "credit_limit=COALESCE(credit_limit,:sourceCreditLimit)," +
+                        "payment_terms_days=COALESCE(payment_terms_days,:sourcePaymentTerms)," +
+                        "data_quality_score=CASE WHEN data_quality_score>:sourceQuality THEN data_quality_score ELSE :sourceQuality END," +
+                        "updated_by=:actorId,updated_at=:now,version=version+1 " +
                         "WHERE tenant_id=:tenantId AND id=:targetId AND version=:targetVersion",
                 params.addValue("targetVersion", expectedTargetVersion));
         if (sourceUpdated != 1 || targetUpdated != 1) {
@@ -293,13 +336,17 @@ public class JdbcCustomerMasterRepository implements CustomerMasterRepository {
                         .addValue("reason", reason));
         jdbc.update(
                 "INSERT INTO crm_account_merge_history (id,tenant_id,source_account_id,target_account_id,source_version," +
-                        "target_version,contacts_moved,opportunities_moved,activities_moved,reason,merged_by,merged_at) " +
+                        "target_version,contacts_moved,opportunities_moved,activities_moved,addresses_moved," +
+                        "identifiers_moved,relationships_moved,reason,merged_by,merged_at) " +
                         "VALUES (:mergeId,:tenantId,:sourceId,:targetId,:sourceVersion,:targetVersion,:contacts," +
-                        ":opportunities,:activities,:reason,:actorId,:now)",
+                        ":opportunities,:activities,:addresses,:identifiers,:relationships,:reason,:actorId,:now)",
                 params.addValue("mergeId", UUID.randomUUID()).addValue("contacts", contacts)
-                        .addValue("opportunities", opportunities).addValue("activities", activities));
+                        .addValue("opportunities", opportunities).addValue("activities", activities)
+                        .addValue("addresses", addresses).addValue("identifiers", identifiers)
+                        .addValue("relationships", relationships));
         return new MergeResult(sourceAccountId, targetAccountId, expectedSourceVersion + 1,
-                expectedTargetVersion + 1, contacts, opportunities, activities, now);
+                expectedTargetVersion + 1, contacts, opportunities, activities,
+                addresses, identifiers, relationships, now);
     }
 
     private AccountAddress findAddress(UUID tenantId, UUID accountId, UUID id) {
