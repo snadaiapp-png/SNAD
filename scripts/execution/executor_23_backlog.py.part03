@@ -1,0 +1,24 @@
+def wc(p,fs,rs):
+ p.parent.mkdir(parents=True,exist_ok=True)
+ with p.open("w",newline="",encoding="utf-8") as h:
+  w=csv.DictWriter(h,fieldnames=fs,lineterminator="\n");w.writeheader()
+  for r in rs:w.writerow({k:r.get(k,"") for k in fs})
+def rc(p):
+ with p.open(newline="",encoding="utf-8") as h:return list(csv.DictReader(h))
+def sh(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+def row(i,t,s,d,parent,epic,ac,dod,sp,hrs,pri,deps,board,sprint,comp,labels,owner,qa,sec,mig,integ,ref):
+ return dict(zip(F,[i,t,s,d,parent,epic,ac,dod,sp,hrs,pri,deps,board,sprint,comp,labels,owner,qa,sec,mig,integ,ref,"Proposed"]))
+def build():
+ ps=plats();rs=[];nums={};n=1
+ for p in ps:
+  c=p["code"];e=f"E-{c}";nums[e]=n;n+=1;b=BS[c]
+  rs.append(row(e,"Epic",p["name"],f"Deliver {p['name']} as SANAD's authoritative tenant-aware, API-first, workflow-integrated, secure, auditable and observable stream.", "",e,f"All three features and all child work pass; tenant isolation, authorization, audit, contracts, workflow, observability, migration, rollback, QA and Security evidence pass; no P0 remains; traceability to {p['ref']} is complete.","All child work and exact-SHA evidence accepted.","","",p["priority"],";".join("E-"+x for x in p["deps"]),p["board"],f"Wave {max(1,(b-1)//4+1)} / Sprints {b:02d}-{min(20,b+3):02d}",p["component"],f"executor-23,epic,{p['component']},tenant-aware,api-first",p["owner"],"Epic matrix, E2E, regression and performance evidence.","Threat model, authorization, tenant isolation, privacy, secrets and vulnerability evidence.","Migration, upgrade, rollback and reconciliation evidence.","Declared dependencies plus SaaS Core, Security, Workflow, AI and Analytics.",p["ref"]))
+  for fi,(fn,cap,integ) in enumerate(p["features"],1):
+   f=f"F-{c}-{fi:02d}";nums[f]=n;n+=1;s=min(20,b+fi-1)
+   rs.append(row(f,"Feature",f"{c} — {fn}",f"Establish {fn.lower()} covering {cap}, integrated with {integ} without duplicating authoritative records.",e,e,f"Ownership and contracts are implemented; tenant, auth, audit, validation, errors, observability, migration and rollback pass; integration with {integ} passes; both stories accepted.","Both stories, contracts, security and operations evidence accepted.","13","104",p["priority"],e,p["board"],f"SANAD Sprint {s:02d}",p["component"],f"executor-23,feature,{p['component']},sprint-{s:02d}",p["owner"],"Integration, contract, negative, regression and accessibility/localization evidence.","Authorization matrix, tenant-negative cases, audit and data-protection review.","Schema/config migration and rollback where state changes.",integ,p["ref"]))
+   specs=[
+    ("Deliver operational capability",f"As an authorized {p['owner']} user, I can use {fn.lower()} to manage {cap} inside the active tenant and organization.",f"Valid actions are atomic, versioned, audited and tenant-isolated; invalid transitions, duplicates, stale updates, unauthorized and cross-tenant access fail deterministically.","capability","Happy path, validation, concurrency/idempotency, isolation and contract regression.","Permission-positive/negative, cross-tenant denial and sensitive-data handling.","Seed/reference and backward-compatible migration.",[
+      ("Implement governed capability and contracts",f"Implement domain, application, API, event and user-facing behavior for {fn.lower()} while preserving source-of-truth ownership.","Code compiles; contracts versioned; tenant mandatory; auth/validation fail closed; audit emitted; no duplicate source of truth.","24","implementation",p["owner"]),
+      ("Verify capability, migration and integration",f"Execute automated evidence for {fn.lower()}, {integ}, isolation, migration/rollback and observability.","Unit, integration, contract, isolation, negative, migration/rollback and observability tests pass on exact SHA.","16","verification","QA & Release Engineering")]),
+    ("Govern, secure and operate",f"As a platform owner, I need {fn.lower()} governed, secure, observable, recoverable and supportable.","Metrics, logs, traces, health, alerts, runbook, ownership, recovery, authorization, classification, retention and release/rollback criteria exist and are tested; Security and QA approve.","governance,operations","Failure, recovery, performance, regression and release acceptance.","Threat model, permissions, classification, privacy, secrets and abuse cases.","Rollback and recovery documented and tested.",[
+      ("Complete security and governance controls",f"Implement authorization, tenant bou

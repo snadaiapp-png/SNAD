@@ -1,0 +1,74 @@
+name: Executor 23 Backlog Validation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/execution/executor-23/**'
+      - 'scripts/execution/executor_23_backlog.py*'
+      - '.github/workflows/executor-23-backlog-validation.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'docs/execution/executor-23/**'
+      - 'scripts/execution/executor_23_backlog.py*'
+      - '.github/workflows/executor-23-backlog-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: executor-23-backlog-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Generate and validate importable master backlog
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Compile generator entrypoint
+        run: python3 -m py_compile scripts/execution/executor_23_backlog.py
+
+      - name: Generate Executor 23 package
+        run: python3 scripts/execution/executor_23_backlog.py generate
+
+      - name: Validate hierarchy, coverage, exports and evidence
+        run: python3 scripts/execution/executor_23_backlog.py validate
+
+      - name: Validate GitHub import without mutation
+        run: python3 scripts/execution/executor_23_backlog.py github-import
+
+      - name: Publish validation summary
+        if: always()
+        run: |
+          {
+            echo '## Executor #23 — Master Execution Backlog'
+            echo
+            echo '- Expected hierarchy: Epic → Feature → User Story → Task'
+            echo '- Expected items: 440'
+            echo '- Expected platforms: 20'
+            echo '- Expected sprints: 20'
+            echo '- Expected risks: 20'
+            echo '- Export targets: Jira Cloud, Azure DevOps, GitHub Projects'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload importable backlog package
+        uses: actions/upload-artifact@v4
+        with:
+          name: executor-23-master-execution-backlog-${{ github.sha }}
+          path: build/executor-23/
+          if-no-files-found: error
+          retention-days: 90
