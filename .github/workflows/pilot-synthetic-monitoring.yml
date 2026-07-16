@@ -12,6 +12,10 @@ concurrency:
   group: pilot-synthetic-monitoring
   cancel-in-progress: true
 
+env:
+  BACKEND_URL: ${{ vars.PRODUCTION_BASE_URL }}
+  FRONTEND_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
+
 jobs:
   synthetic-check:
     name: Backend and Frontend Integration Check
@@ -19,36 +23,47 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      - name: Validate monitoring configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${BACKEND_URL:-}" || {
+            echo '::error::Set repository variable PRODUCTION_BASE_URL to the public HTTPS tunnel for the local backend.'
+            exit 1
+          }
+          case "$BACKEND_URL" in https://*) ;; *) echo '::error::PRODUCTION_BASE_URL must use HTTPS.'; exit 1 ;; esac
+
       - name: Check backend health
         id: backend
         shell: bash
         run: |
           set -euo pipefail
-          url='https://sanad-backend-mcrj.onrender.com/actuator/health'
+          url="${BACKEND_URL%/}/actuator/health"
           start=$(date +%s)
           response=''
           code='000'
 
-          for attempt in $(seq 1 6); do
+          for attempt in $(seq 1 4); do
             result=$(curl --silent --show-error --location \
-              --connect-timeout 15 --max-time 120 \
+              --connect-timeout 10 --max-time 30 \
+              --header 'ngrok-skip-browser-warning: any-value' \
               --write-out '\n%{http_code}' "$url" || true)
             response=$(printf '%s' "$result" | sed '$d')
             code=$(printf '%s' "$result" | tail -n 1)
+            code="${code:-000}"
 
-            if [ "$code" = '200' ] && printf '%s' "$response" | grep -q '"status":"UP"'; then
+            if [ "$code" = '200' ] && printf '%s' "$response" | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"'; then
               elapsed=$(($(date +%s)-start))
               echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
               echo "Backend health passed in ${elapsed}s"
               exit 0
             fi
 
-            echo "Attempt ${attempt} failed with HTTP ${code}; retrying..."
-            sleep 20
+            echo "Attempt ${attempt} failed with HTTP ${code}"
+            [ "$attempt" = '4' ] || sleep 10
           done
 
           echo "Backend health failed. Last HTTP status: ${code}"
-          printf '%s\n' "$response"
           exit 1
 
       - name: Check frontend integration
@@ -56,10 +71,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          url='https://snad-app.vercel.app/api/system/backend-status'
+          url="${FRONTEND_URL%/}/api/system/backend-status"
           start=$(date +%s)
           result=$(curl --silent --show-error --location \
-            --connect-timeout 15 --max-time 60 \
+            --connect-timeout 10 --max-time 40 \
             --write-out '\n%{http_code}' "$url")
           response=$(printf '%s' "$result" | sed '$d')
           code=$(printf '%s' "$result" | tail -n 1)
@@ -78,11 +93,10 @@ jobs:
         shell: bash
         run: |
           {
-            echo '## SANAD Pilot Synthetic Monitoring'
+            echo '## SANAD Local Backend Integration Monitoring'
             echo ''
             echo "- Checked at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
             echo "- Backend health duration: ${{ steps.backend.outputs.elapsed_seconds || 'failed' }} seconds"
             echo "- Frontend integration duration: ${{ steps.frontend.outputs.elapsed_seconds || 'failed' }} seconds"
-            echo "- Scope: pilot availability and integration baseline"
-            echo "- Production monitoring gate: remains open"
+            echo '- Backend source: configured public HTTPS tunnel to the local server'
           } >> "$GITHUB_STEP_SUMMARY"
