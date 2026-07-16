@@ -15,6 +15,7 @@ export default defineConfig({
     "**/crm-rbac-acceptance.spec.ts",
     "**/crm-accessibility.spec.ts",
     "**/crm-route-smoke.spec.ts",
+    "**/crm-account-master.spec.ts",
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
