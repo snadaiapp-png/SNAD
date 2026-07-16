@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 
+# Deterministic one-time patch for the final CRM-005 merge consolidation.
 repo_path = Path('apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/infrastructure/JdbcCustomerMasterRepository.java')
 repo = repo_path.read_text(encoding='utf-8')
 start = repo.index('        int contacts = jdbc.update(', repo.index('public MergeResult mergeAccounts'))
