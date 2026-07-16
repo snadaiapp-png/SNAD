@@ -349,4 +349,24 @@ public final class CrmDtos {
             Integer priority,
             OffsetDateTime dueAt,
             OffsetDateTime updatedAt) {}
+
+    // ────────────────────────────────────────────────────────────────────
+    // Products (feature/crm-products)
+    // ────────────────────────────────────────────────────────────────────
+
+    public record ProductResponse(
+            UUID id,
+            long version,
+            String name,
+            String sku,
+            String description,
+            String productType,
+            String category,
+            BigDecimal unitPrice,
+            String currencyCode,
+            BigDecimal taxRate,
+            String unit,
+            boolean active,
+            OffsetDateTime createdAt,
+            OffsetDateTime updatedAt) {}
 }

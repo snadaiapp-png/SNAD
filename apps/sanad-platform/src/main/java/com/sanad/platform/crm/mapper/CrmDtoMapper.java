@@ -493,4 +493,27 @@ public class CrmDtoMapper {
                 uuid(row.get("subject_id")),
                 offsetDateTime(row.get("assigned_at")));
     }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Products (feature/crm-products)
+    // ────────────────────────────────────────────────────────────────────
+
+    public com.sanad.platform.crm.dto.CrmDtos.ProductResponse toProductResponse(Map<String, Object> row) {
+        if (row == null) return null;
+        return new com.sanad.platform.crm.dto.CrmDtos.ProductResponse(
+                uuid(row.get("id")),
+                longVal(row.get("version")),
+                str(row.get("name")),
+                str(row.get("sku")),
+                str(row.get("description")),
+                str(row.get("product_type")),
+                str(row.get("category")),
+                bigDecimal(row.get("unit_price")),
+                str(row.get("currency_code")),
+                bigDecimal(row.get("tax_rate")),
+                str(row.get("unit")),
+                boolVal(row.get("active")),
+                offsetDateTime(row.get("created_at")),
+                offsetDateTime(row.get("updated_at")));
+    }
 }
