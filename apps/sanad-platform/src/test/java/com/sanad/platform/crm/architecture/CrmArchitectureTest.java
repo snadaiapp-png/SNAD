@@ -5,7 +5,6 @@ import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
-import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
 /**
  * Enforces the final CRM-004 modular boundaries.
@@ -57,9 +56,30 @@ class CrmArchitectureTest {
             .should().dependOnClassesThat().resideInAPackage("org.springframework.jdbc..")
             .because("CRM controllers must call application services");
 
+    /*
+     * Explicit acyclic dependency direction for core bounded modules.
+     * Lead may orchestrate Party and Opportunity during conversion. Reverse
+     * dependencies are forbidden, which prevents a cycle without treating
+     * shared cross-cutting packages (error, integration and web) as domains.
+     */
     @ArchTest
-    static final ArchRule modulesShouldBeFreeOfCycles = slices()
-            .matching("com.sanad.platform.crm.(*)..")
-            .should().beFreeOfCycles()
-            .because("CRM bounded modules must not form dependency cycles");
+    static final ArchRule partyMustNotDependOnLeadOpportunityOrActivity = noClasses()
+            .that().resideInAPackage("..crm.party..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "..crm.lead..", "..crm.opportunity..", "..crm.activity..")
+            .because("Party is foundational and must not depend on downstream CRM modules");
+
+    @ArchTest
+    static final ArchRule opportunityMustNotDependOnLeadOrActivity = noClasses()
+            .that().resideInAPackage("..crm.opportunity..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "..crm.lead..", "..crm.activity..")
+            .because("Opportunity must not create a reverse dependency into Lead or Activity");
+
+    @ArchTest
+    static final ArchRule activityMustNotDependOnPartyLeadOrOpportunity = noClasses()
+            .that().resideInAPackage("..crm.activity..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "..crm.party..", "..crm.lead..", "..crm.opportunity..")
+            .because("Activity remains an independent bounded module");
 }
