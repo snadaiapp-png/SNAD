@@ -26,6 +26,7 @@ public enum CrmErrorCode {
     CRM_ACTIVITY_NOT_FOUND(404, "The requested CRM activity was not found.", false),
     CRM_TASK_NOT_FOUND(404, "The requested CRM task was not found.", false),
     CRM_NOTE_NOT_FOUND(404, "The requested CRM note was not found.", false),
+    CRM_TAG_NOT_FOUND(404, "The requested CRM tag was not found.", false),
     CRM_PIPELINE_NOT_FOUND(404, "The requested CRM pipeline was not found.", false),
     CRM_STAGE_NOT_FOUND(404, "The requested CRM pipeline stage was not found.", false),
     CRM_IMPORT_NOT_FOUND(404, "The requested CRM import job was not found.", false),
@@ -38,6 +39,7 @@ public enum CrmErrorCode {
     CRM_DUPLICATE_LEAD(409, "A lead with the same identity already exists.", false),
     CRM_LEAD_ALREADY_CONVERTED(409, "The lead has already been converted and cannot be converted again.", false),
     CRM_NOTE_ALREADY_ARCHIVED(409, "The note has already been archived.", false),
+    CRM_DUPLICATE_TAG(409, "A tag with the same name already exists.", false),
     CRM_IDEMPOTENCY_CONFLICT(409, "The Idempotency-Key was already used with a different request payload.", false),
     CONFLICT(409, "The request conflicts with the current state of the resource.", false),
 

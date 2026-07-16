@@ -166,6 +166,11 @@ FLYWAY_ENABLED (preflight, staging, CI): true — enforced by scripts/crm/deploy
 | `20260711.1` | `V20260711_1__create_subscription_change_events.sql` | `subscription_change_events` (billing, not CRM-only). | `IMPLEMENTED_AND_CONNECTED` |
 | `20260713.1` | `V20260713_1__create_crm_idempotency_records.sql` | `crm_idempotency_records` table for V2 idempotent POST endpoints. | `IMPLEMENTED_AND_CONNECTED` |
 | `20260713.2` | `V20260713_2__add_pipeline_version_column.sql` | Adds `version` column to `crm_pipelines` for optimistic locking. | `IMPLEMENTED_AND_CONNECTED` |
+| `20260716.3` | `V20260716_3__create_crm_tags.sql` | `crm_tags` + `crm_tag_assignments` tables (reusable labels with many-to-many assignments). Seeds `CRM.TAG.READ/WRITE` capabilities. | `IMPLEMENTED_AND_CONNECTED` |
+
+### 4.3 CRM RBAC capabilities
+
+20 active `CRM.*` capabilities are seeded by `V20260702_1`, `V20260702_3`, and `V20260716_3`:
 | `20260716.1` | `V20260716_1__create_crm_tasks.sql` | `crm_tasks` table (first-class task management, separate from `crm_activities`). Seeds `CRM.TASK.READ/WRITE` capabilities. | `IMPLEMENTED_AND_CONNECTED` |
 | `20260716.2` | `V20260716_2__create_crm_notes.sql` | `crm_notes` table (append-only notes attached to any CRM entity). Seeds `CRM.NOTE.READ/WRITE` capabilities. | `IMPLEMENTED_AND_CONNECTED` |
 
@@ -184,6 +189,7 @@ CRM.CONTACT.READ        CRM.CONTACT.WRITE       CRM.CONTACT.ARCHIVE
 CRM.LEAD.READ           CRM.LEAD.WRITE          CRM.LEAD.CONVERT
 CRM.OPPORTUNITY.READ    CRM.OPPORTUNITY.WRITE
 CRM.ACTIVITY.READ       CRM.ACTIVITY.WRITE
+CRM.TAG.READ            CRM.TAG.WRITE
 CRM.TASK.READ           CRM.TASK.WRITE
 CRM.NOTE.READ           CRM.NOTE.WRITE
 CRM.IMPORT.READ         CRM.IMPORT.WRITE
@@ -192,6 +198,8 @@ CRM.ADMIN
 ```
 
 The previous `CRM-DEPLOYMENT-READINESS.md` claim of "14 CRM capabilities" is
+**stale**; the reconciled count after `V20260716_3` is **20** (was 18 before
+the Tags migration). The drift check flags any document or workflow that
 **stale**; the reconciled count after `V20260716_2` is **22** (was 18 before
 Tasks + Notes migrations). The drift check flags any document or workflow that
 hard-codes `14`, `15`, `18`, or `20`.
