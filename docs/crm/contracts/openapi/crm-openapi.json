@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "SNAD CRM API",
-    "version": "2.0.0",
-    "description": "Runtime-derived governed CRM v2 API contract for CRM-G2."
+    "version": "2.1.0",
+    "description": "Runtime-derived governed CRM v2 API contract including EXEC-PROMPT-CRM-005 Enterprise Account and Customer Master."
   },
   "servers": [
     {
@@ -11,36 +11,69 @@
       "description": "CRM v2 API root"
     }
   ],
-  "tags": [
-    {
-      "name": "Accounts"
-    },
-    {
-      "name": "Contacts"
-    },
-    {
-      "name": "Leads"
-    },
-    {
-      "name": "Pipelines"
-    },
-    {
-      "name": "Opportunities"
-    },
-    {
-      "name": "Activities"
-    },
-    {
-      "name": "Timeline"
-    },
-    {
-      "name": "Imports"
-    },
-    {
-      "name": "Custom Fields"
-    }
-  ],
+  "tags": [],
   "paths": {
+    "/account-taxonomies": {
+      "get": {
+        "tags": [
+          "account-taxonomy-controller"
+        ],
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaxonomyResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "account-taxonomy-controller"
+        ],
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTaxonomyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaxonomyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/accounts": {
       "get": {
         "tags": [
@@ -112,7 +145,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -129,24 +162,13 @@
           "required": true
         },
         "responses": {
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
-          "201": {
-            "description": "Created",
+          "200": {
+            "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseAccountResponse"
                 }
-              }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -179,11 +201,6 @@
                   "$ref": "#/components/schemas/SingleResponseAccountResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
         }
@@ -206,7 +223,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -231,18 +248,7 @@
                   "$ref": "#/components/schemas/SingleResponseAccountResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -266,7 +272,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -281,18 +287,7 @@
                   "$ref": "#/components/schemas/SingleResponseArchiveAccountResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -323,10 +318,503 @@
                   "$ref": "#/components/schemas/SingleResponseCustomer360Response"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{accountId}/external-identifiers": {
+      "get": {
+        "tags": [
+          "account-master-controller"
+        ],
+        "operationId": "listExternalIdentifiers",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExternalIdentifierResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "account-master-controller"
+        ],
+        "operationId": "createExternalIdentifier",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateExternalIdentifierRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalIdentifierResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{accountId}/external-identifiers/{identifierId}": {
+      "delete": {
+        "tags": [
+          "account-master-controller"
+        ],
+        "operationId": "removeExternalIdentifier",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "identifierId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/accounts/{accountId}/history": {
+      "get": {
+        "tags": [
+          "account-master-controller"
+        ],
+        "operationId": "getHistory",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountHistoryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{accountId}/master": {
+      "get": {
+        "tags": [
+          "account-master-controller"
+        ],
+        "operationId": "getMaster",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountMasterOverviewResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{accountId}/master/profile": {
+      "put": {
+        "tags": [
+          "account-master-controller"
+        ],
+        "operationId": "updateProfile",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAccountProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountProfileResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{accountId}/master/risk": {
+      "get": {
+        "tags": [
+          "account-master-controller"
+        ],
+        "operationId": "getRisk",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RiskProfileResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "account-master-controller"
+        ],
+        "operationId": "updateRisk",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAccountRiskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RiskProfileResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{accountId}/projections": {
+      "get": {
+        "tags": [
+          "account-master-controller"
+        ],
+        "operationId": "getProjections",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectionResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{accountId}/reactivate": {
+      "patch": {
+        "tags": [
+          "account-master-controller"
+        ],
+        "operationId": "reactivate",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountMasterOverviewResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{accountId}/relationships": {
+      "get": {
+        "tags": [
+          "account-master-controller"
+        ],
+        "operationId": "listRelationships",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AccountRelationshipResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "account-master-controller"
+        ],
+        "operationId": "createRelationship",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAccountRelationshipRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountRelationshipResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{accountId}/relationships/{relationshipId}/end": {
+      "patch": {
+        "tags": [
+          "account-master-controller"
+        ],
+        "operationId": "endRelationship",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "relationshipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndAccountRelationshipRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountRelationshipResponse"
+                }
               }
             }
           }
@@ -352,7 +840,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -367,18 +855,7 @@
                   "$ref": "#/components/schemas/SingleResponseAccountResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -471,7 +948,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -488,24 +965,13 @@
           "required": true
         },
         "responses": {
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
-          "201": {
-            "description": "Created",
+          "200": {
+            "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseActivityResponse"
                 }
-              }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -538,11 +1004,6 @@
                   "$ref": "#/components/schemas/SingleResponseActivityResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
         }
@@ -565,7 +1026,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -590,18 +1051,7 @@
                   "$ref": "#/components/schemas/SingleResponseActivityResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -625,7 +1075,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -650,18 +1100,7 @@
                   "$ref": "#/components/schemas/SingleResponseActivityResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -746,7 +1185,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -763,24 +1202,13 @@
           "required": true
         },
         "responses": {
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
-          "201": {
-            "description": "Created",
+          "200": {
+            "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseContactResponse"
                 }
-              }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -813,11 +1241,6 @@
                   "$ref": "#/components/schemas/SingleResponseContactResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
         }
@@ -840,7 +1263,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -865,18 +1288,7 @@
                   "$ref": "#/components/schemas/SingleResponseContactResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -900,7 +1312,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -915,18 +1327,7 @@
                   "$ref": "#/components/schemas/SingleResponseContactResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -950,7 +1351,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -965,18 +1366,7 @@
                   "$ref": "#/components/schemas/SingleResponseContactResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -1052,7 +1442,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -1069,24 +1459,13 @@
           "required": true
         },
         "responses": {
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
-          "201": {
-            "description": "Created",
+          "200": {
+            "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseCustomFieldResponse"
                 }
-              }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -1182,11 +1561,6 @@
                   "$ref": "#/components/schemas/SingleResponseCustomFieldValuesResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
         }
@@ -1234,11 +1608,6 @@
                   "$ref": "#/components/schemas/SingleResponseCustomFieldValuesResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
         }
@@ -1269,7 +1638,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -1294,18 +1663,7 @@
                   "$ref": "#/components/schemas/SingleResponseCustomFieldValuesResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
           }
         }
       }
@@ -1329,7 +1687,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -1354,18 +1712,7 @@
                   "$ref": "#/components/schemas/SingleResponseCustomFieldResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -1435,7 +1782,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -1467,24 +1814,13 @@
           }
         },
         "responses": {
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
-          "201": {
-            "description": "Created",
+          "200": {
+            "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseImportJobResponse"
                 }
-              }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -1517,11 +1853,6 @@
                   "$ref": "#/components/schemas/SingleResponseImportJobResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
         }
@@ -1552,11 +1883,6 @@
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseImportJobResponse"
                 }
-              }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -1677,7 +2003,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -1692,18 +2018,7 @@
                   "$ref": "#/components/schemas/SingleResponseImportRunResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
           }
         }
       }
@@ -1779,7 +2094,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -1796,24 +2111,13 @@
           "required": true
         },
         "responses": {
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
-          "201": {
-            "description": "Created",
+          "200": {
+            "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseLeadResponse"
                 }
-              }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -1846,11 +2150,6 @@
                   "$ref": "#/components/schemas/SingleResponseLeadResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
         }
@@ -1875,7 +2174,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -1900,18 +2199,7 @@
                   "$ref": "#/components/schemas/SingleResponseLeadConversionResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
           }
         }
       }
@@ -1935,7 +2223,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -1960,18 +2248,7 @@
                   "$ref": "#/components/schemas/SingleResponseLeadResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -2048,7 +2325,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -2065,24 +2342,13 @@
           "required": true
         },
         "responses": {
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
-          "201": {
-            "description": "Created",
+          "200": {
+            "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseOpportunityResponse"
                 }
-              }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -2115,11 +2381,6 @@
                   "$ref": "#/components/schemas/SingleResponseOpportunityResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
         }
@@ -2142,7 +2403,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -2167,18 +2428,7 @@
                   "$ref": "#/components/schemas/SingleResponseOpportunityResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -2202,7 +2452,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -2227,18 +2477,7 @@
                   "$ref": "#/components/schemas/SingleResponseOpportunityResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -2260,8 +2499,7 @@
               }
             }
           }
-        },
-        "parameters": []
+        }
       }
     },
     "/pipelines/{pipelineId}": {
@@ -2283,7 +2521,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -2308,18 +2546,7 @@
                   "$ref": "#/components/schemas/SingleResponsePipelineResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -2429,127 +2656,158 @@
     }
   },
   "components": {
-    "parameters": {
-      "Limit": {
-        "name": "limit",
-        "in": "query",
-        "schema": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 200,
-          "default": 50
-        }
-      },
-      "Cursor": {
-        "name": "cursor",
-        "in": "query",
-        "schema": {
-          "type": "string"
-        },
-        "description": "Opaque tenant-bound pagination cursor."
-      },
-      "Sort": {
-        "name": "sort",
-        "in": "query",
-        "schema": {
-          "type": "string",
-          "default": "updatedAt"
-        }
-      },
-      "Direction": {
-        "name": "direction",
-        "in": "query",
-        "schema": {
-          "type": "string",
-          "enum": [
-            "asc",
-            "desc"
-          ],
-          "default": "desc"
-        }
-      },
-      "IfMatch": {
-        "name": "If-Match",
-        "in": "header",
-        "required": true,
-        "schema": {
-          "type": "string"
-        },
-        "description": "Strong ETag required for versioned mutations."
-      },
-      "IdempotencyKey": {
-        "name": "Idempotency-Key",
-        "in": "header",
-        "required": true,
-        "schema": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 255
-        },
-        "description": "Required for governed idempotent POST operations."
-      }
-    },
-    "headers": {
-      "ETag": {
-        "description": "Strong version ETag. Send it back as If-Match on mutations.",
-        "schema": {
-          "type": "string"
-        }
-      }
-    },
-    "responses": {
-      "ValidationError": {
-        "description": "Validation error",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            }
-          }
-        }
-      },
-      "NotFound": {
-        "description": "Resource not found",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            }
-          }
-        }
-      },
-      "Conflict": {
-        "description": "Idempotency or state conflict",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            }
-          }
-        }
-      },
-      "ConcurrencyConflict": {
-        "description": "Stale ETag / optimistic concurrency conflict",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            }
-          }
-        }
-      },
-      "PreconditionRequired": {
-        "description": "If-Match header required",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            }
-          }
-        }
-      }
-    },
     "schemas": {
+      "AccountHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "statusHistory": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StatusHistoryResponse"
+            }
+          },
+          "ownershipHistory": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OwnershipHistoryResponse"
+            }
+          }
+        }
+      },
+      "AccountMasterOverviewResponse": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "accountVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "accountType": {
+            "type": "string"
+          },
+          "lifecycleStatus": {
+            "type": "string"
+          },
+          "ownerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/AccountProfileResponse"
+          },
+          "projections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectionResponse"
+            }
+          }
+        }
+      },
+      "AccountProfileResponse": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "legalName": {
+            "type": "string"
+          },
+          "tradeName": {
+            "type": "string"
+          },
+          "registrationNumber": {
+            "type": "string"
+          },
+          "taxRegistrationNumber": {
+            "type": "string"
+          },
+          "industry": {
+            "type": "string"
+          },
+          "organizationSize": {
+            "type": "string"
+          },
+          "websiteUrl": {
+            "type": "string"
+          },
+          "customerTier": {
+            "type": "string"
+          },
+          "classificationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "segmentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AccountRelationshipResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sourceAccountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetAccountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "relationshipType": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date"
+          },
+          "effectiveTo": {
+            "type": "string",
+            "format": "date"
+          },
+          "description": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "AccountResponse": {
         "type": "object",
         "properties": {
@@ -2844,6 +3102,36 @@
           }
         }
       },
+      "CreateAccountRelationshipRequest": {
+        "type": "object",
+        "properties": {
+          "targetAccountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "relationshipType": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "PARENT|SUBSIDIARY|BRANCH|PARTNER"
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date"
+          },
+          "effectiveTo": {
+            "type": "string",
+            "format": "date"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "relationshipType"
+        ]
+      },
       "CreateAccountRequest": {
         "type": "object",
         "properties": {
@@ -3035,6 +3323,36 @@
           "labelEn"
         ]
       },
+      "CreateExternalIdentifierRequest": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 0
+          },
+          "systemScope": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 0
+          },
+          "externalId": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 0
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "externalId",
+          "provider",
+          "systemScope"
+        ]
+      },
       "CreateLeadRequest": {
         "type": "object",
         "properties": {
@@ -3130,6 +3448,41 @@
           "name",
           "pipelineId",
           "stageId"
+        ]
+      },
+      "CreateTaxonomyRequest": {
+        "type": "object",
+        "properties": {
+          "taxonomyType": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "CLASSIFICATION|SEGMENT"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 0
+          },
+          "nameAr": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 0
+          },
+          "nameEn": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 0
+          },
+          "parentId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "code",
+          "nameAr",
+          "nameEn",
+          "taxonomyType"
         ]
       },
       "CustomFieldResponse": {
@@ -3229,6 +3582,51 @@
           "customFields": {
             "type": "object",
             "additionalProperties": {}
+          }
+        }
+      },
+      "EndAccountRelationshipRequest": {
+        "type": "object",
+        "properties": {
+          "effectiveTo": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "ExternalIdentifierResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "systemScope": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -3332,6 +3730,7 @@
           }
         }
       },
+      "JsonNode": {},
       "LeadConversionResponse": {
         "type": "object",
         "properties": {
@@ -3740,6 +4139,34 @@
           }
         }
       },
+      "OwnershipHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fromOwnerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "toOwnerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "changedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "changedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "Page": {
         "type": "object",
         "properties": {
@@ -3784,6 +4211,64 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ProjectionResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projectionType": {
+            "type": "string"
+          },
+          "sourceSystem": {
+            "type": "string"
+          },
+          "connectionStatus": {
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/JsonNode"
+          },
+          "sourceUpdatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "syncedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RiskProfileResponse": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "riskLevel": {
+            "type": "string"
+          },
+          "riskFlags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mergeCandidate": {
+            "type": "boolean"
           },
           "updatedAt": {
             "type": "string",
@@ -3963,6 +4448,72 @@
           }
         }
       },
+      "StatusHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fromStatus": {
+            "type": "string"
+          },
+          "toStatus": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "changedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "changedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TaxonomyResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "taxonomyType": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "nameAr": {
+            "type": "string"
+          },
+          "nameEn": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "TimelineEventResponse": {
         "type": "object",
         "properties": {
@@ -3995,6 +4546,58 @@
             "format": "date-time"
           },
           "createdBy": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "UpdateAccountProfileRequest": {
+        "type": "object",
+        "properties": {
+          "legalName": {
+            "type": "string",
+            "maxLength": 320,
+            "minLength": 0
+          },
+          "tradeName": {
+            "type": "string",
+            "maxLength": 320,
+            "minLength": 0
+          },
+          "registrationNumber": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 0
+          },
+          "taxRegistrationNumber": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 0
+          },
+          "industry": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 0
+          },
+          "organizationSize": {
+            "type": "string",
+            "pattern": "MICRO|SMALL|MEDIUM|LARGE|ENTERPRISE"
+          },
+          "websiteUrl": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 0
+          },
+          "customerTier": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 0
+          },
+          "classificationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "segmentId": {
             "type": "string",
             "format": "uuid"
           }
@@ -4034,6 +4637,28 @@
             "type": "string",
             "maxLength": 80,
             "minLength": 0
+          }
+        }
+      },
+      "UpdateAccountRiskRequest": {
+        "type": "object",
+        "properties": {
+          "riskLevel": {
+            "type": "string",
+            "pattern": "UNKNOWN|LOW|MEDIUM|HIGH|CRITICAL"
+          },
+          "riskFlags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 60,
+              "minLength": 0
+            },
+            "maxItems": 20,
+            "minItems": 0
+          },
+          "mergeCandidate": {
+            "type": "boolean"
           }
         }
       },
@@ -4203,69 +4828,7 @@
             "pattern": "[A-Za-z]{3}"
           }
         }
-      },
-      "FieldError": {
-        "type": "object",
-        "required": [
-          "field",
-          "code",
-          "message"
-        ],
-        "properties": {
-          "field": {
-            "type": "string"
-          },
-          "code": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          }
-        }
-      },
-      "ApiErrorResponse": {
-        "type": "object",
-        "properties": {
-          "timestamp": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "status": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "error": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
-          },
-          "tenantIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "ErrorResponse": {
-        "$ref": "#/components/schemas/ApiErrorResponse"
-      }
-    },
-    "securitySchemes": {
-      "BearerAuth": {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT"
       }
     }
-  },
-  "security": [
-    {
-      "BearerAuth": []
-    }
-  ]
+  }
 }

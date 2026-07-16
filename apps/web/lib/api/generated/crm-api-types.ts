@@ -14,6 +14,22 @@
  */
 
 export type paths = {
+    readonly "/account-taxonomies": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["list"];
+        readonly put?: never;
+        readonly post: operations["create"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/accounts": {
         readonly parameters: {
             readonly query?: never;
@@ -76,6 +92,166 @@ export type paths = {
         readonly options?: never;
         readonly head?: never;
         readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/accounts/{accountId}/external-identifiers": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["listExternalIdentifiers"];
+        readonly put?: never;
+        readonly post: operations["createExternalIdentifier"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/accounts/{accountId}/external-identifiers/{identifierId}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete: operations["removeExternalIdentifier"];
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/accounts/{accountId}/history": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["getHistory"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/accounts/{accountId}/master": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["getMaster"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/accounts/{accountId}/master/profile": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put: operations["updateProfile"];
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/accounts/{accountId}/master/risk": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["getRisk"];
+        readonly put: operations["updateRisk"];
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/accounts/{accountId}/projections": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["getProjections"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/accounts/{accountId}/reactivate": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch: operations["reactivate"];
+        readonly trace?: never;
+    };
+    readonly "/accounts/{accountId}/relationships": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["listRelationships"];
+        readonly put?: never;
+        readonly post: operations["createRelationship"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/accounts/{accountId}/relationships/{relationshipId}/end": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch: operations["endRelationship"];
         readonly trace?: never;
     };
     readonly "/accounts/{accountId}/restore": {
@@ -562,6 +738,66 @@ export type paths = {
 export type webhooks = Record<string, never>;
 export type components = {
     schemas: {
+        readonly AccountHistoryResponse: {
+            readonly statusHistory?: readonly components["schemas"]["StatusHistoryResponse"][];
+            readonly ownershipHistory?: readonly components["schemas"]["OwnershipHistoryResponse"][];
+        };
+        readonly AccountMasterOverviewResponse: {
+            /** Format: uuid */
+            readonly accountId?: string;
+            /** Format: int64 */
+            readonly accountVersion?: number;
+            readonly displayName?: string;
+            readonly accountType?: string;
+            readonly lifecycleStatus?: string;
+            /** Format: uuid */
+            readonly ownerUserId?: string;
+            readonly profile?: components["schemas"]["AccountProfileResponse"];
+            readonly projections?: readonly components["schemas"]["ProjectionResponse"][];
+        };
+        readonly AccountProfileResponse: {
+            /** Format: uuid */
+            readonly accountId?: string;
+            /** Format: int64 */
+            readonly version?: number;
+            readonly legalName?: string;
+            readonly tradeName?: string;
+            readonly registrationNumber?: string;
+            readonly taxRegistrationNumber?: string;
+            readonly industry?: string;
+            readonly organizationSize?: string;
+            readonly websiteUrl?: string;
+            readonly customerTier?: string;
+            /** Format: uuid */
+            readonly classificationId?: string;
+            /** Format: uuid */
+            readonly segmentId?: string;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
+        readonly AccountRelationshipResponse: {
+            /** Format: uuid */
+            readonly id?: string;
+            /** Format: int64 */
+            readonly version?: number;
+            /** Format: uuid */
+            readonly sourceAccountId?: string;
+            /** Format: uuid */
+            readonly targetAccountId?: string;
+            readonly relationshipType?: string;
+            readonly status?: string;
+            /** Format: date */
+            readonly effectiveFrom?: string;
+            /** Format: date */
+            readonly effectiveTo?: string;
+            readonly description?: string;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
         readonly AccountResponse: {
             /** Format: uuid */
             readonly id?: string;
@@ -682,6 +918,16 @@ export type components = {
             /** Format: date */
             readonly expectedCloseDate?: string;
         };
+        readonly CreateAccountRelationshipRequest: {
+            /** Format: uuid */
+            readonly targetAccountId?: string;
+            readonly relationshipType: string;
+            /** Format: date */
+            readonly effectiveFrom?: string;
+            /** Format: date */
+            readonly effectiveTo?: string;
+            readonly description?: string;
+        };
         readonly CreateAccountRequest: {
             readonly displayName: string;
             readonly accountType?: string;
@@ -734,6 +980,12 @@ export type components = {
             readonly searchable?: boolean;
             readonly required?: boolean;
         };
+        readonly CreateExternalIdentifierRequest: {
+            readonly provider: string;
+            readonly systemScope: string;
+            readonly externalId: string;
+            readonly label?: string;
+        };
         readonly CreateLeadRequest: {
             readonly displayName: string;
             readonly companyName?: string;
@@ -763,6 +1015,14 @@ export type components = {
             readonly expectedCloseDate?: string;
             /** Format: uuid */
             readonly ownerUserId?: string;
+        };
+        readonly CreateTaxonomyRequest: {
+            readonly taxonomyType: string;
+            readonly code: string;
+            readonly nameAr: string;
+            readonly nameEn: string;
+            /** Format: uuid */
+            readonly parentId?: string;
         };
         readonly CustomFieldResponse: {
             /** Format: uuid */
@@ -800,6 +1060,25 @@ export type components = {
             readonly customFields?: {
                 readonly [key: string]: unknown;
             };
+        };
+        readonly EndAccountRelationshipRequest: {
+            /** Format: date */
+            readonly effectiveTo?: string;
+        };
+        readonly ExternalIdentifierResponse: {
+            /** Format: uuid */
+            readonly id?: string;
+            /** Format: uuid */
+            readonly accountId?: string;
+            readonly provider?: string;
+            readonly systemScope?: string;
+            readonly externalId?: string;
+            readonly label?: string;
+            readonly active?: boolean;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
         };
         readonly ImportErrorResponse: {
             /** Format: uuid */
@@ -847,6 +1126,7 @@ export type components = {
             /** Format: date-time */
             readonly updatedAt?: string;
         };
+        readonly JsonNode: unknown;
         readonly LeadConversionResponse: {
             readonly lead?: components["schemas"]["LeadResponse"];
             readonly account?: components["schemas"]["AccountResponse"];
@@ -991,6 +1271,19 @@ export type components = {
             /** Format: date-time */
             readonly updatedAt?: string;
         };
+        readonly OwnershipHistoryResponse: {
+            /** Format: uuid */
+            readonly id?: string;
+            /** Format: uuid */
+            readonly fromOwnerUserId?: string;
+            /** Format: uuid */
+            readonly toOwnerUserId?: string;
+            readonly reason?: string;
+            /** Format: uuid */
+            readonly changedBy?: string;
+            /** Format: date-time */
+            readonly changedAt?: string;
+        };
         readonly Page: {
             readonly nextCursor?: string;
             readonly hasMore?: boolean;
@@ -1008,6 +1301,29 @@ export type components = {
             readonly stages?: readonly components["schemas"]["StageResponse"][];
             /** Format: date-time */
             readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
+        readonly ProjectionResponse: {
+            /** Format: uuid */
+            readonly id?: string;
+            readonly projectionType?: string;
+            readonly sourceSystem?: string;
+            readonly connectionStatus?: string;
+            readonly payload?: components["schemas"]["JsonNode"];
+            /** Format: date-time */
+            readonly sourceUpdatedAt?: string;
+            /** Format: date-time */
+            readonly syncedAt?: string;
+        };
+        readonly RiskProfileResponse: {
+            /** Format: uuid */
+            readonly accountId?: string;
+            /** Format: int64 */
+            readonly version?: number;
+            readonly riskLevel?: string;
+            readonly riskFlags?: readonly string[];
+            readonly mergeCandidate?: boolean;
             /** Format: date-time */
             readonly updatedAt?: string;
         };
@@ -1075,6 +1391,34 @@ export type components = {
             readonly terminalState?: string;
             readonly active?: boolean;
         };
+        readonly StatusHistoryResponse: {
+            /** Format: uuid */
+            readonly id?: string;
+            readonly fromStatus?: string;
+            readonly toStatus?: string;
+            readonly reason?: string;
+            /** Format: uuid */
+            readonly changedBy?: string;
+            /** Format: date-time */
+            readonly changedAt?: string;
+        };
+        readonly TaxonomyResponse: {
+            /** Format: uuid */
+            readonly id?: string;
+            /** Format: int64 */
+            readonly version?: number;
+            readonly taxonomyType?: string;
+            readonly code?: string;
+            readonly nameAr?: string;
+            readonly nameEn?: string;
+            /** Format: uuid */
+            readonly parentId?: string;
+            readonly active?: boolean;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
         readonly TimelineEventResponse: {
             /** Format: uuid */
             readonly id?: string;
@@ -1091,6 +1435,20 @@ export type components = {
             /** Format: uuid */
             readonly createdBy?: string;
         };
+        readonly UpdateAccountProfileRequest: {
+            readonly legalName?: string;
+            readonly tradeName?: string;
+            readonly registrationNumber?: string;
+            readonly taxRegistrationNumber?: string;
+            readonly industry?: string;
+            readonly organizationSize?: string;
+            readonly websiteUrl?: string;
+            readonly customerTier?: string;
+            /** Format: uuid */
+            readonly classificationId?: string;
+            /** Format: uuid */
+            readonly segmentId?: string;
+        };
         readonly UpdateAccountRequest: {
             readonly displayName?: string;
             /** Format: uuid */
@@ -1101,6 +1459,11 @@ export type components = {
             readonly preferredLocale?: string;
             readonly timeZone?: string;
             readonly source?: string;
+        };
+        readonly UpdateAccountRiskRequest: {
+            readonly riskLevel?: string;
+            readonly riskFlags?: readonly string[];
+            readonly mergeCandidate?: boolean;
         };
         readonly UpdateActivityRequest: {
             readonly subject?: string;
@@ -1154,90 +1517,61 @@ export type components = {
             readonly name?: string;
             readonly currencyCode?: string;
         };
-        readonly FieldError: {
-            readonly field: string;
-            readonly code: string;
-            readonly message: string;
-        };
-        readonly ApiErrorResponse: {
-            /** Format: date-time */
-            readonly timestamp?: string;
-            /** Format: int32 */
-            readonly status?: number;
-            readonly error?: string;
-            readonly message?: string;
-            readonly path?: string;
-            readonly tenantIds?: readonly string[];
-        };
-        readonly ErrorResponse: components["schemas"]["ApiErrorResponse"];
     };
-    responses: {
-        /** @description Validation error */
-        readonly ValidationError: {
-            headers: {
-                readonly [name: string]: unknown;
-            };
-            content: {
-                readonly "application/json": components["schemas"]["ErrorResponse"];
-            };
-        };
-        /** @description Resource not found */
-        readonly NotFound: {
-            headers: {
-                readonly [name: string]: unknown;
-            };
-            content: {
-                readonly "application/json": components["schemas"]["ErrorResponse"];
-            };
-        };
-        /** @description Idempotency or state conflict */
-        readonly Conflict: {
-            headers: {
-                readonly [name: string]: unknown;
-            };
-            content: {
-                readonly "application/json": components["schemas"]["ErrorResponse"];
-            };
-        };
-        /** @description Stale ETag / optimistic concurrency conflict */
-        readonly ConcurrencyConflict: {
-            headers: {
-                readonly [name: string]: unknown;
-            };
-            content: {
-                readonly "application/json": components["schemas"]["ErrorResponse"];
-            };
-        };
-        /** @description If-Match header required */
-        readonly PreconditionRequired: {
-            headers: {
-                readonly [name: string]: unknown;
-            };
-            content: {
-                readonly "application/json": components["schemas"]["ErrorResponse"];
-            };
-        };
-    };
-    parameters: {
-        readonly Limit: number;
-        /** @description Opaque tenant-bound pagination cursor. */
-        readonly Cursor: string;
-        readonly Sort: string;
-        readonly Direction: "asc" | "desc";
-        /** @description Strong ETag required for versioned mutations. */
-        readonly IfMatch: string;
-        /** @description Required for governed idempotent POST operations. */
-        readonly IdempotencyKey: string;
-    };
+    responses: never;
+    parameters: never;
     requestBodies: never;
-    headers: {
-        /** @description Strong version ETag. Send it back as If-Match on mutations. */
-        readonly ETag: string;
-    };
+    headers: never;
     pathItems: never;
 };
 export type $defs = Record<string, never>;
 export interface operations {
+    readonly list: {
+        readonly parameters: {
+            readonly query: {
+                readonly type: string;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": readonly components["schemas"]["TaxonomyResponse"][];
+                };
+            };
+        };
+    };
+    readonly create: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["CreateTaxonomyRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["TaxonomyResponse"];
+                };
+            };
+        };
+    };
     readonly listAccounts: {
         readonly parameters: {
             readonly query?: {
@@ -1267,8 +1601,8 @@ export interface operations {
     readonly createAccount: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "Idempotency-Key": string;
+            readonly header?: {
+                readonly "Idempotency-Key"?: string;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -1279,18 +1613,15 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description Created */
-            readonly 201: {
+            /** @description OK */
+            readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseAccountResponse"];
                 };
             };
-            readonly 400: components["responses"]["ValidationError"];
-            readonly 409: components["responses"]["Conflict"];
         };
     };
     readonly getAccount: {
@@ -1307,7 +1638,6 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1319,8 +1649,8 @@ export interface operations {
     readonly updateAccount: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "If-Match": string;
+            readonly header?: {
+                readonly "If-Match"?: string;
             };
             readonly path: {
                 readonly accountId: string;
@@ -1336,22 +1666,19 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseAccountResponse"];
                 };
             };
-            readonly 412: components["responses"]["ConcurrencyConflict"];
-            readonly 428: components["responses"]["PreconditionRequired"];
         };
     };
     readonly archiveAccount: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "If-Match": string;
+            readonly header?: {
+                readonly "If-Match"?: string;
             };
             readonly path: {
                 readonly accountId: string;
@@ -1363,15 +1690,12 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseArchiveAccountResponse"];
                 };
             };
-            readonly 412: components["responses"]["ConcurrencyConflict"];
-            readonly 428: components["responses"]["PreconditionRequired"];
         };
     };
     readonly customer360: {
@@ -1388,7 +1712,6 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1397,11 +1720,224 @@ export interface operations {
             };
         };
     };
-    readonly restoreAccount: {
+    readonly listExternalIdentifiers: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "If-Match": string;
+            readonly header?: never;
+            readonly path: {
+                readonly accountId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": readonly components["schemas"]["ExternalIdentifierResponse"][];
+                };
+            };
+        };
+    };
+    readonly createExternalIdentifier: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly accountId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["CreateExternalIdentifierRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ExternalIdentifierResponse"];
+                };
+            };
+        };
+    };
+    readonly removeExternalIdentifier: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly accountId: string;
+                readonly identifierId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly getHistory: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly accountId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["AccountHistoryResponse"];
+                };
+            };
+        };
+    };
+    readonly getMaster: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly accountId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["AccountMasterOverviewResponse"];
+                };
+            };
+        };
+    };
+    readonly updateProfile: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: {
+                readonly "If-Match"?: string;
+            };
+            readonly path: {
+                readonly accountId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["UpdateAccountProfileRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["AccountProfileResponse"];
+                };
+            };
+        };
+    };
+    readonly getRisk: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly accountId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["RiskProfileResponse"];
+                };
+            };
+        };
+    };
+    readonly updateRisk: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: {
+                readonly "If-Match"?: string;
+            };
+            readonly path: {
+                readonly accountId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["UpdateAccountRiskRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["RiskProfileResponse"];
+                };
+            };
+        };
+    };
+    readonly getProjections: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly accountId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": readonly components["schemas"]["ProjectionResponse"][];
+                };
+            };
+        };
+    };
+    readonly reactivate: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: {
+                readonly "If-Match"?: string;
             };
             readonly path: {
                 readonly accountId: string;
@@ -1413,15 +1949,113 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["AccountMasterOverviewResponse"];
+                };
+            };
+        };
+    };
+    readonly listRelationships: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly accountId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": readonly components["schemas"]["AccountRelationshipResponse"][];
+                };
+            };
+        };
+    };
+    readonly createRelationship: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly accountId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["CreateAccountRelationshipRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["AccountRelationshipResponse"];
+                };
+            };
+        };
+    };
+    readonly endRelationship: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: {
+                readonly "If-Match"?: string;
+            };
+            readonly path: {
+                readonly accountId: string;
+                readonly relationshipId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["EndAccountRelationshipRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["AccountRelationshipResponse"];
+                };
+            };
+        };
+    };
+    readonly restoreAccount: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: {
+                readonly "If-Match"?: string;
+            };
+            readonly path: {
+                readonly accountId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseAccountResponse"];
                 };
             };
-            readonly 412: components["responses"]["ConcurrencyConflict"];
-            readonly 428: components["responses"]["PreconditionRequired"];
         };
     };
     readonly listActivities: {
@@ -1455,8 +2089,8 @@ export interface operations {
     readonly createActivity: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "Idempotency-Key": string;
+            readonly header?: {
+                readonly "Idempotency-Key"?: string;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -1467,18 +2101,15 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description Created */
-            readonly 201: {
+            /** @description OK */
+            readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseActivityResponse"];
                 };
             };
-            readonly 400: components["responses"]["ValidationError"];
-            readonly 409: components["responses"]["Conflict"];
         };
     };
     readonly getActivity: {
@@ -1495,7 +2126,6 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1507,8 +2137,8 @@ export interface operations {
     readonly updateActivity: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "If-Match": string;
+            readonly header?: {
+                readonly "If-Match"?: string;
             };
             readonly path: {
                 readonly activityId: string;
@@ -1524,22 +2154,19 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseActivityResponse"];
                 };
             };
-            readonly 412: components["responses"]["ConcurrencyConflict"];
-            readonly 428: components["responses"]["PreconditionRequired"];
         };
     };
     readonly completeActivity: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "If-Match": string;
+            readonly header?: {
+                readonly "If-Match"?: string;
             };
             readonly path: {
                 readonly activityId: string;
@@ -1555,15 +2182,12 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseActivityResponse"];
                 };
             };
-            readonly 412: components["responses"]["ConcurrencyConflict"];
-            readonly 428: components["responses"]["PreconditionRequired"];
         };
     };
     readonly listContacts: {
@@ -1596,8 +2220,8 @@ export interface operations {
     readonly createContact: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "Idempotency-Key": string;
+            readonly header?: {
+                readonly "Idempotency-Key"?: string;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -1608,18 +2232,15 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description Created */
-            readonly 201: {
+            /** @description OK */
+            readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseContactResponse"];
                 };
             };
-            readonly 400: components["responses"]["ValidationError"];
-            readonly 409: components["responses"]["Conflict"];
         };
     };
     readonly getContact: {
@@ -1636,7 +2257,6 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1648,8 +2268,8 @@ export interface operations {
     readonly updateContact: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "If-Match": string;
+            readonly header?: {
+                readonly "If-Match"?: string;
             };
             readonly path: {
                 readonly contactId: string;
@@ -1665,22 +2285,19 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseContactResponse"];
                 };
             };
-            readonly 412: components["responses"]["ConcurrencyConflict"];
-            readonly 428: components["responses"]["PreconditionRequired"];
         };
     };
     readonly archiveContact: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "If-Match": string;
+            readonly header?: {
+                readonly "If-Match"?: string;
             };
             readonly path: {
                 readonly contactId: string;
@@ -1692,22 +2309,19 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseContactResponse"];
                 };
             };
-            readonly 412: components["responses"]["ConcurrencyConflict"];
-            readonly 428: components["responses"]["PreconditionRequired"];
         };
     };
     readonly restoreContact: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "If-Match": string;
+            readonly header?: {
+                readonly "If-Match"?: string;
             };
             readonly path: {
                 readonly contactId: string;
@@ -1719,15 +2333,12 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseContactResponse"];
                 };
             };
-            readonly 412: components["responses"]["ConcurrencyConflict"];
-            readonly 428: components["responses"]["PreconditionRequired"];
         };
     };
     readonly listCustomFields: {
@@ -1759,8 +2370,8 @@ export interface operations {
     readonly createCustomField: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "Idempotency-Key": string;
+            readonly header?: {
+                readonly "Idempotency-Key"?: string;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -1771,18 +2382,15 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description Created */
-            readonly 201: {
+            /** @description OK */
+            readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseCustomFieldResponse"];
                 };
             };
-            readonly 400: components["responses"]["ValidationError"];
-            readonly 409: components["responses"]["Conflict"];
         };
     };
     readonly searchCustomFieldValues: {
@@ -1825,7 +2433,6 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1853,7 +2460,6 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1865,8 +2471,8 @@ export interface operations {
     readonly upsertCustomFieldValuesPost: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "Idempotency-Key": string;
+            readonly header?: {
+                readonly "Idempotency-Key"?: string;
             };
             readonly path: {
                 readonly entityType: string;
@@ -1883,22 +2489,19 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseCustomFieldValuesResponse"];
                 };
             };
-            readonly 400: components["responses"]["ValidationError"];
-            readonly 409: components["responses"]["Conflict"];
         };
     };
     readonly updateCustomField: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "If-Match": string;
+            readonly header?: {
+                readonly "If-Match"?: string;
             };
             readonly path: {
                 readonly customFieldId: string;
@@ -1914,15 +2517,12 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseCustomFieldResponse"];
                 };
             };
-            readonly 412: components["responses"]["ConcurrencyConflict"];
-            readonly 428: components["responses"]["PreconditionRequired"];
         };
     };
     readonly listImportJobs: {
@@ -1953,8 +2553,8 @@ export interface operations {
     readonly uploadImport: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "Idempotency-Key": string;
+            readonly header?: {
+                readonly "Idempotency-Key"?: string;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -1970,18 +2570,15 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description Created */
-            readonly 201: {
+            /** @description OK */
+            readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseImportJobResponse"];
                 };
             };
-            readonly 400: components["responses"]["ValidationError"];
-            readonly 409: components["responses"]["Conflict"];
         };
     };
     readonly getImportJob: {
@@ -1998,7 +2595,6 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2021,7 +2617,6 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2082,8 +2677,8 @@ export interface operations {
     readonly runImport: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "Idempotency-Key": string;
+            readonly header?: {
+                readonly "Idempotency-Key"?: string;
             };
             readonly path: {
                 readonly jobId: string;
@@ -2095,15 +2690,12 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseImportRunResponse"];
                 };
             };
-            readonly 400: components["responses"]["ValidationError"];
-            readonly 409: components["responses"]["Conflict"];
         };
     };
     readonly listLeads: {
@@ -2135,8 +2727,8 @@ export interface operations {
     readonly createLead: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "Idempotency-Key": string;
+            readonly header?: {
+                readonly "Idempotency-Key"?: string;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -2147,18 +2739,15 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description Created */
-            readonly 201: {
+            /** @description OK */
+            readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseLeadResponse"];
                 };
             };
-            readonly 400: components["responses"]["ValidationError"];
-            readonly 409: components["responses"]["Conflict"];
         };
     };
     readonly getLead: {
@@ -2175,7 +2764,6 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2187,8 +2775,8 @@ export interface operations {
     readonly convertLead: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "Idempotency-Key": string;
+            readonly header?: {
+                readonly "Idempotency-Key"?: string;
             };
             readonly path: {
                 readonly leadId: string;
@@ -2204,22 +2792,19 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseLeadConversionResponse"];
                 };
             };
-            readonly 400: components["responses"]["ValidationError"];
-            readonly 409: components["responses"]["Conflict"];
         };
     };
     readonly changeLeadStatus: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "If-Match": string;
+            readonly header?: {
+                readonly "If-Match"?: string;
             };
             readonly path: {
                 readonly leadId: string;
@@ -2235,15 +2820,12 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseLeadResponse"];
                 };
             };
-            readonly 412: components["responses"]["ConcurrencyConflict"];
-            readonly 428: components["responses"]["PreconditionRequired"];
         };
     };
     readonly listOpportunities: {
@@ -2275,8 +2857,8 @@ export interface operations {
     readonly createOpportunity: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "Idempotency-Key": string;
+            readonly header?: {
+                readonly "Idempotency-Key"?: string;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -2287,18 +2869,15 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description Created */
-            readonly 201: {
+            /** @description OK */
+            readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseOpportunityResponse"];
                 };
             };
-            readonly 400: components["responses"]["ValidationError"];
-            readonly 409: components["responses"]["Conflict"];
         };
     };
     readonly getOpportunity: {
@@ -2315,7 +2894,6 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2327,8 +2905,8 @@ export interface operations {
     readonly updateOpportunity: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "If-Match": string;
+            readonly header?: {
+                readonly "If-Match"?: string;
             };
             readonly path: {
                 readonly opportunityId: string;
@@ -2344,22 +2922,19 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseOpportunityResponse"];
                 };
             };
-            readonly 412: components["responses"]["ConcurrencyConflict"];
-            readonly 428: components["responses"]["PreconditionRequired"];
         };
     };
     readonly moveOpportunityStage: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "If-Match": string;
+            readonly header?: {
+                readonly "If-Match"?: string;
             };
             readonly path: {
                 readonly opportunityId: string;
@@ -2375,15 +2950,12 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseOpportunityResponse"];
                 };
             };
-            readonly 412: components["responses"]["ConcurrencyConflict"];
-            readonly 428: components["responses"]["PreconditionRequired"];
         };
     };
     readonly listPipelines_1: {
@@ -2409,8 +2981,8 @@ export interface operations {
     readonly updatePipeline: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "If-Match": string;
+            readonly header?: {
+                readonly "If-Match"?: string;
             };
             readonly path: {
                 readonly pipelineId: string;
@@ -2426,15 +2998,12 @@ export interface operations {
             /** @description OK */
             readonly 200: {
                 headers: {
-                    readonly ETag: components["headers"]["ETag"];
                     readonly [name: string]: unknown;
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponsePipelineResponse"];
                 };
             };
-            readonly 412: components["responses"]["ConcurrencyConflict"];
-            readonly 428: components["responses"]["PreconditionRequired"];
         };
     };
     readonly listPipelineStages: {
