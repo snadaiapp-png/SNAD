@@ -174,5 +174,8 @@ public interface CustomerMasterRepository {
             int contactsMoved,
             int opportunitiesMoved,
             int activitiesMoved,
+            int addressesMoved,
+            int identifiersMoved,
+            int relationshipsMoved,
             Instant mergedAt) {}
 }
