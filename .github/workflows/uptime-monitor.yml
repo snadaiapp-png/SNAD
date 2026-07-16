@@ -1,172 +1,134 @@
-# ============================================================
-# SANAD Platform — Uptime Monitor
-# DEFECT-009: Production Monitoring Foundation
-# EXEC-PROMPT-010R4: Corrected retry timing and final enforcement
-# ============================================================
-# Runs every 5 minutes to check backend health.
-# Creates a GitHub issue on failure (deploy alerting).
-#
-# EXEC-PROMPT-010R4 Section 23-24: Corrected retry model.
-#   Max attempts: 4
-#   Per-attempt timeout: 30s
-#   Retry interval: 10s
-#   Max wall-clock: 150s (4*30 + 3*10)
-#   Job timeout: 5 min
-#   Hard deadline enforced
-# ============================================================
-
 name: Uptime Monitor
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # Every 5 minutes
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
   issues: write
 
+concurrency:
+  group: uptime-monitor
+  cancel-in-progress: true
+
+env:
+  BACKEND_URL: ${{ vars.PRODUCTION_BASE_URL }}
+  FRONTEND_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
+
 jobs:
   health-check:
-    name: Backend Health Ping
+    name: Backend and Frontend Health Ping
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
     steps:
-      - name: Check backend health (with cold-start retry)
-        id: health
+      - name: Validate monitoring targets
         shell: bash
         run: |
-          URL="https://sanad-backend-mcrj.onrender.com/actuator/health"
-          PER_ATTEMPT_TIMEOUT=30
-          RETRY_INTERVAL=10
-          MAX_ATTEMPTS=4
-          # Hard deadline: 4*30 + 3*10 = 150s max wall-clock
-          HARD_DEADLINE=$(( PER_ATTEMPT_TIMEOUT * MAX_ATTEMPTS + RETRY_INTERVAL * (MAX_ATTEMPTS - 1) ))
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from urllib.parse import urlparse
 
+          for name in ("BACKEND_URL", "FRONTEND_URL"):
+              value = os.environ.get(name, "").rstrip("/")
+              parsed = urlparse(value)
+              if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+                  raise SystemExit(
+                      f"{name} must be configured as a credential-free HTTPS origin. "
+                      "Set the GitHub repository variable PRODUCTION_BASE_URL for the public local-backend tunnel."
+                  )
+          PY
+
+      - name: Check backend health
+        id: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="${BACKEND_URL%/}/actuator/health"
           STATUS="000"
-          ATTEMPT=0
-          START_TIME=$(date +%s)
 
-          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-            ATTEMPT=$((ATTEMPT + 1))
-            ELAPSED=$(( $(date +%s) - START_TIME ))
-            REMAINING=$(( HARD_DEADLINE - ELAPSED ))
-
-            if [ $REMAINING -le 0 ]; then
-              echo "⚠️ Hard deadline exceeded (${ELAPSED}s). Stopping retries."
-              break
-            fi
-
-            # Cap per-attempt timeout at remaining time
-            THIS_TIMEOUT=$PER_ATTEMPT_TIMEOUT
-            if [ $THIS_TIMEOUT -gt $REMAINING ]; then
-              THIS_TIMEOUT=$REMAINING
-            fi
-
-            echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: checking $URL (timeout=${THIS_TIMEOUT}s, elapsed=${ELAPSED}s, remaining=${REMAINING}s)..."
-
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$THIS_TIMEOUT" "$URL" 2>/dev/null || echo "000")
+          for ATTEMPT in 1 2 3 4; do
+            STATUS=$(curl --silent --show-error --location \
+              --connect-timeout 10 --max-time 30 \
+              --output /dev/null --write-out '%{http_code}' \
+              --header 'ngrok-skip-browser-warning: any-value' \
+              "$URL" || true)
+            STATUS="${STATUS:-000}"
 
             if [ "$STATUS" = "200" ]; then
-              echo "✅ Backend healthy (HTTP $STATUS) on attempt $ATTEMPT"
-              echo "status=$STATUS" >> "$GITHUB_OUTPUT"
               echo "healthy=true" >> "$GITHUB_OUTPUT"
+              echo "status=$STATUS" >> "$GITHUB_OUTPUT"
               echo "attempts=$ATTEMPT" >> "$GITHUB_OUTPUT"
+              echo "Backend healthy on attempt $ATTEMPT"
               exit 0
             fi
 
-            echo "⚠️ Backend returned HTTP $STATUS on attempt $ATTEMPT"
-
-            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-              echo "Waiting ${RETRY_INTERVAL}s before retry..."
-              sleep "$RETRY_INTERVAL"
-            fi
+            echo "Backend returned HTTP $STATUS on attempt $ATTEMPT/4"
+            [ "$ATTEMPT" = "4" ] || sleep 10
           done
 
-          # All retries exhausted
-          ELAPSED=$(( $(date +%s) - START_TIME ))
-          echo "❌ Backend unhealthy after $ATTEMPT attempts (HTTP $STATUS, total elapsed=${ELAPSED}s, budget=${HARD_DEADLINE}s)"
-          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
           echo "healthy=false" >> "$GITHUB_OUTPUT"
-          echo "attempts=$ATTEMPT" >> "$GITHUB_OUTPUT"
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "attempts=4" >> "$GITHUB_OUTPUT"
 
       - name: Check frontend health
         id: frontend
         shell: bash
         run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
-            "https://snad-app.vercel.app" 2>/dev/null || echo "000")
+          set -euo pipefail
+          STATUS=$(curl --silent --show-error --location \
+            --connect-timeout 10 --max-time 30 \
+            --output /dev/null --write-out '%{http_code}' \
+            "${FRONTEND_URL%/}/" || true)
+          STATUS="${STATUS:-000}"
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
-          if [ "$STATUS" = "200" ] || [ "$STATUS" = "301" ] || [ "$STATUS" = "302" ]; then
-            echo "✅ Frontend healthy (HTTP $STATUS)"
-            echo "healthy=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "❌ Frontend unhealthy (HTTP $STATUS)"
-            echo "healthy=false" >> "$GITHUB_OUTPUT"
-          fi
 
-      - name: Create incident issue on failure
-        if: steps.health.outputs.healthy == 'false' || steps.frontend.outputs.healthy == 'false'
+          case "$STATUS" in
+            200|301|302) echo "healthy=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "healthy=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Create or update incident on failure
+        if: steps.backend.outputs.healthy != 'true' || steps.frontend.outputs.healthy != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set +e  # Don't fail the job if issue creation fails
-          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          BACKEND_STATUS="${{ steps.health.outputs.status }}"
-          FRONTEND_STATUS="${{ steps.frontend.outputs.status }}"
-          BACKEND_ATTEMPTS="${{ steps.health.outputs.attempts }}"
-
-          # Create labels if they don't exist (graceful)
-          gh label create "incident" --description "Service incident" --color "d73a4a" 2>/dev/null || true
-
-          # Check if an open incident issue already exists
-          EXISTING=$(gh issue list --label "incident" --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || echo "")
-
-          if [ -n "$EXISTING" ]; then
-            echo "Open incident issue #$EXISTING already exists — adding comment"
-            gh issue comment "$EXISTING" --body "⏰ Still failing at $TIMESTAMP — Backend: HTTP $BACKEND_STATUS (after $BACKEND_ATTEMPTS attempts), Frontend: HTTP $FRONTEND_STATUS" 2>/dev/null || true
-          else
-            ISSUE_NUM=$(gh issue create \
-              --title "🚨 Incident: Service Unhealthy — $TIMESTAMP" \
-              --body "## Service Health Check Failed\n\n**Timestamp:** $TIMESTAMP\n**Backend:** HTTP $BACKEND_STATUS (after $BACKEND_ATTEMPTS retry attempts)\n**Frontend:** HTTP $FRONTEND_STATUS\n\n### Next Steps\n1. Check Render logs\n2. Check Vercel dashboard\n3. Run smoke test" \
-              --label "incident" \
-              --assignee "snadaiapp-png" 2>/dev/null | grep -oE '[0-9]+' || echo "")
-            if [ -n "$ISSUE_NUM" ]; then
-              echo "Created incident issue #$ISSUE_NUM"
-            fi
-          fi
-
-      - name: Close incident issue on recovery
-        if: steps.health.outputs.healthy == 'true' && steps.frontend.outputs.healthy == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           set +e
-          EXISTING=$(gh issue list --label "incident" --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || echo "")
+          TIMESTAMP=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          gh label create incident --description 'Service incident' --color d73a4a 2>/dev/null || true
+          EXISTING=$(gh issue list --label incident --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null)
+          BODY="Health check failed at $TIMESTAMP. Backend HTTP: ${{ steps.backend.outputs.status }}. Frontend HTTP: ${{ steps.frontend.outputs.status }}."
 
           if [ -n "$EXISTING" ]; then
-            TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-            echo "Closing incident issue #$EXISTING — services recovered"
-            gh issue comment "$EXISTING" --body "✅ Services recovered at $TIMESTAMP — Backend: HTTP 200, Frontend: HTTP 200" 2>/dev/null || true
-            gh issue close "$EXISTING" --reason "completed" 2>/dev/null || true
+            gh issue comment "$EXISTING" --body "$BODY" || true
+          else
+            gh issue create --title "Incident: frontend/backend connection unavailable" --body "$BODY" --label incident || true
           fi
 
-      # EXEC-PROMPT-010R4 Section 24: Final enforcement — fail if unhealthy
+      - name: Close incident after recovery
+        if: steps.backend.outputs.healthy == 'true' && steps.frontend.outputs.healthy == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set +e
+          EXISTING=$(gh issue list --label incident --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null)
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "Services recovered at $(date -u +'%Y-%m-%d %H:%M:%S UTC')." || true
+            gh issue close "$EXISTING" --reason completed || true
+          fi
+
       - name: Final health enforcement
         if: always()
         shell: bash
         env:
-          BACKEND_HEALTHY: ${{ steps.health.outputs.healthy }}
+          BACKEND_HEALTHY: ${{ steps.backend.outputs.healthy }}
           FRONTEND_HEALTHY: ${{ steps.frontend.outputs.healthy }}
         run: |
-          # Incident automation must NOT convert unhealthy to green
-          if [ "$BACKEND_HEALTHY" = "false" ]; then
-            echo "::error::Backend unhealthy after all retries — job FAILS"
-            exit 1
-          fi
-          if [ "$FRONTEND_HEALTHY" = "false" ]; then
-            echo "::error::Frontend unhealthy — job FAILS"
-            exit 1
-          fi
-          echo "✅ All services healthy — job PASSES"
+          set -euo pipefail
+          test "$BACKEND_HEALTHY" = "true"
+          test "$FRONTEND_HEALTHY" = "true"
