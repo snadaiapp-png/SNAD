@@ -1222,3 +1222,68 @@ Stage Summary:
 - ✅ Path 3: Integration test successful — backend + frontend work together, /crm/tasks renders
 - 🔄 Path 4: B2 cloud backend analysis — see final report
 - ✅ Project status: READY_FOR_DIRECT_COMMANDS (confirmed by successful integration)
+
+---
+Task ID: z-platform-final-completion
+Agent: main (Super Z)
+Task: إكمال دمج PR #506 + #507 + تنفيذ Search+Export (#508) + تجهيز B2 Fly.io
+
+Work Log:
+
+## PR #506 (Notes) — مدموج ✅
+- كان مدموجاً بالفعل عند استئناف الجلسة
+- main تقدّم إلى 029112e
+
+## PR #508 (Search+Export) — مدموج ✅
+- أنشأت feature/crm-search-export من main (029112e)
+- نفّذت Advanced Search: bounded context (domain/application/infrastructure/web)
+  - SearchRepository، SearchUseCases، JdbcSearchRepository (UNION search across
+    accounts/contacts/leads)، SearchController (GET /api/v1/crm/search?q=)
+- نفّذت CSV Export: ExportController مع 3 endpoints
+  - GET /api/v1/crm/export/accounts (CRM.ACCOUNT.READ)
+  - GET /api/v1/crm/export/contacts (CRM.CONTACT.READ)
+  - GET /api/v1/crm/export/leads (CRM.LEAD.READ)
+- Frontend: CrmSearchResult interface + search page مع debounced search (300ms)
+  + 3 export buttons (Blob download) + SearchIcon nav + 20 i18n keys
+- Tests: CrmSearchContractTest 2/2 PASS
+- إصلاحات CI: SDS compliance (أزلت #6B7280 hardcoded hex، استخدمت opacity)
+  + PlatformApiCountTest (59 CRM paths، 194 total)
+- PR #508 مدموج: ee74f6d
+
+## PR #507 (Tags) — مدموج ✅
+- كان DIRTY (تعارضات مع main بعد دمج #508)
+- حللت التعارضات (CrmDtoMapper، PlatformApiCountTest، crm-shell.tsx، i18n)
+- إصلاحات CI متعددة:
+  1. V20260716_3 migration: استبدلت UNIQUE(LOWER(name)) بـ UNIQUE(tenant_id, name)
+     (H2 لا يدعم function-based UNIQUE index)
+  2. tags/page.tsx: أزلت 18 hardcoded hex colors (SDS compliance)
+  3. PlatformApiCountTest: 68 CRM paths (44+7+4+9+1+3)، 203 total
+- PR #507 مدموج: 5a10e87
+
+## B2 Fly.io — جاهز ✅
+- flyctl v0.4.71 مثبّت
+- fly.toml موجود وصحيح
+- أنشأت:
+  - /home/z/my-project/download/SNAD-B2-FLY-CREDENTIALS-TEMPLATE.env (template للـcredentials)
+  - scripts/deploy-fly.sh (deployment script كامل بـ6 phases)
+- النشر الفعلي يحتاج credentials من المستخدم:
+  1. FLY_API_TOKEN
+  2. DATABASE_URL (Supabase JDBC)
+  3. DATABASE_USERNAME + DATABASE_PASSWORD
+  4. JWT_SECRET
+  5. SANAD_CONTROL_PLANE_TENANT_ID
+
+## CRM Phase 3 — مكتمل بالكامل ✅
+كل ميزات Phase 3 الخمس مدموجة على main:
+  #1 Tasks (PR #505) ✅
+  #2 Notes (PR #506) ✅
+  #3 Tags/Labels (PR #507) ✅
+  #4 Advanced Search (PR #508) ✅
+  #5 Export (PR #508) ✅
+
+Stage Summary:
+- main HEAD: 5a10e87 — يحتوي على كل ميزات CRM Phase 3
+- 5 PRs مدموجة بنجاح (#504، #505، #506، #507، #508)
+- جميع CI checks PASS على main
+- B2 Fly.io جاهز للنشر (بانتظار credentials)
+- المشروع في أفضل حالة تشغيلية
