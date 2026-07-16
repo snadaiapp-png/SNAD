@@ -1,9 +1,9 @@
 package com.sanad.platform.crm.party.application;
 
-import com.sanad.platform.crm.party.domain.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.crm.integration.domain.AuditPort;
 import com.sanad.platform.crm.integration.domain.TimelineEventPort;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sanad.platform.crm.party.domain.*;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -17,11 +17,13 @@ public class PartyModuleConfiguration {
                                            AuditPort auditPort,
                                            TimelineEventPort timelineEventPort,
                                            ObjectMapper objectMapper) {
-        return new AccountUseCases(accountRepository, hierarchyPort, ownerValidationPort, auditPort, timelineEventPort, objectMapper);
+        return new AccountUseCases(accountRepository, hierarchyPort, ownerValidationPort,
+                auditPort, timelineEventPort, objectMapper);
     }
 
     @Bean
-    public ContactUseCases contactUseCases(ContactRepository contactRepository) {
-        return new ContactUseCases(contactRepository);
+    public ContactUseCases contactUseCases(ContactRepository contactRepository,
+                                           TimelineEventPort timelineEventPort) {
+        return new ContactUseCases(contactRepository, timelineEventPort);
     }
 }
