@@ -93,31 +93,20 @@ public class ContactRelationshipUseCases {
     }
 
     public List<RelationshipRecord> relationshipsByContact(
-            UUID tenantId,
-            UUID contactId,
-            int limit,
-            Instant beforeUpdatedAt,
-            UUID beforeId) {
+            UUID tenantId, UUID contactId, int limit, Instant beforeUpdatedAt, UUID beforeId) {
         requireTenant(tenantId);
         return repository.listByContact(tenantId, contactId, boundedLimit(limit), beforeUpdatedAt, beforeId);
     }
 
     public List<RelationshipRecord> relationshipsByAccount(
-            UUID tenantId,
-            UUID accountId,
-            int limit,
-            Instant beforeUpdatedAt,
-            UUID beforeId) {
+            UUID tenantId, UUID accountId, int limit, Instant beforeUpdatedAt, UUID beforeId) {
         requireTenant(tenantId);
         return repository.listByAccount(tenantId, accountId, boundedLimit(limit), beforeUpdatedAt, beforeId);
     }
 
     @Transactional
     public RelationshipRecord createRelationship(
-            UUID tenantId,
-            UUID actorId,
-            UUID contactId,
-            CreateRelationshipCommand command) {
+            UUID tenantId, UUID actorId, UUID contactId, CreateRelationshipCommand command) {
         requireContext(tenantId, actorId);
         ContactProfileRecord contact = repository.findProfile(tenantId, contactId);
         assertContactMutable(contact);
@@ -127,7 +116,7 @@ public class ContactRelationshipUseCases {
         Instant now = Instant.now();
         audit.record(tenantId, actorId, "CREATE", "CONTACT_ACCOUNT_RELATIONSHIP", created.id(),
                 new AuditChange(null, json(created)), now);
-        recordRelationshipTimeline(created, actorId, "crm.contact.relationship.created",
+        recordRelationshipTimeline(tenantId, created, actorId, "crm.contact.relationship.created",
                 "Contact relationship created", now);
         if (created.primaryRelationship()) {
             audit.record(tenantId, actorId, "PRIMARY_CHANGE", "CONTACT_ACCOUNT_RELATIONSHIP", created.id(),
@@ -138,11 +127,8 @@ public class ContactRelationshipUseCases {
 
     @Transactional
     public RelationshipRecord updateRelationship(
-            UUID tenantId,
-            UUID actorId,
-            UUID relationshipId,
-            UpdateRelationshipCommand command,
-            long expectedVersion) {
+            UUID tenantId, UUID actorId, UUID relationshipId,
+            UpdateRelationshipCommand command, long expectedVersion) {
         requireContext(tenantId, actorId);
         RelationshipRecord before = repository.findRelationship(tenantId, relationshipId);
         assertRelationshipMutable(before);
@@ -159,46 +145,36 @@ public class ContactRelationshipUseCases {
         Instant now = Instant.now();
         audit.record(tenantId, actorId, "UPDATE", "CONTACT_ACCOUNT_RELATIONSHIP", relationshipId,
                 new AuditChange(json(before), json(after)), now);
-        recordRelationshipTimeline(after, actorId, "crm.contact.relationship.updated",
+        recordRelationshipTimeline(tenantId, after, actorId, "crm.contact.relationship.updated",
                 "Contact relationship updated", now);
         return after;
     }
 
     @Transactional
     public RelationshipRecord setPrimary(
-            UUID tenantId,
-            UUID actorId,
-            UUID relationshipId,
-            long expectedVersion) {
+            UUID tenantId, UUID actorId, UUID relationshipId, long expectedVersion) {
         requireContext(tenantId, actorId);
         RelationshipRecord before = repository.findRelationship(tenantId, relationshipId);
         assertRelationshipMutable(before);
-        RelationshipRecord after = repository.setPrimary(
-                tenantId, actorId, relationshipId, expectedVersion);
+        RelationshipRecord after = repository.setPrimary(tenantId, actorId, relationshipId, expectedVersion);
         Instant now = Instant.now();
         audit.record(tenantId, actorId, "PRIMARY_CHANGE", "CONTACT_ACCOUNT_RELATIONSHIP", relationshipId,
                 new AuditChange(json(before), json(after)), now);
-        recordRelationshipTimeline(after, actorId, "crm.contact.relationship.primary.changed",
+        recordRelationshipTimeline(tenantId, after, actorId, "crm.contact.relationship.primary.changed",
                 "Primary contact relationship changed", now);
         return after;
     }
 
     @Transactional
     public RelationshipRecord deactivate(
-            UUID tenantId,
-            UUID actorId,
-            UUID relationshipId,
-            long expectedVersion) {
+            UUID tenantId, UUID actorId, UUID relationshipId, long expectedVersion) {
         return transition(tenantId, actorId, relationshipId, "INACTIVE", expectedVersion,
                 "DEACTIVATE", "crm.contact.relationship.deactivated", "Contact relationship deactivated");
     }
 
     @Transactional
     public RelationshipRecord activate(
-            UUID tenantId,
-            UUID actorId,
-            UUID relationshipId,
-            long expectedVersion) {
+            UUID tenantId, UUID actorId, UUID relationshipId, long expectedVersion) {
         requireContext(tenantId, actorId);
         RelationshipRecord current = repository.findRelationship(tenantId, relationshipId);
         if ("ARCHIVED".equals(current.status())) {
@@ -211,20 +187,14 @@ public class ContactRelationshipUseCases {
 
     @Transactional
     public RelationshipRecord archive(
-            UUID tenantId,
-            UUID actorId,
-            UUID relationshipId,
-            long expectedVersion) {
+            UUID tenantId, UUID actorId, UUID relationshipId, long expectedVersion) {
         return transition(tenantId, actorId, relationshipId, "ARCHIVED", expectedVersion,
                 "ARCHIVE", "crm.contact.relationship.archived", "Contact relationship archived");
     }
 
     @Transactional
     public RelationshipRecord reactivate(
-            UUID tenantId,
-            UUID actorId,
-            UUID relationshipId,
-            long expectedVersion) {
+            UUID tenantId, UUID actorId, UUID relationshipId, long expectedVersion) {
         requireContext(tenantId, actorId);
         RelationshipRecord current = repository.findRelationship(tenantId, relationshipId);
         if (!"ARCHIVED".equals(current.status())) {
@@ -236,9 +206,7 @@ public class ContactRelationshipUseCases {
     }
 
     public List<RelationshipHistoryRecord> relationshipHistory(
-            UUID tenantId,
-            UUID relationshipId,
-            int limit) {
+            UUID tenantId, UUID relationshipId, int limit) {
         requireTenant(tenantId);
         return repository.relationshipHistory(tenantId, relationshipId, boundedLimit(limit));
     }
@@ -255,9 +223,7 @@ public class ContactRelationshipUseCases {
 
     @Transactional
     public RelationshipRoleRecord createRole(
-            UUID tenantId,
-            UUID actorId,
-            CreateRelationshipRoleCommand command) {
+            UUID tenantId, UUID actorId, CreateRelationshipRoleCommand command) {
         requireContext(tenantId, actorId);
         if (command.code() == null || !command.code().matches("[A-Za-z][A-Za-z0-9_]{1,79}")) {
             throw new CrmContractException(CrmErrorCode.VALIDATION_ERROR,
@@ -269,21 +235,14 @@ public class ContactRelationshipUseCases {
                     "Arabic and English role names are required.");
         }
         RelationshipRoleRecord created = repository.createRole(tenantId, actorId, command);
-        Instant now = Instant.now();
         audit.record(tenantId, actorId, "CREATE", "CONTACT_RELATIONSHIP_ROLE", created.id(),
-                new AuditChange(null, json(created)), now);
+                new AuditChange(null, json(created)), Instant.now());
         return created;
     }
 
     private RelationshipRecord transition(
-            UUID tenantId,
-            UUID actorId,
-            UUID relationshipId,
-            String targetStatus,
-            long expectedVersion,
-            String auditAction,
-            String eventType,
-            String summary) {
+            UUID tenantId, UUID actorId, UUID relationshipId, String targetStatus,
+            long expectedVersion, String auditAction, String eventType, String summary) {
         requireContext(tenantId, actorId);
         RelationshipRecord before = repository.findRelationship(tenantId, relationshipId);
         if (targetStatus.equals(before.status())) return before;
@@ -296,38 +255,25 @@ public class ContactRelationshipUseCases {
         Instant now = Instant.now();
         audit.record(tenantId, actorId, auditAction, "CONTACT_ACCOUNT_RELATIONSHIP", relationshipId,
                 new AuditChange(json(before), json(after)), now);
-        recordRelationshipTimeline(after, actorId, eventType, summary, now);
+        recordRelationshipTimeline(tenantId, after, actorId, eventType, summary, now);
         return after;
     }
 
     private void recordRelationshipTimeline(
-            RelationshipRecord relationship,
-            UUID actorId,
-            String eventType,
-            String summary,
-            Instant now) {
-        timeline.record(relationshipTenantUnsupported(), "CONTACT", relationship.contactId(), eventType, summary,
+            UUID tenantId, RelationshipRecord relationship, UUID actorId,
+            String eventType, String summary, Instant now) {
+        timeline.record(tenantId, "CONTACT", relationship.contactId(), eventType, summary,
                 "CRM_CONTACT_RELATIONSHIP", relationship.id(), actorId, now);
-        timeline.record(relationshipTenantUnsupported(), "ACCOUNT", relationship.accountId(), eventType, summary,
+        timeline.record(tenantId, "ACCOUNT", relationship.accountId(), eventType, summary,
                 "CRM_CONTACT_RELATIONSHIP", relationship.id(), actorId, now);
-    }
-
-    private UUID relationshipTenantUnsupported() {
-        throw new IllegalStateException("Tenant must be supplied to relationship timeline recording");
     }
 
     private void validateRelationship(
-            String roleCode,
-            UUID customRoleId,
-            LocalDate validFrom,
-            LocalDate validTo,
-            String decisionAuthority,
-            UUID ownerUserId,
-            UUID tenantId) {
+            String roleCode, UUID customRoleId, LocalDate validFrom, LocalDate validTo,
+            String decisionAuthority, UUID ownerUserId, UUID tenantId) {
         String normalizedRole = normalize(roleCode);
         if (!STANDARD_ROLES.contains(normalizedRole)) {
-            throw new CrmContractException(CrmErrorCode.VALIDATION_ERROR,
-                    "Unsupported relationship role.");
+            throw new CrmContractException(CrmErrorCode.VALIDATION_ERROR, "Unsupported relationship role.");
         }
         if ("OTHER".equals(normalizedRole) && customRoleId == null) {
             throw new CrmContractException(CrmErrorCode.VALIDATION_ERROR,
@@ -352,12 +298,10 @@ public class ContactRelationshipUseCases {
 
     private void validateProfile(UpdateContactProfileCommand command) {
         if (command.preferredLocale() != null && command.preferredLocale().length() > 35) {
-            throw new CrmContractException(CrmErrorCode.VALIDATION_ERROR,
-                    "preferredLocale is too long.");
+            throw new CrmContractException(CrmErrorCode.VALIDATION_ERROR, "preferredLocale is too long.");
         }
         if (command.timeZone() != null && command.timeZone().length() > 64) {
-            throw new CrmContractException(CrmErrorCode.VALIDATION_ERROR,
-                    "timeZone is too long.");
+            throw new CrmContractException(CrmErrorCode.VALIDATION_ERROR, "timeZone is too long.");
         }
     }
 
@@ -388,15 +332,11 @@ public class ContactRelationshipUseCases {
 
     private static void requireContext(UUID tenantId, UUID actorId) {
         requireTenant(tenantId);
-        if (actorId == null) {
-            throw new CrmContractException(CrmErrorCode.UNAUTHORIZED);
-        }
+        if (actorId == null) throw new CrmContractException(CrmErrorCode.UNAUTHORIZED);
     }
 
     private static void requireTenant(UUID tenantId) {
-        if (tenantId == null) {
-            throw new CrmContractException(CrmErrorCode.UNAUTHORIZED);
-        }
+        if (tenantId == null) throw new CrmContractException(CrmErrorCode.UNAUTHORIZED);
     }
 
     private static String normalize(String value) {
