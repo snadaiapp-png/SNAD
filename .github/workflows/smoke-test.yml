@@ -1,28 +1,20 @@
-# ============================================================
-# SNAD Platform — Pilot Production Smoke Test
-# ------------------------------------------------------------
-# Verifies the deployed Vercel frontend, same-origin BFF, Render backend,
-# and the protected authentication boundary. This workflow is evidence for
-# pilot integration only and does not authorize commercial production.
-# ============================================================
-
 name: Production Smoke Test
 
 on:
   workflow_dispatch:
     inputs:
       frontend_url:
-        description: 'Frontend URL'
-        required: true
-        default: 'https://snad-app.vercel.app'
+        description: 'Frontend URL (optional; repository variable is used by default)'
+        required: false
+        default: ''
         type: string
       backend_url:
-        description: 'Backend URL'
-        required: true
-        default: 'https://sanad-backend-mcrj.onrender.com'
+        description: 'Public HTTPS URL for the local backend tunnel'
+        required: false
+        default: ''
         type: string
   schedule:
-    - cron: '0 */6 * * *'  # Every 6 hours
+    - cron: '0 */6 * * *'
 
 permissions:
   contents: read
@@ -37,8 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      FRONTEND_URL: ${{ github.event.inputs.frontend_url || 'https://snad-app.vercel.app' }}
-      BACKEND_URL: ${{ github.event.inputs.backend_url || 'https://sanad-backend-mcrj.onrender.com' }}
+      FRONTEND_URL: ${{ github.event.inputs.frontend_url || vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
+      BACKEND_URL: ${{ github.event.inputs.backend_url || vars.PRODUCTION_BASE_URL }}
       ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
       ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
 
@@ -55,7 +47,10 @@ jobs:
               value = os.environ.get(name, "").rstrip("/")
               parsed = urlparse(value)
               if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
-                  raise SystemExit(f"{name} must be a credential-free HTTPS origin")
+                  raise SystemExit(
+                      f"{name} must be a credential-free HTTPS origin. "
+                      "Set PRODUCTION_BASE_URL to the active local-backend tunnel URL."
+                  )
           PY
 
       - name: Run deployment smoke checks
@@ -77,35 +72,29 @@ jobs:
             actual=$(curl --silent --show-error --location \
               --connect-timeout 10 --max-time 30 \
               --output /dev/null --write-out '%{http_code}' \
+              --header 'ngrok-skip-browser-warning: any-value' \
               --request "$method" "$url" "$@" || true)
+            actual="${actual:-000}"
             if [ "$actual" = "$expected" ]; then
               echo "$name: PASS ($actual)"
               PASS=$((PASS + 1))
             else
-              echo "$name: FAIL (expected $expected, got ${actual:-transport-error})"
+              echo "$name: FAIL (expected $expected, got $actual)"
               FAIL=$((FAIL + 1))
             fi
           }
 
-          echo "=== SNAD Pilot Deployment Smoke Test ==="
-          echo "Frontend host: ${FRONTEND_URL#https://}"
-          echo "Backend host: ${BACKEND_URL#https://}"
-
+          echo "=== SNAD Frontend/Local-Backend Smoke Test ==="
           check_code "Frontend root" "200" "GET" "$FRONTEND_URL/"
           check_code "Control Plane page" "200" "GET" "$FRONTEND_URL/control-plane"
           check_code "Backend health" "200" "GET" "$BACKEND_URL/actuator/health"
           check_code "Backend liveness" "200" "GET" "$BACKEND_URL/actuator/health/liveness"
           check_code "Backend readiness" "200" "GET" "$BACKEND_URL/actuator/health/readiness"
           check_code "Backend no-auth boundary" "401" "GET" "$BACKEND_URL/api/v1/auth/me"
-
-          # The BFF route must exist and proxy the backend authentication boundary.
-          # 404 means the catch-all route was omitted from the Vercel build.
-          # 503 means BACKEND_API_BASE_URL is missing/invalid.
-          # 502 means the configured backend cannot be reached.
           check_code "Vercel BFF no-auth boundary" "401" "GET" \
             "$FRONTEND_URL/api/platform/api/v1/auth/me"
 
-          STATUS_JSON=$(curl --silent --show-error \
+          STATUS_JSON=$(curl --silent --show-error --location \
             --connect-timeout 10 --max-time 30 \
             "$FRONTEND_URL/api/system/backend-status" || true)
           if STATUS_JSON="$STATUS_JSON" python3 - <<'PY'
@@ -120,22 +109,20 @@ jobs:
           sys.exit(0 if data.get("configured") is True and data.get("reachable") is True else 1)
           PY
           then
-            echo "Frontend backend-status: PASS (configured and reachable)"
+            echo "Frontend backend-status: PASS"
             PASS=$((PASS + 1))
           else
-            echo "Frontend backend-status: FAIL (backend is missing or unreachable)"
+            echo "Frontend backend-status: FAIL"
             FAIL=$((FAIL + 1))
           fi
 
           if [ -n "${ADMIN_EMAIL:-}" ] && [ -n "${ADMIN_PASSWORD:-}" ]; then
-            LOGIN_HEADERS=$(mktemp)
             LOGIN_BODY=$(mktemp)
-            trap 'rm -f "$LOGIN_HEADERS" "$LOGIN_BODY"' EXIT
+            trap 'rm -f "$LOGIN_BODY"' EXIT
 
-            LOGIN_CODE=$(curl --silent --show-error \
+            LOGIN_CODE=$(curl --silent --show-error --location \
               --connect-timeout 10 --max-time 30 \
-              --dump-header "$LOGIN_HEADERS" --output "$LOGIN_BODY" \
-              --write-out '%{http_code}' \
+              --output "$LOGIN_BODY" --write-out '%{http_code}' \
               --request POST "$FRONTEND_URL/api/platform/api/v1/auth/login" \
               --header 'Content-Type: application/json' \
               --header "Origin: $FRONTEND_URL" \
@@ -170,14 +157,12 @@ jobs:
                 --header "Authorization: Bearer $TOKEN" \
                 --header "Origin: $FRONTEND_URL"
             else
-              echo "BFF login: FAIL (HTTP ${LOGIN_CODE:-transport-error})"
+              echo "BFF login: FAIL (HTTP ${LOGIN_CODE:-000})"
               FAIL=$((FAIL + 1))
             fi
           else
-            echo "BFF authenticated checks: SKIPPED (pilot admin secrets not configured)"
+            echo "BFF authenticated checks: SKIPPED (admin secrets not configured)"
           fi
 
           echo "=== Results: $PASS passed, $FAIL failed ==="
-          if [ "$FAIL" -gt 0 ]; then
-            exit 1
-          fi
+          test "$FAIL" -eq 0
