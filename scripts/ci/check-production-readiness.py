@@ -22,9 +22,9 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_PRODUCTION_URL = "https://snad-app.vercel.app"
-DEFAULT_ATTEMPTS = 24
+DEFAULT_ATTEMPTS = 18
 DEFAULT_DELAY_SECONDS = 10.0
-DEFAULT_TIMEOUT_SECONDS = 25.0
+DEFAULT_TIMEOUT_SECONDS = 15.0
 
 
 @dataclass(frozen=True)
@@ -43,10 +43,10 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def normalize_base_url(value: str) -> str:
+def normalize_https_url(value: str) -> str:
     parsed = urllib.parse.urlparse(value.strip())
     if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
-        raise ValueError("Production URL must be an absolute HTTPS URL without credentials")
+        raise ValueError("URL must be absolute HTTPS without embedded credentials")
     return value.rstrip("/")
 
 
@@ -55,7 +55,8 @@ def request(url: str, timeout: float) -> tuple[int, bytes, dict[str, str]]:
         "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
         "User-Agent": "SNAD-Production-Readiness/1.0",
     }
-    if "ngrok" in urllib.parse.urlparse(url).hostname.lower():
+    hostname = urllib.parse.urlparse(url).hostname or ""
+    if "ngrok" in hostname.lower():
         headers["ngrok-skip-browser-warning"] = "true"
 
     req = urllib.request.Request(url, headers=headers, method="GET")
@@ -106,16 +107,19 @@ def run_once(production_url: str, timeout: float) -> list[ProbeResult]:
     html = body.decode("utf-8", errors="replace")
     required_markers = ("SNAD", "سند", 'lang="ar"', 'dir="rtl"')
     missing_markers = [marker for marker in required_markers if marker not in html]
+    ui_passed = status == 200 and not missing_markers
     checks.append(
         result(
             name="production-ui",
             url=root_url,
             expected="HTTP 200 with SNAD/سند and Arabic RTL markers",
             actual=f"HTTP {status}; missing markers: {missing_markers or 'none'}",
-            passed=status == 200 and not missing_markers,
+            passed=ui_passed,
             status_code=status,
         )
     )
+    if not ui_passed:
+        return checks
 
     integration_url = f"{production_url}/api/system/backend-status"
     status, body, _ = request(integration_url, timeout)
@@ -150,20 +154,25 @@ def run_once(production_url: str, timeout: float) -> list[ProbeResult]:
             detail=integration_error,
         )
     )
+    if not integration_passed:
+        return checks
 
     auth_url = f"{production_url}/api/platform/api/v1/auth/me"
     status, body, _ = request(auth_url, timeout)
+    auth_passed = status == 401
     checks.append(
         result(
             name="bff-authentication-chain",
             url=auth_url,
             expected="HTTP 401 without a session",
             actual=f"HTTP {status}",
-            passed=status == 401,
+            passed=auth_passed,
             status_code=status,
             detail=body.decode("utf-8", errors="replace")[:500] or None,
         )
     )
+    if not auth_passed:
+        return checks
 
     target_host = integration.get("targetHost") if isinstance(integration.get("targetHost"), str) else ""
     override_health_url = os.environ.get("SNAD_BACKEND_HEALTH_URL", "").strip()
@@ -183,7 +192,7 @@ def run_once(production_url: str, timeout: float) -> list[ProbeResult]:
         return checks
 
     try:
-        health_url = normalize_base_url(health_url)
+        health_url = normalize_https_url(health_url)
         status, body, _ = request(health_url, timeout)
         health_error: str | None = None
         health: dict[str, Any] = {}
@@ -268,7 +277,7 @@ def main() -> int:
         return 2
 
     try:
-        production_url = normalize_base_url(args.production_url)
+        production_url = normalize_https_url(args.production_url)
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 2
