@@ -21,6 +21,40 @@ $StartScript = Join-Path $RepositoryRoot "scripts\windows\start-sanad-production
 $BackupDir = Join-Path $InstallDir "backups"
 $RequiredJarEntry = "BOOT-INF/classes/com/sanad/platform/internal/bootstrap/api/ControlPlaneBootstrapController.class"
 
+function Resolve-MavenCommand {
+    if (Test-Path $MavenWrapper) {
+        return $MavenWrapper
+    }
+
+    foreach ($commandName in @("mvn.cmd", "mvn.bat", "mvn")) {
+        $command = Get-Command $commandName -ErrorAction SilentlyContinue
+        if ($command) {
+            return $command.Source
+        }
+    }
+
+    $candidatePaths = @(
+        $(if ($env:MAVEN_HOME) { Join-Path $env:MAVEN_HOME "bin\mvn.cmd" }),
+        $(if ($env:M2_HOME) { Join-Path $env:M2_HOME "bin\mvn.cmd" }),
+        "C:\Program Files\Apache\Maven\bin\mvn.cmd",
+        "C:\ProgramData\chocolatey\bin\mvn.exe",
+        (Join-Path $env:USERPROFILE "scoop\shims\mvn.cmd")
+    ) | Where-Object { $_ -and (Test-Path $_) }
+
+    if ($candidatePaths.Count -gt 0) {
+        return $candidatePaths[0]
+    }
+
+    throw @"
+Maven was not found. The repository does not contain mvnw.cmd.
+Install Maven, open a new Administrator PowerShell window, and run this script again.
+Recommended command:
+  winget install --id Apache.Maven -e
+Then verify:
+  mvn -version
+"@
+}
+
 function Stop-InstalledBackend {
     if (-not (Test-Path $PidFile)) { return }
 
@@ -52,16 +86,19 @@ function Wait-ForHealth {
     throw "Updated backend did not become healthy within 90 seconds."
 }
 
-foreach ($requiredPath in @($BackendProject, $MavenWrapper, $InstallDir, $StartScript)) {
+foreach ($requiredPath in @($BackendProject, $InstallDir, $StartScript)) {
     if (-not (Test-Path $requiredPath)) {
         throw "Required path not found: $requiredPath"
     }
 }
 
+$MavenCommand = Resolve-MavenCommand
+Write-Host "Maven command: $MavenCommand" -ForegroundColor DarkGray
+
 Write-Host "[1/6] Building current backend source..." -ForegroundColor Cyan
 Push-Location $BackendProject
 try {
-    & $MavenWrapper clean package -DskipTests
+    & $MavenCommand clean package "-DskipTests"
     if ($LASTEXITCODE -ne 0) {
         throw "Maven build failed with exit code $LASTEXITCODE."
     }
