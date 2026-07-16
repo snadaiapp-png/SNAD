@@ -44,6 +44,15 @@ interface AccountIdentifier {
   verified: boolean;
 }
 
+interface AccountRelationship {
+  id: string;
+  sourceAccountId: string;
+  targetAccountId: string;
+  relationshipType: string;
+  status: string;
+  notes?: string | null;
+}
+
 interface DuplicateCandidate {
   accountId: string;
   displayName: string;
@@ -62,6 +71,7 @@ export function CustomerMasterPanel({ accountId }: { accountId: string }) {
   const [profile, setProfile] = useState<CustomerMasterProfile | null>(null);
   const [addresses, setAddresses] = useState<AccountAddress[]>([]);
   const [identifiers, setIdentifiers] = useState<AccountIdentifier[]>([]);
+  const [relationships, setRelationships] = useState<AccountRelationship[]>([]);
   const [duplicates, setDuplicates] = useState<DuplicateCandidate[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -71,15 +81,17 @@ export function CustomerMasterPanel({ accountId }: { accountId: string }) {
     if (!accountId) return;
     setError("");
     try {
-      const [nextProfile, nextAddresses, nextIdentifiers, nextDuplicates] = await Promise.all([
+      const [nextProfile, nextAddresses, nextIdentifiers, nextRelationships, nextDuplicates] = await Promise.all([
         apiClient.get<CustomerMasterProfile>(`${root}/${accountId}/master`, { cache: "no-store" }),
         apiClient.get<AccountAddress[]>(`${root}/${accountId}/addresses`, { cache: "no-store" }),
         apiClient.get<AccountIdentifier[]>(`${root}/${accountId}/identifiers`, { cache: "no-store" }),
+        apiClient.get<AccountRelationship[]>(`${root}/${accountId}/relationships`, { cache: "no-store" }),
         apiClient.get<DuplicateCandidate[]>(`${root}/${accountId}/duplicates`, { cache: "no-store" }),
       ]);
       setProfile(nextProfile);
       setAddresses(nextAddresses);
       setIdentifiers(nextIdentifiers);
+      setRelationships(nextRelationships);
       setDuplicates(nextDuplicates);
     } catch (reason) {
       setError(toUserFacingError(reason).message);
@@ -168,8 +180,25 @@ export function CustomerMasterPanel({ accountId }: { accountId: string }) {
     element.reset();
   }
 
+  async function addRelationship(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const element = event.currentTarget;
+    const form = new FormData(element);
+    await execute(
+      () => apiClient.post(`${root}/${accountId}/relationships`, {
+        targetAccountId: field(form, "targetAccountId"),
+        relationshipType: field(form, "relationshipType") ?? "AFFILIATE",
+        effectiveFrom: field(form, "effectiveFrom"),
+        effectiveTo: field(form, "effectiveTo"),
+        notes: field(form, "relationshipNotes"),
+      }),
+      "تمت إضافة علاقة الحساب.",
+    );
+    element.reset();
+  }
+
   async function merge(candidate: DuplicateCandidate) {
-    if (!profile || !window.confirm(`دمج ${profile.displayName} في ${candidate.displayName}؟ لا يمكن التراجع عن العملية.`)) return;
+    if (!profile || !window.confirm(`دمج السجل الحالي ${profile.displayName} داخل السجل الذهبي ${candidate.displayName}؟ لا يمكن التراجع عن العملية.`)) return;
     const target = await apiClient.get<CustomerMasterProfile>(`${root}/${candidate.accountId}/master`, { cache: "no-store" });
     await execute(
       () => apiClient.post(`${root}/${accountId}/merge/${candidate.accountId}`, {
@@ -241,9 +270,20 @@ export function CustomerMasterPanel({ accountId }: { accountId: string }) {
           </form>
           <ul>{identifiers.map((identifier) => <li key={identifier.id}><strong>{identifier.identifierType}</strong> — {identifier.identifierValue}{identifier.verified ? " · موثّق" : ""}</li>)}</ul>
 
+          <h3 className={styles.sectionHeading}>علاقات الحسابات</h3>
+          <form onSubmit={addRelationship}>
+            <input name="targetAccountId" placeholder="معرّف الحساب المرتبط" required disabled={busy} />
+            <select name="relationshipType" defaultValue="AFFILIATE" disabled={busy}><option>PARENT</option><option>SUBSIDIARY</option><option>PARTNER</option><option>SUPPLIER</option><option>CUSTOMER</option><option>AFFILIATE</option><option>OTHER</option></select>
+            <input name="effectiveFrom" type="date" disabled={busy} />
+            <input name="effectiveTo" type="date" disabled={busy} />
+            <input name="relationshipNotes" placeholder="ملاحظات العلاقة" disabled={busy} />
+            <button type="submit" disabled={busy}>إضافة علاقة</button>
+          </form>
+          <ul>{relationships.map((relationship) => <li key={relationship.id}><strong>{relationship.relationshipType}</strong> — {relationship.sourceAccountId === accountId ? relationship.targetAccountId : relationship.sourceAccountId} · {relationship.status}{relationship.notes ? ` · ${relationship.notes}` : ""}</li>)}</ul>
+
           <h3 className={styles.sectionHeading}>مرشحو التكرار والدمج</h3>
           {duplicates.length === 0 ? <p className={styles.notice}>لا توجد سجلات متكررة محتملة.</p> : (
-            <div className={styles.tableWrap}><table><thead><tr><th>السجل</th><th>الثقة</th><th>الحقول</th><th>الإجراء</th></tr></thead><tbody>{duplicates.map((candidate) => <tr key={candidate.accountId}><td>{candidate.displayName}</td><td>{candidate.confidenceScore}%</td><td>{candidate.matchedFields.join(", ")}</td><td><button type="button" disabled={busy} onClick={() => void merge(candidate)}>دمج في هذا السجل</button></td></tr>)}</tbody></table></div>
+            <div className={styles.tableWrap}><table><thead><tr><th>السجل</th><th>الثقة</th><th>الحقول</th><th>الإجراء</th></tr></thead><tbody>{duplicates.map((candidate) => <tr key={candidate.accountId}><td>{candidate.displayName}</td><td>{candidate.confidenceScore}%</td><td>{candidate.matchedFields.join(", ")}</td><td><button type="button" disabled={busy} onClick={() => void merge(candidate)}>دمج السجل الحالي في هذا السجل الذهبي</button></td></tr>)}</tbody></table></div>
           )}
         </div>
       </div>
