@@ -40,9 +40,9 @@ class PlatformApiCountTest {
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
         assertThat(count(paths, "/api/v1/control-plane")).isEqualTo(35);
-        assertThat(count(paths, "/api/v1/crm")).isEqualTo(73);
+        assertThat(count(paths, "/api/v1/crm")).isEqualTo(84);
         assertThat(count(paths, "/api/v2/crm")).isEqualTo(46);
-        assertThat(count(paths, null)).isEqualTo(208);
+        assertThat(count(paths, null)).isEqualTo(219);
         assertThat(has(paths, "/api/v1/auth/change-credential", "post")).isTrue();
         assertThat(has(paths, "/api/v1/access/evaluation", "get")).isTrue();
         assertThat(has(paths, "/api/v1/control-plane/dashboard", "get")).isTrue();
@@ -50,6 +50,13 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/control-plane/health/actions", "post")).isTrue();
         assertThat(has(paths, "/api/v1/crm/dashboard", "get")).isTrue();
         assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/customer-360", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/master", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/master", "patch")).isTrue();
+        assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/addresses", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/identifiers", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/relationships", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/duplicates", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/crm/accounts/{sourceAccountId}/merge/{targetAccountId}", "post")).isTrue();
         assertThat(has(paths, "/api/v1/crm/leads/{leadId}/convert", "post")).isTrue();
         assertThat(has(paths, "/api/v1/crm/opportunities/{opportunityId}/stage", "patch")).isTrue();
         assertThat(has(paths, "/api/v1/crm/imports/upload", "post")).isTrue();
