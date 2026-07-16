@@ -107,6 +107,15 @@ function SearchIcon() {
   );
 }
 
+function ProductsIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 4l6-2 6 2v8l-6 2-6-2z" />
+      <path d="M2 4l6 2 6-2M8 6v8" />
+    </svg>
+  );
+}
+
 function ReportsIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -194,6 +203,7 @@ const MAIN_NAV: NavItem[] = [
   { href: "/crm/activities", labelKey: "crm.nav.activities", Icon: ActivitiesIcon },
   { href: "/crm/tags", labelKey: "crm.nav.tags", Icon: TagsIcon },
   { href: "/crm/search", labelKey: "crm.nav.search", Icon: SearchIcon },
+  { href: "/crm/products", labelKey: "crm.nav.products", Icon: ProductsIcon },
   { href: "/crm/reports", labelKey: "crm.nav.reports", Icon: ReportsIcon },
   { href: "/crm/notes", labelKey: "crm.nav.notes", Icon: NotesIcon },
   { href: "/crm/tasks", labelKey: "crm.nav.tasks", Icon: TasksIcon },

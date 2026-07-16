@@ -27,6 +27,7 @@ public enum CrmErrorCode {
     CRM_TASK_NOT_FOUND(404, "The requested CRM task was not found.", false),
     CRM_NOTE_NOT_FOUND(404, "The requested CRM note was not found.", false),
     CRM_TAG_NOT_FOUND(404, "The requested CRM tag was not found.", false),
+    CRM_PRODUCT_NOT_FOUND(404, "The requested CRM product was not found.", false),
     CRM_PIPELINE_NOT_FOUND(404, "The requested CRM pipeline was not found.", false),
     CRM_STAGE_NOT_FOUND(404, "The requested CRM pipeline stage was not found.", false),
     CRM_IMPORT_NOT_FOUND(404, "The requested CRM import job was not found.", false),

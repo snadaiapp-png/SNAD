@@ -362,6 +362,17 @@ export const crmApi = {
   completeTask: (id: string, result?: string) => apiClient.patch<CrmTask, { result?: string }>(`${root}/tasks/${id}/complete`, { result }),
   cancelTask: (id: string, reason?: string) => apiClient.patch<CrmTask, { reason?: string }>(`${root}/tasks/${id}/cancel`, { reason }),
 
+  // ── Products (CRM.PRODUCT.READ / WRITE) — feature/crm-products ───────
+  products: (search?: string, activeOnly?: boolean) =>
+    apiClient.get<CrmProduct[]>(`${root}/products`, { query: { limit: 200, search, activeOnly }, cache: "no-store" }),
+  product: (id: string) => apiClient.get<CrmProduct>(`${root}/products/${id}`, { cache: "no-store" }),
+  createProduct: (body: {
+    name: string; sku?: string; description?: string; productType?: string;
+    category?: string; unitPrice?: string; currencyCode?: string; taxRate?: string; unit?: string;
+  }) => apiClient.post<CrmProduct, typeof body>(`${root}/products`, body),
+  updateProduct: (id: string, body: Record<string, unknown>) =>
+    apiClient.patch<CrmProduct, typeof body>(`${root}/products/${id}`, body),
+  deleteProduct: (id: string) => apiClient.delete<void>(`${root}/products/${id}`),
   // ── Reports (CRM.ACCOUNT.READ) — feature/crm-reports ──────────────────
   reports: () => apiClient.get<Record<string, unknown>>(`${root}/reports/dashboard`, { cache: "no-store" }),
 
@@ -394,4 +405,25 @@ export interface CrmSearchResult {
   display_name: string;
   secondary_info?: string | null;
   matched_field: string;
+}
+
+/**
+ * CRM Product — product/service catalog entry.
+ * Branch: feature/crm-products
+ */
+export interface CrmProduct {
+  id: string;
+  version: number;
+  name: string;
+  sku?: string | null;
+  description?: string | null;
+  product_type: string;
+  category?: string | null;
+  unit_price: string;
+  currency_code: string;
+  tax_rate: string;
+  unit: string;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
 }
