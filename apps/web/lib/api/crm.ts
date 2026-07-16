@@ -361,4 +361,34 @@ export const crmApi = {
   startTask: (id: string) => apiClient.patch<CrmTask, Record<string, never>>(`${root}/tasks/${id}/start`, {}),
   completeTask: (id: string, result?: string) => apiClient.patch<CrmTask, { result?: string }>(`${root}/tasks/${id}/complete`, { result }),
   cancelTask: (id: string, reason?: string) => apiClient.patch<CrmTask, { reason?: string }>(`${root}/tasks/${id}/cancel`, { reason }),
+
+  // ── Search (CRM.ACCOUNT.READ) — feature/crm-search-export ─────────────
+  search: (q: string, limit?: number) =>
+    apiClient.get<CrmSearchResult[]>(`${root}/search`, { query: { q, limit: limit ?? 20 }, cache: "no-store" }),
+
+  // ── Export (CSV download) — feature/crm-search-export ─────────────────
+  exportAccountsCsvUrl: (search?: string) =>
+    `${root}/export/accounts${search ? `?search=${encodeURIComponent(search)}` : ""}`,
+  exportContactsCsvUrl: (search?: string) =>
+    `${root}/export/contacts${search ? `?search=${encodeURIComponent(search)}` : ""}`,
+  exportLeadsCsvUrl: (search?: string) =>
+    `${root}/export/leads${search ? `?search=${encodeURIComponent(search)}` : ""}`,
+  downloadAccountsCsv: (search?: string) =>
+    apiClient.getBlob(`${root}/export/accounts`, { query: { search }, cache: "no-store" }),
+  downloadContactsCsv: (search?: string) =>
+    apiClient.getBlob(`${root}/export/contacts`, { query: { search }, cache: "no-store" }),
+  downloadLeadsCsv: (search?: string) =>
+    apiClient.getBlob(`${root}/export/leads`, { query: { search }, cache: "no-store" }),
 };
+
+/**
+ * CRM cross-entity search result.
+ * Branch: feature/crm-search-export
+ */
+export interface CrmSearchResult {
+  entity_type: string;
+  entity_id: string;
+  display_name: string;
+  secondary_info?: string | null;
+  matched_field: string;
+}
