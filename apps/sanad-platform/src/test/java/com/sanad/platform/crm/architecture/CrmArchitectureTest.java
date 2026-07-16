@@ -7,7 +7,7 @@ import com.tngtech.archunit.lang.ArchRule;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
-/** Enforces the final CRM-004 modular boundaries on production classes. */
+/** Enforces CRM modular boundaries on production classes. */
 @AnalyzeClasses(
         packages = "com.sanad.platform.crm",
         importOptions = ImportOption.DoNotIncludeTests.class)
@@ -67,6 +67,13 @@ class CrmArchitectureTest {
             .that().haveSimpleNameEndingWith("Controller")
             .should().dependOnClassesThat().resideInAPackage("org.springframework.jdbc..")
             .because("CRM controllers must call application services");
+
+    @ArchTest
+    static final ArchRule accountMasterMustUseProjectionContractsForExternalDomains = noClasses()
+            .that().resideInAPackage("..crm.party..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "..erp..", "..accounting..", "..ecommerce..", "..customerservice..")
+            .because("Account Master may consume projection contracts but must never query source domains directly");
 
     @ArchTest
     static final ArchRule partyMustNotDependOnLeadOpportunityOrActivity = noClasses()
