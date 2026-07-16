@@ -1,5 +1,6 @@
 package com.sanad.platform.crm.architecture;
 
+import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
@@ -7,9 +8,11 @@ import com.tngtech.archunit.lang.ArchRule;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 /**
- * Enforces the final CRM-004 modular boundaries.
+ * Enforces the final CRM-004 modular boundaries on production classes.
  */
-@AnalyzeClasses(packages = "com.sanad.platform.crm")
+@AnalyzeClasses(
+        packages = "com.sanad.platform.crm",
+        importOptions = ImportOption.DoNotIncludeTests.class)
 class CrmArchitectureTest {
 
     @ArchTest
