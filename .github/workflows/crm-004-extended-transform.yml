@@ -1,0 +1,35 @@
+name: CRM-004 Extended Service Transformer
+
+on:
+  push:
+    branches:
+      - crm/004-extended-service-decomposition
+    paths:
+      - 'scripts/crm/transform-extended-service.py'
+      - '.github/workflows/crm-004-extended-transform.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  transform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: crm/004-extended-service-decomposition
+          fetch-depth: 0
+      - name: Apply deterministic transformation
+        run: python3 scripts/crm/transform-extended-service.py
+      - name: Commit transformed sources
+        run: |
+          set -euo pipefail
+          if git diff --quiet && [ -z "$(git status --porcelain)" ]; then
+            echo "No transformation changes"
+            exit 0
+          fi
+          git config user.name "SANAD Governance Bot"
+          git config user.email "governance@sanad.local"
+          git add -A
+          git commit -m "refactor(crm-004): relocate legacy web JDBC services"
+          git push origin HEAD:crm/004-extended-service-decomposition
