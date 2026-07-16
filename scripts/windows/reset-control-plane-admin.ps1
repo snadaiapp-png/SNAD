@@ -18,6 +18,7 @@ $EnvFile = Join-Path $InstallDir ".env.local"
 $PidFile = Join-Path $InstallDir "sanad-backend.pid"
 $StartScript = Join-Path $RepositoryRoot "scripts\windows\start-sanad-production.ps1"
 $LocalBaseUrl = "http://127.0.0.1:8080"
+$BootstrapTimeoutSeconds = 180
 
 function ConvertTo-PlainText {
     param([Parameter(Mandatory = $true)][Security.SecureString]$SecureValue)
@@ -110,7 +111,7 @@ function Start-SanadBackend {
 }
 
 function Wait-ForBackendHealth {
-    for ($attempt = 1; $attempt -le 30; $attempt++) {
+    for ($attempt = 1; $attempt -le 45; $attempt++) {
         try {
             $health = Invoke-RestMethod -Uri "$LocalBaseUrl/actuator/health" -TimeoutSec 5
             if ($health.status -eq "UP") {
@@ -123,7 +124,58 @@ function Wait-ForBackendHealth {
         Start-Sleep -Seconds 2
     }
 
-    throw "Backend did not become healthy within 60 seconds."
+    throw "Backend did not become healthy within 90 seconds."
+}
+
+function Test-AdminLogin {
+    param(
+        [Parameter(Mandatory = $true)][string]$Email,
+        [Parameter(Mandatory = $true)][string]$Password
+    )
+
+    try {
+        $loginBody = @{ email = $Email; password = $Password } | ConvertTo-Json -Compress
+        $loginResponse = Invoke-RestMethod `
+            -Method Post `
+            -Uri "$LocalBaseUrl/api/v1/auth/login" `
+            -ContentType "application/json" `
+            -Body $loginBody `
+            -TimeoutSec 30
+
+        return -not [string]::IsNullOrWhiteSpace($loginResponse.accessToken)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Wait-ForAdminLogin {
+    param(
+        [Parameter(Mandatory = $true)][string]$Email,
+        [Parameter(Mandatory = $true)][string]$Password,
+        [int]$Attempts = 12
+    )
+
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        if (Test-AdminLogin -Email $Email -Password $Password) {
+            return $true
+        }
+        if ($attempt -lt $Attempts) {
+            Start-Sleep -Seconds 5
+        }
+    }
+
+    return $false
+}
+
+function Disable-BootstrapConfiguration {
+    Set-EnvValues `
+        -Values @{ CONTROL_PLANE_BOOTSTRAP_ENABLED = "false" } `
+        -RemoveKeys @(
+            "CONTROL_PLANE_BOOTSTRAP_TOKEN",
+            "CONTROL_PLANE_ADMIN_PASSWORD",
+            "CONTROL_PLANE_ADMIN_DISPLAY_NAME"
+        )
 }
 
 if (-not (Test-Path $EnvFile)) {
@@ -146,6 +198,8 @@ $passwordSecure = Read-Host "New password" -AsSecureString
 $passwordConfirmSecure = Read-Host "Confirm new password" -AsSecureString
 $password = ConvertTo-PlainText $passwordSecure
 $passwordConfirm = ConvertTo-PlainText $passwordConfirmSecure
+$bootstrapConfigurationActive = $false
+$resetCompleted = $false
 
 try {
     if ($password.Length -lt 12) {
@@ -165,6 +219,7 @@ try {
         CONTROL_PLANE_ADMIN_PASSWORD = $password
         CONTROL_PLANE_ADMIN_DISPLAY_NAME = "SANAD Control Plane Admin"
     }
+    $bootstrapConfigurationActive = $true
 
     Write-Host "[2/5] Restarting backend with bootstrap enabled..." -ForegroundColor Cyan
     Stop-SanadBackend
@@ -172,44 +227,43 @@ try {
     Wait-ForBackendHealth
 
     Write-Host "[3/5] Rotating administrator credentials and grants..." -ForegroundColor Cyan
-    $bootstrapResponse = Invoke-RestMethod `
-        -Method Post `
-        -Uri "$LocalBaseUrl/api/v1/internal/control-plane/bootstrap-admin" `
-        -Headers @{ "X-Control-Plane-Bootstrap-Token" = $bootstrapToken } `
-        -ContentType "application/json" `
-        -TimeoutSec 30
+    $bootstrapConfirmed = $false
+    try {
+        $bootstrapResponse = Invoke-RestMethod `
+            -Method Post `
+            -Uri "$LocalBaseUrl/api/v1/internal/control-plane/bootstrap-admin" `
+            -Headers @{ "X-Control-Plane-Bootstrap-Token" = $bootstrapToken } `
+            -ContentType "application/json" `
+            -TimeoutSec $BootstrapTimeoutSeconds
 
-    if ($bootstrapResponse.status -ne "ok" -or $bootstrapResponse.bootstrap -ne "complete") {
-        throw "Bootstrap endpoint returned an unexpected response."
+        $bootstrapConfirmed = $bootstrapResponse.status -eq "ok" -and $bootstrapResponse.bootstrap -eq "complete"
+        if (-not $bootstrapConfirmed) {
+            throw "Bootstrap endpoint returned an unexpected response."
+        }
+    }
+    catch {
+        Write-Host "  Bootstrap request did not return normally; verifying whether the transaction completed..." -ForegroundColor Yellow
+        $bootstrapConfirmed = Wait-ForAdminLogin -Email $AdminEmail -Password $password -Attempts 12
+        if (-not $bootstrapConfirmed) {
+            throw "Bootstrap could not be confirmed after the request failure: $($_.Exception.Message)"
+        }
+        Write-Host "  Credential rotation completed despite the HTTP timeout." -ForegroundColor Green
     }
 
     Write-Host "[4/5] Disabling bootstrap and removing temporary secrets..." -ForegroundColor Cyan
-    Set-EnvValues `
-        -Values @{ CONTROL_PLANE_BOOTSTRAP_ENABLED = "false" } `
-        -RemoveKeys @(
-            "CONTROL_PLANE_BOOTSTRAP_TOKEN",
-            "CONTROL_PLANE_ADMIN_PASSWORD",
-            "CONTROL_PLANE_ADMIN_DISPLAY_NAME"
-        )
-
+    Disable-BootstrapConfiguration
     Stop-SanadBackend
     Start-SanadBackend
     Wait-ForBackendHealth
+    $bootstrapConfigurationActive = $false
 
     Write-Host "[5/5] Verifying login locally..." -ForegroundColor Cyan
-    $loginBody = @{ email = $AdminEmail; password = $password } | ConvertTo-Json -Compress
-    $loginResponse = Invoke-RestMethod `
-        -Method Post `
-        -Uri "$LocalBaseUrl/api/v1/auth/login" `
-        -ContentType "application/json" `
-        -Body $loginBody `
-        -TimeoutSec 30
-
-    if ([string]::IsNullOrWhiteSpace($loginResponse.accessToken)) {
+    if (-not (Wait-ForAdminLogin -Email $AdminEmail -Password $password -Attempts 6)) {
         throw "Login verification did not return an access token."
     }
 
-    Write-Host "" 
+    $resetCompleted = $true
+    Write-Host ""
     Write-Host "CONTROL PLANE ADMIN RESET COMPLETE" -ForegroundColor Green
     Write-Host "Email: $AdminEmail" -ForegroundColor White
     Write-Host "Local login verification: PASS" -ForegroundColor Green
@@ -217,6 +271,21 @@ try {
     Write-Host "You can now sign in through https://snad-app.vercel.app" -ForegroundColor White
 }
 finally {
+    if ($bootstrapConfigurationActive) {
+        Write-Host "Cleaning up temporary bootstrap configuration after an incomplete reset..." -ForegroundColor Yellow
+        try {
+            Disable-BootstrapConfiguration
+            Stop-SanadBackend
+            Start-SanadBackend
+            Wait-ForBackendHealth
+            Write-Host "Bootstrap mode was disabled and temporary secrets were removed." -ForegroundColor Green
+        }
+        catch {
+            Write-Host "CRITICAL: automatic bootstrap cleanup failed: $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "Set CONTROL_PLANE_BOOTSTRAP_ENABLED=false in $EnvFile and restart the backend immediately." -ForegroundColor Red
+        }
+    }
+
     $password = $null
     $passwordConfirm = $null
     $bootstrapToken = $null
