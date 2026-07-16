@@ -30,9 +30,10 @@ class CrmPostgresMigrationTest {
     private static final String SUBSCRIPTION_CHANGE_EVENTS_VERSION = "20260711.1";
     private static final String CRM_IDEMPOTENCY_VERSION = "20260713.1";
     private static final String CRM_PIPELINE_VERSION_COLUMN = "20260713.2";
-    private static final String CRM_TAGS_VERSION = "20260716.3";
-    private static final String CRM_NOTES_VERSION = "20260716.2";
     private static final String CRM_TASKS_VERSION = "20260716.1";
+    private static final String CRM_NOTES_VERSION = "20260716.2";
+    private static final String CRM_TAGS_VERSION = "20260716.3";
+    private static final String CRM_CUSTOMER_MASTER_VERSION = "20260716.4";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -43,39 +44,28 @@ class CrmPostgresMigrationTest {
     private static final List<String> CRM_COMPLETION_TABLES = List.of(
             "crm_import_files", "crm_import_errors", "crm_custom_field_values");
 
-    private static final List<String> CRM_G2_TABLES = List.of(
-            "crm_idempotency_records");
-
-    private static final List<String> CRM_TAGS_TABLES = List.of(
-            "crm_tags", "crm_tag_assignments");
-    private static final List<String> CRM_NOTES_TABLES = List.of(
-            "crm_notes");
-    private static final List<String> CRM_TASKS_TABLES = List.of(
-            "crm_tasks");
+    private static final List<String> CRM_G2_TABLES = List.of("crm_idempotency_records");
+    private static final List<String> CRM_TASKS_TABLES = List.of("crm_tasks");
+    private static final List<String> CRM_NOTES_TABLES = List.of("crm_notes");
+    private static final List<String> CRM_TAGS_TABLES = List.of("crm_tags", "crm_tag_assignments");
+    private static final List<String> CRM_CUSTOMER_MASTER_TABLES = List.of(
+            "crm_account_addresses", "crm_account_identifiers", "crm_account_relationships",
+            "crm_account_status_history", "crm_account_merge_history");
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
-    /**
-     * Skip the entire suite gracefully when Docker is not available (e.g. on
-     * developer Windows machines without Docker Desktop). On CI runners that
-     * DO have Docker, the tests run normally. This keeps `mvn test` exit code
-     * clean so that the EXEC-PROMPT-CRM-004 CI gate doesn't fail purely
-     * because of a missing Docker environment on a local dev box.
-     */
     @BeforeAll
     static void requireDocker() {
-        boolean dockerAvailable = false;
+        boolean dockerAvailable;
         try {
             dockerAvailable = DockerClientFactory.instance().isDockerAvailable();
-        } catch (Throwable t) {
-            // isDockerAvailable can itself throw on some Windows configs where
-            // the Docker client library can't initialize. Treat as "not available".
+        } catch (Throwable ignored) {
             dockerAvailable = false;
         }
         Assumptions.assumeTrue(dockerAvailable,
                 "Docker is not available — skipping CrmPostgresMigrationTest. " +
-                "Run on a CI runner with Docker to exercise PostgreSQL migrations.");
+                        "Run on a CI runner with Docker to exercise PostgreSQL migrations.");
     }
 
     @Test
@@ -100,7 +90,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_PIPELINE_VERSION_COLUMN),
                         MigrationVersion.fromVersion(CRM_TASKS_VERSION),
                         MigrationVersion.fromVersion(CRM_NOTES_VERSION),
-                        MigrationVersion.fromVersion(CRM_TAGS_VERSION));
+                        MigrationVersion.fromVersion(CRM_TAGS_VERSION),
+                        MigrationVersion.fromVersion(CRM_CUSTOMER_MASTER_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -128,7 +119,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_PIPELINE_VERSION_COLUMN),
                         MigrationVersion.fromVersion(CRM_TASKS_VERSION),
                         MigrationVersion.fromVersion(CRM_NOTES_VERSION),
-                        MigrationVersion.fromVersion(CRM_TAGS_VERSION));
+                        MigrationVersion.fromVersion(CRM_TAGS_VERSION),
+                        MigrationVersion.fromVersion(CRM_CUSTOMER_MASTER_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -155,8 +147,9 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_TASKS_VERSION, "SQL", "create crm tasks");
         assertMigration(jdbc, CRM_NOTES_VERSION, "SQL", "create crm notes");
         assertMigration(jdbc, CRM_TAGS_VERSION, "SQL", "create crm tags");
+        assertMigration(jdbc, CRM_CUSTOMER_MASTER_VERSION, "SQL", "crm enterprise account customer master");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(CRM_TAGS_VERSION);
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_CUSTOMER_MASTER_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 
@@ -166,19 +159,30 @@ class CrmPostgresMigrationTest {
         assertThat(constraintExists(jdbc, "fk_crm_custom_field_values_definition_same_tenant")).isTrue();
         assertThat(constraintExists(jdbc, "ck_crm_custom_field_value_exactly_one")).isTrue();
         assertThat(constraintExists(jdbc, "crm_idempotency_records_unique")).isTrue();
+        assertThat(constraintExists(jdbc, "chk_crm_account_relationship_self")).isTrue();
+        assertThat(constraintExists(jdbc, "chk_crm_account_merge_distinct")).isTrue();
 
         assertThat(columnExists(jdbc, "crm_idempotency_records", "response_headers_json")).isTrue();
         assertThat(columnExists(jdbc, "crm_idempotency_records", "content_type")).isTrue();
         assertThat(columnExists(jdbc, "crm_pipelines", "version")).isTrue();
+        assertThat(columnExists(jdbc, "crm_accounts", "legal_name")).isTrue();
+        assertThat(columnExists(jdbc, "crm_accounts", "registration_number")).isTrue();
+        assertThat(columnExists(jdbc, "crm_accounts", "tax_number")).isTrue();
+        assertThat(columnExists(jdbc, "crm_accounts", "data_quality_score")).isTrue();
+        assertThat(columnExists(jdbc, "crm_accounts", "merged_into_account_id")).isTrue();
+        assertThat(columnExists(jdbc, "crm_account_merge_history", "addresses_moved")).isTrue();
+        assertThat(columnExists(jdbc, "crm_account_merge_history", "identifiers_moved")).isTrue();
+        assertThat(columnExists(jdbc, "crm_account_merge_history", "relationships_moved")).isTrue();
 
-        // CRM capabilities: 18 (core) + 2 (TASK) + 2 (NOTE) + 2 (TAG) = 24
+        // CRM capabilities: 18 (core) + 2 (TASK) + 2 (NOTE) + 2 (TAG) = 24.
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.%' AND status='ACTIVE'",
                 Long.class)).isEqualTo(24L);
     }
 
     private List<String> allCrmTables() {
-        return Stream.of(CRM_CORE_TABLES, CRM_COMPLETION_TABLES, CRM_G2_TABLES, CRM_TASKS_TABLES, CRM_NOTES_TABLES, CRM_TAGS_TABLES)
+        return Stream.of(CRM_CORE_TABLES, CRM_COMPLETION_TABLES, CRM_G2_TABLES, CRM_TASKS_TABLES,
+                        CRM_NOTES_TABLES, CRM_TAGS_TABLES, CRM_CUSTOMER_MASTER_TABLES)
                 .flatMap(List::stream)
                 .sorted()
                 .toList();
@@ -210,7 +214,8 @@ class CrmPostgresMigrationTest {
 
     private void assertNoDuplicateVersions(JdbcTemplate jdbc) {
         assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM (SELECT version FROM flyway_schema_history WHERE version IS NOT NULL GROUP BY version HAVING COUNT(*) > 1) duplicates",
+                "SELECT COUNT(*) FROM (SELECT version FROM flyway_schema_history WHERE version IS NOT NULL " +
+                        "GROUP BY version HAVING COUNT(*) > 1) duplicates",
                 Long.class)).isZero();
     }
 
@@ -222,20 +227,23 @@ class CrmPostgresMigrationTest {
 
     private List<String> existingTables(JdbcTemplate jdbc) {
         return jdbc.queryForList(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'crm_%' ORDER BY table_name",
+                "SELECT table_name FROM information_schema.tables WHERE table_schema='public' " +
+                        "AND table_name LIKE 'crm_%' ORDER BY table_name",
                 String.class);
     }
 
     private boolean constraintExists(JdbcTemplate jdbc, String constraint) {
         Long count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM information_schema.table_constraints WHERE constraint_schema='public' AND constraint_name=?",
+                "SELECT COUNT(*) FROM information_schema.table_constraints " +
+                        "WHERE constraint_schema='public' AND constraint_name=?",
                 Long.class, constraint);
         return count != null && count == 1L;
     }
 
     private boolean columnExists(JdbcTemplate jdbc, String table, String column) {
         Long count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name=? AND column_name=?",
+                "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
+                        "AND table_name=? AND column_name=?",
                 Long.class, table, column);
         return count != null && count == 1L;
     }
