@@ -40,9 +40,9 @@ class PlatformApiCountTest {
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
         assertThat(count(paths, "/api/v1/control-plane")).isEqualTo(35);
-        assertThat(count(paths, "/api/v1/crm")).isEqualTo(73);
+        assertThat(count(paths, "/api/v1/crm")).isEqualTo(79);
         assertThat(count(paths, "/api/v2/crm")).isEqualTo(46);
-        assertThat(count(paths, null)).isEqualTo(208);
+        assertThat(count(paths, null)).isEqualTo(214);
         assertThat(has(paths, "/api/v1/auth/change-credential", "post")).isTrue();
         assertThat(has(paths, "/api/v1/access/evaluation", "get")).isTrue();
         assertThat(has(paths, "/api/v1/control-plane/dashboard", "get")).isTrue();

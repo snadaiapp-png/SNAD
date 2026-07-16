@@ -112,6 +112,10 @@ function ProductsIcon() {
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M2 4l6-2 6 2v8l-6 2-6-2z" />
       <path d="M2 4l6 2 6-2M8 6v8" />
+    </svg>
+  );
+}
+
 function ReportsIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
