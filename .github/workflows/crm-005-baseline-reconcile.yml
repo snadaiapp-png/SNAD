@@ -1,0 +1,35 @@
+name: CRM-005 Baseline Reconcile
+
+on:
+  push:
+    branches:
+      - crm/005-enterprise-account-customer-master
+    paths:
+      - 'scripts/crm/apply-crm005-baseline.py'
+      - '.github/workflows/crm-005-baseline-reconcile.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: crm/005-enterprise-account-customer-master
+          fetch-depth: 0
+      - name: Reconcile authoritative CRM baseline
+        run: python3 scripts/crm/apply-crm005-baseline.py
+      - name: Commit baseline update
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo 'No baseline changes required'
+            exit 0
+          fi
+          git config user.name 'SANAD Governance Bot'
+          git config user.email 'governance@sanad.local'
+          git add docs/crm/CRM-CURRENT-BASELINE.md
+          git commit -m 'docs(crm-005): reconcile enterprise customer master baseline'
+          git push origin HEAD:crm/005-enterprise-account-customer-master
