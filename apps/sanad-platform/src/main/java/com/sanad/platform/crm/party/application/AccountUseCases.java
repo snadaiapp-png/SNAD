@@ -1,34 +1,46 @@
 package com.sanad.platform.crm.party.application;
 
-import com.sanad.platform.crm.party.domain.*;
-import com.sanad.platform.crm.party.domain.AccountRepository.AccountRecord;
-import com.sanad.platform.crm.party.domain.AccountRepository.CreateAccountCommand;
-import com.sanad.platform.crm.party.domain.AccountRepository.UpdateAccountCommand;
+import com.sanad.platform.crm.error.CrmContractException;
+import com.sanad.platform.crm.error.CrmErrorCode;
 import com.sanad.platform.crm.integration.domain.AuditPort;
 import com.sanad.platform.crm.integration.domain.AuditPort.AuditChange;
 import com.sanad.platform.crm.integration.domain.TimelineEventPort;
-import com.sanad.platform.crm.error.CrmContractException;
-import com.sanad.platform.crm.error.CrmErrorCode;
+import com.sanad.platform.crm.party.domain.AccountHierarchyPort;
+import com.sanad.platform.crm.party.domain.AccountMasterRepository;
+import com.sanad.platform.crm.party.domain.AccountPolicy;
+import com.sanad.platform.crm.party.domain.AccountRepository;
+import com.sanad.platform.crm.party.domain.AccountRepository.AccountRecord;
+import com.sanad.platform.crm.party.domain.AccountRepository.CreateAccountCommand;
+import com.sanad.platform.crm.party.domain.AccountRepository.UpdateAccountCommand;
+import com.sanad.platform.crm.party.domain.OwnerValidationPort;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 public class AccountUseCases {
     private final AccountRepository repo;
     private final AccountHierarchyPort hierarchy;
     private final OwnerValidationPort ownerValidation;
+    private final AccountMasterRepository accountMaster;
     private final AuditPort audit;
     private final TimelineEventPort timeline;
     private final com.fasterxml.jackson.databind.ObjectMapper mapper;
 
-    public AccountUseCases(AccountRepository repo, AccountHierarchyPort hierarchy,
-                           OwnerValidationPort ownerValidation, AuditPort audit,
-                           TimelineEventPort timeline,
-                           com.fasterxml.jackson.databind.ObjectMapper mapper) {
+    public AccountUseCases(
+            AccountRepository repo,
+            AccountHierarchyPort hierarchy,
+            OwnerValidationPort ownerValidation,
+            AccountMasterRepository accountMaster,
+            AuditPort audit,
+            TimelineEventPort timeline,
+            com.fasterxml.jackson.databind.ObjectMapper mapper) {
         this.repo = repo;
         this.hierarchy = hierarchy;
         this.ownerValidation = ownerValidation;
+        this.accountMaster = accountMaster;
         this.audit = audit;
         this.timeline = timeline;
         this.mapper = mapper;
@@ -48,6 +60,14 @@ public class AccountUseCases {
         }
         AccountRecord created = repo.create(tenantId, actorId, cmd);
         Instant now = Instant.now();
+        accountMaster.initializeProfile(
+                tenantId, actorId, created.id(), created.displayName(), created.displayName());
+        accountMaster.recordStatusChange(
+                tenantId, actorId, created.id(), null, created.lifecycleStatus(), "Account created", now);
+        if (created.ownerUserId() != null) {
+            accountMaster.recordOwnershipChange(
+                    tenantId, actorId, created.id(), null, created.ownerUserId(), "Account created", now);
+        }
         timeline.record(tenantId, "ACCOUNT", created.id(), "crm.account.created", "Account created",
                 "CRM_ACCOUNT", created.id(), actorId, now);
         audit.record(tenantId, actorId, "CREATE", "ACCOUNT", created.id(),
@@ -64,7 +84,12 @@ public class AccountUseCases {
     }
 
     @Transactional
-    public AccountRecord update(UUID tenantId, UUID actorId, UUID accountId, UpdateAccountCommand cmd, long expectedVersion) {
+    public AccountRecord update(
+            UUID tenantId,
+            UUID actorId,
+            UUID accountId,
+            UpdateAccountCommand cmd,
+            long expectedVersion) {
         AccountRecord current = repo.findById(tenantId, accountId);
         AccountPolicy.assertNotArchived(current);
         if (cmd.ownerUserId() != null && !ownerValidation.isValidOwner(tenantId, cmd.ownerUserId())) {
@@ -81,6 +106,11 @@ public class AccountUseCases {
         }
         AccountRecord updated = repo.update(tenantId, actorId, accountId, cmd, expectedVersion);
         Instant now = Instant.now();
+        if (!Objects.equals(current.ownerUserId(), updated.ownerUserId())) {
+            accountMaster.recordOwnershipChange(
+                    tenantId, actorId, accountId, current.ownerUserId(), updated.ownerUserId(),
+                    "Account owner updated", now);
+        }
         timeline.record(tenantId, "ACCOUNT", accountId, "crm.account.updated", "Account updated",
                 "CRM_ACCOUNT", accountId, actorId, now);
         audit.record(tenantId, actorId, "UPDATE", "ACCOUNT", accountId,
@@ -97,6 +127,9 @@ public class AccountUseCases {
         AccountRecord current = repo.findById(tenantId, accountId);
         AccountRecord archived = repo.archive(tenantId, actorId, accountId, expectedVersion);
         Instant now = Instant.now();
+        accountMaster.recordStatusChange(
+                tenantId, actorId, accountId, current.lifecycleStatus(), archived.lifecycleStatus(),
+                "Account archived", now);
         timeline.record(tenantId, "ACCOUNT", accountId, "crm.account.archived", "Account archived",
                 "CRM_ACCOUNT", accountId, actorId, now);
         audit.record(tenantId, actorId, "ARCHIVE", "ACCOUNT", accountId,
@@ -109,6 +142,9 @@ public class AccountUseCases {
         AccountRecord before = repo.findById(tenantId, accountId);
         AccountRecord restored = repo.restore(tenantId, actorId, accountId, expectedVersion);
         Instant now = Instant.now();
+        accountMaster.recordStatusChange(
+                tenantId, actorId, accountId, before.lifecycleStatus(), restored.lifecycleStatus(),
+                "Account reactivated", now);
         timeline.record(tenantId, "ACCOUNT", accountId, "crm.account.restored", "Account restored",
                 "CRM_ACCOUNT", accountId, actorId, now);
         audit.record(tenantId, actorId, "RESTORE", "ACCOUNT", accountId,
