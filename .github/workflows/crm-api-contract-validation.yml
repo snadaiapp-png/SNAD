@@ -99,10 +99,10 @@ jobs:
           with open('docs/crm/contracts/openapi/crm-openapi.json', encoding='utf-8') as stream:
               spec = json.load(stream)
           assert spec['openapi'].startswith('3.')
-          assert len(spec['paths']) == 34, f"Expected 34 CRM paths, got {len(spec['paths'])}"
+          assert len(spec['paths']) == 45, f"Expected 45 CRM paths, got {len(spec['paths'])}"
           methods = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'}
           operations = sum(1 for item in spec['paths'].values() for method in item if method in methods)
-          assert operations == 46, f'Expected 46 CRM operations, got {operations}'
+          assert operations == 61, f'Expected 61 CRM operations, got {operations}'
           print(f'Committed OpenAPI artifact: {len(spec["paths"])} paths, {operations} operations')
           PY
 
@@ -206,7 +206,11 @@ jobs:
               ('/accounts/{accountId}', 'patch', 'If-Match'),
               ('/opportunities/{opportunityId}', 'patch', 'If-Match'),
               ('/activities/{activityId}', 'patch', 'If-Match'),
-              ('/pipelines/{pipelineId}', 'patch', 'If-Match')
+              ('/pipelines/{pipelineId}', 'patch', 'If-Match'),
+              ('/accounts/{accountId}/master/profile', 'put', 'If-Match'),
+              ('/accounts/{accountId}/master/risk', 'put', 'If-Match'),
+              ('/accounts/{accountId}/relationships/{relationshipId}/end', 'patch', 'If-Match'),
+              ('/accounts/{accountId}/reactivate', 'patch', 'If-Match')
           }
           component_params = committed.get('components', {}).get('parameters', {})
           for path, method, header in required_headers:
@@ -257,7 +261,7 @@ jobs:
           {
             echo '## CRM API Contract Validation'
             echo ''
-            echo "**SHA:** \`${{ github.sha }}\`"
+            echo "**SHA:** `${{ github.sha }}`"
             echo "**Run ID:** ${{ github.run_id }}"
             echo "**Job status:** ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"
