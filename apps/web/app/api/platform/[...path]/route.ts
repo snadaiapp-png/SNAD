@@ -9,9 +9,12 @@ const AUTH_PATH_PREFIX = "/api/v1/auth";
 const REFRESH_PATH = "/api/v1/auth/refresh";
 const LOGOUT_PATH = "/api/v1/auth/logout";
 const COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
-// Keep total retries below Vercel function limits. Long backend cold-start waits
-// otherwise surface as platform 502s before this route can return a safe body.
-const REQUEST_TIMEOUT_MS = 4_000;
+// A local backend reached through an HTTPS tunnel needs more time than a
+// same-region hosted service. Keep the timeout bounded so the BFF still fails
+// closed within the Vercel function execution budget.
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const MIN_REQUEST_TIMEOUT_MS = 1_000;
+const MAX_REQUEST_TIMEOUT_MS = 25_000;
 const RETRY_DELAY_MS = 250;
 const MAX_IDEMPOTENT_ATTEMPTS = 2;
 
@@ -54,6 +57,13 @@ function backendBaseUrl(): string | null {
   } catch {
     return null;
   }
+}
+
+function requestTimeoutMs(): number {
+  const raw = process.env.BACKEND_REQUEST_TIMEOUT_MS || "";
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return DEFAULT_REQUEST_TIMEOUT_MS;
+  return Math.min(MAX_REQUEST_TIMEOUT_MS, Math.max(MIN_REQUEST_TIMEOUT_MS, parsed));
 }
 
 function backendPath(path: string[]): string | null {
@@ -162,7 +172,7 @@ async function fetchBackend(
         body: body && body.byteLength > 0 ? body : undefined,
         cache: "no-store",
         redirect: "manual",
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(requestTimeoutMs()),
       });
 
       if (upstream.status < 500 || attempt === attempts) return upstream;

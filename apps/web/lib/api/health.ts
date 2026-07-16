@@ -5,12 +5,20 @@ import type { HealthCheckResult } from "./types";
 
 interface ActuatorHealthResponse { status: string; }
 
-// Keep probes below Vercel function limits so health checks return a controlled
-// JSON contract instead of being cut off by the platform with a generic 502.
-const SERVER_HEALTH_TIMEOUT_MS = 4_000;
-const BFF_HEALTH_PROBE_TIMEOUT_MS = 4_000;
+// Tunneled local backends can take longer than a same-region hosted service.
+// Keep the probe bounded by the same server-side timeout contract as the BFF.
+const DEFAULT_HEALTH_TIMEOUT_MS = 15_000;
+const MIN_HEALTH_TIMEOUT_MS = 1_000;
+const MAX_HEALTH_TIMEOUT_MS = 25_000;
 const SERVER_HEALTH_MAX_ATTEMPTS = 2;
 const SERVER_HEALTH_RETRY_DELAY_MS = 250;
+
+function healthTimeoutMs(): number {
+  const raw = process.env.BACKEND_REQUEST_TIMEOUT_MS || "";
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return DEFAULT_HEALTH_TIMEOUT_MS;
+  return Math.min(MAX_HEALTH_TIMEOUT_MS, Math.max(MIN_HEALTH_TIMEOUT_MS, parsed));
+}
 
 /**
  * Extract a safe hostname (with non-standard port if present) from a base URL.
@@ -70,7 +78,7 @@ async function checkDirectBackendOnce(baseUrl: string): Promise<{ statusCode: nu
     method: "GET",
     headers: { Accept: "application/json" },
     cache: "no-store",
-    signal: AbortSignal.timeout(SERVER_HEALTH_TIMEOUT_MS),
+    signal: AbortSignal.timeout(healthTimeoutMs()),
   });
 
   let body: ActuatorHealthResponse = { status: "UNKNOWN" };
@@ -112,7 +120,7 @@ async function checkBackendViaBff(client: ApiClient): Promise<{ statusCode: numb
     // /api/v1/auth/me without auth returns 401 if backend is reachable.
     // We deliberately catch the 401 as a "reachable" signal.
     await client.get("/api/v1/auth/me", {
-      timeoutMs: BFF_HEALTH_PROBE_TIMEOUT_MS,
+      timeoutMs: healthTimeoutMs(),
       cache: "no-store",
     });
     // If we get here, the backend returned 200 (unlikely without token, but
@@ -179,7 +187,7 @@ export async function checkBackendIntegration(client: ApiClient = apiClient): Pr
     } else {
       // Direct client mode — use Actuator health endpoint.
       health = await client.get<ActuatorHealthResponse>("/actuator/health", {
-        timeoutMs: SERVER_HEALTH_TIMEOUT_MS,
+        timeoutMs: healthTimeoutMs(),
         cache: "no-store",
       });
       statusCode = 200; // client.get throws on non-2xx, so 200 is implied

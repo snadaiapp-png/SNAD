@@ -20,6 +20,14 @@ describe("API configuration", () => {
     expect(config.API_BASE_URL).toBe("/api/platform");
   });
 
+  it("defaults local development to the same-origin BFF", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "");
+    const config = await import("./config");
+    expect(config.API_BASE_URL).toBe("/api/platform");
+    expect(config.IS_API_CONFIGURED).toBe(true);
+  });
+
   it("builds encoded query parameters", async () => {
     const { buildUrl } = await import("./config");
     expect(buildUrl("https://api.example.com", "/api/v1/items", {

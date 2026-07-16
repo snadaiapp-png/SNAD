@@ -4,16 +4,19 @@ import { ApiConfigurationError } from "./errors";
 export const DEFAULT_API_TIMEOUT_MS = 60_000;
 const ALLOWED_PROTOCOLS = new Set(["https:", "http:"]);
 const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
-const PRODUCTION_BFF_BASE_URL = "/api/platform";
+const SAME_ORIGIN_BFF_BASE_URL = "/api/platform";
 
 function readBaseUrl(): string {
-  // Production browser traffic must use the same-origin Next.js BFF. This keeps
-  // refresh tokens in an HttpOnly first-party cookie and avoids cross-site
-  // cookie/CORS failures between Vercel and the configured SANAD backend.
-  if (process.env.NODE_ENV === "production") return PRODUCTION_BFF_BASE_URL;
+  // Production browser traffic always uses the same-origin Next.js BFF. This
+  // keeps refresh tokens first-party and prevents browser CORS failures.
+  if (process.env.NODE_ENV === "production") return SAME_ORIGIN_BFF_BASE_URL;
 
-  const raw = process.env.NEXT_PUBLIC_API_BASE_URL || "";
-  return raw ? raw.replace(/\/+$/, "") : "";
+  // Local development also defaults to the BFF. Configure the server-only
+  // BACKEND_API_BASE_URL in apps/web/.env.local to point at localhost:8080.
+  // NEXT_PUBLIC_API_BASE_URL remains an explicit escape hatch for direct API
+  // development only.
+  const raw = (process.env.NEXT_PUBLIC_API_BASE_URL || "").trim();
+  return raw ? raw.replace(/\/+$/, "") : SAME_ORIGIN_BFF_BASE_URL;
 }
 
 export const API_BASE_URL = readBaseUrl();
