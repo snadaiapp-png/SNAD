@@ -362,6 +362,9 @@ export const crmApi = {
   completeTask: (id: string, result?: string) => apiClient.patch<CrmTask, { result?: string }>(`${root}/tasks/${id}/complete`, { result }),
   cancelTask: (id: string, reason?: string) => apiClient.patch<CrmTask, { reason?: string }>(`${root}/tasks/${id}/cancel`, { reason }),
 
+  // ── Reports (CRM.ACCOUNT.READ) — feature/crm-reports ──────────────────
+  reports: () => apiClient.get<Record<string, unknown>>(`${root}/reports/dashboard`, { cache: "no-store" }),
+
   // ── Search (CRM.ACCOUNT.READ) — feature/crm-search-export ─────────────
   search: (q: string, limit?: number) =>
     apiClient.get<CrmSearchResult[]>(`${root}/search`, { query: { q, limit: limit ?? 20 }, cache: "no-store" }),
