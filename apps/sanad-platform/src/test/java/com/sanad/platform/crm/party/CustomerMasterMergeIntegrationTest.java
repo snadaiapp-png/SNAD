@@ -7,6 +7,7 @@ import com.sanad.platform.crm.party.domain.CustomerMasterRepository.CreateIdenti
 import com.sanad.platform.crm.party.domain.CustomerMasterRepository.CreateRelationshipCommand;
 import com.sanad.platform.crm.party.domain.CustomerMasterRepository.MergeResult;
 import com.sanad.platform.crm.party.domain.CustomerMasterRepository.UpdateCustomerMasterCommand;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -18,6 +19,8 @@ import org.springframework.test.context.ActiveProfiles;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -33,6 +36,31 @@ class CustomerMasterMergeIntegrationTest {
     @Autowired CustomerMasterUseCases useCases;
     @Autowired NamedParameterJdbcTemplate jdbc;
     @MockBean AuditPort auditPort;
+
+    private final List<UUID> tenantIds = new ArrayList<>();
+
+    @AfterEach
+    void removeCommittedFixtures() {
+        for (UUID tenantId : tenantIds) {
+            MapSqlParameterSource tenant = p().addValue("tenantId", tenantId);
+            jdbc.update("DELETE FROM crm_timeline_events WHERE tenant_id=:tenantId", tenant);
+            jdbc.update("DELETE FROM crm_account_merge_history WHERE tenant_id=:tenantId", tenant);
+            jdbc.update("DELETE FROM crm_account_status_history WHERE tenant_id=:tenantId", tenant);
+            jdbc.update("DELETE FROM crm_account_relationships WHERE tenant_id=:tenantId", tenant);
+            jdbc.update("DELETE FROM crm_account_identifiers WHERE tenant_id=:tenantId", tenant);
+            jdbc.update("DELETE FROM crm_account_addresses WHERE tenant_id=:tenantId", tenant);
+            jdbc.update("DELETE FROM crm_opportunity_stage_history WHERE tenant_id=:tenantId", tenant);
+            jdbc.update("DELETE FROM crm_activities WHERE tenant_id=:tenantId", tenant);
+            jdbc.update("DELETE FROM crm_opportunities WHERE tenant_id=:tenantId", tenant);
+            jdbc.update("DELETE FROM crm_contacts WHERE tenant_id=:tenantId", tenant);
+            jdbc.update("DELETE FROM crm_leads WHERE tenant_id=:tenantId", tenant);
+            jdbc.update("DELETE FROM crm_accounts WHERE tenant_id=:tenantId", tenant);
+            jdbc.update("DELETE FROM platform_audit_logs WHERE target_tenant_id=:tenantId", tenant);
+            jdbc.update("DELETE FROM users WHERE tenant_id=:tenantId", tenant);
+            jdbc.update("DELETE FROM tenants WHERE id=:tenantId", tenant);
+        }
+        tenantIds.clear();
+    }
 
     @Test
     void movesCompleteMasterDataAndEnrichesGoldenRecord() {
@@ -134,6 +162,7 @@ class CustomerMasterMergeIntegrationTest {
                 p().addValue("id", userId).addValue("tenantId", tenantId)
                         .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test")
                         .addValue("now", now));
+        tenantIds.add(tenantId);
         return new Fixture(tenantId, userId);
     }
 
