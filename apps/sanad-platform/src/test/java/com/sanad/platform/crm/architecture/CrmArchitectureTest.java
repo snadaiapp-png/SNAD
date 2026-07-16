@@ -38,6 +38,18 @@ class CrmArchitectureTest {
             .because("Query module is read-only");
 
     @ArchTest
+    static final ArchRule crmWebMustNotDependOnJdbc = noClasses()
+            .that().resideInAPackage("..crm.web..")
+            .should().dependOnClassesThat().resideInAPackage("org.springframework.jdbc..")
+            .because("CRM web is an HTTP compatibility boundary, not persistence infrastructure");
+
+    @ArchTest
+    static final ArchRule crmWebMustNotOwnTransactions = noClasses()
+            .that().resideInAPackage("..crm.web..")
+            .should().dependOnClassesThat().resideInAPackage("org.springframework.transaction..")
+            .because("Transaction ownership belongs outside the CRM web boundary");
+
+    @ArchTest
     static final ArchRule crmServiceShouldNotDependOnJdbc = noClasses()
             .that().haveSimpleName("CrmService")
             .should().dependOnClassesThat().resideInAPackage("org.springframework.jdbc..")
