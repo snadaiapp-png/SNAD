@@ -3,8 +3,8 @@
 # ============================================================
 # Verifies the local Spring Boot backend, starts or reuses an
 # ngrok HTTPS tunnel, verifies the public endpoint, configures
-# the local Next.js BFF, and updates the GitHub monitoring URL
-# when GitHub CLI is installed and authenticated.
+# the local Next.js BFF, and updates GitHub/Vercel targets when
+# their CLIs are installed and authenticated.
 # ============================================================
 [CmdletBinding()]
 param(
@@ -15,14 +15,23 @@ param(
 
     [string]$Repository = "snadaiapp-png/SNAD",
 
-    [switch]$SkipGitHubVariableUpdate
+    [string]$VercelOrgId = "team_kzO2MiiSbpoP0gWXojwUFSvR",
+
+    [string]$VercelProjectId = "prj_WM5fbCPCycdogZQaWFnLKDgb5bA9",
+
+    [switch]$SkipGitHubVariableUpdate,
+
+    [switch]$SkipVercelVariableUpdate,
+
+    [switch]$DeployVercelProduction
 )
 
 $ErrorActionPreference = "Stop"
 $LocalBaseUrl = "http://127.0.0.1:$BackendPort"
 $HealthPath = "/actuator/health"
 $NgrokApiUrl = "http://127.0.0.1:4040/api/tunnels"
-$WebEnvFile = Join-Path $RepositoryRoot "apps\web\.env.local"
+$WebDir = Join-Path $RepositoryRoot "apps\web"
+$WebEnvFile = Join-Path $WebDir ".env.local"
 
 function Test-SanadHealth {
     param(
@@ -74,7 +83,23 @@ function Set-LocalWebEnvironment {
     Set-Content -Path $WebEnvFile -Value $content -Encoding UTF8
 }
 
-Write-Host "[1/5] Checking local SANAD backend..." -ForegroundColor Cyan
+function Set-VercelProductionVariable {
+    param(
+        [Parameter(Mandatory = $true)][System.Management.Automation.CommandInfo]$VercelCommand,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$Value
+    )
+
+    $Value | & $VercelCommand.Source env update $Name production --yes
+    if ($LASTEXITCODE -eq 0) { return $true }
+
+    # The variable may not exist yet. Add/overwrite it without an interactive
+    # confirmation while keeping the value out of command-line arguments.
+    $Value | & $VercelCommand.Source env add $Name production --force
+    return $LASTEXITCODE -eq 0
+}
+
+Write-Host "[1/6] Checking local SANAD backend..." -ForegroundColor Cyan
 if (-not (Test-SanadHealth -BaseUrl $LocalBaseUrl)) {
     Write-Host "ERROR: Backend is not healthy at $LocalBaseUrl$HealthPath" -ForegroundColor Red
     Write-Host "Start it first with scripts\windows\start-sanad-production.ps1" -ForegroundColor Yellow
@@ -82,7 +107,7 @@ if (-not (Test-SanadHealth -BaseUrl $LocalBaseUrl)) {
 }
 Write-Host "  Local backend: UP" -ForegroundColor Green
 
-Write-Host "[2/5] Checking ngrok tunnel..." -ForegroundColor Cyan
+Write-Host "[2/6] Checking ngrok tunnel..." -ForegroundColor Cyan
 $PublicUrl = Get-NgrokPublicUrl
 if (-not $PublicUrl) {
     $ngrok = Get-Command ngrok -ErrorAction SilentlyContinue
@@ -114,7 +139,7 @@ if (-not $PublicUrl) {
 }
 Write-Host "  Public tunnel: $PublicUrl" -ForegroundColor Green
 
-Write-Host "[3/5] Verifying public backend health..." -ForegroundColor Cyan
+Write-Host "[3/6] Verifying public backend health..." -ForegroundColor Cyan
 $TunnelHeaders = @{ "ngrok-skip-browser-warning" = "any-value" }
 if (-not (Test-SanadHealth -BaseUrl $PublicUrl -Headers $TunnelHeaders)) {
     Write-Host "ERROR: Public tunnel cannot reach the local backend." -ForegroundColor Red
@@ -122,11 +147,11 @@ if (-not (Test-SanadHealth -BaseUrl $PublicUrl -Headers $TunnelHeaders)) {
 }
 Write-Host "  Public backend: UP" -ForegroundColor Green
 
-Write-Host "[4/5] Configuring local Next.js BFF..." -ForegroundColor Cyan
+Write-Host "[4/6] Configuring local Next.js BFF..." -ForegroundColor Cyan
 Set-LocalWebEnvironment
 Write-Host "  Updated: $WebEnvFile" -ForegroundColor Green
 
-Write-Host "[5/5] Updating GitHub monitoring target..." -ForegroundColor Cyan
+Write-Host "[5/6] Updating GitHub monitoring target..." -ForegroundColor Cyan
 if (-not $SkipGitHubVariableUpdate) {
     $gh = Get-Command gh -ErrorAction SilentlyContinue
     if ($gh) {
@@ -148,11 +173,74 @@ if (-not $SkipGitHubVariableUpdate) {
     }
 }
 
+Write-Host "[6/6] Updating Vercel production connection..." -ForegroundColor Cyan
+$VercelConfigured = $false
+if (-not $SkipVercelVariableUpdate) {
+    $vercel = Get-Command vercel -ErrorAction SilentlyContinue
+    if ($vercel) {
+        $previousOrgId = $env:VERCEL_ORG_ID
+        $previousProjectId = $env:VERCEL_PROJECT_ID
+        try {
+            $env:VERCEL_ORG_ID = $VercelOrgId
+            $env:VERCEL_PROJECT_ID = $VercelProjectId
+            Push-Location $WebDir
+            try {
+                $baseUpdated = Set-VercelProductionVariable `
+                    -VercelCommand $vercel `
+                    -Name "BACKEND_API_BASE_URL" `
+                    -Value $PublicUrl
+                $timeoutUpdated = Set-VercelProductionVariable `
+                    -VercelCommand $vercel `
+                    -Name "BACKEND_REQUEST_TIMEOUT_MS" `
+                    -Value "15000"
+
+                if ($baseUpdated -and $timeoutUpdated) {
+                    $VercelConfigured = $true
+                    Write-Host "  Vercel production variables updated." -ForegroundColor Green
+
+                    if ($DeployVercelProduction) {
+                        Write-Host "  Deploying current apps/web source to Vercel production..." -ForegroundColor Cyan
+                        & $vercel.Source deploy --prod --yes
+                        if ($LASTEXITCODE -ne 0) {
+                            throw "Vercel production deployment failed."
+                        }
+                        Write-Host "  Vercel production deployment completed." -ForegroundColor Green
+                    }
+                }
+                else {
+                    Write-Host "  Vercel CLI could not update one or more variables." -ForegroundColor Yellow
+                }
+            }
+            finally {
+                Pop-Location
+            }
+        }
+        catch {
+            Write-Host "  Vercel update skipped: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+        finally {
+            $env:VERCEL_ORG_ID = $previousOrgId
+            $env:VERCEL_PROJECT_ID = $previousProjectId
+        }
+    }
+    else {
+        Write-Host "  Vercel CLI not found; update production variables manually." -ForegroundColor Yellow
+    }
+}
+
 Write-Host ""
 Write-Host "LOCAL CONNECTION READY" -ForegroundColor Green
 Write-Host "Local frontend backend URL : $LocalBaseUrl" -ForegroundColor White
-Write-Host "Vercel BACKEND_API_BASE_URL: $PublicUrl" -ForegroundColor White
+Write-Host "Public backend tunnel URL  : $PublicUrl" -ForegroundColor White
 Write-Host "GitHub PRODUCTION_BASE_URL : $PublicUrl" -ForegroundColor White
+Write-Host "Vercel BACKEND_API_BASE_URL: $PublicUrl" -ForegroundColor White
+Write-Host "Vercel timeout             : 15000" -ForegroundColor White
 Write-Host ""
-Write-Host "Required Vercel action:" -ForegroundColor Cyan
-Write-Host "Set BACKEND_API_BASE_URL to the value above for Production, then redeploy snad-app." -ForegroundColor White
+
+if (-not $VercelConfigured) {
+    Write-Host "Required Vercel action:" -ForegroundColor Cyan
+    Write-Host "Set BACKEND_API_BASE_URL=$PublicUrl and BACKEND_REQUEST_TIMEOUT_MS=15000 for Production, then redeploy snad-app." -ForegroundColor White
+}
+elseif (-not $DeployVercelProduction) {
+    Write-Host "Vercel variables are ready. Merge/push a deployment or rerun with -DeployVercelProduction." -ForegroundColor Cyan
+}
