@@ -1,0 +1,23 @@
+ndaries, audit, classification, retention, privacy and threat mitigations for {fn.lower()}.","Controls map to tests; unauthorized/cross-tenant operations fail closed; sensitive data protected; audit complete; residual risks approved.","20","security","Security, Governance & Compliance"),
+      ("Complete operational readiness and release evidence",f"Implement observability, alerts, runbook, ownership, recovery, performance, release gate and rollback for {fn.lower()}.","Telemetry and alerts verified; runbook/ownership exist; recovery/rollback exercised; performance/release pass.","20","operations","Platform Operations & QA")])]
+   prev=""
+   for si,(sn,sd,sa,lab,qa,sec,mig,tasks) in enumerate(specs,1):
+    st=f"S-{c}-{fi:02d}-{si:02d}";nums[st]=n;n+=1;dep=f if si==1 else f+";"+prev
+    rs.append(row(st,"User Story",f"{sn}: {fn}",sd,f,e,sa,"Implementation, tests, contracts, audit, docs, operations and exact-SHA evidence complete.","5","40",p["priority"],dep,p["board"],f"SANAD Sprint {s:02d}",p["component"],f"executor-23,user-story,{p['component']},{lab}",p["owner"],qa,sec,mig,integ,p["ref"]))
+    pt=""
+    for ti,(tn,td,ta,h,cat,own) in enumerate(tasks,1):
+     x=f"T-{c}-{fi:02d}-{si:02d}-{ti:02d}";nums[x]=n;n+=1;dp=st if ti==1 else st+";"+pt
+     rs.append(row(x,"Task",f"{c} — {tn}: {fn}",td,st,e,ta,"Acceptance passes on exact SHA; reviewer evidence and affected docs linked.","3" if ti==1 and si==1 else "2",h,p["priority"],dp,p["board"],f"SANAD Sprint {s:02d}",p["component"],f"executor-23,task,{p['component']},{cat}",own,"Unit evidence with implementation." if cat=="implementation" else "Automated exact-SHA evidence required.","Controls implemented." if cat=="implementation" else "Authorization, isolation and abuse cases executed.","Migration/rollback implemented if needed." if cat in ("implementation","security") else "Migration/recovery/rollback evidence executed.",integ,p["ref"]));pt=x
+    prev=st
+ return ps,rs,nums
+def gen(o=OUT):
+ ps,rs,nums=build();o.mkdir(parents=True,exist_ok=True);wc(o/"canonical-backlog.csv",F,rs)
+ jr=[{"Issue Type":r["issue_type"],"Issue ID":nums[r["external_id"]],"Summary":r["summary"],"Parent":nums[r["parent_id"]] if r["parent_id"] else "","Description":r["description"],"Priority":r["priority"],"Story Points":r["story_points"],"Original Estimate":(r["original_estimate_hours"]+"h") if r["original_estimate_hours"] else "","Labels":r["labels"].replace(",",";"),"Components":r["component"],"Sprint":r["sprint"],"Acceptance Criteria":r["acceptance_criteria"],"Definition of Done":r["definition_of_done"],"External ID":r["external_id"],"Dependencies":r["dependencies"],"Board":r["board"],"Owner Role":r["owner_role"],"Traceability":r["traceability"]} for r in rs];wc(o/"jira-import.csv",list(jr[0]),jr)
+ dm={"Epic":1,"Feature":2,"User Story":3,"Task":4};ar=[]
+ for r in rs:
+  d=dm[r["issue_type"]];ar.append({"Work Item Type":r["issue_type"],**{f"Title {i}":r["summary"] if i==d else "" for i in range(1,5)},"Description":r["description"],"Priority":{"Highest":1,"High":2,"Medium":3}.get(r["priority"],3),"Story Points":r["story_points"],"Original Estimate":r["original_estimate_hours"],"Tags":r["labels"].replace(",","; "),"Area Path":f"SANAD\\{r['component']}","Iteration Path":f"SANAD\\{r['sprint'].replace('SANAD ','')}" if r["sprint"].startswith("SANAD Sprint") else "SANAD\\Portfolio","Acceptance Criteria":r["acceptance_criteria"],"External ID":r["external_id"],"Dependencies":r["dependencies"],"Owner Role":r["owner_role"],"Traceability":r["traceability"]})
+ wc(o/"azure-devops-import.csv",list(ar[0]),ar)
+ with (o/"github-issues-import.ndjson").open("w",encoding="utf-8") as h:
+  for r in rs:
+   labs=r["labels"].split(",")+[f"type:{r['issue_type'].lower().replace(' ','-')}",f"priority:{r['priority'].lower()}",f"component:{r['component']}"]
+   body=f"""## Execution item\n\n**External ID:** `{r['external_id']}`  \n**Type:** {r['issue_type']}  \n**Parent External ID:** `{r['parent_id'] or 'NONE'}`  \n**Epic:** `{r['epic_id']}`  \n**Board:** {r['board']}  \n**Sprint:** {r['sprint']}  \n**Owner:** {r['owner_role']}  \n**Priority:** {r['priority']}  \n**Dependencies:** {r['dependencies'] or 'None'}  \n**Traceability:** {r['traceability']}\n\n## Description\n\n{r['description']}\n\n## Acceptance criteria\n\n{r['acceptance_criteria']}\n\n## Definition of done\n\n{r['definition_of_done']}\n\n## Assurance\n\n- QA: {r['qa_coverage']}\n- Security: {r['security_coverage']}\n- Migration: {r['data_migration']}\n- Integration
