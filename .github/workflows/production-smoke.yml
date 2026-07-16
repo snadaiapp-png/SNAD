@@ -5,11 +5,19 @@ name: Production Readiness Gate
 # ------------------------------------------------------------
 # Verifies the complete production chain:
 # Vercel UI -> integration status -> BFF -> backend auth -> Actuator.
-# Runs after relevant changes, manually, and once per hour.
+# Runs after relevant changes, on pull requests, manually, and hourly.
 # ============================================================
 
 on:
   push:
+    branches:
+      - main
+    paths:
+      - 'apps/web/**'
+      - 'apps/sanad-platform/**'
+      - 'scripts/ci/check-production-readiness.py'
+      - '.github/workflows/production-smoke.yml'
+  pull_request:
     branches:
       - main
     paths:
@@ -25,14 +33,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: production-readiness-${{ github.ref }}
+  group: production-readiness-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   verify-production:
     name: Verify End-to-End Production
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
 
     steps:
       - name: Checkout repository
@@ -43,15 +51,18 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Compile readiness probe
+        run: python3 -m py_compile scripts/ci/check-production-readiness.py
+
       - name: Verify production readiness
         env:
           SNAD_PRODUCTION_URL: https://snad-app.vercel.app
         run: |
           set -euo pipefail
           python3 scripts/ci/check-production-readiness.py \
-            --attempts 24 \
+            --attempts 18 \
             --delay-seconds 10 \
-            --timeout-seconds 25 \
+            --timeout-seconds 15 \
             --evidence-file "$RUNNER_TEMP/production-readiness-evidence.json"
 
       - name: Publish readiness summary
