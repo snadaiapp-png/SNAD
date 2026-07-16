@@ -123,7 +123,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> dashboard(Authentication authentication) {
+    public Map<String, Object> dashboard(Authentication authentication) {
         UUID tenantId = tenantId(authentication);
         MapSqlParameterSource params = p().addValue("tenantId", tenantId);
         LinkedHashMap<String, Object> result = new LinkedHashMap<>();
@@ -153,7 +153,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> customer360(Authentication authentication, UUID accountId) {
+    public Map<String, Object> customer360(Authentication authentication, UUID accountId) {
         UUID tenantId = tenantId(authentication);
         LinkedHashMap<String, Object> result = new LinkedHashMap<>();
         result.put("account", one("crm_accounts", tenantId, accountId, "CRM account not found"));
@@ -180,7 +180,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional
-    Map<String, Object> restoreAccount(Authentication authentication, UUID accountId) {
+    public Map<String, Object> restoreAccount(Authentication authentication, UUID accountId) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
         Instant now = Instant.now();
@@ -195,7 +195,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> getContact(Authentication authentication, UUID contactId) {
+    public Map<String, Object> getContact(Authentication authentication, UUID contactId) {
         UUID tenantId = tenantId(authentication);
         LinkedHashMap<String, Object> result =
                 new LinkedHashMap<>(one("crm_contacts", tenantId, contactId, "CRM contact not found"));
@@ -204,7 +204,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional
-    Map<String, Object> updateContact(
+    public Map<String, Object> updateContact(
             Authentication authentication, UUID contactId, UpdateContactRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
@@ -256,12 +256,12 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional
-    Map<String, Object> archiveContact(Authentication authentication, UUID contactId) {
+    public Map<String, Object> archiveContact(Authentication authentication, UUID contactId) {
         return changeContactArchive(authentication, contactId, true);
     }
 
     @Transactional
-    Map<String, Object> restoreContact(Authentication authentication, UUID contactId) {
+    public Map<String, Object> restoreContact(Authentication authentication, UUID contactId) {
         return changeContactArchive(authentication, contactId, false);
     }
 
@@ -289,7 +289,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> getLead(Authentication authentication, UUID leadId) {
+    public Map<String, Object> getLead(Authentication authentication, UUID leadId) {
         UUID tenantId = tenantId(authentication);
         LinkedHashMap<String, Object> result =
                 new LinkedHashMap<>(one("crm_leads", tenantId, leadId, "CRM lead not found"));
@@ -298,7 +298,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional
-    Map<String, Object> changeLeadStatus(
+    public Map<String, Object> changeLeadStatus(
             Authentication authentication, UUID leadId, UpdateLeadStatusRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
@@ -319,7 +319,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional(readOnly = true)
-    List<Map<String, Object>> listPipelineStages(
+    public List<Map<String, Object>> listPipelineStages(
             Authentication authentication, UUID pipelineId) {
         UUID tenantId = tenantId(authentication);
         one("crm_pipelines", tenantId, pipelineId, "CRM pipeline not found");
@@ -329,7 +329,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> getOpportunity(Authentication authentication, UUID opportunityId) {
+    public Map<String, Object> getOpportunity(Authentication authentication, UUID opportunityId) {
         UUID tenantId = tenantId(authentication);
         LinkedHashMap<String, Object> result =
                 new LinkedHashMap<>(one("crm_opportunities", tenantId, opportunityId,
@@ -348,7 +348,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional(readOnly = true)
-    List<Map<String, Object>> listActivities(
+    public List<Map<String, Object>> listActivities(
             Authentication authentication, int requestedLimit,
             String relatedType, UUID relatedId, String status) {
         UUID tenantId = tenantId(authentication);
@@ -373,7 +373,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> getActivity(Authentication authentication, UUID activityId) {
+    public Map<String, Object> getActivity(Authentication authentication, UUID activityId) {
         UUID tenantId = tenantId(authentication);
         LinkedHashMap<String, Object> result =
                 new LinkedHashMap<>(one("crm_activities", tenantId, activityId,
@@ -384,7 +384,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional
-    Map<String, Object> completeActivity(
+    public Map<String, Object> completeActivity(
             Authentication authentication, UUID activityId, CompleteActivityRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
@@ -412,7 +412,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional
-    Map<String, Object> uploadImport(
+    public Map<String, Object> uploadImport(
             Authentication authentication, String requestedEntityType,
             String mappingJson, MultipartFile file) {
         UUID tenantId = tenantId(authentication);
@@ -448,7 +448,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional(readOnly = true)
-    List<Map<String, Object>> listImportJobs(
+    public List<Map<String, Object>> listImportJobs(
             Authentication authentication, int requestedLimit) {
         return jdbc.queryForList(
                 "SELECT job.*,(SELECT COUNT(*) FROM crm_import_errors error " +
@@ -460,12 +460,12 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> getImportJob(Authentication authentication, UUID jobId) {
+    public Map<String, Object> getImportJob(Authentication authentication, UUID jobId) {
         return getImportJobInternal(tenantId(authentication), jobId);
     }
 
     @Transactional
-    Map<String, Object> runImport(Authentication authentication, UUID jobId) {
+    public Map<String, Object> runImport(Authentication authentication, UUID jobId) {
         UUID tenantId = tenantId(authentication);
         Map<String, Object> job = one("crm_import_jobs", tenantId, jobId, "CRM import job not found");
         String status = String.valueOf(job.get("status"));
@@ -486,7 +486,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional
-    Map<String, Object> cancelImport(Authentication authentication, UUID jobId) {
+    public Map<String, Object> cancelImport(Authentication authentication, UUID jobId) {
         UUID tenantId = tenantId(authentication);
         int changed = jdbc.update(
                 "UPDATE crm_import_jobs SET status='CANCELLED',worker_id=NULL,lease_expires_at=NULL," +
@@ -501,7 +501,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional(readOnly = true)
-    List<Map<String, Object>> listImportErrors(
+    public List<Map<String, Object>> listImportErrors(
             Authentication authentication, UUID jobId, int requestedLimit) {
         UUID tenantId = tenantId(authentication);
         one("crm_import_jobs", tenantId, jobId, "CRM import job not found");
@@ -927,7 +927,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional
-    Map<String, Object> createCustomField(
+    public Map<String, Object> createCustomField(
             Authentication authentication, CreateCustomFieldRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID id = UUID.randomUUID();
@@ -962,7 +962,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional(readOnly = true)
-    List<Map<String, Object>> listCustomFields(
+    public List<Map<String, Object>> listCustomFields(
             Authentication authentication, String entityType) {
         UUID tenantId = tenantId(authentication);
         if (entityType == null || entityType.isBlank()) {
@@ -975,7 +975,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional
-    Map<String, Object> upsertCustomFieldValues(
+    public Map<String, Object> upsertCustomFieldValues(
             Authentication authentication, String requestedEntityType,
             UUID entityId, UpdateCustomFieldValuesRequest request) {
         UUID tenantId = tenantId(authentication);
@@ -986,7 +986,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional(readOnly = true)
-    Map<String, Object> readCustomFieldValues(
+    public Map<String, Object> readCustomFieldValues(
             Authentication authentication, String requestedEntityType,
             UUID entityId, boolean includeSensitive) {
         UUID tenantId = tenantId(authentication);
@@ -996,7 +996,7 @@ public class LegacyCrmInfrastructureService {
     }
 
     @Transactional(readOnly = true)
-    List<Map<String, Object>> searchCustomFieldValues(
+    public List<Map<String, Object>> searchCustomFieldValues(
             Authentication authentication, String requestedEntityType,
             String fieldKey, String query, int requestedLimit) {
         UUID tenantId = tenantId(authentication);

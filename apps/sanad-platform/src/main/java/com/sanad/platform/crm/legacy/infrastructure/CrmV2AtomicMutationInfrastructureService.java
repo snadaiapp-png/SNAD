@@ -41,7 +41,7 @@ public class CrmV2AtomicMutationInfrastructureService {
     }
 
     @Transactional
-    Map<String, Object> updateAccount(
+    public Map<String, Object> updateAccount(
             Authentication authentication,
             UUID accountId,
             UpdateAccountRequest request,
@@ -84,7 +84,7 @@ public class CrmV2AtomicMutationInfrastructureService {
     }
 
     @Transactional
-    Map<String, Object> setAccountArchived(
+    public Map<String, Object> setAccountArchived(
             Authentication authentication,
             UUID accountId,
             boolean archived,
@@ -126,7 +126,7 @@ public class CrmV2AtomicMutationInfrastructureService {
     }
 
     @Transactional
-    Map<String, Object> updateContact(
+    public Map<String, Object> updateContact(
             Authentication authentication,
             UUID contactId,
             UpdateContactRequest request,
@@ -179,7 +179,7 @@ public class CrmV2AtomicMutationInfrastructureService {
     }
 
     @Transactional
-    Map<String, Object> setContactArchived(
+    public Map<String, Object> setContactArchived(
             Authentication authentication,
             UUID contactId,
             boolean archived,
@@ -211,7 +211,7 @@ public class CrmV2AtomicMutationInfrastructureService {
     }
 
     @Transactional
-    Map<String, Object> changeLeadStatus(
+    public Map<String, Object> changeLeadStatus(
             Authentication authentication,
             UUID leadId,
             UpdateLeadStatusRequest request,
@@ -235,7 +235,7 @@ public class CrmV2AtomicMutationInfrastructureService {
     }
 
     @Transactional
-    Map<String, Object> moveOpportunityStage(
+    public Map<String, Object> moveOpportunityStage(
             Authentication authentication,
             UUID opportunityId,
             MoveOpportunityRequest request,
@@ -288,7 +288,7 @@ public class CrmV2AtomicMutationInfrastructureService {
     }
 
     @Transactional
-    Map<String, Object> completeActivity(
+    public Map<String, Object> completeActivity(
             Authentication authentication,
             UUID activityId,
             CompleteActivityRequest request,
