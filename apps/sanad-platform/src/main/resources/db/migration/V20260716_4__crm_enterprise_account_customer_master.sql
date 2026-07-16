@@ -17,6 +17,8 @@ ALTER TABLE crm_accounts ADD COLUMN IF NOT EXISTS credit_limit NUMERIC(18,2);
 ALTER TABLE crm_accounts ADD COLUMN IF NOT EXISTS payment_terms_days INTEGER;
 ALTER TABLE crm_accounts ADD COLUMN IF NOT EXISTS data_quality_score INTEGER DEFAULT 0 NOT NULL;
 ALTER TABLE crm_accounts ADD COLUMN IF NOT EXISTS merged_into_account_id UUID;
+ALTER TABLE crm_accounts ADD CONSTRAINT fk_crm_accounts_merged_into_same_tenant
+    FOREIGN KEY (tenant_id, merged_into_account_id) REFERENCES crm_accounts (tenant_id, id);
 
 UPDATE crm_accounts
 SET legal_name = COALESCE(legal_name, display_name),
@@ -45,8 +47,10 @@ CREATE TABLE IF NOT EXISTS crm_account_addresses (
     updated_by UUID,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
-    CONSTRAINT fk_crm_account_address_account FOREIGN KEY (account_id) REFERENCES crm_accounts(id) ON DELETE CASCADE,
-    CONSTRAINT chk_crm_account_address_type CHECK (address_type IN ('REGISTERED','BILLING','SHIPPING','OFFICE','OTHER'))
+    CONSTRAINT fk_crm_account_address_same_tenant
+        FOREIGN KEY (tenant_id, account_id) REFERENCES crm_accounts(tenant_id, id) ON DELETE CASCADE,
+    CONSTRAINT chk_crm_account_address_type
+        CHECK (address_type IN ('REGISTERED','BILLING','SHIPPING','OFFICE','OTHER'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_crm_account_addresses_tenant_account
@@ -65,10 +69,14 @@ CREATE TABLE IF NOT EXISTS crm_account_identifiers (
     active BOOLEAN NOT NULL DEFAULT TRUE,
     created_by UUID,
     created_at TIMESTAMP NOT NULL,
-    CONSTRAINT fk_crm_account_identifier_account FOREIGN KEY (account_id) REFERENCES crm_accounts(id) ON DELETE CASCADE,
-    CONSTRAINT chk_crm_account_identifier_type CHECK (identifier_type IN ('COMMERCIAL_REGISTRATION','TAX','VAT','NATIONAL_ID','DUNS','EXTERNAL','OTHER'))
+    CONSTRAINT fk_crm_account_identifier_same_tenant
+        FOREIGN KEY (tenant_id, account_id) REFERENCES crm_accounts(tenant_id, id) ON DELETE CASCADE,
+    CONSTRAINT chk_crm_account_identifier_type
+        CHECK (identifier_type IN ('COMMERCIAL_REGISTRATION','TAX','VAT','NATIONAL_ID','DUNS','EXTERNAL','OTHER'))
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_crm_account_identifiers_tenant_type_value
+    ON crm_account_identifiers (tenant_id, identifier_type, normalized_value);
 CREATE INDEX IF NOT EXISTS idx_crm_account_identifiers_lookup
     ON crm_account_identifiers (tenant_id, identifier_type, normalized_value, active);
 CREATE INDEX IF NOT EXISTS idx_crm_account_identifiers_account
@@ -87,11 +95,14 @@ CREATE TABLE IF NOT EXISTS crm_account_relationships (
     created_by UUID,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
-    CONSTRAINT fk_crm_account_relationship_source FOREIGN KEY (source_account_id) REFERENCES crm_accounts(id) ON DELETE CASCADE,
-    CONSTRAINT fk_crm_account_relationship_target FOREIGN KEY (target_account_id) REFERENCES crm_accounts(id) ON DELETE CASCADE,
+    CONSTRAINT fk_crm_account_relationship_source_same_tenant
+        FOREIGN KEY (tenant_id, source_account_id) REFERENCES crm_accounts(tenant_id, id) ON DELETE CASCADE,
+    CONSTRAINT fk_crm_account_relationship_target_same_tenant
+        FOREIGN KEY (tenant_id, target_account_id) REFERENCES crm_accounts(tenant_id, id) ON DELETE CASCADE,
     CONSTRAINT chk_crm_account_relationship_self CHECK (source_account_id <> target_account_id),
     CONSTRAINT chk_crm_account_relationship_status CHECK (status IN ('ACTIVE','INACTIVE','EXPIRED')),
-    CONSTRAINT chk_crm_account_relationship_type CHECK (relationship_type IN ('PARENT','SUBSIDIARY','PARTNER','SUPPLIER','CUSTOMER','AFFILIATE','OTHER'))
+    CONSTRAINT chk_crm_account_relationship_type
+        CHECK (relationship_type IN ('PARENT','SUBSIDIARY','PARTNER','SUPPLIER','CUSTOMER','AFFILIATE','OTHER'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_crm_account_relationships_source
@@ -108,7 +119,8 @@ CREATE TABLE IF NOT EXISTS crm_account_status_history (
     reason VARCHAR(500),
     changed_by UUID,
     changed_at TIMESTAMP NOT NULL,
-    CONSTRAINT fk_crm_account_status_history_account FOREIGN KEY (account_id) REFERENCES crm_accounts(id) ON DELETE CASCADE
+    CONSTRAINT fk_crm_account_status_history_same_tenant
+        FOREIGN KEY (tenant_id, account_id) REFERENCES crm_accounts(tenant_id, id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_crm_account_status_history_account
@@ -130,8 +142,10 @@ CREATE TABLE IF NOT EXISTS crm_account_merge_history (
     reason VARCHAR(500),
     merged_by UUID,
     merged_at TIMESTAMP NOT NULL,
-    CONSTRAINT fk_crm_account_merge_source FOREIGN KEY (source_account_id) REFERENCES crm_accounts(id),
-    CONSTRAINT fk_crm_account_merge_target FOREIGN KEY (target_account_id) REFERENCES crm_accounts(id),
+    CONSTRAINT fk_crm_account_merge_source_same_tenant
+        FOREIGN KEY (tenant_id, source_account_id) REFERENCES crm_accounts(tenant_id, id),
+    CONSTRAINT fk_crm_account_merge_target_same_tenant
+        FOREIGN KEY (tenant_id, target_account_id) REFERENCES crm_accounts(tenant_id, id),
     CONSTRAINT chk_crm_account_merge_distinct CHECK (source_account_id <> target_account_id)
 );
 
