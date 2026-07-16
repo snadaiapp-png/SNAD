@@ -50,6 +50,13 @@ def normalize_https_url(value: str) -> str:
     return value.rstrip("/")
 
 
+def host_with_optional_port(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    if not parsed.hostname:
+        raise ValueError("URL does not contain a hostname")
+    return parsed.hostname if not parsed.port else f"{parsed.hostname}:{parsed.port}"
+
+
 def request(url: str, timeout: float) -> tuple[int, bytes, dict[str, str]]:
     headers = {
         "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
@@ -175,24 +182,45 @@ def run_once(production_url: str, timeout: float) -> list[ProbeResult]:
         return checks
 
     target_host = integration.get("targetHost") if isinstance(integration.get("targetHost"), str) else ""
-    override_health_url = os.environ.get("SNAD_BACKEND_HEALTH_URL", "").strip()
-    health_url = override_health_url or (f"https://{target_host}/actuator/health" if target_host else "")
-
-    if not health_url:
+    expected_host = os.environ.get("SNAD_BACKEND_EXPECTED_HOST", "").strip().lower()
+    if not expected_host:
         checks.append(
             result(
-                name="backend-actuator-health",
-                url="",
-                expected="HTTP 200 with status=UP",
-                actual="No backend health URL could be derived",
+                name="backend-host-policy",
+                url=integration_url,
+                expected="SNAD_BACKEND_EXPECTED_HOST configured",
+                actual="Expected backend host is not configured",
                 passed=False,
                 status_code=None,
             )
         )
         return checks
 
+    host_passed = target_host.lower() == expected_host
+    checks.append(
+        result(
+            name="backend-host-policy",
+            url=integration_url,
+            expected=f"targetHost={expected_host}",
+            actual=f"targetHost={target_host}",
+            passed=host_passed,
+            status_code=None,
+        )
+    )
+    if not host_passed:
+        return checks
+
+    override_health_url = os.environ.get("SNAD_BACKEND_HEALTH_URL", "").strip()
+    health_url = override_health_url or f"https://{expected_host}/actuator/health"
+
     try:
         health_url = normalize_https_url(health_url)
+        health_host = host_with_optional_port(health_url).lower()
+        if health_host != expected_host:
+            raise ValueError(
+                f"Health URL host {health_host!r} does not match the approved backend host {expected_host!r}"
+            )
+
         status, body, _ = request(health_url, timeout)
         health_error: str | None = None
         health: dict[str, Any] = {}
@@ -216,7 +244,7 @@ def run_once(production_url: str, timeout: float) -> list[ProbeResult]:
             result(
                 name="backend-actuator-health",
                 url=health_url,
-                expected="HTTP 200 with status=UP",
+                expected="Approved HTTPS host; HTTP 200 with status=UP",
                 actual=type(error).__name__,
                 passed=False,
                 status_code=None,
