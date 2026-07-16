@@ -28,6 +28,17 @@ public class PartyModuleConfiguration {
     }
 
     @Bean
+    public ContactRelationshipUseCases contactRelationshipUseCases(
+            ContactRelationshipRepository contactRelationshipRepository,
+            OwnerValidationPort ownerValidationPort,
+            AuditPort auditPort,
+            TimelineEventPort timelineEventPort,
+            ObjectMapper objectMapper) {
+        return new ContactRelationshipUseCases(contactRelationshipRepository, ownerValidationPort,
+                auditPort, timelineEventPort, objectMapper);
+    }
+
+    @Bean
     public CustomerMasterUseCases customerMasterUseCases(
             CustomerMasterRepository customerMasterRepository,
             AuditPort auditPort,
