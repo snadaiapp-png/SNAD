@@ -8,6 +8,7 @@
 - PostgreSQL 16 for production-like local execution
 - Docker when running Testcontainers suites
 - ngrok for connecting the Vercel frontend to the backend running on Windows
+- GitHub CLI and Vercel CLI for automatic remote configuration
 
 ## Backend — Local Windows Server
 
@@ -77,16 +78,23 @@ The script performs these checks and changes:
 3. Confirms the public HTTPS health endpoint is reachable.
 4. Writes the local Next.js BFF configuration to `apps/web/.env.local`.
 5. Updates the GitHub repository variable `PRODUCTION_BASE_URL` when GitHub CLI is authenticated.
-6. Prints the value required for the Vercel variable `BACKEND_API_BASE_URL`.
+6. Updates Vercel Production variables `BACKEND_API_BASE_URL` and `BACKEND_REQUEST_TIMEOUT_MS` when Vercel CLI is authenticated.
 
-In Vercel project `snad-app`, configure for the Production environment:
+To configure Vercel and deploy the current `apps/web` source in the same command, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\windows\connect-local-backend.ps1 `
+  -DeployVercelProduction
+```
+
+The production variables are:
 
 ```dotenv
 BACKEND_API_BASE_URL=https://<active-ngrok-host>
 BACKEND_REQUEST_TIMEOUT_MS=15000
 ```
 
-Redeploy the frontend after changing the Vercel environment variable. Production browser traffic remains same-origin:
+Production browser traffic remains same-origin:
 
 ```text
 https://snad-app.vercel.app/api/platform/api/v1/**
@@ -146,4 +154,4 @@ Because the backend runs on a local computer, the public application depends on 
 - Vercel `BACKEND_API_BASE_URL` points to the current tunnel URL.
 - GitHub `PRODUCTION_BASE_URL` points to the same current tunnel URL.
 
-A changing temporary tunnel URL must be updated in Vercel and GitHub. A reserved/static tunnel domain removes that repeated update.
+A changing temporary tunnel URL must be updated in Vercel and GitHub. Running `connect-local-backend.ps1` again performs those updates. A reserved/static tunnel domain removes that repeated update.
