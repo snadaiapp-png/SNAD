@@ -54,6 +54,7 @@ class CustomerMasterMergeIntegrationTest {
             jdbc.update("DELETE FROM crm_opportunities WHERE tenant_id=:tenantId", tenant);
             jdbc.update("DELETE FROM crm_contacts WHERE tenant_id=:tenantId", tenant);
             jdbc.update("DELETE FROM crm_leads WHERE tenant_id=:tenantId", tenant);
+            jdbc.update("UPDATE crm_accounts SET merged_into_account_id=NULL,parent_account_id=NULL WHERE tenant_id=:tenantId", tenant);
             jdbc.update("DELETE FROM crm_accounts WHERE tenant_id=:tenantId", tenant);
             jdbc.update("DELETE FROM platform_audit_logs WHERE target_tenant_id=:tenantId", tenant);
             jdbc.update("DELETE FROM users WHERE tenant_id=:tenantId", tenant);
