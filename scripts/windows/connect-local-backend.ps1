@@ -11,7 +11,7 @@ param(
     [ValidateRange(1, 65535)]
     [int]$BackendPort = 8080,
 
-    [string]$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path,
+    [string]$RepositoryRoot = "",
 
     [string]$Repository = "snadaiapp-png/SNAD",
 
@@ -27,6 +27,20 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# $PSScriptRoot is not guaranteed to be populated while default parameter
+# expressions are being bound in Windows PowerShell 5.1. Resolve the repository
+# root only after the script body starts.
+if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) {
+    if ([string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+        throw "Unable to resolve the script directory. Pass -RepositoryRoot explicitly."
+    }
+    $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+}
+else {
+    $RepositoryRoot = (Resolve-Path $RepositoryRoot).Path
+}
+
 $LocalBaseUrl = "http://127.0.0.1:$BackendPort"
 $HealthPath = "/actuator/health"
 $NgrokApiUrl = "http://127.0.0.1:4040/api/tunnels"
