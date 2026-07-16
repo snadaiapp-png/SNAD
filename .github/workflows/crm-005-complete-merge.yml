@@ -1,0 +1,31 @@
+name: CRM-005 Complete Merge Patch
+
+on:
+  push:
+    branches:
+      - crm/005-enterprise-account-customer-master
+    paths:
+      - 'scripts/crm/apply-crm005-complete-merge.py'
+      - '.github/workflows/crm-005-complete-merge.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: crm/005-enterprise-account-customer-master
+          fetch-depth: 0
+      - run: python3 scripts/crm/apply-crm005-complete-merge.py
+      - name: Commit complete merge implementation
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then exit 0; fi
+          git config user.name 'SANAD Governance Bot'
+          git config user.email 'governance@sanad.local'
+          git add apps/sanad-platform/src/main/java/com/sanad/platform/crm/party
+          git commit -m 'feat(crm-005): complete enterprise customer merge consolidation'
+          git push origin HEAD:crm/005-enterprise-account-customer-master
