@@ -23,8 +23,10 @@ public class PartyModuleConfiguration {
 
     @Bean
     public ContactUseCases contactUseCases(ContactRepository contactRepository,
-                                           TimelineEventPort timelineEventPort) {
-        return new ContactUseCases(contactRepository, timelineEventPort);
+                                           AuditPort auditPort,
+                                           TimelineEventPort timelineEventPort,
+                                           ObjectMapper objectMapper) {
+        return new ContactUseCases(contactRepository, auditPort, timelineEventPort, objectMapper);
     }
 
     @Bean
