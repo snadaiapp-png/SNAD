@@ -26,4 +26,13 @@ public class PartyModuleConfiguration {
                                            TimelineEventPort timelineEventPort) {
         return new ContactUseCases(contactRepository, timelineEventPort);
     }
+
+    @Bean
+    public CustomerMasterUseCases customerMasterUseCases(
+            CustomerMasterRepository customerMasterRepository,
+            AuditPort auditPort,
+            TimelineEventPort timelineEventPort,
+            ObjectMapper objectMapper) {
+        return new CustomerMasterUseCases(customerMasterRepository, auditPort, timelineEventPort, objectMapper);
+    }
 }

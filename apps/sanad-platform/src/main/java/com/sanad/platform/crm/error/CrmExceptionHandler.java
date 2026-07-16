@@ -44,7 +44,8 @@ import java.util.regex.Pattern;
  * Branch: crm/003-stable-api-contracts
  */
 @RestControllerAdvice(assignableTypes = {
-        com.sanad.platform.crm.web.CrmController.class
+        com.sanad.platform.crm.web.CrmController.class,
+        com.sanad.platform.crm.party.web.CustomerMasterController.class
 })
 public class CrmExceptionHandler extends ResponseEntityExceptionHandler {
 

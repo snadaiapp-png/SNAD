@@ -3,7 +3,7 @@
 > **Branch:** `crm/001-baseline-governance-ci-recovery`
 > **Baseline SHA:** `cee332e7f86a6ea64fbb5f72120ae77c441f6eac`
 > **Document status:** AUTHORITATIVE — supersedes any older `CRM_PRODUCT_BUILD: NOT STARTED` claim.
-> **Last reconciled:** 2026-07-12 against the `main` HEAD at the baseline SHA above.
+> **Last reconciled:** 2026-07-16 against the `main` HEAD at the baseline SHA above.
 
 This document is the single source of truth for the as-built state of the SNAD
 CRM product on the SNAD Platform repository. It is consumed by:
@@ -93,6 +93,14 @@ on a `CRM.*` capability. The full authenticated surface is:
 | PATCH | `/api/v1/crm/accounts/{accountId}` | `CRM.ACCOUNT.WRITE` | `IMPLEMENTED_AND_CONNECTED` |
 | PATCH | `/api/v1/crm/accounts/{accountId}/archive` | `CRM.ACCOUNT.ARCHIVE` | `IMPLEMENTED_AND_CONNECTED` |
 | PATCH | `/api/v1/crm/accounts/{accountId}/restore` | `CRM.ACCOUNT.ARCHIVE` | `IMPLEMENTED_AND_CONNECTED` |
+| GET | `/api/v1/crm/accounts/{accountId}/master` | `CRM.ACCOUNT.READ` | `IMPLEMENTED_AND_CONNECTED` |
+| PATCH | `/api/v1/crm/accounts/{accountId}/master` | `CRM.ACCOUNT.WRITE` | `IMPLEMENTED_AND_CONNECTED` |
+| GET/POST | `/api/v1/crm/accounts/{accountId}/addresses` | `CRM.ACCOUNT.READ/WRITE` | `IMPLEMENTED_AND_CONNECTED` |
+| DELETE | `/api/v1/crm/accounts/{accountId}/addresses/{addressId}` | `CRM.ACCOUNT.WRITE` | `IMPLEMENTED_AND_CONNECTED` |
+| GET/POST | `/api/v1/crm/accounts/{accountId}/identifiers` | `CRM.ACCOUNT.READ/WRITE` | `IMPLEMENTED_AND_CONNECTED` |
+| GET/POST | `/api/v1/crm/accounts/{accountId}/relationships` | `CRM.ACCOUNT.READ/WRITE` | `IMPLEMENTED_AND_CONNECTED` |
+| GET | `/api/v1/crm/accounts/{accountId}/duplicates` | `CRM.ACCOUNT.READ` | `IMPLEMENTED_AND_CONNECTED` |
+| POST | `/api/v1/crm/accounts/{sourceAccountId}/merge/{targetAccountId}` | `CRM.ACCOUNT.WRITE` | `IMPLEMENTED_AND_CONNECTED` |
 | POST | `/api/v1/crm/contacts` | `CRM.CONTACT.WRITE` | `IMPLEMENTED_AND_CONNECTED` |
 | GET | `/api/v1/crm/contacts` | `CRM.CONTACT.READ` | `IMPLEMENTED_AND_CONNECTED` |
 | GET | `/api/v1/crm/contacts/{contactId}` | `CRM.CONTACT.READ` | `IMPLEMENTED_AND_CONNECTED` |
@@ -167,6 +175,7 @@ FLYWAY_ENABLED (preflight, staging, CI): true — enforced by scripts/crm/deploy
 | `20260713.1` | `V20260713_1__create_crm_idempotency_records.sql` | `crm_idempotency_records` table for V2 idempotent POST endpoints. | `IMPLEMENTED_AND_CONNECTED` |
 | `20260713.2` | `V20260713_2__add_pipeline_version_column.sql` | Adds `version` column to `crm_pipelines` for optimistic locking. | `IMPLEMENTED_AND_CONNECTED` |
 | `20260716.3` | `V20260716_3__create_crm_tags.sql` | `crm_tags` + `crm_tag_assignments` tables (reusable labels with many-to-many assignments). Seeds `CRM.TAG.READ/WRITE` capabilities. | `IMPLEMENTED_AND_CONNECTED` |
+| `20260716.4` | `V20260716_4__crm_enterprise_account_customer_master.sql` | Extends the Account golden record with enterprise identity, customer classification, addresses, identifiers, relationships, duplicate detection, merge history, risk, credit and data-quality governance. | `IMPLEMENTED_AND_CONNECTED` |
 
 ### 4.3 CRM RBAC capabilities
 
