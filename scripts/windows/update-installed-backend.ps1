@@ -19,7 +19,7 @@ $InstalledJar = Join-Path $InstallDir "sanad-platform.jar"
 $PidFile = Join-Path $InstallDir "sanad-backend.pid"
 $StartScript = Join-Path $RepositoryRoot "scripts\windows\start-sanad-production.ps1"
 $BackupDir = Join-Path $InstallDir "backups"
-$RequiredJarEntry = "com/sanad/platform/internal/bootstrap/api/ControlPlaneBootstrapController.class"
+$RequiredJarEntry = "BOOT-INF/classes/com/sanad/platform/internal/bootstrap/api/ControlPlaneBootstrapController.class"
 
 function Stop-InstalledBackend {
     if (-not (Test-Path $PidFile)) { return }
