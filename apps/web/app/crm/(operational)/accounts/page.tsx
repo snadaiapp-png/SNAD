@@ -4,6 +4,7 @@ import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { crmApi, type CrmAccount } from "@/lib/api/crm";
+import { crmAccountMasterApi, type AccountMasterOverview } from "@/lib/api/crm-account-master";
 import { toUserFacingError } from "@/lib/api/user-facing-errors";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { formValue, formatDate } from "../../crm-view-utils";
@@ -11,20 +12,29 @@ import { CrmLoading } from "../../components/crm-loading";
 import { CrmEmpty } from "../../components/crm-empty";
 import styles from "../../crm.module.css";
 
-/**
- * CRM Accounts route — /crm/accounts
- *
- * Loads ONLY `crmApi.accounts()` (search-aware). Renders:
- *   - A create-account form (POST /api/v1/crm/accounts)
- *   - A search input that re-queries the backend
- *   - A list with archive/restore buttons and a link to Customer 360
- *
- * Loading/error/empty states are handled explicitly.
- */
+const MASTER_COPY = {
+  ar: {
+    legalName: "الاسم القانوني",
+    tradeName: "الاسم التجاري",
+    registration: "رقم السجل",
+    industry: "القطاع",
+    tier: "فئة العميل",
+  },
+  en: {
+    legalName: "Legal name",
+    tradeName: "Trade name",
+    registration: "Registration number",
+    industry: "Industry",
+    tier: "Customer tier",
+  },
+} as const;
+
 export default function CrmAccountsPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const masterCopy = MASTER_COPY[locale];
   const router = useRouter();
   const [accounts, setAccounts] = useState<CrmAccount[]>([]);
+  const [masters, setMasters] = useState<Record<string, AccountMasterOverview>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -38,9 +48,18 @@ export default function CrmAccountsPage() {
     try {
       const next = await crmApi.accounts(search);
       setAccounts(next);
+      const results = await Promise.allSettled(
+        next.map((account) => crmAccountMasterApi.overview(account.id)),
+      );
+      const nextMasters: Record<string, AccountMasterOverview> = {};
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") nextMasters[next[index].id] = result.value;
+      });
+      setMasters(nextMasters);
     } catch (reason) {
       setError(toUserFacingError(reason).message);
       setAccounts([]);
+      setMasters({});
     } finally {
       setLoading(false);
     }
@@ -70,18 +89,26 @@ export default function CrmAccountsPage() {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    await mutate(
-      () =>
-        crmApi.createAccount({
-          displayName: formValue(form, "displayName"),
-          accountType: formValue(form, "accountType") || "BUSINESS",
-          primaryCurrencyCode: formValue(form, "currency") || "SAR",
-          preferredLocale: "ar-SA",
-          timeZone: "Asia/Riyadh",
-          source: "CRM_WEB",
-        }),
-      t("crm.accounts.created"),
-    );
+    const displayName = formValue(form, "displayName");
+    const legalName = formValue(form, "legalName") || displayName;
+    const tradeName = formValue(form, "tradeName") || displayName;
+    await mutate(async () => {
+      const created = await crmApi.createAccount({
+        displayName,
+        accountType: formValue(form, "accountType") || "BUSINESS",
+        primaryCurrencyCode: formValue(form, "currency") || "SAR",
+        preferredLocale: "ar-SA",
+        timeZone: "Asia/Riyadh",
+        source: "CRM_WEB",
+      });
+      await crmAccountMasterApi.updateProfile(created.id, 0, {
+        legalName,
+        tradeName,
+        registrationNumber: formValue(form, "registrationNumber") || undefined,
+        industry: formValue(form, "industry") || undefined,
+        customerTier: formValue(form, "customerTier") || undefined,
+      });
+    }, t("crm.accounts.created"));
     formElement.reset();
   }
 
@@ -91,7 +118,6 @@ export default function CrmAccountsPage() {
   }
 
   const hasAccounts = accounts.length > 0;
-
   const accountTypes = useMemo(
     () => [
       { value: "BUSINESS", key: "crm.accounts.type.BUSINESS" },
@@ -119,6 +145,11 @@ export default function CrmAccountsPage() {
             {t("crm.accounts.create.displayName")}
             <input name="displayName" required disabled={busy} />
           </label>
+          <label>{masterCopy.legalName}<input name="legalName" disabled={busy} /></label>
+          <label>{masterCopy.tradeName}<input name="tradeName" disabled={busy} /></label>
+          <label>{masterCopy.registration}<input name="registrationNumber" disabled={busy} /></label>
+          <label>{masterCopy.industry}<input name="industry" disabled={busy} /></label>
+          <label>{masterCopy.tier}<input name="customerTier" disabled={busy} /></label>
           <label>
             {t("crm.accounts.create.type")}
             <select name="accountType" defaultValue="BUSINESS" disabled={busy}>
@@ -141,7 +172,7 @@ export default function CrmAccountsPage() {
               <input
                 type="search"
                 value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
+                onChange={(event) => setSearchInput(event.target.value)}
                 placeholder={t("crm.accounts.search")}
                 aria-label={t("crm.accounts.search")}
                 disabled={busy}
@@ -153,18 +184,17 @@ export default function CrmAccountsPage() {
           {loading ? (
             <CrmLoading rows={4} />
           ) : !hasAccounts ? (
-            <CrmEmpty
-              title={t("crm.accounts.empty")}
-              hint={t("crm.state.emptyHint")}
-            />
+            <CrmEmpty title={t("crm.accounts.empty")} hint={t("crm.state.emptyHint")} />
           ) : (
             <div className={styles.tableWrap}>
               <table>
                 <thead>
                   <tr>
-                    <th>{t("crm.accounts.list.name")}</th>
+                    <th>{masterCopy.legalName}</th>
+                    <th>{masterCopy.tradeName}</th>
+                    <th>{masterCopy.industry}</th>
+                    <th>{masterCopy.tier}</th>
                     <th>{t("crm.accounts.list.type")}</th>
-                    <th>{t("crm.accounts.list.currency")}</th>
                     <th>{t("crm.accounts.list.status")}</th>
                     <th>{t("crm.accounts.list.updated")}</th>
                     <th>{t("crm.accounts.list.actions")}</th>
@@ -173,39 +203,22 @@ export default function CrmAccountsPage() {
                 <tbody>
                   {accounts.map((account) => {
                     const archived = account.lifecycle_status === "ARCHIVED";
+                    const accountMaster = masters[account.id];
                     return (
                       <tr key={account.id}>
-                        <td>
-                          <Link href={`/crm/accounts/${account.id}`}>{account.display_name}</Link>
-                        </td>
+                        <td><Link href={`/crm/accounts/${account.id}`}>{accountMaster?.profile.legalName || account.display_name}</Link></td>
+                        <td>{accountMaster?.profile.tradeName || account.display_name}</td>
+                        <td>{accountMaster?.profile.industry || "—"}</td>
+                        <td>{accountMaster?.profile.customerTier || "—"}</td>
                         <td>{t(`crm.accounts.type.${account.account_type}`) !== `crm.accounts.type.${account.account_type}` ? t(`crm.accounts.type.${account.account_type}`) : account.account_type}</td>
-                        <td>{account.primary_currency_code ?? "—"}</td>
-                        <td>
-                          <span className={`${styles.badge} ${archived ? styles.badgeWarning : styles.badgeSuccess}`}>
-                            {account.lifecycle_status}
-                          </span>
-                        </td>
+                        <td><span className={`${styles.badge} ${archived ? styles.badgeWarning : styles.badgeSuccess}`}>{account.lifecycle_status}</span></td>
                         <td>{formatDate(account.updated_at)}</td>
                         <td className={styles.rowActions}>
-                          <button type="button" onClick={() => router.push(`/crm/accounts/${account.id}`)}>
-                            {t("crm.accounts.list.view360")}
-                          </button>
+                          <button type="button" onClick={() => router.push(`/crm/accounts/${account.id}`)}>{t("crm.accounts.list.view360")}</button>
                           {!archived ? (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => void mutate(() => crmApi.archiveAccount(account.id), t("crm.accounts.archived"))}
-                            >
-                              {t("crm.accounts.list.archive")}
-                            </button>
+                            <button type="button" disabled={busy} onClick={() => void mutate(() => crmApi.archiveAccount(account.id), t("crm.accounts.archived"))}>{t("crm.accounts.list.archive")}</button>
                           ) : (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => void mutate(() => crmApi.restoreAccount(account.id), t("crm.accounts.restored"))}
-                            >
-                              {t("crm.accounts.list.restore")}
-                            </button>
+                            <button type="button" disabled={busy} onClick={() => void mutate(() => crmApi.restoreAccount(account.id), t("crm.accounts.restored"))}>{t("crm.accounts.list.restore")}</button>
                           )}
                         </td>
                       </tr>
