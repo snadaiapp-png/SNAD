@@ -3,7 +3,7 @@
   "info": {
     "title": "SNAD CRM API",
     "version": "2.1.0",
-    "description": "Runtime-derived governed CRM v2 API contract including EXEC-PROMPT-CRM-005 Enterprise Account and Customer Master."
+    "description": "Governed CRM v2 API contract extended by EXEC-PROMPT-CRM-005 Enterprise Account and Customer Master. Existing CRM-G2 operations retain their reviewed security, pagination, response and concurrency semantics."
   },
   "servers": [
     {
@@ -11,7 +11,41 @@
       "description": "CRM v2 API root"
     }
   ],
-  "tags": [],
+  "tags": [
+    {
+      "name": "Accounts"
+    },
+    {
+      "name": "Contacts"
+    },
+    {
+      "name": "Leads"
+    },
+    {
+      "name": "Pipelines"
+    },
+    {
+      "name": "Opportunities"
+    },
+    {
+      "name": "Activities"
+    },
+    {
+      "name": "Timeline"
+    },
+    {
+      "name": "Imports"
+    },
+    {
+      "name": "Custom Fields"
+    },
+    {
+      "name": "account-master-controller"
+    },
+    {
+      "name": "account-taxonomy-controller"
+    }
+  ],
   "paths": {
     "/account-taxonomies": {
       "get": {
@@ -145,7 +179,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -162,13 +196,24 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "OK",
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "201": {
+            "description": "Created",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseAccountResponse"
                 }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -201,6 +246,11 @@
                   "$ref": "#/components/schemas/SingleResponseAccountResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
           }
         }
@@ -223,7 +273,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -248,7 +298,18 @@
                   "$ref": "#/components/schemas/SingleResponseAccountResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
+          },
+          "412": {
+            "$ref": "#/components/responses/ConcurrencyConflict"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -272,7 +333,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -287,7 +348,18 @@
                   "$ref": "#/components/schemas/SingleResponseArchiveAccountResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
+          },
+          "412": {
+            "$ref": "#/components/responses/ConcurrencyConflict"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -317,6 +389,11 @@
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseCustomer360Response"
                 }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -840,7 +917,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -855,7 +932,18 @@
                   "$ref": "#/components/schemas/SingleResponseAccountResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
+          },
+          "412": {
+            "$ref": "#/components/responses/ConcurrencyConflict"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -948,7 +1036,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -965,13 +1053,24 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "OK",
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "201": {
+            "description": "Created",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseActivityResponse"
                 }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -1004,6 +1103,11 @@
                   "$ref": "#/components/schemas/SingleResponseActivityResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
           }
         }
@@ -1026,7 +1130,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -1051,7 +1155,18 @@
                   "$ref": "#/components/schemas/SingleResponseActivityResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
+          },
+          "412": {
+            "$ref": "#/components/responses/ConcurrencyConflict"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -1075,7 +1190,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -1100,7 +1215,18 @@
                   "$ref": "#/components/schemas/SingleResponseActivityResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
+          },
+          "412": {
+            "$ref": "#/components/responses/ConcurrencyConflict"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -1185,7 +1311,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -1202,13 +1328,24 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "OK",
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "201": {
+            "description": "Created",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseContactResponse"
                 }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -1241,6 +1378,11 @@
                   "$ref": "#/components/schemas/SingleResponseContactResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
           }
         }
@@ -1263,7 +1405,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -1288,7 +1430,18 @@
                   "$ref": "#/components/schemas/SingleResponseContactResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
+          },
+          "412": {
+            "$ref": "#/components/responses/ConcurrencyConflict"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -1312,7 +1465,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -1327,7 +1480,18 @@
                   "$ref": "#/components/schemas/SingleResponseContactResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
+          },
+          "412": {
+            "$ref": "#/components/responses/ConcurrencyConflict"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -1351,7 +1515,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -1366,7 +1530,18 @@
                   "$ref": "#/components/schemas/SingleResponseContactResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
+          },
+          "412": {
+            "$ref": "#/components/responses/ConcurrencyConflict"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -1442,7 +1617,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -1459,13 +1634,24 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "OK",
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "201": {
+            "description": "Created",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseCustomFieldResponse"
                 }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -1561,6 +1747,11 @@
                   "$ref": "#/components/schemas/SingleResponseCustomFieldValuesResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
           }
         }
@@ -1608,6 +1799,11 @@
                   "$ref": "#/components/schemas/SingleResponseCustomFieldValuesResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
           }
         }
@@ -1638,7 +1834,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -1663,7 +1859,18 @@
                   "$ref": "#/components/schemas/SingleResponseCustomFieldValuesResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         }
       }
@@ -1687,7 +1894,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -1712,7 +1919,18 @@
                   "$ref": "#/components/schemas/SingleResponseCustomFieldResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
+          },
+          "412": {
+            "$ref": "#/components/responses/ConcurrencyConflict"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -1782,7 +2000,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -1814,13 +2032,24 @@
           }
         },
         "responses": {
-          "200": {
-            "description": "OK",
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "201": {
+            "description": "Created",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseImportJobResponse"
                 }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -1853,6 +2082,11 @@
                   "$ref": "#/components/schemas/SingleResponseImportJobResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
           }
         }
@@ -1883,6 +2117,11 @@
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseImportJobResponse"
                 }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -2003,7 +2242,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -2018,7 +2257,18 @@
                   "$ref": "#/components/schemas/SingleResponseImportRunResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         }
       }
@@ -2094,7 +2344,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -2111,13 +2361,24 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "OK",
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "201": {
+            "description": "Created",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseLeadResponse"
                 }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -2150,6 +2411,11 @@
                   "$ref": "#/components/schemas/SingleResponseLeadResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
           }
         }
@@ -2174,7 +2440,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -2199,7 +2465,18 @@
                   "$ref": "#/components/schemas/SingleResponseLeadConversionResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         }
       }
@@ -2223,7 +2500,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -2248,7 +2525,18 @@
                   "$ref": "#/components/schemas/SingleResponseLeadResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
+          },
+          "412": {
+            "$ref": "#/components/responses/ConcurrencyConflict"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -2325,7 +2613,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -2342,13 +2630,24 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "OK",
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "201": {
+            "description": "Created",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseOpportunityResponse"
                 }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
               }
             }
           }
@@ -2381,6 +2680,11 @@
                   "$ref": "#/components/schemas/SingleResponseOpportunityResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
           }
         }
@@ -2403,7 +2707,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -2428,7 +2732,18 @@
                   "$ref": "#/components/schemas/SingleResponseOpportunityResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
+          },
+          "412": {
+            "$ref": "#/components/responses/ConcurrencyConflict"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -2452,7 +2767,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -2477,7 +2792,18 @@
                   "$ref": "#/components/schemas/SingleResponseOpportunityResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
+          },
+          "412": {
+            "$ref": "#/components/responses/ConcurrencyConflict"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -2499,7 +2825,8 @@
               }
             }
           }
-        }
+        },
+        "parameters": []
       }
     },
     "/pipelines/{pipelineId}": {
@@ -2521,7 +2848,7 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -2546,7 +2873,18 @@
                   "$ref": "#/components/schemas/SingleResponsePipelineResponse"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
             }
+          },
+          "412": {
+            "$ref": "#/components/responses/ConcurrencyConflict"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
           }
         }
       }
@@ -2656,6 +2994,126 @@
     }
   },
   "components": {
+    "headers": {
+      "ETag": {
+        "description": "Strong version ETag. Send it back as If-Match on mutations.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "parameters": {
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "schema": {
+          "type": "string"
+        },
+        "description": "Opaque tenant-bound pagination cursor."
+      },
+      "Direction": {
+        "name": "direction",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "asc",
+            "desc"
+          ],
+          "default": "desc"
+        }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "description": "Required for governed idempotent POST operations."
+      },
+      "IfMatch": {
+        "name": "If-Match",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Strong ETag required for versioned mutations."
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 50
+        }
+      },
+      "Sort": {
+        "name": "sort",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "default": "updatedAt"
+        }
+      }
+    },
+    "responses": {
+      "ConcurrencyConflict": {
+        "description": "Stale ETag / optimistic concurrency conflict",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Idempotency or state conflict",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Resource not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "PreconditionRequired": {
+        "description": "If-Match header required",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "ValidationError": {
+        "description": "Validation error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "schemas": {
       "AccountHistoryResponse": {
         "type": "object",
@@ -2943,6 +3401,34 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "ApiErrorResponse": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "tenantIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -3594,6 +4080,9 @@
           }
         }
       },
+      "ErrorResponse": {
+        "$ref": "#/components/schemas/ApiErrorResponse"
+      },
       "ExternalIdentifierResponse": {
         "type": "object",
         "properties": {
@@ -3627,6 +4116,25 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "FieldError": {
+        "type": "object",
+        "required": [
+          "field",
+          "code",
+          "message"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
           }
         }
       },
@@ -4829,6 +5337,18 @@
           }
         }
       }
+    },
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
     }
-  }
+  },
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ]
 }
