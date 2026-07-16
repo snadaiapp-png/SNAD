@@ -27,9 +27,8 @@ import java.util.UUID;
 
 /**
  * Typed row-oriented importer for people and account relationships.
- * Each row is committed independently so one invalid relationship does not
- * discard successful rows. A personKey is an explicit batch-scoped linkage;
- * email is never used as an automatic merge key.
+ * Each row is committed independently. A personKey is an explicit batch-scoped
+ * linkage; email is never used as an automatic merge key.
  */
 @Service
 public class ContactRelationshipImportService {
@@ -64,9 +63,7 @@ public class ContactRelationshipImportService {
             UUID actorId,
             UUID importId,
             List<ImportRow> rows) {
-        if (tenantId == null || actorId == null) {
-            throw new CrmContractException(CrmErrorCode.UNAUTHORIZED);
-        }
+        requireContext(tenantId, actorId);
         if (rows == null || rows.isEmpty()) {
             throw new CrmContractException(CrmErrorCode.VALIDATION_ERROR,
                     "At least one import row is required.");
@@ -83,21 +80,22 @@ public class ContactRelationshipImportService {
         int failed = 0;
 
         for (int index = 0; index < rows.size(); index++) {
+            int rowNumber = index + 1;
             ImportRow row = rows.get(index);
             try {
                 RowResult result = requiresNew.execute(status ->
-                        processRow(tenantId, actorId, effectiveImportId, index + 1, row, personKeys));
+                        processRow(tenantId, actorId, effectiveImportId, rowNumber, row, personKeys));
                 if (result == null) {
                     throw new IllegalStateException("Import row transaction returned no result.");
                 }
                 results.add(result);
                 succeeded++;
-                if (row.personKey() != null && !row.personKey().isBlank()) {
+                if (hasText(row.personKey())) {
                     personKeys.putIfAbsent(normalizeKey(row.personKey()), result.contactId());
                 }
             } catch (RuntimeException exception) {
                 failed++;
-                results.add(failure(index + 1, row, exception));
+                results.add(failure(rowNumber, row, exception));
             }
         }
 
@@ -144,7 +142,6 @@ public class ContactRelationshipImportService {
                         row.decisionAuthority(),
                         row.relationshipOwnerUserId()));
 
-        Instant now = Instant.now();
         audit.record(
                 tenantId,
                 actorId,
@@ -157,7 +154,7 @@ public class ContactRelationshipImportService {
                         "contactId", contactId,
                         "accountId", row.accountId(),
                         "relationshipId", created.id()))),
-                now);
+                Instant.now());
 
         return new RowResult(
                 rowNumber,
@@ -178,13 +175,14 @@ public class ContactRelationshipImportService {
             relationships.profile(tenantId, row.contactId());
             return row.contactId();
         }
-        if (row.personKey() != null && !row.personKey().isBlank()) {
+        if (hasText(row.personKey())) {
             UUID existing = personKeys.get(normalizeKey(row.personKey()));
             if (existing != null) {
                 relationships.profile(tenantId, existing);
                 return existing;
             }
         }
+
         String givenName = requireText(row.givenName(), "givenName");
         ContactRecord created = contacts.create(
                 tenantId,
@@ -200,12 +198,7 @@ public class ContactRelationshipImportService {
                         row.personOwnerUserId(),
                         defaultText(row.consentSummary(), "UNKNOWN").toUpperCase(Locale.ROOT)));
 
-        boolean extendedProfile = hasText(row.legalName())
-                || hasText(row.preferredName())
-                || hasText(row.middleName())
-                || hasText(row.pronouns())
-                || hasText(row.source());
-        if (extendedProfile) {
+        if (hasExtendedProfile(row)) {
             relationships.updateProfile(
                     tenantId,
                     actorId,
@@ -264,6 +257,14 @@ public class ContactRelationshipImportService {
                 message);
     }
 
+    private static boolean hasExtendedProfile(ImportRow row) {
+        return hasText(row.legalName())
+                || hasText(row.preferredName())
+                || hasText(row.middleName())
+                || hasText(row.pronouns())
+                || hasText(row.source());
+    }
+
     private static String safeMessage(Throwable throwable) {
         String message = throwable.getMessage();
         if (message == null || message.isBlank()) return "Import row failed.";
@@ -271,7 +272,7 @@ public class ContactRelationshipImportService {
     }
 
     private static String requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
+        if (!hasText(value)) {
             throw new CrmContractException(CrmErrorCode.VALIDATION_ERROR,
                     field + " is required when contactId is not supplied.");
         }
@@ -279,11 +280,11 @@ public class ContactRelationshipImportService {
     }
 
     private static String defaultText(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value.trim();
+        return hasText(value) ? value.trim() : fallback;
     }
 
     private static String emptyToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
+        return hasText(value) ? value.trim() : null;
     }
 
     private static boolean hasText(String value) {
@@ -292,6 +293,12 @@ public class ContactRelationshipImportService {
 
     private static String normalizeKey(String value) {
         return value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static void requireContext(UUID tenantId, UUID actorId) {
+        if (tenantId == null || actorId == null) {
+            throw new CrmContractException(CrmErrorCode.UNAUTHORIZED);
+        }
     }
 
     public record ImportRow(
