@@ -7,15 +7,15 @@
     "current_consecutive_passes": 0,
     "window_started_at": null,
     "last_result": "FAIL",
-    "last_checked_at": "2026-07-17T19:29:14Z",
-    "failure_reason": "The fresh production-readiness rerun passed: the production UI returned HTTP 200, /api/system/backend-status returned HTTP 200 with configured=true, reachable=true and upstream statusCode=200, the direct backend actuator reported UP, and unauthenticated /api/platform/api/v1/auth/me returned the required HTTP 401. The remediation SHA remains verified as deployed. However, the fresh BFF Auth Session Synthetic rerun failed because login returned HTTP 401 instead of HTTP 200. Authenticated /me, refresh, session restoration, logout and post-logout rejection were not reached. This is a failed observation cycle; the consecutive-success counter is reset to zero and REM-P0-002 remains open."
+    "last_checked_at": "2026-07-17T20:27:57Z",
+    "failure_reason": "The production UI returned HTTP 200 and /api/system/backend-status returned HTTP 200 with configured=true, reachable=true and upstream statusCode=200. However, the unauthenticated /api/platform/api/v1/auth/me request failed with HTTP 502 instead of the required HTTP 401. The latest available BFF Auth Session Synthetic evidence also remains failed because login returned HTTP 401 instead of HTTP 200, so authenticated /me, refresh, session restoration, logout and post-logout rejection were not reached. In addition, the latest repository main SHA b7d31dfe198be7362ca29c80c415172805ccf2b0 is not verified in production and its Vercel deployment status is failure due to the build-rate limit. This cycle is failed; the consecutive-success counter remains zero and REM-P0-002 remains open."
   },
   "live_checks": {
     "production_ui": {
       "status_code": 200,
-      "checked_at": "2026-07-17T19:29:06.493079Z",
+      "checked_at": "2026-07-17T20:27:51Z",
       "result": "PASS",
-      "evidence_source": "GitHub Actions Production Readiness rerun 29590991029 / job 87974764994 / artifact 8417493488"
+      "evidence_source": "Vercel production fetch"
     },
     "backend_status": {
       "status_code": 200,
@@ -23,20 +23,20 @@
       "reachable": true,
       "upstream_status_code": 200,
       "target_host": "streak-train-empower.ngrok-free.dev",
-      "checked_at": "2026-07-17T19:29:07.684433Z",
+      "checked_at": "2026-07-17T20:27:56.337Z",
       "result": "PASS",
       "error": null,
-      "evidence_source": "GitHub Actions Production Readiness rerun 29590991029 / job 87974764994 / artifact 8417493488"
+      "evidence_source": "Vercel production fetch"
     },
     "unauthenticated_auth_me": {
       "expected_status_code": 401,
-      "observed_status_code": 401,
-      "upstream_error": null,
-      "checked_at": "2026-07-17T19:29:08.137605Z",
-      "result": "PASS",
+      "observed_status_code": 502,
+      "upstream_error": "Upstream or external service error",
+      "checked_at": "2026-07-17T20:27:57Z",
+      "result": "FAIL",
       "request_id": null,
       "duration_ms": null,
-      "evidence_source": "GitHub Actions Production Readiness rerun 29590991029 / job 87974764994 / artifact 8417493488"
+      "evidence_source": "Vercel production fetch"
     }
   },
   "synthetic": {
@@ -51,10 +51,10 @@
     "evidence_artifact_id": 8417472051,
     "evidence_digest": "sha256:4ad1f230d2294e8e699cffa4f3b70ef224e074b7d6d66efe3465ad231c47b242",
     "rerun_status": "completed_failure",
-    "current_cycle_assessment": "FAIL_LOGIN_HTTP_401",
-    "failure": "Fresh authenticated journey failed: login expected HTTP 200 but received HTTP 401; no authenticated session was established and the remaining required steps were not reached.",
+    "current_cycle_assessment": "FAIL_ANONYMOUS_ME_HTTP_502_AND_LOGIN_HTTP_401",
+    "failure": "Fresh unauthenticated production /auth/me returned HTTP 502 instead of HTTP 401. The latest authenticated synthetic also remains failed because login returned HTTP 401 instead of HTTP 200; no authenticated session was established and the remaining required steps were not reached.",
     "required_journey_evidence": {
-      "anonymous_me": "success_http_401",
+      "anonymous_me": "failed_http_502_current_live_check; latest_workflow_evidence_success_http_401",
       "login": "failed_http_401",
       "authenticated_me": "not_reached",
       "refresh": "not_reached",
@@ -68,10 +68,12 @@
     "production_deployment_sha": "59716bcdde5dca34d4576b9af46a1bc7b901da1a",
     "production_deployment_verified": true,
     "verified_at": "2026-07-17T16:30:00Z",
-    "latest_repository_main_sha": "ff4fba0bec7873ee11b760fbf43c4e562ba11eaf",
+    "latest_repository_main_sha": "b7d31dfe198be7362ca29c80c415172805ccf2b0",
     "latest_repository_main_sha_verified_in_production": false,
+    "latest_repository_main_deployment_status": "failure",
+    "latest_repository_main_deployment_failure": "Vercel build-rate limit",
     "vercel_deployment_id": "dpl_EVxXYN4hPxMfJ2HN8v2RKXeMzf7E",
-    "vercel_ready_state": "READY"
+    "vercel_ready_state": "READY_FOR_PREVIOUS_VERIFIED_DEPLOYMENT"
   },
   "closure_authorized": false,
   "closure_dependencies": [
