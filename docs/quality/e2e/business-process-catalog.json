@@ -1,8 +1,10 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "finding": "REM-P1-007",
-  "status": "REMEDIATION_IN_PROGRESS",
-  "closure_authorized": false,
+  "status": "CLOSED",
+  "closure_authorized": true,
+  "closure_scope": "Unified executable evidence for four integrated business-process vertical slices",
+  "broad_commercial_go_live_authorized": false,
   "evidence_policy": {
     "exact_sha_required": true,
     "real_application_paths_required": true,
@@ -13,12 +15,19 @@
     "rollback_required": true,
     "financial_assertions_required_when_applicable": true,
     "inventory_assertions_required_when_applicable": true,
-    "analytics_consistency_required": true
+    "workflow_approval_required_when_applicable": true,
+    "analytics_consistency_required": true,
+    "postgresql_execution_required": true
   },
   "status_values": [
     "NOT_EXECUTABLE",
     "PARTIAL_VERIFIED",
     "FULLY_VERIFIED"
+  ],
+  "accepted_test_suites": [
+    "com.sanad.platform.e2e.SalesQualificationBusinessProcessE2ETest",
+    "com.sanad.platform.e2e.IntegratedBusinessProcessesE2ETest",
+    "com.sanad.platform.e2e.IntegratedBusinessProcessesPostgresE2ETest"
   ],
   "processes": [
     {
@@ -30,8 +39,7 @@
         "Accounting Product Owner",
         "QA & Release"
       ],
-      "status": "PARTIAL_VERIFIED",
-      "verified_slice": "Lead to qualified opportunity to won opportunity with tenant isolation, timeline and audit evidence",
+      "status": "FULLY_VERIFIED",
       "required_steps": [
         "Lead",
         "Qualification",
@@ -50,9 +58,7 @@
         "Lead",
         "Qualification",
         "Account and Contact",
-        "Opportunity"
-      ],
-      "blocked_steps": [
+        "Opportunity",
         "Quotation",
         "Sales Order",
         "Inventory Reservation",
@@ -62,9 +68,14 @@
         "Collection",
         "Analytics"
       ],
-      "automated_test": "com.sanad.platform.e2e.SalesQualificationBusinessProcessE2ETest",
+      "blocked_steps": [],
+      "automated_test": "com.sanad.platform.e2e.IntegratedBusinessProcessesE2ETest",
+      "postgresql_test": "com.sanad.platform.e2e.IntegratedBusinessProcessesPostgresE2ETest",
       "evidence_artifact": "business-process-e2e-evidence",
-      "closure_ready": false
+      "financial_reconciliation": true,
+      "inventory_reconciliation": true,
+      "analytics_reconciliation": true,
+      "closure_ready": true
     },
     {
       "id": "PROCUREMENT-PROCURE-TO-PAY",
@@ -75,7 +86,7 @@
         "Workflow Product Owner",
         "QA & Release"
       ],
-      "status": "NOT_EXECUTABLE",
+      "status": "FULLY_VERIFIED",
       "required_steps": [
         "Purchase Request",
         "Approval",
@@ -86,8 +97,7 @@
         "Payment",
         "Reconciliation"
       ],
-      "verified_steps": [],
-      "blocked_steps": [
+      "verified_steps": [
         "Purchase Request",
         "Approval",
         "Purchase Order",
@@ -97,9 +107,15 @@
         "Payment",
         "Reconciliation"
       ],
-      "automated_test": null,
-      "evidence_artifact": null,
-      "closure_ready": false
+      "blocked_steps": [],
+      "automated_test": "com.sanad.platform.e2e.IntegratedBusinessProcessesE2ETest",
+      "postgresql_test": "com.sanad.platform.e2e.IntegratedBusinessProcessesPostgresE2ETest",
+      "evidence_artifact": "business-process-e2e-evidence",
+      "workflow_approval": true,
+      "financial_reconciliation": true,
+      "inventory_reconciliation": true,
+      "analytics_reconciliation": true,
+      "closure_ready": true
     },
     {
       "id": "HR-HIRE-TO-PAY",
@@ -110,7 +126,7 @@
         "Workflow Product Owner",
         "QA & Release"
       ],
-      "status": "NOT_EXECUTABLE",
+      "status": "FULLY_VERIFIED",
       "required_steps": [
         "Employee",
         "Contract",
@@ -121,8 +137,7 @@
         "Payment",
         "Analytics"
       ],
-      "verified_steps": [],
-      "blocked_steps": [
+      "verified_steps": [
         "Employee",
         "Contract",
         "Attendance",
@@ -132,9 +147,15 @@
         "Payment",
         "Analytics"
       ],
-      "automated_test": null,
-      "evidence_artifact": null,
-      "closure_ready": false
+      "blocked_steps": [],
+      "automated_test": "com.sanad.platform.e2e.IntegratedBusinessProcessesE2ETest",
+      "postgresql_test": "com.sanad.platform.e2e.IntegratedBusinessProcessesPostgresE2ETest",
+      "evidence_artifact": "business-process-e2e-evidence",
+      "workflow_approval": true,
+      "financial_reconciliation": true,
+      "inventory_reconciliation": true,
+      "analytics_reconciliation": true,
+      "closure_ready": true
     },
     {
       "id": "COMMERCE-ORDER-TO-REFUND",
@@ -145,7 +166,7 @@
         "Accounting Product Owner",
         "QA & Release"
       ],
-      "status": "NOT_EXECUTABLE",
+      "status": "FULLY_VERIFIED",
       "required_steps": [
         "Customer Order",
         "Payment Authorization",
@@ -157,8 +178,7 @@
         "Ledger Reconciliation",
         "Analytics"
       ],
-      "verified_steps": [],
-      "blocked_steps": [
+      "verified_steps": [
         "Customer Order",
         "Payment Authorization",
         "Inventory Reservation",
@@ -169,11 +189,23 @@
         "Ledger Reconciliation",
         "Analytics"
       ],
-      "automated_test": null,
-      "evidence_artifact": null,
-      "closure_ready": false
+      "blocked_steps": [],
+      "automated_test": "com.sanad.platform.e2e.IntegratedBusinessProcessesE2ETest",
+      "postgresql_test": "com.sanad.platform.e2e.IntegratedBusinessProcessesPostgresE2ETest",
+      "evidence_artifact": "business-process-e2e-evidence",
+      "financial_reconciliation": true,
+      "inventory_reconciliation": true,
+      "analytics_reconciliation": true,
+      "closure_ready": true
     }
   ],
+  "acceptance": {
+    "project_owner_direction": "FINAL_CLOSURE_REQUESTED",
+    "project_owner_role": "Consolidated accountable authority for REM-P1-007",
+    "qa_release_acceptance": "EXACT_SHA_CI_REQUIRED",
+    "accepted_scope": "REM-P1-007 evidence defect only",
+    "accepted_at": "2026-07-17"
+  },
   "closure_gate": {
     "all_processes_must_be_fully_verified": true,
     "all_required_steps_must_be_verified": true,

@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the REM-P1-007 business-process E2E evidence contract.
-
-This validator is intentionally fail-closed about closure claims while allowing
-an honest incremental remediation state. It proves that executable evidence is
-real, traceable and classified without allowing a partial CRM slice to be
-misrepresented as complete cross-module Order-to-Cash proof.
-"""
+"""Validate the final REM-P1-007 integrated business-process closure contract."""
 from __future__ import annotations
 
 import json
@@ -13,106 +7,37 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CATALOG_PATH = ROOT / "docs" / "quality" / "e2e" / "business-process-catalog.json"
-PLAN_PATH = ROOT / "docs" / "quality" / "e2e" / "REM-P1-007-EXECUTION-PLAN.md"
-TEST_PATH = (
-    ROOT
-    / "apps"
-    / "sanad-platform"
-    / "src"
-    / "test"
-    / "java"
-    / "com"
-    / "sanad"
-    / "platform"
-    / "e2e"
-    / "SalesQualificationBusinessProcessE2ETest.java"
-)
-WORKFLOW_PATH = ROOT / ".github" / "workflows" / "business-process-e2e-validation.yml"
-CURRENT_STATUS_PATH = ROOT / "docs" / "governance" / "CURRENT-STATUS.json"
+CATALOG = ROOT / "docs/quality/e2e/business-process-catalog.json"
+PLAN = ROOT / "docs/quality/e2e/REM-P1-007-EXECUTION-PLAN.md"
+DECISION = ROOT / "docs/governance/REM-P1-007-CLOSURE-DECISION-2026-07-17.md"
+CURRENT_STATUS = ROOT / "docs/governance/CURRENT-STATUS.json"
+WORKFLOW = ROOT / ".github/workflows/business-process-e2e-validation.yml"
+SALES_TEST = ROOT / "apps/sanad-platform/src/test/java/com/sanad/platform/e2e/SalesQualificationBusinessProcessE2ETest.java"
+INTEGRATED_TEST = ROOT / "apps/sanad-platform/src/test/java/com/sanad/platform/e2e/IntegratedBusinessProcessesE2ETest.java"
+POSTGRES_TEST = ROOT / "apps/sanad-platform/src/test/java/com/sanad/platform/e2e/IntegratedBusinessProcessesPostgresE2ETest.java"
+SERVICE = ROOT / "apps/sanad-platform/src/main/java/com/sanad/platform/businessprocess/BusinessProcessService.java"
+CONTROLLER = ROOT / "apps/sanad-platform/src/main/java/com/sanad/platform/businessprocess/BusinessProcessController.java"
+MIGRATION = ROOT / "apps/sanad-platform/src/main/resources/db/migration/V20260717_4__create_business_process_e2e_backbone.sql"
 
 EXPECTED_PROCESSES = {
     "SALES-ORDER-TO-CASH": [
-        "Lead",
-        "Qualification",
-        "Account and Contact",
-        "Opportunity",
-        "Quotation",
-        "Sales Order",
-        "Inventory Reservation",
-        "Delivery",
-        "Invoice",
-        "Ledger Posting",
-        "Collection",
-        "Analytics",
+        "Lead", "Qualification", "Account and Contact", "Opportunity", "Quotation",
+        "Sales Order", "Inventory Reservation", "Delivery", "Invoice", "Ledger Posting",
+        "Collection", "Analytics",
     ],
     "PROCUREMENT-PROCURE-TO-PAY": [
-        "Purchase Request",
-        "Approval",
-        "Purchase Order",
-        "Goods Receipt",
-        "Supplier Invoice",
-        "Ledger Posting",
-        "Payment",
-        "Reconciliation",
+        "Purchase Request", "Approval", "Purchase Order", "Goods Receipt",
+        "Supplier Invoice", "Ledger Posting", "Payment", "Reconciliation",
     ],
     "HR-HIRE-TO-PAY": [
-        "Employee",
-        "Contract",
-        "Attendance",
-        "Leave",
-        "Payroll",
-        "Ledger Posting",
-        "Payment",
-        "Analytics",
+        "Employee", "Contract", "Attendance", "Leave", "Payroll",
+        "Ledger Posting", "Payment", "Analytics",
     ],
     "COMMERCE-ORDER-TO-REFUND": [
-        "Customer Order",
-        "Payment Authorization",
-        "Inventory Reservation",
-        "Shipment",
-        "Invoice",
-        "Return",
-        "Refund",
-        "Ledger Reconciliation",
-        "Analytics",
+        "Customer Order", "Payment Authorization", "Inventory Reservation", "Shipment",
+        "Invoice", "Return", "Refund", "Ledger Reconciliation", "Analytics",
     ],
 }
-
-REQUIRED_POLICY_FLAGS = (
-    "exact_sha_required",
-    "real_application_paths_required",
-    "tenant_isolation_required",
-    "authorization_required",
-    "audit_required",
-    "rollback_required",
-    "financial_assertions_required_when_applicable",
-    "inventory_assertions_required_when_applicable",
-    "analytics_consistency_required",
-)
-
-REQUIRED_TEST_TOKENS = (
-    "class SalesQualificationBusinessProcessE2ETest",
-    "/api/v1/crm/leads",
-    "/api/v1/crm/leads/{id}/convert",
-    "/api/v1/crm/opportunities/{id}/stage",
-    "platform_audit_logs",
-    "crm_timeline_events",
-    "isForbidden()",
-    "isNotFound()",
-    "opportunitiesBeforeRejectedMutation",
-    "idempotent",
-    "openOpportunities",
-)
-
-REQUIRED_WORKFLOW_TOKENS = (
-    "Business Process E2E Validation",
-    "validate_business_process_e2e.py",
-    "SalesQualificationBusinessProcessE2ETest",
-    "actions/upload-artifact@v4",
-    "business-process-e2e-evidence",
-    "github.sha",
-)
 
 
 class ValidationError(RuntimeError):
@@ -124,130 +49,130 @@ def require(condition: bool, message: str) -> None:
         raise ValidationError(message)
 
 
-def read_text(path: Path) -> str:
+def text(path: Path) -> str:
     require(path.is_file(), f"missing required file: {path.relative_to(ROOT)}")
     return path.read_text(encoding="utf-8")
 
 
-def validate_process(process: dict, allowed_statuses: set[str]) -> None:
+def require_tokens(path: Path, tokens: tuple[str, ...]) -> None:
+    content = text(path)
+    for token in tokens:
+        require(token in content, f"missing control in {path.relative_to(ROOT)}: {token}")
+
+
+def validate_process(process: dict) -> None:
     process_id = process.get("id")
-    require(process_id in EXPECTED_PROCESSES, f"unknown process id: {process_id}")
-    require(process.get("status") in allowed_statuses, f"invalid status for {process_id}")
-
-    required_steps = process.get("required_steps")
-    verified_steps = process.get("verified_steps")
-    blocked_steps = process.get("blocked_steps")
-    require(required_steps == EXPECTED_PROCESSES[process_id], f"required steps drift: {process_id}")
-    require(isinstance(verified_steps, list), f"verified_steps missing: {process_id}")
-    require(isinstance(blocked_steps, list), f"blocked_steps missing: {process_id}")
-    require(len(required_steps) == len(set(required_steps)), f"duplicate required step: {process_id}")
-    require(set(verified_steps).issubset(set(required_steps)), f"unknown verified step: {process_id}")
-    require(set(blocked_steps).issubset(set(required_steps)), f"unknown blocked step: {process_id}")
-    require(not set(verified_steps).intersection(blocked_steps), f"step both verified and blocked: {process_id}")
-    require(set(verified_steps).union(blocked_steps) == set(required_steps), f"unclassified step: {process_id}")
-    require(process.get("closure_ready") is False, f"premature closure_ready claim: {process_id}")
-    require(len(process.get("owner_roles", [])) >= 2, f"insufficient accountable owners: {process_id}")
-
-    status = process["status"]
-    if status == "NOT_EXECUTABLE":
-        require(not verified_steps, f"NOT_EXECUTABLE process has verified steps: {process_id}")
-        require(blocked_steps == required_steps, f"NOT_EXECUTABLE process must block all steps: {process_id}")
-        require(process.get("automated_test") is None, f"NOT_EXECUTABLE process has test claim: {process_id}")
-        require(process.get("evidence_artifact") is None, f"NOT_EXECUTABLE process has artifact claim: {process_id}")
-    elif status == "PARTIAL_VERIFIED":
-        require(verified_steps, f"PARTIAL_VERIFIED has no evidence: {process_id}")
-        require(blocked_steps, f"PARTIAL_VERIFIED has no remaining gap: {process_id}")
-        require(process.get("automated_test"), f"partial process missing automated test: {process_id}")
-        require(process.get("evidence_artifact"), f"partial process missing artifact: {process_id}")
-    elif status == "FULLY_VERIFIED":
-        require(not blocked_steps, f"FULLY_VERIFIED process has blocked steps: {process_id}")
-        require(verified_steps == required_steps, f"FULLY_VERIFIED steps incomplete: {process_id}")
-        require(process.get("automated_test"), f"fully verified process missing automated test: {process_id}")
-        require(process.get("evidence_artifact"), f"fully verified process missing artifact: {process_id}")
+    require(process_id in EXPECTED_PROCESSES, f"unknown process: {process_id}")
+    required = EXPECTED_PROCESSES[process_id]
+    require(process.get("required_steps") == required, f"required step drift: {process_id}")
+    require(process.get("status") == "FULLY_VERIFIED", f"process is not fully verified: {process_id}")
+    require(process.get("verified_steps") == required, f"verified steps incomplete: {process_id}")
+    require(process.get("blocked_steps") == [], f"blocked steps remain: {process_id}")
+    require(process.get("closure_ready") is True, f"closure_ready false: {process_id}")
+    require(process.get("automated_test") == "com.sanad.platform.e2e.IntegratedBusinessProcessesE2ETest",
+            f"H2 HTTP test identity drift: {process_id}")
+    require(process.get("postgresql_test") == "com.sanad.platform.e2e.IntegratedBusinessProcessesPostgresE2ETest",
+            f"PostgreSQL test identity drift: {process_id}")
+    require(process.get("evidence_artifact") == "business-process-e2e-evidence",
+            f"evidence artifact drift: {process_id}")
+    require(process.get("financial_reconciliation") is True, f"financial proof missing: {process_id}")
+    require(process.get("inventory_reconciliation") is True, f"inventory proof missing: {process_id}")
+    require(process.get("analytics_reconciliation") is True, f"analytics proof missing: {process_id}")
+    require(len(process.get("owner_roles", [])) >= 2, f"accountable owners missing: {process_id}")
 
 
 def main() -> int:
-    catalog = json.loads(read_text(CATALOG_PATH))
-    require(catalog.get("schema_version") == "1.0", "invalid catalog schema")
-    require(catalog.get("finding") == "REM-P1-007", "catalog controls the wrong finding")
-    require(catalog.get("status") == "REMEDIATION_IN_PROGRESS", "invalid remediation status")
-    require(catalog.get("closure_authorized") is False, "REM-P1-007 cannot be closed by partial evidence")
+    catalog = json.loads(text(CATALOG))
+    require(catalog.get("schema_version") == "2.0", "invalid final catalog schema")
+    require(catalog.get("finding") == "REM-P1-007", "wrong finding")
+    require(catalog.get("status") == "CLOSED", "finding is not closed in catalog")
+    require(catalog.get("closure_authorized") is True, "closure not authorized")
+    require(catalog.get("broad_commercial_go_live_authorized") is False,
+            "REM-P1-007 must not authorize broad go-live")
 
     policy = catalog.get("evidence_policy", {})
-    for flag in REQUIRED_POLICY_FLAGS:
-        require(policy.get(flag) is True, f"evidence policy flag not enforced: {flag}")
-    require(policy.get("mock_only_evidence_allowed") is False, "mock-only evidence must be prohibited")
-
-    allowed_statuses = set(catalog.get("status_values", []))
-    require(
-        allowed_statuses == {"NOT_EXECUTABLE", "PARTIAL_VERIFIED", "FULLY_VERIFIED"},
-        "invalid process status vocabulary",
+    required_policy = (
+        "exact_sha_required", "real_application_paths_required", "tenant_isolation_required",
+        "authorization_required", "audit_required", "rollback_required",
+        "financial_assertions_required_when_applicable",
+        "inventory_assertions_required_when_applicable", "workflow_approval_required_when_applicable",
+        "analytics_consistency_required", "postgresql_execution_required",
     )
+    for flag in required_policy:
+        require(policy.get(flag) is True, f"evidence policy disabled: {flag}")
+    require(policy.get("mock_only_evidence_allowed") is False, "mock-only evidence is allowed")
 
     processes = catalog.get("processes")
-    require(isinstance(processes, list), "process list missing")
-    require(len(processes) == 4, "exactly four governed business processes are required")
-    process_ids = [item.get("id") for item in processes]
-    require(set(process_ids) == set(EXPECTED_PROCESSES), "required business-process coverage is incomplete")
-    require(len(process_ids) == len(set(process_ids)), "duplicate business process id")
-
+    require(isinstance(processes, list) and len(processes) == 4, "four processes are required")
+    require({item.get("id") for item in processes} == set(EXPECTED_PROCESSES), "process coverage incomplete")
     for process in processes:
-        validate_process(process, allowed_statuses)
+        validate_process(process)
 
-    sales = next(item for item in processes if item["id"] == "SALES-ORDER-TO-CASH")
-    require(sales["status"] == "PARTIAL_VERIFIED", "sales foundation slice must remain partial")
-    require(
-        sales["verified_steps"] == ["Lead", "Qualification", "Account and Contact", "Opportunity"],
-        "sales verified slice drifted",
-    )
-    require(
-        sales["automated_test"] == "com.sanad.platform.e2e.SalesQualificationBusinessProcessE2ETest",
-        "sales test identity drifted",
-    )
+    acceptance = catalog.get("acceptance", {})
+    require(acceptance.get("project_owner_direction") == "FINAL_CLOSURE_REQUESTED",
+            "project owner closure direction missing")
+    require(acceptance.get("qa_release_acceptance") == "EXACT_SHA_CI_REQUIRED",
+            "QA exact-SHA acceptance missing")
 
     closure_gate = catalog.get("closure_gate", {})
-    for flag, value in closure_gate.items():
-        require(value is True, f"closure gate must remain fail-closed: {flag}")
+    require(closure_gate and all(value is True for value in closure_gate.values()),
+            "closure gate is not fully enforced")
 
-    test_text = read_text(TEST_PATH)
-    for token in REQUIRED_TEST_TOKENS:
-        require(token in test_text, f"business-process test control missing: {token}")
+    require_tokens(SALES_TEST, (
+        "provesLeadToWonOpportunityWithGovernedCrossCuttingEvidence",
+        "platform_audit_logs", "crm_timeline_events", "isForbidden()", "isNotFound()", "idempotent",
+    ))
+    require_tokens(INTEGRATED_TEST, (
+        "provesAllFourProcessesWithFinancialInventoryWorkflowAuditAnalyticsAndRollback",
+        "/api/v1/business-process-e2e/{processCode}/execute",
+        "financialReconciled", "inventoryReconciled", "analyticsConsistent",
+        "procure-rollback", "isUnprocessableEntity()", "isForbidden()", "isNotFound()",
+    ))
+    require_tokens(POSTGRES_TEST, (
+        "IntegratedBusinessProcessesPostgresE2ETest", "PostgreSQLContainer",
+        "postgres:16-alpine", "executesAllGovernedProcessesAgainstRealPostgres",
+    ))
+    require_tokens(SERVICE, (
+        "SALES-ORDER-TO-CASH", "PROCUREMENT-PROCURE-TO-PAY", "HR-HIRE-TO-PAY",
+        "COMMERCE-ORDER-TO-REFUND", "@Transactional", "addJournal", "reserve(", "ship(",
+        "receive(", "returnInventory(", "financialReconciled", "inventoryReconciled",
+        "analyticsConsistent", "PlatformAuditWriter",
+    ))
+    require_tokens(CONTROLLER, (
+        "@RequireCapability(\"BUSINESS_PROCESS.EXECUTE\")",
+        "@RequireCapability(\"BUSINESS_PROCESS.READ\")",
+        "/api/v1/business-process-e2e",
+    ))
+    require_tokens(MIGRATION, (
+        "bp_process_runs", "bp_process_steps", "bp_inventory_balances", "bp_inventory_movements",
+        "bp_ledger_entries", "bp_payment_events", "bp_workflow_approvals",
+        "bp_analytics_snapshots", "BUSINESS_PROCESS.READ", "BUSINESS_PROCESS.EXECUTE",
+    ))
+    require_tokens(WORKFLOW, (
+        "Business Process E2E Validation", "validate_business_process_e2e.py",
+        "SalesQualificationBusinessProcessE2ETest,IntegratedBusinessProcessesE2ETest,IntegratedBusinessProcessesPostgresE2ETest",
+        "actions/upload-artifact@v4", "business-process-e2e-evidence", "github.sha",
+    ))
+    require_tokens(PLAN, (
+        "Status:** `CLOSED`", "ALL_PROCESSES_FULLY_VERIFIED: TRUE",
+        "POSTGRESQL_EXECUTION: REQUIRED_AND_TESTED", "REM-P1-007: CLOSED",
+        "BROAD_COMMERCIAL_GO_LIVE: NOT_APPROVED",
+    ))
+    require_tokens(DECISION, (
+        "REM-P1-007: CLOSED", "Project Owner", "PostgreSQL 16",
+        "does not approve broad commercial go-live",
+    ))
 
-    workflow_text = read_text(WORKFLOW_PATH)
-    for token in REQUIRED_WORKFLOW_TOKENS:
-        require(token in workflow_text, f"business-process workflow control missing: {token}")
+    current = json.loads(text(CURRENT_STATUS))
+    require("REM-P1-007" in current.get("closed_findings", {}), "closure missing from current status")
+    require("REM-P1-007" not in current.get("open_findings", {}), "finding remains open")
+    require("REM-P1-007" not in current.get("remediation_in_progress_findings", {}),
+            "finding remains in remediation-in-progress")
+    require(current.get("commercial_go_live") == "NOT_APPROVED", "commercial boundary changed")
 
-    plan_text = read_text(PLAN_PATH)
-    for token in (
-        "REM-P1-007",
-        "REMEDIATION_IN_PROGRESS",
-        "SalesQualificationBusinessProcessE2ETest",
-        "Quotation",
-        "Ledger Posting",
-        "Procure to Pay",
-        "Hire to Pay",
-        "Commerce Order to Refund",
-        "No closure is authorized",
-    ):
-        require(token in plan_text, f"execution plan control missing: {token}")
-
-    current_status = json.loads(read_text(CURRENT_STATUS_PATH))
-    require("REM-P1-007" in current_status.get("open_findings", {}), "REM-P1-007 disappeared from open findings")
-    in_progress = current_status.get("remediation_in_progress_findings", {})
-    require("REM-P1-007" in in_progress, "REM-P1-007 remediation progress is not recorded")
-    require(
-        in_progress["REM-P1-007"].get("closure_authorized") is False,
-        "current status prematurely authorizes REM-P1-007 closure",
-    )
-
-    fully_verified = sum(item["status"] == "FULLY_VERIFIED" for item in processes)
-    partial = sum(item["status"] == "PARTIAL_VERIFIED" for item in processes)
-    not_executable = sum(item["status"] == "NOT_EXECUTABLE" for item in processes)
-
-    print("REM-P1-007 BUSINESS PROCESS E2E GOVERNANCE VALIDATION PASSED")
-    print(f"Processes={len(processes)} FullyVerified={fully_verified} Partial={partial} NotExecutable={not_executable}")
-    print("Executable foundation=Sales Lead -> Qualified -> Converted -> Won")
-    print("ClosureAuthorized=false")
+    print("REM-P1-007 FINAL BUSINESS PROCESS E2E CLOSURE VALIDATION PASSED")
+    print("Processes=4 FullyVerified=4 BlockedSteps=0 PostgreSQLRequired=true")
+    print("ClosureAuthorized=true BroadCommercialGoLive=false")
     return 0
 
 
@@ -255,5 +180,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except (ValidationError, OSError, KeyError, ValueError, json.JSONDecodeError) as exc:
-        print(f"REM-P1-007 BUSINESS PROCESS E2E VALIDATION ERROR: {exc}", file=sys.stderr)
+        print(f"REM-P1-007 FINAL CLOSURE VALIDATION ERROR: {exc}", file=sys.stderr)
         raise SystemExit(1)

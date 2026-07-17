@@ -37,6 +37,8 @@ class CrmPostgresMigrationTest {
     private static final String CRM_CONTACT_RELATIONSHIP_VERSION = "20260717.1";
     private static final String CRM_CONTACT_RELATIONSHIP_RBAC_VERSION = "20260717.2";
     private static final String CRM_TIMELINE_TENANT_LIFECYCLE_VERSION = "20260717.3";
+    private static final String BUSINESS_PROCESS_BACKBONE_VERSION = "20260717.4";
+    private static final String BUSINESS_PROCESS_RBAC_VERSION = "20260717.5";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -100,7 +102,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_CUSTOMER_MASTER_VERSION),
                         MigrationVersion.fromVersion(CRM_CONTACT_RELATIONSHIP_VERSION),
                         MigrationVersion.fromVersion(CRM_CONTACT_RELATIONSHIP_RBAC_VERSION),
-                        MigrationVersion.fromVersion(CRM_TIMELINE_TENANT_LIFECYCLE_VERSION));
+                        MigrationVersion.fromVersion(CRM_TIMELINE_TENANT_LIFECYCLE_VERSION),
+                        MigrationVersion.fromVersion(BUSINESS_PROCESS_BACKBONE_VERSION),
+                        MigrationVersion.fromVersion(BUSINESS_PROCESS_RBAC_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -132,7 +136,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_CUSTOMER_MASTER_VERSION),
                         MigrationVersion.fromVersion(CRM_CONTACT_RELATIONSHIP_VERSION),
                         MigrationVersion.fromVersion(CRM_CONTACT_RELATIONSHIP_RBAC_VERSION),
-                        MigrationVersion.fromVersion(CRM_TIMELINE_TENANT_LIFECYCLE_VERSION));
+                        MigrationVersion.fromVersion(CRM_TIMELINE_TENANT_LIFECYCLE_VERSION),
+                        MigrationVersion.fromVersion(BUSINESS_PROCESS_BACKBONE_VERSION),
+                        MigrationVersion.fromVersion(BUSINESS_PROCESS_RBAC_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -163,8 +169,10 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_CONTACT_RELATIONSHIP_VERSION, "SQL", "crm contact relationship model");
         assertMigration(jdbc, CRM_CONTACT_RELATIONSHIP_RBAC_VERSION, "SQL", "crm contact relationship capabilities");
         assertMigration(jdbc, CRM_TIMELINE_TENANT_LIFECYCLE_VERSION, "SQL", "crm timeline tenant lifecycle");
+        assertMigration(jdbc, BUSINESS_PROCESS_BACKBONE_VERSION, "SQL", "create business process e2e backbone");
+        assertMigration(jdbc, BUSINESS_PROCESS_RBAC_VERSION, "SQL", "grant business process capabilities");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(CRM_TIMELINE_TENANT_LIFECYCLE_VERSION);
+        assertThat(latestVersion(jdbc)).isEqualTo(BUSINESS_PROCESS_RBAC_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 
@@ -198,10 +206,12 @@ class CrmPostgresMigrationTest {
         assertThat(columnExists(jdbc, "crm_contacts", "pronouns")).isTrue();
         assertThat(columnExists(jdbc, "crm_contacts", "source")).isTrue();
 
-        // CRM-005 baseline: 24 active CRM capabilities. CRM-006 adds five.
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.%' AND status='ACTIVE'",
                 Long.class)).isEqualTo(29L);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'BUSINESS_PROCESS.%' AND status='ACTIVE'",
+                Long.class)).isEqualTo(2L);
     }
 
     private List<String> allCrmTables() {
