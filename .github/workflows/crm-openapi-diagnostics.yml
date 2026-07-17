@@ -72,15 +72,15 @@ jobs:
           cat /tmp/crm-openapi-backend.log
           exit 1
 
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+
       - name: Generate TypeScript contract
         working-directory: apps/web
-        run: |
-          set -euo pipefail
-          npm ci
-          npm run generate:crm-api
-          npm run typecheck
+        run: npm run generate:crm-api
 
-      - name: Validate generated contract
+      - name: Validate semantic contract
         run: |
           set -euo pipefail
           python scripts/crm/semantic-openapi-diff.py \
@@ -111,6 +111,10 @@ jobs:
           fi
           git commit -m 'chore(crm): synchronize generated API contracts'
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
+
+      - name: Validate TypeScript contract
+        working-directory: apps/web
+        run: npm run typecheck
 
       - name: Stop backend
         if: always()
