@@ -93,16 +93,19 @@ CREATE TABLE crm_communication_policies (
     email_unique_within_owner BOOLEAN NOT NULL DEFAULT TRUE,
     phone_unique_within_owner BOOLEAN NOT NULL DEFAULT TRUE,
     single_preferred_per_type BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by UUID,
     updated_by UUID,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT pk_crm_communication_policies PRIMARY KEY (tenant_id),
     CONSTRAINT fk_crm_communication_policies_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id)
 );
 
 INSERT INTO crm_communication_policies (
-    tenant_id,email_unique_within_owner,phone_unique_within_owner,single_preferred_per_type,updated_at
+    tenant_id,email_unique_within_owner,phone_unique_within_owner,single_preferred_per_type,
+    created_at,updated_at
 )
-SELECT tenant.id,TRUE,TRUE,TRUE,CURRENT_TIMESTAMP
+SELECT tenant.id,TRUE,TRUE,TRUE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
 FROM tenants tenant
 WHERE NOT EXISTS (
     SELECT 1 FROM crm_communication_policies policy WHERE policy.tenant_id=tenant.id
