@@ -31,8 +31,8 @@ concurrency:
 
 env:
   JWT_SECRET: ci-only-non-production-validation-key-1234567890
-  EXPECTED_CRM_PATHS: '65'
-  EXPECTED_CRM_OPERATIONS: '87'
+  EXPECTED_CRM_PATHS: '72'
+  EXPECTED_CRM_OPERATIONS: '95'
 
 jobs:
   contract-validation:
@@ -168,6 +168,8 @@ jobs:
               ('/contacts/{contactId}/addresses','post','Idempotency-Key'),
               ('/accounts/{accountId}/communication-methods','post','Idempotency-Key'),
               ('/contacts/{contactId}/communication-methods','post','Idempotency-Key'),
+              ('/addresses/import','post','Idempotency-Key'),
+              ('/communication-methods/import','post','Idempotency-Key'),
               ('/accounts/{accountId}','patch','If-Match'),
               ('/opportunities/{opportunityId}','patch','If-Match'),
               ('/activities/{activityId}','patch','If-Match'),('/pipelines/{pipelineId}','patch','If-Match'),
