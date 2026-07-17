@@ -12,28 +12,35 @@ on:
       - 'docs/crm/contracts/**'
       - 'scripts/crm/**'
       - '.github/workflows/crm-api-contract-validation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/**'
+      - 'docs/crm/contracts/**'
+      - 'scripts/crm/**'
+      - '.github/workflows/crm-api-contract-validation.yml'
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: crm-api-contract-sync-${{ github.ref }}
+  group: crm-api-contract-${{ github.ref }}
   cancel-in-progress: false
 
 env:
   JWT_SECRET: ci-only-non-production-validation-key-1234567890
 
 jobs:
-  synchronize:
-    name: Synchronize filtered CRM API contract
-    if: github.event.pull_request.head.repo.full_name == github.repository
+  contract-validation:
+    name: CRM API Contract Validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Checkout feature head
+      - name: Checkout exact SHA
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -47,56 +54,128 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
-      - name: Start backend
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml sqlglot
+      - name: Validate workflow YAML
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml
+          errors=[]
+          for path in sorted(Path('.github/workflows').glob('*.yml')):
+              try:
+                  with path.open(encoding='utf-8') as stream: yaml.safe_load(stream)
+              except yaml.YAMLError as exc: errors.append(f'{path}: {exc}')
+          if errors: raise SystemExit('\n'.join(errors))
+          print('All workflow YAML files are valid')
+          PY
+      - name: CRM API contract governance drift check
+        run: bash scripts/crm/api-contract-governance-check.sh
+      - name: Validate committed OpenAPI artifact
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          with open('docs/crm/contracts/openapi/crm-openapi.json',encoding='utf-8') as stream: spec=json.load(stream)
+          methods={'get','post','put','patch','delete','head','options','trace'}
+          operations=sum(1 for item in spec['paths'].values() for method in item if method in methods)
+          assert spec['openapi'].startswith('3.')
+          assert len(spec['paths'])==50,f"Expected 50 CRM paths, got {len(spec['paths'])}"
+          assert operations==66,f'Expected 66 CRM operations, got {operations}'
+          assert spec.get('servers')==[{'url':'/api/v2/crm'}]
+          assert all(not path.startswith('/api/v2/crm') for path in spec['paths'])
+          print(f'Committed OpenAPI artifact: {len(spec["paths"])} paths, {operations} operations')
+          PY
+      - name: Run CRM contract tests
         working-directory: apps/sanad-platform
         run: |
           set -euo pipefail
-          nohup mvn -q -DskipTests spring-boot:run \
-            -Dspring-boot.run.profiles=local \
-            -Dspring-boot.run.arguments="--server.port=8081 --management.endpoints.web.exposure.include=health" \
-            > /tmp/crm-contract-sync-backend.log 2>&1 &
-          echo $! > /tmp/crm-contract-sync-backend.pid
-      - name: Fetch platform runtime OpenAPI
+          mvn --batch-mode --no-transfer-progress -Dtest='Crm*ContractTest' test
+          test -d target/surefire-reports
+          test_count="$(python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          total=0
+          for report in Path('target/surefire-reports').glob('TEST-*.xml'):
+              try: total+=int(ET.parse(report).getroot().attrib.get('tests','0'))
+              except (ET.ParseError,ValueError): pass
+          print(total)
+          PY
+          )"
+          echo "CRM contract tests executed: ${test_count}"
+          test "${test_count}" -gt 0
+      - name: Upload CRM contract test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-contract-reports-${{ github.sha }}
+          path: apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Start backend for runtime OpenAPI
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          nohup mvn -q -DskipTests spring-boot:run -Dspring-boot.run.profiles=local -Dspring-boot.run.arguments="--server.port=8081 --management.endpoints.web.exposure.include=health" >/tmp/crm-openapi-backend.log 2>&1 &
+          echo $! >/tmp/crm-openapi-backend.pid
+      - name: Fetch runtime OpenAPI
         run: |
           set -euo pipefail
           for attempt in $(seq 1 120); do
-            if ! kill -0 "$(cat /tmp/crm-contract-sync-backend.pid)" 2>/dev/null; then
-              cat /tmp/crm-contract-sync-backend.log
-              exit 1
-            fi
+            if ! kill -0 "$(cat /tmp/crm-openapi-backend.pid)" 2>/dev/null; then cat /tmp/crm-openapi-backend.log; exit 1; fi
             code="$(curl -sS -o /tmp/platform-openapi.json -w '%{http_code}' http://localhost:8081/v3/api-docs || true)"
             if [ "$code" = '200' ] && [ -s /tmp/platform-openapi.json ]; then exit 0; fi
             sleep 2
           done
-          cat /tmp/crm-contract-sync-backend.log
+          cat /tmp/crm-openapi-backend.log
           exit 1
-      - name: Generate filtered CRM OpenAPI
+      - name: Generate filtered runtime CRM contract
+        run: |
+          python3 scripts/crm/filter-runtime-openapi.py --input /tmp/platform-openapi.json --output /tmp/crm-openapi.runtime.json --prefix /api/v2/crm --expected-paths 50 --expected-operations 66
+      - name: OpenAPI semantic drift check
         run: |
           set -euo pipefail
-          python3 scripts/crm/filter-runtime-openapi.py \
-            --input /tmp/platform-openapi.json \
-            --output docs/crm/contracts/openapi/crm-openapi.json \
-            --prefix /api/v2/crm \
-            --expected-paths 50 \
-            --expected-operations 66
-      - name: Generate and validate TypeScript contract
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          runtime=json.loads(Path('/tmp/crm-openapi.runtime.json').read_text(encoding='utf-8'))
+          committed=json.loads(Path('docs/crm/contracts/openapi/crm-openapi.json').read_text(encoding='utf-8'))
+          if runtime!=committed: raise SystemExit('CRM OpenAPI semantic drift detected')
+          required_headers={('/accounts','post','Idempotency-Key'),('/contacts','post','Idempotency-Key'),('/leads','post','Idempotency-Key'),('/opportunities','post','Idempotency-Key'),('/activities','post','Idempotency-Key'),('/imports/upload','post','Idempotency-Key'),('/imports/{jobId}/run','post','Idempotency-Key'),('/leads/{leadId}/convert','post','Idempotency-Key'),('/accounts/{accountId}','patch','If-Match'),('/opportunities/{opportunityId}','patch','If-Match'),('/activities/{activityId}','patch','If-Match'),('/pipelines/{pipelineId}','patch','If-Match')}
+          params=committed.get('components',{}).get('parameters',{})
+          for path,method,header in required_headers:
+              found=False
+              for parameter in committed['paths'][path][method].get('parameters',[]):
+                  resolved=params.get(parameter['$ref'].split('/')[-1],{}) if '$ref' in parameter else parameter
+                  if resolved.get('name')==header and resolved.get('in')=='header' and resolved.get('required') is True: found=True; break
+              if not found: raise SystemExit(f'Missing required header {header} on {method.upper()} {path}')
+          print('OpenAPI semantic drift check: PASS (50 paths, 66 operations)')
+          PY
+      - name: Stop OpenAPI backend
+        if: always()
+        run: if [ -f /tmp/crm-openapi-backend.pid ]; then kill "$(cat /tmp/crm-openapi-backend.pid)" 2>/dev/null || true; fi
+      - name: Install frontend dependencies
+        working-directory: apps/web
+        run: npm ci
+      - name: Generated TypeScript drift check
         working-directory: apps/web
         run: |
-          set -euo pipefail
-          npm ci
+          cp lib/api/generated/crm-api-types.ts /tmp/crm-api-types.before.ts
           npm run crm:generate-api-types
-          npx tsc --noEmit --skipLibCheck lib/api/generated/crm-api-types.ts
-      - name: Commit synchronized contracts
-        run: |
-          set -euo pipefail
-          git diff --check
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/crm/contracts/openapi/crm-openapi.json apps/web/lib/api/generated/crm-api-types.ts
-          if git diff --cached --quiet; then echo 'Contracts are already synchronized.'; exit 0; fi
-          git commit -m 'chore(crm): synchronize governed API contracts'
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
-      - name: Stop backend
+          diff -u /tmp/crm-api-types.before.ts lib/api/generated/crm-api-types.ts
+      - name: TypeScript typecheck
+        working-directory: apps/web
+        run: npx tsc --noEmit --skipLibCheck lib/api/generated/crm-api-types.ts
+      - name: Publish validation summary
         if: always()
         run: |
-          if [ -f /tmp/crm-contract-sync-backend.pid ]; then kill "$(cat /tmp/crm-contract-sync-backend.pid)" 2>/dev/null || true; fi
+          echo '## CRM API Contract Validation' >> "$GITHUB_STEP_SUMMARY"
+          echo "**SHA:** \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Run ID:** ${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
