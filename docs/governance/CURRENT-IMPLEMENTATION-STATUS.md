@@ -70,6 +70,8 @@ The correction established a machine-readable current status, an explicit author
 | REM-P1-007 — cross-module E2E business evidence | Open | QA and Business Product Owners |
 | REM-P1-009 — repository visibility decision | Open | Project Owner and Security Governance |
 
+The detailed current report is `docs/governance/UNRESOLVED-RISKS-REPORT-2026-07-17.md`. It contains the impact, ownership and closure conditions for all seven open findings.
+
 Deferral changes work priority only. It does not close or reduce the severity of a risk.
 
 ## 6. Status-document interpretation
@@ -87,7 +89,8 @@ The classification registry is `docs/governance/status-document-registry.json`.
 - GitHub Issue #516.
 - `docs/governance/CURRENT-STATUS.json`.
 - This document.
-- `docs/governance/EXECUTIVE-REVIEW-REMEDIATION-2026-07-17.md`.
+- `docs/governance/UNRESOLVED-RISKS-REPORT-2026-07-17.md`.
+- `docs/governance/EXECUTIVE-REVIEW-REMEDIATION-2026-07-17.md` for remediation evidence and closure history.
 - Exact-SHA workflow, deployment and runtime evidence linked by those sources.
 
 ## 8. Update rule
