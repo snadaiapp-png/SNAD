@@ -8,6 +8,7 @@ import com.sanad.platform.crm.party.application.AddressCommunicationUseCases;
 import com.sanad.platform.crm.party.domain.AddressCommunicationRepository;
 import com.sanad.platform.crm.party.domain.AddressCommunicationRepository.CommunicationMethodRecord;
 import com.sanad.platform.crm.party.domain.AddressCommunicationRepository.CreateCommunicationMethodCommand;
+import com.sanad.platform.crm.party.domain.LegacyAddressProjectionPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -29,8 +30,8 @@ class AddressCommunicationUseCasesTest {
     @BeforeEach
     void setUp() {
         repository = mock(AddressCommunicationRepository.class);
-        useCases = new AddressCommunicationUseCases(repository, mock(AuditPort.class),
-                mock(TimelineEventPort.class), new ObjectMapper());
+        useCases = new AddressCommunicationUseCases(repository, mock(LegacyAddressProjectionPort.class),
+                mock(AuditPort.class), mock(TimelineEventPort.class), new ObjectMapper());
     }
 
     @Test
