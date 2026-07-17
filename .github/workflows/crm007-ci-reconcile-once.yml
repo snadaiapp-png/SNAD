@@ -1,0 +1,240 @@
+name: CRM-007 CI Reconcile Once
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm007-ci-reconcile-once.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: crm007-ci-reconcile-once
+  cancel-in-progress: false
+
+env:
+  JWT_SECRET: ci-only-non-production-validation-key-1234567890
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Patch lifecycle history and global expectations
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          repo = Path('apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationRepository.java')
+          text = repo.read_text(encoding='utf-8')
+
+          old = '''    private void clearPrimaryAddresses(
+              UUID tenantId, UUID actorId, String ownerType, UUID ownerId, String addressType,
+              Instant now, UUID exceptId) {
+          jdbc.update("UPDATE crm_party_addresses SET primary_address=FALSE,primary_slot=NULL," +
+                          "updated_by=:actorId,updated_at=:now,version=version+1 " +
+                          "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
+                          "AND address_type=:addressType AND primary_address=TRUE " +
+                          "AND (:exceptId IS NULL OR id<>:exceptId)",
+                  p().addValue("tenantId", tenantId).addValue("ownerType", ownerType).addValue("ownerId", ownerId)
+                          .addValue("addressType", addressType).addValue("exceptId", exceptId)
+                          .addValue("actorId", actorId).addValue("now", timestamp(now)));
+      }
+'''.replace('      ', '    ')
+          new = '''    private void clearPrimaryAddresses(
+            UUID tenantId, UUID actorId, String ownerType, UUID ownerId, String addressType,
+            Instant now, UUID exceptId) {
+        MapSqlParameterSource params = p().addValue("tenantId", tenantId).addValue("ownerType", ownerType)
+                .addValue("ownerId", ownerId).addValue("addressType", addressType).addValue("exceptId", exceptId)
+                .addValue("actorId", actorId).addValue("now", timestamp(now));
+        List<AddressRecord> replaced = jdbc.query(
+                "SELECT " + ADDRESS_COLUMNS + " FROM crm_party_addresses " +
+                        "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
+                        "AND address_type=:addressType AND primary_address=TRUE " +
+                        "AND (:exceptId IS NULL OR id<>:exceptId)",
+                params, (rs, rowNum) -> address(rs));
+        jdbc.update("UPDATE crm_party_addresses SET primary_address=FALSE,primary_slot=NULL," +
+                        "updated_by=:actorId,updated_at=:now,version=version+1 " +
+                        "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
+                        "AND address_type=:addressType AND primary_address=TRUE " +
+                        "AND (:exceptId IS NULL OR id<>:exceptId)", params);
+        for (AddressRecord before : replaced) {
+            AddressRecord after = address(tenantId, before.id());
+            addressHistory(tenantId, actorId, after, "PRIMARY_REPLACED", before.version());
+            syncLegacyAccountAddress(after, tenantId, actorId);
+        }
+    }
+'''
+          if old not in text:
+              raise SystemExit('clearPrimaryAddresses source block not found')
+          text = text.replace(old, new)
+
+          old = '''    private void clearPreferredMethods(
+            UUID tenantId, UUID actorId, String ownerType, UUID ownerId, String methodType,
+            Instant now, UUID exceptId) {
+        jdbc.update("UPDATE crm_communication_methods SET preferred=FALSE,preferred_slot=NULL," +
+                        "updated_by=:actorId,updated_at=:now,version=version+1 " +
+                        "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
+                        "AND method_type=:methodType AND preferred=TRUE AND (:exceptId IS NULL OR id<>:exceptId)",
+                p().addValue("tenantId", tenantId).addValue("ownerType", ownerType).addValue("ownerId", ownerId)
+                        .addValue("methodType", methodType).addValue("exceptId", exceptId)
+                        .addValue("actorId", actorId).addValue("now", timestamp(now)));
+    }
+'''
+          new = '''    private void clearPreferredMethods(
+            UUID tenantId, UUID actorId, String ownerType, UUID ownerId, String methodType,
+            Instant now, UUID exceptId) {
+        MapSqlParameterSource params = p().addValue("tenantId", tenantId).addValue("ownerType", ownerType)
+                .addValue("ownerId", ownerId).addValue("methodType", methodType).addValue("exceptId", exceptId)
+                .addValue("actorId", actorId).addValue("now", timestamp(now));
+        List<CommunicationMethodRecord> replaced = jdbc.query(
+                "SELECT " + COMMUNICATION_COLUMNS + " FROM crm_communication_methods " +
+                        "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
+                        "AND method_type=:methodType AND preferred=TRUE " +
+                        "AND (:exceptId IS NULL OR id<>:exceptId)",
+                params, (rs, rowNum) -> communication(rs));
+        jdbc.update("UPDATE crm_communication_methods SET preferred=FALSE,preferred_slot=NULL," +
+                        "updated_by=:actorId,updated_at=:now,version=version+1 " +
+                        "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
+                        "AND method_type=:methodType AND preferred=TRUE AND (:exceptId IS NULL OR id<>:exceptId)",
+                params);
+        for (CommunicationMethodRecord before : replaced) {
+            CommunicationMethodRecord after = communicationMethod(tenantId, before.id());
+            communicationHistory(tenantId, actorId, after, "PREFERRED_REPLACED", before.version());
+        }
+    }
+'''
+          if old not in text:
+              raise SystemExit('clearPreferredMethods source block not found')
+          text = text.replace(old, new)
+
+          old = '''        CommunicationMethodRecord after = communicationMethod(tenantId, communicationMethodId);
+        communicationHistory(tenantId, actorId, after, "VERIFICATION_" + verificationStatus, before.version());
+        return after;
+'''
+          new = '''        CommunicationMethodRecord after = communicationMethod(tenantId, communicationMethodId);
+        communicationHistory(tenantId, actorId, after, "VERIFICATION_" + verificationStatus, before.version());
+        if (before.preferred() && Set.of("FAILED", "REVOKED").contains(verificationStatus)) {
+            clearLegacyCommunication(before, tenantId, actorId);
+        }
+        return after;
+'''
+          if old not in text:
+              raise SystemExit('verification history block not found')
+          text = text.replace(old, new)
+
+          old = '''        CommunicationMethodRecord after = communicationMethod(tenantId, communicationMethodId);
+        communicationHistory(tenantId, actorId, after, status.equals("ARCHIVED") ? "ARCHIVED" : "REACTIVATED", before.version());
+        syncLegacyCommunication(after, tenantId, actorId);
+        return after;
+'''
+          new = '''        CommunicationMethodRecord after = communicationMethod(tenantId, communicationMethodId);
+        communicationHistory(tenantId, actorId, after, status.equals("ARCHIVED") ? "ARCHIVED" : "REACTIVATED", before.version());
+        if ("ARCHIVED".equals(status) && before.preferred()) {
+            clearLegacyCommunication(before, tenantId, actorId);
+        } else {
+            syncLegacyCommunication(after, tenantId, actorId);
+        }
+        return after;
+'''
+          if old not in text:
+              raise SystemExit('status history block not found')
+          text = text.replace(old, new)
+
+          marker = '''    private void syncLegacyCommunication(CommunicationMethodRecord record, UUID tenantId, UUID actorId) {
+'''
+          helper = '''    private void clearLegacyCommunication(
+            CommunicationMethodRecord record, UUID tenantId, UUID actorId) {
+        String column = "EMAIL".equals(record.methodType()) ? "primary_email"
+                : Set.of("PHONE", "MOBILE").contains(record.methodType()) ? "primary_phone" : null;
+        if (column == null) return;
+        String table = "ACCOUNT".equals(record.ownerType()) ? "crm_accounts" : "crm_contacts";
+        jdbc.update("UPDATE " + table + " SET " + column + "=NULL,updated_by=:actorId," +
+                        "updated_at=:now,version=version+1 WHERE tenant_id=:tenantId AND id=:ownerId " +
+                        "AND " + column + "=:value",
+                p().addValue("actorId", actorId).addValue("now", timestamp(Instant.now()))
+                        .addValue("tenantId", tenantId).addValue("ownerId", record.ownerId())
+                        .addValue("value", record.displayValue()));
+    }
+
+'''
+          if marker not in text:
+              raise SystemExit('legacy communication marker not found')
+          text = text.replace(marker, helper + marker)
+          repo.write_text(text, encoding='utf-8')
+
+          api_test = Path('apps/sanad-platform/src/test/java/com/sanad/platform/api/PlatformApiCountTest.java')
+          text = api_test.read_text(encoding='utf-8')
+          text = text.replace('count(paths, "/api/v2/crm")).isEqualTo(66)', 'count(paths, "/api/v2/crm")).isEqualTo(95)')
+          text = text.replace('count(paths, null)).isEqualTo(239)', 'count(paths, null)).isEqualTo(268)')
+          if '"/api/v2/crm/addresses/import"' not in text:
+              text = text.replace('        assertThat(has(paths, "/api/v2/crm/accounts/{accountId}/contact-relationships", "get")).isTrue();',
+                                  '        assertThat(has(paths, "/api/v2/crm/accounts/{accountId}/contact-relationships", "get")).isTrue();\n'
+                                  '        assertThat(has(paths, "/api/v2/crm/addresses/import", "post")).isTrue();\n'
+                                  '        assertThat(has(paths, "/api/v2/crm/communication-methods/export", "get")).isTrue();')
+          api_test.write_text(text, encoding='utf-8')
+
+          migration_test = Path('apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java')
+          text = migration_test.read_text(encoding='utf-8')
+          marker = '    private static final String CRM_TIMELINE_TENANT_LIFECYCLE_VERSION = "20260717.3";\n'
+          addition = marker + '    private static final String CRM_ADDRESS_COMMUNICATION_VERSION = "20260717.4";\n' + \
+                     '    private static final String CRM_ADDRESS_COMMUNICATION_RBAC_VERSION = "20260717.5";\n'
+          if 'CRM_ADDRESS_COMMUNICATION_VERSION' not in text:
+              text = text.replace(marker, addition)
+          table_marker = '''    private static final List<String> CRM_CONTACT_RELATIONSHIP_TABLES = List.of(
+            "crm_contact_relationship_roles", "crm_contact_account_relationships",
+            "crm_contact_relationship_history", "crm_contact_ownership_history");
+'''
+          table_addition = table_marker + '''    private static final List<String> CRM_ADDRESS_COMMUNICATION_TABLES = List.of(
+            "crm_party_addresses", "crm_party_address_history", "crm_communication_policies",
+            "crm_communication_methods", "crm_communication_method_history");
+'''
+          if 'CRM_ADDRESS_COMMUNICATION_TABLES' not in text:
+              text = text.replace(table_marker, table_addition)
+          ending = '                        MigrationVersion.fromVersion(CRM_TIMELINE_TENANT_LIFECYCLE_VERSION));'
+          replacement = '                        MigrationVersion.fromVersion(CRM_TIMELINE_TENANT_LIFECYCLE_VERSION),\n' + \
+                        '                        MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_VERSION),\n' + \
+                        '                        MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_RBAC_VERSION));'
+          text = text.replace(ending, replacement)
+          assertion = '        assertMigration(jdbc, CRM_TIMELINE_TENANT_LIFECYCLE_VERSION, "SQL", "crm timeline tenant lifecycle");\n'
+          assertion_add = assertion + '        assertMigration(jdbc, CRM_ADDRESS_COMMUNICATION_VERSION, "SQL", "crm addresses communication methods");\n' + \
+                          '        assertMigration(jdbc, CRM_ADDRESS_COMMUNICATION_RBAC_VERSION, "SQL", "crm addresses communication capabilities");\n'
+          text = text.replace(assertion, assertion_add)
+          text = text.replace('assertThat(latestVersion(jdbc)).isEqualTo(CRM_TIMELINE_TENANT_LIFECYCLE_VERSION);',
+                              'assertThat(latestVersion(jdbc)).isEqualTo(CRM_ADDRESS_COMMUNICATION_RBAC_VERSION);')
+          text = text.replace('                        CRM_CONTACT_RELATIONSHIP_TABLES)',
+                              '                        CRM_CONTACT_RELATIONSHIP_TABLES,\n                        CRM_ADDRESS_COMMUNICATION_TABLES)')
+          text = text.replace("// CRM-005 baseline: 24 active CRM capabilities. CRM-006 adds five.\n", 
+                              "// CRM-005 baseline: 24 active CRM capabilities. CRM-006 adds five; CRM-007 adds nine.\n")
+          text = text.replace('Long.class)).isEqualTo(29L);', 'Long.class)).isEqualTo(38L);')
+          migration_test.write_text(text, encoding='utf-8')
+          PY
+      - name: Run affected full-suite tests
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          mvn --batch-mode --no-transfer-progress \
+            -Dtest='PlatformApiCountTest,CrmPostgresMigrationTest,AddressCommunicationLifecycleIntegrationTest' test
+      - name: Commit reconciled sources
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationRepository.java \
+            apps/sanad-platform/src/test/java/com/sanad/platform/api/PlatformApiCountTest.java \
+            apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java
+          git commit -m 'fix(crm): reconcile lifecycle history and global baselines'
+          git push origin HEAD:${{ github.head_ref }}
