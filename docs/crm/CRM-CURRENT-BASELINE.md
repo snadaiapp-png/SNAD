@@ -1,7 +1,7 @@
 # CRM Current Baseline
 
 > **Authoritative branch:** `main`
-> **Reconciled main SHA:** `f1eee10480cf3416edcf3824dab66a5450310e8a`
+> **Reconciled main SHA:** `b67fab8ce01543214bd1fd0047c19e27455a1f3c`
 > **Last reconciled:** 2026-07-17
 > **Document status:** AUTHORITATIVE
 
@@ -20,6 +20,7 @@ PLATFORM_CORE_DEPENDENCY: SATISFIED
 PRODUCTION_AUTHORIZATION: PARTIAL
 EXEC-PROMPT-CRM-006: MERGED / PRODUCTION_VERIFICATION_GOVERNED_SEPARATELY
 CRM-G1: IMPLEMENTED_AND_MERGED / PRODUCTION_EVIDENCE_PENDING
+EXEC-PROMPT-CRM-007: IN_PROGRESS / PR #546
 ```
 
 The existing CRM runtime, operational routes, account master, contacts,
@@ -41,6 +42,13 @@ architecture, backup, performance, and readiness gates. It was squash-merged to
 production PostgreSQL/Supabase migration evidence and a post-deployment
 two-tenant isolation smoke result.
 
+CRM-007 remains an unmerged candidate in pull request `#546`. It introduces
+canonical owner-scoped addresses and communication methods. Its repository,
+production, and gate status must remain `IN_PROGRESS` until exact-head CI,
+protected merge, controlled database migration, Vercel Production deployment,
+and post-deployment smoke evidence are complete. The `/api/system/release`
+regression remains independently tracked in issue `#545`.
+
 ## 2. Architectural baseline
 
 CRM remains inside the approved modular platform architecture:
@@ -61,6 +69,10 @@ for compatibility while the canonical multi-account association uses the
 contact-account relationship model. Removal requires a later deprecation gate
 after all callers and generated clients are migrated.
 
+CRM-007 preserves `crm_account_addresses`, account/contact primary email and
+phone fields, and other compatibility projections while canonical writes use
+tenant-scoped owner records.
+
 ## 3. Current API baseline
 
 The merged baseline includes stable typed operations for:
@@ -80,6 +92,11 @@ CRM-006 added typed operations under `/api/v2/crm` for person profiles,
 contact-account relationships, tenant-defined roles, primary relationships,
 relationship lifecycle, relationship history, ownership history, accounts by
 contact, contacts by account, and row-oriented relationship imports.
+
+CRM-007 adds candidate `/api/v2/crm` operations for addresses, communication
+methods, lifecycle/history, verification, privacy masking, governed search,
+import, export, and tenant communication policies. These operations are not
+classified as merged or deployed while pull request `#546` remains open.
 
 The CRM-G1 merge changes persistence and validation artifacts. It does not claim
 that Tasks, Transfers, Reports, Caller ID, or other empty-state Command Center
@@ -107,6 +124,8 @@ listed where the CRM runtime depends on them.
 | `20260717.2` | `V20260717_2__crm_contact_relationship_capabilities.sql` | Relationship, sensitive-field, and import capabilities | `MERGED` (`#520`) |
 | `20260717.3` | `V20260717_3__crm_timeline_tenant_lifecycle.sql` | Align CRM timeline retention and cleanup with controlled tenant lifecycle | `MERGED` (`#520`) |
 | `20260717.6` | `V20260717_6__create_crm_g1_extension_tables.sql` | Complete the six missing G1 extension tables and the eight-table/26-index isolation contract | `MERGED_AND_CI_VERIFIED` (`#552`) |
+| `20260717.100` | `V20260717_100__crm_addresses_communication_methods.sql` | Canonical tenant-scoped addresses, communication methods, history, policies, and compatibility backfill | `IN_PROGRESS` (`#546`) |
+| `20260717.101` | `V20260717_101__crm_addresses_communication_capabilities.sql` | Address, communication, sensitive-read, administration, and export capabilities | `IN_PROGRESS` (`#546`) |
 
 The CRM-006 migration set passed clean PostgreSQL installation and supported
 upgrade verification while retaining contacts and legacy account associations,
@@ -119,6 +138,10 @@ proved the explicit index count is exactly 26 with `tenant_id` leading every
 index, and proved concrete contact links use same-tenant composite foreign keys.
 Production application of Flyway version `20260717.6` is not inferred from CI.
 
+CRM-007 migrations `20260717.100` and `20260717.101` remain candidates. Their
+presence in this inventory records governance traceability only; it does not
+claim merge or production application.
+
 ## 5. Authorization baseline
 
 The merged capability model includes account, contact, relationship, lead,
@@ -128,6 +151,11 @@ request parameters or payloads. Authenticated users without the required
 capability receive `403`; unauthenticated requests receive `401`; cross-tenant
 entity access is concealed or rejected.
 
+CRM-007 candidate capabilities govern address read/write/admin/export and
+communication read/write/admin/sensitive-read/export separately. Existing active
+ADMIN roles receive the candidate capabilities through the migration; other
+roles are not broadened implicitly.
+
 ## 6. User-interface baseline
 
 Operational CRM routes are mounted below `/crm/(operational)`. The merged
@@ -135,6 +163,10 @@ baseline includes list and detail routes for accounts, contacts, leads,
 opportunities, tasks, notes, tags, imports, and settings. The relationship model
 extends contact and account detail routes with bilingual relationship
 workspaces.
+
+CRM-007 adds a bilingual candidate workspace to account and contact detail
+layouts. This candidate UI is not classified as Production until the controlled
+deployment and smoke gates complete.
 
 The CRM-G1 merge is a database and verification foundation. It does not change
 the delivery status of empty-state-only Command Center tabs.
@@ -162,9 +194,11 @@ The remaining G1 controls are external to repository CI:
 - record backup, migration, operator, timestamp, target, and rollback evidence;
 - run and record authenticated two-tenant post-deployment isolation smoke tests.
 
-Until those production controls are proven, this document must continue to
-report:
+CRM-007 must not be closed until one unchanged head passes all required gates,
+then merges through `expected_head_sha`, and production migration/deployment,
+smoke, and runtime-error evidence are recorded.
 
 ```text
 CRM-G1: IMPLEMENTED_AND_MERGED / PRODUCTION_EVIDENCE_PENDING
+EXEC-PROMPT-CRM-007: IN_PROGRESS
 ```

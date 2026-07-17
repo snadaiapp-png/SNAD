@@ -31,6 +31,8 @@ concurrency:
 
 env:
   JWT_SECRET: ci-only-non-production-validation-key-1234567890
+  EXPECTED_CRM_PATHS: '72'
+  EXPECTED_CRM_OPERATIONS: '95'
 
 jobs:
   contract-validation:
@@ -82,13 +84,15 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json
+          import json, os
           with open('docs/crm/contracts/openapi/crm-openapi.json',encoding='utf-8') as stream: spec=json.load(stream)
           methods={'get','post','put','patch','delete','head','options','trace'}
           operations=sum(1 for item in spec['paths'].values() for method in item if method in methods)
+          expected_paths=int(os.environ['EXPECTED_CRM_PATHS'])
+          expected_operations=int(os.environ['EXPECTED_CRM_OPERATIONS'])
           assert spec['openapi'].startswith('3.')
-          assert len(spec['paths'])==50,f"Expected 50 CRM paths, got {len(spec['paths'])}"
-          assert operations==66,f'Expected 66 CRM operations, got {operations}'
+          assert len(spec['paths'])==expected_paths,f"Expected {expected_paths} CRM paths, got {len(spec['paths'])}"
+          assert operations==expected_operations,f'Expected {expected_operations} CRM operations, got {operations}'
           assert spec.get('servers')==[{'url':'/api/v2/crm'}]
           assert all(not path.startswith('/api/v2/crm') for path in spec['paths'])
           print(f'Committed OpenAPI artifact: {len(spec["paths"])} paths, {operations} operations')
@@ -137,25 +141,39 @@ jobs:
           cat /tmp/crm-openapi-backend.log
           exit 1
       - name: Generate filtered runtime CRM contract
-        run: python3 scripts/crm/filter-runtime-openapi.py --input /tmp/platform-openapi.json --output /tmp/crm-openapi.runtime.json --prefix /api/v2/crm --expected-paths 50 --expected-operations 66
+        run: python3 scripts/crm/filter-runtime-openapi.py --input /tmp/platform-openapi.json --output /tmp/crm-openapi.runtime.json --prefix /api/v2/crm --expected-paths "$EXPECTED_CRM_PATHS" --expected-operations "$EXPECTED_CRM_OPERATIONS"
       - name: OpenAPI semantic drift check
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json
+          import json, os
           from pathlib import Path
           runtime=json.loads(Path('/tmp/crm-openapi.runtime.json').read_text(encoding='utf-8'))
           committed=json.loads(Path('docs/crm/contracts/openapi/crm-openapi.json').read_text(encoding='utf-8'))
           if runtime!=committed: raise SystemExit('CRM OpenAPI semantic drift detected')
-          required_headers={('/accounts','post','Idempotency-Key'),('/contacts','post','Idempotency-Key'),('/leads','post','Idempotency-Key'),('/opportunities','post','Idempotency-Key'),('/activities','post','Idempotency-Key'),('/imports/upload','post','Idempotency-Key'),('/imports/{jobId}/run','post','Idempotency-Key'),('/leads/{leadId}/convert','post','Idempotency-Key'),('/accounts/{accountId}','patch','If-Match'),('/opportunities/{opportunityId}','patch','If-Match'),('/activities/{activityId}','patch','If-Match'),('/pipelines/{pipelineId}','patch','If-Match')}
+          required_headers={
+            ('/accounts','post','Idempotency-Key'),('/contacts','post','Idempotency-Key'),
+            ('/leads','post','Idempotency-Key'),('/opportunities','post','Idempotency-Key'),
+            ('/activities','post','Idempotency-Key'),('/imports/upload','post','Idempotency-Key'),
+            ('/imports/{jobId}/run','post','Idempotency-Key'),('/leads/{leadId}/convert','post','Idempotency-Key'),
+            ('/accounts/{accountId}','patch','If-Match'),('/opportunities/{opportunityId}','patch','If-Match'),
+            ('/activities/{activityId}','patch','If-Match'),('/pipelines/{pipelineId}','patch','If-Match'),
+            ('/accounts/{accountId}/addresses','post','Idempotency-Key'),
+            ('/contacts/{contactId}/addresses','post','Idempotency-Key'),
+            ('/accounts/{accountId}/communication-methods','post','Idempotency-Key'),
+            ('/contacts/{contactId}/communication-methods','post','Idempotency-Key'),
+            ('/addresses/import','post','Idempotency-Key'),
+            ('/communication-methods/import','post','Idempotency-Key')
+          }
           params=committed.get('components',{}).get('parameters',{})
           for path,method,header in required_headers:
               found=False
               for parameter in committed['paths'][path][method].get('parameters',[]):
                   resolved=params.get(parameter['$ref'].split('/')[-1],{}) if '$ref' in parameter else parameter
-                  if resolved.get('name')==header and resolved.get('in')=='header' and resolved.get('required') is True: found=True; break
+                  if resolved.get('name')==header and resolved.get('in')=='header' and resolved.get('required') is True:
+                      found=True; break
               if not found: raise SystemExit(f'Missing required header {header} on {method.upper()} {path}')
-          print('OpenAPI semantic drift check: PASS (50 paths, 66 operations)')
+          print(f'OpenAPI semantic drift check: PASS ({os.environ["EXPECTED_CRM_PATHS"]} paths, {os.environ["EXPECTED_CRM_OPERATIONS"]} operations)')
           PY
       - name: Stop OpenAPI backend
         if: always()
