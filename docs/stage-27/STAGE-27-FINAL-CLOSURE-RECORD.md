@@ -1,3 +1,7 @@
+> **DOCUMENT STATUS: HISTORICAL — NOT CURRENT PLATFORM STATUS**  
+> Snapshot: 2026-07-08 at the recorded SHA. `LIVE`, `GO`, `READY` and `PASS` below apply only to Stage 27 evidence at that time.  
+> Current status: `docs/governance/CURRENT-IMPLEMENTATION-STATUS.md` and GitHub Issue #516.
+
 # Stage 27 Final Closure Record
 
 ## Final Decision
@@ -29,19 +33,12 @@ Branch: stage27/first-customer-acquisition-partner-implementation → main
 
 ## Security Baseline Hardening
 
-As part of Stage 27 closure, two unsafe workflows were converted to
-documentation-only deprecation notices (commit 341c978):
+As part of Stage 27 closure, two unsafe workflows were converted to documentation-only deprecation notices (commit 341c978):
 
-- `.github/workflows/control-plane-admin-provisioning.yml` — previously
-  used psycopg2 against the Production environment and executed
-  `UPDATE users SET password_hash` directly. Replaced by the secure
-  HTTP bootstrap endpoint (PR #416).
-- `.github/workflows/setup-control-plane-admin.yml` — previously used
-  psycopg2 against the Production environment. Replaced by the secure
-  HTTP bootstrap endpoint (PR #416).
+- `.github/workflows/control-plane-admin-provisioning.yml` — previously used psycopg2 against the Production environment and executed `UPDATE users SET password_hash` directly. Replaced by the secure HTTP bootstrap endpoint (PR #416).
+- `.github/workflows/setup-control-plane-admin.yml` — previously used psycopg2 against the Production environment. Replaced by the secure HTTP bootstrap endpoint (PR #416).
 
-Verification: `scripts/ci/check_workflow_security.py` reports
-"PASSED: All 62 workflow files comply with security policy."
+Verification: `scripts/ci/check_workflow_security.py` reports "PASSED: All 62 workflow files comply with security policy."
 
 ## Verification Evidence
 
@@ -78,23 +75,16 @@ Governance authority: Owner executive command for Stage 27 closure
 
 ### Maven Test Suite failure
 - Affected job: Maven Test Suite
-- Root cause: Transient Maven Central 403 Forbidden when downloading
-  `org.apache.maven.surefire:surefire-junit-platform:pom:3.5.4`
+- Root cause: Transient Maven Central 403 Forbidden when downloading `org.apache.maven.surefire:surefire-junit-platform:pom:3.5.4`
 - Evidence: "status code: 403, reason phrase: Forbidden (403)"
 - Relation to Stage 27: UNRELATED — Stage 27 is docs-only, no code changes
 - Resolution: Re-ran CI; Maven Central recovered; PASS on retest
 
 ### Workflow Security Policy failure
 - Affected files: control-plane-admin-provisioning.yml, setup-control-plane-admin.yml
-- Root cause: These workflows (from PRs #408, #410) used psycopg2 against
-  the Production environment and directly mutated password_hash — violations
-  of production_psycopg2_access and direct_password_hash_mutation rules
-- Relation to Stage 27: The violating workflows existed on main but not on
-  the stage27 branch; they appeared in CI because the PR merges main into
-  the branch
-- Resolution: Converted both workflows to documentation-only deprecation
-  notices (commit 341c978); the secure HTTP bootstrap endpoint (PR #416)
-  is the approved replacement
+- Root cause: These workflows (from PRs #408, #410) used psycopg2 against the Production environment and directly mutated password_hash — violations of production_psycopg2_access and direct_password_hash_mutation rules
+- Relation to Stage 27: The violating workflows existed on main but not on the stage27 branch; they appeared in CI because the PR merges main into the branch
+- Resolution: Converted both workflows to documentation-only deprecation notices (commit 341c978); the secure HTTP bootstrap endpoint (PR #416) is the approved replacement
 - Retest result: PASS — all 62 workflows comply with security policy
 
 ## Governance Seal
