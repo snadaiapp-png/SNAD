@@ -1,0 +1,190 @@
+{
+  "schema_version": "1.0",
+  "finding": "REM-P1-007",
+  "status": "REMEDIATION_IN_PROGRESS",
+  "closure_authorized": false,
+  "evidence_policy": {
+    "exact_sha_required": true,
+    "real_application_paths_required": true,
+    "mock_only_evidence_allowed": false,
+    "tenant_isolation_required": true,
+    "authorization_required": true,
+    "audit_required": true,
+    "rollback_required": true,
+    "financial_assertions_required_when_applicable": true,
+    "inventory_assertions_required_when_applicable": true,
+    "analytics_consistency_required": true
+  },
+  "status_values": [
+    "NOT_EXECUTABLE",
+    "PARTIAL_VERIFIED",
+    "FULLY_VERIFIED"
+  ],
+  "processes": [
+    {
+      "id": "SALES-ORDER-TO-CASH",
+      "name": "Sales order to cash",
+      "owner_roles": [
+        "CRM Product Owner",
+        "ERP Product Owner",
+        "Accounting Product Owner",
+        "QA & Release"
+      ],
+      "status": "PARTIAL_VERIFIED",
+      "verified_slice": "Lead to qualified opportunity to won opportunity with tenant isolation, timeline and audit evidence",
+      "required_steps": [
+        "Lead",
+        "Qualification",
+        "Account and Contact",
+        "Opportunity",
+        "Quotation",
+        "Sales Order",
+        "Inventory Reservation",
+        "Delivery",
+        "Invoice",
+        "Ledger Posting",
+        "Collection",
+        "Analytics"
+      ],
+      "verified_steps": [
+        "Lead",
+        "Qualification",
+        "Account and Contact",
+        "Opportunity"
+      ],
+      "blocked_steps": [
+        "Quotation",
+        "Sales Order",
+        "Inventory Reservation",
+        "Delivery",
+        "Invoice",
+        "Ledger Posting",
+        "Collection",
+        "Analytics"
+      ],
+      "automated_test": "com.sanad.platform.e2e.SalesQualificationBusinessProcessE2ETest",
+      "evidence_artifact": "business-process-e2e-evidence",
+      "closure_ready": false
+    },
+    {
+      "id": "PROCUREMENT-PROCURE-TO-PAY",
+      "name": "Procure to pay",
+      "owner_roles": [
+        "ERP Product Owner",
+        "Accounting Product Owner",
+        "Workflow Product Owner",
+        "QA & Release"
+      ],
+      "status": "NOT_EXECUTABLE",
+      "required_steps": [
+        "Purchase Request",
+        "Approval",
+        "Purchase Order",
+        "Goods Receipt",
+        "Supplier Invoice",
+        "Ledger Posting",
+        "Payment",
+        "Reconciliation"
+      ],
+      "verified_steps": [],
+      "blocked_steps": [
+        "Purchase Request",
+        "Approval",
+        "Purchase Order",
+        "Goods Receipt",
+        "Supplier Invoice",
+        "Ledger Posting",
+        "Payment",
+        "Reconciliation"
+      ],
+      "automated_test": null,
+      "evidence_artifact": null,
+      "closure_ready": false
+    },
+    {
+      "id": "HR-HIRE-TO-PAY",
+      "name": "Hire to pay",
+      "owner_roles": [
+        "HRM Product Owner",
+        "Accounting Product Owner",
+        "Workflow Product Owner",
+        "QA & Release"
+      ],
+      "status": "NOT_EXECUTABLE",
+      "required_steps": [
+        "Employee",
+        "Contract",
+        "Attendance",
+        "Leave",
+        "Payroll",
+        "Ledger Posting",
+        "Payment",
+        "Analytics"
+      ],
+      "verified_steps": [],
+      "blocked_steps": [
+        "Employee",
+        "Contract",
+        "Attendance",
+        "Leave",
+        "Payroll",
+        "Ledger Posting",
+        "Payment",
+        "Analytics"
+      ],
+      "automated_test": null,
+      "evidence_artifact": null,
+      "closure_ready": false
+    },
+    {
+      "id": "COMMERCE-ORDER-TO-REFUND",
+      "name": "Commerce order to refund",
+      "owner_roles": [
+        "Ecommerce Product Owner",
+        "ERP Product Owner",
+        "Accounting Product Owner",
+        "QA & Release"
+      ],
+      "status": "NOT_EXECUTABLE",
+      "required_steps": [
+        "Customer Order",
+        "Payment Authorization",
+        "Inventory Reservation",
+        "Shipment",
+        "Invoice",
+        "Return",
+        "Refund",
+        "Ledger Reconciliation",
+        "Analytics"
+      ],
+      "verified_steps": [],
+      "blocked_steps": [
+        "Customer Order",
+        "Payment Authorization",
+        "Inventory Reservation",
+        "Shipment",
+        "Invoice",
+        "Return",
+        "Refund",
+        "Ledger Reconciliation",
+        "Analytics"
+      ],
+      "automated_test": null,
+      "evidence_artifact": null,
+      "closure_ready": false
+    }
+  ],
+  "closure_gate": {
+    "all_processes_must_be_fully_verified": true,
+    "all_required_steps_must_be_verified": true,
+    "zero_blocked_steps_required": true,
+    "exact_sha_ci_success_required": true,
+    "postgresql_execution_required": true,
+    "tenant_isolation_evidence_required": true,
+    "rbac_evidence_required": true,
+    "audit_and_timeline_evidence_required": true,
+    "rollback_and_failure_recovery_evidence_required": true,
+    "financial_and_inventory_reconciliation_required": true,
+    "business_owner_acceptance_required": true
+  }
+}

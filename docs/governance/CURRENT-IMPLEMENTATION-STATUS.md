@@ -67,10 +67,19 @@ The correction established a machine-readable current status, an explicit author
 | REM-P0-004 — later-deliverable governance sequence | Open | Executive Steering Committee |
 | REM-P0-005 — backup, restore and disaster recovery | Open | Infrastructure and Data Platform |
 | REM-P0-006 — independent security assurance | Open | Security Governance |
-| REM-P1-007 — cross-module E2E business evidence | Open | QA and Business Product Owners |
+| REM-P1-007 — cross-module E2E business evidence | Remediation in progress; governed framework implemented and Sales Qualification slice added, but no full cross-module process is verified | QA and Business Product Owners |
 | REM-P1-009 — repository visibility decision | Open | Project Owner and Security Governance |
 
 The REM-P0-002 control and closure contract is `docs/operations/reliability/AUTH-SESSION-RELIABILITY.md`.
+
+The REM-P1-007 execution authority consists of:
+
+- `docs/quality/e2e/business-process-catalog.json`.
+- `docs/quality/e2e/REM-P1-007-EXECUTION-PLAN.md`.
+- `com.sanad.platform.e2e.SalesQualificationBusinessProcessE2ETest`.
+- `.github/workflows/business-process-e2e-validation.yml`.
+
+The implemented foundation slice proves Lead → Qualification → Account/Contact → Opportunity → Won, plus idempotency, tenant isolation, RBAC denial, audit, timeline, dashboard consistency and rejected-mutation rollback. It remains `PARTIAL_VERIFIED`; Quotation, Sales Order, Inventory Reservation, Delivery, Invoice, Ledger Posting, Collection and reconciled Analytics remain blocked. Procure-to-Pay, Hire-to-Pay and Commerce Order-to-Refund remain `NOT_EXECUTABLE` under the governed catalog. REM-P1-007 is therefore still open and closure is not authorized.
 
 The detailed current report is `docs/governance/UNRESOLVED-RISKS-REPORT-2026-07-17.md`. It contains the impact, ownership and closure conditions for all seven open findings.
 
@@ -81,6 +90,7 @@ Deferral changes work priority only. It does not close or reduce the severity of
 - `docs/stage-*` records historical stage evidence.
 - `docs/execution/` records execution-scope evidence.
 - `docs/crm/` records CRM scope evidence.
+- `docs/quality/e2e/` records current REM-P1-007 process evidence and must not be interpreted as full closure while any process is partial or not executable.
 - `docs/production-readiness/` contains plans, targets and checklists unless explicitly promoted by this authority.
 - `READY`, `GO`, `LIVE`, `COMPLETE` and `PASS` inside those records apply only to their date, SHA and declared scope.
 
