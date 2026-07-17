@@ -21,15 +21,7 @@ Issue #101 closed on 2026-07-06. Any document that still describes it as open is
 
 ## 2. Evidence model
 
-SANAD distinguishes:
-
-1. **Documented** — requirement or design exists.
-2. **Implemented** — code or operating control exists.
-3. **Verified** — reproducible evidence passes on an exact version.
-4. **Deployed** — the exact version is active in the target environment.
-5. **Accepted** — the accountable owner records a scope-specific decision.
-
-Stage closure, a passing CI job, an HTTP `200` response or a healthy endpoint does not by itself prove broad production readiness.
+SANAD distinguishes documented, implemented, verified, deployed and accepted states. Stage closure, passing CI, HTTP `200` or a healthy endpoint does not by itself prove broad production readiness.
 
 ## 3. Current runtime boundary
 
@@ -37,7 +29,7 @@ Stage closure, a passing CI job, an HTTP `200` response or a healthy endpoint do
 |---|---|---|
 | Frontend | Vercel application at `https://snad-app.vercel.app` | Reachable at last executive review |
 | Backend hosting | Temporary development tunnel | Deferred; not accepted as final enterprise hosting |
-| BFF/authentication | Bounded BFF retry/timeout, refresh single-flight, cookie safety and hourly production synthetic implemented | Open pending deployment evidence, 72-hour observation and REM-P0-001 dependency |
+| BFF/authentication | Application controls and hourly synthetic implemented | Open pending production observation and REM-P0-001 |
 | Commercial production | Critical gates remain open | Not approved |
 
 Historical Render, Supabase, stage-release and provider observations remain valid only for their stated date and SHA.
@@ -48,6 +40,26 @@ Historical Render, Supabase, stage-release and provider observations remain vali
 
 Closed through PR #522 and implementation SHA `e026cdb99393c2ca8c7e5a86fd549622105492ab`, with a 440-item importable backlog and Jira, Azure DevOps and GitHub structural validation.
 
+### REM-P1-007 — Integrated business-process E2E evidence
+
+Closed after implementing and verifying four tenant-scoped business-process vertical slices:
+
+- Sales Order-to-Cash.
+- Procure-to-Pay.
+- Hire-to-Pay.
+- Commerce Order-to-Refund.
+
+The accepted evidence includes HTTP execution, PostgreSQL 16 Testcontainers execution, tenant isolation, RBAC denial, idempotent replay, centralized audit, workflow approvals, transaction rollback, balanced double-entry accounting, payment reconciliation, inventory conservation and analytics reconciliation. All four processes are `FULLY_VERIFIED`, every required step is verified and no blocked step remains.
+
+Closure authority:
+
+- `docs/governance/REM-P1-007-CLOSURE-DECISION-2026-07-17.md`.
+- `docs/quality/e2e/business-process-catalog.json`.
+- `docs/quality/e2e/REM-P1-007-EXECUTION-PLAN.md`.
+- `.github/workflows/business-process-e2e-validation.yml`.
+
+This closure corrects the integrated-evidence defect only. It does not approve broad commercial go-live or assert completion of every ERP feature and industry variant.
+
 ### REM-P1-008 — Service levels and incident operations
 
 Closed through PR #525 and merge SHA `6472be6a8a0252a52d977bc281757cd469bbb7db`. Internal SLO governance is active; external SLA targets are not contractual until approved in customer agreements.
@@ -56,43 +68,29 @@ Closed through PR #525 and merge SHA `6472be6a8a0252a52d977bc281757cd469bbb7db`.
 
 Closed through PR #529 and merge SHA `e6b7cb7e9dde8b603bc282fb5c491c5fdad6a8e0` after Status Documentation Validation run `29544935675`, job `87775027749`, completed successfully on exact PR SHA `903da584bdd3ff63a21c59da3a965a3c7beb7e49`.
 
-The correction established a machine-readable current status, an explicit authority order, historical/planning classifications, visible warnings on high-risk legacy records, and a fail-closed CI gate.
-
 ## 5. Open, deferred and remediated findings
 
 | Finding | State | Owner domain |
 |---|---|---|
 | REM-P0-001 — backend development tunnel | Deferred / open | Infrastructure & DevOps |
-| REM-P0-002 — BFF/authentication/session reliability | Application controls implemented / open pending Production observation and REM-P0-001 | Identity, Operations and Infrastructure |
+| REM-P0-002 — BFF/authentication/session reliability | Application controls implemented / open pending production observation and REM-P0-001 | Identity, Operations and Infrastructure |
 | REM-P0-004 — later-deliverable governance sequence | Open | Executive Steering Committee |
 | REM-P0-005 — backup, restore and disaster recovery | Open | Infrastructure and Data Platform |
 | REM-P0-006 — independent security assurance | Open | Security Governance |
-| REM-P1-007 — cross-module E2E business evidence | Remediation in progress; governed framework implemented and Sales Qualification slice added, but no full cross-module process is verified | QA and Business Product Owners |
 | REM-P1-009 — repository visibility decision | Open | Project Owner and Security Governance |
 
 The REM-P0-002 control and closure contract is `docs/operations/reliability/AUTH-SESSION-RELIABILITY.md`.
 
-The REM-P1-007 execution authority consists of:
-
-- `docs/quality/e2e/business-process-catalog.json`.
-- `docs/quality/e2e/REM-P1-007-EXECUTION-PLAN.md`.
-- `com.sanad.platform.e2e.SalesQualificationBusinessProcessE2ETest`.
-- `.github/workflows/business-process-e2e-validation.yml`.
-
-The implemented foundation slice proves Lead → Qualification → Account/Contact → Opportunity → Won, plus idempotency, tenant isolation, RBAC denial, audit, timeline, dashboard consistency and rejected-mutation rollback. It remains `PARTIAL_VERIFIED`; Quotation, Sales Order, Inventory Reservation, Delivery, Invoice, Ledger Posting, Collection and reconciled Analytics remain blocked. Procure-to-Pay, Hire-to-Pay and Commerce Order-to-Refund remain `NOT_EXECUTABLE` under the governed catalog. REM-P1-007 is therefore still open and closure is not authorized.
-
-The detailed current report is `docs/governance/UNRESOLVED-RISKS-REPORT-2026-07-17.md`. It contains the impact, ownership and closure conditions for all seven open findings.
-
-Deferral changes work priority only. It does not close or reduce the severity of a risk. Implemented controls do not close a finding until production verification and acceptance criteria are complete.
+The detailed unresolved-risk report remains `docs/governance/UNRESOLVED-RISKS-REPORT-2026-07-17.md`. Deferral changes work priority only; it does not close or reduce severity.
 
 ## 6. Status-document interpretation
 
 - `docs/stage-*` records historical stage evidence.
 - `docs/execution/` records execution-scope evidence.
-- `docs/crm/` records CRM scope evidence.
-- `docs/quality/e2e/` records current REM-P1-007 process evidence and must not be interpreted as full closure while any process is partial or not executable.
+- `docs/crm/` records CRM-scope evidence.
+- `docs/quality/e2e/` records REM-P1-007 process evidence and its accepted closure boundary.
 - `docs/production-readiness/` contains plans, targets and checklists unless explicitly promoted by this authority.
-- `READY`, `GO`, `LIVE`, `COMPLETE` and `PASS` inside those records apply only to their date, SHA and declared scope.
+- `READY`, `GO`, `LIVE`, `COMPLETE` and `PASS` apply only to their declared date, SHA and scope.
 
 The classification registry is `docs/governance/status-document-registry.json`.
 
@@ -102,7 +100,7 @@ The classification registry is `docs/governance/status-document-registry.json`.
 - `docs/governance/CURRENT-STATUS.json`.
 - This document.
 - `docs/governance/UNRESOLVED-RISKS-REPORT-2026-07-17.md`.
-- `docs/governance/EXECUTIVE-REVIEW-REMEDIATION-2026-07-17.md` for remediation evidence and closure history.
+- `docs/governance/EXECUTIVE-REVIEW-REMEDIATION-2026-07-17.md` for remediation history.
 - Exact-SHA workflow, deployment and runtime evidence linked by those sources.
 
 ## 8. Update rule
