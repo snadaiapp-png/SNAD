@@ -42,12 +42,22 @@ jobs:
       DATABASE_USERNAME: sanad_g1
       DATABASE_PASSWORD: sanad_g1_pass
       DATABASE_NAME: sanad_g1
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
     steps:
       - name: Checkout exact candidate SHA
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+
+      - name: Verify exact checkout identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          echo "candidate_sha=$CANDIDATE_SHA"
+          echo "event_sha=$GITHUB_SHA"
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -99,7 +109,8 @@ jobs:
           set -euo pipefail
           evidence="$RUNNER_TEMP/crm-g1-evidence/schema-inventory.txt"
           {
-            echo "candidate_sha=${GITHUB_SHA}"
+            echo "candidate_sha=${CANDIDATE_SHA}"
+            echo "event_sha=${GITHUB_SHA}"
             echo "workflow_run_id=${GITHUB_RUN_ID}"
             echo "generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo
@@ -120,7 +131,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: crm-g1-schema-evidence-${{ github.sha }}
+          name: crm-g1-schema-evidence-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             ${{ runner.temp }}/crm-g1-evidence
             apps/sanad-platform/target/surefire-reports
