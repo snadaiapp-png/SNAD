@@ -113,19 +113,21 @@ jobs:
               .read_text(encoding="utf-8")
           )
           result = evidence["test_result"]
-          process = evidence["process"]
-          print("# REM-P1-007 Business Process E2E")
+          processes = evidence["processes"]
+          print("# REM-P1-007 Business Process E2E Closure")
           print()
           print(f"- Exact SHA: `{evidence['git_sha']}`")
-          print(f"- Process: `{process['id']}`")
-          print(f"- State: `{process['status']}`")
+          print(f"- Processes: `{len(processes)}`")
+          print(f"- Fully verified: `{sum(p['status'] == 'FULLY_VERIFIED' for p in processes)}`")
+          print(f"- Blocked steps: `{sum(len(p['blocked_steps']) for p in processes)}`")
           print(f"- Tests: `{result['tests']}`")
           print(f"- Failures: `{result['failures']}`")
           print(f"- Errors: `{result['errors']}`")
           print(f"- Skipped: `{result['skipped']}`")
-          print(f"- Verified steps: `{', '.join(process['verified_steps'])}`")
-          print(f"- Blocked steps: `{', '.join(process['blocked_steps'])}`")
+          for process in processes:
+              print(f"- `{process['id']}`: `{process['status']}` — steps `{len(process['verified_steps'])}`")
           print(f"- REM-P1-007 closed: `{evidence['decision']['rem_p1_007_closed']}`")
+          print(f"- Broad commercial go-live: `{evidence['decision']['broad_commercial_go_live_approved']}`")
           PY
 
       - name: Upload business-process-e2e-evidence
