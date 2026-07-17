@@ -14,7 +14,8 @@
   "authoritative_tracker": {
     "repository": "snadaiapp-png/SNAD",
     "issue": 516,
-    "document": "docs/governance/EXECUTIVE-REVIEW-REMEDIATION-2026-07-17.md"
+    "document": "docs/governance/UNRESOLVED-RISKS-REPORT-2026-07-17.md",
+    "evidence_document": "docs/governance/EXECUTIVE-REVIEW-REMEDIATION-2026-07-17.md"
   },
   "runtime_snapshot": {
     "frontend": "https://snad-app.vercel.app",
@@ -36,6 +37,12 @@
     "REM-P0-006": "Independent security assurance is not closed",
     "REM-P1-007": "End-to-end business-process proof is incomplete",
     "REM-P1-009": "Repository visibility requires an explicit governance decision"
+  },
+  "open_finding_counts": {
+    "total": 7,
+    "P0": 5,
+    "P1": 2,
+    "deferred_but_open": 2
   },
   "deferred_findings": [
     "REM-P0-001",
