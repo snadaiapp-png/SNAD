@@ -1,3 +1,7 @@
+> **DOCUMENT STATUS: HISTORICAL — NOT CURRENT PLATFORM STATUS**  
+> Snapshot: 2026-07-12 at the recorded SHA. `LIVE`, `GO`, `READY`, `COMPLETE` and `PASS` below apply only to Stage 29 evidence at that time.  
+> Current status: `docs/governance/CURRENT-IMPLEMENTATION-STATUS.md` and GitHub Issue #516.
+
 # Stage 29 Final Closure Record
 
 ## Final Decision
