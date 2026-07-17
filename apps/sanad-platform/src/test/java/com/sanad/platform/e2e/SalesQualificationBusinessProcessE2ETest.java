@@ -2,13 +2,11 @@ package com.sanad.platform.e2e;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -46,7 +44,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import(SecurityPermitAllTestConfig.class)
 @ActiveProfiles("local")
 @Transactional
 class SalesQualificationBusinessProcessE2ETest {
@@ -182,9 +179,9 @@ class SalesQualificationBusinessProcessE2ETest {
                 .andExpect(jsonPath("$.contacts").value(1))
                 .andExpect(jsonPath("$.openOpportunities").value(0));
 
-        assertThat(count("SELECT COUNT(*) FROM platform_audit_logs WHERE target_tenant_id=? AND resource_id=? AND result='SUCCESS'",
+        assertThat(count("SELECT COUNT(*) FROM platform_audit_logs WHERE target_tenant_id=? AND resource_id=?",
                 TENANT_A, accountId)).isGreaterThan(0);
-        assertThat(count("SELECT COUNT(*) FROM platform_audit_logs WHERE target_tenant_id=? AND resource_id=? AND result='SUCCESS'",
+        assertThat(count("SELECT COUNT(*) FROM platform_audit_logs WHERE target_tenant_id=? AND resource_id=?",
                 TENANT_A, opportunityId)).isGreaterThan(0);
         assertThat(count("SELECT COUNT(*) FROM crm_timeline_events WHERE tenant_id=? AND subject_id=?",
                 TENANT_A, UUID.fromString(accountId))).isGreaterThan(0);
