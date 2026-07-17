@@ -1,4 +1,4 @@
-name: CRM-007 Final Production Verification
+name: CRM-007 Supabase Route Resolution
 
 on:
   pull_request:
@@ -11,21 +11,19 @@ permissions:
 
 env:
   TARGET_SHA: ff4fba0bec7873ee11b760fbf43c4e562ba11eaf
-  WEB_BASE_URL: https://snad-app.vercel.app
-  SUPABASE_POOLER_USERNAME: postgres.eyoupksefusnslvdnflt
 
 jobs:
-  verify:
+  inspect:
     if: github.head_ref == 'ops/crm-007-final-production'
-    name: Apply CRM-007 Flyway and verify production runtime
+    name: Resolve current Supabase pooler routing identity
     runs-on: ubuntu-latest
     environment: Production
-    timeout-minutes: 35
+    timeout-minutes: 10
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
     steps:
-      - name: Validate exact production target
+      - name: Inspect non-secret database route metadata
         shell: bash
         run: |
           set -euo pipefail
@@ -33,115 +31,40 @@ jobs:
           echo "::add-mask::$RENDER_API_KEY"; echo "::add-mask::$RENDER_SERVICE_ID"
           remote_main="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
           test "$remote_main" = "$TARGET_SHA"
-
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TARGET_SHA }}
-          fetch-depth: 0
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: maven
-
-      - name: Read approved Supabase URL and masked credentials
-        shell: bash
-        run: |
-          set -euo pipefail
+          mkdir -p route-evidence
           curl --fail-with-body --silent --show-error -H "Authorization: Bearer $RENDER_API_KEY" -H "Accept: application/json" \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" > /tmp/render-env.json
           jq '[.[]? | (.envVar // .)]' /tmp/render-env.json > /tmp/render-env-normalized.json
-          value() { jq -r --arg key "$1" '.[] | select(.key==$key) | .value // empty' /tmp/render-env-normalized.json | tail -1; }
-          url="$(value SPRING_DATASOURCE_URL)"; [ -n "$url" ] || url="$(value DATABASE_URL)"
-          password="$(value SPRING_DATASOURCE_PASSWORD)"; [ -n "$password" ] || password="$(value DATABASE_PASSWORD)"
-          test -n "$url" && test -n "$password"
-          [[ "$url" == *"supabase.com"* ]]
-          for secret in "$url" "$password" "$SUPABASE_POOLER_USERNAME"; do echo "::add-mask::$secret"; done
-          tenant="$(value AUTH_SMOKE_TENANT_A_ID)"; [ -n "$tenant" ] || tenant="$(value BOOTSTRAP_TENANT_ID)"; [ -n "$tenant" ] || tenant="$(value SANAD_CONTROL_PLANE_TENANT_ID)"
-          email="$(value AUTH_SMOKE_TENANT_A_EMAIL)"; [ -n "$email" ] || email="$(value BOOTSTRAP_ADMIN_EMAIL)"
-          smoke_password="$(value AUTH_SMOKE_TENANT_A_PASSWORD)"; [ -n "$smoke_password" ] || smoke_password="$(value BOOTSTRAP_ADMIN_PASSWORD)"
-          for secret in "$tenant" "$email" "$smoke_password"; do [ -z "$secret" ] || echo "::add-mask::$secret"; done
-          {
-            echo "DATABASE_URL_B64=$(printf %s "$url" | base64 -w0)"
-            echo "DATABASE_PASSWORD_B64=$(printf %s "$password" | base64 -w0)"
-            echo "SMOKE_TENANT_B64=$(printf %s "$tenant" | base64 -w0)"
-            echo "SMOKE_EMAIL_B64=$(printf %s "$email" | base64 -w0)"
-            echo "SMOKE_PASSWORD_B64=$(printf %s "$smoke_password" | base64 -w0)"
-          } >> "$GITHUB_ENV"
-
-      - name: Apply and verify CRM-007 Flyway migrations
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p production-evidence
-          url="$(printf %s "$DATABASE_URL_B64" | base64 -d)"; password="$(printf %s "$DATABASE_PASSWORD_B64" | base64 -d)"
-          echo "::add-mask::$url"; echo "::add-mask::$password"; echo "::add-mask::$SUPABASE_POOLER_USERNAME"
-          cd apps/sanad-platform
-          mvn -q -DskipTests package dependency:build-classpath -Dmdep.outputFile=/tmp/flyway-cp.txt
-          cat > /tmp/ProductionFlyway.java <<'JAVA'
-          import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
-          import org.flywaydb.core.Flyway;
-          import java.nio.file.*;
-          import java.sql.*;
-          public final class ProductionFlyway {
-            static long scalar(Connection c,String q)throws Exception{try(Statement s=c.createStatement();ResultSet r=s.executeQuery(q)){r.next();return r.getLong(1);}}
-            static long safe(Connection c,String t)throws Exception{return scalar(c,"SELECT CASE WHEN to_regclass('public."+t+"') IS NULL THEN -1 ELSE (SELECT COUNT(*) FROM "+t+") END");}
-            static String history(Connection c)throws Exception{StringBuilder b=new StringBuilder();try(Statement s=c.createStatement();ResultSet r=s.executeQuery("SELECT version,type,description,success FROM flyway_schema_history WHERE version IN ('20260717.100','20260717.101') ORDER BY installed_rank")){while(r.next()){if(b.length()>0)b.append("\\n");b.append(r.getString(1)).append('|').append(r.getString(2)).append('|').append(r.getString(3)).append('|').append(r.getBoolean(4));}}return b.toString();}
-            static String esc(String v){return v.replace("\\","\\\\").replace("\"","\\\"").replace("\n","\\n");}
-            public static void main(String[] a)throws Exception{
-              String url=a[0],user=a[1],pass=a[2],sha=a[3];long pa,pc,pl;
-              try(Connection c=DriverManager.getConnection(url,user,pass)){pa=safe(c,"crm_accounts");pc=safe(c,"crm_contacts");pl=safe(c,"crm_account_addresses");}
-              var m=Flyway.configure().dataSource(url,user,pass).locations("classpath:db/migration").baselineOnMigrate(true).validateOnMigrate(true).javaMigrations(new V15__seed_rbac_roles_and_capabilities()).load().migrate();
-              try(Connection c=DriverManager.getConnection(url,user,pass)){
-                String h=history(c);long tables=scalar(c,"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('crm_party_addresses','crm_party_address_history','crm_communication_policies','crm_communication_methods','crm_communication_method_history')");long caps=scalar(c,"SELECT COUNT(*) FROM capabilities WHERE code IN ('CRM.ADDRESS.READ','CRM.ADDRESS.WRITE','CRM.ADDRESS.ADMIN','CRM.COMMUNICATION.READ','CRM.COMMUNICATION.WRITE','CRM.COMMUNICATION.ADMIN','CRM.COMMUNICATION.SENSITIVE.READ','CRM.COMMUNICATION.EXPORT')");long failed=scalar(c,"SELECT COUNT(*) FROM flyway_schema_history WHERE success=FALSE");long dup=scalar(c,"SELECT COUNT(*) FROM (SELECT version FROM flyway_schema_history WHERE version IS NOT NULL GROUP BY version HAVING COUNT(*)>1) d");long qa=safe(c,"crm_accounts"),qc=safe(c,"crm_contacts"),ql=safe(c,"crm_account_addresses"),canonical=safe(c,"crm_party_addresses");
-                if(!h.contains("20260717.100|SQL|crm addresses communication methods|true")||!h.contains("20260717.101|SQL|crm addresses communication capabilities|true"))throw new IllegalStateException("CRM-007 Flyway history incomplete");if(tables!=5||caps!=8||failed!=0||dup!=0)throw new IllegalStateException("Production database invariant failed");if(pa>=0&&qa!=pa)throw new IllegalStateException("Account count changed");if(pc>=0&&qc!=pc)throw new IllegalStateException("Contact count changed");if(pl>=0&&ql!=pl)throw new IllegalStateException("Legacy address count changed");if(pl>=0&&canonical<pl)throw new IllegalStateException("Address backfill incomplete");
-                Files.createDirectories(Path.of("../../production-evidence"));String j="{\"release_sha\":\""+esc(sha)+"\",\"migrations_executed\":"+m.migrationsExecuted+",\"target_schema_version\":\""+esc(String.valueOf(m.targetSchemaVersion))+"\",\"flyway_history\":\""+esc(h)+"\",\"tables_verified\":"+tables+",\"capabilities_verified\":"+caps+",\"failed_migrations\":"+failed+",\"duplicate_versions\":"+dup+",\"pre_accounts\":"+pa+",\"post_accounts\":"+qa+",\"pre_contacts\":"+pc+",\"post_contacts\":"+qc+",\"pre_legacy_addresses\":"+pl+",\"post_legacy_addresses\":"+ql+",\"canonical_addresses\":"+canonical+",\"result\":\"PASS\"}";Files.writeString(Path.of("../../production-evidence/crm-007-production-database.json"),j);System.out.println("CRM-007 production Flyway verification: PASS");
-              }
-            }
+          python3 - <<'PY'
+          import json,urllib.parse
+          items={x.get('key',''):x.get('value','') for x in json.load(open('/tmp/render-env-normalized.json'))}
+          url=items.get('SPRING_DATASOURCE_URL') or items.get('DATABASE_URL') or ''
+          raw=url[5:] if url.startswith('jdbc:') else url
+          p=urllib.parse.urlparse(raw)
+          host=(p.hostname or '').lower()
+          direct_ref=''
+          parts=host.split('.')
+          if len(parts)>=4 and parts[0]=='db' and parts[-2:] == ['supabase','co']:
+              direct_ref=parts[1]
+          result={
+            'host_is_pooler':'pooler.supabase.com' in host,
+            'host_is_direct':host.startswith('db.') and host.endswith('.supabase.co'),
+            'direct_project_ref_present':bool(direct_ref),
+            'port':p.port,
+            'database_name':(p.path or '').lstrip('/'),
+            'query_keys':sorted(urllib.parse.parse_qs(p.query).keys()),
+            'database_username_is_sanad_app':items.get('DATABASE_USERNAME')=='sanad_app',
+            'spring_username_present':bool(items.get('SPRING_DATASOURCE_USERNAME')),
+            'relevant_environment_keys':sorted(k for k in items if any(token in k.upper() for token in ('SUPABASE','DATABASE','DATASOURCE','POSTGRES','PROJECT_REF'))),
           }
-          JAVA
-          cp="target/classes:$(cat /tmp/flyway-cp.txt)"; javac -cp "$cp" /tmp/ProductionFlyway.java
-          set +e; java -cp "/tmp:$cp" ProductionFlyway "$url" "$SUPABASE_POOLER_USERNAME" "$password" "$TARGET_SHA" > /tmp/database-run.log 2>&1; rc=$?; set -e
-          python3 - "$url" "$SUPABASE_POOLER_USERNAME" "$password" <<'PY'
-          import pathlib,re,sys
-          p=pathlib.Path('/tmp/database-run.log');t=p.read_text(errors='replace') if p.exists() else ''
-          for s in sys.argv[1:]:
-              if s:t=t.replace(s,'***')
-          t=re.sub(r'(jdbc:)?postgresql://[^\s]+','postgresql://***',t)
-          pathlib.Path('../../production-evidence/database-diagnostic.log').write_text(t)
-          print('\n'.join(t.splitlines()[-80:]))
+          open('route-evidence/supabase-route-shape.json','w').write(json.dumps(result,indent=2,sort_keys=True))
+          print(json.dumps(result,indent=2,sort_keys=True))
           PY
-          exit "$rc"
 
-      - name: Verify production BFF/backend and authenticated CRM-007 reads
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(curl -sSL -o /tmp/home -w '%{http_code}' --max-time 60 "$WEB_BASE_URL/")" = 200
-          test "$(curl -sS -o /tmp/status.json -w '%{http_code}' --max-time 60 "$WEB_BASE_URL/api/system/backend-status")" = 200
-          jq -e '.configured==true and .reachable==true and .statusCode==200' /tmp/status.json >/dev/null
-          test "$(curl -sS -o /tmp/anon-v1 -w '%{http_code}' --max-time 60 "$WEB_BASE_URL/api/platform/api/v1/auth/me")" = 401
-          test "$(curl -sS -o /tmp/anon-v2 -w '%{http_code}' --max-time 60 "$WEB_BASE_URL/api/platform/api/v2/crm/accounts/00000000-0000-0000-0000-000000000001/addresses?limit=1")" = 401
-          target_host="$(jq -r '.targetHost' /tmp/status.json)"; test "$(curl -sS -H 'ngrok-skip-browser-warning: any-value' -o /tmp/health.json -w '%{http_code}' --max-time 60 "https://${target_host}/actuator/health")" = 200; jq -e '.status=="UP"' /tmp/health.json >/dev/null
-          tenant="$(printf %s "$SMOKE_TENANT_B64" | base64 -d)"; email="$(printf %s "$SMOKE_EMAIL_B64" | base64 -d)"; password="$(printf %s "$SMOKE_PASSWORD_B64" | base64 -d)"
-          test -n "$tenant" && test -n "$email" && test -n "$password" || { echo "::error::Authenticated smoke identity is not configured"; exit 1; }
-          for secret in "$tenant" "$email" "$password"; do echo "::add-mask::$secret"; done
-          jq -n --arg tenant "$tenant" --arg email "$email" --arg password "$password" '{tenantId:$tenant,email:$email,password:$password}' > /tmp/login.json
-          test "$(curl -sS -o /tmp/login-response.json -w '%{http_code}' --max-time 60 -X POST "$WEB_BASE_URL/api/platform/api/v1/auth/login" -H 'Content-Type: application/json' -H "Origin: $WEB_BASE_URL" --data @/tmp/login.json)" = 200
-          token="$(jq -r '.accessToken // empty' /tmp/login-response.json)"; test -n "$token"; echo "::add-mask::$token"
-          test "$(curl -sS -o /tmp/account-list.json -w '%{http_code}' --max-time 60 "$WEB_BASE_URL/api/platform/api/v2/crm/accounts?limit=1" -H "Authorization: Bearer $token")" = 200
-          account_id="$(jq -r '.data[0].id // empty' /tmp/account-list.json)"; test -n "$account_id"
-          test "$(curl -sS -o /tmp/addresses.json -w '%{http_code}' --max-time 60 "$WEB_BASE_URL/api/platform/api/v2/crm/accounts/$account_id/addresses?limit=1" -H "Authorization: Bearer $token")" = 200
-          test "$(curl -sS -o /tmp/communications.json -w '%{http_code}' --max-time 60 "$WEB_BASE_URL/api/platform/api/v2/crm/accounts/$account_id/communication-methods?limit=1" -H "Authorization: Bearer $token")" = 200
-          jq -e '.data|type=="array"' /tmp/addresses.json >/dev/null; jq -e '.data|type=="array"' /tmp/communications.json >/dev/null
-          jq -n --arg sha "$TARGET_SHA" --argjson status "$(cat /tmp/status.json)" --argjson addresses "$(jq '.data|length' /tmp/addresses.json)" --argjson communications "$(jq '.data|length' /tmp/communications.json)" '{release_sha:$sha,backend_status:$status,anonymous_v1_http:401,anonymous_v2_http:401,backend_health:"UP",authenticated_accounts_http:200,authenticated_addresses_http:200,authenticated_communications_http:200,address_rows:$addresses,communication_rows:$communications,result:"PASS"}' > production-evidence/crm-007-production-smoke.json
-
-      - name: Upload sanitized final evidence
-        if: always()
+      - name: Upload route evidence
         uses: actions/upload-artifact@v4
         with:
-          name: crm-007-final-production-${{ github.run_id }}
-          path: production-evidence/
-          if-no-files-found: warn
-          retention-days: 90
+          name: crm-007-supabase-route-${{ github.run_id }}
+          path: route-evidence/
+          if-no-files-found: error
+          retention-days: 30
