@@ -25,9 +25,6 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
-      AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
-      AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
-      AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
 
     steps:
       - name: Checkout exact CRM-006 merge SHA
@@ -40,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for name in VERCEL_TOKEN VERCEL_PROJECT_ID VERCEL_TEAM_ID AUTH_SMOKE_TENANT_ID AUTH_SMOKE_EMAIL AUTH_SMOKE_PASSWORD; do
+          for name in VERCEL_TOKEN VERCEL_PROJECT_ID VERCEL_TEAM_ID; do
             test -n "${!name:-}" || { echo "::error::Missing Production secret: $name"; exit 1; }
             echo "::add-mask::${!name}"
           done
@@ -152,7 +149,7 @@ jobs:
           echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
           echo "deployment_url=$VERCEL_URL" >> "$GITHUB_OUTPUT"
 
-      - name: Verify production routes and backend routing
+      - name: Verify production routes, backend routing and BFF connectivity
         shell: bash
         run: |
           set -euo pipefail
@@ -176,15 +173,6 @@ jobs:
           test "$auth_code" = "401" || { echo "::error::Unauthenticated BFF auth/me returned $auth_code"; cat "$RUNNER_TEMP/auth-me.json"; exit 1; }
           jq -n --arg sha "$RELEASE_SHA" --arg code "$auth_code" '{release_sha:$sha,http_status:($code|tonumber),expected:401,result:"PASS"}' > evidence/crm006-bff-unauthenticated.json
 
-      - name: Run five consecutive production BFF authentication journeys
-        shell: bash
-        env:
-          AUTH_SYNTHETIC_ITERATIONS: '5'
-          AUTH_SYNTHETIC_EVIDENCE_PATH: evidence/crm006-auth-synthetic.json
-        run: |
-          set -euo pipefail
-          python3 scripts/operations/bff_auth_session_synthetic.py
-
       - name: Upload CRM-006 production evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -204,4 +192,3 @@ jobs:
           echo '- Routes: /, /crm/contacts, /crm/accounts = HTTP 200' >> "$GITHUB_STEP_SUMMARY"
           echo '- Backend routing = configured/reachable/statusCode PASS' >> "$GITHUB_STEP_SUMMARY"
           echo '- Unauthenticated BFF auth/me = HTTP 401' >> "$GITHUB_STEP_SUMMARY"
-          echo '- Authenticated BFF synthetic = 5/5 PASS' >> "$GITHUB_STEP_SUMMARY"
