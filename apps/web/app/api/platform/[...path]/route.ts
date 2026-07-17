@@ -106,7 +106,10 @@ function backendPath(path: string[]): string | null {
   if (!path.length) return null;
   const encoded = path.map((segment) => encodeURIComponent(segment)).join("/");
   const value = `/${encoded}`;
-  return value === "/api/v1" || value.startsWith("/api/v1/") ? value : null;
+  const supportedApiRoot =
+    value === "/api/v1" || value.startsWith("/api/v1/")
+    || value === "/api/v2" || value.startsWith("/api/v2/");
+  return supportedApiRoot ? value : null;
 }
 
 function isStateChanging(method: string): boolean {
