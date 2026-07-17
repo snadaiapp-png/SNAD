@@ -80,12 +80,19 @@ jobs:
         working-directory: apps/web
         run: npm run crm:generate-api-types
 
-      - name: Validate semantic contract
+      - name: Validate generated OpenAPI
         run: |
           set -euo pipefail
-          python scripts/crm/semantic-openapi-diff.py \
-            --committed docs/crm/contracts/openapi/crm-openapi.json \
-            --runtime /tmp/platform-openapi.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          runtime = json.loads(Path('/tmp/platform-openapi.json').read_text(encoding='utf-8'))
+          committed = json.loads(Path('docs/crm/contracts/openapi/crm-openapi.json').read_text(encoding='utf-8'))
+          if runtime != committed:
+              raise SystemExit('Generated OpenAPI is not semantically identical to the runtime contract.')
+          print(f"Validated {len(runtime.get('paths', {}))} paths and "
+                f"{len(runtime.get('components', {}).get('schemas', {}))} schemas.")
+          PY
           git diff --check
 
       - name: Upload runtime OpenAPI
