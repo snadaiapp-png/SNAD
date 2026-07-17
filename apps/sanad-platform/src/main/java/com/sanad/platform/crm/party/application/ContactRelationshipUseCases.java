@@ -156,6 +156,10 @@ public class ContactRelationshipUseCases {
         requireContext(tenantId, actorId);
         RelationshipRecord before = repository.findRelationship(tenantId, relationshipId);
         assertRelationshipMutable(before);
+        assertExpectedVersion(before.version(), expectedVersion);
+        if (before.primaryRelationship()) {
+            return before;
+        }
         RelationshipRecord after = repository.setPrimary(tenantId, actorId, relationshipId, expectedVersion);
         Instant now = Instant.now();
         audit.record(tenantId, actorId, "PRIMARY_CHANGE", "CONTACT_ACCOUNT_RELATIONSHIP", relationshipId,
@@ -245,7 +249,10 @@ public class ContactRelationshipUseCases {
             long expectedVersion, String auditAction, String eventType, String summary) {
         requireContext(tenantId, actorId);
         RelationshipRecord before = repository.findRelationship(tenantId, relationshipId);
-        if (targetStatus.equals(before.status())) return before;
+        assertExpectedVersion(before.version(), expectedVersion);
+        if (targetStatus.equals(before.status())) {
+            return before;
+        }
         if ("ARCHIVED".equals(before.status()) && !"ACTIVE".equals(targetStatus)) {
             throw new CrmContractException(CrmErrorCode.CONFLICT,
                     "Archived relationships cannot be modified without controlled reactivation.");
@@ -322,6 +329,12 @@ public class ContactRelationshipUseCases {
         if ("ARCHIVED".equals(relationship.status())) {
             throw new CrmContractException(CrmErrorCode.CONFLICT,
                     "Archived relationships cannot be modified without controlled reactivation.");
+        }
+    }
+
+    private static void assertExpectedVersion(long actualVersion, long expectedVersion) {
+        if (actualVersion != expectedVersion) {
+            throw new CrmContractException(CrmErrorCode.CRM_CONCURRENCY_CONFLICT);
         }
     }
 
