@@ -1,0 +1,115 @@
+name: CRM-007 Code Stabilize
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm007-code-stabilize.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: crm007-code-stabilize
+  cancel-in-progress: false
+
+env:
+  JWT_SECRET: ci-only-non-production-validation-key-1234567890
+
+jobs:
+  stabilize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Merge main and patch code contract sources
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main --no-tags
+          git merge --no-edit origin/main
+          python3 - <<'PY'
+          from pathlib import Path
+
+          service = Path('apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/application/AddressCommunicationOperationsService.java')
+          text = service.read_text(encoding='utf-8')
+          text = text.replace('crm.code() : "ROW_PROCESSING_FAILED"', 'crm.code().name() : "ROW_PROCESSING_FAILED"')
+          service.write_text(text, encoding='utf-8')
+
+          contract_test = Path('apps/sanad-platform/src/test/java/com/sanad/platform/crm/contract/CrmOpenApiContractTest.java')
+          text = contract_test.read_text(encoding='utf-8')
+          text = text.replace('EXPECTED_PATHS = 65', 'EXPECTED_PATHS = 72')
+          text = text.replace('EXPECTED_OPERATIONS = 87', 'EXPECTED_OPERATIONS = 95')
+          marker = '                "/accounts/{accountId}/communication-methods", "/contacts/{contactId}/communication-methods"}) {'
+          replacement = '                "/accounts/{accountId}/communication-methods", "/contacts/{contactId}/communication-methods",\n                "/addresses/import", "/communication-methods/import"}) {'
+          text = text.replace(marker, replacement)
+          contract_test.write_text(text, encoding='utf-8')
+
+          config = Path('apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmOpenApiConfiguration.java')
+          text = config.read_text(encoding='utf-8')
+          marker = '            CRM_PREFIX + "/contacts/{contactId}/communication-methods");'
+          replacement = '            CRM_PREFIX + "/contacts/{contactId}/communication-methods",\n            CRM_PREFIX + "/addresses/import",\n            CRM_PREFIX + "/communication-methods/import");'
+          text = text.replace(marker, replacement)
+          config.write_text(text, encoding='utf-8')
+          PY
+      - name: Compile and generate runtime contract
+        run: |
+          set -euo pipefail
+          mvn --batch-mode --no-transfer-progress -f apps/sanad-platform/pom.xml -DskipTests compile
+          nohup mvn -q -f apps/sanad-platform/pom.xml -DskipTests spring-boot:run \
+            -Dspring-boot.run.profiles=local \
+            -Dspring-boot.run.arguments="--server.port=8081 --management.endpoints.web.exposure.include=health" \
+            >/tmp/crm007-code-stabilize.log 2>&1 &
+          echo $! >/tmp/crm007-code-stabilize.pid
+          for attempt in $(seq 1 120); do
+            if ! kill -0 "$(cat /tmp/crm007-code-stabilize.pid)" 2>/dev/null; then
+              cat /tmp/crm007-code-stabilize.log
+              exit 1
+            fi
+            code="$(curl -sS -o /tmp/platform-openapi.json -w '%{http_code}' http://localhost:8081/v3/api-docs || true)"
+            if [ "$code" = '200' ] && [ -s /tmp/platform-openapi.json ]; then break; fi
+            sleep 2
+          done
+          test -s /tmp/platform-openapi.json
+          python3 scripts/crm/filter-runtime-openapi.py \
+            --input /tmp/platform-openapi.json \
+            --output docs/crm/contracts/openapi/crm-openapi.json \
+            --prefix /api/v2/crm \
+            --expected-paths 72 \
+            --expected-operations 95
+      - name: Generate TypeScript API contract
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run crm:generate-api-types
+      - name: Commit and push code-only stabilization
+        run: |
+          set -euo pipefail
+          if [ -f /tmp/crm007-code-stabilize.pid ]; then kill "$(cat /tmp/crm007-code-stabilize.pid)" 2>/dev/null || true; fi
+          git add \
+            apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/application/AddressCommunicationOperationsService.java \
+            apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmOpenApiConfiguration.java \
+            apps/sanad-platform/src/test/java/com/sanad/platform/crm/contract/CrmOpenApiContractTest.java \
+            docs/crm/contracts/openapi/crm-openapi.json \
+            apps/web/lib/api/generated/crm-api-types.ts
+          git commit -m 'fix(crm): finalize CRM-007 code and generated contract'
+          git push origin HEAD:${{ github.head_ref }}
