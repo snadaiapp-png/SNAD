@@ -67,17 +67,32 @@ jobs:
       - name: Validate REM-P1-007 governance contract
         run: python scripts/ci/validate_business_process_e2e.py
 
+      - name: Prepare evidence directory
+        run: mkdir -p "$RUNNER_TEMP/business-process-e2e"
+
       - name: Execute Sales Qualification business process slice
         working-directory: apps/sanad-platform
-        run: >-
-          mvn --batch-mode --no-transfer-progress
-          -Dtest=SalesQualificationBusinessProcessE2ETest
-          test
+        shell: bash
+        run: |
+          set -o pipefail
+          mvn --batch-mode --no-transfer-progress \
+            -Dtest=SalesQualificationBusinessProcessE2ETest \
+            test 2>&1 | tee "$RUNNER_TEMP/business-process-e2e/maven-test.log"
+
+      - name: Upload failed-run diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: business-process-e2e-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/business-process-e2e/maven-test.log
+            apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Generate exact-SHA sanitized evidence
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/business-process-e2e"
           python scripts/ci/generate_business_process_e2e_evidence.py \
             --sha "${{ github.sha }}" \
             --run-id "${{ github.run_id }}" \
@@ -114,12 +129,12 @@ jobs:
           PY
 
       - name: Upload business-process-e2e-evidence
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: business-process-e2e-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/business-process-e2e/business-process-e2e-evidence.json
+            ${{ runner.temp }}/business-process-e2e/maven-test.log
             apps/sanad-platform/target/surefire-reports/TEST-com.sanad.platform.e2e.SalesQualificationBusinessProcessE2ETest.xml
           if-no-files-found: error
           retention-days: 90
