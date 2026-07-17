@@ -52,10 +52,11 @@ public class PartyModuleConfiguration {
     @Bean
     public AddressCommunicationUseCases addressCommunicationUseCases(
             AddressCommunicationRepository addressCommunicationRepository,
+            LegacyAddressProjectionPort legacyAddressProjectionPort,
             AuditPort auditPort,
             TimelineEventPort timelineEventPort,
             ObjectMapper objectMapper) {
-        return new AddressCommunicationUseCases(
-                addressCommunicationRepository, auditPort, timelineEventPort, objectMapper);
+        return new AddressCommunicationUseCases(addressCommunicationRepository, legacyAddressProjectionPort,
+                auditPort, timelineEventPort, objectMapper);
     }
 }
