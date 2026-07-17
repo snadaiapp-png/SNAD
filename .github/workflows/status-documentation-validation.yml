@@ -1,0 +1,69 @@
+name: Status Documentation Validation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'README.md'
+      - 'docs/README.md'
+      - 'docs/governance/**'
+      - 'docs/production-readiness/**'
+      - 'docs/stage-26/**'
+      - 'docs/stage-27/**'
+      - 'docs/stage-28/**'
+      - 'docs/stage-29/**'
+      - 'docs/stage-30/**'
+      - 'scripts/ci/validate_status_documentation.py'
+      - '.github/workflows/status-documentation-validation.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'README.md'
+      - 'docs/README.md'
+      - 'docs/governance/**'
+      - 'docs/production-readiness/**'
+      - 'docs/stage-26/**'
+      - 'docs/stage-27/**'
+      - 'docs/stage-28/**'
+      - 'docs/stage-29/**'
+      - 'docs/stage-30/**'
+      - 'scripts/ci/validate_status_documentation.py'
+      - '.github/workflows/status-documentation-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: status-documentation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate current authority and historical classifications
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Compile validator
+        run: python3 -m py_compile scripts/ci/validate_status_documentation.py
+      - name: Validate status documentation
+        run: python3 scripts/ci/validate_status_documentation.py
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo '## P1-010 — Status Documentation Governance'
+            echo
+            echo '- Current authority: Issue #516 + CURRENT-STATUS.json'
+            echo '- Historical stage records: retained but non-authoritative'
+            echo '- Issue #101: closed historical gate'
+            echo '- Commercial go-live: not approved'
+          } >> "$GITHUB_STEP_SUMMARY"
