@@ -1,0 +1,51 @@
+name: CRM-007 Compile Hotfix
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm007-compile-hotfix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Apply compile corrections
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          service = Path('apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/application/AddressCommunicationOperationsService.java')
+          text = service.read_text(encoding='utf-8')
+          text = text.replace('TransactionDefinition.PROPAGATION_REQUIRES_NEW',
+                              'TransactionDefinition.PROPAGATION_NESTED')
+          text = text.replace('crm.code().name()', 'crm.code()')
+          service.write_text(text, encoding='utf-8')
+
+          controller = Path('apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmAddressCommunicationOperationsController.java')
+          text = controller.read_text(encoding='utf-8')
+          marker = 'import com.sanad.platform.crm.party.application.AddressCommunicationOperationsService;\n'
+          addition = marker + 'import com.sanad.platform.crm.party.application.AddressCommunicationUseCases;\n'
+          if 'import com.sanad.platform.crm.party.application.AddressCommunicationUseCases;' not in text:
+              text = text.replace(marker, addition)
+          controller.write_text(text, encoding='utf-8')
+          PY
+          git rm .github/workflows/crm007-compile-hotfix.yml
+      - name: Commit and push corrections
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/application/AddressCommunicationOperationsService.java
+          git add apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmAddressCommunicationOperationsController.java
+          git commit -am 'fix(crm): correct CRM-007 operations compilation'
+          git push origin HEAD:${{ github.head_ref }}
