@@ -1,0 +1,126 @@
+name: REM-P0-002 Production Rollout v2
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/rem-p0-002-production-rollout-v2.yml
+      - scripts/operations/rem_p0_002_production_rollout.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: rem-p0-002-production-rollout-v2
+  cancel-in-progress: false
+
+jobs:
+  rollout:
+    name: Exact-SHA production deployment and initial acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: Production
+    env:
+      PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID || secrets.BOOTSTRAP_TENANT_ID }}
+      AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL || secrets.SANAD_ADMIN_EMAIL }}
+      AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD || secrets.SANAD_ADMIN_PASSWORD }}
+
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact current main SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_main_sha="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test "$remote_main_sha" = "$GITHUB_SHA" || {
+            echo "::error::Workflow SHA is not the current main SHA."
+            exit 1
+          }
+
+      - name: Compile rollout and synthetic programs
+        run: |
+          python3 -m py_compile \
+            scripts/operations/rem_p0_002_production_rollout.py \
+            scripts/operations/bff_auth_session_synthetic.py
+
+      - name: Deploy and run initial production acceptance
+        run: python3 scripts/operations/rem_p0_002_production_rollout.py
+
+      - name: Upload sanitized rollout evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rem-p0-002-rollout-v2-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Record successful rollout
+        if: success()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = JSON.parse(fs.readFileSync('evidence/rem-p0-002-rollout-summary.json', 'utf8'));
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const now = new Date().toISOString();
+            const body = [
+              '## REM-P0-002 exact-SHA Production rollout passed',
+              '',
+              `- Release SHA: \`${summary.release_sha}\``,
+              `- Vercel deployment ID: \`${summary.deployment_id}\``,
+              `- Deployment URL: \`${summary.deployment_url}\``,
+              `- Production alias: \`${summary.production_url}\``,
+              `- Initial synthetic journeys: **${summary.initial_synthetic_iterations}/5 passed**`,
+              `- Observation window start: \`${now}\``,
+              `- Workflow evidence: ${runUrl}`,
+              '',
+              'REM-P0-002 remains open until the 72 consecutive hourly runs and all residual acceptance requirements are complete.'
+            ].join('\n');
+            for (const issue_number of [516, 534, 535]) {
+              await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number, body});
+            }
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 537,
+              state: 'closed',
+              state_reason: 'completed'
+            });
+
+      - name: Record failed rollout
+        if: failure()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            let failure = 'See sanitized workflow evidence.';
+            try {
+              const fs = require('fs');
+              const summary = JSON.parse(fs.readFileSync('evidence/rem-p0-002-rollout-summary.json', 'utf8'));
+              failure = summary.failure || failure;
+            } catch (_) {}
+            const body = [
+              '## REM-P0-002 Production rollout v2 failed',
+              '',
+              `- Attempted SHA: \`${context.sha}\``,
+              `- Failure: ${failure}`,
+              `- Workflow: ${runUrl}`,
+              '- Observation window has not started or must be reset.',
+              '- REM-P0-002 remains open.'
+            ].join('\n');
+            for (const issue_number of [516, 534, 535, 537]) {
+              await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number, body});
+            }
