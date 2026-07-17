@@ -32,7 +32,7 @@ concurrency:
 env:
   JWT_SECRET: ci-only-non-production-validation-key-1234567890
   EXPECTED_CRM_PATHS: '65'
-  EXPECTED_CRM_OPERATIONS: '86'
+  EXPECTED_CRM_OPERATIONS: '87'
 
 jobs:
   contract-validation:
