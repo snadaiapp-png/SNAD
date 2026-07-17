@@ -1,7 +1,11 @@
 package com.sanad.platform.crm.lead.application;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sanad.platform.crm.error.CrmContractException;
 import com.sanad.platform.crm.error.CrmErrorCode;
+import com.sanad.platform.crm.integration.domain.AuditPort;
+import com.sanad.platform.crm.integration.domain.AuditPort.AuditChange;
 import com.sanad.platform.crm.lead.domain.LeadRepository;
 import com.sanad.platform.crm.lead.domain.LeadRepository.LeadRecord;
 import com.sanad.platform.crm.opportunity.application.OpportunityUseCases;
@@ -19,6 +23,7 @@ import com.sanad.platform.crm.party.domain.ContactRepository.ContactRecord;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -35,15 +40,23 @@ public class LeadConversionUseCases {
     private final AccountUseCases accountUseCases;
     private final ContactUseCases contactUseCases;
     private final OpportunityUseCases opportunityUseCases;
+    private final AuditPort audit;
+    private final ObjectMapper objectMapper;
 
-    public LeadConversionUseCases(LeadUseCases leadUseCases,
-                                  AccountUseCases accountUseCases,
-                                  ContactUseCases contactUseCases,
-                                  OpportunityUseCases opportunityUseCases) {
+    public LeadConversionUseCases(
+            LeadUseCases leadUseCases,
+            AccountUseCases accountUseCases,
+            ContactUseCases contactUseCases,
+            OpportunityUseCases opportunityUseCases,
+            AuditPort audit,
+            ObjectMapper objectMapper
+    ) {
         this.leadUseCases = leadUseCases;
         this.accountUseCases = accountUseCases;
         this.contactUseCases = contactUseCases;
         this.opportunityUseCases = opportunityUseCases;
+        this.audit = audit;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional
@@ -119,8 +132,53 @@ public class LeadConversionUseCases {
                         opportunityId),
                 lead.version());
 
+        recordConversionAudit(
+                tenantId,
+                actorId,
+                leadId,
+                account.id(),
+                contact.id(),
+                opportunityId,
+                pipelineId,
+                stageId,
+                currencyCode,
+                command.amount());
+
         return new ConversionResult(converted.lead(), account, contact, opportunity,
                 converted.idempotent());
+    }
+
+    private void recordConversionAudit(
+            UUID tenantId,
+            UUID actorId,
+            UUID leadId,
+            UUID accountId,
+            UUID contactId,
+            UUID opportunityId,
+            UUID pipelineId,
+            UUID stageId,
+            String currencyCode,
+            BigDecimal amount
+    ) {
+        ObjectNode after = objectMapper.createObjectNode();
+        after.put("leadId", leadId.toString());
+        after.put("accountId", accountId.toString());
+        after.put("contactId", contactId.toString());
+        if (opportunityId != null) after.put("opportunityId", opportunityId.toString());
+        if (pipelineId != null) after.put("pipelineId", pipelineId.toString());
+        if (stageId != null) after.put("stageId", stageId.toString());
+        after.put("currencyCode", currencyCode);
+        if (amount != null) after.put("amount", amount);
+        after.put("idempotent", false);
+
+        audit.record(
+                tenantId,
+                actorId,
+                "CONVERT",
+                "LEAD",
+                leadId,
+                new AuditChange(null, after),
+                Instant.now());
     }
 
     private PipelineRecord defaultPipeline(UUID tenantId, UUID actorId, String currencyCode) {
