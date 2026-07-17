@@ -213,6 +213,123 @@
         ]
       }
     },
+    "/accounts/{accountId}/addresses": {
+      "get": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "accountAddresses",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseAddressResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "createAccountAddress",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAddressRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseAddressResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/accounts/{accountId}/archive": {
       "patch": {
         "tags": [
@@ -245,6 +362,139 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseArchiveAccountResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/accounts/{accountId}/communication-methods": {
+      "get": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "accountCommunicationMethods",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "methodType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "verificationStatus",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseCommunicationMethodResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "createAccountCommunicationMethod",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCommunicationMethodRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseCommunicationMethodResponse"
                 }
               }
             }
@@ -654,6 +904,596 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseActivityResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/addresses/{addressId}": {
+      "get": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "address",
+        "parameters": [
+          {
+            "name": "addressId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseAddressResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "updateAddress",
+        "parameters": [
+          {
+            "name": "addressId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAddressRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseAddressResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/addresses/{addressId}/archive": {
+      "patch": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "archiveAddress",
+        "parameters": [
+          {
+            "name": "addressId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseAddressResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/addresses/{addressId}/history": {
+      "get": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "addressHistory",
+        "parameters": [
+          {
+            "name": "addressId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseAddressHistoryResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/addresses/{addressId}/primary": {
+      "patch": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "setPrimaryAddress",
+        "parameters": [
+          {
+            "name": "addressId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseAddressResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/addresses/{addressId}/reactivate": {
+      "patch": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "reactivateAddress",
+        "parameters": [
+          {
+            "name": "addressId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseAddressResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/communication-methods/{communicationMethodId}": {
+      "get": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "communicationMethod",
+        "parameters": [
+          {
+            "name": "communicationMethodId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseCommunicationMethodResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "updateCommunicationMethod",
+        "parameters": [
+          {
+            "name": "communicationMethodId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCommunicationMethodRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseCommunicationMethodResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/communication-methods/{communicationMethodId}/archive": {
+      "patch": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "archiveCommunicationMethod",
+        "parameters": [
+          {
+            "name": "communicationMethodId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseCommunicationMethodResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/communication-methods/{communicationMethodId}/history": {
+      "get": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "communicationHistory",
+        "parameters": [
+          {
+            "name": "communicationMethodId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseCommunicationHistoryResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/communication-methods/{communicationMethodId}/preferred": {
+      "patch": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "setPreferredCommunicationMethod",
+        "parameters": [
+          {
+            "name": "communicationMethodId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseCommunicationMethodResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/communication-methods/{communicationMethodId}/reactivate": {
+      "patch": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "reactivateCommunicationMethod",
+        "parameters": [
+          {
+            "name": "communicationMethodId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseCommunicationMethodResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/communication-methods/{communicationMethodId}/verification": {
+      "patch": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "changeVerification",
+        "parameters": [
+          {
+            "name": "communicationMethodId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseCommunicationMethodResponse"
                 }
               }
             }
@@ -1360,6 +2200,123 @@
         ]
       }
     },
+    "/contacts/{contactId}/addresses": {
+      "get": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "contactAddresses",
+        "parameters": [
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseAddressResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "createContactAddress",
+        "parameters": [
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAddressRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseAddressResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/contacts/{contactId}/archive": {
       "patch": {
         "tags": [
@@ -1392,6 +2349,139 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseContactResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/contacts/{contactId}/communication-methods": {
+      "get": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "contactCommunicationMethods",
+        "parameters": [
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "methodType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "verificationStatus",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseCommunicationMethodResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "crm-address-communication-controller"
+        ],
+        "operationId": "createContactCommunicationMethod",
+        "parameters": [
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCommunicationMethodRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseCommunicationMethodResponse"
                 }
               }
             }
@@ -3384,6 +4474,142 @@
           }
         }
       },
+      "AddressHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "addressId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerType": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eventType": {
+            "type": "string"
+          },
+          "previousVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "newVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "snapshot": {
+            "type": "string"
+          },
+          "changedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "changedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AddressResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ownerType": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "addressType": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "rawFormattedAddress": {
+            "type": "string"
+          },
+          "line1": {
+            "type": "string"
+          },
+          "line2": {
+            "type": "string"
+          },
+          "line3": {
+            "type": "string"
+          },
+          "district": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "stateRegion": {
+            "type": "string"
+          },
+          "postalCode": {
+            "type": "string"
+          },
+          "countryCode": {
+            "type": "string"
+          },
+          "countryExtensionJson": {
+            "type": "string"
+          },
+          "latitude": {
+            "type": "number"
+          },
+          "longitude": {
+            "type": "number"
+          },
+          "primaryAddress": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "verificationSource": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date"
+          },
+          "validTo": {
+            "type": "string",
+            "format": "date"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "archivedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "ArchiveAccountResponse": {
         "type": "object",
         "properties": {
@@ -3399,6 +4625,128 @@
             "type": "string"
           },
           "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CommunicationHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "communicationMethodId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerType": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eventType": {
+            "type": "string"
+          },
+          "previousVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "newVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "snapshot": {
+            "type": "string"
+          },
+          "changedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "changedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CommunicationMethodResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ownerType": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "methodType": {
+            "type": "string"
+          },
+          "rawValue": {
+            "type": "string"
+          },
+          "normalizedValue": {
+            "type": "string"
+          },
+          "displayValue": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "preferred": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "verificationStatus": {
+            "type": "string"
+          },
+          "verifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "privacyClassification": {
+            "type": "string"
+          },
+          "consentStateReference": {
+            "type": "string"
+          },
+          "usagePurpose": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date"
+          },
+          "validTo": {
+            "type": "string",
+            "format": "date"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "archivedAt": {
             "type": "string",
             "format": "date-time"
           }
@@ -3786,6 +5134,162 @@
         "required": [
           "activityType",
           "subject"
+        ]
+      },
+      "CreateAddressRequest": {
+        "type": "object",
+        "properties": {
+          "addressType": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "REGISTERED|BILLING|SHIPPING|OFFICE|HOME|OTHER"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 0
+          },
+          "rawFormattedAddress": {
+            "type": "string",
+            "maxLength": 1200,
+            "minLength": 0
+          },
+          "line1": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 0
+          },
+          "line2": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 0
+          },
+          "line3": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 0
+          },
+          "district": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 0
+          },
+          "city": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 0
+          },
+          "stateRegion": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 0
+          },
+          "postalCode": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 0
+          },
+          "countryCode": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "[A-Za-z]{2}"
+          },
+          "countryExtension": {
+            "$ref": "#/components/schemas/JsonNode"
+          },
+          "latitude": {
+            "type": "number",
+            "maximum": 90,
+            "minimum": -90
+          },
+          "longitude": {
+            "type": "number",
+            "maximum": 180,
+            "minimum": -180
+          },
+          "primaryAddress": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "verificationSource": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 0
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date"
+          },
+          "validTo": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "required": [
+          "addressType",
+          "city",
+          "countryCode",
+          "line1"
+        ]
+      },
+      "CreateCommunicationMethodRequest": {
+        "type": "object",
+        "properties": {
+          "methodType": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "EMAIL|PHONE|MOBILE|FAX|WHATSAPP|SMS|MESSAGING_HANDLE|WEBSITE|OTHER"
+          },
+          "rawValue": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 0
+          },
+          "displayValue": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 0
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 0
+          },
+          "preferred": {
+            "type": "boolean"
+          },
+          "privacyClassification": {
+            "type": "string",
+            "pattern": "PUBLIC|INTERNAL|CONFIDENTIAL|RESTRICTED"
+          },
+          "consentStateReference": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 0
+          },
+          "usagePurpose": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 0
+          },
+          "countryHint": {
+            "type": "string",
+            "pattern": "[A-Za-z]{2}"
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date"
+          },
+          "validTo": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "required": [
+          "methodType",
+          "rawValue"
         ]
       },
       "CreateContactRelationshipRequest": {
@@ -4350,6 +5854,7 @@
           }
         }
       },
+      "JsonNode": {},
       "LeadConversionResponse": {
         "type": "object",
         "properties": {
@@ -4452,6 +5957,74 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ActivityResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ListResponseAddressHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AddressHistoryResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ListResponseAddressResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AddressResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ListResponseCommunicationHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommunicationHistoryResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ListResponseCommunicationMethodResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommunicationMethodResponse"
             }
           },
           "page": {
@@ -5051,11 +6624,33 @@
           }
         }
       },
+      "SingleResponseAddressResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AddressResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
       "SingleResponseArchiveAccountResponse": {
         "type": "object",
         "properties": {
           "data": {
             "$ref": "#/components/schemas/ArchiveAccountResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseCommunicationMethodResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CommunicationMethodResponse"
           },
           "meta": {
             "$ref": "#/components/schemas/Meta"
@@ -5348,6 +6943,139 @@
           }
         }
       },
+      "UpdateAddressRequest": {
+        "type": "object",
+        "properties": {
+          "addressType": {
+            "type": "string",
+            "pattern": "REGISTERED|BILLING|SHIPPING|OFFICE|HOME|OTHER"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 0
+          },
+          "rawFormattedAddress": {
+            "type": "string",
+            "maxLength": 1200,
+            "minLength": 0
+          },
+          "line1": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 0
+          },
+          "line2": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 0
+          },
+          "line3": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 0
+          },
+          "district": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 0
+          },
+          "city": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 0
+          },
+          "stateRegion": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 0
+          },
+          "postalCode": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 0
+          },
+          "countryCode": {
+            "type": "string",
+            "pattern": "[A-Za-z]{2}"
+          },
+          "countryExtension": {
+            "$ref": "#/components/schemas/JsonNode"
+          },
+          "latitude": {
+            "type": "number",
+            "maximum": 90,
+            "minimum": -90
+          },
+          "longitude": {
+            "type": "number",
+            "maximum": 180,
+            "minimum": -180
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "verificationSource": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 0
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date"
+          },
+          "validTo": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "UpdateCommunicationMethodRequest": {
+        "type": "object",
+        "properties": {
+          "rawValue": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 0
+          },
+          "displayValue": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 0
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 0
+          },
+          "privacyClassification": {
+            "type": "string",
+            "pattern": "PUBLIC|INTERNAL|CONFIDENTIAL|RESTRICTED"
+          },
+          "consentStateReference": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 0
+          },
+          "usagePurpose": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 0
+          },
+          "countryHint": {
+            "type": "string",
+            "pattern": "[A-Za-z]{2}"
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date"
+          },
+          "validTo": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
       "UpdateContactProfileRequest": {
         "type": "object",
         "properties": {
@@ -5563,6 +7291,19 @@
             "pattern": "[A-Za-z]{3}"
           }
         }
+      },
+      "VerificationRequest": {
+        "type": "object",
+        "properties": {
+          "verificationStatus": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "UNVERIFIED|PENDING|VERIFIED|FAILED|REVOKED"
+          }
+        },
+        "required": [
+          "verificationStatus"
+        ]
       },
       "VersionedContactProfileRequest": {
         "type": "object",
