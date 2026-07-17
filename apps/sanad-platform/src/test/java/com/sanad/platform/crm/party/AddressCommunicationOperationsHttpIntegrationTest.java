@@ -15,6 +15,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
@@ -98,6 +99,7 @@ class AddressCommunicationOperationsHttpIntegrationTest {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void importIsRowIsolatedAndPersistsFrameworkJobAndErrors() throws Exception {
         Fixture fixture = fixture("crm007-import");
         UUID accountId = account(fixture, "Import Customer");
