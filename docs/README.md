@@ -11,8 +11,9 @@ This directory is the canonical documentation entry point. Status claims must fo
 1. GitHub Issue `#516` — executive remediation tracker.
 2. [Machine-readable current status](governance/CURRENT-STATUS.json).
 3. [Current implementation status](governance/CURRENT-IMPLEMENTATION-STATUS.md).
-4. [Executive remediation evidence](governance/EXECUTIVE-REVIEW-REMEDIATION-2026-07-17.md).
-5. [Status document registry](governance/status-document-registry.json).
+4. [Current unresolved errors and risks](governance/UNRESOLVED-RISKS-REPORT-2026-07-17.md).
+5. [Executive remediation evidence and closure history](governance/EXECUTIVE-REVIEW-REMEDIATION-2026-07-17.md).
+6. [Status document registry](governance/status-document-registry.json).
 
 Issue `#101` is closed and historical. It is not the current controlling gate.
 
@@ -22,6 +23,7 @@ Issue `#101` is closed and historical. It is not the current controlling gate.
 CONDITIONAL CONTINUE
 CONTROLLED DEVELOPMENT AND LIMITED PILOT: ALLOWED
 BROAD COMMERCIAL GO-LIVE: NOT APPROVED
+OPEN FINDINGS: 7 (P0=5, P1=2)
 ```
 
 ## System and architecture

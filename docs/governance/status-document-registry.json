@@ -19,8 +19,12 @@
       "role": "human-readable current status"
     },
     {
+      "path": "docs/governance/UNRESOLVED-RISKS-REPORT-2026-07-17.md",
+      "role": "current unresolved errors and risks report"
+    },
+    {
       "path": "docs/governance/EXECUTIVE-REVIEW-REMEDIATION-2026-07-17.md",
-      "role": "detailed executive evidence and remaining risks"
+      "role": "detailed executive remediation evidence and closure history"
     }
   ],
   "non_current_status_documents": [
