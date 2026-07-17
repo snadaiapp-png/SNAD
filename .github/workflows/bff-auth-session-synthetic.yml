@@ -1,6 +1,11 @@
 name: BFF Auth Session Synthetic
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/bff-auth-session-synthetic.yml
   workflow_dispatch:
   schedule:
     - cron: '23 * * * *'
@@ -32,9 +37,9 @@ jobs:
       - name: Verify protected synthetic identity
         shell: bash
         env:
-          AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
-          AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
-          AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+          AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID || secrets.BOOTSTRAP_TENANT_ID }}
+          AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL || secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+          AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD || secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
         run: |
           set -euo pipefail
           missing=0
@@ -44,6 +49,7 @@ jobs:
               missing=$((missing + 1))
             else
               echo "PRESENT: ${name}"
+              echo "::add-mask::${!name}"
             fi
           done
           test "$missing" -eq 0
@@ -52,9 +58,9 @@ jobs:
         shell: bash
         env:
           PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
-          AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
-          AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
-          AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+          AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID || secrets.BOOTSTRAP_TENANT_ID }}
+          AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL || secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+          AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD || secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
           AUTH_SYNTHETIC_ITERATIONS: '1'
           AUTH_SYNTHETIC_EVIDENCE_PATH: ${{ runner.temp }}/auth-session-synthetic-evidence.json
         run: |
