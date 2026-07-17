@@ -7,37 +7,36 @@
     "current_consecutive_passes": 0,
     "window_started_at": null,
     "last_result": "FAIL",
-    "last_checked_at": "2026-07-17T15:26:39Z",
-    "failure_reason": "New material authentication failure: production UI remained HTTP 200, while /api/system/backend-status returned HTTP 500 with invalid non-JSON output on the latest production-readiness probe. A fresh rerun of BFF Auth Session Synthetic then proved anonymous /me returned the required HTTP 401, but login failed with HTTP 504 and bff_error=upstream-timeout after about 15 seconds. Authenticated /me, refresh, session restoration, logout and post-logout rejection were not reached. The consecutive success counter is reset to zero and REM-P0-002 remains open."
+    "last_checked_at": "2026-07-17T16:32:17Z",
+    "failure_reason": "The production UI returned HTTP 200, /api/system/backend-status returned HTTP 200 with configured=true, reachable=true and upstream statusCode=200, and the latest observable unauthenticated /api/platform/api/v1/auth/me request returned the required HTTP 401. Production is READY on commit 59716bcdde5dca34d4576b9af46a1bc7b901da1a, which includes the remediation SHA. However, no newer successful BFF Auth Session Synthetic journey exists: the latest workflow evidence remains failed because login returned HTTP 504 upstream-timeout, so authenticated /me, refresh, session restoration, logout and post-logout rejection were not reached. This cycle therefore cannot count as a success; the consecutive counter remains zero and REM-P0-002 remains open."
   },
   "live_checks": {
     "production_ui": {
       "status_code": 200,
-      "checked_at": "2026-07-17T15:22:18.582638Z",
+      "checked_at": "2026-07-17T16:32:17Z",
       "result": "PASS",
-      "evidence_workflow_run_id": 29590991029
+      "evidence_source": "Vercel production fetch"
     },
     "backend_status": {
-      "status_code": 500,
-      "configured": null,
-      "reachable": null,
-      "upstream_status_code": null,
-      "target_host": null,
-      "checked_at": "2026-07-17T15:22:18.749343Z",
-      "result": "FAIL",
-      "error": "backend-status returned invalid JSON: Expecting value: line 1 column 1 (char 0)",
-      "evidence_workflow_run_id": 29590991029,
-      "evidence_artifact_id": 8411364987,
-      "evidence_digest": "sha256:b5eee4e7b01e6d517c0bb1010e550cf0fae5e0599027f32a98cb16786bdc438d"
+      "status_code": 200,
+      "configured": true,
+      "reachable": true,
+      "upstream_status_code": 200,
+      "target_host": "streak-train-empower.ngrok-free.dev",
+      "checked_at": "2026-07-17T16:29:46.507Z",
+      "result": "PASS",
+      "error": null,
+      "evidence_source": "Vercel production fetch"
     },
     "unauthenticated_auth_me": {
       "expected_status_code": 401,
       "observed_status_code": 401,
       "upstream_error": null,
-      "checked_at": "2026-07-17T15:26:23Z",
+      "checked_at": "2026-07-17T15:44:56Z",
       "result": "PASS",
-      "request_id": "auth-synthetic-3969a804-21f6-44fb-ad94-237251443efd",
-      "duration_ms": 723.13
+      "request_id": null,
+      "duration_ms": null,
+      "evidence_source": "Vercel production runtime log"
     }
   },
   "synthetic": {
@@ -52,8 +51,8 @@
     "evidence_artifact_id": 8411479418,
     "evidence_digest": "sha256:0ecaf572ca479bbf0b8bd2fd16108b434e163a18dbe89309adc6c5de65d58764",
     "rerun_status": "completed_failure",
-    "current_cycle_assessment": "FAIL_BACKEND_STATUS_AND_LOGIN_HTTP_504",
-    "failure": "login: expected HTTP 200, received HTTP 504",
+    "current_cycle_assessment": "FAIL_NO_NEW_SUCCESSFUL_AUTHENTICATED_SYNTHETIC",
+    "failure": "Latest authenticated journey remains failed: login expected HTTP 200 but received HTTP 504 upstream-timeout; no newer successful workflow evidence was available.",
     "required_journey_evidence": {
       "anonymous_me": "success_http_401",
       "login": "failed_http_504_upstream_timeout",
@@ -66,11 +65,13 @@
   },
   "deployment": {
     "remediation_merge_sha": "4a99ecdd425d28b3f77871f59b7fa83f1e9ea4d0",
-    "production_deployment_sha": "654f384c3b3c0b16ade78a4e4c03bd5d7edeae03",
+    "production_deployment_sha": "59716bcdde5dca34d4576b9af46a1bc7b901da1a",
     "production_deployment_verified": true,
-    "verified_at": "2026-07-17T13:42:31Z",
-    "latest_repository_main_sha": "fa2039a2096a78edf7a976b40e94d2a44a8bd4f0",
-    "latest_repository_main_sha_verified_in_production": false
+    "verified_at": "2026-07-17T16:30:00Z",
+    "latest_repository_main_sha": "59716bcdde5dca34d4576b9af46a1bc7b901da1a",
+    "latest_repository_main_sha_verified_in_production": true,
+    "vercel_deployment_id": "dpl_EVxXYN4hPxMfJ2HN8v2RKXeMzf7E",
+    "vercel_ready_state": "READY"
   },
   "closure_authorized": false,
   "closure_dependencies": [
