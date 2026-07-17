@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CrmOpenApiContractTest {
 
     private static final int EXPECTED_PATHS = 65;
-    private static final int EXPECTED_OPERATIONS = 86;
+    private static final int EXPECTED_OPERATIONS = 87;
     private static final Set<String> HTTP_METHODS = Set.of(
             "get", "post", "put", "patch", "delete", "head", "options", "trace");
     private static final Path OPENAPI_PATH =
