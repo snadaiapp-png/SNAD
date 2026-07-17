@@ -39,6 +39,7 @@ class CrmPostgresMigrationTest {
     private static final String CRM_TIMELINE_TENANT_LIFECYCLE_VERSION = "20260717.3";
     private static final String BUSINESS_PROCESS_BACKBONE_VERSION = "20260717.4";
     private static final String BUSINESS_PROCESS_RBAC_VERSION = "20260717.5";
+    private static final String CRM_G1_EXTENSION_VERSION = "20260717.6";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -52,6 +53,12 @@ class CrmPostgresMigrationTest {
     private static final List<String> CRM_G2_TABLES = List.of("crm_idempotency_records");
     private static final List<String> CRM_TASKS_TABLES = List.of("crm_tasks");
     private static final List<String> CRM_NOTES_TABLES = List.of("crm_notes");
+    private static final List<String> CRM_G1_REMAINING_TABLES = List.of(
+            "crm_assignments", "crm_transfers", "crm_audit_logs", "crm_reports",
+            "crm_phone_numbers", "crm_contact_lookup_index");
+    private static final List<String> CRM_G1_EXTENSION_TABLES = List.of(
+            "crm_tasks", "crm_assignments", "crm_transfers", "crm_notes",
+            "crm_audit_logs", "crm_reports", "crm_phone_numbers", "crm_contact_lookup_index");
     private static final List<String> CRM_TAGS_TABLES = List.of("crm_tags", "crm_tag_assignments");
     private static final List<String> CRM_CUSTOMER_MASTER_TABLES = List.of(
             "crm_account_addresses", "crm_account_identifiers", "crm_account_relationships",
@@ -104,7 +111,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_CONTACT_RELATIONSHIP_RBAC_VERSION),
                         MigrationVersion.fromVersion(CRM_TIMELINE_TENANT_LIFECYCLE_VERSION),
                         MigrationVersion.fromVersion(BUSINESS_PROCESS_BACKBONE_VERSION),
-                        MigrationVersion.fromVersion(BUSINESS_PROCESS_RBAC_VERSION));
+                        MigrationVersion.fromVersion(BUSINESS_PROCESS_RBAC_VERSION),
+                        MigrationVersion.fromVersion(CRM_G1_EXTENSION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -138,7 +146,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_CONTACT_RELATIONSHIP_RBAC_VERSION),
                         MigrationVersion.fromVersion(CRM_TIMELINE_TENANT_LIFECYCLE_VERSION),
                         MigrationVersion.fromVersion(BUSINESS_PROCESS_BACKBONE_VERSION),
-                        MigrationVersion.fromVersion(BUSINESS_PROCESS_RBAC_VERSION));
+                        MigrationVersion.fromVersion(BUSINESS_PROCESS_RBAC_VERSION),
+                        MigrationVersion.fromVersion(CRM_G1_EXTENSION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -171,8 +180,9 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_TIMELINE_TENANT_LIFECYCLE_VERSION, "SQL", "crm timeline tenant lifecycle");
         assertMigration(jdbc, BUSINESS_PROCESS_BACKBONE_VERSION, "SQL", "create business process e2e backbone");
         assertMigration(jdbc, BUSINESS_PROCESS_RBAC_VERSION, "SQL", "grant business process capabilities");
+        assertMigration(jdbc, CRM_G1_EXTENSION_VERSION, "SQL", "create crm g1 extension tables");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(BUSINESS_PROCESS_RBAC_VERSION);
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_G1_EXTENSION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 
@@ -188,6 +198,14 @@ class CrmPostgresMigrationTest {
         assertThat(constraintExists(jdbc, "fk_crm_contact_relationship_account_same_tenant")).isTrue();
         assertThat(constraintExists(jdbc, "uk_crm_contact_account_relationship_primary")).isTrue();
         assertThat(constraintExists(jdbc, "ck_crm_contact_relationship_dates")).isTrue();
+        assertThat(constraintExists(jdbc, "fk_crm_phone_numbers_contact_same_tenant")).isTrue();
+        assertThat(constraintExists(jdbc, "fk_crm_contact_lookup_contact_same_tenant")).isTrue();
+
+        CRM_G1_EXTENSION_TABLES.forEach(table ->
+                assertThat(columnExists(jdbc, table, "tenant_id")).as(table + " tenant_id").isTrue());
+        assertThat(g1TenantForeignKeyCount(jdbc)).isEqualTo(8L);
+        assertThat(g1ExplicitIndexCount(jdbc)).isEqualTo(26L);
+        assertThat(g1IndexesWithoutTenantPrefix(jdbc)).isZero();
 
         assertThat(columnExists(jdbc, "crm_idempotency_records", "response_headers_json")).isTrue();
         assertThat(columnExists(jdbc, "crm_idempotency_records", "content_type")).isTrue();
@@ -221,6 +239,7 @@ class CrmPostgresMigrationTest {
                         CRM_G2_TABLES,
                         CRM_TASKS_TABLES,
                         CRM_NOTES_TABLES,
+                        CRM_G1_REMAINING_TABLES,
                         CRM_TAGS_TABLES,
                         CRM_CUSTOMER_MASTER_TABLES,
                         CRM_CONTACT_RELATIONSHIP_TABLES)
@@ -271,6 +290,37 @@ class CrmPostgresMigrationTest {
                 "SELECT table_name FROM information_schema.tables WHERE table_schema='public' " +
                         "AND table_name LIKE 'crm_%' ORDER BY table_name",
                 String.class);
+    }
+
+    private long g1TenantForeignKeyCount(JdbcTemplate jdbc) {
+        Long count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pg_constraint constraint_row " +
+                        "JOIN pg_class table_row ON table_row.oid = constraint_row.conrelid " +
+                        "WHERE constraint_row.contype='f' AND constraint_row.confrelid='tenants'::regclass " +
+                        "AND table_row.relname IN ('crm_tasks','crm_assignments','crm_transfers','crm_notes'," +
+                        "'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index')",
+                Long.class);
+        return count == null ? 0L : count;
+    }
+
+    private long g1ExplicitIndexCount(JdbcTemplate jdbc) {
+        Long count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' " +
+                        "AND tablename IN ('crm_tasks','crm_assignments','crm_transfers','crm_notes'," +
+                        "'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index') " +
+                        "AND indexname LIKE 'idx_crm_%'",
+                Long.class);
+        return count == null ? 0L : count;
+    }
+
+    private long g1IndexesWithoutTenantPrefix(JdbcTemplate jdbc) {
+        Long count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' " +
+                        "AND tablename IN ('crm_tasks','crm_assignments','crm_transfers','crm_notes'," +
+                        "'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index') " +
+                        "AND indexname LIKE 'idx_crm_%' AND indexdef NOT LIKE '%(tenant_id,%'",
+                Long.class);
+        return count == null ? 0L : count;
     }
 
     private boolean constraintExists(JdbcTemplate jdbc, String constraint) {
