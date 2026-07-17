@@ -1,0 +1,145 @@
+name: CRM-007 Lifecycle History Hotfix
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm007-lifecycle-history-hotfix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Reconcile implicit lifecycle changes
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path=Path('apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationRepository.java')
+          text=path.read_text(encoding='utf-8')
+
+          old='''    private void clearPrimaryAddresses(
+            UUID tenantId, UUID actorId, String ownerType, UUID ownerId, String addressType,
+            Instant now, UUID exceptId) {
+        jdbc.update("UPDATE crm_party_addresses SET primary_address=FALSE,primary_slot=NULL," +
+                        "updated_by=:actorId,updated_at=:now,version=version+1 " +
+                        "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
+                        "AND address_type=:addressType AND primary_address=TRUE " +
+                        "AND (:exceptId IS NULL OR id<>:exceptId)",
+                p().addValue("tenantId", tenantId).addValue("ownerType", ownerType).addValue("ownerId", ownerId)
+                        .addValue("addressType", addressType).addValue("exceptId", exceptId)
+                        .addValue("actorId", actorId).addValue("now", timestamp(now)));
+    }
+'''
+          new='''    private void clearPrimaryAddresses(
+            UUID tenantId, UUID actorId, String ownerType, UUID ownerId, String addressType,
+            Instant now, UUID exceptId) {
+        MapSqlParameterSource params = p().addValue("tenantId", tenantId).addValue("ownerType", ownerType)
+                .addValue("ownerId", ownerId).addValue("addressType", addressType).addValue("exceptId", exceptId)
+                .addValue("actorId", actorId).addValue("now", timestamp(now));
+        List<AddressRecord> previous = jdbc.query(
+                "SELECT " + ADDRESS_COLUMNS + " FROM crm_party_addresses " +
+                        "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
+                        "AND address_type=:addressType AND primary_address=TRUE " +
+                        "AND (:exceptId IS NULL OR id<>:exceptId)",
+                params, (rs, rowNum) -> address(rs));
+        jdbc.update("UPDATE crm_party_addresses SET primary_address=FALSE,primary_slot=NULL," +
+                        "updated_by=:actorId,updated_at=:now,version=version+1 " +
+                        "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
+                        "AND address_type=:addressType AND primary_address=TRUE " +
+                        "AND (:exceptId IS NULL OR id<>:exceptId)", params);
+        for (AddressRecord before : previous) {
+            AddressRecord after = address(tenantId, before.id());
+            addressHistory(tenantId, actorId, after, "PRIMARY_REPLACED", before.version());
+        }
+    }
+'''
+          if old not in text:
+              raise SystemExit('clearPrimaryAddresses source shape changed')
+          text=text.replace(old,new)
+
+          old='''    private void clearPreferredMethods(
+            UUID tenantId, UUID actorId, String ownerType, UUID ownerId, String methodType,
+            Instant now, UUID exceptId) {
+        jdbc.update("UPDATE crm_communication_methods SET preferred=FALSE,preferred_slot=NULL," +
+                        "updated_by=:actorId,updated_at=:now,version=version+1 " +
+                        "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
+                        "AND method_type=:methodType AND preferred=TRUE AND (:exceptId IS NULL OR id<>:exceptId)",
+                p().addValue("tenantId", tenantId).addValue("ownerType", ownerType).addValue("ownerId", ownerId)
+                        .addValue("methodType", methodType).addValue("exceptId", exceptId)
+                        .addValue("actorId", actorId).addValue("now", timestamp(now)));
+    }
+'''
+          new='''    private void clearPreferredMethods(
+            UUID tenantId, UUID actorId, String ownerType, UUID ownerId, String methodType,
+            Instant now, UUID exceptId) {
+        MapSqlParameterSource params = p().addValue("tenantId", tenantId).addValue("ownerType", ownerType)
+                .addValue("ownerId", ownerId).addValue("methodType", methodType).addValue("exceptId", exceptId)
+                .addValue("actorId", actorId).addValue("now", timestamp(now));
+        List<CommunicationMethodRecord> previous = jdbc.query(
+                "SELECT " + COMMUNICATION_COLUMNS + " FROM crm_communication_methods " +
+                        "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
+                        "AND method_type=:methodType AND preferred=TRUE AND (:exceptId IS NULL OR id<>:exceptId)",
+                params, (rs, rowNum) -> communication(rs));
+        jdbc.update("UPDATE crm_communication_methods SET preferred=FALSE,preferred_slot=NULL," +
+                        "updated_by=:actorId,updated_at=:now,version=version+1 " +
+                        "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
+                        "AND method_type=:methodType AND preferred=TRUE AND (:exceptId IS NULL OR id<>:exceptId)",
+                params);
+        for (CommunicationMethodRecord before : previous) {
+            CommunicationMethodRecord after = communicationMethod(tenantId, before.id());
+            communicationHistory(tenantId, actorId, after, "PREFERRED_REPLACED", before.version());
+        }
+    }
+'''
+          if old not in text:
+              raise SystemExit('clearPreferredMethods source shape changed')
+          text=text.replace(old,new)
+
+          start=text.index('    private void syncLegacyCommunication(')
+          end=text.index('\n    private AddressRecord address(', start)
+          replacement='''    private void syncLegacyCommunication(CommunicationMethodRecord record, UUID tenantId, UUID actorId) {
+        String column = "EMAIL".equals(record.methodType()) ? "primary_email"
+                : Set.of("PHONE", "MOBILE").contains(record.methodType()) ? "primary_phone" : null;
+        if (column == null) return;
+        String table = "ACCOUNT".equals(record.ownerType()) ? "crm_accounts" : "crm_contacts";
+        List<String> preferred = jdbc.query(
+                "SELECT display_value FROM crm_communication_methods " +
+                        "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
+                        "AND method_type=:methodType AND preferred=TRUE AND status='ACTIVE' " +
+                        "ORDER BY updated_at DESC,id DESC LIMIT 1",
+                p().addValue("tenantId", tenantId).addValue("ownerType", record.ownerType())
+                        .addValue("ownerId", record.ownerId()).addValue("methodType", record.methodType()),
+                (rs, rowNum) -> rs.getString("display_value"));
+        String value = preferred.isEmpty() ? null : preferred.get(0);
+        jdbc.update("UPDATE " + table + " SET " + column + "=:value,updated_by=:actorId,updated_at=:now,version=version+1 " +
+                        "WHERE tenant_id=:tenantId AND id=:ownerId",
+                p().addValue("value", value).addValue("actorId", actorId)
+                        .addValue("now", timestamp(Instant.now())).addValue("tenantId", tenantId)
+                        .addValue("ownerId", record.ownerId()));
+    }
+'''
+          text=text[:start]+replacement+text[end:]
+          path.write_text(text,encoding='utf-8')
+          PY
+          git rm .github/workflows/crm007-lifecycle-history-hotfix.yml
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationRepository.java
+          git commit -am 'fix(crm): record implicit primary and preferred lifecycle changes'
+          for attempt in 1 2 3; do
+            if git push origin HEAD:${{ github.head_ref }}; then exit 0; fi
+            git pull --rebase origin "${{ github.head_ref }}"
+          done
+          exit 1
