@@ -93,6 +93,7 @@ listed where the CRM runtime depends on them.
 | `20260716.4` | `V20260716_4__crm_enterprise_account_customer_master.sql` | Enterprise account golden record | `IMPLEMENTED_AND_CONNECTED` |
 | `20260717.1` | `V20260717_1__crm_contact_relationship_model.sql` | Person-profile extensions, multi-account relationships, relationship and ownership history, deterministic legacy backfill | `IN_PROGRESS` |
 | `20260717.2` | `V20260717_2__crm_contact_relationship_capabilities.sql` | Relationship, sensitive-field, and import capabilities | `IN_PROGRESS` |
+| `20260717.3` | `V20260717_3__crm_timeline_tenant_lifecycle.sql` | Align CRM timeline retention and cleanup with controlled tenant lifecycle | `IN_PROGRESS` |
 
 CRM-006 migrations must pass both clean PostgreSQL installation and upgrade from
 `20260716.4`. The upgrade must retain every contact and legacy account
