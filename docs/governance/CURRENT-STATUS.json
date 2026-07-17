@@ -35,7 +35,7 @@
     "REM-P0-004": "Governance sequence for later outputs remains unreconciled",
     "REM-P0-005": "Production backup, restore and disaster-recovery evidence is incomplete",
     "REM-P0-006": "Independent security assurance is not closed",
-    "REM-P1-007": "End-to-end business-process proof is incomplete",
+    "REM-P1-007": "Business-process E2E framework active; Sales Qualification slice implemented while cross-module Order-to-Cash, Procure-to-Pay, Hire-to-Pay and Commerce refund proof remain incomplete",
     "REM-P1-009": "Repository visibility requires an explicit governance decision"
   },
   "open_finding_counts": {
@@ -43,7 +43,8 @@
     "P0": 5,
     "P1": 2,
     "deferred_but_open": 1,
-    "remediated_but_open": 1
+    "remediated_but_open": 1,
+    "remediation_in_progress": 1
   },
   "deferred_findings": [
     "REM-P0-001"
@@ -55,6 +56,20 @@
       "observation_window": "PENDING",
       "blocking_dependency": "REM-P0-001",
       "closure_document": "docs/operations/reliability/AUTH-SESSION-RELIABILITY.md"
+    }
+  },
+  "remediation_in_progress_findings": {
+    "REM-P1-007": {
+      "framework": "IMPLEMENTED_ON_REMEDIATION_BRANCH",
+      "governed_processes": 4,
+      "fully_verified_processes": 0,
+      "partially_verified_processes": 1,
+      "not_executable_processes": 3,
+      "verified_slice": "Lead -> Qualification -> Account and Contact -> Opportunity -> Won",
+      "automated_test": "com.sanad.platform.e2e.SalesQualificationBusinessProcessE2ETest",
+      "catalog": "docs/quality/e2e/business-process-catalog.json",
+      "execution_plan": "docs/quality/e2e/REM-P1-007-EXECUTION-PLAN.md",
+      "closure_authorized": false
     }
   },
   "historical_gates": {

@@ -1,0 +1,140 @@
+name: Business Process E2E Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/**'
+      - 'apps/sanad-platform/src/main/resources/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/e2e/**'
+      - 'apps/sanad-platform/pom.xml'
+      - 'docs/quality/e2e/**'
+      - 'docs/governance/CURRENT-STATUS.json'
+      - 'scripts/ci/validate_business_process_e2e.py'
+      - 'scripts/ci/generate_business_process_e2e_evidence.py'
+      - '.github/workflows/business-process-e2e-validation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/**'
+      - 'apps/sanad-platform/src/main/resources/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/e2e/**'
+      - 'apps/sanad-platform/pom.xml'
+      - 'docs/quality/e2e/**'
+      - 'docs/governance/CURRENT-STATUS.json'
+      - 'scripts/ci/validate_business_process_e2e.py'
+      - 'scripts/ci/generate_business_process_e2e_evidence.py'
+      - '.github/workflows/business-process-e2e-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: business-process-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-business-process-e2e:
+    name: Validate governed business process evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Compile evidence controls
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/ci/validate_business_process_e2e.py
+          python -m py_compile scripts/ci/generate_business_process_e2e_evidence.py
+
+      - name: Validate REM-P1-007 governance contract
+        run: python scripts/ci/validate_business_process_e2e.py
+
+      - name: Prepare evidence directory
+        run: mkdir -p "$RUNNER_TEMP/business-process-e2e"
+
+      - name: Execute Sales Qualification business process slice
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -o pipefail
+          mvn --batch-mode --no-transfer-progress \
+            -Dtest=SalesQualificationBusinessProcessE2ETest \
+            test 2>&1 | tee "$RUNNER_TEMP/business-process-e2e/maven-test.log"
+
+      - name: Upload failed-run diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: business-process-e2e-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/business-process-e2e/maven-test.log
+            apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Generate exact-SHA sanitized evidence
+        run: |
+          set -euo pipefail
+          python scripts/ci/generate_business_process_e2e_evidence.py \
+            --sha "${{ github.sha }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --ref "${{ github.ref }}" \
+            --output "$RUNNER_TEMP/business-process-e2e/business-process-e2e-evidence.json"
+
+      - name: Publish evidence summary
+        run: |
+          set -euo pipefail
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = json.loads(
+              (Path(os.environ["RUNNER_TEMP"]) / "business-process-e2e" / "business-process-e2e-evidence.json")
+              .read_text(encoding="utf-8")
+          )
+          result = evidence["test_result"]
+          process = evidence["process"]
+          print("# REM-P1-007 Business Process E2E")
+          print()
+          print(f"- Exact SHA: `{evidence['git_sha']}`")
+          print(f"- Process: `{process['id']}`")
+          print(f"- State: `{process['status']}`")
+          print(f"- Tests: `{result['tests']}`")
+          print(f"- Failures: `{result['failures']}`")
+          print(f"- Errors: `{result['errors']}`")
+          print(f"- Skipped: `{result['skipped']}`")
+          print(f"- Verified steps: `{', '.join(process['verified_steps'])}`")
+          print(f"- Blocked steps: `{', '.join(process['blocked_steps'])}`")
+          print("- REM-P1-007 closure: `NOT AUTHORIZED`")
+          PY
+
+      - name: Upload business-process-e2e-evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: business-process-e2e-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/business-process-e2e/business-process-e2e-evidence.json
+            ${{ runner.temp }}/business-process-e2e/maven-test.log
+            apps/sanad-platform/target/surefire-reports/TEST-com.sanad.platform.e2e.SalesQualificationBusinessProcessE2ETest.xml
+          if-no-files-found: error
+          retention-days: 90
