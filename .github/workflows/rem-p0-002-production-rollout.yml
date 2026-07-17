@@ -1,24 +1,21 @@
-name: REM-P0-002 Production Rollout
+name: CRM-007 Exact-SHA Production Rollout
 
 on:
-  push:
-    branches:
-      - main
+  pull_request:
+    branches: [main]
     paths:
       - .github/workflows/rem-p0-002-production-rollout.yml
-  workflow_dispatch:
 
 permissions:
   contents: read
-  issues: write
 
-concurrency:
-  group: rem-p0-002-production-rollout
-  cancel-in-progress: false
+env:
+  RELEASE_SHA: 083ea46bec989a27f60d7f6ca0085230188470b9
 
 jobs:
   rollout:
-    name: Deploy exact main SHA and verify production auth journey
+    if: github.head_ref == 'ops/crm-007-production-rollout'
+    name: Deploy CRM-007 merge SHA and verify production runtime
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment: Production
@@ -30,15 +27,13 @@ jobs:
       AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
       AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
       AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
-
     steps:
-      - name: Checkout exact main SHA
-        uses: actions/checkout@v6
+      - name: Checkout rollout definition
+        uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Validate protected configuration and exact SHA
+      - name: Validate protected configuration and release ancestry
         shell: bash
         run: |
           set -euo pipefail
@@ -46,201 +41,102 @@ jobs:
             test -n "${!name:-}" || { echo "::error::Missing Production secret: $name"; exit 1; }
             echo "::add-mask::${!name}"
           done
-          [[ "$PRODUCTION_WEB_BASE_URL" == https://* ]] || { echo "::error::Production web URL must use HTTPS"; exit 1; }
-          REMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
-          test "$REMOTE_MAIN_SHA" = "$GITHUB_SHA" || {
-            echo "::error::Workflow SHA $GITHUB_SHA is not the current main SHA $REMOTE_MAIN_SHA"
-            exit 1
-          }
+          git cat-file -e "${RELEASE_SHA}^{commit}"
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main
+          test "$(git show -s --format=%s "$RELEASE_SHA")" = "feat(crm): add normalized addresses and communication methods (#546)"
+          mkdir -p evidence
 
-      - name: Deploy exact SHA to Vercel Production
-        id: vercel
+      - name: Deploy exact CRM-007 merge SHA to Vercel Production
+        id: deploy
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p evidence
           TEAM_QUERY="?teamId=${VERCEL_TEAM_ID}"
           LIST_URL="https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&target=production&limit=100&teamId=${VERCEL_TEAM_ID}"
-
           curl --fail-with-body --silent --show-error --max-time 30 \
-            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            "$LIST_URL" > "$RUNNER_TEMP/vercel-list.json"
-
-          DEPLOYMENT_ID="$(jq -r --arg sha "$GITHUB_SHA" '
-            [.deployments[]? | select(
-              (.meta.githubCommitSha // "") == $sha and
-              (.target // "") == "production" and
-              ((.readyState // .state // "") == "READY")
-            )] | sort_by(.createdAt) | last | .uid // empty
-          ' "$RUNNER_TEMP/vercel-list.json")"
-
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" "$LIST_URL" > "$RUNNER_TEMP/vercel-list.json"
+          DEPLOYMENT_ID="$(jq -r --arg sha "$RELEASE_SHA" '[.deployments[]? | select((.meta.githubCommitSha // "") == $sha and (.target // "") == "production" and ((.readyState // .state // "") == "READY"))] | sort_by(.createdAt) | last | .uid // empty' "$RUNNER_TEMP/vercel-list.json")"
           if [ -z "$DEPLOYMENT_ID" ]; then
             curl --fail-with-body --silent --show-error --max-time 30 \
               -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-              "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}${TEAM_QUERY}" \
-              > "$RUNNER_TEMP/vercel-project.json"
-            PROJECT_NAME="$(jq -r '.name // empty' "$RUNNER_TEMP/vercel-project.json")"
-            test -n "$PROJECT_NAME"
-
-            jq -n \
-              --arg name "$PROJECT_NAME" \
-              --arg project "$VERCEL_PROJECT_ID" \
-              --arg sha "$GITHUB_SHA" \
-              '{
-                name:$name,
-                project:$project,
-                target:"production",
-                gitSource:{type:"github",org:"snadaiapp-png",repo:"SNAD",ref:"main",sha:$sha},
-                gitMetadata:{
-                  remoteUrl:"https://github.com/snadaiapp-png/SNAD",
-                  commitRef:"main",
-                  commitSha:$sha,
-                  dirty:"false",
-                  ci:"true",
-                  ciType:"github-actions"
-                },
-                meta:{githubCommitSha:$sha,remediation:"REM-P0-002"}
-              }' > "$RUNNER_TEMP/vercel-create.json"
-
-            curl --fail-with-body --silent --show-error --max-time 60 \
-              -X POST \
-              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-              -H 'Content-Type: application/json' \
-              --data @"$RUNNER_TEMP/vercel-create.json" \
-              "https://api.vercel.com/v13/deployments${TEAM_QUERY}" \
-              > "$RUNNER_TEMP/vercel-created.json"
-            DEPLOYMENT_ID="$(jq -r '.id // .uid // empty' "$RUNNER_TEMP/vercel-created.json")"
-            test -n "$DEPLOYMENT_ID" || { cat "$RUNNER_TEMP/vercel-created.json"; exit 1; }
+              "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}${TEAM_QUERY}" > "$RUNNER_TEMP/project.json"
+            PROJECT_NAME="$(jq -r '.name' "$RUNNER_TEMP/project.json")"
+            jq -n --arg name "$PROJECT_NAME" --arg project "$VERCEL_PROJECT_ID" --arg sha "$RELEASE_SHA" '{name:$name,project:$project,target:"production",gitSource:{type:"github",org:"snadaiapp-png",repo:"SNAD",ref:"main",sha:$sha},gitMetadata:{remoteUrl:"https://github.com/snadaiapp-png/SNAD",commitRef:"main",commitSha:$sha,dirty:"false",ci:"true",ciType:"github-actions"},meta:{githubCommitSha:$sha,gate:"CRM-G3D"}}' > "$RUNNER_TEMP/create.json"
+            curl --fail-with-body --silent --show-error --max-time 60 -X POST \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}" -H 'Content-Type: application/json' \
+              --data @"$RUNNER_TEMP/create.json" "https://api.vercel.com/v13/deployments${TEAM_QUERY}" > "$RUNNER_TEMP/created.json"
+            DEPLOYMENT_ID="$(jq -r '.id // .uid // empty' "$RUNNER_TEMP/created.json")"
+            test -n "$DEPLOYMENT_ID" || { cat "$RUNNER_TEMP/created.json"; exit 1; }
           fi
-
           MATCH=""
           for attempt in $(seq 1 150); do
-            curl --fail-with-body --silent --show-error --max-time 30 \
-              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-              "$LIST_URL" > "$RUNNER_TEMP/vercel-list.json"
-            MATCH="$(jq -c --arg id "$DEPLOYMENT_ID" --arg sha "$GITHUB_SHA" '
-              [.deployments[]? | select(
-                (.uid // "") == $id and
-                (.meta.githubCommitSha // "") == $sha and
-                (.target // "") == "production"
-              )] | last // empty
-            ' "$RUNNER_TEMP/vercel-list.json")"
-            if [ -n "$MATCH" ] && [ "$MATCH" != "null" ]; then
+            curl --fail-with-body --silent --show-error --max-time 30 -H "Authorization: Bearer ${VERCEL_TOKEN}" "$LIST_URL" > "$RUNNER_TEMP/vercel-list.json"
+            MATCH="$(jq -c --arg id "$DEPLOYMENT_ID" --arg sha "$RELEASE_SHA" '[.deployments[]? | select((.uid // "") == $id and (.meta.githubCommitSha // "") == $sha and (.target // "") == "production")] | last // empty' "$RUNNER_TEMP/vercel-list.json")"
+            if [ -n "$MATCH" ] && [ "$MATCH" != null ]; then
               STATE="$(jq -r '.readyState // .state // empty' <<< "$MATCH")"
-              case "$STATE" in
-                READY) break ;;
-                ERROR|CANCELED) echo "::error::Vercel deployment failed: $STATE"; exit 1 ;;
-              esac
+              case "$STATE" in READY) break ;; ERROR|CANCELED) echo "::error::Vercel deployment failed: $STATE"; exit 1 ;; esac
             fi
             sleep 10
           done
-
-          test -n "$MATCH" && test "$MATCH" != "null"
-          VERCEL_SHA="$(jq -r '.meta.githubCommitSha // empty' <<< "$MATCH")"
-          VERCEL_STATE="$(jq -r '.readyState // .state // empty' <<< "$MATCH")"
-          VERCEL_URL="$(jq -r '.url // empty' <<< "$MATCH")"
-          test "$VERCEL_SHA" = "$GITHUB_SHA"
-          test "$VERCEL_STATE" = "READY"
-          test -n "$VERCEL_URL"
-
-          jq -n --arg sha "$GITHUB_SHA" --argjson deployment "$MATCH" '{
-            schema_version:"1.0",
-            finding:"REM-P0-002",
-            release_sha:$sha,
-            deployment_id:$deployment.uid,
-            deployment_url:$deployment.url,
-            target:$deployment.target,
-            ready_state:($deployment.readyState // $deployment.state),
-            deployed_commit_sha:$deployment.meta.githubCommitSha,
-            result:(if ($deployment.meta.githubCommitSha == $sha and $deployment.target == "production" and (($deployment.readyState // $deployment.state) == "READY")) then "PASS" else "FAIL" end)
-          }' > evidence/rem-p0-002-vercel-deployment.json
-
+          test "$(jq -r '.meta.githubCommitSha' <<< "$MATCH")" = "$RELEASE_SHA"
+          test "$(jq -r '.target' <<< "$MATCH")" = production
+          test "$(jq -r '.readyState // .state' <<< "$MATCH")" = READY
+          jq -n --arg release_sha "$RELEASE_SHA" --argjson deployment "$MATCH" '{release_sha:$release_sha,deployment_id:$deployment.uid,deployment_url:$deployment.url,target:$deployment.target,state:($deployment.readyState // $deployment.state),deployed_sha:$deployment.meta.githubCommitSha,result:"PASS"}' > evidence/crm-007-vercel-production.json
           echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
-          echo "deployment_url=$VERCEL_URL" >> "$GITHUB_OUTPUT"
 
-      - name: Verify production backend routing snapshot
+      - name: Verify BFF routing and authenticated CRM-007 database reads
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 24); do
-            CODE="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/backend-status.json" -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL}/api/system/backend-status" || true)"
-            if [ "$CODE" = "200" ] && jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null 2>&1; then
-              break
-            fi
-            sleep 5
-          done
-          test "$CODE" = "200"
-          jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null
-          jq --arg sha "$GITHUB_SHA" '{release_sha:$sha,configured,reachable,statusCode,targetHost,checkedAt,result:"PASS"}' "$RUNNER_TEMP/backend-status.json" > evidence/rem-p0-002-backend-routing.json
+          python3 - <<'PY'
+          import http.cookiejar, json, os, urllib.error, urllib.parse, urllib.request, uuid
+          base=os.environ['PRODUCTION_WEB_BASE_URL'].rstrip('/')
+          tenant=os.environ['AUTH_SMOKE_TENANT_ID']
+          email=os.environ['AUTH_SMOKE_EMAIL']
+          password=os.environ['AUTH_SMOKE_PASSWORD']
+          jar=http.cookiejar.CookieJar(); opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          evidence={'release_sha':os.environ['RELEASE_SHA'],'base_url':base,'checks':[]}
+          def call(method,path,payload=None,token=None):
+              data=None if payload is None else json.dumps(payload).encode()
+              headers={'Accept':'application/json','Origin':base,'X-Request-Id':f'crm007-prod-{uuid.uuid4()}'}
+              if data is not None: headers['Content-Type']='application/json'
+              if token: headers['Authorization']=f'Bearer {token}'
+              req=urllib.request.Request(base+path,data=data,headers=headers,method=method)
+              try:
+                  with opener.open(req,timeout=30) as r: return r.status, r.read()
+              except urllib.error.HTTPError as e: return e.code, e.read()
+          status,body=call('GET','/api/system/backend-status')
+          assert status==200, (status,body[:500])
+          backend=json.loads(body); assert backend.get('configured') is True and backend.get('reachable') is True and backend.get('statusCode')==200, backend
+          evidence['checks'].append({'name':'backend-routing','status':status,'result':'PASS','targetHost':backend.get('targetHost')})
+          status,body=call('POST','/api/platform/api/v1/auth/login',{'email':email,'password':password,'tenantId':tenant})
+          assert status==200, (status,body[:500])
+          login=json.loads(body); token=login['accessToken']
+          status,body=call('GET','/api/platform/api/v2/crm/accounts?limit=1',token=token)
+          assert status==200, (status,body[:1000])
+          accounts=json.loads(body).get('data') or []
+          assert accounts and accounts[0].get('id'), 'production smoke tenant has no CRM account for CRM-007 read verification'
+          account_id=accounts[0]['id']
+          for name,path in [
+              ('account-addresses',f'/api/platform/api/v2/crm/accounts/{account_id}/addresses?limit=1'),
+              ('account-communication-methods',f'/api/platform/api/v2/crm/accounts/{account_id}/communication-methods?limit=1')]:
+              status,body=call('GET',path,token=token)
+              assert status==200, (name,status,body[:1000])
+              parsed=json.loads(body); assert isinstance(parsed.get('data'),list), (name,parsed)
+              evidence['checks'].append({'name':name,'status':status,'rows':len(parsed['data']),'result':'PASS'})
+          status,_=call('POST','/api/platform/api/v1/auth/logout',{},token=token)
+          assert status==204, status
+          evidence['checks'].append({'name':'logout','status':status,'result':'PASS'})
+          evidence['result']='PASS'
+          open('evidence/crm-007-production-smoke.json','w').write(json.dumps(evidence,indent=2,sort_keys=True))
+          print(json.dumps(evidence,indent=2,sort_keys=True))
+          PY
 
-      - name: Run five consecutive production BFF authentication journeys
-        shell: bash
-        env:
-          AUTH_SYNTHETIC_ITERATIONS: '5'
-          AUTH_SYNTHETIC_EVIDENCE_PATH: evidence/rem-p0-002-initial-synthetic.json
-        run: |
-          set -euo pipefail
-          python3 scripts/operations/bff_auth_session_synthetic.py
-
-      - name: Upload rollout and synthetic evidence
+      - name: Upload CRM-G3D production evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rem-p0-002-production-rollout-${{ github.run_id }}
+          name: crm-007-production-rollout-${{ github.run_id }}
           path: evidence/
           if-no-files-found: error
           retention-days: 90
-
-      - name: Record successful rollout and start observation window
-        if: success()
-        uses: actions/github-script@v8
-        env:
-          DEPLOYMENT_ID: ${{ steps.vercel.outputs.deployment_id }}
-          DEPLOYMENT_URL: ${{ steps.vercel.outputs.deployment_url }}
-        with:
-          script: |
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const now = new Date().toISOString();
-            const body = [
-              '## REM-P0-002 exact-SHA Production rollout passed',
-              '',
-              `- Release SHA: \`${context.sha}\``,
-              `- Vercel deployment ID: \`${process.env.DEPLOYMENT_ID}\``,
-              `- Deployment URL: \`${process.env.DEPLOYMENT_URL}\``,
-              `- Production alias: \`${process.env.PRODUCTION_WEB_BASE_URL}\``,
-              '- Initial production synthetic: **5/5 consecutive journeys passed**',
-              `- Observation window start: \`${now}\``,
-              `- Workflow evidence: ${runUrl}`,
-              '',
-              'REM-P0-002 remains open until 72 consecutive hourly scheduled synthetic runs, log review, lockout/audit evidence, SLO reporting, owner acceptance, and tunnel dependency disposition are complete.'
-            ].join('\n');
-            for (const issue_number of [516, 534, 535]) {
-              await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number, body});
-            }
-            await github.rest.issues.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: 537,
-              state: 'closed',
-              state_reason: 'completed'
-            });
-
-      - name: Record failed rollout
-        if: failure()
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = [
-              '## REM-P0-002 Production rollout failed',
-              '',
-              `- Attempted SHA: \`${context.sha}\``,
-              `- Workflow: ${runUrl}`,
-              '- Observation window has not started or must be reset.',
-              '- REM-P0-002 remains open.'
-            ].join('\n');
-            for (const issue_number of [516, 534, 535, 537]) {
-              await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number, body});
-            }
-
-# 2026-07-17: force exact-main redeployment after a Vercel env bundle read failure.
