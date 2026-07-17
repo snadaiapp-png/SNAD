@@ -135,9 +135,11 @@ export const addressCommunicationApi = {
     return response.data;
   },
 
-  updateAddress: async (address: CrmAddress, input: AddressUpdateInput): Promise<CrmAddress> => {
+  updateAddress: async (address: CrmAddress, input: AddressInput): Promise<CrmAddress> => {
+    const { primaryAddress, ...payload } = input;
+    void primaryAddress;
     const response = await apiClient.patch<ApiSingle<CrmAddress>, AddressUpdateInput>(
-      `${root}/addresses/${address.id}`, input,
+      `${root}/addresses/${address.id}`, payload,
       { context: { headers: { "If-Match": await etag("address", address.id, address.version) } } },
     );
     return response.data;
@@ -170,10 +172,13 @@ export const addressCommunicationApi = {
   },
 
   updateCommunicationMethod: async (
-    method: CommunicationMethod, input: CommunicationMethodUpdateInput,
+    method: CommunicationMethod, input: CommunicationMethodInput,
   ): Promise<CommunicationMethod> => {
+    const { methodType, preferred, ...payload } = input;
+    void methodType;
+    void preferred;
     const response = await apiClient.patch<ApiSingle<CommunicationMethod>, CommunicationMethodUpdateInput>(
-      `${root}/communication-methods/${method.id}`, input,
+      `${root}/communication-methods/${method.id}`, payload,
       { context: { headers: { "If-Match": await etag("communication-method", method.id, method.version) } } },
     );
     return response.data;
