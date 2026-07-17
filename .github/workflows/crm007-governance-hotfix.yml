@@ -1,0 +1,88 @@
+name: CRM-007 Governance Hotfix
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm007-governance-hotfix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Apply privacy and policy invariants
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          controller = Path('apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmAddressCommunicationOperationsController.java')
+          text = controller.read_text(encoding='utf-8')
+          search_marker = '''        boolean expose = hasCapability(authentication, "CRM.COMMUNICATION.SENSITIVE.READ");
+        List<CommunicationSearchResponse> data = operations.searchCommunicationMethods('''
+          search_replacement = '''        boolean expose = hasCapability(authentication, "CRM.COMMUNICATION.SENSITIVE.READ");
+        requireSensitiveSearchCapability(q, expose);
+        List<CommunicationSearchResponse> data = operations.searchCommunicationMethods('''
+          text = text.replace(search_marker, search_replacement)
+
+          export_marker = '''        byte[] csv = operations.exportCommunicationMethods(
+                tenantId(authentication), q, ownerType, methodType, verificationStatus, status,
+                hasCapability(authentication, "CRM.COMMUNICATION.SENSITIVE.READ"));'''
+          export_replacement = '''        boolean expose = hasCapability(authentication, "CRM.COMMUNICATION.SENSITIVE.READ");
+        requireSensitiveSearchCapability(q, expose);
+        byte[] csv = operations.exportCommunicationMethods(
+                tenantId(authentication), q, ownerType, methodType, verificationStatus, status, expose);'''
+          text = text.replace(export_marker, export_replacement)
+
+          helper_marker = '''    private static boolean hasCapability(Authentication authentication, String capability) {
+        return authentication != null && authentication.getAuthorities().stream()
+                .anyMatch(authority -> capability.equalsIgnoreCase(authority.getAuthority())
+                        || ("CAPABILITY_" + capability).equalsIgnoreCase(authority.getAuthority()));
+    }
+'''
+          helper_replacement = helper_marker + '''
+    private static void requireSensitiveSearchCapability(String query, boolean exposeSensitive) {
+        if (query != null && !query.isBlank() && !exposeSensitive) {
+            throw new CrmContractException(
+                    CrmErrorCode.VALIDATION_ERROR,
+                    "Searching communication values requires CRM.COMMUNICATION.SENSITIVE.READ.");
+        }
+    }
+'''
+          if 'requireSensitiveSearchCapability' not in text:
+              text = text.replace(helper_marker, helper_replacement)
+          controller.write_text(text, encoding='utf-8')
+
+          policy = Path('apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/application/CommunicationPolicyService.java')
+          text = policy.read_text(encoding='utf-8')
+          if 'singlePreferredPerType must remain enabled' not in text:
+              marker = '''        CommunicationPolicy before = policy(tenantId);
+        Instant now = Instant.now();'''
+              replacement = '''        if (!requested.singlePreferredPerType()) {
+            throw new com.sanad.platform.crm.error.CrmContractException(
+                    com.sanad.platform.crm.error.CrmErrorCode.VALIDATION_ERROR,
+                    "singlePreferredPerType must remain enabled because it is a CRM identity invariant.");
+        }
+        CommunicationPolicy before = policy(tenantId);
+        Instant now = Instant.now();'''
+              text = text.replace(marker, replacement)
+          policy.write_text(text, encoding='utf-8')
+          PY
+          git rm .github/workflows/crm007-governance-hotfix.yml
+      - name: Commit and push corrections
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmAddressCommunicationOperationsController.java
+          git add apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/application/CommunicationPolicyService.java
+          git commit -am 'fix(crm): enforce sensitive search and preferred policy invariants'
+          git push origin HEAD:${{ github.head_ref }}
