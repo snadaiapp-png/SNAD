@@ -1744,8 +1744,8 @@ export interface operations {
     readonly createAccount: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "Idempotency-Key"?: string;
+            readonly header: {
+                readonly "Idempotency-Key": string;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -1756,8 +1756,8 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description OK */
-            readonly 200: {
+            /** @description Created */
+            readonly 201: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
@@ -1792,8 +1792,8 @@ export interface operations {
     readonly updateAccount: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly accountId: string;
@@ -1820,8 +1820,8 @@ export interface operations {
     readonly archiveAccount: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly accountId: string;
@@ -1891,8 +1891,8 @@ export interface operations {
     readonly restoreAccount: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly accountId: string;
@@ -1943,8 +1943,8 @@ export interface operations {
     readonly createActivity: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "Idempotency-Key"?: string;
+            readonly header: {
+                readonly "Idempotency-Key": string;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -1955,8 +1955,8 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description OK */
-            readonly 200: {
+            /** @description Created */
+            readonly 201: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
@@ -1991,8 +1991,8 @@ export interface operations {
     readonly updateActivity: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly activityId: string;
@@ -2019,8 +2019,8 @@ export interface operations {
     readonly completeActivity: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly activityId: string;
@@ -2093,8 +2093,8 @@ export interface operations {
     readonly updateRelationship: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly relationshipId: string;
@@ -2121,8 +2121,8 @@ export interface operations {
     readonly activate: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly relationshipId: string;
@@ -2145,8 +2145,8 @@ export interface operations {
     readonly archive: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly relationshipId: string;
@@ -2195,8 +2195,8 @@ export interface operations {
     readonly deactivate: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly relationshipId: string;
@@ -2243,8 +2243,8 @@ export interface operations {
     readonly setPrimary: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly relationshipId: string;
@@ -2267,8 +2267,8 @@ export interface operations {
     readonly reactivate: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly relationshipId: string;
@@ -2344,8 +2344,8 @@ export interface operations {
     readonly createContact: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "Idempotency-Key"?: string;
+            readonly header: {
+                readonly "Idempotency-Key": string;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -2356,8 +2356,8 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description OK */
-            readonly 200: {
+            /** @description Created */
+            readonly 201: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
@@ -2392,8 +2392,8 @@ export interface operations {
     readonly updateContact: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly contactId: string;
@@ -2420,8 +2420,8 @@ export interface operations {
     readonly archiveContact: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly contactId: string;
@@ -2490,8 +2490,8 @@ export interface operations {
     readonly updateProfile: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly contactId: string;
@@ -2595,8 +2595,8 @@ export interface operations {
     readonly restoreContact: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly contactId: string;
@@ -2645,8 +2645,8 @@ export interface operations {
     readonly createCustomField: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "Idempotency-Key"?: string;
+            readonly header: {
+                readonly "Idempotency-Key": string;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -2746,8 +2746,8 @@ export interface operations {
     readonly upsertCustomFieldValuesPost: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "Idempotency-Key"?: string;
+            readonly header: {
+                readonly "Idempotency-Key": string;
             };
             readonly path: {
                 readonly entityType: string;
@@ -2775,8 +2775,8 @@ export interface operations {
     readonly updateCustomField: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly customFieldId: string;
@@ -2828,8 +2828,8 @@ export interface operations {
     readonly uploadImport: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "Idempotency-Key"?: string;
+            readonly header: {
+                readonly "Idempotency-Key": string;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -2952,8 +2952,8 @@ export interface operations {
     readonly runImport: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "Idempotency-Key"?: string;
+            readonly header: {
+                readonly "Idempotency-Key": string;
             };
             readonly path: {
                 readonly jobId: string;
@@ -3002,8 +3002,8 @@ export interface operations {
     readonly createLead: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "Idempotency-Key"?: string;
+            readonly header: {
+                readonly "Idempotency-Key": string;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -3014,8 +3014,8 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description OK */
-            readonly 200: {
+            /** @description Created */
+            readonly 201: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
@@ -3050,8 +3050,8 @@ export interface operations {
     readonly convertLead: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "Idempotency-Key"?: string;
+            readonly header: {
+                readonly "Idempotency-Key": string;
             };
             readonly path: {
                 readonly leadId: string;
@@ -3078,8 +3078,8 @@ export interface operations {
     readonly changeLeadStatus: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly leadId: string;
@@ -3132,8 +3132,8 @@ export interface operations {
     readonly createOpportunity: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "Idempotency-Key"?: string;
+            readonly header: {
+                readonly "Idempotency-Key": string;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -3144,8 +3144,8 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description OK */
-            readonly 200: {
+            /** @description Created */
+            readonly 201: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
@@ -3180,8 +3180,8 @@ export interface operations {
     readonly updateOpportunity: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly opportunityId: string;
@@ -3208,8 +3208,8 @@ export interface operations {
     readonly moveOpportunityStage: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly opportunityId: string;
@@ -3256,8 +3256,8 @@ export interface operations {
     readonly updatePipeline: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: {
-                readonly "If-Match"?: string;
+            readonly header: {
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly pipelineId: string;
