@@ -15,7 +15,6 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -33,7 +32,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @Import(SecurityPermitAllTestConfig.class)
 @ActiveProfiles("local")
-@Transactional
 class IntegratedBusinessProcessesE2ETest {
 
     private static final UUID TENANT_A = UUID.fromString("81000000-0000-0000-0000-000000000001");
@@ -50,6 +48,8 @@ class IntegratedBusinessProcessesE2ETest {
 
     @BeforeEach
     void seedIdentityAndCapabilities() {
+        cleanupTenant(TENANT_A);
+        cleanupTenant(TENANT_B);
         Instant now = Instant.now();
         seedTenant(TENANT_A, "e2e-process-a", "E2E Process Tenant A", now);
         seedTenant(TENANT_B, "e2e-process-b", "E2E Process Tenant B", now);
@@ -186,6 +186,23 @@ class IntegratedBusinessProcessesE2ETest {
     private long count(String sql, Object... arguments) {
         Long value = jdbc.queryForObject(sql, Long.class, arguments);
         return value == null ? 0L : value;
+    }
+
+    private void cleanupTenant(UUID tenantId) {
+        jdbc.update("DELETE FROM platform_audit_logs WHERE target_tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM bp_analytics_snapshots WHERE tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM bp_workflow_approvals WHERE tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM bp_payment_events WHERE tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM bp_ledger_entries WHERE tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM bp_inventory_movements WHERE tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM bp_process_steps WHERE tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM bp_process_runs WHERE tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM bp_inventory_balances WHERE tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM role_capabilities WHERE tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM roles WHERE tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM users WHERE tenant_id=?", tenantId);
+        jdbc.update("DELETE FROM tenants WHERE id=?", tenantId);
     }
 
     private void seedTenant(UUID id, String subdomain, String name, Instant now) {
