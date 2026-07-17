@@ -26,6 +26,7 @@
   },
   "closed_findings": {
     "REM-P0-003": "Executor #23 Master Execution Backlog",
+    "REM-P1-007": "Integrated business-process E2E evidence — four fully verified tenant-scoped vertical slices with PostgreSQL, reconciliation, RBAC, audit and rollback; closure authority docs/governance/REM-P1-007-CLOSURE-DECISION-2026-07-17.md",
     "REM-P1-008": "SLA/SLO and incident operating model",
     "REM-P1-010": "Status documentation authority, reconciliation and historical classification — PR #529, merge e6b7cb7e9dde8b603bc282fb5c491c5fdad6a8e0"
   },
@@ -35,16 +36,15 @@
     "REM-P0-004": "Governance sequence for later outputs remains unreconciled",
     "REM-P0-005": "Production backup, restore and disaster-recovery evidence is incomplete",
     "REM-P0-006": "Independent security assurance is not closed",
-    "REM-P1-007": "Business-process E2E framework active; Sales Qualification slice implemented while cross-module Order-to-Cash, Procure-to-Pay, Hire-to-Pay and Commerce refund proof remain incomplete",
     "REM-P1-009": "Repository visibility requires an explicit governance decision"
   },
   "open_finding_counts": {
-    "total": 7,
+    "total": 6,
     "P0": 5,
-    "P1": 2,
+    "P1": 1,
     "deferred_but_open": 1,
     "remediated_but_open": 1,
-    "remediation_in_progress": 1
+    "remediation_in_progress": 0
   },
   "deferred_findings": [
     "REM-P0-001"
@@ -58,18 +58,18 @@
       "closure_document": "docs/operations/reliability/AUTH-SESSION-RELIABILITY.md"
     }
   },
-  "remediation_in_progress_findings": {
+  "remediation_in_progress_findings": {},
+  "closure_evidence": {
     "REM-P1-007": {
-      "framework": "IMPLEMENTED_ON_REMEDIATION_BRANCH",
       "governed_processes": 4,
-      "fully_verified_processes": 0,
-      "partially_verified_processes": 1,
-      "not_executable_processes": 3,
-      "verified_slice": "Lead -> Qualification -> Account and Contact -> Opportunity -> Won",
-      "automated_test": "com.sanad.platform.e2e.SalesQualificationBusinessProcessE2ETest",
+      "fully_verified_processes": 4,
+      "blocked_steps": 0,
+      "http_test": "com.sanad.platform.e2e.IntegratedBusinessProcessesE2ETest",
+      "postgresql_test": "com.sanad.platform.e2e.IntegratedBusinessProcessesPostgresE2ETest",
       "catalog": "docs/quality/e2e/business-process-catalog.json",
-      "execution_plan": "docs/quality/e2e/REM-P1-007-EXECUTION-PLAN.md",
-      "closure_authorized": false
+      "closure_decision": "docs/governance/REM-P1-007-CLOSURE-DECISION-2026-07-17.md",
+      "closure_authorized": true,
+      "broad_commercial_go_live_authorized": false
     }
   },
   "historical_gates": {
