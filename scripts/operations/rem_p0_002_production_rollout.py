@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Deploy the exact main SHA to Vercel Production and run REM-P0-002 acceptance."""
+# Operational trigger: CRM-006 production closure rerun (2026-07-17).
 from __future__ import annotations
 
 import json
