@@ -78,7 +78,7 @@ jobs:
 
       - name: Generate TypeScript contract
         working-directory: apps/web
-        run: npm run generate:crm-api
+        run: npm run crm:generate-api-types
 
       - name: Validate semantic contract
         run: |
@@ -114,7 +114,7 @@ jobs:
 
       - name: Validate TypeScript contract
         working-directory: apps/web
-        run: npm run typecheck
+        run: npx tsc --noEmit
 
       - name: Stop backend
         if: always()
