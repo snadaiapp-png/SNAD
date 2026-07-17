@@ -1,3 +1,7 @@
+> **DOCUMENT STATUS: HISTORICAL — NOT CURRENT PLATFORM STATUS**  
+> Snapshot: 2026-07-08 at the recorded SHA. `LIVE`, `GO`, `READY` and `COMPLETE` below apply only to Stage 26 evidence at that time.  
+> Current status: `docs/governance/CURRENT-IMPLEMENTATION-STATUS.md` and GitHub Issue #516.
+
 # Stage 26 — Final Closure Record
 
 ## Closure Status

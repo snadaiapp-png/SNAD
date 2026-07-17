@@ -1,0 +1,92 @@
+{
+  "schema_version": "1.0",
+  "as_of": "2026-07-17",
+  "current_authorities": [
+    {
+      "path": "README.md",
+      "role": "repository landing status"
+    },
+    {
+      "path": "docs/README.md",
+      "role": "documentation navigation authority"
+    },
+    {
+      "path": "docs/governance/CURRENT-STATUS.json",
+      "role": "machine-readable current status"
+    },
+    {
+      "path": "docs/governance/CURRENT-IMPLEMENTATION-STATUS.md",
+      "role": "human-readable current status"
+    },
+    {
+      "path": "docs/governance/UNRESOLVED-RISKS-REPORT-2026-07-17.md",
+      "role": "current unresolved errors and risks report"
+    },
+    {
+      "path": "docs/governance/EXECUTIVE-REVIEW-REMEDIATION-2026-07-17.md",
+      "role": "detailed executive remediation evidence and closure history"
+    }
+  ],
+  "non_current_status_documents": [
+    {
+      "path": "docs/stage-26/STAGE-26-FINAL-CLOSURE-RECORD.md",
+      "class": "HISTORICAL",
+      "snapshot_date": "2026-07-08",
+      "replacement": "docs/governance/CURRENT-IMPLEMENTATION-STATUS.md"
+    },
+    {
+      "path": "docs/stage-27/STAGE-27-FINAL-CLOSURE-RECORD.md",
+      "class": "HISTORICAL",
+      "snapshot_date": "2026-07-08",
+      "replacement": "docs/governance/CURRENT-IMPLEMENTATION-STATUS.md"
+    },
+    {
+      "path": "docs/stage-28/STAGE-28-FINAL-CLOSURE-RECORD.md",
+      "class": "HISTORICAL",
+      "snapshot_date": "2026-07-09",
+      "replacement": "docs/governance/CURRENT-IMPLEMENTATION-STATUS.md"
+    },
+    {
+      "path": "docs/stage-29/STAGE-29-FINAL-CLOSURE-RECORD.md",
+      "class": "HISTORICAL",
+      "snapshot_date": "2026-07-12",
+      "replacement": "docs/governance/CURRENT-IMPLEMENTATION-STATUS.md"
+    },
+    {
+      "path": "docs/stage-30/08-STAGE-30-CLOSURE-REPORT.md",
+      "class": "TEMPLATE",
+      "snapshot_date": "2026-07-12",
+      "replacement": "docs/governance/CURRENT-IMPLEMENTATION-STATUS.md"
+    },
+    {
+      "path": "docs/production-readiness/README.md",
+      "class": "PLANNING BASELINE",
+      "snapshot_date": "2026-06-25",
+      "replacement": "docs/governance/CURRENT-IMPLEMENTATION-STATUS.md"
+    },
+    {
+      "path": "docs/production-readiness/go-live-checklist.md",
+      "class": "PLANNING BASELINE",
+      "snapshot_date": "2026-06-25",
+      "replacement": "docs/governance/CURRENT-IMPLEMENTATION-STATUS.md"
+    }
+  ],
+  "directory_rules": [
+    {
+      "path_prefix": "docs/stage-",
+      "classification": "stage-scoped evidence; not current platform status"
+    },
+    {
+      "path_prefix": "docs/execution/",
+      "classification": "execution-scope evidence; not broad platform status"
+    },
+    {
+      "path_prefix": "docs/crm/",
+      "classification": "module-scope evidence; not broad platform status"
+    },
+    {
+      "path_prefix": "docs/production-readiness/",
+      "classification": "plans, targets and checklists unless explicitly promoted by current authority"
+    }
+  ]
+}

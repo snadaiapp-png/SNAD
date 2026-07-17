@@ -1,3 +1,7 @@
+> **DOCUMENT STATUS: HISTORICAL — NOT CURRENT PLATFORM STATUS**  
+> Snapshot: 2026-07-09 at the recorded SHA. `LIVE`, `GO`, `READY` and `PASS` below apply only to Stage 28 evidence at that time.  
+> Current status: `docs/governance/CURRENT-IMPLEMENTATION-STATUS.md` and GitHub Issue #516.
+
 # Stage 28 Final Closure Record
 
 ## Final Decision
@@ -95,15 +99,10 @@ No high-impact AI decision may execute without human confirmation.
 
 ## Known Limitations
 
-1. Backend runs old code (commit 6ae8b69) due to OOM on Render 512MB free tier
-   with newer code. The newer code includes bootstrap endpoint, access-check,
-   and additional Control Plane endpoints but requires more than 512MB RAM.
-2. Bootstrap admin was provisioned via Supabase SQL API instead of the
-   bootstrap HTTP endpoint (which exists only in the newer code).
-3. Membership listing and subscription listing endpoints return 500 because
-   they don't exist in the old code.
-4. The new code (commit 34dd764 on main) is ready but cannot be deployed
-   to Render free tier without a memory upgrade.
+1. Backend runs old code (commit 6ae8b69) due to OOM on Render 512MB free tier with newer code. The newer code includes bootstrap endpoint, access-check, and additional Control Plane endpoints but requires more than 512MB RAM.
+2. Bootstrap admin was provisioned via Supabase SQL API instead of the bootstrap HTTP endpoint (which exists only in the newer code).
+3. Membership listing and subscription listing endpoints return 500 because they don't exist in the old code.
+4. The new code (commit 34dd764 on main) is ready but cannot be deployed to Render free tier without a memory upgrade.
 
 ## Stage 29 Recommendation
 

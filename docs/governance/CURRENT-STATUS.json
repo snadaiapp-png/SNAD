@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "status_authority": "CURRENT",
+  "as_of": "2026-07-17",
+  "timezone": "Asia/Riyadh",
+  "project": "SANAD",
+  "decision": "CONDITIONAL_CONTINUE",
+  "commercial_go_live": "NOT_APPROVED",
+  "allowed_scope": [
+    "controlled development",
+    "verification",
+    "limited pilot operation"
+  ],
+  "authoritative_tracker": {
+    "repository": "snadaiapp-png/SNAD",
+    "issue": 516,
+    "document": "docs/governance/UNRESOLVED-RISKS-REPORT-2026-07-17.md",
+    "evidence_document": "docs/governance/EXECUTIVE-REVIEW-REMEDIATION-2026-07-17.md"
+  },
+  "runtime_snapshot": {
+    "frontend": "https://snad-app.vercel.app",
+    "frontend_state": "REACHABLE_AT_LAST_REVIEW",
+    "backend_hosting": "TEMPORARY_DEVELOPMENT_TUNNEL",
+    "authentication_reliability": "INTERMITTENT",
+    "production_readiness": "NOT_ACCEPTED"
+  },
+  "closed_findings": {
+    "REM-P0-003": "Executor #23 Master Execution Backlog",
+    "REM-P1-008": "SLA/SLO and incident operating model",
+    "REM-P1-010": "Status documentation authority, reconciliation and historical classification — PR #529, merge e6b7cb7e9dde8b603bc282fb5c491c5fdad6a8e0"
+  },
+  "open_findings": {
+    "REM-P0-001": "Production backend depends on a development tunnel",
+    "REM-P0-002": "BFF authentication reliability is intermittent",
+    "REM-P0-004": "Governance sequence for later outputs remains unreconciled",
+    "REM-P0-005": "Production backup, restore and disaster-recovery evidence is incomplete",
+    "REM-P0-006": "Independent security assurance is not closed",
+    "REM-P1-007": "End-to-end business-process proof is incomplete",
+    "REM-P1-009": "Repository visibility requires an explicit governance decision"
+  },
+  "open_finding_counts": {
+    "total": 7,
+    "P0": 5,
+    "P1": 2,
+    "deferred_but_open": 2
+  },
+  "deferred_findings": [
+    "REM-P0-001",
+    "REM-P0-002"
+  ],
+  "historical_gates": {
+    "ISSUE-101": {
+      "state": "CLOSED",
+      "closed_at": "2026-07-06",
+      "current_authority": false,
+      "replacement": "GitHub Issue #516 and this current-status record"
+    }
+  },
+  "status_rules": {
+    "stage_closure_documents_are_current_status": false,
+    "passing_ci_equals_commercial_approval": false,
+    "healthy_endpoint_equals_platform_readiness": false,
+    "missing_telemetry_equals_success": false
+  }
+}
