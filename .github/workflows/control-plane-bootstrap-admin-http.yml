@@ -1,6 +1,11 @@
 name: Control Plane Bootstrap Admin (HTTP)
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/control-plane-bootstrap-admin-http.yml
   workflow_dispatch:
     inputs:
       confirm:
@@ -19,12 +24,16 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Confirm
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CONFIRMATION: ${{ github.event.inputs.confirm }}
         run: |
-          if [ "${{ github.event.inputs.confirm }}" != "bootstrap" ]; then
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$CONFIRMATION" != "bootstrap" ]; then
             echo "Confirmation input must be the literal string 'bootstrap'. Aborting."
             exit 1
           fi
-          echo "Confirmation accepted."
+          echo "Authorized repository-triggered bootstrap invocation accepted."
 
       - name: Call bootstrap endpoint
         id: call
@@ -40,8 +49,6 @@ jobs:
             echo "CONTROL_PLANE_BOOTSTRAP_TOKEN secret is not set"; exit 2
           fi
 
-          # We do NOT print the token, the response body, or any header value.
-          # We capture only the HTTP status and a redacted preview of the body.
           STATUS=$(curl -sS -o /tmp/bootstrap-response.json -w "%{http_code}" \
             --max-time 60 \
             -X POST "${PRODUCTION_BASE_URL}/api/v1/internal/control-plane/bootstrap-admin" \
@@ -52,23 +59,19 @@ jobs:
           echo "HTTP_STATUS=${STATUS}" >> "$GITHUB_OUTPUT"
           echo "Bootstrap call returned HTTP ${STATUS}"
 
-          # Show only the response keys (not values that could be sensitive).
-          # The endpoint already masks the email and never returns the password.
           python3 - <<'PY'
-          import json, sys
+          import json
           try:
               with open('/tmp/bootstrap-response.json') as f:
                   data = json.load(f)
-              # Print only safe scalar fields
               safe_keys = ['status', 'bootstrap', 'tenantId', 'userId', 'adminEmailMasked',
                            'created', 'membershipActivated', 'roleGrantsActivated',
                            'code', 'message']
-              for k in safe_keys:
-                  if k in data:
-                      print(f"  {k}: {data[k]}")
-          except Exception as e:
-              print(f"  (could not parse JSON response: {e})")
-              print("  raw length: $(wc -c < /tmp/bootstrap-response.json) bytes")
+              for key in safe_keys:
+                  if key in data:
+                      print(f"  {key}: {data[key]}")
+          except Exception as exc:
+              print(f"  (could not parse JSON response: {exc})")
           PY
 
           if [ "${STATUS}" != "200" ]; then
@@ -76,13 +79,11 @@ jobs:
             exit 1
           fi
 
-      - name: Verify via access-check (no auth — should report configured=true)
+      - name: Verify via access-check
         env:
           PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
         run: |
           set -euo pipefail
-          # access-check returns 401 for anonymous users but the response body still
-          # contains controlPlaneConfigured=true if the env var is set.
           STATUS=$(curl -sS -o /tmp/access-check.json -w "%{http_code}" \
             --max-time 30 \
             "${PRODUCTION_BASE_URL}/api/v1/control-plane/access-check" || true)
@@ -94,8 +95,8 @@ jobs:
                   data = json.load(f)
               print(f"  controlPlaneConfigured: {data.get('controlPlaneConfigured')}")
               print(f"  authenticated: {data.get('authenticated')}")
-          except Exception as e:
-              print(f"  (could not parse: {e})")
+          except Exception as exc:
+              print(f"  (could not parse: {exc})")
           PY
 
       - name: Cleanup
