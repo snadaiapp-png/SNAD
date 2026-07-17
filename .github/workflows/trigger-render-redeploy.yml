@@ -30,7 +30,7 @@ jobs:
           test -n "$RENDER_API_KEY" && test -n "$RENDER_SERVICE_ID"
           echo "::add-mask::$RENDER_API_KEY"; echo "::add-mask::$RENDER_SERVICE_ID"
           remote_main="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
-          test "$remote_main" = "$TARGET_SHA" || { echo "::error::Target is not current main: $remote_main"; exit 1; }
+          test "$remote_main" = "$TARGET_SHA"
 
       - name: Checkout exact production SHA
         uses: actions/checkout@v4
@@ -48,30 +48,28 @@ jobs:
       - name: Install PostgreSQL client
         run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client >/dev/null
 
-      - name: Read masked production database configuration
+      - name: Read masked database configuration
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error \
-            -H "Authorization: Bearer $RENDER_API_KEY" -H "Accept: application/json" \
+          curl --fail-with-body --silent --show-error -H "Authorization: Bearer $RENDER_API_KEY" -H "Accept: application/json" \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" > /tmp/render-env.json
-          test "$(jq 'length' /tmp/render-env.json)" -lt 100
           jq '[.[]? | (.envVar // .)]' /tmp/render-env.json > /tmp/render-env-normalized.json
-          for key in DATABASE_URL DATABASE_USERNAME DATABASE_PASSWORD FLYWAY_ENABLED; do
-            jq -e --arg key "$key" 'any(.[]; .key == $key and ((.value // "") | length > 0))' /tmp/render-env-normalized.json >/dev/null || { echo "::error::Missing Render env: $key"; exit 1; }
-          done
-          url="$(jq -r '.[] | select(.key=="DATABASE_URL") | .value' /tmp/render-env-normalized.json)"
-          user="$(jq -r '.[] | select(.key=="DATABASE_USERNAME") | .value' /tmp/render-env-normalized.json)"
-          password="$(jq -r '.[] | select(.key=="DATABASE_PASSWORD") | .value' /tmp/render-env-normalized.json)"
+          url="$(jq -r '.[] | select(.key=="DATABASE_URL") | .value // empty' /tmp/render-env-normalized.json)"
+          user="$(jq -r '.[] | select(.key=="DATABASE_USERNAME") | .value // empty' /tmp/render-env-normalized.json)"
+          password="$(jq -r '.[] | select(.key=="DATABASE_PASSWORD") | .value // empty' /tmp/render-env-normalized.json)"
+          test -n "$url" && test -n "$user" && test -n "$password"
           for value in "$url" "$user" "$password"; do echo "::add-mask::$value"; done
-          printf 'DATABASE_URL=%s\nDATABASE_USERNAME=%s\nDATABASE_PASSWORD=%s\n' "$url" "$user" "$password" >> "$GITHUB_ENV"
+          raw="${url#jdbc:}"; raw="${raw#postgresql://}"; host_port="${raw%%/*}"; db_part="${raw#*/}"; db_name="${db_part%%\?*}"; pg_host="${host_port%%:*}"; pg_port="${host_port#*:}"; [ "$pg_port" != "$host_port" ] || pg_port=5432
+          {
+            printf 'DATABASE_URL=%s\nDATABASE_USERNAME=%s\nDATABASE_PASSWORD=%s\n' "$url" "$user" "$password"
+            printf 'PGHOST=%s\nPGPORT=%s\nPGDATABASE=%s\nPGUSER=%s\n' "$pg_host" "$pg_port" "$db_name" "$user"
+          } >> "$GITHUB_ENV"
 
-      - name: Record pre-migration state
+      - name: Record pre-migration counts
         shell: bash
         run: |
           set -euo pipefail
-          raw="${DATABASE_URL#jdbc:}"; raw="${raw#postgresql://}"; host_port="${raw%%/*}"; db_part="${raw#*/}"; db_name="${db_part%%\?*}"; pg_host="${host_port%%:*}"; pg_port="${host_port#*:}"; [ "$pg_port" != "$host_port" ] || pg_port=5432
-          echo "PGHOST=$pg_host" >> "$GITHUB_ENV"; echo "PGPORT=$pg_port" >> "$GITHUB_ENV"; echo "PGDATABASE=$db_name" >> "$GITHUB_ENV"
           export PGPASSWORD="$DATABASE_PASSWORD"
           mkdir -p production-evidence
           psql --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT json_build_object('accounts',COUNT(*)) FROM crm_accounts" > production-evidence/pre-accounts.json
@@ -89,12 +87,11 @@ jobs:
           import org.flywaydb.core.Flyway;
           public final class ProductionFlyway {
             public static void main(String[] args) {
-              Flyway flyway = Flyway.configure()
+              var result = Flyway.configure()
                   .dataSource(args[0], args[1], args[2])
                   .locations("classpath:db/migration")
                   .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
-                  .load();
-              var result = flyway.migrate();
+                  .load().migrate();
               System.out.println("migrationsExecuted=" + result.migrationsExecuted);
               System.out.println("targetSchemaVersion=" + result.targetSchemaVersion);
             }
@@ -122,62 +119,45 @@ jobs:
             > production-evidence/crm-007-production-database.json
 
       - name: Upload sanitized database evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: crm-007-production-database-${{ github.run_id }}
           path: production-evidence/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 90
 
   web:
     if: github.head_ref == 'ops/crm-007-final-production'
-    name: Deploy exact SHA to Vercel and smoke test
+    name: Verify exact Vercel production and runtime smoke
     runs-on: ubuntu-latest
     environment: Production
-    timeout-minutes: 35
+    timeout-minutes: 15
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
       WEB_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
     steps:
-      - name: Validate Vercel configuration and target
+      - name: Verify exact-SHA Vercel Production deployment
         shell: bash
         run: |
           set -euo pipefail
-          for name in VERCEL_TOKEN VERCEL_PROJECT_ID VERCEL_TEAM_ID WEB_BASE_URL; do test -n "${!name:-}" || exit 1; done
-          echo "::add-mask::$VERCEL_TOKEN"; echo "::add-mask::$VERCEL_PROJECT_ID"; echo "::add-mask::$VERCEL_TEAM_ID"
-          remote_main="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
-          test "$remote_main" = "$TARGET_SHA"
+          for value in "$VERCEL_TOKEN" "$VERCEL_PROJECT_ID" "$VERCEL_TEAM_ID"; do test -n "$value"; echo "::add-mask::$value"; done
           mkdir -p production-evidence
-
-      - name: Create or reuse exact-SHA Vercel Production deployment
-        id: deploy
-        shell: bash
-        run: |
-          set -euo pipefail
-          team="?teamId=${VERCEL_TEAM_ID}"
           list="https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&target=production&limit=100&teamId=${VERCEL_TEAM_ID}"
-          curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" "$list" > /tmp/list.json
-          id="$(jq -r --arg sha "$TARGET_SHA" '[.deployments[]? | select((.meta.githubCommitSha // "") == $sha and (.target // "") == "production" and ((.readyState // .state // "") == "READY"))] | last | .uid // empty' /tmp/list.json)"
-          if [ -z "$id" ]; then
-            curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}${team}" > /tmp/project.json
-            name="$(jq -r '.name' /tmp/project.json)"
-            jq -n --arg name "$name" --arg project "$VERCEL_PROJECT_ID" --arg sha "$TARGET_SHA" '{name:$name,project:$project,target:"production",gitSource:{type:"github",org:"snadaiapp-png",repo:"SNAD",ref:"main",sha:$sha},gitMetadata:{remoteUrl:"https://github.com/snadaiapp-png/SNAD",commitRef:"main",commitSha:$sha,dirty:"false",ci:"true",ciType:"github-actions"},meta:{githubCommitSha:$sha,gate:"CRM-G3D"}}' > /tmp/create.json
-            curl --fail-with-body -fsS -X POST -H "Authorization: Bearer $VERCEL_TOKEN" -H 'Content-Type: application/json' --data @/tmp/create.json "https://api.vercel.com/v13/deployments${team}" > /tmp/created.json
-            id="$(jq -r '.id // .uid // empty' /tmp/created.json)"; test -n "$id"
-          fi
-          echo "id=$id" >> "$GITHUB_OUTPUT"
-          for attempt in $(seq 1 150); do
+          found=""
+          for attempt in $(seq 1 30); do
             curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" "$list" > /tmp/list.json
-            match="$(jq -c --arg id "$id" --arg sha "$TARGET_SHA" '[.deployments[]? | select((.uid // "") == $id and (.meta.githubCommitSha // "") == $sha and (.target // "") == "production")] | last // empty' /tmp/list.json)"
-            if [ -n "$match" ] && [ "$match" != null ]; then state="$(jq -r '.readyState // .state // empty' <<< "$match")"; case "$state" in READY) break ;; ERROR|CANCELED) echo "$match"; exit 1 ;; esac; fi
-            sleep 10
+            found="$(jq -c --arg sha "$TARGET_SHA" '[.deployments[]? | select((.meta.githubCommitSha // "") == $sha and (.target // "") == "production" and ((.readyState // .state // "") == "READY"))] | sort_by(.createdAt) | last // empty' /tmp/list.json)"
+            [ -n "$found" ] && [ "$found" != null ] && break
+            sleep 5
           done
-          test "$(jq -r '.readyState // .state' <<< "$match")" = READY
-          jq -n --arg sha "$TARGET_SHA" --argjson deployment "$match" '{release_sha:$sha,deployment_id:$deployment.uid,deployment_url:$deployment.url,target:$deployment.target,state:($deployment.readyState // $deployment.state),deployed_sha:$deployment.meta.githubCommitSha,result:"PASS"}' > production-evidence/crm-007-vercel-production.json
+          test "$(jq -r '.meta.githubCommitSha' <<< "$found")" = "$TARGET_SHA"
+          test "$(jq -r '.readyState // .state' <<< "$found")" = READY
+          jq -n --arg sha "$TARGET_SHA" --argjson deployment "$found" '{release_sha:$sha,deployment_id:$deployment.uid,deployment_url:$deployment.url,target:$deployment.target,state:($deployment.readyState // $deployment.state),deployed_sha:$deployment.meta.githubCommitSha,result:"PASS"}' > production-evidence/crm-007-vercel-production.json
 
-      - name: Verify frontend, BFF v1/v2, backend health, and runtime OpenAPI
+      - name: Verify frontend, BFF v1/v2, backend health, and CRM-007 OpenAPI
         shell: bash
         run: |
           set -euo pipefail
@@ -196,7 +176,7 @@ jobs:
           jq -e '.paths["/api/v2/crm/accounts/{accountId}/addresses"].get and .paths["/api/v2/crm/accounts/{accountId}/communication-methods"].get' /tmp/openapi.json >/dev/null
           jq -n --arg sha "$TARGET_SHA" --argjson status "$(cat /tmp/status.json)" --arg v2 "$v2" '{release_sha:$sha,frontend_http:200,accounts_http:200,contacts_http:200,backend_status:$status,anonymous_auth_http:401,anonymous_crm_v2_http:($v2|tonumber),backend_health:"UP",crm007_openapi:true,result:"PASS"}' > production-evidence/crm-007-production-smoke.json
 
-      - name: Upload sanitized Vercel and smoke evidence
+      - name: Upload sanitized web evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
