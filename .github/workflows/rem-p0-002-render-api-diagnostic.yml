@@ -1,0 +1,87 @@
+name: REM-P0-002 Render API Diagnostic
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/rem-p0-002-render-api-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnostic:
+    name: Validate Render service API access without mutation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: Production
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+
+    steps:
+      - name: Validate protected values exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RENDER_API_KEY"
+          test -n "$RENDER_SERVICE_ID"
+          echo "::add-mask::$RENDER_API_KEY"
+          echo "::add-mask::$RENDER_SERVICE_ID"
+
+      - name: Probe service and environment-variable endpoints
+        id: probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          probe() {
+            local name="$1"
+            local url="$2"
+            local body="$RUNNER_TEMP/${name}.json"
+            local code
+            code="$(curl -sS --show-error --max-time 30 -o "$body" -w '%{http_code}' \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H 'Accept: application/json' \
+              "$url" || true)"
+            jq -n \
+              --arg endpoint "$name" \
+              --arg httpStatus "$code" \
+              --arg errorCode "$(jq -r '.error.code // empty' "$body" 2>/dev/null || true)" \
+              --arg errorMessage "$(jq -r '.error.message // empty' "$body" 2>/dev/null || true)" \
+              '{endpoint:$endpoint,httpStatus:$httpStatus,errorCode:$errorCode,errorMessage:$errorMessage,result:(if $httpStatus == "200" then "PASS" else "FAIL" end)}'
+          }
+          service="$(probe service "https://api.render.com/v1/services/${RENDER_SERVICE_ID}")"
+          envvars="$(probe envVars "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars?limit=1")"
+          jq -n --argjson service "$service" --argjson envvars "$envvars" '{finding:"REM-P0-002",service:$service,envVars:$envvars}' > evidence/rem-p0-002-render-api-diagnostic.json
+          jq -e '.service.result == "PASS" and .envVars.result == "PASS"' evidence/rem-p0-002-render-api-diagnostic.json >/dev/null
+
+      - name: Upload sanitized diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rem-p0-002-render-api-diagnostic-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Record result
+        if: always()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            let summary = {service:{result:'UNKNOWN'},envVars:{result:'UNKNOWN'}};
+            try { summary = JSON.parse(fs.readFileSync('evidence/rem-p0-002-render-api-diagnostic.json','utf8')); } catch (_) {}
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              '## REM-P0-002 Render API diagnostic',
+              '',
+              `- Service endpoint: **${summary.service?.result || 'UNKNOWN'}** (${summary.service?.httpStatus || 'n/a'})`,
+              `- Environment endpoint: **${summary.envVars?.result || 'UNKNOWN'}** (${summary.envVars?.httpStatus || 'n/a'})`,
+              `- Evidence: ${runUrl}`
+            ].join('\n');
+            await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number: 535, body});
