@@ -40,6 +40,15 @@ public class JdbcLegacyAddressProjectionAdapter implements LegacyAddressProjecti
                 .addValue("createdAt", timestamp(address.createdAt()))
                 .addValue("updatedAt", timestamp(address.updatedAt()));
 
+        if (address.primaryAddress()) {
+            jdbc.update(
+                    "UPDATE crm_account_addresses SET primary_address=FALSE,version=version+1," +
+                            "updated_by=:actorId,updated_at=:updatedAt " +
+                            "WHERE tenant_id=:tenantId AND account_id=:accountId AND address_type=:addressType " +
+                            "AND id<>:id AND primary_address=TRUE",
+                    params);
+        }
+
         int updated = jdbc.update(
                 "UPDATE crm_account_addresses SET version=:version,address_type=:addressType,label=:label," +
                         "line1=:line1,line2=:line2,city=:city,state_region=:stateRegion," +
