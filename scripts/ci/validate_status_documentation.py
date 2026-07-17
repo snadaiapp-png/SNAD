@@ -10,6 +10,11 @@ ROOT = Path(__file__).resolve().parents[2]
 GOV = ROOT / "docs" / "governance"
 REGISTRY = GOV / "status-document-registry.json"
 CURRENT = GOV / "CURRENT-STATUS.json"
+MARKER_REQUIRED = {
+    "README.md",
+    "docs/README.md",
+    "docs/governance/CURRENT-IMPLEMENTATION-STATUS.md",
+}
 
 
 class ValidationError(RuntimeError):
@@ -51,12 +56,13 @@ def main() -> int:
     )
 
     authority_paths = [item["path"] for item in registry["current_authorities"]]
+    require(set(MARKER_REQUIRED).issubset(set(authority_paths)), "required current authorities missing from registry")
     for path in authority_paths:
         content = read_text(path)
-        if path.endswith(".md") or path == "README.md":
+        if path in MARKER_REQUIRED:
             require("STATUS_AUTHORITY: CURRENT" in content, f"missing current-authority marker: {path}")
-            for phrase in stale_phrases:
-                require(phrase not in content, f"stale phrase in current authority {path}: {phrase}")
+        for phrase in stale_phrases:
+            require(phrase not in content, f"stale phrase in current authority {path}: {phrase}")
 
     for item in registry["non_current_status_documents"]:
         path = item["path"]
