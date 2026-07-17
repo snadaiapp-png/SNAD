@@ -1,0 +1,121 @@
+{
+  "schema_version": "1.0",
+  "effective_date": "2026-07-17",
+  "timezone": "Asia/Riyadh",
+  "reporting_period": "calendar_month",
+  "external_sla_contract_status": "policy-target-not-contractual-until-approved",
+  "services": [
+    {
+      "id": "web-experience",
+      "name": "SANAD Web Experience",
+      "tier": 1,
+      "owner_role": "Frontend Platform Owner",
+      "availability_slo_percent": 99.9,
+      "external_sla_target_percent": 99.5,
+      "latency_sli": "p95_document_ready_ms",
+      "latency_target_ms": 2500,
+      "success_contract": "HTTP 200 and valid SANAD application shell",
+      "measurement_sources": [
+        "production_rum",
+        "synthetic_root_check",
+        "vercel_runtime_logs"
+      ]
+    },
+    {
+      "id": "bff-api",
+      "name": "SANAD BFF and API Edge",
+      "tier": 0,
+      "owner_role": "Platform API Owner",
+      "availability_slo_percent": 99.95,
+      "external_sla_target_percent": 99.9,
+      "latency_sli": "p95_request_duration_ms",
+      "latency_target_ms": 1500,
+      "success_contract": "Expected 2xx/4xx contract; 5xx, timeout and contract mismatch are bad events",
+      "measurement_sources": [
+        "vercel_runtime_logs",
+        "api_synthetics",
+        "distributed_traces"
+      ]
+    },
+    {
+      "id": "identity-session",
+      "name": "Identity and Session",
+      "tier": 0,
+      "owner_role": "Identity and Access Owner",
+      "availability_slo_percent": 99.95,
+      "external_sla_target_percent": 99.9,
+      "latency_sli": "p95_auth_journey_ms",
+      "latency_target_ms": 2000,
+      "success_contract": "Login, session restoration, refresh and logout satisfy expected status and security contract",
+      "measurement_sources": [
+        "auth_synthetics",
+        "audit_events",
+        "api_logs"
+      ]
+    },
+    {
+      "id": "core-business-api",
+      "name": "Core Business API",
+      "tier": 0,
+      "owner_role": "Core Platform Owner",
+      "availability_slo_percent": 99.95,
+      "external_sla_target_percent": 99.9,
+      "latency_sli": "p95_write_request_ms",
+      "latency_target_ms": 2000,
+      "success_contract": "Authorized business reads/writes complete exactly once with tenant boundary enforced",
+      "measurement_sources": [
+        "backend_metrics",
+        "distributed_traces",
+        "business_synthetics"
+      ]
+    },
+    {
+      "id": "financial-integrity",
+      "name": "Accounting and Financial Integrity",
+      "tier": 0,
+      "owner_role": "Accounting Product Owner",
+      "availability_slo_percent": 99.95,
+      "external_sla_target_percent": 99.9,
+      "latency_sli": "p95_posting_confirmation_ms",
+      "latency_target_ms": 2500,
+      "success_contract": "Accepted transaction posts balanced, idempotent and auditable accounting effects",
+      "measurement_sources": [
+        "ledger_metrics",
+        "reconciliation_checks",
+        "audit_events"
+      ]
+    },
+    {
+      "id": "workflow-processing",
+      "name": "Workflow and Asynchronous Processing",
+      "tier": 1,
+      "owner_role": "Workflow Platform Owner",
+      "availability_slo_percent": 99.9,
+      "external_sla_target_percent": 99.5,
+      "latency_sli": "p95_critical_job_completion_ms",
+      "latency_target_ms": 60000,
+      "success_contract": "Critical jobs complete once within deadline or enter visible governed retry/dead-letter handling",
+      "measurement_sources": [
+        "queue_metrics",
+        "workflow_events",
+        "dead_letter_metrics"
+      ]
+    },
+    {
+      "id": "analytics-reporting",
+      "name": "Analytics and Reporting",
+      "tier": 2,
+      "owner_role": "Data and Analytics Owner",
+      "availability_slo_percent": 99.5,
+      "external_sla_target_percent": 99.0,
+      "latency_sli": "p95_interactive_query_ms",
+      "latency_target_ms": 5000,
+      "success_contract": "Authorized report returns complete data within freshness and latency contract",
+      "measurement_sources": [
+        "analytics_metrics",
+        "freshness_checks",
+        "report_synthetics"
+      ]
+    }
+  ]
+}

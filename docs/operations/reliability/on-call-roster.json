@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "effective_from": "2026-07-17",
+  "timezone": "Asia/Riyadh",
+  "review_frequency": "monthly-and-after-sev0-sev1",
+  "interim_model": true,
+  "primary": {
+    "role": "Platform Operations Duty",
+    "github": "snadaiapp-png",
+    "coverage": "24x7-sev0-sev1"
+  },
+  "secondary": {
+    "role": "Engineering Lead Duty",
+    "github": "snadaiapp-png",
+    "coverage": "24x7-sev0-sev1"
+  },
+  "executive_escalation": {
+    "role": "Project Owner",
+    "github": "snadaiapp-png",
+    "page_after_minutes": 10
+  },
+  "specialist_escalations": [
+    {
+      "condition": "security-privacy-tenant-isolation",
+      "role": "Security Lead",
+      "page_immediately": true
+    },
+    {
+      "condition": "financial-data-integrity",
+      "role": "Accounting or Data Integrity Lead",
+      "page_immediately": true
+    },
+    {
+      "condition": "customer-wide-impact",
+      "role": "Communications Lead",
+      "page_after_ic_confirmation": true
+    }
+  ],
+  "residual_risk": "Primary and secondary duties currently converge on one account. Establish a staffed rotation before activating contractual external SLAs."
+}

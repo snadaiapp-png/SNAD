@@ -1,0 +1,60 @@
+name: Operational Governance Validation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/operations/reliability/**'
+      - 'docs/governance/P1-008-CLOSURE-DECISION-2026-07-17.md'
+      - 'scripts/ci/validate_operational_governance.py'
+      - '.github/ISSUE_TEMPLATE/incident.yml'
+      - '.github/workflows/operational-governance-validation.yml'
+      - '.github/workflows/monthly-service-review.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'docs/operations/reliability/**'
+      - 'docs/governance/P1-008-CLOSURE-DECISION-2026-07-17.md'
+      - 'scripts/ci/validate_operational_governance.py'
+      - '.github/ISSUE_TEMPLATE/incident.yml'
+      - '.github/workflows/operational-governance-validation.yml'
+      - '.github/workflows/monthly-service-review.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: operational-governance-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate SLA, SLO, incident and on-call controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Compile validator
+        run: python3 -m py_compile scripts/ci/validate_operational_governance.py
+      - name: Validate operational governance
+        run: python3 scripts/ci/validate_operational_governance.py
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo '## SANAD Operational Governance'
+            echo
+            echo '- SLA/SLO/error-budget policy: required'
+            echo '- Service catalog: 7 governed services'
+            echo '- Incident severities: SEV0–SEV3'
+            echo '- On-call: primary, secondary, executive and specialist escalation'
+            echo '- Monthly service review: scheduled'
+          } >> "$GITHUB_STEP_SUMMARY"
