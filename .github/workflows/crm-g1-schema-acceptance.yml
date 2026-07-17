@@ -1,0 +1,128 @@
+name: CRM G1 Schema Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/resources/db/migration/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java'
+      - 'scripts/crm/verify-g1-schema.sql'
+      - 'docs/crm/stage-reports/CRM-G1-STAGE-REPORT.md'
+      - '.github/workflows/crm-g1-schema-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-g1-schema-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  schema-acceptance:
+    name: PostgreSQL 16 / Flyway / Tenant Isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad_g1
+          POSTGRES_PASSWORD: sanad_g1_pass
+          POSTGRES_DB: sanad_g1
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sanad_g1 -d sanad_g1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_g1
+      DATABASE_USERNAME: sanad_g1
+      DATABASE_PASSWORD: sanad_g1_pass
+      DATABASE_NAME: sanad_g1
+
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Build migration classpath
+        working-directory: apps/sanad-platform
+        run: mvn --batch-mode --no-transfer-progress -DskipTests -Dmaven.test.skip=true clean package
+
+      - name: Apply full Flyway chain
+        working-directory: apps/sanad-platform
+        run: >-
+          mvn --batch-mode --no-transfer-progress flyway:migrate
+          -Dflyway.url="$DATABASE_URL"
+          -Dflyway.user="$DATABASE_USERNAME"
+          -Dflyway.password="$DATABASE_PASSWORD"
+          -Dflyway.locations=classpath:db/migration
+          -Dflyway.baselineOnMigrate=true
+          -Dflyway.validateOnMigrate=true
+          -Dflyway.outOfOrder=true
+          -Dflyway.baselineVersion=0
+
+      - name: Verify 8 tables, 26 indexes, tenant constraints
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/crm-g1-evidence"
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -v ON_ERROR_STOP=1 \
+            -f scripts/crm/verify-g1-schema.sql \
+            2>&1 | tee "$RUNNER_TEMP/crm-g1-evidence/schema-verification.txt"
+
+      - name: Run PostgreSQL Testcontainers migration suite
+        working-directory: apps/sanad-platform
+        run: >-
+          mvn --batch-mode --no-transfer-progress
+          -Dtest=CrmPostgresMigrationTest test
+
+      - name: Record exact schema evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/crm-g1-evidence/schema-inventory.txt"
+          {
+            echo "candidate_sha=${GITHUB_SHA}"
+            echo "workflow_run_id=${GITHUB_RUN_ID}"
+            echo "generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo
+            echo '[flyway]'
+            PGPASSWORD="$DATABASE_PASSWORD" psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc \
+              "SELECT version || '|' || description || '|' || success FROM flyway_schema_history WHERE version='20260717.6'"
+            echo
+            echo '[tables]'
+            PGPASSWORD="$DATABASE_PASSWORD" psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc \
+              "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('crm_tasks','crm_assignments','crm_transfers','crm_notes','crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index') ORDER BY table_name"
+            echo
+            echo '[indexes]'
+            PGPASSWORD="$DATABASE_PASSWORD" psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc \
+              "SELECT tablename || '|' || indexname FROM pg_indexes WHERE schemaname='public' AND tablename IN ('crm_tasks','crm_assignments','crm_transfers','crm_notes','crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index') AND indexname LIKE 'idx_crm_%' ORDER BY tablename,indexname"
+          } > "$evidence"
+
+      - name: Upload G1 acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-g1-schema-evidence-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/crm-g1-evidence
+            apps/sanad-platform/target/surefire-reports
+          if-no-files-found: error
+          retention-days: 30
