@@ -15,6 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Scan current repository tree for secrets
+        id: current-tree-secret-scan
         run: |
           set -euo pipefail
 
@@ -69,6 +70,15 @@ jobs:
           fi
 
           echo "Gitleaks enforcement passed."
+
+      - name: Upload redacted current-tree secret diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: current-tree-secret-scan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gitleaks-report/findings.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Synthetic negative control — default rules must detect AWS AKIA
         run: |
