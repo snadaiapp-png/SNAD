@@ -1,0 +1,78 @@
+name: CRM OpenAPI Diagnostics
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/**'
+      - '.github/workflows/crm-openapi-diagnostics.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-openapi-diagnostics-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    name: Capture CRM runtime OpenAPI
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Start backend
+        working-directory: apps/sanad-platform
+        env:
+          JWT_SECRET: ci-only-non-production-validation-key-1234567890
+        run: |
+          set -euo pipefail
+          nohup mvn -q -DskipTests spring-boot:run \
+            -Dspring-boot.run.profiles=local \
+            -Dspring-boot.run.arguments="--server.port=8081 --management.endpoints.web.exposure.include=health" \
+            > /tmp/crm-openapi-backend.log 2>&1 &
+          echo $! > /tmp/crm-openapi-backend.pid
+
+      - name: Capture runtime OpenAPI
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 120); do
+            if ! kill -0 "$(cat /tmp/crm-openapi-backend.pid)" 2>/dev/null; then
+              cat /tmp/crm-openapi-backend.log
+              exit 1
+            fi
+            code="$(curl -sS -o /tmp/platform-openapi.json -w '%{http_code}' http://localhost:8081/v3/api-docs || true)"
+            if [ "$code" = '200' ] && [ -s /tmp/platform-openapi.json ]; then
+              python3 -m json.tool /tmp/platform-openapi.json > /tmp/platform-openapi.pretty.json
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/crm-openapi-backend.log
+          exit 1
+
+      - name: Upload runtime OpenAPI
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-runtime-openapi-${{ github.sha }}
+          path: /tmp/platform-openapi.pretty.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f /tmp/crm-openapi-backend.pid ]; then
+            kill "$(cat /tmp/crm-openapi-backend.pid)" 2>/dev/null || true
+          fi
