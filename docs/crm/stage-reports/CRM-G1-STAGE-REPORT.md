@@ -9,15 +9,20 @@ SOURCE_IMPLEMENTATION: COMPLETE_ON_CANDIDATE_BRANCH
 26_EXPLICIT_INDEXES: IMPLEMENTED_AND_ASSERTED
 POSTGRESQL_ISOLATION_TEST: IMPLEMENTED
 PLAYWRIGHT_ISOLATION_SCRIPT: PRESENT
-EXACT_HEAD_CI: PENDING
+EXACT_HEAD_CI: EXTERNAL_PR_CHECK_REQUIRED
 PRODUCTION_MIGRATION_EVIDENCE: PENDING
 CRM-G1: OPEN / NOT_READY_FOR_CLOSURE
 ```
 
 This report replaces the previous unsupported summary with an auditable inventory.
 The source contract is implemented on `crm/g1-extension-closure`. Closure remains
-blocked until the exact pull-request head passes CI and the production evidence record
-is completed and approved.
+blocked unless the current pull-request head has a successful external CI check and
+the production evidence record is completed and approved.
+
+The exact-head result is intentionally not hard-coded in this file because editing the
+report changes the head SHA. The decision authority must read the current
+`CRM G1 Schema Acceptance` check and its artifact from the pull request or release
+record at the time of approval.
 
 ## Delivery files
 
@@ -122,8 +127,8 @@ reference behavior.
 
 The CI workflow applies the complete Flyway chain on PostgreSQL 16, runs the catalog
 verifier and Testcontainers suite, and uploads schema, index, Flyway, and test evidence
-bound to the exact candidate SHA. A workflow definition is not a successful run; the
-run result remains required.
+bound to the exact candidate SHA. A workflow definition is not evidence of success;
+the external PR or release check must be successful on the current immutable head.
 
 ## Acceptance matrix
 
@@ -137,7 +142,7 @@ run result remains required.
 | PostgreSQL negative isolation test | IMPLEMENTED |
 | Playwright isolation contract | PRESENT |
 | Formal report | PRESENT |
-| Exact-head CI run | PENDING |
+| Exact-head CI run | EXTERNAL PR CHECK — MUST BE PASS AT DECISION TIME |
 | Production Flyway application | PENDING |
 | Production schema evidence | PENDING |
 | Runtime production isolation evidence | PENDING |
@@ -151,7 +156,7 @@ CRM-G1: OPEN / NOT_READY_FOR_CLOSURE
 8_EXTENSION_TABLES: CONCLUSIVELY_DEFINED_IN_SOURCE
 26_INDEXES: CONCLUSIVELY_DEFINED_IN_SOURCE
 TENANT_ISOLATION_TESTS: IMPLEMENTED
-EXACT_HEAD_CI: REQUIRED
+EXACT_HEAD_CI: EXTERNAL PR CHECK REQUIRED
 PRODUCTION_MIGRATION_EVIDENCE: REQUIRED
 FORMAL_OWNER_APPROVAL: REQUIRED
 ```
