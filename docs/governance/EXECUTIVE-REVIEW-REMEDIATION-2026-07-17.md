@@ -3,194 +3,180 @@
 **Review date:** 2026-07-17 (Asia/Riyadh)  
 **Repository:** `snadaiapp-png/SNAD`  
 **Reviewed production application SHA:** `63b29ba33cff192529046a682b06dae121dc68a1`  
-**Executive remediation merges:** `5a2f337ec2502db32f94985110c900ab472d0c9c`, `afb159e33066dcb92c6df28820ef1108f7333a47`  
-**Authoritative remediation tracker:** GitHub issue `#516`  
+**Latest governance merge:** `6472be6a8a0252a52d977bc281757cd469bbb7db`  
+**Authoritative remediation tracker:** GitHub Issue `#516`  
 **Decision:** **CONTINUE CONDITIONALLY — BROAD COMMERCIAL GO-LIVE NOT APPROVED**
 
-## 1. Review scope
+## 1. Evidence model
 
-This review applies the executive-management requirements to the actual repository and production chain. It distinguishes evidence from declarations and uses the following status model:
+Project status uses five distinct levels:
 
 1. **Documented** — a design or requirement exists.
-2. **Implemented** — code exists on a reviewed branch.
+2. **Implemented** — code or an operating control exists on a reviewed branch.
 3. **Verified** — automated or reproducible evidence passes on an exact SHA.
-4. **Deployed** — the exact SHA is deployed to the target environment.
-5. **Accepted** — the responsible gate owner records a scope-specific decision.
+4. **Deployed** — the exact SHA is active in the target environment.
+5. **Accepted** — the accountable gate owner records a scope-specific decision.
 
-No component is considered enterprise-production-ready merely because a document, screen, endpoint, pull request, or isolated test exists.
+No component is enterprise-production-ready merely because a document, screen, endpoint, pull request or isolated test exists.
 
 ## 2. Current verified production state
 
-The following checks were executed against the production environment on 2026-07-17 at approximately 01:45 Asia/Riyadh:
+The production review on 2026-07-17 established:
 
-| Check | Verified result | Acceptance |
+| Check | Result | Decision |
 |---|---|---|
-| Vercel production UI | HTTP `200`; Arabic RTL and SNAD markers present | Pass |
-| Frontend-to-backend status | HTTP `200`; `configured=true`, `reachable=true`, `statusCode=200` | Pass at check time |
-| BFF authentication path without session | Multiple HTTP `401` responses, followed by two HTTP `502` timeouts | **Intermittent failure — not accepted** |
-| Backend target reported by production | `streak-train-empower.ngrok-free.dev` | Operational but unacceptable as final enterprise hosting |
-| Latest application deployment | Vercel `READY`, target `production`, SHA `63b29ba...` | Pass for the Next.js deployment scope only |
+| Vercel production UI | HTTP `200`; SANAD and Arabic RTL markers present | Passed for web deployment scope |
+| Frontend-to-backend status | `configured=true`, `reachable=true`, `statusCode=200` at check time | Passed only at the observed time |
+| Unauthenticated BFF auth path | Expected `401` responses followed by intermittent `502 TimeoutError` responses | Not accepted as stable |
+| Backend target | `streak-train-empower.ngrok-free.dev` | Temporary and not accepted as final hosting |
+| Application deployment | Vercel production reported `READY` for SHA `63b29ba...` | Passed for Next.js deployment scope only |
 
-The production web application is live and connected, but authentication-chain availability is intermittent. This state does **not** close infrastructure, identity reliability, disaster recovery, security assurance, or commercial go-live gates.
+The application is reachable, but this does not close infrastructure, authentication reliability, disaster recovery, independent security assurance or commercial go-live gates.
 
-## 3. Corrections executed
+## 3. Corrections completed
 
-### COR-001 — Replace the UI-only smoke test with an end-to-end readiness gate
+### COR-001 — End-to-end production readiness gate
 
-**Previous defect:** `.github/workflows/production-smoke.yml` validated only the HTML page. A green result did not prove backend configuration, BFF connectivity, authentication routing, approved backend identity, or backend health.
+Replaced the previous UI-only smoke check with a fail-closed gate covering:
 
-**Correction:**
+- Production UI and Arabic/RTL markers.
+- Backend configuration and reachability contract.
+- Expected unauthenticated BFF `401` behavior.
+- Explicit approved backend host identity.
+- Direct backend health.
+- Bounded retries, HTTPS enforcement and structured evidence.
 
-- Added `scripts/ci/check-production-readiness.py`.
-- The probe fails closed unless all of the following pass:
-  - Production UI returns HTTP `200` and expected bilingual/RTL markers.
-  - `/api/system/backend-status` returns HTTP `200` with `configured=true`, `reachable=true`, and `statusCode=200`.
-  - `/api/platform/api/v1/auth/me` returns HTTP `401` without a session.
-  - The backend host exactly matches the explicitly approved production host.
-  - The approved backend Actuator endpoint returns HTTP `200` with `status=UP`.
-- Added bounded retries, fail-fast behavior, Python compilation validation, and HTTPS-only URL enforcement.
-- Added protection against redirecting the probe to an unapproved host.
-- Produces structured JSON evidence for every run.
-- Runs after relevant frontend/backend changes, on pull requests, manually, and hourly.
-- Uploads evidence for 30 days and publishes a GitHub Actions summary.
+**Status:** Merged through PR `#517` at `5a2f337ec2502db32f94985110c900ab472d0c9c`.
 
-**Status:** Completed and merged through PR `#517` as `5a2f337ec2502db32f94985110c900ab472d0c9c`.
+### COR-002 — Contradictory CRM implementation state
 
-### COR-002 — Remove contradictory duplicate CRM implementation state
-
-**Previous defect:** PR `#514` remained open as an `EXEC-PROMPT-CRM-005` implementation after PR `#515` had already been independently verified, accepted, merged, and deployed for the same governed prompt. The branches contained competing domain implementations.
-
-**Correction:**
-
-- Added an explicit supersession record to PR `#514`.
-- Renamed it with `[SUPERSEDED BY #515]`.
-- Closed it without deleting the branch, preserving recoverability while removing execution ambiguity.
-- Clarified on PR `#515` that `UNRESOLVED BLOCKERS: 0` applied only to the CRM-005 delivery scope, not full-platform commercial production readiness.
+Closed and marked PR `#514` as superseded by accepted PR `#515`, while preserving branch history. Clarified that scope-specific “zero blockers” did not mean the full platform was production-ready.
 
 **Status:** Completed.
 
-### COR-003 — Establish a single executive evidence and remediation record
+### COR-003 — Authoritative executive remediation record
 
-**Previous defect:** Project status was spread across pull-request descriptions, historical transition documents, deployment metadata, and narrative reports. This allowed scope-specific claims such as “zero unresolved blockers” to coexist with temporary backend hosting and open enterprise gates.
+Established this report and Issue `#516` as the evidence-backed remediation tracker. Scope-specific closure requires exact versions, test/run identifiers, accountable ownership and residual-risk decisions.
 
-**Correction:**
+**Status:** Active.
 
-- Added this dated remediation report to the repository.
-- Defined evidence levels and a scope-specific production decision.
-- Recorded unresolved findings with severity, root cause, accountable owner role, and closure criteria.
-- Opened issue `#516` as the authoritative P0/P1 remediation gate.
-- Added execution evidence and current runtime findings to that issue.
+### COR-004 — False NVD workflow failures
 
-**Status:** Completed and active; the report and issue must be updated after material releases or risk decisions.
+Removed two deprecated workflows that produced misleading `No jobs were run` failures and archived their supersession rationale.
 
-### COR-004 — Remove deprecated workflows that generated false failed runs
+**Status:** Merged through PR `#518` at `afb159e33066dcb92c6df28820ef1108f7333a47`.
 
-**Previous defect:** Two superseded NVD workflow files remained under `.github/workflows` with empty trigger definitions. Ordinary pushes generated failed GitHub Actions runs reporting `No jobs were run`, contaminating commit status without executing a valid control.
+### COR-005 — Executor #23 Master Execution Backlog
 
-**Correction:**
+Created and accepted the authoritative importable execution backlog:
 
-- Removed `.github/workflows/nvd-database-maintenance.yml`.
-- Removed `.github/workflows/nvd-feed-mirror-publisher.yml`.
-- Preserved their supersession rationale under `docs/archive/workflows/NVD-DEPRECATED-WORKFLOWS.md`.
-- Left the approved successor workflows unchanged.
+- 20 Epics.
+- 60 Features.
+- 120 User Stories.
+- 240 Tasks.
+- 440 total work items.
+- 20 platform streams, 20 sprint definitions and 20 platform risks.
+- Jira Cloud, Azure DevOps and GitHub Projects exports with deterministic structural validation.
 
-**Status:** Completed and merged through PR `#518` as `afb159e33066dcb92c6df28820ef1108f7333a47`.
+**Status:** P0-003 closed through PR `#522` at `e026cdb99393c2ca8c7e5a86fd549622105492ab`; closure decision merged through PR `#523` at `49e404ec38b1bd2a0cbd3c9b0beb56fd2ecc3ab9`.
 
-## 4. Errors and gaps not corrected
+### COR-006 — SLA/SLO and incident operating model
+
+Established and enforced:
+
+- Internal SLOs and non-contractual external SLA targets.
+- Seven cataloged services across Tier 0, Tier 1 and Tier 2.
+- Availability, latency and success measurement contracts.
+- Error budgets, burn-rate thresholds and release restrictions.
+- SEV0–SEV3 classification and response targets.
+- Incident command roles, evidence and closure rules.
+- Primary, secondary, executive and specialist escalation.
+- Structured incident, PIR and monthly reporting templates.
+- Scheduled monthly service-review creation.
+- Fail-closed CI validation.
+
+The validation job `87772321981` in workflow run `29544074237` completed successfully on PR head SHA `c2c8693bcaccd781a78de4d6f1bedecb8971300c`.
+
+**Status:** P1-008 closed as a governance and operating-model defect through PR `#525` at `6472be6a8a0252a52d977bc281757cd469bbb7db`.
+
+**Boundary:** This closure does not claim current production meets the SLOs. Deferred backend or tunnel failures remain bad events and consume error budget. The interim primary and secondary duty assignments currently converge on the Project Owner account; a staffed rotation is required before external SLAs become contractual.
+
+**First report:** Issue `#526`, covering 2026-07-17 through 2026-07-31, due 2026-08-05.
+
+## 4. Errors and risks not corrected
 
 ### REM-P0-001 — Production backend depends on a development tunnel
 
-- **Severity:** P0 / Critical operational risk
+- **Severity:** P0 / Critical operational risk.
+- **Status:** **DEFERRED / NOT CLOSED** by Project Owner direction.
 - **Observed state:** Production points to `streak-train-empower.ngrok-free.dev`.
-- **Root cause:** The Java backend is running outside a managed production hosting environment and is exposed through an ngrok tunnel.
-- **Why not corrected here:** Requires infrastructure provisioning, database/network design, secrets, deployment ownership, and controlled cutover authorization.
-- **Owner:** Infrastructure & DevOps
-- **Required closure:** Deploy the backend to a managed production platform with a stable domain, TLS, capacity controls, health checks, centralized logs, controlled secrets, rollback, and an availability commitment. Update production variables and the approved-host policy, then prove cutover with the readiness gate.
+- **Owner:** Infrastructure & DevOps.
+- **Required closure:** Deploy the backend to managed production hosting with a stable domain, TLS, controlled secrets, capacity, observability, rollback and a controlled cutover.
 
 ### REM-P0-002 — BFF authentication reliability is intermittent
 
-- **Severity:** P0 / User-access and session reliability risk
-- **Observed evidence:** Runtime logs showed repeated expected HTTP `401` responses for unauthenticated `/api/v1/auth/me`, followed by HTTP `502` responses caused by `TimeoutError` at approximately `2026-07-16T22:45:38Z` and `22:45:44Z`. Earlier logs also contained login `503` and refresh `502` failures.
-- **Root cause:** Backend response latency/availability through the tunnel, combined with the absence of a managed backend SLA and an authenticated synthetic transaction.
-- **Why not corrected here:** Reliable closure requires production infrastructure changes plus a dedicated synthetic account, controlled credentials, rotation policy, and non-destructive test tenant.
-- **Owner:** Identity & Access + Platform Operations + Infrastructure
-- **Required closure:** Eliminate tunnel dependency, establish backend capacity and latency controls, and add an approved synthetic flow covering login, session restoration, refresh, logout, lockout, and audit evidence. Demonstrate sustained success over an agreed observation window.
+- **Severity:** P0 / User-access and session reliability risk.
+- **Status:** **DEFERRED / NOT CLOSED** where dependent on backend/tunnel remediation.
+- **Observed evidence:** Expected unauthenticated `401` responses were followed by intermittent `502 TimeoutError` responses; earlier evidence included login `503` and refresh `502` failures.
+- **Owner:** Identity & Access, Platform Operations and Infrastructure.
+- **Required closure:** Remove tunnel dependency, establish stable capacity/latency controls and prove login, session restoration, refresh, logout, lockout and audit journeys over an approved observation window.
 
-### REM-P0-003 — Master Execution Backlog gate is not evidenced as closed
+### REM-P0-004 — Governance sequence for later outputs remains unreconciled
 
-- **Severity:** P0 / Governance and delivery risk
-- **Observed state:** The executive gate requires a complete, importable backlog covering Epics → Features → Stories → Tasks, estimates, priorities, dependencies, acceptance criteria, sprints, risks, QA, security, migration, and integrations. No current exact-version artifact and validated import evidence were verified during this review.
-- **Root cause:** Delivery documentation and code-execution streams evolved independently.
-- **Owner:** Program Management / Product Operations
-- **Required closure:** Publish the authoritative backlog in an importable format, validate a dry-run import, map every active prompt and module to work items, and record formal approval.
+- **Severity:** P0 / Decision-integrity risk.
+- **Observed state:** Later architecture and operating-model materials were produced while the historical Executor #23 gate was closed.
+- **Owner:** Executive Steering Committee.
+- **Required closure:** Issue a dated decision classifying each later deliverable as draft, exception-authorized or approved, and synchronize all status records.
 
-### REM-P0-004 — Governance sequence for later architecture and organization outputs remains unreconciled
+### REM-P0-005 — Production backup, restore and disaster-recovery evidence is incomplete
 
-- **Severity:** P0 / Decision integrity risk
-- **Observed state:** Historical governance blocked later outputs until the execution-backlog gate closed, while later architecture and operating-model materials were produced.
-- **Root cause:** No single reconciliation decision distinguishes draft advisory work from formally authorized execution.
-- **Owner:** Executive Steering Committee
-- **Required closure:** Issue a dated decision classifying each later deliverable as draft, exception-authorized, or approved after gate closure. Update every source-of-truth status record to the same decision.
+- **Severity:** P0 / Data-loss and continuity risk.
+- **Observed state:** No accepted production backup, isolated restore, recovery drill, RPO or RTO evidence was established for the live environment.
+- **Owner:** Infrastructure & DevOps and Data Platform.
+- **Required closure:** Define RPO/RTO, automate encrypted backups, prove isolated restoration and complete a documented disaster-recovery exercise.
 
-### REM-P0-005 — Production backup, restore, and disaster-recovery evidence is incomplete
+### REM-P0-006 — Independent security assurance is not closed
 
-- **Severity:** P0 / Data-loss and continuity risk
-- **Observed state:** Repository CI contains database-related tests, but this review did not verify a production database backup, isolated restore, recovery drill, RPO, or RTO for the live backend environment.
-- **Root cause:** Production backend and database hosting are not yet managed as formal enterprise services.
-- **Owner:** Infrastructure & DevOps + Data Platform
-- **Required closure:** Define RPO/RTO, automate encrypted backups, complete an isolated restore test, perform a disaster-recovery exercise, and retain auditable evidence.
-
-### REM-P0-006 — Broad commercial go-live security assurance is not closed
-
-- **Severity:** P0 / Security and compliance risk
-- **Observed state:** Repository security and tenant-isolation tests exist, but no independent full-scope penetration test, production configuration review, privacy assessment, or executive residual-risk acceptance was verified.
-- **Root cause:** Component-level CI evidence has been treated as equivalent to independent system assurance.
-- **Owner:** Security, Governance & Compliance
-- **Required closure:** Complete independent penetration testing, tenant-boundary testing, authorization review, secrets review, dependency assessment, threat-model validation, remediation verification, and formal residual-risk acceptance.
+- **Severity:** P0 / Security and compliance risk.
+- **Observed state:** Component-level tests exist, but independent penetration testing, production configuration review, privacy assessment and residual-risk acceptance remain incomplete.
+- **Owner:** Security, Governance & Compliance.
+- **Required closure:** Complete penetration, tenant-boundary, authorization, secrets, dependency and threat-model reviews; remediate findings; retest; formally accept residual risk.
 
 ### REM-P1-007 — End-to-end business-process proof is incomplete
 
-- **Severity:** P1 / Product integrity risk
-- **Observed state:** CRM and platform tests are extensive, but the executive review requires complete scenarios across sales, inventory, accounting, purchasing, HR/payroll, ecommerce/returns, workflow, audit, and analytics. A unified evidence suite was not verified.
-- **Root cause:** Test evidence is organized mainly by technical component or execution prompt.
-- **Owner:** QA & Release + Business Product Owners
-- **Required closure:** Implement traceable end-to-end scenarios with financial assertions, tenant isolation, rollback behavior, audit records, and release evidence.
+- **Severity:** P1 / Product-integrity risk.
+- **Observed state:** A unified evidence suite has not been accepted across sales, inventory, accounting, purchasing, HR/payroll, ecommerce/returns, workflow, audit and analytics.
+- **Owner:** QA & Release and Business Product Owners.
+- **Required closure:** Implement traceable end-to-end scenarios with financial assertions, tenant isolation, rollback, audit and exact-version release evidence.
 
-### REM-P1-008 — Enterprise service objectives and incident ownership are incomplete
+### REM-P1-009 — Repository visibility requires an explicit decision
 
-- **Severity:** P1 / Operational governance risk
-- **Observed state:** Health endpoints and monitoring exist, but no approved SLA/SLO, error budget, on-call ownership, escalation matrix, or measured availability report was verified.
-- **Root cause:** Monitoring was implemented before the operating model was finalized.
-- **Owner:** Platform Operations
-- **Required closure:** Approve service objectives, alert thresholds, ownership, escalation, maintenance policy, incident severity model, post-incident process, and monthly availability reporting.
+- **Severity:** P1 / Information-governance risk.
+- **Observed state:** Deployment metadata reports the repository as public while older material described it as private.
+- **Owner:** Project Owner and Security Governance.
+- **Required closure:** Confirm intended visibility, review repository contents and history for sensitive data, document the decision and synchronize all references.
 
-### REM-P1-009 — Repository visibility requires an explicit governance decision
+### REM-P1-010 — Legacy status documents may misstate current reality
 
-- **Severity:** P1 / Information-governance risk
-- **Observed state:** Current deployment metadata reports the GitHub repository visibility as `public`, while older transition material described it as private.
-- **Root cause:** Repository visibility changed or historical documentation is stale.
-- **Owner:** Project Owner + Security Governance
-- **Required closure:** Confirm intended visibility, review repository contents and history for sensitive information, document the decision, and update every source-of-truth document.
+- **Severity:** P1 / Reporting risk.
+- **Observed state:** Historical documents contain obsolete SHAs, outage states and module-status declarations.
+- **Owner:** Program Management.
+- **Required closure:** Mark historical documents as superseded and generate future status from repository, CI, deployment and runtime evidence.
 
-### REM-P1-010 — Legacy status documents can still misstate current reality
+## 5. Current executive decision
 
-- **Severity:** P1 / Reporting risk
-- **Observed state:** Historical documents contain obsolete deployment SHAs, previous outage states, and module-status declarations that are no longer current.
-- **Root cause:** Status was embedded in long-lived narrative documents rather than generated from live evidence.
-- **Owner:** Program Management
-- **Required closure:** Mark historical documents clearly, link them to this report, and generate future release/status summaries from repository, CI, deployment, and runtime evidence.
-
-## 5. Executive decision
-
-The review produced concrete repository and governance corrections, and production remains reachable. The new monitoring gate now exposes failures that the previous UI-only test could not detect.
-
-However, SANAD remains **conditionally approved for controlled development and limited pilot use only**. Broad commercial production approval is blocked by:
+SANAD remains conditionally approved for controlled development and limited pilot use only. Broad commercial go-live remains blocked by:
 
 1. Temporary backend hosting through a development tunnel.
-2. Intermittent BFF/authentication timeouts.
-3. Missing production continuity and disaster-recovery evidence.
-4. Incomplete independent security assurance.
-5. Unclosed execution-backlog and governance reconciliation gates.
+2. Intermittent BFF/authentication reliability.
+3. Unreconciled governance sequencing for later deliverables.
+4. Missing production continuity and disaster-recovery proof.
+5. Incomplete independent security assurance.
 6. Incomplete cross-module business-process evidence.
 
-No report may state “no blockers” for the full platform until every P0 item is closed with reproducible evidence or explicitly accepted as residual risk by the authorized executive and security owners.
+The following findings are no longer open:
+
+- `REM-P0-003` — Executor #23 Master Execution Backlog.
+- `REM-P1-008` — SLA/SLO and incident operating model.
+
+No report may state “no blockers” for the full platform until every required P0 item is closed with reproducible evidence or explicitly accepted as residual risk by authorized executive and security owners.
