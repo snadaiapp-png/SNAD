@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Production release identity contract used by exact-SHA deployment verification.
 const RELEASE_CONTRACT_VERSION = "3";
 
 export function GET(): NextResponse {
