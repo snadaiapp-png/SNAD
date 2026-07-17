@@ -42,6 +42,7 @@ Deployment guides and old provider-specific records describe their own date and 
 
 ## Security and account recovery
 
+- [REM-P0-006 independent security assurance gate](security/independent-assurance/README.md)
 - [Password recovery operating model](security/PASSWORD-RECOVERY-NOTIFICATION-OPERATING-MODEL.md)
 - [Account recovery runbook](operations/ACCOUNT-RECOVERY-EMAIL-RUNBOOK.md)
 - [OWASP Dependency-Check operating model](security/OWASP-DEPENDENCY-CHECK-OPERATING-MODEL.md)
