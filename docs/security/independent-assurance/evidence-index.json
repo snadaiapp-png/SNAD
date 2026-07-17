@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "finding_id": "REM-P0-006",
+  "status": "EMPTY",
+  "evidence": [],
+  "evidence_record_contract": {
+    "required_fields": ["id", "type", "title", "workstream", "coverage_case_ids", "location", "sha256", "created_at", "created_by", "classification", "sanitized"],
+    "allowed_classifications": ["PUBLIC", "INTERNAL", "RESTRICTED_EXTERNAL_REFERENCE"],
+    "repository_rule": "Only sanitized evidence may be stored in the repository; sensitive material uses an immutable restricted external reference."
+  }
+}
