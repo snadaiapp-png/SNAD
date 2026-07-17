@@ -88,6 +88,8 @@ export interface AddressInput {
   validTo?: string | null;
 }
 
+export type AddressUpdateInput = Omit<AddressInput, "primaryAddress">;
+
 export interface CommunicationMethodInput {
   methodType: CommunicationMethodType;
   rawValue: string;
@@ -101,6 +103,8 @@ export interface CommunicationMethodInput {
   validFrom?: string | null;
   validTo?: string | null;
 }
+
+export type CommunicationMethodUpdateInput = Omit<CommunicationMethodInput, "methodType" | "preferred">;
 
 async function etag(entityType: string, id: string, version: number): Promise<string> {
   const material = `${entityType.toLowerCase()}:${id}:${version}`;
@@ -131,8 +135,8 @@ export const addressCommunicationApi = {
     return response.data;
   },
 
-  updateAddress: async (address: CrmAddress, input: Partial<AddressInput>): Promise<CrmAddress> => {
-    const response = await apiClient.patch<ApiSingle<CrmAddress>, Partial<AddressInput>>(
+  updateAddress: async (address: CrmAddress, input: AddressUpdateInput): Promise<CrmAddress> => {
+    const response = await apiClient.patch<ApiSingle<CrmAddress>, AddressUpdateInput>(
       `${root}/addresses/${address.id}`, input,
       { context: { headers: { "If-Match": await etag("address", address.id, address.version) } } },
     );
@@ -166,9 +170,9 @@ export const addressCommunicationApi = {
   },
 
   updateCommunicationMethod: async (
-    method: CommunicationMethod, input: Partial<CommunicationMethodInput>,
+    method: CommunicationMethod, input: CommunicationMethodUpdateInput,
   ): Promise<CommunicationMethod> => {
-    const response = await apiClient.patch<ApiSingle<CommunicationMethod>, Partial<CommunicationMethodInput>>(
+    const response = await apiClient.patch<ApiSingle<CommunicationMethod>, CommunicationMethodUpdateInput>(
       `${root}/communication-methods/${method.id}`, input,
       { context: { headers: { "If-Match": await etag("communication-method", method.id, method.version) } } },
     );
