@@ -1,3 +1,7 @@
+> **DOCUMENT STATUS: PLANNING BASELINE — NOT CURRENT APPROVAL**  
+> Snapshot: 2026-06-25. This file defines target architecture and gate work. It does not prove those targets are deployed or accepted.  
+> Current status: `docs/governance/CURRENT-IMPLEMENTATION-STATUS.md` and GitHub Issue #516.
+
 # SANAD Production Readiness & Go-Live Gate
 
 ## Status
