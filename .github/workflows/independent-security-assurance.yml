@@ -1,0 +1,66 @@
+name: Independent Security Assurance Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/security/independent-assurance/**'
+      - 'scripts/ci/validate_independent_security_assurance.py'
+      - 'tests/ci/test_validate_independent_security_assurance.py'
+      - '.github/workflows/independent-security-assurance.yml'
+  workflow_dispatch:
+    inputs:
+      gate_mode:
+        description: 'readiness validates structure; closure requires independent evidence and approvals'
+        required: true
+        type: choice
+        default: readiness
+        options:
+          - readiness
+          - closure
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: REM-P0-006 Evidence Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test fail-closed validator
+        run: python3 -m unittest tests/ci/test_validate_independent_security_assurance.py -v
+
+      - name: Determine gate mode
+        id: mode
+        env:
+          REQUESTED_MODE: ${{ inputs.gate_mode }}
+        run: |
+          mode="${REQUESTED_MODE:-readiness}"
+          if [ "$mode" != "readiness" ] && [ "$mode" != "closure" ]; then
+            echo "::error::Invalid gate mode: $mode"
+            exit 1
+          fi
+          echo "value=$mode" >> "$GITHUB_OUTPUT"
+
+      - name: Validate assurance manifest
+        run: python3 scripts/ci/validate_independent_security_assurance.py --mode "${{ steps.mode.outputs.value }}"
+
+      - name: Publish non-approval summary
+        if: always()
+        run: |
+          {
+            echo '## REM-P0-006 Independent Security Assurance'
+            echo ''
+            echo "- Gate mode: ${{ steps.mode.outputs.value }}"
+            echo "- Tested SHA: ${{ github.sha }}"
+            echo '- This workflow validates evidence integrity and closure prerequisites.'
+            echo '- It does not create assessor independence or replace Security Governance and Project Owner approval.'
+            echo '- Broad commercial go-live remains governed by Issue #516 and current-status authorities.'
+          } >> "$GITHUB_STEP_SUMMARY"
