@@ -1,0 +1,65 @@
+name: CRM-007 Operations Contract Sync
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm007-operations-contract-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Reconcile approved CRM-007 contract surface
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/crm-api-contract-validation.yml')
+          text = workflow.read_text(encoding='utf-8')
+          text = text.replace("EXPECTED_CRM_PATHS: '65'", "EXPECTED_CRM_PATHS: '71'")
+          text = text.replace("EXPECTED_CRM_OPERATIONS: '87'", "EXPECTED_CRM_OPERATIONS: '93'")
+          needle = "              ('/contacts/{contactId}/communication-methods','post','Idempotency-Key'),\n"
+          addition = needle + "              ('/addresses/import','post','Idempotency-Key'),\n              ('/communication-methods/import','post','Idempotency-Key'),\n"
+          if "('/addresses/import','post','Idempotency-Key')" not in text:
+              text = text.replace(needle, addition)
+          workflow.write_text(text, encoding='utf-8')
+
+          test = Path('apps/sanad-platform/src/test/java/com/sanad/platform/crm/contract/CrmOpenApiContractTest.java')
+          text = test.read_text(encoding='utf-8')
+          text = text.replace('EXPECTED_PATHS = 65', 'EXPECTED_PATHS = 71')
+          text = text.replace('EXPECTED_OPERATIONS = 87', 'EXPECTED_OPERATIONS = 93')
+          create_needle = '                "/accounts/{accountId}/communication-methods", "/contacts/{contactId}/communication-methods"}) {'
+          create_addition = '                "/accounts/{accountId}/communication-methods", "/contacts/{contactId}/communication-methods",\n                "/addresses/import", "/communication-methods/import"}) {'
+          text = text.replace(create_needle, create_addition)
+          idem_needle = '                "/accounts/{accountId}/communication-methods", "/contacts/{contactId}/communication-methods"}) {'
+          text = text.replace(idem_needle, create_addition)
+          test.write_text(text, encoding='utf-8')
+
+          config = Path('apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmOpenApiConfiguration.java')
+          text = config.read_text(encoding='utf-8')
+          needle = '            CRM_PREFIX + "/contacts/{contactId}/communication-methods");'
+          replacement = '            CRM_PREFIX + "/contacts/{contactId}/communication-methods",\n            CRM_PREFIX + "/addresses/import",\n            CRM_PREFIX + "/communication-methods/import");'
+          text = text.replace(needle, replacement)
+          config.write_text(text, encoding='utf-8')
+          PY
+          git rm .github/workflows/crm007-operations-contract-sync.yml
+      - name: Commit and push contract reconciliation
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/crm-api-contract-validation.yml
+          git add apps/sanad-platform/src/test/java/com/sanad/platform/crm/contract/CrmOpenApiContractTest.java
+          git add apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmOpenApiConfiguration.java
+          git commit -am 'fix(crm): reconcile CRM-007 search import export contract'
+          git push origin HEAD:${{ github.head_ref }}
