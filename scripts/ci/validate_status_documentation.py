@@ -39,6 +39,7 @@ def main() -> int:
     require(registry.get("schema_version") == "1.0", "invalid registry schema")
     require(current.get("schema_version") == "1.0", "invalid current-status schema")
     require(current.get("status_authority") == "CURRENT", "current status is not authoritative")
+    require(current.get("decision") == "CONDITIONAL_CONTINUE", "current executive decision is invalid")
     require(current.get("commercial_go_live") == "NOT_APPROVED", "commercial status must remain explicit")
     require(current.get("historical_gates", {}).get("ISSUE-101", {}).get("state") == "CLOSED", "Issue #101 is stale")
 
@@ -74,7 +75,7 @@ def main() -> int:
     root_readme = read_text("README.md")
     current_md = read_text("docs/governance/CURRENT-IMPLEMENTATION-STATUS.md")
     require("Issue #516" in root_readme and "Issue #516" in current_md, "authoritative tracker not linked")
-    require("CONDITIONAL CONTINUE" in current_md, "current executive decision missing")
+    require("CONDITIONAL_CONTINUE" in current_md, "current executive decision token missing")
     require("REM-P1-010" in current_md, "P1-010 status missing")
 
     print("P1-010 STATUS DOCUMENTATION VALIDATION PASSED")
