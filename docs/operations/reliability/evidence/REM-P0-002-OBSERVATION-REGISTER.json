@@ -69,7 +69,7 @@
     "production_deployment_sha": "654f384c3b3c0b16ade78a4e4c03bd5d7edeae03",
     "production_deployment_verified": true,
     "verified_at": "2026-07-17T13:42:31Z",
-    "latest_repository_main_sha": "3cffc42b2f4005b5d0ebb7dcc11e520c7ec0ac44",
+    "latest_repository_main_sha": "fa2039a2096a78edf7a976b40e94d2a44a8bd4f0",
     "latest_repository_main_sha_verified_in_production": false
   },
   "closure_authorized": false,
