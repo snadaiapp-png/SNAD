@@ -1,0 +1,101 @@
+name: CRM G1 Schema Isolation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/resources/db/migration/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/**'
+      - 'scripts/crm/verify-g1-tenant-isolation.sql'
+      - 'docs/crm/**'
+      - '.github/workflows/crm-g1-schema-isolation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/resources/db/migration/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/**'
+      - 'scripts/crm/verify-g1-tenant-isolation.sql'
+      - '.github/workflows/crm-g1-schema-isolation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-g1-schema-isolation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-g1-schema-isolation:
+    name: Verify 8 tables, 26 indexes, and tenant isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad_g1
+          POSTGRES_PASSWORD: sanad_g1_pass
+          POSTGRES_DB: sanad_g1
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sanad_g1 -d sanad_g1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_g1
+      DATABASE_USERNAME: sanad_g1
+      DATABASE_PASSWORD: sanad_g1_pass
+      DATABASE_NAME: sanad_g1
+
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Apply all Flyway migrations to PostgreSQL 16
+        working-directory: apps/sanad-platform
+        run: >-
+          mvn --batch-mode --no-transfer-progress flyway:migrate
+          -Dflyway.url="$DATABASE_URL"
+          -Dflyway.user="$DATABASE_USERNAME"
+          -Dflyway.password="$DATABASE_PASSWORD"
+          -Dflyway.locations=classpath:db/migration
+          -Dflyway.baselineOnMigrate=true
+          -Dflyway.validateOnMigrate=true
+          -Dflyway.outOfOrder=true
+          -Dflyway.baselineVersion=0
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Execute CRM-G1 isolation verification script
+        shell: bash
+        run: |
+          set -euo pipefail
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 \
+            -U "$DATABASE_USERNAME" \
+            -d "$DATABASE_NAME" \
+            -v ON_ERROR_STOP=1 \
+            -f scripts/crm/verify-g1-tenant-isolation.sql
+
+      - name: Verify Flyway exact G1 migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          result="$(PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 \
+            -U "$DATABASE_USERNAME" \
+            -d "$DATABASE_NAME" \
+            -v ON_ERROR_STOP=1 \
+            -Atc "SELECT COUNT(*) FROM flyway_schema_history WHERE version='20260717.6' AND success=TRUE")"
+          test "$result" = "1"
