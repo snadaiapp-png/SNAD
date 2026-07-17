@@ -1,15 +1,15 @@
 # CRM Current Baseline
 
 > **Authoritative branch:** `main`
-> **Reconciled main SHA:** `e02594e8cef13d65fb32b996d41e9a3875ce94e2`
+> **Reconciled main SHA:** `f1eee10480cf3416edcf3824dab66a5450310e8a`
 > **Last reconciled:** 2026-07-17
 > **Document status:** AUTHORITATIVE
 
 This document is the single source of truth for the as-built CRM state in the
 SNAD repository. It supersedes older, duplicated, or contradictory baseline
-statements. A feature branch may be documented here as `IN_PROGRESS`, but it is
-not classified as merged, deployed, accepted, or closed until its exact head is
-verified, merged to `main`, and the production deployment is proven.
+statements. A feature branch is not classified as merged, deployed, accepted,
+or closed until its exact head is verified and merged. Production authorization
+and database evidence remain separate controlled decisions.
 
 ## 1. Baseline status
 
@@ -18,27 +18,28 @@ CRM_PRODUCT_BUILD: IMPLEMENTED_AND_CONNECTED
 CRM_BUILD_READINESS: CLOSED
 PLATFORM_CORE_DEPENDENCY: SATISFIED
 PRODUCTION_AUTHORIZATION: PARTIAL
-EXEC-PROMPT-CRM-006: IN PROGRESS
-CRM-G1-COMPLETION-CANDIDATE: IN PROGRESS
+EXEC-PROMPT-CRM-006: MERGED / PRODUCTION_VERIFICATION_GOVERNED_SEPARATELY
+CRM-G1: IMPLEMENTED_AND_MERGED / PRODUCTION_EVIDENCE_PENDING
 ```
 
 The existing CRM runtime, operational routes, account master, contacts,
 pipelines, opportunities, activities, imports, tasks, notes, tags, audit,
-timeline, and Customer 360 are implemented and connected. Commercial launch
-authorization remains governed separately and is not implied by a technical
-runtime deployment.
+timeline, Customer 360, and relationship model are implemented and merged.
+Commercial launch authorization remains governed separately and is not implied
+by repository implementation or CI success.
 
-`EXEC-PROMPT-CRM-006` is being implemented in pull request `#520` on branch
-`crm/006-contact-relationship-model`. Until that pull request satisfies all
-required workflows, independent exact-head verification, merge, backend
-acceptance, and Vercel production verification, its status remains
-`IN_PROGRESS`.
+`EXEC-PROMPT-CRM-006` was merged through pull request `#520` with merge SHA
+`d0fe9bdd2aec9f080450b509e9d1a53c9d0ec275`. Production runtime verification is
+governed separately from this repository baseline.
 
-The CRM-G1 completion candidate is being implemented in pull request `#552` on
-branch `crm/g1-complete-foundation`. It completes the eight-table G1 extension
-set and the exact 26-index contract. It remains `IN_PROGRESS` until exact-SHA CI,
-merge, controlled PostgreSQL/Supabase migration evidence, and authenticated
-two-tenant isolation evidence are complete.
+CRM-G1 was implemented through pull request `#552`. Its exact candidate head
+`b8ff660650d6ee836271957c08591b5f3bc0be8c` passed all required CI, PostgreSQL
+16 schema verification, Testcontainers, authenticated Playwright, security,
+architecture, backup, performance, and readiness gates. It was squash-merged to
+`main` as `f1eee10480cf3416edcf3824dab66a5450310e8a` using
+`expected_head_sha` protection. Formal G1 closure still requires controlled
+production PostgreSQL/Supabase migration evidence and a post-deployment
+two-tenant isolation smoke result.
 
 ## 2. Architectural baseline
 
@@ -51,12 +52,12 @@ CRM remains inside the approved modular platform architecture:
 - Authorization: capability-based, deny-by-default
 - Concurrency: entity versions plus ETag/If-Match or expected-version contracts
 - Persistence: PostgreSQL with forward-only Flyway migrations
-- Audit: central platform audit adapter
+- Audit: central platform audit adapter plus CRM audit evidence where required
 - Timeline: central CRM timeline adapter
 - Events: existing platform mechanisms; no parallel CRM event runtime
 
 The legacy `crm_contacts.account_id` field is transitional. It remains available
-for compatibility while the canonical multi-account association moves to the
+for compatibility while the canonical multi-account association uses the
 contact-account relationship model. Removal requires a later deprecation gate
 after all callers and generated clients are migrated.
 
@@ -65,7 +66,8 @@ after all callers and generated clients are migrated.
 The merged baseline includes stable typed operations for:
 
 - accounts and enterprise customer master
-- contacts and lifecycle
+- contacts, person profiles, and lifecycle
+- multi-account contact relationships, roles, history, and ownership
 - leads and conversion
 - pipelines and opportunities
 - activities and timeline
@@ -74,106 +76,95 @@ The merged baseline includes stable typed operations for:
 - custom fields
 - Customer 360
 
-CRM-006 adds typed operations under `/api/v2/crm` for person profiles,
+CRM-006 added typed operations under `/api/v2/crm` for person profiles,
 contact-account relationships, tenant-defined roles, primary relationships,
 relationship lifecycle, relationship history, ownership history, accounts by
-contact, contacts by account, and row-oriented relationship imports. These
-operations are `IN_PROGRESS` until PR `#520` is merged and deployed.
+contact, contacts by account, and row-oriented relationship imports.
 
-The CRM-G1 completion candidate is database-only. It does not claim that the
-Tasks, Transfers, Reports, Caller ID, or other empty-state UI surfaces are
-functionally delivered.
+The CRM-G1 merge changes persistence and validation artifacts. It does not claim
+that Tasks, Transfers, Reports, Caller ID, or other empty-state Command Center
+surfaces are fully delivered as user-facing features.
 
 ## 4. Database migration inventory
 
 The following migrations are authoritative and ordered. Platform migrations are
 listed where the CRM runtime depends on them.
 
-| Flyway version | File | Purpose | Baseline status |
+| Flyway version | File | Purpose | Repository status |
 |---|---|---|---|
-| `20260702.1` | `V20260702_1__create_unified_crm_core.sql` | Unified CRM tables and initial capabilities | `IMPLEMENTED_AND_CONNECTED` |
-| `20260702.2` | `V20260702_2__reconcile_admin_role_and_capabilities.sql` | Reconcile ADMIN roles and active capabilities | `IMPLEMENTED_AND_CONNECTED` |
-| `20260702.3` | `V20260702_3__complete_crm_imports_custom_fields.sql` | Import and custom-field completion | `IMPLEMENTED_AND_CONNECTED` |
-| `20260706.1` | `V20260706_1__create_tenant_quota.sql` | Tenant quota dependency | `IMPLEMENTED_AND_CONNECTED` |
-| `20260711.1` | `V20260711_1__create_subscription_change_events.sql` | Subscription event dependency | `IMPLEMENTED_AND_CONNECTED` |
-| `20260713.1` | `V20260713_1__create_crm_idempotency_records.sql` | CRM request idempotency | `IMPLEMENTED_AND_CONNECTED` |
-| `20260713.2` | `V20260713_2__add_pipeline_version_column.sql` | Pipeline optimistic concurrency | `IMPLEMENTED_AND_CONNECTED` |
-| `20260716.1` | `V20260716_1__create_crm_tasks.sql` | First-class CRM tasks | `IMPLEMENTED_AND_CONNECTED` |
-| `20260716.2` | `V20260716_2__create_crm_notes.sql` | Append-only CRM notes | `IMPLEMENTED_AND_CONNECTED` |
-| `20260716.3` | `V20260716_3__create_crm_tags.sql` | Tenant CRM tags and assignments | `IMPLEMENTED_AND_CONNECTED` |
-| `20260716.4` | `V20260716_4__crm_enterprise_account_customer_master.sql` | Enterprise account golden record | `IMPLEMENTED_AND_CONNECTED` |
-| `20260717.1` | `V20260717_1__crm_contact_relationship_model.sql` | Person-profile extensions, multi-account relationships, relationship and ownership history, deterministic legacy backfill | `IN_PROGRESS` |
-| `20260717.2` | `V20260717_2__crm_contact_relationship_capabilities.sql` | Relationship, sensitive-field, and import capabilities | `IN_PROGRESS` |
-| `20260717.3` | `V20260717_3__crm_timeline_tenant_lifecycle.sql` | Align CRM timeline retention and cleanup with controlled tenant lifecycle | `IN_PROGRESS` |
-| `20260717.6` | `V20260717_6__create_crm_g1_extension_tables.sql` | Complete the six missing G1 extension tables and the eight-table/26-index isolation contract | `IN_PROGRESS` (`#552`) |
+| `20260702.1` | `V20260702_1__create_unified_crm_core.sql` | Unified CRM tables and initial capabilities | `MERGED` |
+| `20260702.2` | `V20260702_2__reconcile_admin_role_and_capabilities.sql` | Reconcile ADMIN roles and active capabilities | `MERGED` |
+| `20260702.3` | `V20260702_3__complete_crm_imports_custom_fields.sql` | Import and custom-field completion | `MERGED` |
+| `20260706.1` | `V20260706_1__create_tenant_quota.sql` | Tenant quota dependency | `MERGED` |
+| `20260711.1` | `V20260711_1__create_subscription_change_events.sql` | Subscription event dependency | `MERGED` |
+| `20260713.1` | `V20260713_1__create_crm_idempotency_records.sql` | CRM request idempotency | `MERGED` |
+| `20260713.2` | `V20260713_2__add_pipeline_version_column.sql` | Pipeline optimistic concurrency | `MERGED` |
+| `20260716.1` | `V20260716_1__create_crm_tasks.sql` | First-class CRM tasks | `MERGED` |
+| `20260716.2` | `V20260716_2__create_crm_notes.sql` | Append-only CRM notes | `MERGED` |
+| `20260716.3` | `V20260716_3__create_crm_tags.sql` | Tenant CRM tags and assignments | `MERGED` |
+| `20260716.4` | `V20260716_4__crm_enterprise_account_customer_master.sql` | Enterprise account golden record | `MERGED` |
+| `20260717.1` | `V20260717_1__crm_contact_relationship_model.sql` | Person-profile extensions, multi-account relationships, relationship and ownership history, deterministic legacy backfill | `MERGED` (`#520`) |
+| `20260717.2` | `V20260717_2__crm_contact_relationship_capabilities.sql` | Relationship, sensitive-field, and import capabilities | `MERGED` (`#520`) |
+| `20260717.3` | `V20260717_3__crm_timeline_tenant_lifecycle.sql` | Align CRM timeline retention and cleanup with controlled tenant lifecycle | `MERGED` (`#520`) |
+| `20260717.6` | `V20260717_6__create_crm_g1_extension_tables.sql` | Complete the six missing G1 extension tables and the eight-table/26-index isolation contract | `MERGED_AND_CI_VERIFIED` (`#552`) |
 
-CRM-006 migrations must pass both clean PostgreSQL installation and upgrade from
-`20260716.4`. The upgrade must retain every contact and legacy account
-association, create no duplicate relationship, preserve the legacy field during
-the transition, and enforce cross-tenant integrity with composite keys.
+The CRM-006 migration set passed clean PostgreSQL installation and supported
+upgrade verification while retaining contacts and legacy account associations,
+preventing duplicate relationships, preserving the transitional legacy field,
+and enforcing same-tenant integrity with composite keys.
 
-The CRM-G1 migration candidate must pass clean install and all supported upgrade
-paths, prove all eight G1 tables have tenant ownership foreign keys, prove the
-explicit index count is exactly 26 with `tenant_id` leading every index, and
-prove the concrete contact links reject cross-tenant references.
+The CRM-G1 migration passed clean install and supported upgrade paths. Automated
+checks proved all eight G1 extension tables have tenant ownership foreign keys,
+proved the explicit index count is exactly 26 with `tenant_id` leading every
+index, and proved concrete contact links use same-tenant composite foreign keys.
+Production application of Flyway version `20260717.6` is not inferred from CI.
 
 ## 5. Authorization baseline
 
-The merged capability model includes account, contact, lead, opportunity,
-activity, import, custom-field, task, note, tag, and CRM administration
-capabilities. CRM-006 introduces these additional capabilities while remaining
-`IN_PROGRESS`:
-
-```text
-CRM.RELATIONSHIP.READ
-CRM.RELATIONSHIP.WRITE
-CRM.RELATIONSHIP.ADMIN
-CRM.CONTACT.SENSITIVE.READ
-CRM.CONTACT.IMPORT
-```
-
-No CRM-006 endpoint may infer a tenant from request parameters or payloads.
-Authenticated users without the required capability receive `403`; unauthenticated
-requests receive `401`; cross-tenant entity access is concealed or rejected.
+The merged capability model includes account, contact, relationship, lead,
+opportunity, activity, import, custom-field, task, note, tag, sensitive-contact,
+and CRM administration capabilities. No CRM endpoint may infer a tenant from
+request parameters or payloads. Authenticated users without the required
+capability receive `403`; unauthenticated requests receive `401`; cross-tenant
+entity access is concealed or rejected.
 
 ## 6. User-interface baseline
 
 Operational CRM routes are mounted below `/crm/(operational)`. The merged
 baseline includes list and detail routes for accounts, contacts, leads,
-opportunities, tasks, notes, tags, imports, and settings. CRM-006 extends contact
-and account detail routes with bilingual relationship workspaces. These UI
-changes remain `IN_PROGRESS` until Web CI, lint, production build, Playwright,
-Vercel preview, and authenticated acceptance pass on the exact final head.
+opportunities, tasks, notes, tags, imports, and settings. The relationship model
+extends contact and account detail routes with bilingual relationship
+workspaces.
 
-The CRM-G1 candidate changes persistence and validation artifacts only. It does
-not change the delivery status of empty-state-only Command Center tabs.
+The CRM-G1 merge is a database and verification foundation. It does not change
+the delivery status of empty-state-only Command Center tabs.
 
-## 7. Verification requirements
+## 7. Verification record and remaining controls
 
-CRM-006 and the CRM-G1 completion candidate cannot transition from `IN_PROGRESS`
-until all applicable controls are proven on one unchanged head SHA:
+The exact CRM-G1 head SHA passed:
 
-- Maven tests and PostgreSQL Testcontainers pass
-- Flyway clean-install and upgrade tests pass
-- tenant-isolation and RBAC negative tests pass
-- audit, timeline, rollback, and duplicate-event tests pass where applicable
-- API contract and generated TypeScript drift are zero where applicable
-- Web TypeScript, ESLint, and Next.js production build pass
-- authenticated acceptance and Playwright regression pass
-- required workflow failures, pending runs, cancellations, and critical skips are zero
-- Surefire XML is inspected and actual testcase elements are counted
-- all review threads are resolved
-- merge uses `expected_head_sha`
-- backend acceptance and BFF connectivity are healthy
-- Vercel production is `READY` on the relevant merge SHA where applicable
-- production routes and runtime logs are verified where applicable
-- CRM-G1 Flyway version `20260717.6` is applied to the controlled target database
-- `scripts/crm/verify-g1-tenant-isolation.sql` passes against that target
-- authenticated two-tenant post-deployment isolation evidence is recorded
+- Maven tests and PostgreSQL Testcontainers
+- Flyway clean-install and upgrade tests
+- the dedicated PostgreSQL 16 G1 schema-isolation gate
+- tenant-isolation and RBAC negative tests
+- CRM API contract and generated client checks
+- Web TypeScript, ESLint, and Next.js production build
+- authenticated acceptance and Playwright regression
+- security, architecture, service-decomposition, performance, backup/restore,
+  business-process E2E, provenance, and production-readiness gates
+- empty review-thread verification
+- protected merge using `expected_head_sha`
 
-Until those conditions are met, this document must continue to report:
+The remaining G1 controls are external to repository CI:
+
+- apply Flyway version `20260717.6` to the controlled production database;
+- run `scripts/crm/verify-g1-tenant-isolation.sql` against that target;
+- record backup, migration, operator, timestamp, target, and rollback evidence;
+- run and record authenticated two-tenant post-deployment isolation smoke tests.
+
+Until those production controls are proven, this document must continue to
+report:
 
 ```text
-EXEC-PROMPT-CRM-006: IN PROGRESS
-CRM-G1-COMPLETION-CANDIDATE: IN PROGRESS
+CRM-G1: IMPLEMENTED_AND_MERGED / PRODUCTION_EVIDENCE_PENDING
 ```
