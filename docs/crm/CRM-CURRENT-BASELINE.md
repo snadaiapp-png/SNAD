@@ -1,7 +1,7 @@
 # CRM Current Baseline
 
 > **Authoritative branch:** `main`
-> **Reconciled main SHA:** `49e404ec38b1bd2a0cbd3c9b0beb56fd2ecc3ab9`
+> **Reconciled main SHA:** `e02594e8cef13d65fb32b996d41e9a3875ce94e2`
 > **Last reconciled:** 2026-07-17
 > **Document status:** AUTHORITATIVE
 
@@ -19,6 +19,7 @@ CRM_BUILD_READINESS: CLOSED
 PLATFORM_CORE_DEPENDENCY: SATISFIED
 PRODUCTION_AUTHORIZATION: PARTIAL
 EXEC-PROMPT-CRM-006: IN PROGRESS
+CRM-G1-COMPLETION-CANDIDATE: IN PROGRESS
 ```
 
 The existing CRM runtime, operational routes, account master, contacts,
@@ -32,6 +33,12 @@ runtime deployment.
 required workflows, independent exact-head verification, merge, backend
 acceptance, and Vercel production verification, its status remains
 `IN_PROGRESS`.
+
+The CRM-G1 completion candidate is being implemented in pull request `#552` on
+branch `crm/g1-complete-foundation`. It completes the eight-table G1 extension
+set and the exact 26-index contract. It remains `IN_PROGRESS` until exact-SHA CI,
+merge, controlled PostgreSQL/Supabase migration evidence, and authenticated
+two-tenant isolation evidence are complete.
 
 ## 2. Architectural baseline
 
@@ -73,6 +80,10 @@ relationship lifecycle, relationship history, ownership history, accounts by
 contact, contacts by account, and row-oriented relationship imports. These
 operations are `IN_PROGRESS` until PR `#520` is merged and deployed.
 
+The CRM-G1 completion candidate is database-only. It does not claim that the
+Tasks, Transfers, Reports, Caller ID, or other empty-state UI surfaces are
+functionally delivered.
+
 ## 4. Database migration inventory
 
 The following migrations are authoritative and ordered. Platform migrations are
@@ -94,11 +105,17 @@ listed where the CRM runtime depends on them.
 | `20260717.1` | `V20260717_1__crm_contact_relationship_model.sql` | Person-profile extensions, multi-account relationships, relationship and ownership history, deterministic legacy backfill | `IN_PROGRESS` |
 | `20260717.2` | `V20260717_2__crm_contact_relationship_capabilities.sql` | Relationship, sensitive-field, and import capabilities | `IN_PROGRESS` |
 | `20260717.3` | `V20260717_3__crm_timeline_tenant_lifecycle.sql` | Align CRM timeline retention and cleanup with controlled tenant lifecycle | `IN_PROGRESS` |
+| `20260717.6` | `V20260717_6__create_crm_g1_extension_tables.sql` | Complete the six missing G1 extension tables and the eight-table/26-index isolation contract | `IN_PROGRESS` (`#552`) |
 
 CRM-006 migrations must pass both clean PostgreSQL installation and upgrade from
 `20260716.4`. The upgrade must retain every contact and legacy account
 association, create no duplicate relationship, preserve the legacy field during
 the transition, and enforce cross-tenant integrity with composite keys.
+
+The CRM-G1 migration candidate must pass clean install and all supported upgrade
+paths, prove all eight G1 tables have tenant ownership foreign keys, prove the
+explicit index count is exactly 26 with `tenant_id` leading every index, and
+prove the concrete contact links reject cross-tenant references.
 
 ## 5. Authorization baseline
 
@@ -128,16 +145,19 @@ and account detail routes with bilingual relationship workspaces. These UI
 changes remain `IN_PROGRESS` until Web CI, lint, production build, Playwright,
 Vercel preview, and authenticated acceptance pass on the exact final head.
 
+The CRM-G1 candidate changes persistence and validation artifacts only. It does
+not change the delivery status of empty-state-only Command Center tabs.
+
 ## 7. Verification requirements
 
-CRM-006 cannot transition from `IN_PROGRESS` until all of the following are
-proven on one unchanged head SHA:
+CRM-006 and the CRM-G1 completion candidate cannot transition from `IN_PROGRESS`
+until all applicable controls are proven on one unchanged head SHA:
 
 - Maven tests and PostgreSQL Testcontainers pass
 - Flyway clean-install and upgrade tests pass
 - tenant-isolation and RBAC negative tests pass
-- audit, timeline, rollback, and duplicate-event tests pass
-- API contract and generated TypeScript drift are zero
+- audit, timeline, rollback, and duplicate-event tests pass where applicable
+- API contract and generated TypeScript drift are zero where applicable
 - Web TypeScript, ESLint, and Next.js production build pass
 - authenticated acceptance and Playwright regression pass
 - required workflow failures, pending runs, cancellations, and critical skips are zero
@@ -145,11 +165,15 @@ proven on one unchanged head SHA:
 - all review threads are resolved
 - merge uses `expected_head_sha`
 - backend acceptance and BFF connectivity are healthy
-- Vercel production is `READY` on the CRM-006 merge SHA
-- production routes and runtime logs are verified
+- Vercel production is `READY` on the relevant merge SHA where applicable
+- production routes and runtime logs are verified where applicable
+- CRM-G1 Flyway version `20260717.6` is applied to the controlled target database
+- `scripts/crm/verify-g1-tenant-isolation.sql` passes against that target
+- authenticated two-tenant post-deployment isolation evidence is recorded
 
 Until those conditions are met, this document must continue to report:
 
 ```text
 EXEC-PROMPT-CRM-006: IN PROGRESS
+CRM-G1-COMPLETION-CANDIDATE: IN PROGRESS
 ```
