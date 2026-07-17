@@ -37,7 +37,11 @@ public class CrmOpenApiConfiguration {
             CRM_PREFIX + "/contacts",
             CRM_PREFIX + "/leads",
             CRM_PREFIX + "/opportunities",
-            CRM_PREFIX + "/activities");
+            CRM_PREFIX + "/activities",
+            CRM_PREFIX + "/accounts/{accountId}/addresses",
+            CRM_PREFIX + "/contacts/{contactId}/addresses",
+            CRM_PREFIX + "/accounts/{accountId}/communication-methods",
+            CRM_PREFIX + "/contacts/{contactId}/communication-methods");
 
     @Bean
     OpenAPI crmOpenApiComponents() {
