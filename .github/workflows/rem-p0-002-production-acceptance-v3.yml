@@ -1,0 +1,163 @@
+name: REM-P0-002 Production Acceptance v3
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/rem-p0-002-production-acceptance-v3.yml
+      - apps/web/app/api/system/release/route.ts
+      - apps/web/app/api/platform/[...path]/route.ts
+      - apps/web/lib/auth/**
+      - scripts/operations/bff_auth_session_synthetic.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: rem-p0-002-production-acceptance-v3
+  cancel-in-progress: true
+
+jobs:
+  acceptance:
+    name: Verify deployed SHA and initial authentication acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: Production
+    env:
+      PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
+      AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID || secrets.BOOTSTRAP_TENANT_ID }}
+      AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL || secrets.SANAD_ADMIN_EMAIL }}
+      AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD || secrets.SANAD_ADMIN_PASSWORD }}
+
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact current main SHA and protected identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_main_sha="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test "$remote_main_sha" = "$GITHUB_SHA" || {
+            echo "::error::Workflow SHA is not current main."
+            exit 1
+          }
+          for name in AUTH_SMOKE_TENANT_ID AUTH_SMOKE_EMAIL AUTH_SMOKE_PASSWORD; do
+            test -n "${!name:-}" || { echo "::error::Missing protected production identity component: $name"; exit 1; }
+            echo "::add-mask::${!name}"
+          done
+
+      - name: Compile synthetic
+        run: python3 -m py_compile scripts/operations/bff_auth_session_synthetic.py
+
+      - name: Wait for exact SHA on Vercel Production alias
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          matched=false
+          for attempt in $(seq 1 180); do
+            code="$(curl -sS --show-error --max-time 20 -o "$RUNNER_TEMP/release.json" -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL}/api/system/release" || true)"
+            if [ "$code" = "200" ] && jq -e --arg sha "$GITHUB_SHA" '.commitSha == $sha and (.environment == "production")' "$RUNNER_TEMP/release.json" >/dev/null 2>&1; then
+              matched=true
+              break
+            fi
+            sleep 10
+          done
+          test "$matched" = true || {
+            echo "::error::Production alias did not expose the exact current main SHA within the deployment window."
+            cat "$RUNNER_TEMP/release.json" 2>/dev/null || true
+            exit 1
+          }
+          jq --arg expectedSha "$GITHUB_SHA" '. + {expectedSha:$expectedSha,result:"PASS"}' "$RUNNER_TEMP/release.json" > evidence/rem-p0-002-release-identity.json
+
+      - name: Verify production backend routing snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          passed=false
+          for attempt in $(seq 1 36); do
+            code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/backend-status.json" -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL}/api/system/backend-status" || true)"
+            if [ "$code" = "200" ] && jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null 2>&1; then
+              passed=true
+              break
+            fi
+            sleep 5
+          done
+          test "$passed" = true
+          jq --arg sha "$GITHUB_SHA" '. + {releaseSha:$sha,result:"PASS"}' "$RUNNER_TEMP/backend-status.json" > evidence/rem-p0-002-backend-routing.json
+
+      - name: Run five consecutive production BFF authentication journeys
+        env:
+          AUTH_SYNTHETIC_ITERATIONS: '5'
+          AUTH_SYNTHETIC_EVIDENCE_PATH: evidence/rem-p0-002-initial-synthetic.json
+        run: python3 scripts/operations/bff_auth_session_synthetic.py
+
+      - name: Write acceptance summary
+        if: success()
+        shell: bash
+        run: |
+          jq -n \
+            --arg sha "$GITHUB_SHA" \
+            --arg url "$PRODUCTION_WEB_BASE_URL" \
+            --arg runId "$GITHUB_RUN_ID" \
+            '{schema_version:"1.0",finding:"REM-P0-002",status:"passed",release_sha:$sha,production_url:$url,initial_synthetic_iterations:5,run_id:$runId}' \
+            > evidence/rem-p0-002-acceptance-summary.json
+
+      - name: Upload sanitized acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rem-p0-002-production-acceptance-v3-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Record successful acceptance and start observation window
+        if: success()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const now = new Date().toISOString();
+            const body = [
+              '## REM-P0-002 exact-SHA Production acceptance passed',
+              '',
+              `- Release SHA: \`${context.sha}\``,
+              `- Production alias: \`${process.env.PRODUCTION_WEB_BASE_URL}\``,
+              '- Release identity endpoint: **PASS**',
+              '- Backend routing snapshot: **PASS**',
+              '- Initial authentication journeys: **5/5 PASS**',
+              `- Observation window start: \`${now}\``,
+              `- Workflow evidence: ${runUrl}`,
+              '',
+              'REM-P0-002 remains open until the mandatory 72 consecutive hourly runs and residual acceptance requirements are complete.'
+            ].join('\n');
+            for (const issue_number of [516, 534, 535]) {
+              await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number, body});
+            }
+            await github.rest.issues.update({owner: context.repo.owner, repo: context.repo.repo, issue_number: 537, state: 'closed', state_reason: 'completed'});
+
+      - name: Record failed acceptance
+        if: failure()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              '## REM-P0-002 Production acceptance v3 failed',
+              '',
+              `- Attempted SHA: \`${context.sha}\``,
+              `- Workflow: ${runUrl}`,
+              '- Observation window has not started or must be reset.',
+              '- REM-P0-002 remains open.'
+            ].join('\n');
+            for (const issue_number of [516, 534, 535, 537]) {
+              await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number, body});
+            }

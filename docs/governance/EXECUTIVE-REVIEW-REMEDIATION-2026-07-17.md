@@ -25,13 +25,13 @@ No component is enterprise-production-ready merely because a document, screen, e
 |---|---|---|
 | Vercel production UI | HTTP `200`; SANAD and Arabic RTL markers present | Passed for web deployment scope |
 | Frontend-to-backend status | `configured=true`, `reachable=true`, `statusCode=200` at check time | Passed only at the observed time |
-| Unauthenticated BFF auth path | Expected `401` responses followed by intermittent `502 TimeoutError` responses | Not accepted as stable |
+| Unauthenticated BFF auth path | Expected `401` responses followed by intermittent `502 TimeoutError` responses | Historical instability; remediation requires deployment and observation evidence |
 | Backend target | Temporary development tunnel | Not accepted as final enterprise hosting |
 | Application deployment | Vercel reported `READY` for the reviewed application SHA | Passed for Next.js deployment scope only |
 
 The application is reachable, but this does not close infrastructure, authentication reliability, disaster recovery, independent security assurance or commercial go-live gates.
 
-## 3. Corrections completed
+## 3. Corrections completed or implemented
 
 ### COR-001 — End-to-end production readiness gate
 
@@ -89,7 +89,25 @@ Corrected obsolete and competing status records by:
 
 **Status:** REM-P1-010 closed through PR `#529` at `e6b7cb7e9dde8b603bc282fb5c491c5fdad6a8e0`.
 
-## 4. Errors and risks not corrected
+### COR-008 — BFF authentication and browser-session reliability controls
+
+Implemented:
+
+- an end-to-end BFF request budget with bounded idempotent retry;
+- deterministic timeout/network responses and request correlation;
+- safe refresh-cookie clearing after invalid refresh and failed upstream logout;
+- single-flight refresh rotation for concurrent `401` responses;
+- stale refresh rejection after logout or newer login generation;
+- unit tests for retry, timeout, cookie and concurrency behavior;
+- an hourly authenticated Production BFF synthetic;
+- sanitized evidence artifacts and incident/recovery automation;
+- a fail-closed REM-P0-002 validation gate.
+
+**Control contract:** `docs/operations/reliability/AUTH-SESSION-RELIABILITY.md`.
+
+**Status:** Application remediation implemented. REM-P0-002 remains open pending exact-SHA CI, Production deployment, 72 consecutive hourly successful cycles, owner acceptance and resolution or formal acceptance of the REM-P0-001 dependency.
+
+## 4. Errors and risks not corrected or not yet accepted
 
 ### REM-P0-001 — Production backend depends on a development tunnel
 
@@ -98,12 +116,12 @@ Corrected obsolete and competing status records by:
 - **Owner:** Infrastructure & DevOps.
 - **Required closure:** Managed production hosting, stable domain, TLS, controlled secrets, capacity, observability, rollback and controlled cutover.
 
-### REM-P0-002 — BFF authentication reliability is intermittent
+### REM-P0-002 — BFF authentication reliability acceptance is incomplete
 
 - **Severity:** P0 / User-access and session reliability risk.
-- **Status:** **DEFERRED / NOT CLOSED** where dependent on backend/tunnel remediation.
+- **Status:** **APPLICATION CONTROLS IMPLEMENTED / OPEN PENDING PRODUCTION OBSERVATION AND REM-P0-001**.
 - **Owner:** Identity & Access, Platform Operations and Infrastructure.
-- **Required closure:** Remove tunnel dependency, establish stable capacity/latency controls and prove login, session restoration, refresh, logout, lockout and audit journeys over an approved observation window.
+- **Required closure:** Merge and deploy the exact SHA, configure the protected synthetic identity, pass the full BFF journey, complete 72 consecutive hourly cycles without unexplained `502/503/504`, prove lockout and audit evidence, report SLO/error-budget results, complete PIRs, and remove or formally accept the tunnel dependency.
 
 ### REM-P0-004 — Governance sequence for later outputs remains unreconciled
 
@@ -140,7 +158,7 @@ Corrected obsolete and competing status records by:
 SANAD remains conditionally approved for controlled development and limited pilot use only. Broad commercial go-live remains blocked by:
 
 1. Temporary backend hosting through a development tunnel.
-2. Intermittent BFF/authentication reliability.
+2. Incomplete Production acceptance and observation for BFF/authentication reliability.
 3. Unreconciled governance sequencing for later deliverables.
 4. Missing production continuity and disaster-recovery proof.
 5. Incomplete independent security assurance.

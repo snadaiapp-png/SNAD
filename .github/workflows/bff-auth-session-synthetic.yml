@@ -1,0 +1,142 @@
+name: BFF Auth Session Synthetic
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 * * * *'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: bff-auth-session-synthetic
+  cancel-in-progress: false
+
+jobs:
+  synthetic:
+    name: Login, refresh, identity and logout through production BFF
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: Production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Verify protected synthetic identity
+        shell: bash
+        env:
+          AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
+          AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+          AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in AUTH_SMOKE_TENANT_ID AUTH_SMOKE_EMAIL AUTH_SMOKE_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing Production secret: ${name}"
+              missing=$((missing + 1))
+            else
+              echo "PRESENT: ${name}"
+            fi
+          done
+          test "$missing" -eq 0
+
+      - name: Run production BFF authentication journey
+        shell: bash
+        env:
+          PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
+          AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
+          AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+          AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+          AUTH_SYNTHETIC_ITERATIONS: '1'
+          AUTH_SYNTHETIC_EVIDENCE_PATH: ${{ runner.temp }}/auth-session-synthetic-evidence.json
+        run: |
+          set -euo pipefail
+          python3 scripts/operations/bff_auth_session_synthetic.py
+
+      - name: Upload sanitized synthetic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bff-auth-session-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/auth-session-synthetic-evidence.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Open or update authentication incident
+        if: failure()
+        continue-on-error: true
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const title = '[Synthetic Incident] Production BFF authentication journey failing';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const existing = issues.find((issue) => issue.title === title);
+            const body = [
+              'The hourly production BFF authentication synthetic failed.',
+              '',
+              `Run: ${runUrl}`,
+              `Commit: ${context.sha}`,
+              '',
+              'Treat HTTP 502, 503, 504, timeout, login, refresh, identity, cookie or logout failures as bad events under the active incident and error-budget policy.',
+              'Do not paste credentials, access tokens, refresh tokens or cookies into this issue.',
+            ].join('\n');
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+              });
+            }
+
+      - name: Close recovered authentication incident
+        if: success()
+        continue-on-error: true
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const title = '[Synthetic Incident] Production BFF authentication journey failing';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const existing = issues.find((issue) => issue.title === title);
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `Recovery observed by the production BFF authentication synthetic. Run: ${runUrl}. Continue PIR and observation-window requirements before closing REM-P0-002.`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                state: 'closed',
+                state_reason: 'completed',
+              });
+            }
