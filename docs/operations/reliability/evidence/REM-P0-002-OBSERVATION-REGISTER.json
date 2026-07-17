@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "finding": "REM-P0-002",
+  "state": "OPEN",
+  "observation_window": {
+    "required_consecutive_hourly_passes": 72,
+    "current_consecutive_passes": 0,
+    "window_started_at": null,
+    "last_result": "FAIL",
+    "last_checked_at": "2026-07-17T09:21:25Z",
+    "failure_reason": "Unauthenticated BFF auth/me returned HTTP 502 instead of HTTP 401"
+  },
+  "deployment": {
+    "remediation_merge_sha": "4a99ecdd425d28b3f77871f59b7fa83f1e9ea4d0",
+    "production_deployment_verified": false
+  },
+  "closure_authorized": false,
+  "closure_dependencies": [
+    "production deployment of exact remediation SHA",
+    "protected production synthetic identity",
+    "72 consecutive hourly successful synthetic cycles",
+    "no unexplained BFF/auth 502/503/504",
+    "lockout and audit evidence",
+    "SLO and error-budget report",
+    "owner acceptance",
+    "REM-P0-001 removed or formally accepted"
+  ]
+}
