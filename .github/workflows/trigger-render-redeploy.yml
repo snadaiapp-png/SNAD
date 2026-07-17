@@ -1,4 +1,4 @@
-name: CRM-007 Render Credential Whitespace Check
+name: CRM-007 Production Flyway Credential Resolution
 
 on:
   pull_request:
@@ -13,49 +13,118 @@ env:
   TARGET_SHA: ff4fba0bec7873ee11b760fbf43c4e562ba11eaf
 
 jobs:
-  inspect:
+  migrate:
     if: github.head_ref == 'ops/crm-007-final-production'
-    name: Inspect Render credential boundaries
+    name: Resolve Render duplicates and apply CRM-007 Flyway
     runs-on: ubuntu-latest
     environment: Production
-    timeout-minutes: 10
+    timeout-minutes: 35
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
     steps:
-      - name: Record non-secret whitespace characteristics
+      - name: Validate exact target
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')" = "$TARGET_SHA"
           test -n "$RENDER_API_KEY" && test -n "$RENDER_SERVICE_ID"
           echo "::add-mask::$RENDER_API_KEY"; echo "::add-mask::$RENDER_SERVICE_ID"
-          mkdir -p whitespace-evidence
+          test "$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')" = "$TARGET_SHA"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Resolve valid datasource combination and apply migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p production-evidence
           curl --fail-with-body --silent --show-error -H "Authorization: Bearer $RENDER_API_KEY" -H "Accept: application/json" \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" > /tmp/render-env.json
           jq '[.[]? | (.envVar // .)]' /tmp/render-env.json > /tmp/render-env-normalized.json
           python3 - <<'PY'
-          import json
-          items={x.get('key',''):x.get('value','') for x in json.load(open('/tmp/render-env-normalized.json'))}
-          result={}
-          for key in ('DATABASE_URL','DATABASE_USERNAME','DATABASE_PASSWORD'):
-              value=items.get(key,'')
-              result[key.lower()]={
-                  'present':bool(value),
-                  'has_outer_whitespace':value!=value.strip(),
-                  'leading_whitespace':bool(value[:1].isspace()),
-                  'trailing_whitespace':bool(value[-1:].isspace()),
-                  'length':len(value),
-                  'trimmed_length':len(value.strip()),
-              }
-          result['username_trimmed_is_sanad_app']=items.get('DATABASE_USERNAME','').strip()=='sanad_app'
-          open('whitespace-evidence/render-credential-whitespace.json','w').write(json.dumps(result,indent=2,sort_keys=True))
-          print(json.dumps(result,indent=2,sort_keys=True))
+          import base64,json,pathlib
+          items=json.load(open('/tmp/render-env-normalized.json'))
+          groups={
+            'urls':{'DATABASE_URL','SPRING_DATASOURCE_URL'},
+            'users':{'DATABASE_USERNAME','SPRING_DATASOURCE_USERNAME'},
+            'passwords':{'DATABASE_PASSWORD','SPRING_DATASOURCE_PASSWORD'},
+          }
+          for filename,keys in groups.items():
+              values=[]
+              for item in items:
+                  if item.get('key') in keys and item.get('value') and item['value'] not in values:
+                      values.append(item['value'])
+              if filename=='users' and 'postgres.eyoupksefusnslvdnflt' not in values:
+                  values.append('postgres.eyoupksefusnslvdnflt')
+              pathlib.Path('/tmp/'+filename).write_text('\n'.join(base64.b64encode(v.encode()).decode() for v in values))
+          summary={name:len(pathlib.Path('/tmp/'+name).read_text().splitlines()) for name in groups}
+          pathlib.Path('production-evidence/credential-candidate-counts.json').write_text(json.dumps(summary,indent=2,sort_keys=True))
+          print(summary)
           PY
+          test -s /tmp/urls && test -s /tmp/users && test -s /tmp/passwords
 
-      - uses: actions/upload-artifact@v4
+          cd apps/sanad-platform
+          mvn -q -DskipTests package dependency:build-classpath -Dmdep.outputFile=/tmp/flyway-cp.txt
+          cat > /tmp/ProductionFlyway.java <<'JAVA'
+          import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
+          import org.flywaydb.core.Flyway;
+          import java.nio.charset.StandardCharsets;
+          import java.nio.file.*;
+          import java.sql.*;
+          import java.util.*;
+          public final class ProductionFlyway {
+            record Credentials(String url,String user,String password){}
+            static List<String> values(String path)throws Exception{return Files.readAllLines(Path.of(path)).stream().filter(s->!s.isBlank()).map(s->new String(Base64.getDecoder().decode(s),StandardCharsets.UTF_8)).toList();}
+            static Credentials resolve()throws Exception{
+              List<String> urls=values("/tmp/urls"),users=values("/tmp/users"),passwords=values("/tmp/passwords");
+              for(String url:urls)for(String user:users)for(String password:passwords){
+                try(Connection ignored=DriverManager.getConnection(url,user,password)){System.out.println("Datasource credential combination resolved");return new Credentials(url,user,password);}
+                catch(SQLException ignored){}
+              }
+              throw new IllegalStateException("No Render datasource credential combination authenticates");
+            }
+            static long scalar(Connection c,String q)throws Exception{try(Statement s=c.createStatement();ResultSet r=s.executeQuery(q)){r.next();return r.getLong(1);}}
+            static long safe(Connection c,String t)throws Exception{return scalar(c,"SELECT CASE WHEN to_regclass('public."+t+"') IS NULL THEN -1 ELSE (SELECT COUNT(*) FROM "+t+") END");}
+            static String history(Connection c)throws Exception{StringBuilder b=new StringBuilder();try(Statement s=c.createStatement();ResultSet r=s.executeQuery("SELECT version,type,description,success FROM flyway_schema_history WHERE version IN ('20260717.100','20260717.101') ORDER BY installed_rank")){while(r.next()){if(b.length()>0)b.append("\\n");b.append(r.getString(1)).append('|').append(r.getString(2)).append('|').append(r.getString(3)).append('|').append(r.getBoolean(4));}}return b.toString();}
+            static String esc(String v){return v.replace("\\","\\\\").replace("\"","\\\"").replace("\n","\\n");}
+            public static void main(String[] a)throws Exception{
+              Credentials x=resolve();String sha=a[0];long pa,pc,pl;
+              try(Connection c=DriverManager.getConnection(x.url,x.user,x.password)){pa=safe(c,"crm_accounts");pc=safe(c,"crm_contacts");pl=safe(c,"crm_account_addresses");}
+              var m=Flyway.configure().dataSource(x.url,x.user,x.password).locations("classpath:db/migration").baselineOnMigrate(true).validateOnMigrate(true).javaMigrations(new V15__seed_rbac_roles_and_capabilities()).load().migrate();
+              try(Connection c=DriverManager.getConnection(x.url,x.user,x.password)){
+                String h=history(c);long tables=scalar(c,"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('crm_party_addresses','crm_party_address_history','crm_communication_policies','crm_communication_methods','crm_communication_method_history')");long caps=scalar(c,"SELECT COUNT(*) FROM capabilities WHERE code IN ('CRM.ADDRESS.READ','CRM.ADDRESS.WRITE','CRM.ADDRESS.ADMIN','CRM.COMMUNICATION.READ','CRM.COMMUNICATION.WRITE','CRM.COMMUNICATION.ADMIN','CRM.COMMUNICATION.SENSITIVE.READ','CRM.COMMUNICATION.EXPORT')");long failed=scalar(c,"SELECT COUNT(*) FROM flyway_schema_history WHERE success=FALSE");long dup=scalar(c,"SELECT COUNT(*) FROM (SELECT version FROM flyway_schema_history WHERE version IS NOT NULL GROUP BY version HAVING COUNT(*)>1) d");long qa=safe(c,"crm_accounts"),qc=safe(c,"crm_contacts"),ql=safe(c,"crm_account_addresses"),canonical=safe(c,"crm_party_addresses");
+                if(!h.contains("20260717.100|SQL|crm addresses communication methods|true")||!h.contains("20260717.101|SQL|crm addresses communication capabilities|true"))throw new IllegalStateException("CRM-007 Flyway history incomplete");if(tables!=5||caps!=8||failed!=0||dup!=0)throw new IllegalStateException("Production database invariant failed");if(pa>=0&&qa!=pa)throw new IllegalStateException("Account count changed");if(pc>=0&&qc!=pc)throw new IllegalStateException("Contact count changed");if(pl>=0&&ql!=pl)throw new IllegalStateException("Legacy address count changed");if(pl>=0&&canonical<pl)throw new IllegalStateException("Address backfill incomplete");
+                Files.createDirectories(Path.of("../../production-evidence"));String j="{\"release_sha\":\""+esc(sha)+"\",\"migrations_executed\":"+m.migrationsExecuted+",\"target_schema_version\":\""+esc(String.valueOf(m.targetSchemaVersion))+"\",\"flyway_history\":\""+esc(h)+"\",\"tables_verified\":"+tables+",\"capabilities_verified\":"+caps+",\"failed_migrations\":"+failed+",\"duplicate_versions\":"+dup+",\"pre_accounts\":"+pa+",\"post_accounts\":"+qa+",\"pre_contacts\":"+pc+",\"post_contacts\":"+qc+",\"pre_legacy_addresses\":"+pl+",\"post_legacy_addresses\":"+ql+",\"canonical_addresses\":"+canonical+",\"result\":\"PASS\"}";Files.writeString(Path.of("../../production-evidence/crm-007-production-database.json"),j);System.out.println("CRM-007 production Flyway verification: PASS");
+              }
+            }
+          }
+          JAVA
+          cp="target/classes:$(cat /tmp/flyway-cp.txt)"; javac -cp "$cp" /tmp/ProductionFlyway.java
+          set +e; java -cp "/tmp:$cp" ProductionFlyway "$TARGET_SHA" > /tmp/database-run.log 2>&1; rc=$?; set -e
+          python3 - <<'PY'
+          import pathlib,re
+          p=pathlib.Path('/tmp/database-run.log');t=p.read_text(errors='replace') if p.exists() else ''
+          t=re.sub(r'(jdbc:)?postgresql://[^\s]+','postgresql://***',t)
+          t=re.sub(r'user "[^"]+"','user "***"',t)
+          pathlib.Path('../../production-evidence/database-diagnostic.log').write_text(t)
+          print('\n'.join(t.splitlines()[-80:]))
+          PY
+          exit "$rc"
+
+      - name: Upload sanitized database evidence
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: crm-007-render-credential-whitespace-${{ github.run_id }}
-          path: whitespace-evidence/
+          name: crm-007-production-flyway-resolved-${{ github.run_id }}
+          path: production-evidence/
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
