@@ -36,6 +36,7 @@ class CrmPostgresMigrationTest {
     private static final String CRM_CUSTOMER_MASTER_VERSION = "20260716.4";
     private static final String CRM_CONTACT_RELATIONSHIP_VERSION = "20260717.1";
     private static final String CRM_CONTACT_RELATIONSHIP_RBAC_VERSION = "20260717.2";
+    private static final String CRM_TIMELINE_TENANT_LIFECYCLE_VERSION = "20260717.3";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -98,7 +99,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_TAGS_VERSION),
                         MigrationVersion.fromVersion(CRM_CUSTOMER_MASTER_VERSION),
                         MigrationVersion.fromVersion(CRM_CONTACT_RELATIONSHIP_VERSION),
-                        MigrationVersion.fromVersion(CRM_CONTACT_RELATIONSHIP_RBAC_VERSION));
+                        MigrationVersion.fromVersion(CRM_CONTACT_RELATIONSHIP_RBAC_VERSION),
+                        MigrationVersion.fromVersion(CRM_TIMELINE_TENANT_LIFECYCLE_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -129,7 +131,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_TAGS_VERSION),
                         MigrationVersion.fromVersion(CRM_CUSTOMER_MASTER_VERSION),
                         MigrationVersion.fromVersion(CRM_CONTACT_RELATIONSHIP_VERSION),
-                        MigrationVersion.fromVersion(CRM_CONTACT_RELATIONSHIP_RBAC_VERSION));
+                        MigrationVersion.fromVersion(CRM_CONTACT_RELATIONSHIP_RBAC_VERSION),
+                        MigrationVersion.fromVersion(CRM_TIMELINE_TENANT_LIFECYCLE_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -159,8 +162,9 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_CUSTOMER_MASTER_VERSION, "SQL", "crm enterprise account customer master");
         assertMigration(jdbc, CRM_CONTACT_RELATIONSHIP_VERSION, "SQL", "crm contact relationship model");
         assertMigration(jdbc, CRM_CONTACT_RELATIONSHIP_RBAC_VERSION, "SQL", "crm contact relationship capabilities");
+        assertMigration(jdbc, CRM_TIMELINE_TENANT_LIFECYCLE_VERSION, "SQL", "crm timeline tenant lifecycle");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(CRM_CONTACT_RELATIONSHIP_RBAC_VERSION);
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_TIMELINE_TENANT_LIFECYCLE_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 

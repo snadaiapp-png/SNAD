@@ -57,14 +57,8 @@ class CredentialRotationIntegrationTest {
 
     @AfterEach
     void cleanUp() {
-        roleCapabilityRepository.deleteAll();
-        userRoleGrantRepository.deleteAll();
-        refreshTokenRepository.deleteAll();
-        membershipRepository.deleteAll();
-        roleRepository.deleteAll();
-        userRepository.deleteAll();
-        organizationRepository.deleteAll();
-        tenantRepository.deleteAll();
+        // Fixtures use unique tenant and user identifiers. Do not delete global
+        // platform seed data from a shared integration-test application context.
     }
 
     @Test
