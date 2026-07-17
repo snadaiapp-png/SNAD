@@ -7,9 +7,9 @@
 
 This document is the single source of truth for the as-built CRM state in the
 SNAD repository. It supersedes older, duplicated, or contradictory baseline
-statements. A feature branch may be documented here as `IN_PROGRESS`, but it is
-not classified as merged, deployed, accepted, or closed until its exact head is
-verified, merged to `main`, and the production deployment is proven.
+statements. A feature branch may be documented here before merge, but it is not
+classified as deployed, accepted, or closed until its exact source identity is
+verified and the required production evidence is complete.
 
 ## 1. Baseline status
 
@@ -19,7 +19,7 @@ CRM_BUILD_READINESS: CLOSED
 PLATFORM_CORE_DEPENDENCY: SATISFIED
 PRODUCTION_AUTHORIZATION: PARTIAL
 EXEC-PROMPT-CRM-006: IN PROGRESS
-CRM-G1_EXTENSION_SCHEMA: IN PROGRESS
+CRM-G1_EXTENSION_SCHEMA: SOURCE_IMPLEMENTED / PRODUCTION_PENDING
 ```
 
 The existing CRM runtime, operational routes, account master, contacts,
@@ -34,12 +34,13 @@ required workflows, independent exact-head verification, merge, backend
 acceptance, and Vercel production verification, its status remains
 `IN_PROGRESS`.
 
-CRM-G1 extension completion is being implemented on branch
+The CRM-G1 extension source is implemented in pull request `#553` on branch
 `crm/g1-extension-closure`. Migration
-`V20260717_6__complete_crm_g1_extension_tables.sql` is a candidate only. It is
-not classified as merged, applied to production, accepted, or closed until the
-exact-head PostgreSQL acceptance workflow and the production evidence contract
-are complete.
+`V20260717_6__complete_crm_g1_extension_tables.sql` and its acceptance evidence
+are source-complete. Merge status is determined from repository history, not
+from this descriptive paragraph. Production Flyway application, runtime
+isolation evidence, and owner approval remain independently pending until the
+production evidence record is completed.
 
 ## 2. Architectural baseline
 
@@ -107,7 +108,7 @@ listed where the CRM runtime depends on them.
 | `20260717.1` | `V20260717_1__crm_contact_relationship_model.sql` | Person-profile extensions, multi-account relationships, relationship and ownership history, deterministic legacy backfill | `IN_PROGRESS` |
 | `20260717.2` | `V20260717_2__crm_contact_relationship_capabilities.sql` | Relationship, sensitive-field, and import capabilities | `IN_PROGRESS` |
 | `20260717.3` | `V20260717_3__crm_timeline_tenant_lifecycle.sql` | Align CRM timeline retention and cleanup with controlled tenant lifecycle | `IN_PROGRESS` |
-| `20260717.6` | `V20260717_6__complete_crm_g1_extension_tables.sql` | Complete the eight-table CRM-G1 extension schema and 26-index contract | `IN_PROGRESS` |
+| `20260717.6` | `V20260717_6__complete_crm_g1_extension_tables.sql` | Complete the eight-table CRM-G1 extension schema and 26-index contract | `SOURCE_IMPLEMENTED / PRODUCTION_PENDING` |
 
 CRM-006 migrations must pass both clean PostgreSQL installation and upgrade from
 `20260716.4`. The upgrade must retain every contact and legacy account
@@ -174,7 +175,8 @@ proven on one unchanged head SHA:
 - Vercel production is `READY` on the CRM-006 merge SHA
 - production routes and runtime logs are verified
 
-CRM-G1 extension completion cannot transition from `IN_PROGRESS` until:
+CRM-G1 may transition from `SOURCE_IMPLEMENTED / PRODUCTION_PENDING` to
+`PRODUCTION_VERIFIED` and milestone closure only when:
 
 - the exact candidate SHA passes `CRM G1 Schema Acceptance`;
 - PostgreSQL reports all eight extension tables;
@@ -185,9 +187,9 @@ CRM-G1 extension completion cannot transition from `IN_PROGRESS` until:
 - two-tenant runtime isolation evidence passes;
 - the production evidence record and owner approval are complete.
 
-Until those conditions are met, this document must continue to report:
+Until those production conditions are met, this document must continue to report:
 
 ```text
 EXEC-PROMPT-CRM-006: IN PROGRESS
-CRM-G1_EXTENSION_SCHEMA: IN PROGRESS
+CRM-G1_EXTENSION_SCHEMA: SOURCE_IMPLEMENTED / PRODUCTION_PENDING
 ```
