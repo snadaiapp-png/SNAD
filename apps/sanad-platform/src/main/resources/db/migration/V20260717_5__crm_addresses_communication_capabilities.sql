@@ -7,6 +7,7 @@ FROM (VALUES
     ('CRM.ADDRESS.READ', 'Read CRM addresses', 'View tenant-scoped account and person addresses'),
     ('CRM.ADDRESS.WRITE', 'Write CRM addresses', 'Create and update tenant-scoped account and person addresses'),
     ('CRM.ADDRESS.ADMIN', 'Administer CRM addresses', 'Archive, reactivate and govern primary CRM addresses'),
+    ('CRM.ADDRESS.EXPORT', 'Export CRM addresses', 'Export tenant-scoped CRM addresses subject to access controls'),
     ('CRM.COMMUNICATION.READ', 'Read CRM communication methods', 'View masked tenant-scoped communication methods'),
     ('CRM.COMMUNICATION.WRITE', 'Write CRM communication methods', 'Create and update communication methods'),
     ('CRM.COMMUNICATION.ADMIN', 'Administer CRM communication methods', 'Archive, reactivate and govern verification and preferred channels'),
@@ -23,7 +24,7 @@ SELECT gen_random_uuid(), role.tenant_id, role.id, capability.id, CURRENT_TIMEST
 FROM roles role
 JOIN access_capabilities capability
   ON capability.code IN (
-      'CRM.ADDRESS.READ','CRM.ADDRESS.WRITE','CRM.ADDRESS.ADMIN',
+      'CRM.ADDRESS.READ','CRM.ADDRESS.WRITE','CRM.ADDRESS.ADMIN','CRM.ADDRESS.EXPORT',
       'CRM.COMMUNICATION.READ','CRM.COMMUNICATION.WRITE','CRM.COMMUNICATION.ADMIN',
       'CRM.COMMUNICATION.SENSITIVE.READ','CRM.COMMUNICATION.EXPORT'
   )
