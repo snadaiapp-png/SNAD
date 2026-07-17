@@ -15,11 +15,15 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -39,6 +43,7 @@ import java.util.UUID;
 
 /** CRM-007 typed APIs for normalized addresses and communication methods. */
 @RestController
+@Validated
 @RequestMapping("/api/v2/crm")
 public class CrmAddressCommunicationController {
     private static final int DEFAULT_LIMIT = 50;
@@ -47,14 +52,17 @@ public class CrmAddressCommunicationController {
     private final AddressCommunicationUseCases useCases;
     private final ETagService etags;
     private final CursorCodec cursors;
+    private final CrmIdempotencyHttpSupport idempotency;
 
     public CrmAddressCommunicationController(
             AddressCommunicationUseCases useCases,
             ETagService etags,
-            CursorCodec cursors) {
+            CursorCodec cursors,
+            CrmIdempotencyHttpSupport idempotency) {
         this.useCases = useCases;
         this.etags = etags;
         this.cursors = cursors;
+        this.idempotency = idempotency;
     }
 
     @RequireCapability("CRM.ADDRESS.READ")
@@ -63,7 +71,7 @@ public class CrmAddressCommunicationController {
             Authentication authentication,
             @PathVariable UUID accountId,
             @RequestParam(defaultValue = "false") boolean includeArchived,
-            @RequestParam(required = false) Integer limit,
+            @RequestParam(defaultValue = "50") @Min(1) @Max(200) Integer limit,
             @RequestParam(required = false) String cursor,
             HttpServletRequest request) {
         return addressPage(authentication, "ACCOUNT", accountId, includeArchived, limit, cursor, request);
@@ -75,7 +83,7 @@ public class CrmAddressCommunicationController {
             Authentication authentication,
             @PathVariable UUID contactId,
             @RequestParam(defaultValue = "false") boolean includeArchived,
-            @RequestParam(required = false) Integer limit,
+            @RequestParam(defaultValue = "50") @Min(1) @Max(200) Integer limit,
             @RequestParam(required = false) String cursor,
             HttpServletRequest request) {
         return addressPage(authentication, "PERSON", contactId, includeArchived, limit, cursor, request);
@@ -97,8 +105,9 @@ public class CrmAddressCommunicationController {
             Authentication authentication,
             @PathVariable UUID accountId,
             @Valid @RequestBody CreateAddressRequest body,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             HttpServletRequest request) {
-        return createAddress(authentication, "ACCOUNT", accountId, body, request);
+        return createAddress(authentication, "ACCOUNT", accountId, body, idempotencyKey, request);
     }
 
     @RequireCapability("CRM.ADDRESS.WRITE")
@@ -107,8 +116,9 @@ public class CrmAddressCommunicationController {
             Authentication authentication,
             @PathVariable UUID contactId,
             @Valid @RequestBody CreateAddressRequest body,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             HttpServletRequest request) {
-        return createAddress(authentication, "PERSON", contactId, body, request);
+        return createAddress(authentication, "PERSON", contactId, body, idempotencyKey, request);
     }
 
     @RequireCapability("CRM.ADDRESS.WRITE")
@@ -168,7 +178,7 @@ public class CrmAddressCommunicationController {
     public ListResponse<AddressHistoryResponse> addressHistory(
             Authentication authentication,
             @PathVariable UUID addressId,
-            @RequestParam(required = false) Integer limit,
+            @RequestParam(defaultValue = "50") @Min(1) @Max(200) Integer limit,
             HttpServletRequest request) {
         List<AddressHistoryResponse> data = useCases.addressHistory(tenantId(authentication), addressId, pageLimit(limit))
                 .stream().map(CrmAddressCommunicationController::addressHistoryResponse).toList();
@@ -183,7 +193,7 @@ public class CrmAddressCommunicationController {
             @RequestParam(defaultValue = "false") boolean includeArchived,
             @RequestParam(required = false) String methodType,
             @RequestParam(required = false) String verificationStatus,
-            @RequestParam(required = false) Integer limit,
+            @RequestParam(defaultValue = "50") @Min(1) @Max(200) Integer limit,
             @RequestParam(required = false) String cursor,
             HttpServletRequest request) {
         return communicationPage(authentication, "ACCOUNT", accountId, includeArchived,
@@ -198,7 +208,7 @@ public class CrmAddressCommunicationController {
             @RequestParam(defaultValue = "false") boolean includeArchived,
             @RequestParam(required = false) String methodType,
             @RequestParam(required = false) String verificationStatus,
-            @RequestParam(required = false) Integer limit,
+            @RequestParam(defaultValue = "50") @Min(1) @Max(200) Integer limit,
             @RequestParam(required = false) String cursor,
             HttpServletRequest request) {
         return communicationPage(authentication, "PERSON", contactId, includeArchived,
@@ -223,8 +233,9 @@ public class CrmAddressCommunicationController {
             Authentication authentication,
             @PathVariable UUID accountId,
             @Valid @RequestBody CreateCommunicationMethodRequest body,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             HttpServletRequest request) {
-        return createCommunicationMethod(authentication, "ACCOUNT", accountId, body, request);
+        return createCommunicationMethod(authentication, "ACCOUNT", accountId, body, idempotencyKey, request);
     }
 
     @RequireCapability("CRM.COMMUNICATION.WRITE")
@@ -233,8 +244,9 @@ public class CrmAddressCommunicationController {
             Authentication authentication,
             @PathVariable UUID contactId,
             @Valid @RequestBody CreateCommunicationMethodRequest body,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             HttpServletRequest request) {
-        return createCommunicationMethod(authentication, "PERSON", contactId, body, request);
+        return createCommunicationMethod(authentication, "PERSON", contactId, body, idempotencyKey, request);
     }
 
     @RequireCapability("CRM.COMMUNICATION.WRITE")
@@ -313,7 +325,7 @@ public class CrmAddressCommunicationController {
     public ListResponse<CommunicationHistoryResponse> communicationHistory(
             Authentication authentication,
             @PathVariable UUID communicationMethodId,
-            @RequestParam(required = false) Integer limit,
+            @RequestParam(defaultValue = "50") @Min(1) @Max(200) Integer limit,
             HttpServletRequest request) {
         List<CommunicationHistoryResponse> data = useCases.communicationHistory(
                         tenantId(authentication), communicationMethodId, pageLimit(limit))
@@ -322,27 +334,50 @@ public class CrmAddressCommunicationController {
     }
 
     private ResponseEntity<SingleResponse<AddressResponse>> createAddress(
-            Authentication authentication, String ownerType, UUID ownerId,
-            CreateAddressRequest body, HttpServletRequest request) {
-        AddressRecord created = useCases.createAddress(tenantId(authentication), userId(authentication), ownerType, ownerId,
-                createAddressCommand(body));
-        AddressResponse response = addressResponse(created);
-        return ResponseEntity.status(201).eTag(etags.etag("address", created.id(), created.version()))
-                .body(SingleResponse.of(response, requestId(request)));
+            Authentication authentication,
+            String ownerType,
+            UUID ownerId,
+            CreateAddressRequest body,
+            String idempotencyKey,
+            HttpServletRequest request) {
+        CrmIdempotencyHttpSupport.Guard guard = idempotency.begin(
+                authentication, "CRM007_CREATE_" + ownerType + "_ADDRESS", idempotencyKey, body, request);
+        if (guard.isReplay()) return idempotency.replay(guard, AddressResponse.class);
+        try {
+            AddressRecord created = useCases.createAddress(
+                    tenantId(authentication), userId(authentication), ownerType, ownerId, createAddressCommand(body));
+            AddressResponse response = addressResponse(created);
+            return idempotency.complete(guard, response, "address", created.version(), HttpStatus.CREATED);
+        } catch (RuntimeException exception) {
+            idempotency.fail(guard);
+            throw exception;
+        }
     }
 
     private ResponseEntity<SingleResponse<CommunicationMethodResponse>> createCommunicationMethod(
-            Authentication authentication, String ownerType, UUID ownerId,
-            CreateCommunicationMethodRequest body, HttpServletRequest request) {
-        CommunicationMethodRecord created = useCases.createCommunicationMethod(
-                tenantId(authentication), userId(authentication), ownerType, ownerId,
-                new CreateCommunicationMethodCommand(body.methodType(), body.rawValue(), null, body.displayValue(),
-                        body.label(), body.preferred(), body.privacyClassification(),
-                        body.consentStateReference(), body.usagePurpose(), body.validFrom(), body.validTo()),
-                body.countryHint());
-        CommunicationMethodResponse response = communicationResponse(created);
-        return ResponseEntity.status(201).eTag(etags.etag("communication-method", created.id(), created.version()))
-                .body(SingleResponse.of(response, requestId(request)));
+            Authentication authentication,
+            String ownerType,
+            UUID ownerId,
+            CreateCommunicationMethodRequest body,
+            String idempotencyKey,
+            HttpServletRequest request) {
+        CrmIdempotencyHttpSupport.Guard guard = idempotency.begin(
+                authentication, "CRM007_CREATE_" + ownerType + "_COMMUNICATION", idempotencyKey, body, request);
+        if (guard.isReplay()) return idempotency.replay(guard, CommunicationMethodResponse.class);
+        try {
+            CommunicationMethodRecord created = useCases.createCommunicationMethod(
+                    tenantId(authentication), userId(authentication), ownerType, ownerId,
+                    new CreateCommunicationMethodCommand(body.methodType(), body.rawValue(), null, body.displayValue(),
+                            body.label(), body.preferred(), body.privacyClassification(),
+                            body.consentStateReference(), body.usagePurpose(), body.validFrom(), body.validTo()),
+                    body.countryHint());
+            CommunicationMethodResponse response = communicationResponse(created);
+            return idempotency.complete(
+                    guard, response, "communication-method", created.version(), HttpStatus.CREATED);
+        } catch (RuntimeException exception) {
+            idempotency.fail(guard);
+            throw exception;
+        }
     }
 
     private ResponseEntity<SingleResponse<AddressResponse>> addressStatus(
