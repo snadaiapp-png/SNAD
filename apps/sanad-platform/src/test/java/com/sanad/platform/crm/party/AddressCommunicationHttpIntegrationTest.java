@@ -54,6 +54,7 @@ class AddressCommunicationHttpIntegrationTest {
 
         MvcResult result = mockMvc.perform(post("/api/v2/crm/accounts/{id}/addresses", accountId)
                         .with(authentication(auth(fixture)))
+                        .header("Idempotency-Key", idem())
                         .contentType("application/json")
                         .content("""
                                 {"addressType":"REGISTERED","label":"المقر الرئيسي",
@@ -106,6 +107,7 @@ class AddressCommunicationHttpIntegrationTest {
 
         MvcResult created = mockMvc.perform(post("/api/v2/crm/contacts/{id}/communication-methods", contactId)
                         .with(authentication(auth(fixture)))
+                        .header("Idempotency-Key", idem())
                         .contentType("application/json")
                         .content("""
                                 {"methodType":"MOBILE","rawValue":"055 123 4567","label":"الجوال",
@@ -138,13 +140,42 @@ class AddressCommunicationHttpIntegrationTest {
     }
 
     @Test
+    void replaysSameIdempotencyKeyWithoutDuplicateRows() throws Exception {
+        Fixture fixture = fixture("crm007-idempotency");
+        UUID accountId = account(fixture, "Idempotent Customer");
+        String key = idem();
+        String payload = """
+                {"addressType":"BILLING","line1":"King Road","city":"Riyadh",
+                 "countryCode":"SA","primaryAddress":true,"verified":false}
+                """;
+
+        MvcResult first = mockMvc.perform(post("/api/v2/crm/accounts/{id}/addresses", accountId)
+                        .with(authentication(auth(fixture))).header("Idempotency-Key", key)
+                        .contentType("application/json").content(payload))
+                .andExpect(status().isCreated()).andReturn();
+        MvcResult replay = mockMvc.perform(post("/api/v2/crm/accounts/{id}/addresses", accountId)
+                        .with(authentication(auth(fixture))).header("Idempotency-Key", key)
+                        .contentType("application/json").content(payload))
+                .andExpect(status().isCreated()).andReturn();
+
+        String firstId = mapper.readTree(first.getResponse().getContentAsString()).path("data").path("id").asText();
+        String replayId = mapper.readTree(replay.getResponse().getContentAsString()).path("data").path("id").asText();
+        Long count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM crm_party_addresses WHERE tenant_id=:tenantId AND account_id=:accountId",
+                p().addValue("tenantId", fixture.tenantId()).addValue("accountId", accountId), Long.class);
+        assertThat(replayId).isEqualTo(firstId);
+        assertThat(count).isOne();
+    }
+
+    @Test
     void enforcesEtagAndTenantIsolation() throws Exception {
         Fixture owner = fixture("crm007-owner");
         Fixture outsider = fixture("crm007-outsider");
         UUID accountId = account(owner, "Versioned Address Customer");
 
         MvcResult created = mockMvc.perform(post("/api/v2/crm/accounts/{id}/addresses", accountId)
-                        .with(authentication(auth(owner))).contentType("application/json")
+                        .with(authentication(auth(owner))).header("Idempotency-Key", idem())
+                        .contentType("application/json")
                         .content("""
                                 {"addressType":"OFFICE","line1":"Olaya Street","city":"Riyadh",
                                  "countryCode":"SA","primaryAddress":false,"verified":false}
@@ -183,14 +214,16 @@ class AddressCommunicationHttpIntegrationTest {
                 """;
 
         mockMvc.perform(post("/api/v2/crm/contacts/{id}/communication-methods", firstContact)
-                        .with(authentication(auth(first))).contentType("application/json").content(payload))
+                        .with(authentication(auth(first))).header("Idempotency-Key", idem())
+                        .contentType("application/json").content(payload))
                 .andExpect(status().isCreated());
         mockMvc.perform(post("/api/v2/crm/contacts/{id}/communication-methods", firstContact)
-                        .with(authentication(auth(first))).contentType("application/json")
-                        .content(payload.replace("Support@", "support@")))
+                        .with(authentication(auth(first))).header("Idempotency-Key", idem())
+                        .contentType("application/json").content(payload.replace("Support@", "support@")))
                 .andExpect(status().isConflict());
         mockMvc.perform(post("/api/v2/crm/contacts/{id}/communication-methods", secondContact)
-                        .with(authentication(auth(second))).contentType("application/json").content(payload))
+                        .with(authentication(auth(second))).header("Idempotency-Key", idem())
+                        .contentType("application/json").content(payload))
                 .andExpect(status().isCreated());
     }
 
@@ -267,6 +300,7 @@ class AddressCommunicationHttpIntegrationTest {
         return authentication;
     }
 
+    private static String idem() { return UUID.randomUUID().toString(); }
     private static MapSqlParameterSource p() { return new MapSqlParameterSource(); }
     private record Fixture(UUID tenantId, UUID userId) {}
 }
