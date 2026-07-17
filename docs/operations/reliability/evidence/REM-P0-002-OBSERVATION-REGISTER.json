@@ -7,8 +7,8 @@
     "current_consecutive_passes": 0,
     "window_started_at": null,
     "last_result": "FAIL",
-    "last_checked_at": "2026-07-17T15:22:18Z",
-    "failure_reason": "Production remained fail-closed on the newest reproducible probe: the UI returned HTTP 200, but /api/system/backend-status returned HTTP 500 with invalid non-JSON output on attempt 18. The unauthenticated auth/me requirement therefore cannot be accepted as healthy, and the latest completed BFF Auth Session Synthetic evidence still shows login HTTP 401 instead of 200 with authenticated /me, refresh, session restoration, logout and post-logout rejection not reached. A failed-jobs rerun was requested and is queued. The consecutive success counter remains zero and REM-P0-002 remains open."
+    "last_checked_at": "2026-07-17T15:26:39Z",
+    "failure_reason": "New material authentication failure: production UI remained HTTP 200, while /api/system/backend-status returned HTTP 500 with invalid non-JSON output on the latest production-readiness probe. A fresh rerun of BFF Auth Session Synthetic then proved anonymous /me returned the required HTTP 401, but login failed with HTTP 504 and bff_error=upstream-timeout after about 15 seconds. Authenticated /me, refresh, session restoration, logout and post-logout rejection were not reached. The consecutive success counter is reset to zero and REM-P0-002 remains open."
   },
   "live_checks": {
     "production_ui": {
@@ -32,29 +32,31 @@
     },
     "unauthenticated_auth_me": {
       "expected_status_code": 401,
-      "observed_status_code": 500,
-      "upstream_error": "Most recent direct observation remains Vercel/Next.js HTTP 500; the current readiness probe failed earlier at backend-status and provides no superseding successful auth/me evidence",
-      "checked_at": "2026-07-17T14:28:25Z",
-      "result": "FAIL"
+      "observed_status_code": 401,
+      "upstream_error": null,
+      "checked_at": "2026-07-17T15:26:23Z",
+      "result": "PASS",
+      "request_id": "auth-synthetic-3969a804-21f6-44fb-ad94-237251443efd",
+      "duration_ms": 723.13
     }
   },
   "synthetic": {
     "workflow": "BFF Auth Session Synthetic",
     "latest_run_id": 29580977962,
     "commit_sha": "654f384c3b3c0b16ade78a4e4c03bd5d7edeae03",
-    "job_id": 87886339509,
+    "job_id": 87923435818,
     "job_conclusion": "failure",
     "journey_step_conclusion": "failure",
     "protected_identity_check": "success",
     "sanitized_evidence_upload": "success",
-    "evidence_artifact_id": 8406982036,
-    "evidence_digest": "sha256:a30eaad708faabb4cdd69c30abee609689592b554d1cf1be1fb2e1e3c72a58ee",
-    "rerun_status": "queued",
-    "rerun_job_id": 87923435818,
-    "current_cycle_assessment": "FAIL_BACKEND_STATUS_AND_BFF_AUTH_LOGIN",
+    "evidence_artifact_id": 8411479418,
+    "evidence_digest": "sha256:0ecaf572ca479bbf0b8bd2fd16108b434e163a18dbe89309adc6c5de65d58764",
+    "rerun_status": "completed_failure",
+    "current_cycle_assessment": "FAIL_BACKEND_STATUS_AND_LOGIN_HTTP_504",
+    "failure": "login: expected HTTP 200, received HTTP 504",
     "required_journey_evidence": {
       "anonymous_me": "success_http_401",
-      "login": "failed_http_401_expected_200",
+      "login": "failed_http_504_upstream_timeout",
       "authenticated_me": "not_reached",
       "refresh": "not_reached",
       "session_restoration": "not_reached",
