@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "status_authority": "CURRENT",
-  "as_of": "2026-07-17",
+  "as_of": "2026-07-18",
   "timezone": "Asia/Riyadh",
   "project": "SANAD",
   "decision": "CONDITIONAL_CONTINUE",
@@ -11,6 +11,40 @@
     "verification",
     "limited pilot operation"
   ],
+  "temporary_risk_acceptance": {
+    "state": "ACTIVE_FOR_CONTROLLED_SCOPE_ONLY",
+    "effective_date": "2026-07-18",
+    "accepted_by": "Project Owner",
+    "decision_document": "docs/governance/TEMPORARY-RISK-ACCEPTANCE-2026-07-18.md",
+    "accepted_findings": [
+      "REM-P0-001",
+      "REM-P0-002",
+      "REM-P0-004",
+      "REM-P0-005",
+      "REM-P0-006",
+      "REM-P1-009"
+    ],
+    "permitted_scope": [
+      "controlled development",
+      "verification and remediation",
+      "limited non-contractual pilot operation"
+    ],
+    "excluded_scope": [
+      "broad commercial go-live",
+      "external contractual SLA commitments",
+      "enterprise-production-ready claims",
+      "closure or severity reduction of accepted findings"
+    ],
+    "review_interval_days": 30,
+    "automatic_expiry_conditions": [
+      "broad commercial go-live review begins",
+      "no recorded review within 30 days",
+      "SEV0 or SEV1 incident related to an accepted risk",
+      "confirmed security breach, data loss or tenant-isolation failure",
+      "material hosting, identity, security or data-architecture change",
+      "pilot scope expands beyond the approved boundary"
+    ]
+  },
   "authoritative_tracker": {
     "repository": "snadaiapp-png/SNAD",
     "issue": 516,
@@ -31,12 +65,12 @@
     "REM-P1-010": "Status documentation authority, reconciliation and historical classification — PR #529, merge e6b7cb7e9dde8b603bc282fb5c491c5fdad6a8e0"
   },
   "open_findings": {
-    "REM-P0-001": "Production backend depends on a development tunnel",
-    "REM-P0-002": "BFF and browser session controls implemented; production observation and REM-P0-001 dependency remain open",
-    "REM-P0-004": "Governance sequence for later outputs remains unreconciled",
-    "REM-P0-005": "Production backup, restore and disaster-recovery evidence is incomplete",
-    "REM-P0-006": "Independent security assurance is not closed",
-    "REM-P1-009": "Repository visibility requires an explicit governance decision"
+    "REM-P0-001": "Production backend depends on a development tunnel; temporarily accepted for controlled scope only",
+    "REM-P0-002": "BFF and browser session controls implemented; production observation and REM-P0-001 dependency remain open; temporarily accepted for controlled scope only",
+    "REM-P0-004": "Governance sequence for later outputs remains unreconciled; temporarily accepted for controlled scope only",
+    "REM-P0-005": "Production backup, restore and disaster-recovery evidence is incomplete; temporarily accepted for controlled scope only",
+    "REM-P0-006": "Independent security assurance is not closed; temporarily accepted for controlled scope only",
+    "REM-P1-009": "Repository visibility requires an explicit governance decision; temporarily accepted for controlled scope only"
   },
   "open_finding_counts": {
     "total": 6,
@@ -44,6 +78,7 @@
     "P1": 1,
     "deferred_but_open": 1,
     "remediated_but_open": 1,
+    "temporarily_accepted_but_open": 6,
     "remediation_in_progress": 0
   },
   "deferred_findings": [
@@ -84,6 +119,8 @@
     "stage_closure_documents_are_current_status": false,
     "passing_ci_equals_commercial_approval": false,
     "healthy_endpoint_equals_platform_readiness": false,
-    "missing_telemetry_equals_success": false
+    "missing_telemetry_equals_success": false,
+    "temporary_risk_acceptance_closes_findings": false,
+    "temporary_risk_acceptance_authorizes_broad_go_live": false
   }
 }
