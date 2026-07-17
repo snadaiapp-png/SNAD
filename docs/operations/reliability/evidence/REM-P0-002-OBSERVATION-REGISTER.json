@@ -7,13 +7,13 @@
     "current_consecutive_passes": 0,
     "window_started_at": null,
     "last_result": "FAIL",
-    "last_checked_at": "2026-07-17T22:26:28Z",
-    "failure_reason": "The monitoring execution environment could not resolve snad-app.vercel.app, so fresh production UI, backend-status and unauthenticated /auth/me results could not be established for this cycle. A successful cycle cannot be credited without reproducible live endpoint evidence. The latest available BFF Auth Session Synthetic evidence remains failed because login returned HTTP 401 instead of HTTP 200, so authenticated /me, refresh, session restoration, logout and post-logout rejection were not reached. The consecutive-success counter remains zero and REM-P0-002 remains open. This record classifies the cycle as an observation failure, not as proof that the production endpoints themselves were unavailable."
+    "last_checked_at": "2026-07-17T23:22:12Z",
+    "failure_reason": "The monitoring execution environment again could not resolve snad-app.vercel.app, so fresh production UI, backend-status and unauthenticated /auth/me results could not be established for this cycle. A successful cycle cannot be credited without reproducible live endpoint evidence. Re-verification of the latest available BFF Auth Session Synthetic run 29580977962 confirms that the protected identity check and sanitized evidence upload succeeded, but the authenticated journey failed at login; authenticated /me, refresh, session restoration, logout and post-logout rejection were not reached. The consecutive-success counter remains zero and REM-P0-002 remains open. This record classifies the cycle as an observation failure, not as proof that the production endpoints themselves were unavailable."
   },
   "live_checks": {
     "production_ui": {
       "status_code": null,
-      "checked_at": "2026-07-17T22:26:28Z",
+      "checked_at": "2026-07-17T23:22:12Z",
       "result": "ERROR",
       "error": "DNS resolution failed in monitoring execution environment",
       "evidence_source": "Automation runtime probe"
@@ -24,7 +24,7 @@
       "reachable": null,
       "upstream_status_code": null,
       "target_host": null,
-      "checked_at": "2026-07-17T22:26:28Z",
+      "checked_at": "2026-07-17T23:22:12Z",
       "result": "ERROR",
       "error": "DNS resolution failed in monitoring execution environment",
       "evidence_source": "Automation runtime probe"
@@ -33,7 +33,7 @@
       "expected_status_code": 401,
       "observed_status_code": null,
       "upstream_error": "DNS resolution failed in monitoring execution environment",
-      "checked_at": "2026-07-17T22:26:28Z",
+      "checked_at": "2026-07-17T23:22:12Z",
       "result": "ERROR",
       "request_id": null,
       "duration_ms": null,
@@ -52,11 +52,11 @@
     "evidence_artifact_id": 8417472051,
     "evidence_digest": "sha256:4ad1f230d2294e8e699cffa4f3b70ef224e074b7d6d66efe3465ad231c47b242",
     "rerun_status": "completed_failure",
-    "current_cycle_assessment": "FAIL_MONITORING_DNS_AND_LATEST_SYNTHETIC_LOGIN_HTTP_401",
-    "failure": "Fresh endpoint evidence was unavailable because the monitoring runtime could not resolve the production hostname. The latest available authenticated synthetic remains failed because login returned HTTP 401 instead of HTTP 200; no authenticated session was established and the remaining required steps were not reached.",
+    "current_cycle_assessment": "FAIL_MONITORING_DNS_AND_LATEST_SYNTHETIC_LOGIN_FAILURE",
+    "failure": "Fresh endpoint evidence was unavailable because the monitoring runtime could not resolve the production hostname. Re-verification of workflow run 29580977962 confirms the authenticated journey failed at login; no authenticated session was established and the remaining required steps were not reached.",
     "required_journey_evidence": {
       "anonymous_me": "not_reverified_current_cycle_due_monitoring_dns_failure; latest_workflow_evidence_success_http_401",
-      "login": "failed_http_401_latest_available_workflow",
+      "login": "failed_latest_available_workflow",
       "authenticated_me": "not_reached",
       "refresh": "not_reached",
       "session_restoration": "not_reached",
