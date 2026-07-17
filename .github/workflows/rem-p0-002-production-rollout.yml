@@ -242,3 +242,5 @@ jobs:
             for (const issue_number of [516, 534, 535, 537]) {
               await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number, body});
             }
+
+# 2026-07-17: force exact-main redeployment after a Vercel env bundle read failure.
