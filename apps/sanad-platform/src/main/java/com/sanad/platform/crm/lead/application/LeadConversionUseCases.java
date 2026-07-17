@@ -160,6 +160,7 @@ public class LeadConversionUseCases {
             String currencyCode,
             BigDecimal amount
     ) {
+        Instant occurredAt = Instant.now();
         ObjectNode after = objectMapper.createObjectNode();
         after.put("leadId", leadId.toString());
         after.put("accountId", accountId.toString());
@@ -171,14 +172,25 @@ public class LeadConversionUseCases {
         if (amount != null) after.put("amount", amount);
         after.put("idempotent", false);
 
-        audit.record(
-                tenantId,
-                actorId,
-                "CONVERT",
-                "LEAD",
-                leadId,
-                new AuditChange(null, after),
-                Instant.now());
+        AuditChange conversionChange = new AuditChange(null, after);
+        audit.record(tenantId, actorId, "CONVERT", "LEAD", leadId,
+                conversionChange, occurredAt);
+
+        ObjectNode accountLink = objectMapper.createObjectNode();
+        accountLink.put("sourceLeadId", leadId.toString());
+        accountLink.put("contactId", contactId.toString());
+        if (opportunityId != null) accountLink.put("opportunityId", opportunityId.toString());
+        audit.record(tenantId, actorId, "LEAD_CONVERSION_LINK", "ACCOUNT", accountId,
+                new AuditChange(null, accountLink), occurredAt);
+
+        if (opportunityId != null) {
+            ObjectNode opportunityLink = objectMapper.createObjectNode();
+            opportunityLink.put("sourceLeadId", leadId.toString());
+            opportunityLink.put("accountId", accountId.toString());
+            opportunityLink.put("contactId", contactId.toString());
+            audit.record(tenantId, actorId, "LEAD_CONVERSION_LINK", "OPPORTUNITY", opportunityId,
+                    new AuditChange(null, opportunityLink), occurredAt);
+        }
     }
 
     private PipelineRecord defaultPipeline(UUID tenantId, UUID actorId, String currencyCode) {
