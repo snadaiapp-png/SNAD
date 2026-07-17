@@ -11,6 +11,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,18 +30,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Executable REM-P1-007 foundation slice.
+ * REM-P1-007 executable foundation:
+ * Lead -> Qualification -> Account/Contact -> Opportunity -> Won.
  *
- * Proves a real business process through public HTTP contracts and application
- * persistence rather than mocks:
- *
- * Lead -> Qualification -> Account/Contact -> Opportunity -> Won
- *
- * The test also proves tenant isolation, RBAC denial, idempotent conversion,
- * audit/timeline evidence, analytical consistency and rollback on a rejected
- * cross-account relationship. It deliberately does not claim Order-to-Cash
- * closure because quotation, order, inventory, delivery, invoice, ledger and
- * collection are outside the currently executable slice.
+ * This is intentionally a partial Order-to-Cash proof. Quotation, sales order,
+ * inventory, delivery, invoice, ledger, collection and reconciliation remain
+ * blocked in the governed process catalog.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -105,18 +100,20 @@ class SalesQualificationBusinessProcessE2ETest {
         JsonNode qualified = perform(patch("/api/v1/crm/leads/{id}/status", leadId)
                 .with(authentication(auth(TENANT_A, ADMIN_A)))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"status":"QUALIFIED"}"""), 200);
+                .content("{\"status\":\"QUALIFIED\"}"), 200);
         assertThat(qualified.path("status").asText()).isEqualTo("QUALIFIED");
+
+        String conversionPayload = """
+                {"accountName":"Maha Digital","createOpportunity":true,
+                 "pipelineId":"%s","stageId":"%s",
+                 "opportunityName":"Enterprise Platform Rollout",
+                 "amount":250000,"currencyCode":"SAR"}
+                """.formatted(pipelineId, firstStageId);
 
         JsonNode conversion = perform(post("/api/v1/crm/leads/{id}/convert", leadId)
                 .with(authentication(auth(TENANT_A, ADMIN_A)))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                        {"accountName":"Maha Digital","createOpportunity":true,
-                         "pipelineId":"%s","stageId":"%s",
-                         "opportunityName":"Enterprise Platform Rollout",
-                         "amount":250000,"currencyCode":"SAR"}
-                        """.formatted(pipelineId, firstStageId)), 200);
+                .content(conversionPayload), 200);
 
         assertThat(conversion.path("idempotent").asBoolean()).isFalse();
         assertThat(conversion.path("lead").path("status").asText()).isEqualTo("CONVERTED");
@@ -130,12 +127,7 @@ class SalesQualificationBusinessProcessE2ETest {
         JsonNode replay = perform(post("/api/v1/crm/leads/{id}/convert", leadId)
                 .with(authentication(auth(TENANT_A, ADMIN_A)))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                        {"accountName":"Maha Digital","createOpportunity":true,
-                         "pipelineId":"%s","stageId":"%s",
-                         "opportunityName":"Enterprise Platform Rollout",
-                         "amount":250000,"currencyCode":"SAR"}
-                        """.formatted(pipelineId, firstStageId)), 200);
+                .content(conversionPayload), 200);
         assertThat(replay.path("idempotent").asBoolean()).isTrue();
         assertThat(replay.path("accountId").asText()).isEqualTo(accountId);
         assertThat(replay.path("contactId").asText()).isEqualTo(contactId);
@@ -159,7 +151,7 @@ class SalesQualificationBusinessProcessE2ETest {
         perform(patch("/api/v1/crm/activities/{id}/complete", activity.path("id").asText())
                 .with(authentication(auth(TENANT_A, ADMIN_A)))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"result":"Commercial handoff completed"}"""), 200);
+                .content("{\"result\":\"Commercial handoff completed\"}"), 200);
 
         mockMvc.perform(get("/api/v1/crm/accounts/{id}/customer-360", accountId)
                         .with(authentication(auth(TENANT_A, ADMIN_A))))
@@ -230,8 +222,8 @@ class SalesQualificationBusinessProcessE2ETest {
     }
 
     private Authentication auth(UUID tenantId, UUID userId) {
-        UsernamePasswordAuthenticationToken authentication =
-                UsernamePasswordAuthenticationToken.authenticated(userId.toString(), "n/a", List.of());
+        UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                userId.toString(), null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
         authentication.setDetails(Map.of(
                 "tenant_id", tenantId.toString(),
                 "user_id", userId.toString()));
@@ -249,7 +241,7 @@ class SalesQualificationBusinessProcessE2ETest {
     }
 
     private void seedUser(UUID id, UUID tenantId, String email, Instant now) {
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)",
+        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE','dummy',?,?)",
                 id, tenantId, email, "Business Process E2E User", now, now);
     }
 
