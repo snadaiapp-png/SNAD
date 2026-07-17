@@ -52,6 +52,12 @@ Closed through PR #522 and implementation SHA `e026cdb99393c2ca8c7e5a86fd5496221
 
 Closed through PR #525 and merge SHA `6472be6a8a0252a52d977bc281757cd469bbb7db`. Internal SLO governance is active; external SLA targets are not contractual until approved in customer agreements.
 
+### REM-P1-010 — Status-document reconciliation
+
+Closed through PR #529 and merge SHA `e6b7cb7e9dde8b603bc282fb5c491c5fdad6a8e0` after Status Documentation Validation run `29544935675`, job `87775027749`, completed successfully on exact PR SHA `903da584bdd3ff63a21c59da3a965a3c7beb7e49`.
+
+The correction established a machine-readable current status, an explicit authority order, historical/planning classifications, visible warnings on high-risk legacy records, and a fail-closed CI gate.
+
 ## 5. Open and deferred findings
 
 | Finding | State | Owner domain |
@@ -63,7 +69,6 @@ Closed through PR #525 and merge SHA `6472be6a8a0252a52d977bc281757cd469bbb7db`.
 | REM-P0-006 — independent security assurance | Open | Security Governance |
 | REM-P1-007 — cross-module E2E business evidence | Open | QA and Business Product Owners |
 | REM-P1-009 — repository visibility decision | Open | Project Owner and Security Governance |
-| REM-P1-010 — stale or conflicting status documents | Remediation implemented; pending merge and acceptance | Program and Release Management |
 
 Deferral changes work priority only. It does not close or reduce the severity of a risk.
 
