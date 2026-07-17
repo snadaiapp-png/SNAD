@@ -17,6 +17,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -43,7 +44,7 @@ class ContactRelationshipUseCasesTest {
         RelationshipRecord result = useCases.setPrimary(tenantId, actorId, relationshipId, 7L);
 
         assertThat(result).isSameAs(primary);
-        verify(repository, never()).setPrimary(any(), any(), any(), any(Long.class));
+        verify(repository, never()).setPrimary(any(), any(), any(), anyLong());
         verifyNoInteractions(audit, timeline);
     }
 
@@ -60,7 +61,7 @@ class ContactRelationshipUseCasesTest {
                         exception -> assertThat(exception.code())
                                 .isEqualTo(CrmErrorCode.CRM_CONCURRENCY_CONFLICT));
 
-        verify(repository, never()).setPrimary(any(), any(), any(), any(Long.class));
+        verify(repository, never()).setPrimary(any(), any(), any(), anyLong());
         verifyNoInteractions(audit, timeline);
     }
 
