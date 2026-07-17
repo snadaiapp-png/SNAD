@@ -7,6 +7,7 @@ import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.DockerClientFactory;
@@ -16,9 +17,11 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Testcontainers
 class CrmPostgresMigrationTest {
@@ -39,6 +42,7 @@ class CrmPostgresMigrationTest {
     private static final String CRM_TIMELINE_TENANT_LIFECYCLE_VERSION = "20260717.3";
     private static final String BUSINESS_PROCESS_BACKBONE_VERSION = "20260717.4";
     private static final String BUSINESS_PROCESS_RBAC_VERSION = "20260717.5";
+    private static final String CRM_G1_EXTENSION_VERSION = "20260717.6";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -59,6 +63,13 @@ class CrmPostgresMigrationTest {
     private static final List<String> CRM_CONTACT_RELATIONSHIP_TABLES = List.of(
             "crm_contact_relationship_roles", "crm_contact_account_relationships",
             "crm_contact_relationship_history", "crm_contact_ownership_history");
+    private static final List<String> CRM_G1_EXTENSION_TABLES = List.of(
+            "crm_assignments", "crm_transfers", "crm_audit_logs",
+            "crm_reports", "crm_phone_numbers", "crm_contact_lookup_index");
+    private static final List<String> CRM_G1_ALL_EXTENSION_TABLES = List.of(
+            "crm_tasks", "crm_assignments", "crm_transfers", "crm_notes",
+            "crm_audit_logs", "crm_reports", "crm_phone_numbers",
+            "crm_contact_lookup_index");
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
@@ -104,7 +115,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_CONTACT_RELATIONSHIP_RBAC_VERSION),
                         MigrationVersion.fromVersion(CRM_TIMELINE_TENANT_LIFECYCLE_VERSION),
                         MigrationVersion.fromVersion(BUSINESS_PROCESS_BACKBONE_VERSION),
-                        MigrationVersion.fromVersion(BUSINESS_PROCESS_RBAC_VERSION));
+                        MigrationVersion.fromVersion(BUSINESS_PROCESS_RBAC_VERSION),
+                        MigrationVersion.fromVersion(CRM_G1_EXTENSION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -138,7 +150,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_CONTACT_RELATIONSHIP_RBAC_VERSION),
                         MigrationVersion.fromVersion(CRM_TIMELINE_TENANT_LIFECYCLE_VERSION),
                         MigrationVersion.fromVersion(BUSINESS_PROCESS_BACKBONE_VERSION),
-                        MigrationVersion.fromVersion(BUSINESS_PROCESS_RBAC_VERSION));
+                        MigrationVersion.fromVersion(BUSINESS_PROCESS_RBAC_VERSION),
+                        MigrationVersion.fromVersion(CRM_G1_EXTENSION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -151,6 +164,64 @@ class CrmPostgresMigrationTest {
         flyway.migrate();
         flyway.validate();
         assertCompletedSchema(jdbc());
+    }
+
+    @Test
+    void rejectsCrossTenantContactLookupReferences() {
+        Flyway flyway = flyway(null);
+        flyway.clean();
+        flyway.migrate();
+
+        JdbcTemplate jdbc = jdbc();
+        UUID tenantA = UUID.randomUUID();
+        UUID tenantB = UUID.randomUUID();
+        UUID actor = UUID.randomUUID();
+        UUID accountA = UUID.randomUUID();
+        UUID contactA = UUID.randomUUID();
+
+        insertTenant(jdbc, tenantA, "Tenant A", "g1-tenant-a-" + tenantA);
+        insertTenant(jdbc, tenantB, "Tenant B", "g1-tenant-b-" + tenantB);
+
+        jdbc.update("""
+                INSERT INTO crm_accounts (
+                    id, tenant_id, version, display_name, normalized_name, account_type,
+                    lifecycle_status, created_by, updated_by, created_at, updated_at
+                ) VALUES (?, ?, 0, ?, ?, 'BUSINESS', 'ACTIVE', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, accountA, tenantA, "Account A", "account a", actor, actor);
+
+        jdbc.update("""
+                INSERT INTO crm_contacts (
+                    id, tenant_id, version, account_id, given_name, display_name,
+                    normalized_name, lifecycle_status, consent_summary,
+                    created_by, updated_by, created_at, updated_at
+                ) VALUES (?, ?, 0, ?, 'Contact', 'Contact A', 'contact a',
+                          'ACTIVE', 'UNKNOWN', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, contactA, tenantA, accountA, actor, actor);
+
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO crm_contact_lookup_index (
+                    id, tenant_id, contact_id, account_id, normalized_name,
+                    normalized_email, normalized_phone, search_text, source_version,
+                    last_indexed_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'contact a', 'a@example.test', '+966500000001',
+                          'contact a a@example.test +966500000001', 0,
+                          CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, UUID.randomUUID(), tenantB, contactA, accountA))
+                .isInstanceOf(DataIntegrityViolationException.class);
+
+        jdbc.update("""
+                INSERT INTO crm_contact_lookup_index (
+                    id, tenant_id, contact_id, account_id, normalized_name,
+                    normalized_email, normalized_phone, search_text, source_version,
+                    last_indexed_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'contact a', 'a@example.test', '+966500000001',
+                          'contact a a@example.test +966500000001', 0,
+                          CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, UUID.randomUUID(), tenantA, contactA, accountA);
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM crm_contact_lookup_index WHERE tenant_id=? AND contact_id=?",
+                Long.class, tenantA, contactA)).isOne();
     }
 
     private void assertCompletedSchema(JdbcTemplate jdbc) {
@@ -171,9 +242,12 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_TIMELINE_TENANT_LIFECYCLE_VERSION, "SQL", "crm timeline tenant lifecycle");
         assertMigration(jdbc, BUSINESS_PROCESS_BACKBONE_VERSION, "SQL", "create business process e2e backbone");
         assertMigration(jdbc, BUSINESS_PROCESS_RBAC_VERSION, "SQL", "grant business process capabilities");
+        assertMigration(jdbc, CRM_G1_EXTENSION_VERSION, "SQL", "complete crm g1 extension tables");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(BUSINESS_PROCESS_RBAC_VERSION);
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_G1_EXTENSION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
+        assertThat(existingTables(jdbc)).containsAll(CRM_G1_ALL_EXTENSION_TABLES);
+        assertThat(explicitG1IndexCount(jdbc)).isEqualTo(26L);
         assertNoDuplicateVersions(jdbc);
 
         assertThat(constraintExists(jdbc, "fk_crm_contacts_account_same_tenant")).isTrue();
@@ -188,6 +262,14 @@ class CrmPostgresMigrationTest {
         assertThat(constraintExists(jdbc, "fk_crm_contact_relationship_account_same_tenant")).isTrue();
         assertThat(constraintExists(jdbc, "uk_crm_contact_account_relationship_primary")).isTrue();
         assertThat(constraintExists(jdbc, "ck_crm_contact_relationship_dates")).isTrue();
+
+        assertThat(constraintExists(jdbc, "fk_crm_assignments_contact_same_tenant")).isTrue();
+        assertThat(constraintExists(jdbc, "fk_crm_assignments_assignee_same_tenant")).isTrue();
+        assertThat(constraintExists(jdbc, "fk_crm_transfers_opportunity_same_tenant")).isTrue();
+        assertThat(constraintExists(jdbc, "fk_crm_transfers_to_user_same_tenant")).isTrue();
+        assertThat(constraintExists(jdbc, "fk_crm_phone_numbers_contact_same_tenant")).isTrue();
+        assertThat(constraintExists(jdbc, "fk_crm_contact_lookup_contact_same_tenant")).isTrue();
+        assertThat(constraintExists(jdbc, "fk_crm_contact_lookup_account_same_tenant")).isTrue();
 
         assertThat(columnExists(jdbc, "crm_idempotency_records", "response_headers_json")).isTrue();
         assertThat(columnExists(jdbc, "crm_idempotency_records", "content_type")).isTrue();
@@ -223,7 +305,8 @@ class CrmPostgresMigrationTest {
                         CRM_NOTES_TABLES,
                         CRM_TAGS_TABLES,
                         CRM_CUSTOMER_MASTER_TABLES,
-                        CRM_CONTACT_RELATIONSHIP_TABLES)
+                        CRM_CONTACT_RELATIONSHIP_TABLES,
+                        CRM_G1_EXTENSION_TABLES)
                 .flatMap(List::stream)
                 .sorted()
                 .toList();
@@ -245,6 +328,28 @@ class CrmPostgresMigrationTest {
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         dataSource.setDriverClassName(POSTGRES.getDriverClassName());
         return new JdbcTemplate(dataSource);
+    }
+
+    private void insertTenant(JdbcTemplate jdbc, UUID id, String name, String subdomain) {
+        jdbc.update("""
+                INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
+                VALUES (?, ?, ?, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, id, name, subdomain);
+    }
+
+    private long explicitG1IndexCount(JdbcTemplate jdbc) {
+        Long count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND tablename IN (
+                    'crm_tasks', 'crm_assignments', 'crm_transfers', 'crm_notes',
+                    'crm_audit_logs', 'crm_reports', 'crm_phone_numbers',
+                    'crm_contact_lookup_index'
+                  )
+                  AND indexname LIKE 'idx_crm_%'
+                """, Long.class);
+        return count == null ? 0L : count;
     }
 
     private void assertMigration(JdbcTemplate jdbc, String version, String type, String description) {
