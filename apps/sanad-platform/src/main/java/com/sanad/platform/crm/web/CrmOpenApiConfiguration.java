@@ -16,6 +16,7 @@ import org.springframework.context.annotation.Configuration;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Makes the generated platform OpenAPI document reflect the CRM HTTP contract
@@ -31,6 +32,12 @@ public class CrmOpenApiConfiguration {
 
     static final String CRM_PREFIX = "/api/v2/crm";
     static final String BEARER_AUTH = "BearerAuth";
+    private static final Set<String> CREATED_COLLECTION_PATHS = Set.of(
+            CRM_PREFIX + "/accounts",
+            CRM_PREFIX + "/contacts",
+            CRM_PREFIX + "/leads",
+            CRM_PREFIX + "/opportunities",
+            CRM_PREFIX + "/activities");
 
     @Bean
     OpenAPI crmOpenApiComponents() {
@@ -101,11 +108,14 @@ public class CrmOpenApiConfiguration {
             String path,
             PathItem.HttpMethod method,
             Operation operation) {
-        if (method != PathItem.HttpMethod.POST || operation.getResponses() == null) {
+        if (method != PathItem.HttpMethod.POST
+                || !CREATED_COLLECTION_PATHS.contains(path)
+                || operation.getResponses() == null) {
             return;
         }
-        // CRM create endpoints return 201 through ResponseEntity/idempotency support,
-        // which Springdoc cannot infer from the generic ResponseEntity signature.
+        // These collection endpoints return 201 through ResponseEntity and
+        // idempotency support, which Springdoc cannot infer from the generic
+        // ResponseEntity signature alone.
         ApiResponse success = operation.getResponses().get("201");
         if (success == null) {
             success = operation.getResponses().get("200");
