@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "decision": "TEMPORARY_RISK_ACCEPTANCE",
+  "state": "ACTIVE_FOR_CONTROLLED_SCOPE_ONLY",
+  "effective_date": "2026-07-18",
+  "timezone": "Asia/Riyadh",
+  "accepted_by": "Project Owner",
+  "authoritative_tracker": "GitHub Issue #516",
+  "accepted_findings": [
+    "REM-P0-001",
+    "REM-P0-002",
+    "REM-P0-004",
+    "REM-P0-005",
+    "REM-P0-006",
+    "REM-P1-009"
+  ],
+  "findings_remain_open": true,
+  "severity_reduced": false,
+  "permitted_scope": [
+    "controlled development",
+    "verification and remediation",
+    "limited non-contractual pilot operation"
+  ],
+  "broad_commercial_go_live_authorized": false,
+  "review_interval_days": 30,
+  "automatic_expiry_conditions": [
+    "broad commercial go-live review begins",
+    "no review recorded within 30 days",
+    "related SEV0 or SEV1 incident",
+    "confirmed security breach, data loss or tenant-isolation failure",
+    "material hosting, identity, security or data-architecture change",
+    "pilot scope expands beyond approved boundary"
+  ],
+  "decision_document": "docs/governance/TEMPORARY-RISK-ACCEPTANCE-2026-07-18.md"
+}
