@@ -4,7 +4,10 @@
 > **Parent implementation PR:** `#552`  
 > **Parent verified head:** `b8ff660650d6ee836271957c08591b5f3bc0be8c`  
 > **Parent merge SHA:** `f1eee10480cf3416edcf3824dab66a5450310e8a`  
-> **Addendum status:** `SOURCE_HARDENING_IMPLEMENTED / EXACT_HEAD_CHECK_REQUIRED`  
+> **Evidence-hardening PR:** `#558`  
+> **Evidence-hardening verified head:** `ebca701322daba41f55396d9502c99e8672b6813`  
+> **Evidence-hardening merge SHA:** `49a58cca1aac87595e26207fe4167f32115e2498`  
+> **Addendum status:** `MERGED_AND_EXACT_SHA_VERIFIED`  
 > **CRM-G1 gate:** `OPEN / PRODUCTION_EVIDENCE_PENDING`
 
 ## 1. Purpose
@@ -36,24 +39,42 @@ This test proves the behavior of
 replace—the read-only catalog verifier and the authenticated API/UI isolation
 suite.
 
-## 3. Exact-SHA evidence workflow
+## 3. Exact-SHA evidence
 
-`CRM G1 Schema Isolation` is hardened to:
+The evidence-hardening head
+`ebca701322daba41f55396d9502c99e8672b6813` passed all pull-request workflows,
+including:
 
-- check out the actual pull-request head SHA;
-- verify `git rev-parse HEAD` equals the candidate SHA;
-- build the migration classpath;
-- apply the full Flyway chain to PostgreSQL 16;
-- run `scripts/crm/verify-g1-tenant-isolation.sql`;
-- run `CrmPostgresMigrationTest` and
-  `CrmG1TenantIsolationPostgresTest`;
-- record Flyway, table, index, and tenant-FK inventories;
-- upload Surefire reports and database evidence in an artifact named with the
-  exact candidate SHA.
+- `CRM G1 Schema Isolation`;
+- `CRM Authenticated Acceptance` and Playwright;
+- platform `CI` and `Web CI`;
+- API contract and modular architecture validation;
+- security, backup/restore, performance, deployment-readiness, provenance, and
+  production-readiness gates.
 
-A workflow definition is not evidence of success. The current pull-request or
-release check must complete successfully, and its artifact ID and digest must
-be retained in the decision record.
+The dedicated G1 workflow run was `29601659475`. Its immutable evidence artifact
+is:
+
+```text
+artifact_id: 8415255083
+artifact_name: crm-g1-schema-isolation-ebca701322daba41f55396d9502c99e8672b6813
+artifact_digest: sha256:a762678fef84eb4cb9bd65f7a2d5b1375835b3c5a2f9d8a95bd5ee62698aa5a2
+```
+
+The downloaded artifact proves:
+
+- candidate SHA matched the tested head;
+- Flyway `20260717.6` succeeded exactly once;
+- all eight G1 extension tables existed;
+- exactly 26 explicit `idx_crm_%` indexes existed;
+- all eight tenant-root foreign keys existed;
+- the catalog verifier passed every check;
+- `CrmPostgresMigrationTest` passed 3 of 3 tests;
+- `CrmG1TenantIsolationPostgresTest` passed 1 of 1 test;
+- failures, errors, and skipped tests were zero.
+
+PR `#558` was squash-merged using `expected_head_sha` protection as merge SHA
+`49a58cca1aac87595e26207fe4167f32115e2498`.
 
 ## 4. Production control package
 
@@ -77,8 +98,9 @@ been applied to the controlled production PostgreSQL/Supabase database.
 | Parent 26-index source contract | `PASS` |
 | Parent exact-SHA implementation CI | `PASS` |
 | Parent authenticated two-tenant source acceptance | `PASS` |
-| Behavioral PostgreSQL cross-tenant rejection test | `IMPLEMENTED / CURRENT EXACT-HEAD CHECK REQUIRED` |
-| Exact-SHA immutable schema artifact | `IMPLEMENTED / CURRENT EXACT-HEAD CHECK REQUIRED` |
+| Behavioral PostgreSQL cross-tenant rejection test | `PASS` |
+| Exact-SHA immutable schema artifact | `PASS` |
+| Evidence hardening merged with expected-head protection | `PASS` |
 | Production migration runbook | `PRESENT` |
 | Formal production evidence record | `PRESENT / PENDING EXECUTION` |
 | Production Flyway application | `PENDING` |
@@ -89,14 +111,14 @@ been applied to the controlled production PostgreSQL/Supabase database.
 
 ```text
 CRM-G1_SOURCE_IMPLEMENTATION: MERGED_AND_VERIFIED
-CRM-G1_EVIDENCE_HARDENING: IMPLEMENTED / CURRENT_CI_REQUIRED
-BEHAVIORAL_POSTGRESQL_ISOLATION: IMPLEMENTED
-IMMUTABLE_EXACT_SHA_ARTIFACT: IMPLEMENTED
+CRM-G1_EVIDENCE_HARDENING: MERGED_AND_EXACT_SHA_VERIFIED
+BEHAVIORAL_POSTGRESQL_ISOLATION: PASS
+IMMUTABLE_EXACT_SHA_ARTIFACT: PASS
 PRODUCTION_MIGRATION_EVIDENCE: REQUIRED
 POST_DEPLOYMENT_TWO_TENANT_SMOKE: REQUIRED
 OWNER_APPROVAL: REQUIRED
 CRM-G1: OPEN / PRODUCTION_EVIDENCE_PENDING
 ```
 
-This addendum strengthens evidence quality. It does not authorize production
-execution and does not close CRM-G1.
+The repository implementation and source-evidence hardening are complete. This
+addendum does not authorize production execution and does not close CRM-G1.
