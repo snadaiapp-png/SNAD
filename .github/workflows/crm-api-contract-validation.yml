@@ -99,10 +99,13 @@ jobs:
           with open('docs/crm/contracts/openapi/crm-openapi.json', encoding='utf-8') as stream:
               spec = json.load(stream)
           assert spec['openapi'].startswith('3.')
-          assert len(spec['paths']) == 34, f"Expected 34 CRM paths, got {len(spec['paths'])}"
+          assert len(spec['paths']) == 50, f"Expected 50 CRM paths, got {len(spec['paths'])}"
+          assert all(not path.startswith('/api/v2/crm') for path in spec['paths']), \
+              'Committed CRM paths must be relative to the /api/v2/crm server prefix'
           methods = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'}
           operations = sum(1 for item in spec['paths'].values() for method in item if method in methods)
-          assert operations == 46, f'Expected 46 CRM operations, got {operations}'
+          assert operations == 66, f'Expected 66 CRM operations, got {operations}'
+          assert spec.get('servers') == [{'url': '/api/v2/crm'}]
           print(f'Committed OpenAPI artifact: {len(spec["paths"])} paths, {operations} operations')
           PY
 
@@ -163,6 +166,16 @@ jobs:
           cat /tmp/crm-openapi-backend.log
           exit 1
 
+      - name: Generate filtered runtime CRM contract
+        run: |
+          set -euo pipefail
+          python3 scripts/crm/filter-runtime-openapi.py \
+            --input /tmp/platform-openapi.json \
+            --output /tmp/crm-openapi.runtime.json \
+            --prefix /api/v2/crm \
+            --expected-paths 50 \
+            --expected-operations 66
+
       - name: OpenAPI semantic drift check
         run: |
           set -euo pipefail
@@ -170,29 +183,31 @@ jobs:
           import json
           from pathlib import Path
 
-          methods = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'}
-          runtime = json.loads(Path('/tmp/platform-openapi.json').read_text(encoding='utf-8'))
+          runtime = json.loads(Path('/tmp/crm-openapi.runtime.json').read_text(encoding='utf-8'))
           committed = json.loads(Path('docs/crm/contracts/openapi/crm-openapi.json').read_text(encoding='utf-8'))
-
-          runtime_ops = {
-              (path.removeprefix('/api/v2/crm') or '/', method)
-              for path, item in runtime.get('paths', {}).items()
-              if path.startswith('/api/v2/crm')
-              for method in item
-              if method in methods
-          }
-          committed_ops = {
-              (path, method)
-              for path, item in committed.get('paths', {}).items()
-              for method in item
-              if method in methods
-          }
-          missing = sorted(committed_ops - runtime_ops)
-          undocumented = sorted(runtime_ops - committed_ops)
-          if missing or undocumented:
-              print('Missing at runtime:', missing)
-              print('Undocumented runtime operations:', undocumented)
-              raise SystemExit('CRM OpenAPI operation drift detected')
+          if runtime != committed:
+              methods = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'}
+              runtime_ops = {
+                  (path, method)
+                  for path, item in runtime.get('paths', {}).items()
+                  for method in item
+                  if method in methods
+              }
+              committed_ops = {
+                  (path, method)
+                  for path, item in committed.get('paths', {}).items()
+                  for method in item
+                  if method in methods
+              }
+              print('Missing at runtime:', sorted(committed_ops - runtime_ops))
+              print('Undocumented runtime operations:', sorted(runtime_ops - committed_ops))
+              print('Runtime component groups:', {
+                  key: len(value) for key, value in runtime.get('components', {}).items()
+              })
+              print('Committed component groups:', {
+                  key: len(value) for key, value in committed.get('components', {}).items()
+              })
+              raise SystemExit('CRM OpenAPI semantic drift detected')
 
           required_headers = {
               ('/accounts', 'post', 'Idempotency-Key'),
@@ -222,7 +237,7 @@ jobs:
               if not found:
                   raise SystemExit(f'Missing required header {header} on {method.upper()} {path}')
 
-          print(f'OpenAPI semantic drift check: PASS ({len(runtime_ops)} CRM operations)')
+          print('OpenAPI semantic drift check: PASS (50 paths, 66 operations)')
           PY
 
       - name: Stop OpenAPI backend
