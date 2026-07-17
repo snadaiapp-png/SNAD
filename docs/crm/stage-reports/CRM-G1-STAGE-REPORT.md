@@ -1,17 +1,19 @@
 # CRM-G1 Stage Report — Database and Multi-Tenant Foundation
 
 > **Report ID:** `G1-STAGE-REPORT-V1`  
-> **Candidate branch:** `crm/g1-complete-foundation`  
+> **Merged pull request:** `#552`  
+> **Verified PR head SHA:** `b8ff660650d6ee836271957c08591b5f3bc0be8c`  
+> **Main merge SHA:** `f1eee10480cf3416edcf3824dab66a5450310e8a`  
 > **Report date:** 2026-07-17  
-> **Technical implementation:** `COMPLETE`  
-> **Exact-SHA CI evidence:** `PENDING`  
+> **Technical implementation:** `COMPLETE_AND_MERGED`  
+> **Exact-SHA CI evidence:** `PASS`  
 > **Production migration evidence:** `PENDING`  
 > **Gate status:** `NEEDS_REVIEW / NOT_CLOSED`
 
 ## 1. Scope delivered
 
 CRM-G1 delivers the database and multi-tenant foundation required by the CRM
-execution roadmap. The candidate contains:
+execution roadmap. The implementation merged to `main` contains:
 
 - the existing 11-table unified CRM core;
 - the complete eight-table G1 extension set;
@@ -21,8 +23,10 @@ execution roadmap. The candidate contains:
 - same-tenant composite foreign keys where the relationship is concrete;
 - PostgreSQL Testcontainers assertions for migration ordering, table presence,
   constraints, tenant ownership, and index count;
-- a read-only PostgreSQL verification script;
-- the existing API/UI cross-tenant Playwright denial suite.
+- a strictly read-only PostgreSQL verification script;
+- a dedicated GitHub Actions gate that applies Flyway migrations to PostgreSQL
+  16 and executes the verification script;
+- the authenticated API/UI cross-tenant Playwright denial suite.
 
 ## 2. Unified CRM core — 11 tables
 
@@ -141,13 +145,24 @@ Every explicit index starts with `tenant_id` as the leading key.
 PostgreSQL row-level security is not represented as complete. It remains planned
 under `EXEC-PROMPT-CRM-018` as an additional database defense layer.
 
-## 6. Verification artifacts
+## 6. Verification evidence
 
-| Artifact | Verification responsibility | Candidate status |
+All checks below passed on the unchanged PR head SHA
+`b8ff660650d6ee836271957c08591b5f3bc0be8c` before merge with
+`expected_head_sha` protection.
+
+| Artifact or gate | Verification responsibility | Result |
 |---|---|---|
-| `CrmPostgresMigrationTest` | Clean install, upgrade order, all CRM tables, G1 tenant FKs, two same-tenant contact FKs, exactly 26 G1 indexes, tenant-first index keys | Implemented; CI pending |
-| `scripts/crm/verify-g1-tenant-isolation.sql` | Read-only production-like schema verification for 8 tables, 8 tenant FKs, 26 indexes, tenant-first index keys, and same-tenant contact FKs | Implemented; target execution pending |
-| `apps/web/e2e/crm-tenant-isolation.spec.ts` | Authenticated API/UI negative tests across two tenants | Present; exact-SHA CI pending |
+| `CrmPostgresMigrationTest` | Clean install, upgrade order, all CRM tables, G1 tenant FKs, two same-tenant contact FKs, exactly 26 G1 indexes, tenant-first index keys | `PASS` |
+| `scripts/crm/verify-g1-tenant-isolation.sql` | Strictly read-only verification of 8 tables, 8 tenant FKs, 26 indexes, tenant-first index keys, and same-tenant contact FKs | `PASS` on PostgreSQL 16 |
+| `CRM G1 Schema Isolation` | Applies Flyway migrations and executes the isolation script | `PASS` |
+| `CI` | Maven suite including Testcontainers | `PASS` |
+| `CRM Authenticated Acceptance` | PostgreSQL, Spring Boot, Next.js, authenticated Playwright and two-tenant isolation | `PASS` |
+| `Web CI` | TypeScript, lint, and production web build | `PASS` |
+| `CRM API Contract Validation` | API contract drift | `PASS` |
+| `CRM Deployment Readiness` | CRM governance and deployment readiness | `PASS` |
+| Security and architecture gates | OWASP, security baseline, modular architecture, service decomposition | `PASS` |
+| Operational quality gates | Performance, backup/restore, business-process E2E, production-readiness, provenance | `PASS` |
 
 ## 7. Baseline CRM capabilities — 18
 
@@ -176,55 +191,62 @@ CRM.ADMIN
 ```
 
 Later migrations add task, note, tag, relationship, and other capabilities.
-Those later additions do not alter the 18-capability G1 baseline enumerated by
-the roadmap.
+Those additions do not alter the 18-capability G1 baseline enumerated by the
+roadmap.
 
 ## 8. Production migration evidence contract
 
-G1 cannot be formally closed from repository evidence alone. The authorized
-database operator must execute the following against the target PostgreSQL
-instance without exposing credentials:
+Repository implementation, integration verification, and merge are complete.
+Formal G1 closure still requires the authorized database operator to execute the
+following against the controlled production PostgreSQL/Supabase instance without
+exposing credentials:
 
 1. verify a recoverable backup;
 2. validate Flyway history and checksums;
 3. apply through Flyway version `20260717.6`;
 4. run `scripts/crm/verify-g1-tenant-isolation.sql`;
-5. record the target environment, application/merge SHA, Flyway installed rank,
-   successful migration timestamp, script result, operator, and rollback
-   reference in the controlled deployment evidence store;
-6. run the authenticated two-tenant CRM smoke/isolation workflow.
+5. record the target environment, merge SHA, Flyway installed rank, successful
+   migration timestamp, script result, operator, and rollback reference in the
+   controlled deployment evidence store;
+6. run the authenticated two-tenant post-deployment smoke/isolation workflow.
 
-No production execution result is fabricated by this report.
+No production execution result is inferred from CI and no production evidence is
+fabricated by this report.
 
 ## 9. Acceptance matrix
 
 | Requirement | Result |
 |---|---|
 | 11 unified CRM core tables documented | `PASS` |
-| Eight G1 extension tables implemented | `PASS` |
-| Exactly 26 explicit tenant-scoped indexes implemented | `PASS` |
+| Eight G1 extension tables implemented and merged | `PASS` |
+| Exactly 26 explicit tenant-scoped indexes implemented and verified | `PASS` |
 | Tenant ownership FK on all eight extension tables | `PASS` |
 | Concrete contact relationships protected by same-tenant composite FKs | `PASS` |
-| Testcontainers migration assertions implemented | `PASS` |
-| Read-only PostgreSQL isolation verification script implemented | `PASS` |
-| API/UI cross-tenant negative test script present | `PASS` |
-| Exact candidate SHA passes required CI | `PENDING` |
+| Testcontainers migration assertions | `PASS` |
+| Read-only PostgreSQL isolation verification script | `PASS` |
+| Dedicated PostgreSQL 16 G1 isolation gate | `PASS` |
+| API/UI authenticated cross-tenant negative tests | `PASS` |
+| Exact PR head passes all required CI | `PASS` |
+| Merge to `main` with expected-head protection | `PASS` |
 | Migration applied to production PostgreSQL/Supabase with recorded evidence | `PENDING` |
 | Authenticated two-tenant post-deployment smoke test | `PENDING` |
 
 ## 10. Gate decision
 
 ```text
-G1-STAGE-REPORT-V1: IMPLEMENTED / NEEDS_REVIEW
-CRM-G1: OPEN / NOT_READY_FOR_CLOSURE
-8_EXTENSION_TABLES: IMPLEMENTED
-26_EXPLICIT_INDEXES: IMPLEMENTED
-TENANT_ISOLATION_TESTS: IMPLEMENTED
-EXACT_SHA_CI: PENDING
+G1-STAGE-REPORT-V1: IMPLEMENTED_AND_MERGED / NEEDS_REVIEW
+CRM-G1: OPEN / PRODUCTION_EVIDENCE_PENDING
+8_EXTENSION_TABLES: VERIFIED
+26_EXPLICIT_INDEXES: VERIFIED
+TENANT_ISOLATION_TESTS: VERIFIED
+EXACT_SHA_CI: PASS
+MERGED_TO_MAIN: PASS
+MAIN_MERGE_SHA: f1eee10480cf3416edcf3824dab66a5450310e8a
 PRODUCTION_MIGRATION_EVIDENCE: PENDING
+POST_DEPLOYMENT_TWO_TENANT_SMOKE: PENDING
 COMMERCIAL_OR_PRODUCTION_APPROVAL: NOT_GRANTED
 ```
 
-The technical implementation is complete on the candidate branch. Formal gate
-closure requires successful exact-SHA CI plus controlled target-database and
-authenticated two-tenant evidence.
+The repository phase is complete. CRM-G1 remains open only because controlled
+production database evidence and the post-deployment two-tenant smoke result are
+not available through repository CI.
