@@ -1,112 +1,71 @@
 # SNAD Business Operating System
 
-Arabic-first, multi-tenant business operating platform combining enterprise administration, workflow automation, secure account management, and the foundations for ERP, CRM, HRM, Accounting, Commerce, POS, AI, and analytics.
+<!-- STATUS_AUTHORITY: CURRENT -->
 
-## Current governance status
+**Status as of:** 2026-07-17, Asia/Riyadh  
+**Executive decision:** **CONDITIONAL CONTINUE**  
+**Broad commercial go-live:** **NOT APPROVED**
+
+Arabic-first, multi-tenant business operating platform combining enterprise administration, workflow automation, secure account management, ERP, CRM, HRM, Accounting, Commerce, POS, AI and analytics foundations.
+
+## Current authority
+
+The current platform state is controlled by:
+
+1. GitHub **Issue #516** — executive remediation tracker.
+2. [`docs/governance/CURRENT-STATUS.json`](docs/governance/CURRENT-STATUS.json) — machine-readable status.
+3. [`docs/governance/CURRENT-IMPLEMENTATION-STATUS.md`](docs/governance/CURRENT-IMPLEMENTATION-STATUS.md) — human-readable status.
+4. [`docs/governance/EXECUTIVE-REVIEW-REMEDIATION-2026-07-17.md`](docs/governance/EXECUTIVE-REVIEW-REMEDIATION-2026-07-17.md) — evidence and remaining risks.
+
+Historical stage reports, old deployment observations and module closure records do not override these sources.
+
+## Current decision summary
 
 ```text
-Issue #101: OPEN
-Development Gate: NOT APPROVED
-OWASP Final: NOT PASSED
-Commercial Go-Live: NOT AUTHORIZED
+PROJECT: CONDITIONAL CONTINUE
+CONTROLLED DEVELOPMENT: ALLOWED
+LIMITED PILOT: ALLOWED
+BROAD COMMERCIAL GO-LIVE: NOT APPROVED
+ISSUE #101: CLOSED / HISTORICAL — NOT THE CURRENT CONTROL GATE
+ISSUE #516: AUTHORITATIVE REMEDIATION TRACKER
 ```
 
-Development and pilot-integration work continue under the documented restrictions. A successful build or pilot deployment is not commercial production approval.
+Closed findings include:
 
-## Technology stack
+- `REM-P0-003` — Executor #23 Master Execution Backlog.
+- `REM-P1-008` — SLA/SLO and incident operating model.
 
-### Frontend
+Open or deferred findings include backend hosting and authentication reliability, governance sequencing, disaster recovery, independent security assurance, end-to-end business-process proof, repository visibility and final status-document reconciliation.
 
-- Next.js 16
-- React 19
-- TypeScript
-- Tailwind CSS 4
-- Noto Sans Arabic and Noto Sans through `next/font`
-- Vercel pilot deployment
+## Runtime boundary
 
-### Backend
+- Frontend: `https://snad-app.vercel.app`.
+- Backend: currently exposed through a temporary development tunnel and **not accepted as final enterprise hosting**.
+- Authentication: intermittent reliability remains open.
+- A successful build, HTTP `200`, healthy endpoint or stage closure is not commercial production approval.
 
-- Spring Boot 3.3.5
-- Java 17 target / Java 21 CI runtime
-- Maven
-- Spring Security
-- Spring Data JPA
-- Flyway
-- PostgreSQL 16
-- Render pilot deployment
+## Technology
 
-### Infrastructure and evidence
-
-- Docker multi-stage backend image
-- GitHub Actions CI/CD and governance workflows
-- Vercel frontend
-- Render backend
-- Supabase PostgreSQL pilot database
-- Resumable NVD bulk-feed mirror and offline security-data pipeline
-
-## Pilot endpoints
-
-| Service | Endpoint | Status |
-|---|---|---|
-| Frontend | `https://snad-app.vercel.app` | Pilot deployment active |
-| Backend | `https://sanad-backend-mcrj.onrender.com` | Pilot backend; verify health before use |
-
-Free-tier pilot constraints apply. These endpoints are not an approved commercial-production environment.
-
-## Implemented foundations
-
-- SNAD visual identity and Arabic/Latin typography.
-- Authentication boundary and tenant selection.
-- Organization, user, and membership integration interfaces.
-- Forgotten-password and reset-password flows.
-- Administrator-issued set-password links.
-- Password-change security notifications.
-- No plaintext password delivery by email.
-- Runtime-separated notification-provider integration.
-- PostgreSQL migration, backup/restore, and performance validation.
-- NVD bulk-feed mirror with checkpointing and integrity verification.
+- Frontend: Next.js, React, TypeScript and Tailwind CSS.
+- Backend: Spring Boot, Java, Maven, Spring Security, JPA, Flyway and PostgreSQL.
+- Delivery and evidence: GitHub Actions, Vercel and repository-governed validation workflows.
 
 ## Repository structure
 
 ```text
-apps/
-  web/                 Next.js frontend
-  sanad-platform/      Spring Boot backend
-
-docs/
-  README.md            Canonical documentation index
-  architecture/        Architecture decisions
-  brand/               Identity and typography
-  deployment/          Deployment and configuration
-  development/         Developer guides
-  execution/           Delivery progress
-  governance/          Current controlling status
-  operations/          Monitoring and operational runbooks
-  security/            Security operating models
-  system/              System reference
-  testing/             Acceptance and evidence matrices
-
-.github/workflows/      CI/CD, security, and governance workflows
-scripts/                Validation, operations, and security tooling
+apps/                     application code
+docs/                     architecture, governance, operations and evidence
+.github/workflows/        CI/CD and governance gates
+scripts/                  validation, operations and security tooling
 ```
 
 ## Documentation
 
 Start with the [canonical documentation index](docs/README.md).
 
-Primary references:
-
-- [SNAD system reference](docs/system/SNAD-SYSTEM-REFERENCE.md)
-- [Current implementation status](docs/governance/CURRENT-IMPLEMENTATION-STATUS.md)
-- [Acceptance evidence matrix](docs/testing/ACCEPTANCE-EVIDENCE.md)
-- [Runtime configuration matrix](docs/deployment/RUNTIME-CONFIGURATION-MATRIX.md)
-- [Account recovery and email runbook](docs/operations/ACCOUNT-RECOVERY-EMAIL-RUNBOOK.md)
-- [Visual identity implementation](docs/brand/SNAD-VISUAL-IDENTITY-IMPLEMENTATION.md)
-- [Render backend deployment](docs/deployment/render-backend-deployment.md)
+Status-document rules are defined in [`docs/governance/STATUS-DOCUMENTATION-POLICY.md`](docs/governance/STATUS-DOCUMENTATION-POLICY.md). Historical records are retained for auditability but must be visibly classified and linked to the current authority.
 
 ## Local verification
-
-### Web
 
 ```bash
 cd apps/web
@@ -114,32 +73,9 @@ npm ci
 npm run lint
 npm test
 npm run build
-```
 
-### Backend
-
-```bash
-cd apps/sanad-platform
+cd ../sanad-platform
 mvn test
 ```
 
-Do not add real provider, database, JWT, mailbox, or application-password secrets to repository files.
-
-## Account recovery contract
-
-```text
-Recovery request
-  -> generic response
-  -> random single-use value
-  -> hash stored with expiry
-  -> secure link delivered by configured provider
-  -> user selects a new password
-  -> old sessions revoked
-  -> confirmation notification generated
-```
-
-The approved sender is supplied through `SECURITY_NOTIFICATION_FROM`. Real backend delivery remains pending until the deployment-managed notification endpoint and credential are configured and an end-to-end test passes.
-
-## Project stage
-
-Current repository stage: **pilot integration foundation with active security and operational gate work**.
+Do not commit provider credentials, database passwords, JWT secrets, mailbox credentials or application passwords.
