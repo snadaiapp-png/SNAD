@@ -1,0 +1,57 @@
+name: REM-P0-002 Web Source Bundle
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/rem-p0-002-source-bundle.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    name: Package exact-SHA apps/web source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact current main SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_main_sha="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test "$remote_main_sha" = "$GITHUB_SHA"
+
+      - name: Create deterministic source bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p bundle
+          tar \
+            --sort=name \
+            --mtime='UTC 1970-01-01' \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            --exclude='apps/web/.next' \
+            --exclude='apps/web/node_modules' \
+            -czf bundle/apps-web-source.tar.gz apps/web
+          sha256sum bundle/apps-web-source.tar.gz > bundle/apps-web-source.tar.gz.sha256
+          printf '%s\n' "$GITHUB_SHA" > bundle/release-sha.txt
+
+      - name: Upload exact-SHA source bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: rem-p0-002-web-source-${{ github.sha }}
+          path: bundle/
+          if-no-files-found: error
+          retention-days: 30
