@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   bootstrap:
@@ -56,30 +57,41 @@ jobs:
             -H "X-Control-Plane-Bootstrap-Token: ${CONTROL_PLANE_BOOTSTRAP_TOKEN}" \
             --data '{}')
 
-          echo "HTTP_STATUS=${STATUS}" >> "$GITHUB_OUTPUT"
-          echo "Bootstrap call returned HTTP ${STATUS}"
-
-          python3 - <<'PY'
+          SAFE_CODE=$(python3 - <<'PY'
           import json
           try:
               with open('/tmp/bootstrap-response.json') as f:
                   data = json.load(f)
-              safe_keys = ['status', 'bootstrap', 'tenantId', 'userId', 'adminEmailMasked',
-                           'created', 'membershipActivated', 'roleGrantsActivated',
-                           'code', 'message']
-              for key in safe_keys:
-                  if key in data:
-                      print(f"  {key}: {data[key]}")
-          except Exception as exc:
-              print(f"  (could not parse JSON response: {exc})")
+              print(data.get('code', ''))
+          except Exception:
+              print('invalid_response')
           PY
+          )
+          SAFE_RESULT=$(python3 - <<'PY'
+          import json
+          try:
+              with open('/tmp/bootstrap-response.json') as f:
+                  data = json.load(f)
+              if data.get('status') == 'ok' and data.get('bootstrap') == 'complete':
+                  print('complete')
+              else:
+                  print('not_complete')
+          except Exception:
+              print('invalid_response')
+          PY
+          )
 
-          if [ "${STATUS}" != "200" ]; then
-            echo "Bootstrap failed with HTTP ${STATUS}"
+          echo "HTTP_STATUS=${STATUS}" >> "$GITHUB_OUTPUT"
+          echo "SAFE_CODE=${SAFE_CODE}" >> "$GITHUB_OUTPUT"
+          echo "SAFE_RESULT=${SAFE_RESULT}" >> "$GITHUB_OUTPUT"
+          echo "Bootstrap call returned HTTP ${STATUS}; result=${SAFE_RESULT}; code=${SAFE_CODE}"
+
+          if [ "${STATUS}" != "200" ] || [ "${SAFE_RESULT}" != "complete" ]; then
             exit 1
           fi
 
       - name: Verify via access-check
+        if: success()
         env:
           PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
         run: |
@@ -88,16 +100,32 @@ jobs:
             --max-time 30 \
             "${PRODUCTION_BASE_URL}/api/v1/control-plane/access-check" || true)
           echo "access-check HTTP ${STATUS}"
-          python3 - <<'PY'
-          import json
-          try:
-              with open('/tmp/access-check.json') as f:
-                  data = json.load(f)
-              print(f"  controlPlaneConfigured: {data.get('controlPlaneConfigured')}")
-              print(f"  authenticated: {data.get('authenticated')}")
-          except Exception as exc:
-              print(f"  (could not parse: {exc})")
-          PY
+
+      - name: Record sanitized outcome
+        if: always()
+        uses: actions/github-script@v8
+        env:
+          HTTP_STATUS: ${{ steps.call.outputs.HTTP_STATUS }}
+          SAFE_CODE: ${{ steps.call.outputs.SAFE_CODE }}
+          SAFE_RESULT: ${{ steps.call.outputs.SAFE_RESULT }}
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              '## REM-P0-002 token-gated bootstrap attempt',
+              '',
+              `- HTTP status: \`${process.env.HTTP_STATUS || 'not-called'}\``,
+              `- Safe result: \`${process.env.SAFE_RESULT || 'unknown'}\``,
+              `- Safe code: \`${process.env.SAFE_CODE || 'none'}\``,
+              `- Evidence: ${runUrl}`,
+              '',
+              process.env.SAFE_RESULT === 'complete'
+                ? 'The production identity was atomically re-enrolled by the approved backend endpoint.'
+                : 'No closure is claimed. The endpoint gate or server-side bootstrap configuration still requires correction.'
+            ].join('\n');
+            for (const issue_number of [516, 535, 537]) {
+              await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number, body});
+            }
 
       - name: Cleanup
         if: always()
