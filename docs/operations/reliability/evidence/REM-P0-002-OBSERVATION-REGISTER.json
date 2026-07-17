@@ -7,8 +7,8 @@
     "current_consecutive_passes": 0,
     "window_started_at": null,
     "last_result": "FAIL",
-    "last_checked_at": "2026-07-17T09:26:57Z",
-    "failure_reason": "Unauthenticated BFF auth/me returned HTTP 502 instead of HTTP 401; latest authenticated synthetic run also failed"
+    "last_checked_at": "2026-07-17T10:24:17Z",
+    "failure_reason": "Unauthenticated BFF auth/me returned HTTP 502 instead of HTTP 401; authenticated synthetic evidence remains failed and the remediation SHA is not the SHA currently deployed to production"
   },
   "live_checks": {
     "production_ui": {
@@ -20,7 +20,7 @@
       "configured": true,
       "reachable": true,
       "upstream_status_code": 200,
-      "checked_at": "2026-07-17T09:26:56.898Z",
+      "checked_at": "2026-07-17T10:24:16.719Z",
       "result": "PASS"
     },
     "unauthenticated_auth_me": {
@@ -41,6 +41,7 @@
   },
   "deployment": {
     "remediation_merge_sha": "4a99ecdd425d28b3f77871f59b7fa83f1e9ea4d0",
+    "production_deployment_sha": "39d9d59abfd5275e109e9b191fe5b1e3a8bf571f",
     "production_deployment_verified": false
   },
   "closure_authorized": false,
