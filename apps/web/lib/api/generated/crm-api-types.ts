@@ -190,6 +190,54 @@ export type paths = {
         readonly patch: operations["completeActivity"];
         readonly trace?: never;
     };
+    readonly "/addresses/export": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["exportAddresses"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/addresses/import": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["importAddresses"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/addresses/search": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["searchAddresses"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/addresses/{addressId}": {
         readonly parameters: {
             readonly query?: never;
@@ -268,6 +316,54 @@ export type paths = {
         readonly options?: never;
         readonly head?: never;
         readonly patch: operations["reactivateAddress"];
+        readonly trace?: never;
+    };
+    readonly "/communication-methods/export": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["exportCommunicationMethods"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/communication-methods/import": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["importCommunicationMethods"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/communication-methods/search": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["searchCommunicationMethods"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
         readonly trace?: never;
     };
     readonly "/communication-methods/{communicationMethodId}": {
@@ -1136,6 +1232,15 @@ export type components = {
             /** Format: date-time */
             readonly changedAt?: string;
         };
+        readonly AddressImportItem: {
+            readonly ownerType?: string;
+            /** Format: uuid */
+            readonly ownerId?: string;
+            readonly address?: components["schemas"]["CreateAddressRequest"];
+        };
+        readonly AddressImportRequest: {
+            readonly rows: readonly components["schemas"]["AddressImportItem"][];
+        };
         readonly AddressResponse: {
             /** Format: uuid */
             readonly id?: string;
@@ -1173,6 +1278,30 @@ export type components = {
             /** Format: date-time */
             readonly archivedAt?: string;
         };
+        readonly AddressSearchResponse: {
+            /** Format: uuid */
+            readonly id?: string;
+            /** Format: int64 */
+            readonly version?: number;
+            readonly ownerType?: string;
+            /** Format: uuid */
+            readonly ownerId?: string;
+            readonly addressType?: string;
+            readonly label?: string;
+            readonly rawFormattedAddress?: string;
+            readonly line1?: string;
+            readonly line2?: string;
+            readonly district?: string;
+            readonly city?: string;
+            readonly stateRegion?: string;
+            readonly postalCode?: string;
+            readonly countryCode?: string;
+            readonly primaryAddress?: boolean;
+            readonly verified?: boolean;
+            readonly status?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
         readonly ArchiveAccountResponse: {
             /** Format: uuid */
             readonly id?: string;
@@ -1200,6 +1329,15 @@ export type components = {
             readonly changedBy?: string;
             /** Format: date-time */
             readonly changedAt?: string;
+        };
+        readonly CommunicationImportItem: {
+            readonly ownerType?: string;
+            /** Format: uuid */
+            readonly ownerId?: string;
+            readonly communication?: components["schemas"]["CreateCommunicationMethodRequest"];
+        };
+        readonly CommunicationImportRequest: {
+            readonly rows: readonly components["schemas"]["CommunicationImportItem"][];
         };
         readonly CommunicationMethodResponse: {
             /** Format: uuid */
@@ -1233,6 +1371,27 @@ export type components = {
             readonly updatedAt?: string;
             /** Format: date-time */
             readonly archivedAt?: string;
+        };
+        readonly CommunicationSearchResponse: {
+            /** Format: uuid */
+            readonly id?: string;
+            /** Format: int64 */
+            readonly version?: number;
+            readonly ownerType?: string;
+            /** Format: uuid */
+            readonly ownerId?: string;
+            readonly methodType?: string;
+            readonly displayValue?: string;
+            readonly label?: string;
+            readonly preferred?: boolean;
+            readonly verified?: boolean;
+            readonly verificationStatus?: string;
+            readonly privacyClassification?: string;
+            readonly consentStateReference?: string;
+            readonly usagePurpose?: string;
+            readonly status?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
         };
         readonly CompleteActivityRequest: {
             readonly result?: string;
@@ -1671,6 +1830,11 @@ export type components = {
             readonly page?: components["schemas"]["Page"];
             readonly meta?: components["schemas"]["Meta"];
         };
+        readonly ListResponseAddressSearchResponse: {
+            readonly data?: readonly components["schemas"]["AddressSearchResponse"][];
+            readonly page?: components["schemas"]["Page"];
+            readonly meta?: components["schemas"]["Meta"];
+        };
         readonly ListResponseCommunicationHistoryResponse: {
             readonly data?: readonly components["schemas"]["CommunicationHistoryResponse"][];
             readonly page?: components["schemas"]["Page"];
@@ -1678,6 +1842,11 @@ export type components = {
         };
         readonly ListResponseCommunicationMethodResponse: {
             readonly data?: readonly components["schemas"]["CommunicationMethodResponse"][];
+            readonly page?: components["schemas"]["Page"];
+            readonly meta?: components["schemas"]["Meta"];
+        };
+        readonly ListResponseCommunicationSearchResponse: {
+            readonly data?: readonly components["schemas"]["CommunicationSearchResponse"][];
             readonly page?: components["schemas"]["Page"];
             readonly meta?: components["schemas"]["Meta"];
         };
@@ -2607,6 +2776,85 @@ export interface operations {
             };
         };
     };
+    readonly exportAddresses: {
+        readonly parameters: {
+            readonly query?: {
+                readonly q?: string;
+                readonly ownerType?: string;
+                readonly addressType?: string;
+                readonly countryCode?: string;
+                readonly status?: string;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "text/csv": string;
+                };
+            };
+        };
+    };
+    readonly importAddresses: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "Idempotency-Key": string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["AddressImportRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseImportResult"];
+                };
+            };
+        };
+    };
+    readonly searchAddresses: {
+        readonly parameters: {
+            readonly query?: {
+                readonly q?: string;
+                readonly ownerType?: string;
+                readonly addressType?: string;
+                readonly countryCode?: string;
+                readonly status?: string;
+                readonly limit?: number;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ListResponseAddressSearchResponse"];
+                };
+            };
+        };
+    };
     readonly address: {
         readonly parameters: {
             readonly query?: never;
@@ -2749,6 +2997,85 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseAddressResponse"];
+                };
+            };
+        };
+    };
+    readonly exportCommunicationMethods: {
+        readonly parameters: {
+            readonly query?: {
+                readonly q?: string;
+                readonly ownerType?: string;
+                readonly methodType?: string;
+                readonly verificationStatus?: string;
+                readonly status?: string;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "text/csv": string;
+                };
+            };
+        };
+    };
+    readonly importCommunicationMethods: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "Idempotency-Key": string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["CommunicationImportRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseImportResult"];
+                };
+            };
+        };
+    };
+    readonly searchCommunicationMethods: {
+        readonly parameters: {
+            readonly query?: {
+                readonly q?: string;
+                readonly ownerType?: string;
+                readonly methodType?: string;
+                readonly verificationStatus?: string;
+                readonly status?: string;
+                readonly limit?: number;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ListResponseCommunicationSearchResponse"];
                 };
             };
         };
