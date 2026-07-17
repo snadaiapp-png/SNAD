@@ -31,7 +31,7 @@ jobs:
           echo "::add-mask::$RENDER_API_KEY"
           echo "::add-mask::$RENDER_SERVICE_ID"
           API="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
-          KEY="REM_P0_002_API_DIAGNOSTIC"
+          ENV_VAR_NAME="REM_P0_002_API_DIAGNOSTIC"
           payload="$(jq -cn --arg value "run-${GITHUB_RUN_ID}" '{value:$value}')"
 
           put_body="$RUNNER_TEMP/put.json"
@@ -41,14 +41,14 @@ jobs:
             -H 'Accept: application/json' \
             -H 'Content-Type: application/json' \
             --data "$payload" \
-            "${API}/env-vars/${KEY}" || true)"
+            "${API}/env-vars/${ENV_VAR_NAME}" || true)"
 
           delete_body="$RUNNER_TEMP/delete.txt"
           delete_code="$(curl -sS --show-error --max-time 30 -o "$delete_body" -w '%{http_code}' \
             -X DELETE \
             -H "Authorization: Bearer ${RENDER_API_KEY}" \
             -H 'Accept: application/json' \
-            "${API}/env-vars/${KEY}" || true)"
+            "${API}/env-vars/${ENV_VAR_NAME}" || true)"
 
           deploy_body="$RUNNER_TEMP/deploy.json"
           deploy_code="$(curl -sS --show-error --max-time 60 -o "$deploy_body" -w '%{http_code}' \
