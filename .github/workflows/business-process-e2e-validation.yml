@@ -38,7 +38,7 @@ jobs:
   validate-business-process-e2e:
     name: Validate governed business process evidence
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout exact SHA
@@ -70,13 +70,13 @@ jobs:
       - name: Prepare evidence directory
         run: mkdir -p "$RUNNER_TEMP/business-process-e2e"
 
-      - name: Execute Sales Qualification business process slice
+      - name: Execute complete governed process suite
         working-directory: apps/sanad-platform
         shell: bash
         run: |
           set -o pipefail
           mvn --batch-mode --no-transfer-progress \
-            -Dtest=SalesQualificationBusinessProcessE2ETest \
+            -Dtest=SalesQualificationBusinessProcessE2ETest,IntegratedBusinessProcessesE2ETest,IntegratedBusinessProcessesPostgresE2ETest \
             test 2>&1 | tee "$RUNNER_TEMP/business-process-e2e/maven-test.log"
 
       - name: Upload failed-run diagnostics
@@ -125,7 +125,7 @@ jobs:
           print(f"- Skipped: `{result['skipped']}`")
           print(f"- Verified steps: `{', '.join(process['verified_steps'])}`")
           print(f"- Blocked steps: `{', '.join(process['blocked_steps'])}`")
-          print("- REM-P1-007 closure: `NOT AUTHORIZED`")
+          print(f"- REM-P1-007 closed: `{evidence['decision']['rem_p1_007_closed']}`")
           PY
 
       - name: Upload business-process-e2e-evidence
@@ -135,6 +135,6 @@ jobs:
           path: |
             ${{ runner.temp }}/business-process-e2e/business-process-e2e-evidence.json
             ${{ runner.temp }}/business-process-e2e/maven-test.log
-            apps/sanad-platform/target/surefire-reports/TEST-com.sanad.platform.e2e.SalesQualificationBusinessProcessE2ETest.xml
+            apps/sanad-platform/target/surefire-reports/TEST-com.sanad.platform.e2e.*.xml
           if-no-files-found: error
           retention-days: 90
