@@ -7,15 +7,15 @@
     "current_consecutive_passes": 0,
     "window_started_at": null,
     "last_result": "FAIL",
-    "last_checked_at": "2026-07-17T16:32:17Z",
-    "failure_reason": "The production UI returned HTTP 200, /api/system/backend-status returned HTTP 200 with configured=true, reachable=true and upstream statusCode=200, and the latest observable unauthenticated /api/platform/api/v1/auth/me request returned the required HTTP 401. Production is READY on commit 59716bcdde5dca34d4576b9af46a1bc7b901da1a, which includes the remediation SHA. However, no newer successful BFF Auth Session Synthetic journey exists: the latest workflow evidence remains failed because login returned HTTP 504 upstream-timeout, so authenticated /me, refresh, session restoration, logout and post-logout rejection were not reached. This cycle therefore cannot count as a success; the consecutive counter remains zero and REM-P0-002 remains open."
+    "last_checked_at": "2026-07-17T19:29:14Z",
+    "failure_reason": "The fresh production-readiness rerun passed: the production UI returned HTTP 200, /api/system/backend-status returned HTTP 200 with configured=true, reachable=true and upstream statusCode=200, the direct backend actuator reported UP, and unauthenticated /api/platform/api/v1/auth/me returned the required HTTP 401. The remediation SHA remains verified as deployed. However, the fresh BFF Auth Session Synthetic rerun failed because login returned HTTP 401 instead of HTTP 200. Authenticated /me, refresh, session restoration, logout and post-logout rejection were not reached. This is a failed observation cycle; the consecutive-success counter is reset to zero and REM-P0-002 remains open."
   },
   "live_checks": {
     "production_ui": {
       "status_code": 200,
-      "checked_at": "2026-07-17T16:32:17Z",
+      "checked_at": "2026-07-17T19:29:06.493079Z",
       "result": "PASS",
-      "evidence_source": "Vercel production fetch"
+      "evidence_source": "GitHub Actions Production Readiness rerun 29590991029 / job 87974764994 / artifact 8417493488"
     },
     "backend_status": {
       "status_code": 200,
@@ -23,39 +23,39 @@
       "reachable": true,
       "upstream_status_code": 200,
       "target_host": "streak-train-empower.ngrok-free.dev",
-      "checked_at": "2026-07-17T16:29:46.507Z",
+      "checked_at": "2026-07-17T19:29:07.684433Z",
       "result": "PASS",
       "error": null,
-      "evidence_source": "Vercel production fetch"
+      "evidence_source": "GitHub Actions Production Readiness rerun 29590991029 / job 87974764994 / artifact 8417493488"
     },
     "unauthenticated_auth_me": {
       "expected_status_code": 401,
       "observed_status_code": 401,
       "upstream_error": null,
-      "checked_at": "2026-07-17T15:44:56Z",
+      "checked_at": "2026-07-17T19:29:08.137605Z",
       "result": "PASS",
       "request_id": null,
       "duration_ms": null,
-      "evidence_source": "Vercel production runtime log"
+      "evidence_source": "GitHub Actions Production Readiness rerun 29590991029 / job 87974764994 / artifact 8417493488"
     }
   },
   "synthetic": {
     "workflow": "BFF Auth Session Synthetic",
     "latest_run_id": 29580977962,
     "commit_sha": "654f384c3b3c0b16ade78a4e4c03bd5d7edeae03",
-    "job_id": 87923435818,
+    "job_id": 87974580966,
     "job_conclusion": "failure",
     "journey_step_conclusion": "failure",
     "protected_identity_check": "success",
     "sanitized_evidence_upload": "success",
-    "evidence_artifact_id": 8411479418,
-    "evidence_digest": "sha256:0ecaf572ca479bbf0b8bd2fd16108b434e163a18dbe89309adc6c5de65d58764",
+    "evidence_artifact_id": 8417472051,
+    "evidence_digest": "sha256:4ad1f230d2294e8e699cffa4f3b70ef224e074b7d6d66efe3465ad231c47b242",
     "rerun_status": "completed_failure",
-    "current_cycle_assessment": "FAIL_NO_NEW_SUCCESSFUL_AUTHENTICATED_SYNTHETIC",
-    "failure": "Latest authenticated journey remains failed: login expected HTTP 200 but received HTTP 504 upstream-timeout; no newer successful workflow evidence was available.",
+    "current_cycle_assessment": "FAIL_LOGIN_HTTP_401",
+    "failure": "Fresh authenticated journey failed: login expected HTTP 200 but received HTTP 401; no authenticated session was established and the remaining required steps were not reached.",
     "required_journey_evidence": {
       "anonymous_me": "success_http_401",
-      "login": "failed_http_504_upstream_timeout",
+      "login": "failed_http_401",
       "authenticated_me": "not_reached",
       "refresh": "not_reached",
       "session_restoration": "not_reached",
@@ -68,8 +68,8 @@
     "production_deployment_sha": "59716bcdde5dca34d4576b9af46a1bc7b901da1a",
     "production_deployment_verified": true,
     "verified_at": "2026-07-17T16:30:00Z",
-    "latest_repository_main_sha": "59716bcdde5dca34d4576b9af46a1bc7b901da1a",
-    "latest_repository_main_sha_verified_in_production": true,
+    "latest_repository_main_sha": "ff4fba0bec7873ee11b760fbf43c4e562ba11eaf",
+    "latest_repository_main_sha_verified_in_production": false,
     "vercel_deployment_id": "dpl_EVxXYN4hPxMfJ2HN8v2RKXeMzf7E",
     "vercel_ready_state": "READY"
   },
