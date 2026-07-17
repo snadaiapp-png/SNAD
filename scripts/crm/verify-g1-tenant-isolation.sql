@@ -2,128 +2,146 @@
 
 -- CRM-G1 database isolation verification.
 -- Run only after Flyway has applied through 20260717.6:
---   psql "$SPRING_DATASOURCE_URL" -v ON_ERROR_STOP=1 \
---     -f scripts/crm/verify-g1-tenant-isolation.sql
+--   PGPASSWORD="$DATABASE_PASSWORD" psql \
+--     -h "$DATABASE_HOST" -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+--     -v ON_ERROR_STOP=1 -f scripts/crm/verify-g1-tenant-isolation.sql
 --
--- This script is read-only. It validates the schema contract that supports
--- tenant isolation; runtime cross-tenant API/UI denial is covered by
+-- The script is strictly read-only: it uses catalog SELECTs and psql fail-closed
+-- conditionals only. Runtime cross-tenant API/UI denial is covered by
 -- apps/web/e2e/crm-tenant-isolation.spec.ts.
 
 BEGIN TRANSACTION READ ONLY;
 
-DO $$
-DECLARE
-    expected_tables TEXT[] := ARRAY[
-        'crm_tasks',
-        'crm_assignments',
-        'crm_transfers',
-        'crm_notes',
-        'crm_audit_logs',
-        'crm_reports',
-        'crm_phone_numbers',
-        'crm_contact_lookup_index'
-    ];
-    table_name TEXT;
-    missing_tables TEXT[] := ARRAY[]::TEXT[];
-BEGIN
-    FOREACH table_name IN ARRAY expected_tables LOOP
-        IF to_regclass('public.' || table_name) IS NULL THEN
-            missing_tables := array_append(missing_tables, table_name);
-        END IF;
-    END LOOP;
-
-    IF cardinality(missing_tables) > 0 THEN
-        RAISE EXCEPTION 'CRM-G1 missing tables: %', array_to_string(missing_tables, ', ');
-    END IF;
-END $$;
-
-DO $$
-DECLARE
-    tenant_column_count BIGINT;
-    tenant_fk_count BIGINT;
-    explicit_index_count BIGINT;
-    non_tenant_first_index_count BIGINT;
-BEGIN
-    SELECT COUNT(*)
-      INTO tenant_column_count
-      FROM information_schema.columns
+WITH expected(table_name) AS (
+    VALUES
+        ('crm_tasks'),
+        ('crm_assignments'),
+        ('crm_transfers'),
+        ('crm_notes'),
+        ('crm_audit_logs'),
+        ('crm_reports'),
+        ('crm_phone_numbers'),
+        ('crm_contact_lookup_index')
+), present AS (
+    SELECT table_name
+      FROM information_schema.tables
      WHERE table_schema = 'public'
-       AND column_name = 'tenant_id'
-       AND table_name IN (
-           'crm_tasks', 'crm_assignments', 'crm_transfers', 'crm_notes',
-           'crm_audit_logs', 'crm_reports', 'crm_phone_numbers', 'crm_contact_lookup_index'
-       );
+)
+SELECT
+    (COUNT(present.table_name) = 8) AS g1_tables_ok,
+    COUNT(present.table_name) AS g1_table_count,
+    COALESCE(
+        string_agg(expected.table_name, ', ' ORDER BY expected.table_name)
+            FILTER (WHERE present.table_name IS NULL),
+        'none'
+    ) AS g1_missing_tables
+  FROM expected
+  LEFT JOIN present USING (table_name)
+\gset
 
-    IF tenant_column_count <> 8 THEN
-        RAISE EXCEPTION 'CRM-G1 tenant_id coverage failed: expected 8, found %', tenant_column_count;
-    END IF;
+\if :g1_tables_ok
+  \echo 'PASS: all 8 CRM-G1 extension tables exist'
+\else
+  \echo 'FAIL: expected 8 CRM-G1 tables, found' :g1_table_count '; missing:' :g1_missing_tables
+  \quit 1
+\endif
 
-    SELECT COUNT(*)
-      INTO tenant_fk_count
-      FROM pg_constraint constraint_row
-      JOIN pg_class table_row ON table_row.oid = constraint_row.conrelid
-     WHERE constraint_row.contype = 'f'
-       AND constraint_row.confrelid = 'tenants'::regclass
-       AND table_row.relname IN (
-           'crm_tasks', 'crm_assignments', 'crm_transfers', 'crm_notes',
-           'crm_audit_logs', 'crm_reports', 'crm_phone_numbers', 'crm_contact_lookup_index'
-       );
+SELECT
+    (COUNT(*) = 8) AS g1_tenant_columns_ok,
+    COUNT(*) AS g1_tenant_column_count
+  FROM information_schema.columns
+ WHERE table_schema = 'public'
+   AND column_name = 'tenant_id'
+   AND table_name IN (
+       'crm_tasks', 'crm_assignments', 'crm_transfers', 'crm_notes',
+       'crm_audit_logs', 'crm_reports', 'crm_phone_numbers', 'crm_contact_lookup_index'
+   )
+\gset
 
-    IF tenant_fk_count <> 8 THEN
-        RAISE EXCEPTION 'CRM-G1 tenant FK coverage failed: expected 8, found %', tenant_fk_count;
-    END IF;
+\if :g1_tenant_columns_ok
+  \echo 'PASS: tenant_id exists on all 8 CRM-G1 extension tables'
+\else
+  \echo 'FAIL: expected tenant_id on 8 tables, found' :g1_tenant_column_count
+  \quit 1
+\endif
 
-    SELECT COUNT(*)
-      INTO explicit_index_count
-      FROM pg_indexes
-     WHERE schemaname = 'public'
-       AND tablename IN (
-           'crm_tasks', 'crm_assignments', 'crm_transfers', 'crm_notes',
-           'crm_audit_logs', 'crm_reports', 'crm_phone_numbers', 'crm_contact_lookup_index'
-       )
-       AND indexname LIKE 'idx_crm_%';
+SELECT
+    (COUNT(*) = 8) AS g1_tenant_fks_ok,
+    COUNT(*) AS g1_tenant_fk_count
+  FROM pg_constraint constraint_row
+  JOIN pg_class table_row ON table_row.oid = constraint_row.conrelid
+ WHERE constraint_row.contype = 'f'
+   AND constraint_row.confrelid = 'tenants'::regclass
+   AND table_row.relname IN (
+       'crm_tasks', 'crm_assignments', 'crm_transfers', 'crm_notes',
+       'crm_audit_logs', 'crm_reports', 'crm_phone_numbers', 'crm_contact_lookup_index'
+   )
+\gset
 
-    IF explicit_index_count <> 26 THEN
-        RAISE EXCEPTION 'CRM-G1 explicit index count failed: expected 26, found %', explicit_index_count;
-    END IF;
+\if :g1_tenant_fks_ok
+  \echo 'PASS: all 8 CRM-G1 extension tables reference tenants(id)'
+\else
+  \echo 'FAIL: expected 8 tenant foreign keys, found' :g1_tenant_fk_count
+  \quit 1
+\endif
 
-    SELECT COUNT(*)
-      INTO non_tenant_first_index_count
-      FROM pg_indexes
-     WHERE schemaname = 'public'
-       AND tablename IN (
-           'crm_tasks', 'crm_assignments', 'crm_transfers', 'crm_notes',
-           'crm_audit_logs', 'crm_reports', 'crm_phone_numbers', 'crm_contact_lookup_index'
-       )
-       AND indexname LIKE 'idx_crm_%'
-       AND indexdef NOT LIKE '%(tenant_id,%';
+SELECT
+    (COUNT(*) = 26) AS g1_indexes_ok,
+    COUNT(*) AS g1_index_count
+  FROM pg_indexes
+ WHERE schemaname = 'public'
+   AND tablename IN (
+       'crm_tasks', 'crm_assignments', 'crm_transfers', 'crm_notes',
+       'crm_audit_logs', 'crm_reports', 'crm_phone_numbers', 'crm_contact_lookup_index'
+   )
+   AND indexname LIKE 'idx_crm_%'
+\gset
 
-    IF non_tenant_first_index_count <> 0 THEN
-        RAISE EXCEPTION 'CRM-G1 index isolation failed: % indexes do not start with tenant_id',
-            non_tenant_first_index_count;
-    END IF;
-END $$;
+\if :g1_indexes_ok
+  \echo 'PASS: exactly 26 explicit CRM-G1 indexes exist'
+\else
+  \echo 'FAIL: expected exactly 26 explicit CRM-G1 indexes, found' :g1_index_count
+  \quit 1
+\endif
 
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-          FROM pg_constraint
-         WHERE conname = 'fk_crm_phone_numbers_contact_same_tenant'
-           AND contype = 'f'
-    ) THEN
-        RAISE EXCEPTION 'Missing same-tenant FK for crm_phone_numbers -> crm_contacts';
-    END IF;
+SELECT
+    (COUNT(*) = 0) AS g1_tenant_first_indexes_ok,
+    COUNT(*) AS g1_non_tenant_first_index_count,
+    COALESCE(string_agg(indexname, ', ' ORDER BY indexname), 'none') AS g1_non_tenant_first_indexes
+  FROM pg_indexes
+ WHERE schemaname = 'public'
+   AND tablename IN (
+       'crm_tasks', 'crm_assignments', 'crm_transfers', 'crm_notes',
+       'crm_audit_logs', 'crm_reports', 'crm_phone_numbers', 'crm_contact_lookup_index'
+   )
+   AND indexname LIKE 'idx_crm_%'
+   AND indexdef NOT LIKE '%(tenant_id,%'
+\gset
 
-    IF NOT EXISTS (
-        SELECT 1
-          FROM pg_constraint
-         WHERE conname = 'fk_crm_contact_lookup_contact_same_tenant'
-           AND contype = 'f'
-    ) THEN
-        RAISE EXCEPTION 'Missing same-tenant FK for crm_contact_lookup_index -> crm_contacts';
-    END IF;
-END $$;
+\if :g1_tenant_first_indexes_ok
+  \echo 'PASS: tenant_id is the leading key on all 26 explicit indexes'
+\else
+  \echo 'FAIL:' :g1_non_tenant_first_index_count 'indexes do not lead with tenant_id:' :g1_non_tenant_first_indexes
+  \quit 1
+\endif
+
+SELECT
+    (COUNT(*) = 2) AS g1_same_tenant_fks_ok,
+    COUNT(*) AS g1_same_tenant_fk_count
+  FROM pg_constraint
+ WHERE contype = 'f'
+   AND conname IN (
+       'fk_crm_phone_numbers_contact_same_tenant',
+       'fk_crm_contact_lookup_contact_same_tenant'
+   )
+\gset
+
+\if :g1_same_tenant_fks_ok
+  \echo 'PASS: concrete contact relationships have same-tenant composite foreign keys'
+\else
+  \echo 'FAIL: expected 2 same-tenant contact foreign keys, found' :g1_same_tenant_fk_count
+  \quit 1
+\endif
 
 SELECT
     'PASS' AS result,
