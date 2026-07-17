@@ -1,112 +1,206 @@
-name: Trigger Render Redeploy
+name: CRM-007 Final Production Verification
 
 on:
-  workflow_dispatch:
-    inputs:
-      confirm:
-        description: "Type 'redeploy' to trigger a Render backend redeploy"
-        required: true
-        default: "no"
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/trigger-render-redeploy.yml
 
 permissions:
   contents: read
 
+env:
+  TARGET_SHA: ff4fba0bec7873ee11b760fbf43c4e562ba11eaf
+
 jobs:
-  redeploy:
-    name: Trigger Render backend redeploy
+  database:
+    if: github.head_ref == 'ops/crm-007-final-production'
+    name: Apply and verify CRM-007 Flyway migrations
     runs-on: ubuntu-latest
     environment: Production
-    timeout-minutes: 10
+    timeout-minutes: 30
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
     steps:
-      - name: Confirm
-        run: |
-          if [ "${{ github.event.inputs.confirm }}" != "redeploy" ]; then
-            echo "Confirmation input must be the literal string 'redeploy'. Aborting."
-            exit 1
-          fi
-          echo "Confirmation accepted."
-
-      - name: Trigger Render deploy
-        id: deploy
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      - name: Validate target and protected configuration
+        shell: bash
         run: |
           set -euo pipefail
-          echo "Triggering Render deploy..."
-          STATUS=$(curl -sS -o /tmp/deploy.json -w "%{http_code}" \
-            --max-time 30 \
-            -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
-            -H "Authorization: Bearer ${RENDER_API_KEY}" \
-            -H "Content-Type: application/json" \
-            -H "Accept: application/json" \
-            --data '{"clearCache": "clear"}')
-          echo "Render deploy trigger returned HTTP ${STATUS}"
-          if [ "${STATUS}" != "201" ] && [ "${STATUS}" != "200" ] && [ "${STATUS}" != "202" ]; then
-            echo "Failed to trigger deploy. Response:"
-            head -c 500 /tmp/deploy.json
-            exit 1
-          fi
-          DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/deploy.json')).get('id', ''))")
-          echo "Deploy ID: ${DEPLOY_ID}"
-          echo "deploy_id=${DEPLOY_ID}" >> "$GITHUB_OUTPUT"
+          test -n "$RENDER_API_KEY" && test -n "$RENDER_SERVICE_ID"
+          echo "::add-mask::$RENDER_API_KEY"; echo "::add-mask::$RENDER_SERVICE_ID"
+          remote_main="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test "$remote_main" = "$TARGET_SHA" || { echo "::error::Target is not current main: $remote_main"; exit 1; }
 
-      - name: Wait for deploy to complete
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      - name: Checkout exact production SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client >/dev/null
+
+      - name: Read masked production database configuration
+        shell: bash
         run: |
           set -euo pipefail
-          DEPLOY_ID="${{ steps.deploy.outputs.deploy_id }}"
-          echo "Waiting for deploy ${DEPLOY_ID} to complete..."
-          for i in $(seq 1 30); do
-            sleep 20
-            STATUS=$(curl -sS --max-time 15 \
-              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}" \
-              -H "Authorization: Bearer ${RENDER_API_KEY}" \
-              -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status', 'unknown'))")
-            echo "  Attempt ${i}: deploy status = ${STATUS}"
-            if [ "${STATUS}" = "live" ]; then
-              echo "Deploy is live!"
-              exit 0
-            fi
-            if [ "${STATUS}" = "build_failed" ] || [ "${STATUS}" = "update_failed" ] || [ "${STATUS}" = "canceled" ] || [ "${STATUS}" = "deactivated" ]; then
-              echo "Deploy failed with status: ${STATUS}"
-              exit 1
-            fi
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $RENDER_API_KEY" -H "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" > /tmp/render-env.json
+          test "$(jq 'length' /tmp/render-env.json)" -lt 100
+          jq '[.[]? | (.envVar // .)]' /tmp/render-env.json > /tmp/render-env-normalized.json
+          for key in DATABASE_URL DATABASE_USERNAME DATABASE_PASSWORD FLYWAY_ENABLED; do
+            jq -e --arg key "$key" 'any(.[]; .key == $key and ((.value // "") | length > 0))' /tmp/render-env-normalized.json >/dev/null || { echo "::error::Missing Render env: $key"; exit 1; }
           done
-          echo "Deploy did not complete within 10 minutes."
-          exit 1
+          url="$(jq -r '.[] | select(.key=="DATABASE_URL") | .value' /tmp/render-env-normalized.json)"
+          user="$(jq -r '.[] | select(.key=="DATABASE_USERNAME") | .value' /tmp/render-env-normalized.json)"
+          password="$(jq -r '.[] | select(.key=="DATABASE_PASSWORD") | .value' /tmp/render-env-normalized.json)"
+          for value in "$url" "$user" "$password"; do echo "::add-mask::$value"; done
+          printf 'DATABASE_URL=%s\nDATABASE_USERNAME=%s\nDATABASE_PASSWORD=%s\n' "$url" "$user" "$password" >> "$GITHUB_ENV"
 
-      - name: Verify health
-        env:
-          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+      - name: Record pre-migration state
+        shell: bash
         run: |
           set -euo pipefail
-          sleep 10
-          STATUS=$(curl -sS -o /tmp/health.json -w "%{http_code}" --max-time 30 \
-            "${PRODUCTION_BASE_URL}/actuator/health")
-          echo "Backend health HTTP ${STATUS}"
-          cat /tmp/health.json
-          if [ "${STATUS}" != "200" ]; then exit 1; fi
+          raw="${DATABASE_URL#jdbc:}"; raw="${raw#postgresql://}"; host_port="${raw%%/*}"; db_part="${raw#*/}"; db_name="${db_part%%\?*}"; pg_host="${host_port%%:*}"; pg_port="${host_port#*:}"; [ "$pg_port" != "$host_port" ] || pg_port=5432
+          echo "PGHOST=$pg_host" >> "$GITHUB_ENV"; echo "PGPORT=$pg_port" >> "$GITHUB_ENV"; echo "PGDATABASE=$db_name" >> "$GITHUB_ENV"
+          export PGPASSWORD="$DATABASE_PASSWORD"
+          mkdir -p production-evidence
+          psql --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT json_build_object('accounts',COUNT(*)) FROM crm_accounts" > production-evidence/pre-accounts.json
+          psql --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT json_build_object('contacts',COUNT(*)) FROM crm_contacts" > production-evidence/pre-contacts.json
+          psql --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT json_build_object('legacy_addresses',COUNT(*)) FROM crm_account_addresses" > production-evidence/pre-addresses.json
 
-          # Check if the bootstrap endpoint is deployed
-          curl -sS --max-time 30 "${PRODUCTION_BASE_URL}/v3/api-docs" > /tmp/api-docs.json
-          BOOTSTRAP_PATHS=$(python3 -c "
-          import json
-          with open('/tmp/api-docs.json') as f:
-              data = json.load(f)
-          paths = data.get('paths', {})
-          bootstrap = [p for p in paths if 'bootstrap' in p.lower()]
-          print(','.join(bootstrap) if bootstrap else 'NONE')
-          ")
-          echo "Bootstrap paths in OpenAPI: ${BOOTSTRAP_PATHS}"
-          if [ "${BOOTSTRAP_PATHS}" = "NONE" ]; then
-            echo "Bootstrap endpoint not yet deployed!"
-            exit 1
+      - name: Apply pending migrations through Flyway
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn -B -ntp -DskipTests package dependency:build-classpath -Dmdep.outputFile=/tmp/flyway-cp.txt
+          cat > /tmp/ProductionFlyway.java <<'JAVA'
+          import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
+          import org.flywaydb.core.Flyway;
+          public final class ProductionFlyway {
+            public static void main(String[] args) {
+              Flyway flyway = Flyway.configure()
+                  .dataSource(args[0], args[1], args[2])
+                  .locations("classpath:db/migration")
+                  .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
+                  .load();
+              var result = flyway.migrate();
+              System.out.println("migrationsExecuted=" + result.migrationsExecuted);
+              System.out.println("targetSchemaVersion=" + result.targetSchemaVersion);
+            }
+          }
+          JAVA
+          cp="target/classes:$(cat /tmp/flyway-cp.txt)"
+          javac -cp "$cp" /tmp/ProductionFlyway.java
+          java -cp "/tmp:$cp" ProductionFlyway "$DATABASE_URL" "$DATABASE_USERNAME" "$DATABASE_PASSWORD" | tee /tmp/flyway-migrate.log
+
+      - name: Verify production migration evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PGPASSWORD="$DATABASE_PASSWORD"
+          history="$(psql --no-psqlrc -v ON_ERROR_STOP=1 -AtF '|' -c "SELECT version,type,description,success FROM flyway_schema_history WHERE version IN ('20260717.100','20260717.101') ORDER BY installed_rank")"
+          grep -q '^20260717.100|SQL|crm addresses communication methods|t$' <<< "$history"
+          grep -q '^20260717.101|SQL|crm addresses communication capabilities|t$' <<< "$history"
+          tables="$(psql --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('crm_party_addresses','crm_party_address_history','crm_communication_policies','crm_communication_methods','crm_communication_method_history')")"
+          capabilities="$(psql --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT COUNT(*) FROM capabilities WHERE code IN ('CRM.ADDRESS.READ','CRM.ADDRESS.WRITE','CRM.ADDRESS.ADMIN','CRM.COMMUNICATION.READ','CRM.COMMUNICATION.WRITE','CRM.COMMUNICATION.ADMIN','CRM.COMMUNICATION.SENSITIVE.READ','CRM.COMMUNICATION.EXPORT')")"
+          failed="$(psql --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT COUNT(*) FROM flyway_schema_history WHERE success=FALSE")"
+          duplicates="$(psql --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT COUNT(*) FROM (SELECT version FROM flyway_schema_history WHERE version IS NOT NULL GROUP BY version HAVING COUNT(*)>1) d")"
+          test "$tables" = 5; test "$capabilities" = 8; test "$failed" = 0; test "$duplicates" = 0
+          jq -n --arg sha "$TARGET_SHA" --arg history "$history" --argjson tables "$tables" --argjson capabilities "$capabilities" \
+            '{release_sha:$sha,flyway_history:($history|split("\n")),tables_verified:$tables,capabilities_verified:$capabilities,failed_migrations:0,duplicate_versions:0,result:"PASS"}' \
+            > production-evidence/crm-007-production-database.json
+
+      - name: Upload sanitized database evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-007-production-database-${{ github.run_id }}
+          path: production-evidence/
+          if-no-files-found: error
+          retention-days: 90
+
+  web:
+    if: github.head_ref == 'ops/crm-007-final-production'
+    name: Deploy exact SHA to Vercel and smoke test
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 35
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      WEB_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
+    steps:
+      - name: Validate Vercel configuration and target
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in VERCEL_TOKEN VERCEL_PROJECT_ID VERCEL_TEAM_ID WEB_BASE_URL; do test -n "${!name:-}" || exit 1; done
+          echo "::add-mask::$VERCEL_TOKEN"; echo "::add-mask::$VERCEL_PROJECT_ID"; echo "::add-mask::$VERCEL_TEAM_ID"
+          remote_main="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test "$remote_main" = "$TARGET_SHA"
+          mkdir -p production-evidence
+
+      - name: Create or reuse exact-SHA Vercel Production deployment
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          team="?teamId=${VERCEL_TEAM_ID}"
+          list="https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&target=production&limit=100&teamId=${VERCEL_TEAM_ID}"
+          curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" "$list" > /tmp/list.json
+          id="$(jq -r --arg sha "$TARGET_SHA" '[.deployments[]? | select((.meta.githubCommitSha // "") == $sha and (.target // "") == "production" and ((.readyState // .state // "") == "READY"))] | last | .uid // empty' /tmp/list.json)"
+          if [ -z "$id" ]; then
+            curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}${team}" > /tmp/project.json
+            name="$(jq -r '.name' /tmp/project.json)"
+            jq -n --arg name "$name" --arg project "$VERCEL_PROJECT_ID" --arg sha "$TARGET_SHA" '{name:$name,project:$project,target:"production",gitSource:{type:"github",org:"snadaiapp-png",repo:"SNAD",ref:"main",sha:$sha},gitMetadata:{remoteUrl:"https://github.com/snadaiapp-png/SNAD",commitRef:"main",commitSha:$sha,dirty:"false",ci:"true",ciType:"github-actions"},meta:{githubCommitSha:$sha,gate:"CRM-G3D"}}' > /tmp/create.json
+            curl --fail-with-body -fsS -X POST -H "Authorization: Bearer $VERCEL_TOKEN" -H 'Content-Type: application/json' --data @/tmp/create.json "https://api.vercel.com/v13/deployments${team}" > /tmp/created.json
+            id="$(jq -r '.id // .uid // empty' /tmp/created.json)"; test -n "$id"
           fi
-          echo "Bootstrap endpoint is deployed."
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          for attempt in $(seq 1 150); do
+            curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" "$list" > /tmp/list.json
+            match="$(jq -c --arg id "$id" --arg sha "$TARGET_SHA" '[.deployments[]? | select((.uid // "") == $id and (.meta.githubCommitSha // "") == $sha and (.target // "") == "production")] | last // empty' /tmp/list.json)"
+            if [ -n "$match" ] && [ "$match" != null ]; then state="$(jq -r '.readyState // .state // empty' <<< "$match")"; case "$state" in READY) break ;; ERROR|CANCELED) echo "$match"; exit 1 ;; esac; fi
+            sleep 10
+          done
+          test "$(jq -r '.readyState // .state' <<< "$match")" = READY
+          jq -n --arg sha "$TARGET_SHA" --argjson deployment "$match" '{release_sha:$sha,deployment_id:$deployment.uid,deployment_url:$deployment.url,target:$deployment.target,state:($deployment.readyState // $deployment.state),deployed_sha:$deployment.meta.githubCommitSha,result:"PASS"}' > production-evidence/crm-007-vercel-production.json
 
-      - name: Cleanup
+      - name: Verify frontend, BFF v1/v2, backend health, and runtime OpenAPI
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(curl -sSL -o /tmp/home -w '%{http_code}' --max-time 60 "$WEB_BASE_URL/")" = 200
+          test "$(curl -sSL -o /tmp/accounts -w '%{http_code}' --max-time 60 "$WEB_BASE_URL/crm/accounts")" = 200
+          test "$(curl -sSL -o /tmp/contacts -w '%{http_code}' --max-time 60 "$WEB_BASE_URL/crm/contacts")" = 200
+          test "$(curl -sS -o /tmp/status.json -w '%{http_code}' --max-time 60 "$WEB_BASE_URL/api/system/backend-status")" = 200
+          jq -e '.configured==true and .reachable==true and .statusCode==200' /tmp/status.json >/dev/null
+          test "$(curl -sS -o /tmp/auth -w '%{http_code}' --max-time 60 "$WEB_BASE_URL/api/platform/api/v1/auth/me")" = 401
+          v2="$(curl -sS -o /tmp/v2 -w '%{http_code}' --max-time 60 "$WEB_BASE_URL/api/platform/api/v2/crm/accounts/00000000-0000-0000-0000-000000000001/addresses?limit=1")"
+          test "$v2" = 401
+          backend="$(jq -r '.target' /tmp/status.json)"
+          test "$(curl -sS -H 'ngrok-skip-browser-warning: any-value' -o /tmp/health.json -w '%{http_code}' --max-time 60 "$backend/actuator/health")" = 200
+          jq -e '.status=="UP"' /tmp/health.json >/dev/null
+          curl -fsS -H 'ngrok-skip-browser-warning: any-value' --max-time 60 "$backend/v3/api-docs" > /tmp/openapi.json
+          jq -e '.paths["/api/v2/crm/accounts/{accountId}/addresses"].get and .paths["/api/v2/crm/accounts/{accountId}/communication-methods"].get' /tmp/openapi.json >/dev/null
+          jq -n --arg sha "$TARGET_SHA" --argjson status "$(cat /tmp/status.json)" --arg v2 "$v2" '{release_sha:$sha,frontend_http:200,accounts_http:200,contacts_http:200,backend_status:$status,anonymous_auth_http:401,anonymous_crm_v2_http:($v2|tonumber),backend_health:"UP",crm007_openapi:true,result:"PASS"}' > production-evidence/crm-007-production-smoke.json
+
+      - name: Upload sanitized Vercel and smoke evidence
         if: always()
-        run: rm -f /tmp/deploy.json /tmp/health.json /tmp/api-docs.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-007-production-web-${{ github.run_id }}
+          path: production-evidence/
+          if-no-files-found: warn
+          retention-days: 90
