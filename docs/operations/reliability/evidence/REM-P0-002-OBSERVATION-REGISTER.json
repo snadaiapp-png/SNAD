@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "finding": "REM-P0-002",
   "state": "OPEN",
   "observation_window": {
@@ -7,8 +7,37 @@
     "current_consecutive_passes": 0,
     "window_started_at": null,
     "last_result": "FAIL",
-    "last_checked_at": "2026-07-17T09:21:25Z",
-    "failure_reason": "Unauthenticated BFF auth/me returned HTTP 502 instead of HTTP 401"
+    "last_checked_at": "2026-07-17T09:26:57Z",
+    "failure_reason": "Unauthenticated BFF auth/me returned HTTP 502 instead of HTTP 401; latest authenticated synthetic run also failed"
+  },
+  "live_checks": {
+    "production_ui": {
+      "status_code": 200,
+      "result": "PASS"
+    },
+    "backend_status": {
+      "status_code": 200,
+      "configured": true,
+      "reachable": true,
+      "upstream_status_code": 200,
+      "checked_at": "2026-07-17T09:26:56.898Z",
+      "result": "PASS"
+    },
+    "unauthenticated_auth_me": {
+      "expected_status_code": 401,
+      "observed_status_code": 502,
+      "result": "FAIL"
+    }
+  },
+  "synthetic": {
+    "workflow": "BFF Auth Session Synthetic",
+    "latest_run_id": 29566715687,
+    "commit_sha": "a91b58b8f3e52390e51e3a39e2ae7675c97068a7",
+    "job_id": 87840862140,
+    "job_conclusion": "failure",
+    "journey_step_conclusion": "failure",
+    "protected_identity_check": "success",
+    "sanitized_evidence_upload": "success"
   },
   "deployment": {
     "remediation_merge_sha": "4a99ecdd425d28b3f77871f59b7fa83f1e9ea4d0",
