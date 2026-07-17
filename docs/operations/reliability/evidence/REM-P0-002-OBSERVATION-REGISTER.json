@@ -7,14 +7,15 @@
     "current_consecutive_passes": 0,
     "window_started_at": null,
     "last_result": "FAIL",
-    "last_checked_at": "2026-07-17T14:28:25Z",
-    "failure_reason": "New production regression: the UI remains HTTP 200, but /api/system/backend-status now returns HTTP 500 instead of the required healthy JSON, and unauthenticated /api/platform/api/v1/auth/me returns HTTP 500 instead of HTTP 401. The latest BFF Auth Session Synthetic run also failed: anonymous /me returned 401, login returned 401 instead of 200, and authenticated /me, refresh, session restoration, logout and post-logout rejection were not reached. The consecutive success counter is reset to zero and REM-P0-002 remains open."
+    "last_checked_at": "2026-07-17T15:22:18Z",
+    "failure_reason": "Production remained fail-closed on the newest reproducible probe: the UI returned HTTP 200, but /api/system/backend-status returned HTTP 500 with invalid non-JSON output on attempt 18. The unauthenticated auth/me requirement therefore cannot be accepted as healthy, and the latest completed BFF Auth Session Synthetic evidence still shows login HTTP 401 instead of 200 with authenticated /me, refresh, session restoration, logout and post-logout rejection not reached. A failed-jobs rerun was requested and is queued. The consecutive success counter remains zero and REM-P0-002 remains open."
   },
   "live_checks": {
     "production_ui": {
       "status_code": 200,
-      "checked_at": "2026-07-17T14:28:16Z",
-      "result": "PASS"
+      "checked_at": "2026-07-17T15:22:18.582638Z",
+      "result": "PASS",
+      "evidence_workflow_run_id": 29590991029
     },
     "backend_status": {
       "status_code": 500,
@@ -22,14 +23,17 @@
       "reachable": null,
       "upstream_status_code": null,
       "target_host": null,
-      "checked_at": "2026-07-17T14:28:20Z",
+      "checked_at": "2026-07-17T15:22:18.749343Z",
       "result": "FAIL",
-      "error": "Vercel/Next.js 500 page; backend-status JSON unavailable"
+      "error": "backend-status returned invalid JSON: Expecting value: line 1 column 1 (char 0)",
+      "evidence_workflow_run_id": 29590991029,
+      "evidence_artifact_id": 8411364987,
+      "evidence_digest": "sha256:b5eee4e7b01e6d517c0bb1010e550cf0fae5e0599027f32a98cb16786bdc438d"
     },
     "unauthenticated_auth_me": {
       "expected_status_code": 401,
       "observed_status_code": 500,
-      "upstream_error": "Vercel/Next.js 500 page",
+      "upstream_error": "Most recent direct observation remains Vercel/Next.js HTTP 500; the current readiness probe failed earlier at backend-status and provides no superseding successful auth/me evidence",
       "checked_at": "2026-07-17T14:28:25Z",
       "result": "FAIL"
     }
@@ -45,7 +49,9 @@
     "sanitized_evidence_upload": "success",
     "evidence_artifact_id": 8406982036,
     "evidence_digest": "sha256:a30eaad708faabb4cdd69c30abee609689592b554d1cf1be1fb2e1e3c72a58ee",
-    "current_cycle_assessment": "FAIL_BFF_AUTH_AND_LOGIN",
+    "rerun_status": "queued",
+    "rerun_job_id": 87923435818,
+    "current_cycle_assessment": "FAIL_BACKEND_STATUS_AND_BFF_AUTH_LOGIN",
     "required_journey_evidence": {
       "anonymous_me": "success_http_401",
       "login": "failed_http_401_expected_200",
@@ -60,7 +66,9 @@
     "remediation_merge_sha": "4a99ecdd425d28b3f77871f59b7fa83f1e9ea4d0",
     "production_deployment_sha": "654f384c3b3c0b16ade78a4e4c03bd5d7edeae03",
     "production_deployment_verified": true,
-    "verified_at": "2026-07-17T13:42:31Z"
+    "verified_at": "2026-07-17T13:42:31Z",
+    "latest_repository_main_sha": "3cffc42b2f4005b5d0ebb7dcc11e520c7ec0ac44",
+    "latest_repository_main_sha_verified_in_production": false
   },
   "closure_authorized": false,
   "closure_dependencies": [
