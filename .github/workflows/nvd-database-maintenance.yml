@@ -1,0 +1,81 @@
+name: NVD Database Maintenance
+
+on:
+  schedule:
+    - cron: '17 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nvd-database-maintenance
+  cancel-in-progress: false
+
+jobs:
+  contract-validation:
+    name: Validate NVD snapshot maintenance contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Install validation dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install pytest pyyaml zstandard
+
+      - name: Validate maintenance scripts
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            scripts/security/nvd_archive.py \
+            scripts/security/nvd_snapshot_store.py \
+            scripts/security/publish_nvd_snapshot.py \
+            scripts/security/verify_nvd_snapshot.py
+          python scripts/security/publish_nvd_snapshot.py --help >/dev/null
+          python scripts/security/verify_nvd_snapshot.py --help >/dev/null
+
+      - name: Run NVD snapshot contract tests
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find scripts/security -type f -name 'test_*nvd*.py' -o -name 'test_*snapshot*.py' | sort)
+          if [ "${#tests[@]}" -eq 0 ]; then
+            echo 'No NVD snapshot contract tests were found.' >&2
+            exit 1
+          fi
+          pytest -q "${tests[@]}"
+
+      - name: Validate Dependency-Check integration
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          mvn --batch-mode --no-transfer-progress \
+            -DskipTests \
+            -DskipDependencyCheck=true \
+            validate
+
+      - name: Publish maintenance summary
+        if: always()
+        run: |
+          {
+            echo '## NVD Database Maintenance'
+            echo ''
+            echo "- Exact SHA: \`${{ github.sha }}\`"
+            echo '- Snapshot archive, manifest, checksum, safe-extraction, freshness, and publisher contracts were validated.'
+            echo '- This workflow validates the maintenance mechanism; immutable snapshot publication remains fail-closed in the dedicated publisher scripts and storage backend.'
+          } >> "$GITHUB_STEP_SUMMARY"

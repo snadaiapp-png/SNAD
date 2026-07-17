@@ -77,22 +77,14 @@ class ApiRegressionSuiteTest {
 
     @BeforeEach
     void setUp() {
-        roleCapabilityRepository.deleteAll();
-        userRoleGrantRepository.deleteAll();
-        refreshTokenRepository.deleteAll();
-        membershipRepository.deleteAll();
-        organizationRepository.deleteAll();
-        roleRepository.deleteAll();
-        userRepository.deleteAll();
-        tenantRepository.deleteAll();
-
+        // Use unique tenant-scoped fixtures; never delete shared platform seed data.
         Tenant tenant = tenantRepository.save(new Tenant(
                 "Regression Test Tenant",
                 "regression-" + UUID.randomUUID(),
                 TenantStatus.ACTIVE));
         tenantId = tenant.getId();
 
-        testEmail = "regression@example.com";
+        testEmail = "regression-" + UUID.randomUUID() + "@example.com";
         testPassword = UUID.randomUUID().toString();
         User user = new User(tenantId, testEmail, "Regression User", UserStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(testPassword));

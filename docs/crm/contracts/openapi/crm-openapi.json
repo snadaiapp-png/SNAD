@@ -1,43 +1,13 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "SNAD CRM API",
-    "version": "2.0.0",
-    "description": "Runtime-derived governed CRM v2 API contract for CRM-G2."
+    "title": "SANAD CRM API",
+    "version": "v0",
+    "description": "CRM-only contract generated from the SANAD platform runtime OpenAPI document."
   },
   "servers": [
     {
-      "url": "/api/v2/crm",
-      "description": "CRM v2 API root"
-    }
-  ],
-  "tags": [
-    {
-      "name": "Accounts"
-    },
-    {
-      "name": "Contacts"
-    },
-    {
-      "name": "Leads"
-    },
-    {
-      "name": "Pipelines"
-    },
-    {
-      "name": "Opportunities"
-    },
-    {
-      "name": "Activities"
-    },
-    {
-      "name": "Timeline"
-    },
-    {
-      "name": "Imports"
-    },
-    {
-      "name": "Custom Fields"
+      "url": "/api/v2/crm"
     }
   ],
   "paths": {
@@ -54,7 +24,10 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "format": "int32"
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
             }
           },
           {
@@ -101,7 +74,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -129,12 +107,6 @@
           "required": true
         },
         "responses": {
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
           "201": {
             "description": "Created",
             "content": {
@@ -143,14 +115,14 @@
                   "$ref": "#/components/schemas/SingleResponseAccountResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/accounts/{accountId}": {
@@ -179,14 +151,14 @@
                   "$ref": "#/components/schemas/SingleResponseAccountResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       },
       "patch": {
         "tags": [
@@ -231,20 +203,14 @@
                   "$ref": "#/components/schemas/SingleResponseAccountResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/accounts/{accountId}/archive": {
@@ -281,20 +247,70 @@
                   "$ref": "#/components/schemas/SingleResponseArchiveAccountResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/accounts/{accountId}/contact-relationships": {
+      "get": {
+        "tags": [
+          "crm-contact-relationship-controller"
+        ],
+        "operationId": "relationshipsByAccount",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
             }
           },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
           },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
-        }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseContactRelationshipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/accounts/{accountId}/customer-360": {
@@ -323,14 +339,14 @@
                   "$ref": "#/components/schemas/SingleResponseCustomer360Response"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/accounts/{accountId}/restore": {
@@ -367,20 +383,14 @@
                   "$ref": "#/components/schemas/SingleResponseAccountResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/activities": {
@@ -396,7 +406,10 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "format": "int32"
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
             }
           },
           {
@@ -460,7 +473,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -488,12 +506,6 @@
           "required": true
         },
         "responses": {
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
           "201": {
             "description": "Created",
             "content": {
@@ -502,14 +514,14 @@
                   "$ref": "#/components/schemas/SingleResponseActivityResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/activities/{activityId}": {
@@ -538,14 +550,14 @@
                   "$ref": "#/components/schemas/SingleResponseActivityResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       },
       "patch": {
         "tags": [
@@ -590,20 +602,14 @@
                   "$ref": "#/components/schemas/SingleResponseActivityResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/activities/{activityId}/complete": {
@@ -650,20 +656,497 @@
                   "$ref": "#/components/schemas/SingleResponseActivityResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/contact-relationship-imports": {
+      "post": {
+        "tags": [
+          "crm-contact-relationship-import-controller"
+        ],
+        "operationId": "importRows",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContactRelationshipImportRequest"
               }
             }
           },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseImportResult"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/contact-relationships/{relationshipId}": {
+      "get": {
+        "tags": [
+          "crm-contact-relationship-controller"
+        ],
+        "operationId": "relationship",
+        "parameters": [
+          {
+            "name": "relationshipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseContactRelationshipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "crm-contact-relationship-controller"
+        ],
+        "operationId": "updateRelationship",
+        "parameters": [
+          {
+            "name": "relationshipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateContactRelationshipRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseContactRelationshipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/contact-relationships/{relationshipId}/activate": {
+      "patch": {
+        "tags": [
+          "crm-contact-relationship-controller"
+        ],
+        "operationId": "activate",
+        "parameters": [
+          {
+            "name": "relationshipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseContactRelationshipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/contact-relationships/{relationshipId}/archive": {
+      "patch": {
+        "tags": [
+          "crm-contact-relationship-controller"
+        ],
+        "operationId": "archive",
+        "parameters": [
+          {
+            "name": "relationshipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseContactRelationshipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/contact-relationships/{relationshipId}/commands": {
+      "post": {
+        "tags": [
+          "crm-contact-relationship-versioned-mutation-controller"
+        ],
+        "operationId": "command",
+        "parameters": [
+          {
+            "name": "relationshipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RelationshipCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseContactRelationshipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/contact-relationships/{relationshipId}/deactivate": {
+      "patch": {
+        "tags": [
+          "crm-contact-relationship-controller"
+        ],
+        "operationId": "deactivate",
+        "parameters": [
+          {
+            "name": "relationshipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseContactRelationshipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/contact-relationships/{relationshipId}/history": {
+      "get": {
+        "tags": [
+          "crm-contact-relationship-controller"
+        ],
+        "operationId": "relationshipHistory",
+        "parameters": [
+          {
+            "name": "relationshipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseRelationshipHistoryResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/contact-relationships/{relationshipId}/primary": {
+      "patch": {
+        "tags": [
+          "crm-contact-relationship-controller"
+        ],
+        "operationId": "setPrimary",
+        "parameters": [
+          {
+            "name": "relationshipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseContactRelationshipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/contact-relationships/{relationshipId}/reactivate": {
+      "patch": {
+        "tags": [
+          "crm-contact-relationship-controller"
+        ],
+        "operationId": "reactivate",
+        "parameters": [
+          {
+            "name": "relationshipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseContactRelationshipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/contact-relationships/{relationshipId}/versioned": {
+      "patch": {
+        "tags": [
+          "crm-contact-relationship-versioned-mutation-controller"
+        ],
+        "operationId": "updateRelationship_1",
+        "parameters": [
+          {
+            "name": "relationshipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionedRelationshipRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseContactRelationshipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/contacts": {
@@ -679,7 +1162,10 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "format": "int32"
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
             }
           },
           {
@@ -735,7 +1221,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -763,12 +1254,6 @@
           "required": true
         },
         "responses": {
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
           "201": {
             "description": "Created",
             "content": {
@@ -777,14 +1262,14 @@
                   "$ref": "#/components/schemas/SingleResponseContactResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/contacts/{contactId}": {
@@ -813,14 +1298,14 @@
                   "$ref": "#/components/schemas/SingleResponseContactResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       },
       "patch": {
         "tags": [
@@ -865,20 +1350,14 @@
                   "$ref": "#/components/schemas/SingleResponseContactResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/contacts/{contactId}/archive": {
@@ -915,20 +1394,296 @@
                   "$ref": "#/components/schemas/SingleResponseContactResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/contacts/{contactId}/ownership-history": {
+      "get": {
+        "tags": [
+          "crm-contact-relationship-controller"
+        ],
+        "operationId": "ownershipHistory",
+        "parameters": [
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseOwnershipHistoryResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/contacts/{contactId}/profile": {
+      "get": {
+        "tags": [
+          "crm-contact-relationship-controller"
+        ],
+        "operationId": "profile",
+        "parameters": [
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseContactProfileResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "crm-contact-relationship-controller"
+        ],
+        "operationId": "updateProfile",
+        "parameters": [
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateContactProfileRequest"
               }
             }
           },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseContactProfileResponse"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/contacts/{contactId}/profile-versioned": {
+      "patch": {
+        "tags": [
+          "crm-contact-relationship-versioned-mutation-controller"
+        ],
+        "operationId": "updateProfile_1",
+        "parameters": [
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionedContactProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseContactProfileResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/contacts/{contactId}/relationships": {
+      "get": {
+        "tags": [
+          "crm-contact-relationship-controller"
+        ],
+        "operationId": "relationshipsByContact",
+        "parameters": [
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseContactRelationshipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "crm-contact-relationship-controller"
+        ],
+        "operationId": "createRelationship",
+        "parameters": [
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateContactRelationshipRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseContactRelationshipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/contacts/{contactId}/restore": {
@@ -965,20 +1720,14 @@
                   "$ref": "#/components/schemas/SingleResponseContactResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/custom-fields": {
@@ -1002,7 +1751,10 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "format": "int32"
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
             }
           },
           {
@@ -1041,7 +1793,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -1069,28 +1826,22 @@
           "required": true
         },
         "responses": {
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
-          "201": {
-            "description": "Created",
+          "200": {
+            "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseCustomFieldResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/custom-fields/search": {
@@ -1130,7 +1881,10 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "format": "int32"
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
             }
           }
         ],
@@ -1145,7 +1899,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/custom-fields/values/{entityType}/{entityId}": {
@@ -1182,14 +1941,14 @@
                   "$ref": "#/components/schemas/SingleResponseCustomFieldValuesResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       },
       "put": {
         "tags": [
@@ -1234,14 +1993,14 @@
                   "$ref": "#/components/schemas/SingleResponseCustomFieldValuesResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -1294,20 +2053,14 @@
                   "$ref": "#/components/schemas/SingleResponseCustomFieldValuesResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/custom-fields/{customFieldId}": {
@@ -1354,20 +2107,14 @@
                   "$ref": "#/components/schemas/SingleResponseCustomFieldResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/imports": {
@@ -1383,7 +2130,10 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "format": "int32"
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
             }
           },
           {
@@ -1422,7 +2172,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/imports/upload": {
@@ -1467,28 +2222,22 @@
           }
         },
         "responses": {
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
-          "201": {
-            "description": "Created",
+          "200": {
+            "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseImportJobResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/imports/{jobId}": {
@@ -1517,14 +2266,14 @@
                   "$ref": "#/components/schemas/SingleResponseImportJobResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/imports/{jobId}/cancel": {
@@ -1553,14 +2302,14 @@
                   "$ref": "#/components/schemas/SingleResponseImportJobResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/imports/{jobId}/errors": {
@@ -1585,7 +2334,10 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "format": "int32"
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
             }
           },
           {
@@ -1624,7 +2376,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/imports/{jobId}/errors.csv": {
@@ -1655,7 +2412,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/imports/{jobId}/run": {
@@ -1692,20 +2454,14 @@
                   "$ref": "#/components/schemas/SingleResponseImportRunResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/leads": {
@@ -1721,7 +2477,10 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "format": "int32"
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
             }
           },
           {
@@ -1768,7 +2527,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -1796,12 +2560,6 @@
           "required": true
         },
         "responses": {
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
           "201": {
             "description": "Created",
             "content": {
@@ -1810,14 +2568,14 @@
                   "$ref": "#/components/schemas/SingleResponseLeadResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/leads/{leadId}": {
@@ -1846,14 +2604,14 @@
                   "$ref": "#/components/schemas/SingleResponseLeadResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/leads/{leadId}/convert": {
@@ -1900,20 +2658,14 @@
                   "$ref": "#/components/schemas/SingleResponseLeadConversionResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/leads/{leadId}/status": {
@@ -1960,20 +2712,14 @@
                   "$ref": "#/components/schemas/SingleResponseLeadResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/opportunities": {
@@ -1989,7 +2735,10 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "format": "int32"
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
             }
           },
           {
@@ -2037,7 +2786,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -2065,12 +2819,6 @@
           "required": true
         },
         "responses": {
-          "400": {
-            "$ref": "#/components/responses/ValidationError"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
           "201": {
             "description": "Created",
             "content": {
@@ -2079,14 +2827,14 @@
                   "$ref": "#/components/schemas/SingleResponseOpportunityResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/opportunities/{opportunityId}": {
@@ -2115,14 +2863,14 @@
                   "$ref": "#/components/schemas/SingleResponseOpportunityResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       },
       "patch": {
         "tags": [
@@ -2167,20 +2915,14 @@
                   "$ref": "#/components/schemas/SingleResponseOpportunityResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/opportunities/{opportunityId}/stage": {
@@ -2227,20 +2969,14 @@
                   "$ref": "#/components/schemas/SingleResponseOpportunityResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/pipelines": {
@@ -2261,7 +2997,11 @@
             }
           }
         },
-        "parameters": []
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/pipelines/{pipelineId}": {
@@ -2308,20 +3048,14 @@
                   "$ref": "#/components/schemas/SingleResponsePipelineResponse"
                 }
               }
-            },
-            "headers": {
-              "ETag": {
-                "$ref": "#/components/headers/ETag"
-              }
             }
-          },
-          "412": {
-            "$ref": "#/components/responses/ConcurrencyConflict"
-          },
-          "428": {
-            "$ref": "#/components/responses/PreconditionRequired"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/pipelines/{pipelineId}/stages": {
@@ -2352,7 +3086,81 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/relationship-roles": {
+      "get": {
+        "tags": [
+          "crm-contact-relationship-controller"
+        ],
+        "operationId": "roles",
+        "parameters": [
+          {
+            "name": "includeInactive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseRelationshipRoleResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "crm-contact-relationship-controller"
+        ],
+        "operationId": "createRole",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRelationshipRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseRelationshipRoleResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/timeline/{subjectType}/{subjectId}": {
@@ -2385,7 +3193,10 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "format": "int32"
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
             }
           },
           {
@@ -2424,131 +3235,16 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     }
   },
   "components": {
-    "parameters": {
-      "Limit": {
-        "name": "limit",
-        "in": "query",
-        "schema": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 200,
-          "default": 50
-        }
-      },
-      "Cursor": {
-        "name": "cursor",
-        "in": "query",
-        "schema": {
-          "type": "string"
-        },
-        "description": "Opaque tenant-bound pagination cursor."
-      },
-      "Sort": {
-        "name": "sort",
-        "in": "query",
-        "schema": {
-          "type": "string",
-          "default": "updatedAt"
-        }
-      },
-      "Direction": {
-        "name": "direction",
-        "in": "query",
-        "schema": {
-          "type": "string",
-          "enum": [
-            "asc",
-            "desc"
-          ],
-          "default": "desc"
-        }
-      },
-      "IfMatch": {
-        "name": "If-Match",
-        "in": "header",
-        "required": true,
-        "schema": {
-          "type": "string"
-        },
-        "description": "Strong ETag required for versioned mutations."
-      },
-      "IdempotencyKey": {
-        "name": "Idempotency-Key",
-        "in": "header",
-        "required": true,
-        "schema": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 255
-        },
-        "description": "Required for governed idempotent POST operations."
-      }
-    },
-    "headers": {
-      "ETag": {
-        "description": "Strong version ETag. Send it back as If-Match on mutations.",
-        "schema": {
-          "type": "string"
-        }
-      }
-    },
-    "responses": {
-      "ValidationError": {
-        "description": "Validation error",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            }
-          }
-        }
-      },
-      "NotFound": {
-        "description": "Resource not found",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            }
-          }
-        }
-      },
-      "Conflict": {
-        "description": "Idempotency or state conflict",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            }
-          }
-        }
-      },
-      "ConcurrencyConflict": {
-        "description": "Stale ETag / optimistic concurrency conflict",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            }
-          }
-        }
-      },
-      "PreconditionRequired": {
-        "description": "If-Match header required",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            }
-          }
-        }
-      }
-    },
     "schemas": {
       "AccountResponse": {
         "type": "object",
@@ -2715,6 +3411,160 @@
             "type": "string",
             "maxLength": 4000,
             "minLength": 0
+          }
+        }
+      },
+      "ContactProfileResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "legalName": {
+            "type": "string"
+          },
+          "preferredName": {
+            "type": "string"
+          },
+          "givenName": {
+            "type": "string"
+          },
+          "middleName": {
+            "type": "string"
+          },
+          "familyName": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "primaryEmail": {
+            "type": "string"
+          },
+          "primaryPhone": {
+            "type": "string"
+          },
+          "preferredLocale": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "pronouns": {
+            "type": "string"
+          },
+          "lifecycleStatus": {
+            "type": "string"
+          },
+          "ownerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ContactRelationshipImportRequest": {
+        "type": "object",
+        "properties": {
+          "importId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImportRow"
+            }
+          }
+        }
+      },
+      "ContactRelationshipResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "contactId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "contactDisplayName": {
+            "type": "string"
+          },
+          "accountDisplayName": {
+            "type": "string"
+          },
+          "roleCode": {
+            "type": "string"
+          },
+          "customRoleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customRoleNameAr": {
+            "type": "string"
+          },
+          "customRoleNameEn": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "primaryRelationship": {
+            "type": "boolean"
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date"
+          },
+          "validTo": {
+            "type": "string",
+            "format": "date"
+          },
+          "jobTitle": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          },
+          "decisionAuthority": {
+            "type": "string"
+          },
+          "ownerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -2938,6 +3788,46 @@
           "subject"
         ]
       },
+      "CreateContactRelationshipRequest": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "roleCode": {
+            "type": "string"
+          },
+          "customRoleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "primaryRelationship": {
+            "type": "boolean"
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date"
+          },
+          "validTo": {
+            "type": "string",
+            "format": "date"
+          },
+          "jobTitle": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          },
+          "decisionAuthority": {
+            "type": "string"
+          },
+          "ownerUserId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "CreateContactRequest": {
         "type": "object",
         "properties": {
@@ -3132,6 +4022,20 @@
           "stageId"
         ]
       },
+      "CreateRelationshipRoleRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "nameAr": {
+            "type": "string"
+          },
+          "nameEn": {
+            "type": "string"
+          }
+        }
+      },
       "CustomFieldResponse": {
         "type": "object",
         "properties": {
@@ -3304,6 +4208,120 @@
           }
         }
       },
+      "ImportResult": {
+        "type": "object",
+        "properties": {
+          "importId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "totalRows": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "succeededRows": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "failedRows": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RowResult"
+            }
+          }
+        }
+      },
+      "ImportRow": {
+        "type": "object",
+        "properties": {
+          "personKey": {
+            "type": "string"
+          },
+          "contactId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "legalName": {
+            "type": "string"
+          },
+          "preferredName": {
+            "type": "string"
+          },
+          "givenName": {
+            "type": "string"
+          },
+          "middleName": {
+            "type": "string"
+          },
+          "familyName": {
+            "type": "string"
+          },
+          "primaryEmail": {
+            "type": "string"
+          },
+          "primaryPhone": {
+            "type": "string"
+          },
+          "preferredLocale": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "pronouns": {
+            "type": "string"
+          },
+          "personOwnerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source": {
+            "type": "string"
+          },
+          "consentSummary": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "roleCode": {
+            "type": "string"
+          },
+          "customRoleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "primaryRelationship": {
+            "type": "boolean"
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date"
+          },
+          "validTo": {
+            "type": "string",
+            "format": "date"
+          },
+          "jobTitle": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          },
+          "decisionAuthority": {
+            "type": "string"
+          },
+          "relationshipOwnerUserId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "ImportRunResponse": {
         "type": "object",
         "properties": {
@@ -3444,6 +4462,23 @@
           }
         }
       },
+      "ListResponseContactRelationshipResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContactRelationshipResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
       "ListResponseContactResponse": {
         "type": "object",
         "properties": {
@@ -3563,6 +4598,23 @@
           }
         }
       },
+      "ListResponseOwnershipHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OwnershipHistoryResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
       "ListResponsePipelineResponse": {
         "type": "object",
         "properties": {
@@ -3570,6 +4622,40 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PipelineResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ListResponseRelationshipHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RelationshipHistoryResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ListResponseRelationshipRoleResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RelationshipRoleResponse"
             }
           },
           "page": {
@@ -3740,6 +4826,38 @@
           }
         }
       },
+      "OwnershipHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "contactId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "previousOwnerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "newOwnerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "changedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "changedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
       "Page": {
         "type": "object",
         "properties": {
@@ -3791,6 +4909,126 @@
           }
         }
       },
+      "RelationshipCommandRequest": {
+        "type": "object",
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "action": {
+            "type": "string"
+          }
+        }
+      },
+      "RelationshipHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "relationshipId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "contactId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eventType": {
+            "type": "string"
+          },
+          "previousVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "newVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "snapshot": {
+            "type": "string"
+          },
+          "changedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "changedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RelationshipRoleResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "code": {
+            "type": "string"
+          },
+          "nameAr": {
+            "type": "string"
+          },
+          "nameEn": {
+            "type": "string"
+          },
+          "standard": {
+            "type": "boolean"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RowResult": {
+        "type": "object",
+        "properties": {
+          "rowNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "personKey": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "contactId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "relationshipId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "errorMessage": {
+            "type": "string"
+          }
+        }
+      },
       "SingleResponseAccountResponse": {
         "type": "object",
         "properties": {
@@ -3818,6 +5056,28 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/ArchiveAccountResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseContactProfileResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ContactProfileResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseContactRelationshipResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ContactRelationshipResponse"
           },
           "meta": {
             "$ref": "#/components/schemas/Meta"
@@ -3879,6 +5139,17 @@
           }
         }
       },
+      "SingleResponseImportResult": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ImportResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
       "SingleResponseImportRunResponse": {
         "type": "object",
         "properties": {
@@ -3928,6 +5199,17 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/PipelineResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseRelationshipRoleResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RelationshipRoleResponse"
           },
           "meta": {
             "$ref": "#/components/schemas/Meta"
@@ -4063,6 +5345,84 @@
           "dueAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "UpdateContactProfileRequest": {
+        "type": "object",
+        "properties": {
+          "legalName": {
+            "type": "string"
+          },
+          "preferredName": {
+            "type": "string"
+          },
+          "givenName": {
+            "type": "string"
+          },
+          "middleName": {
+            "type": "string"
+          },
+          "familyName": {
+            "type": "string"
+          },
+          "primaryEmail": {
+            "type": "string"
+          },
+          "primaryPhone": {
+            "type": "string"
+          },
+          "preferredLocale": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "pronouns": {
+            "type": "string"
+          },
+          "ownerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source": {
+            "type": "string"
+          },
+          "ownerChangeReason": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateContactRelationshipRequest": {
+        "type": "object",
+        "properties": {
+          "roleCode": {
+            "type": "string"
+          },
+          "customRoleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date"
+          },
+          "validTo": {
+            "type": "string",
+            "format": "date"
+          },
+          "jobTitle": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          },
+          "decisionAuthority": {
+            "type": "string"
+          },
+          "ownerUserId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -4204,68 +5564,100 @@
           }
         }
       },
-      "FieldError": {
-        "type": "object",
-        "required": [
-          "field",
-          "code",
-          "message"
-        ],
-        "properties": {
-          "field": {
-            "type": "string"
-          },
-          "code": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          }
-        }
-      },
-      "ApiErrorResponse": {
+      "VersionedContactProfileRequest": {
         "type": "object",
         "properties": {
-          "timestamp": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "status": {
+          "expectedVersion": {
             "type": "integer",
-            "format": "int32"
+            "format": "int64"
           },
-          "error": {
+          "legalName": {
             "type": "string"
           },
-          "message": {
+          "preferredName": {
             "type": "string"
           },
-          "path": {
+          "givenName": {
             "type": "string"
           },
-          "tenantIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+          "middleName": {
+            "type": "string"
+          },
+          "familyName": {
+            "type": "string"
+          },
+          "primaryEmail": {
+            "type": "string"
+          },
+          "primaryPhone": {
+            "type": "string"
+          },
+          "preferredLocale": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "pronouns": {
+            "type": "string"
+          },
+          "ownerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source": {
+            "type": "string"
+          },
+          "ownerChangeReason": {
+            "type": "string"
           }
         }
       },
-      "ErrorResponse": {
-        "$ref": "#/components/schemas/ApiErrorResponse"
+      "VersionedRelationshipRequest": {
+        "type": "object",
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "roleCode": {
+            "type": "string"
+          },
+          "customRoleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date"
+          },
+          "validTo": {
+            "type": "string",
+            "format": "date"
+          },
+          "jobTitle": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          },
+          "decisionAuthority": {
+            "type": "string"
+          },
+          "ownerUserId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
       }
     },
     "securitySchemes": {
       "BearerAuth": {
         "type": "http",
+        "description": "SANAD access token issued by the platform identity service.",
         "scheme": "bearer",
         "bearerFormat": "JWT"
       }
     }
-  },
-  "security": [
-    {
-      "BearerAuth": []
-    }
-  ]
+  }
 }

@@ -8,37 +8,26 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
 
 /**
- * CRM-G2 Contract Test — OpenAPI Conformity (AC-11).
- * <p>
- * Verifies that the committed OpenAPI artifact at
- * {@code docs/crm/contracts/openapi/crm-openapi.json}:
- *   - Parses as valid JSON.
- *   - Has OpenAPI version 3.x.
- *   - Has at least one path per CRM domain (accounts, contacts, leads,
- *     opportunities, activities, pipelines, imports, custom-fields,
- *     timeline).
- *   - Has the standard reusable parameters (Limit, Cursor, Sort,
- *     Direction, IfMatch, IdempotencyKey).
- *   - Has the standard schemas (Meta, Page, ErrorResponse, FieldError).
- *   - Every path operation references at least one response.
- *   - Has a security scheme (BearerAuth).
- * <p>
- * The OpenAPI drift check (regenerate → diff) is performed by the
- * {@code crm-api-contract-validation.yml} workflow on CI.
- * <p>
- * Branch: crm/003-stable-api-contracts
+ * CRM-G2 Contract Test — generated OpenAPI conformity.
+ *
+ * <p>The committed document is filtered deterministically from the platform
+ * runtime OpenAPI document. These tests validate public HTTP semantics rather
+ * than historical handcrafted component names.</p>
  */
 class CrmOpenApiContractTest {
 
+    private static final Set<String> HTTP_METHODS = Set.of(
+            "get", "post", "put", "patch", "delete", "head", "options", "trace");
     private static final Path OPENAPI_PATH =
-            Path.of(System.getProperty("user.dir")).getParent().getParent().resolve("docs/crm/contracts/openapi/crm-openapi.json");
+            Path.of(System.getProperty("user.dir")).getParent().getParent()
+                    .resolve("docs/crm/contracts/openapi/crm-openapi.json");
 
     private JsonNode loadSpec() throws Exception {
         assertTrue(Files.exists(OPENAPI_PATH),
@@ -47,20 +36,27 @@ class CrmOpenApiContractTest {
     }
 
     @Test
-    void openApiSpecParsesAsValidJson() throws Exception {
+    void openApiSpecParsesAndMatchesTheApprovedSurface() throws Exception {
         JsonNode spec = loadSpec();
         assertNotNull(spec);
-        assertNotNull(spec.get("openapi"));
-        assertTrue(spec.get("openapi").asText().startsWith("3."),
-                "OpenAPI version must be 3.x; got: " + spec.get("openapi"));
+        assertTrue(spec.path("openapi").asText().startsWith("3."));
+        assertEquals(50, spec.path("paths").size(), "Approved CRM path count changed");
+
+        int operations = 0;
+        Iterator<JsonNode> paths = spec.path("paths").elements();
+        while (paths.hasNext()) {
+            Iterator<String> methods = paths.next().fieldNames();
+            while (methods.hasNext()) {
+                if (HTTP_METHODS.contains(methods.next())) operations++;
+            }
+        }
+        assertEquals(66, operations, "Approved CRM operation count changed");
+        assertEquals("/api/v2/crm", spec.path("servers").path(0).path("url").asText());
     }
 
     @Test
     void specCoversEveryCrmDomain() throws Exception {
-        JsonNode spec = loadSpec();
-        JsonNode paths = spec.get("paths");
-        assertNotNull(paths);
-        // Each domain must have at least one path.
+        JsonNode paths = loadSpec().path("paths");
         String[] domainPrefixes = {
                 "/accounts", "/contacts", "/leads", "/opportunities",
                 "/activities", "/pipelines", "/imports", "/custom-fields",
@@ -68,106 +64,144 @@ class CrmOpenApiContractTest {
         };
         for (String prefix : domainPrefixes) {
             boolean found = false;
-            Iterator<String> it = paths.fieldNames();
-            while (it.hasNext()) {
-                if (it.next().startsWith(prefix)) { found = true; break; }
+            Iterator<String> names = paths.fieldNames();
+            while (names.hasNext()) {
+                if (names.next().startsWith(prefix)) {
+                    found = true;
+                    break;
+                }
             }
             assertTrue(found, "OpenAPI spec is missing paths for domain: " + prefix);
         }
     }
 
     @Test
-    void specDefinesReusablePaginationParameters() throws Exception {
-        JsonNode spec = loadSpec();
-        JsonNode params = spec.path("components").path("parameters");
-        for (String name : new String[]{"Limit", "Cursor", "Sort", "Direction", "IfMatch", "IdempotencyKey"}) {
-            assertNotNull(params.get(name),
-                    "OpenAPI spec is missing reusable parameter: " + name);
+    void everyDeclaredLimitIsBounded() throws Exception {
+        JsonNode paths = loadSpec().path("paths");
+        int boundedLimits = 0;
+        Iterator<Map.Entry<String, JsonNode>> pathIterator = paths.fields();
+        while (pathIterator.hasNext()) {
+            Map.Entry<String, JsonNode> path = pathIterator.next();
+            Iterator<Map.Entry<String, JsonNode>> operations = path.getValue().fields();
+            while (operations.hasNext()) {
+                Map.Entry<String, JsonNode> operation = operations.next();
+                if (!HTTP_METHODS.contains(operation.getKey())) continue;
+                for (JsonNode parameter : operation.getValue().path("parameters")) {
+                    if (!"limit".equals(parameter.path("name").asText())
+                            || !"query".equals(parameter.path("in").asText())) continue;
+                    JsonNode schema = parameter.path("schema");
+                    assertEquals(1, schema.path("minimum").asInt(),
+                            path.getKey() + " limit minimum must be 1");
+                    assertEquals(200, schema.path("maximum").asInt(),
+                            path.getKey() + " limit maximum must be 200");
+                    assertEquals(50, schema.path("default").asInt(),
+                            path.getKey() + " limit default must be 50");
+                    boundedLimits++;
+                }
+            }
         }
+        assertTrue(boundedLimits >= 8, "Expected pagination on the CRM list operations");
     }
 
     @Test
-    void specDefinesStandardSchemas() throws Exception {
-        JsonNode spec = loadSpec();
-        JsonNode schemas = spec.path("components").path("schemas");
-        for (String name : new String[]{"Meta", "Page", "ErrorResponse", "FieldError", "CreateAccountRequest", "AccountResponse"}) {
-            assertNotNull(schemas.get(name),
-                    "OpenAPI spec is missing schema: " + name);
+    void specDefinesCoreGeneratedSchemas() throws Exception {
+        JsonNode schemas = loadSpec().path("components").path("schemas");
+        for (String name : new String[]{
+                "CreateAccountRequest", "AccountResponse", "SingleResponseAccountResponse",
+                "CreateContactRequest", "ContactResponse", "ListResponseContactResponse"}) {
+            assertNotNull(schemas.get(name), "OpenAPI spec is missing generated schema: " + name);
         }
     }
 
     @Test
     void everyPathOperationHasAtLeastOneResponse() throws Exception {
-        JsonNode spec = loadSpec();
-        JsonNode paths = spec.get("paths");
-        Iterator<Map.Entry<String, JsonNode>> it = paths.fields();
-        while (it.hasNext()) {
-            Map.Entry<String, JsonNode> path = it.next();
-            Iterator<Map.Entry<String, JsonNode>> ops = path.getValue().fields();
-            while (ops.hasNext()) {
-                Map.Entry<String, JsonNode> op = ops.next();
-                String method = op.getKey();
-                // Skip non-HTTP-method keys like "parameters" or "summary".
-                if (!method.equals("get") && !method.equals("post") && !method.equals("patch")
-                        && !method.equals("put") && !method.equals("delete")) continue;
-                JsonNode responses = op.getValue().get("responses");
-                assertNotNull(responses, "Path " + path.getKey() + " " + method + " has no responses");
-                assertTrue(responses.size() > 0,
-                        "Path " + path.getKey() + " " + method + " must define at least one response");
+        JsonNode paths = loadSpec().path("paths");
+        Iterator<Map.Entry<String, JsonNode>> pathIterator = paths.fields();
+        while (pathIterator.hasNext()) {
+            Map.Entry<String, JsonNode> path = pathIterator.next();
+            Iterator<Map.Entry<String, JsonNode>> operations = path.getValue().fields();
+            while (operations.hasNext()) {
+                Map.Entry<String, JsonNode> operation = operations.next();
+                if (!HTTP_METHODS.contains(operation.getKey())) continue;
+                JsonNode responses = operation.getValue().path("responses");
+                assertTrue(responses.isObject() && !responses.isEmpty(),
+                        path.getKey() + " " + operation.getKey() + " must define a response");
             }
         }
     }
 
     @Test
-    void specDefinesBearerAuthSecurityScheme() throws Exception {
+    void everyOperationRequiresBearerAuthentication() throws Exception {
         JsonNode spec = loadSpec();
-        JsonNode schemes = spec.path("components").path("securitySchemes");
-        assertNotNull(schemes.get("BearerAuth"),
-                "OpenAPI spec must define the BearerAuth security scheme");
-        assertEquals("http", schemes.get("BearerAuth").get("type").asText());
-        assertEquals("bearer", schemes.get("BearerAuth").get("scheme").asText());
+        JsonNode scheme = spec.path("components").path("securitySchemes").path("BearerAuth");
+        assertEquals("http", scheme.path("type").asText());
+        assertEquals("bearer", scheme.path("scheme").asText());
+
+        Iterator<Map.Entry<String, JsonNode>> pathIterator = spec.path("paths").fields();
+        while (pathIterator.hasNext()) {
+            Map.Entry<String, JsonNode> path = pathIterator.next();
+            Iterator<Map.Entry<String, JsonNode>> operations = path.getValue().fields();
+            while (operations.hasNext()) {
+                Map.Entry<String, JsonNode> operation = operations.next();
+                if (!HTTP_METHODS.contains(operation.getKey())) continue;
+                boolean bearer = false;
+                for (JsonNode requirement : operation.getValue().path("security")) {
+                    if (requirement.has("BearerAuth")) {
+                        bearer = true;
+                        break;
+                    }
+                }
+                assertTrue(bearer,
+                        path.getKey() + " " + operation.getKey() + " must require BearerAuth");
+            }
+        }
     }
 
     @Test
     void accountCreateResponseIs201() throws Exception {
-        JsonNode spec = loadSpec();
-        JsonNode postResponses = spec.path("paths").path("/accounts").path("post").path("responses");
-        assertNotNull(postResponses.get("201"),
-                "POST /accounts must declare a 201 response (HTTP success status for create)");
+        JsonNode responses = loadSpec().path("paths").path("/accounts")
+                .path("post").path("responses");
+        assertNotNull(responses.get("201"), "POST /accounts must declare 201 Created");
+        assertTrue(responses.get("200") == null,
+                "POST /accounts must not advertise 200 when runtime returns 201");
     }
 
     @Test
     void accountPatchRequiresIfMatchHeader() throws Exception {
-        JsonNode spec = loadSpec();
-        JsonNode parameters = spec.path("paths").path("/accounts/{accountId}").path("patch")
-                .path("parameters");
-        JsonNode componentParams = spec.path("components").path("parameters");
-        boolean foundIfMatchRequired = false;
-        for (JsonNode param : parameters) {
-            // Resolve $ref if present
-            JsonNode resolved = param;
-            if (param.has("$ref")) {
-                String ref = param.get("$ref").asText();
-                String paramName = ref.substring(ref.lastIndexOf("/") + 1);
-                resolved = componentParams.path(paramName);
-            }
-            if ("If-Match".equals(resolved.path("name").asText())
-                    && "header".equals(resolved.path("in").asText())
-                    && resolved.path("required").asBoolean(false)) {
-                foundIfMatchRequired = true;
+        JsonNode parameters = loadSpec().path("paths").path("/accounts/{accountId}")
+                .path("patch").path("parameters");
+        boolean found = false;
+        for (JsonNode parameter : parameters) {
+            if ("If-Match".equals(parameter.path("name").asText())
+                    && "header".equals(parameter.path("in").asText())
+                    && parameter.path("required").asBoolean()) {
+                found = true;
                 break;
             }
         }
-        assertTrue(foundIfMatchRequired,
-                "PATCH /accounts/{accountId} must declare If-Match as a required header");
+        assertTrue(found, "PATCH /accounts/{accountId} must require If-Match");
     }
 
     @Test
-    void paginationParametersAreBounded() throws Exception {
-        JsonNode spec = loadSpec();
-        JsonNode limit = spec.path("components").path("parameters").path("Limit").path("schema");
-        assertEquals(1, limit.path("minimum").asInt(), "Limit minimum must be 1");
-        assertEquals(200, limit.path("maximum").asInt(), "Limit maximum must be 200");
-        assertEquals(50, limit.path("default").asInt(), "Limit default must be 50");
+    void idempotencyKeysAreRequiredWhereDeclared() throws Exception {
+        JsonNode paths = loadSpec().path("paths");
+        int protectedOperations = 0;
+        Iterator<JsonNode> pathIterator = paths.elements();
+        while (pathIterator.hasNext()) {
+            Iterator<Map.Entry<String, JsonNode>> operations = pathIterator.next().fields();
+            while (operations.hasNext()) {
+                Map.Entry<String, JsonNode> operation = operations.next();
+                if (!HTTP_METHODS.contains(operation.getKey())) continue;
+                for (JsonNode parameter : operation.getValue().path("parameters")) {
+                    if ("Idempotency-Key".equals(parameter.path("name").asText())) {
+                        assertTrue(parameter.path("required").asBoolean(),
+                                "Idempotency-Key must be required where declared");
+                        protectedOperations++;
+                    }
+                }
+            }
+        }
+        assertTrue(protectedOperations >= 8,
+                "Expected idempotency protection on CRM create/action operations");
     }
 }

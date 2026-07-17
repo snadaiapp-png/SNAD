@@ -79,15 +79,8 @@ class AuthApiIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        roleCapabilityRepository.deleteAll();
-        userRoleGrantRepository.deleteAll();
-        refreshTokenRepository.deleteAll();
-        membershipRepository.deleteAll();
-        roleRepository.deleteAll();
-        userRepository.deleteAll();
-        organizationRepository.deleteAll();
-        tenantRepository.deleteAll();
-
+        // Use tenant-unique fixtures instead of deleting shared platform seed data.
+        // The Spring context is intentionally shared across integration suites.
         Tenant tenant = new Tenant(
                 "Auth Test Tenant",
                 "auth-test-" + UUID.randomUUID(),
@@ -95,7 +88,7 @@ class AuthApiIntegrationTest {
         );
         tenantId = tenantRepository.save(tenant).getId();
 
-        testEmail = "testuser@example.com";
+        testEmail = "testuser-" + UUID.randomUUID() + "@example.com";
         testPassword = UUID.randomUUID().toString();
         User user = new User(tenantId, testEmail, "Test User", UserStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(testPassword));

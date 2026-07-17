@@ -79,16 +79,7 @@ class TokenRevocationIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        roleCapabilityRepository.deleteAll();
-        userRoleGrantRepository.deleteAll();
-        passwordResetTokenRepository.deleteAll();
-        refreshTokenRepository.deleteAll();
-        membershipRepository.deleteAll();
-        organizationRepository.deleteAll();
-        roleRepository.deleteAll();
-        userRepository.deleteAll();
-        tenantRepository.deleteAll();
-
+        // Use unique tenant-scoped fixtures; never delete shared platform seed data.
         Tenant tenant = new Tenant(
                 "Token Revocation Test Tenant",
                 "token-revocation-" + UUID.randomUUID(),
@@ -96,7 +87,7 @@ class TokenRevocationIntegrationTest {
         );
         tenantId = tenantRepository.save(tenant).getId();
 
-        testEmail = "revocation-test@example.com";
+        testEmail = "revocation-test-" + UUID.randomUUID() + "@example.com";
         testPassword = UUID.randomUUID().toString();
         User user = new User(tenantId, testEmail, "Revocation Test User", UserStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(testPassword));
