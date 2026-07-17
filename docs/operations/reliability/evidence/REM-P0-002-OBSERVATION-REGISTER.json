@@ -7,49 +7,52 @@
     "current_consecutive_passes": 0,
     "window_started_at": null,
     "last_result": "FAIL",
-    "last_checked_at": "2026-07-17T11:26:31Z",
-    "failure_reason": "Backend ngrok endpoint is offline (ERR_NGROK_3200): backend-status returned configured=true, reachable=false, upstream statusCode=404; unauthenticated BFF auth/me returned HTTP 404 instead of HTTP 401. The authenticated synthetic journey cannot satisfy login, /me, refresh, session restoration, logout, or post-logout rejection while the upstream is offline."
+    "last_checked_at": "2026-07-17T12:34:00Z",
+    "failure_reason": "The production UI and backend-status recovered (HTTP 200; configured=true, reachable=true, upstream statusCode=200), but unauthenticated BFF auth/me returned HTTP 502 instead of HTTP 401. The latest BFF Auth Session Synthetic run confirmed anonymous /me=401 but login returned HTTP 401 instead of 200, so authenticated /me, refresh, session restoration, logout and post-logout rejection were not reached. Consecutive success counter remains reset to zero."
   },
   "live_checks": {
     "production_ui": {
       "status_code": 200,
-      "checked_at": "2026-07-17T11:26:19Z",
+      "checked_at": "2026-07-17T12:33:52Z",
       "result": "PASS"
     },
     "backend_status": {
       "status_code": 200,
       "configured": true,
-      "reachable": false,
-      "upstream_status_code": 404,
+      "reachable": true,
+      "upstream_status_code": 200,
       "target_host": "streak-train-empower.ngrok-free.dev",
-      "checked_at": "2026-07-17T11:26:14.887Z",
-      "result": "FAIL"
+      "checked_at": "2026-07-17T12:33:57.477Z",
+      "result": "PASS"
     },
     "unauthenticated_auth_me": {
       "expected_status_code": 401,
-      "observed_status_code": 404,
-      "upstream_error": "ERR_NGROK_3200 endpoint offline",
-      "checked_at": "2026-07-17T11:26:23Z",
+      "observed_status_code": 502,
+      "upstream_error": "Upstream or external service error",
+      "checked_at": "2026-07-17T12:34:00Z",
       "result": "FAIL"
     }
   },
   "synthetic": {
     "workflow": "BFF Auth Session Synthetic",
-    "latest_run_id": 29566715687,
-    "commit_sha": "a91b58b8f3e52390e51e3a39e2ae7675c97068a7",
-    "job_id": 87840862140,
+    "latest_run_id": 29575336951,
+    "commit_sha": "1c76e879d91d95e29f505250b445463f5ea7a6d4",
+    "job_id": 87868411174,
     "job_conclusion": "failure",
     "journey_step_conclusion": "failure",
     "protected_identity_check": "success",
     "sanitized_evidence_upload": "success",
-    "current_cycle_assessment": "FAIL_UPSTREAM_OFFLINE",
+    "evidence_artifact_id": 8404774012,
+    "evidence_digest": "sha256:a831c265e0daa05bebd5658a7c534ff4b9b73baa679b4660d58ab25c09b32cd0",
+    "current_cycle_assessment": "FAIL_BFF_AUTH_AND_LOGIN",
     "required_journey_evidence": {
-      "login": "not_successful",
-      "authenticated_me": "not_successful",
-      "refresh": "not_successful",
-      "session_restoration": "not_successful",
-      "logout": "not_successful",
-      "post_logout_rejection": "not_successful"
+      "anonymous_me": "success_http_401",
+      "login": "failed_http_401_expected_200",
+      "authenticated_me": "not_reached",
+      "refresh": "not_reached",
+      "session_restoration": "not_reached",
+      "logout": "not_reached",
+      "post_logout_rejection": "not_reached"
     }
   },
   "deployment": {
