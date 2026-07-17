@@ -84,27 +84,33 @@ jobs:
                 name:$name,
                 project:$project,
                 target:"production",
-                gitSource:{type:"github",org:"snadaiapp-png",repo:"SNAD",ref:"main",sha:$sha},
+                gitSource:{type:"github",sha:$sha},
                 gitMetadata:{
                   remoteUrl:"https://github.com/snadaiapp-png/SNAD",
                   commitRef:"main",
                   commitSha:$sha,
-                  dirty:"false",
-                  ci:"true",
+                  dirty:false,
+                  ci:true,
                   ciType:"github-actions"
                 },
                 meta:{githubCommitSha:$sha,release:"CRM-006"}
               }' > "$RUNNER_TEMP/vercel-create.json"
 
-            curl --fail-with-body --silent --show-error --max-time 60 \
+            CREATE_CODE="$(curl --silent --show-error --max-time 60 \
               -X POST \
               -H "Authorization: Bearer ${VERCEL_TOKEN}" \
               -H 'Content-Type: application/json' \
               --data @"$RUNNER_TEMP/vercel-create.json" \
-              "https://api.vercel.com/v13/deployments${TEAM_QUERY}" \
-              > "$RUNNER_TEMP/vercel-created.json"
-            DEPLOYMENT_ID="$(jq -r '.id // .uid // empty' "$RUNNER_TEMP/vercel-created.json")"
-            test -n "$DEPLOYMENT_ID" || { cat "$RUNNER_TEMP/vercel-created.json"; exit 1; }
+              -o evidence/vercel-create-response.json \
+              -w '%{http_code}' \
+              "https://api.vercel.com/v13/deployments${TEAM_QUERY}" || true)"
+            if [[ ! "$CREATE_CODE" =~ ^2 ]]; then
+              echo "::error::Vercel create deployment returned HTTP $CREATE_CODE"
+              cat evidence/vercel-create-response.json
+              exit 1
+            fi
+            DEPLOYMENT_ID="$(jq -r '.id // .uid // empty' evidence/vercel-create-response.json)"
+            test -n "$DEPLOYMENT_ID" || { cat evidence/vercel-create-response.json; exit 1; }
           fi
 
           MATCH=""
