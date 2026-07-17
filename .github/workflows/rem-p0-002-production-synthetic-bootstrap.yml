@@ -1,0 +1,135 @@
+name: REM-P0-002 Production Synthetic Bootstrap
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/rem-p0-002-production-synthetic-bootstrap.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: rem-p0-002-production-synthetic-bootstrap
+  cancel-in-progress: true
+
+jobs:
+  bootstrap:
+    name: Verify deployed release and run five authentication journeys
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: Production
+    env:
+      PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
+      ACCEPTED_APPLICATION_SHA: 23ece13ebe7e73fc267bd96822c6b5a2b62d1efa
+      AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID || secrets.BOOTSTRAP_TENANT_ID }}
+      AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL || secrets.SANAD_ADMIN_EMAIL }}
+      AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD || secrets.SANAD_ADMIN_PASSWORD }}
+
+    steps:
+      - name: Checkout current repository controls
+        uses: actions/checkout@v6
+
+      - name: Validate protected identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in AUTH_SMOKE_TENANT_ID AUTH_SMOKE_EMAIL AUTH_SMOKE_PASSWORD; do
+            test -n "${!name:-}" || { echo "::error::Missing protected production identity component: $name"; exit 1; }
+            echo "::add-mask::${!name}"
+          done
+
+      - name: Verify accepted application SHA is deployed
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/release.json" -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL}/api/system/release")"
+          test "$code" = "200"
+          jq -e --arg sha "$ACCEPTED_APPLICATION_SHA" '.commitSha == $sha and .commitRef == "main" and .environment == "production"' "$RUNNER_TEMP/release.json" >/dev/null
+          jq --arg expectedSha "$ACCEPTED_APPLICATION_SHA" '. + {expectedSha:$expectedSha,result:"PASS"}' "$RUNNER_TEMP/release.json" > evidence/rem-p0-002-release-identity.json
+
+      - name: Verify backend routing
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/backend.json" -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL}/api/system/backend-status")"
+          test "$code" = "200"
+          jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend.json" >/dev/null
+          jq --arg sha "$ACCEPTED_APPLICATION_SHA" '. + {releaseSha:$sha,result:"PASS"}' "$RUNNER_TEMP/backend.json" > evidence/rem-p0-002-backend-routing.json
+
+      - name: Compile synthetic
+        run: python3 -m py_compile scripts/operations/bff_auth_session_synthetic.py
+
+      - name: Run five consecutive production authentication journeys
+        env:
+          AUTH_SYNTHETIC_ITERATIONS: '5'
+          AUTH_SYNTHETIC_EVIDENCE_PATH: evidence/rem-p0-002-initial-synthetic.json
+        run: python3 scripts/operations/bff_auth_session_synthetic.py
+
+      - name: Write bootstrap summary
+        if: success()
+        shell: bash
+        run: |
+          jq -n \
+            --arg sha "$ACCEPTED_APPLICATION_SHA" \
+            --arg url "$PRODUCTION_WEB_BASE_URL" \
+            --arg runId "$GITHUB_RUN_ID" \
+            '{schema_version:"1.0",finding:"REM-P0-002",status:"passed",release_sha:$sha,production_url:$url,initial_synthetic_iterations:5,run_id:$runId}' \
+            > evidence/rem-p0-002-bootstrap-summary.json
+
+      - name: Upload sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rem-p0-002-production-bootstrap-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Start observation ledger
+        if: success()
+        uses: actions/github-script@v8
+        env:
+          RELEASE_SHA: ${{ env.ACCEPTED_APPLICATION_SHA }}
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const now = new Date().toISOString();
+            const body = [
+              '## REM-P0-002 production observation window started',
+              '',
+              `- Deployed application SHA: \`${process.env.RELEASE_SHA}\``,
+              '- Release identity: **PASS**',
+              '- Backend routing: **PASS**',
+              '- Initial authentication journeys: **5/5 PASS**',
+              `- Observation start: \`${now}\``,
+              `- Workflow evidence: ${runUrl}`,
+              '',
+              'The finding remains open until 72 consecutive hourly cycles, lockout/audit evidence, SLO review, owner acceptance, and tunnel disposition are complete.'
+            ].join('\n');
+            for (const issue_number of [516, 534, 535]) {
+              await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number, body});
+            }
+            await github.rest.issues.update({owner: context.repo.owner, repo: context.repo.repo, issue_number: 537, state: 'closed', state_reason: 'completed'});
+
+      - name: Record bootstrap failure
+        if: failure()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              '## REM-P0-002 production synthetic bootstrap failed',
+              '',
+              `- Expected deployed application SHA: \`${process.env.ACCEPTED_APPLICATION_SHA}\``,
+              `- Workflow: ${runUrl}`,
+              '- Observation window has not started.',
+              '- REM-P0-002 remains open.'
+            ].join('\n');
+            for (const issue_number of [516, 534, 535, 537]) {
+              await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number, body});
+            }
