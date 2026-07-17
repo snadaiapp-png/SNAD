@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "finding_id": "REM-P0-006",
+  "closure_state": "NOT_READY",
+  "commercial_go_live": "NOT_APPROVED",
+  "assessor": {
+    "independence_status": "NOT_APPOINTED",
+    "organization": "",
+    "lead_assessor": "",
+    "engagement_id": "",
+    "conflict_of_interest_attestation": "",
+    "appointment_evidence": ""
+  },
+  "assessed_release": {
+    "repository_sha": "",
+    "deployment_id": "",
+    "environment": "",
+    "started_at": "",
+    "completed_at": ""
+  },
+  "workstreams": [
+    {"id": "penetration_testing", "status": "NOT_STARTED", "evidence": []},
+    {"id": "tenant_boundary_and_object_authorization", "status": "NOT_STARTED", "evidence": []},
+    {"id": "production_configuration_and_secrets", "status": "NOT_STARTED", "evidence": []},
+    {"id": "dependency_and_supply_chain", "status": "NOT_STARTED", "evidence": []},
+    {"id": "privacy_and_threat_model", "status": "NOT_STARTED", "evidence": []},
+    {"id": "remediation_retest", "status": "NOT_STARTED", "evidence": []}
+  ],
+  "findings": {
+    "critical": {"open": 0, "closed": 0},
+    "high": {"open": 0, "closed": 0},
+    "medium": {"open": 0, "closed": 0},
+    "low": {"open": 0, "closed": 0}
+  },
+  "residual_risks": [],
+  "approvals": {
+    "independent_assessor": {"decision": "PENDING", "name": "", "approved_at": "", "evidence": ""},
+    "security_governance": {"decision": "PENDING", "name": "", "approved_at": "", "evidence": ""},
+    "project_owner": {"decision": "PENDING", "name": "", "approved_at": "", "evidence": ""}
+  },
+  "closure_decision_reference": ""
+}
