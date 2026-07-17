@@ -1,0 +1,106 @@
+name: REM-P0-002 Render Mutation Diagnostic
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/rem-p0-002-render-mutation-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnostic:
+    name: Validate Render env mutation and deploy response
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: Production
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+
+    steps:
+      - name: Run reversible mutation and deploy probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          echo "::add-mask::$RENDER_API_KEY"
+          echo "::add-mask::$RENDER_SERVICE_ID"
+          API="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          KEY="REM_P0_002_API_DIAGNOSTIC"
+          payload="$(jq -cn --arg value "run-${GITHUB_RUN_ID}" '{value:$value}')"
+
+          put_body="$RUNNER_TEMP/put.json"
+          put_code="$(curl -sS --show-error --max-time 30 -o "$put_body" -w '%{http_code}' \
+            -X PUT \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H 'Accept: application/json' \
+            -H 'Content-Type: application/json' \
+            --data "$payload" \
+            "${API}/env-vars/${KEY}" || true)"
+
+          delete_body="$RUNNER_TEMP/delete.txt"
+          delete_code="$(curl -sS --show-error --max-time 30 -o "$delete_body" -w '%{http_code}' \
+            -X DELETE \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H 'Accept: application/json' \
+            "${API}/env-vars/${KEY}" || true)"
+
+          deploy_body="$RUNNER_TEMP/deploy.json"
+          deploy_code="$(curl -sS --show-error --max-time 60 -o "$deploy_body" -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H 'Accept: application/json' \
+            -H 'Content-Type: application/json' \
+            --data '{}' \
+            "${API}/deploys" || true)"
+
+          jq -n \
+            --arg putStatus "$put_code" \
+            --arg putErrorCode "$(jq -r '.error.code // empty' "$put_body" 2>/dev/null || true)" \
+            --arg putErrorMessage "$(jq -r '.error.message // empty' "$put_body" 2>/dev/null || true)" \
+            --arg deleteStatus "$delete_code" \
+            --arg deployStatus "$deploy_code" \
+            --arg deployId "$(jq -r '.id // .deploy.id // .deployId // empty' "$deploy_body" 2>/dev/null || true)" \
+            --arg deployTopType "$(jq -r 'type' "$deploy_body" 2>/dev/null || echo invalid)" \
+            --argjson deployKeys "$(jq -c 'if type == "object" then keys else [] end' "$deploy_body" 2>/dev/null || echo '[]')" \
+            --arg deployErrorCode "$(jq -r '.error.code // empty' "$deploy_body" 2>/dev/null || true)" \
+            --arg deployErrorMessage "$(jq -r '.error.message // empty' "$deploy_body" 2>/dev/null || true)" \
+            '{finding:"REM-P0-002",put:{httpStatus:$putStatus,errorCode:$putErrorCode,errorMessage:$putErrorMessage},delete:{httpStatus:$deleteStatus},deploy:{httpStatus:$deployStatus,id:$deployId,topType:$deployTopType,keys:$deployKeys,errorCode:$deployErrorCode,errorMessage:$deployErrorMessage}}' \
+            > evidence/rem-p0-002-render-mutation-diagnostic.json
+
+          jq -e '(.put.httpStatus == "200" or .put.httpStatus == "201") and .delete.httpStatus == "204" and (.deploy.httpStatus == "201" or .deploy.httpStatus == "202")' evidence/rem-p0-002-render-mutation-diagnostic.json >/dev/null
+
+      - name: Upload sanitized diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rem-p0-002-render-mutation-diagnostic-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Record result
+        if: always()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            let d = {put:{},delete:{},deploy:{}};
+            try { d = JSON.parse(fs.readFileSync('evidence/rem-p0-002-render-mutation-diagnostic.json','utf8')); } catch (_) {}
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              '## REM-P0-002 Render mutation diagnostic',
+              '',
+              `- Add/update env var: **${d.put?.httpStatus || 'n/a'}**`,
+              `- Delete env var: **${d.delete?.httpStatus || 'n/a'}**`,
+              `- Trigger deploy: **${d.deploy?.httpStatus || 'n/a'}**`,
+              `- Deploy response keys: \`${(d.deploy?.keys || []).join(',')}\``,
+              `- Deploy ID parsed: **${d.deploy?.id ? 'YES' : 'NO'}**`,
+              `- Evidence: ${runUrl}`
+            ].join('\n');
+            await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number: 535, body});
