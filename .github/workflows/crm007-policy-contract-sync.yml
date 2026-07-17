@@ -1,0 +1,46 @@
+name: CRM-007 Policy Contract Sync
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm007-policy-contract-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Reconcile policy endpoint surface
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          workflow=Path('.github/workflows/crm-api-contract-validation.yml')
+          text=workflow.read_text(encoding='utf-8')
+          text=text.replace("EXPECTED_CRM_PATHS: '71'", "EXPECTED_CRM_PATHS: '72'")
+          text=text.replace("EXPECTED_CRM_OPERATIONS: '93'", "EXPECTED_CRM_OPERATIONS: '95'")
+          workflow.write_text(text,encoding='utf-8')
+          test=Path('apps/sanad-platform/src/test/java/com/sanad/platform/crm/contract/CrmOpenApiContractTest.java')
+          text=test.read_text(encoding='utf-8')
+          text=text.replace('EXPECTED_PATHS = 71','EXPECTED_PATHS = 72')
+          text=text.replace('EXPECTED_OPERATIONS = 93','EXPECTED_OPERATIONS = 95')
+          test.write_text(text,encoding='utf-8')
+          PY
+          git rm .github/workflows/crm007-policy-contract-sync.yml
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/crm-api-contract-validation.yml
+          git add apps/sanad-platform/src/test/java/com/sanad/platform/crm/contract/CrmOpenApiContractTest.java
+          git commit -am 'fix(crm): include communication policy in CRM-007 contract'
+          git push origin HEAD:${{ github.head_ref }}
