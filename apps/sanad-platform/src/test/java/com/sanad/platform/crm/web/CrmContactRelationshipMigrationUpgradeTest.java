@@ -13,7 +13,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,7 +51,7 @@ class CrmContactRelationshipMigrationUpgradeTest {
         UUID accountId = UUID.randomUUID();
         UUID linkedContactId = UUID.randomUUID();
         UUID standaloneContactId = UUID.randomUUID();
-        Instant now = Instant.parse("2026-07-17T00:00:00Z");
+        OffsetDateTime now = OffsetDateTime.parse("2026-07-17T00:00:00Z");
 
         jdbc.update(
                 "INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (?,?,?,?,?,?)",
@@ -110,7 +110,6 @@ class CrmContactRelationshipMigrationUpgradeTest {
                 "SELECT legal_name FROM crm_contacts WHERE tenant_id=? AND id=?",
                 String.class, tenantId, linkedContactId)).isEqualTo("Linked Person");
 
-        // A second Flyway invocation must not duplicate the deterministic backfill.
         upgrade.migrate();
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_contact_account_relationships WHERE tenant_id=? AND contact_id=?",
@@ -133,7 +132,7 @@ class CrmContactRelationshipMigrationUpgradeTest {
         UUID userB = UUID.randomUUID();
         UUID contactA = UUID.randomUUID();
         UUID accountB = UUID.randomUUID();
-        Instant now = Instant.parse("2026-07-17T00:00:00Z");
+        OffsetDateTime now = OffsetDateTime.parse("2026-07-17T00:00:00Z");
 
         insertTenantAndUser(jdbc, tenantA, userA, "a", now);
         insertTenantAndUser(jdbc, tenantB, userB, "b", now);
@@ -171,7 +170,7 @@ class CrmContactRelationshipMigrationUpgradeTest {
             String givenName,
             String familyName,
             String email,
-            Instant now) {
+            OffsetDateTime now) {
         String displayName = givenName + " " + familyName;
         jdbc.update(
                 """
@@ -191,10 +190,11 @@ class CrmContactRelationshipMigrationUpgradeTest {
             UUID tenantId,
             UUID userId,
             String suffix,
-            Instant now) {
+            OffsetDateTime now) {
         jdbc.update(
                 "INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (?,?,?,?,?,?)",
-                tenantId, "Tenant " + suffix, "tenant-" + suffix + "-" + tenantId.toString().substring(0, 8),
+                tenantId, "Tenant " + suffix,
+                "tenant-" + suffix + "-" + tenantId.toString().substring(0, 8),
                 "ACTIVE", now, now);
         jdbc.update(
                 """
