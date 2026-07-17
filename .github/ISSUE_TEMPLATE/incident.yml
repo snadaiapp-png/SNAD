@@ -1,0 +1,62 @@
+name: Production incident
+description: Declare and manage a SANAD production or production-data incident
+title: "[INCIDENT] "
+assignees:
+  - snadaiapp-png
+body:
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - SEV0
+        - SEV1
+        - SEV2
+        - SEV3
+    validations:
+      required: true
+  - type: input
+    id: commander
+    attributes:
+      label: Incident Commander
+      placeholder: GitHub username or accountable role
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Customer and business impact
+      description: State confirmed impact, affected services and start time.
+    validations:
+      required: true
+  - type: textarea
+    id: data_security
+    attributes:
+      label: Data, security and financial-integrity assessment
+      description: State known exposure or explicitly record that assessment is pending.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and exact versions
+      description: Include deployment SHA, logs, traces, alerts and synthetic identifiers.
+    validations:
+      required: true
+  - type: textarea
+    id: mitigation
+    attributes:
+      label: Mitigation, rollback or recovery
+    validations:
+      required: true
+  - type: checkboxes
+    id: controls
+    attributes:
+      label: Command controls
+      options:
+        - label: Update cadence and next communication time are recorded.
+          required: true
+        - label: Security Lead is engaged when security, privacy or tenant isolation may be affected.
+          required: true
+        - label: Data/Financial Integrity Lead is engaged when regulated or financial data may be affected.
+          required: true
