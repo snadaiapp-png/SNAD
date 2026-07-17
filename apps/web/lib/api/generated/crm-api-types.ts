@@ -462,6 +462,22 @@ export type paths = {
         readonly patch: operations["changeVerification"];
         readonly trace?: never;
     };
+    readonly "/communication-policy": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["policy"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch: operations["update_2"];
+        readonly trace?: never;
+    };
     readonly "/contact-relationship-imports": {
         readonly parameters: {
             readonly query?: never;
@@ -1372,6 +1388,11 @@ export type components = {
             /** Format: date-time */
             readonly archivedAt?: string;
         };
+        readonly CommunicationPolicy: {
+            readonly emailUniqueWithinOwner?: boolean;
+            readonly phoneUniqueWithinOwner?: boolean;
+            readonly singlePreferredPerType?: boolean;
+        };
         readonly CommunicationSearchResponse: {
             /** Format: uuid */
             readonly id?: string;
@@ -2077,6 +2098,10 @@ export type components = {
         };
         readonly SingleResponseCommunicationMethodResponse: {
             readonly data?: components["schemas"]["CommunicationMethodResponse"];
+            readonly meta?: components["schemas"]["Meta"];
+        };
+        readonly SingleResponseCommunicationPolicy: {
+            readonly data?: components["schemas"]["CommunicationPolicy"];
             readonly meta?: components["schemas"]["Meta"];
         };
         readonly SingleResponseContactProfileResponse: {
@@ -2817,8 +2842,8 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description OK */
-            readonly 200: {
+            /** @description Created */
+            readonly 201: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
@@ -3042,8 +3067,8 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description OK */
-            readonly 200: {
+            /** @description Created */
+            readonly 201: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
@@ -3250,6 +3275,50 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseCommunicationMethodResponse"];
+                };
+            };
+        };
+    };
+    readonly policy: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseCommunicationPolicy"];
+                };
+            };
+        };
+    };
+    readonly update_2: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["CommunicationPolicy"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseCommunicationPolicy"];
                 };
             };
         };

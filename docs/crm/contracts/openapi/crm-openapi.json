@@ -1013,8 +1013,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "OK",
+          "201": {
+            "description": "Created",
             "content": {
               "application/json": {
                 "schema": {
@@ -1477,8 +1477,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "OK",
+          "201": {
+            "description": "Created",
             "content": {
               "application/json": {
                 "schema": {
@@ -1886,6 +1886,64 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseCommunicationMethodResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/communication-policy": {
+      "get": {
+        "tags": [
+          "crm-communication-policy-controller"
+        ],
+        "operationId": "policy",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseCommunicationPolicy"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "crm-communication-policy-controller"
+        ],
+        "operationId": "update_2",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommunicationPolicy"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseCommunicationPolicy"
                 }
               }
             }
@@ -5269,6 +5327,20 @@
           }
         }
       },
+      "CommunicationPolicy": {
+        "type": "object",
+        "properties": {
+          "emailUniqueWithinOwner": {
+            "type": "boolean"
+          },
+          "phoneUniqueWithinOwner": {
+            "type": "boolean"
+          },
+          "singlePreferredPerType": {
+            "type": "boolean"
+          }
+        }
+      },
       "CommunicationSearchResponse": {
         "type": "object",
         "properties": {
@@ -7256,6 +7328,17 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/CommunicationMethodResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseCommunicationPolicy": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CommunicationPolicy"
           },
           "meta": {
             "$ref": "#/components/schemas/Meta"

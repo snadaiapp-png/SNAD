@@ -234,7 +234,7 @@ public class AddressCommunicationOperationsService {
     }
 
     private ImportRowError error(UUID jobId, UUID tenantId, int rowNumber, Object row, RuntimeException exception) {
-        String code = exception instanceof CrmContractException crm ? crm.code() : "ROW_PROCESSING_FAILED";
+        String code = exception instanceof CrmContractException crm ? crm.code().name() : "ROW_PROCESSING_FAILED";
         String message = exception.getMessage() == null ? "Row processing failed." : exception.getMessage();
         return new ImportRowError(rowNumber, null, code, truncate(message, 1000), serialize(row));
     }

@@ -17,8 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** CRM API contract test for the committed, runtime-filtered OpenAPI artifact. */
 class CrmOpenApiContractTest {
 
-    private static final int EXPECTED_PATHS = 65;
-    private static final int EXPECTED_OPERATIONS = 87;
+    private static final int EXPECTED_PATHS = 72;
+    private static final int EXPECTED_OPERATIONS = 95;
     private static final Set<String> HTTP_METHODS = Set.of(
             "get", "post", "put", "patch", "delete", "head", "options", "trace");
     private static final Path OPENAPI_PATH =
@@ -161,7 +161,8 @@ class CrmOpenApiContractTest {
         JsonNode paths = loadSpec().path("paths");
         for (String path : new String[]{
                 "/accounts", "/accounts/{accountId}/addresses", "/contacts/{contactId}/addresses",
-                "/accounts/{accountId}/communication-methods", "/contacts/{contactId}/communication-methods"}) {
+                "/accounts/{accountId}/communication-methods", "/contacts/{contactId}/communication-methods",
+                "/addresses/import", "/communication-methods/import"}) {
             JsonNode responses = paths.path(path).path("post").path("responses");
             assertNotNull(responses.get("201"), "POST " + path + " must declare 201 Created");
             assertTrue(responses.get("200") == null,
@@ -209,7 +210,8 @@ class CrmOpenApiContractTest {
                 "Expected idempotency protection on CRM create/action operations");
         for (String path : new String[]{
                 "/accounts/{accountId}/addresses", "/contacts/{contactId}/addresses",
-                "/accounts/{accountId}/communication-methods", "/contacts/{contactId}/communication-methods"}) {
+                "/accounts/{accountId}/communication-methods", "/contacts/{contactId}/communication-methods",
+                "/addresses/import", "/communication-methods/import"}) {
             assertRequiredHeader(paths.path(path).path("post"), "Idempotency-Key", path);
         }
     }
