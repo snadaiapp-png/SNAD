@@ -14,6 +14,7 @@ import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -59,7 +60,7 @@ class IntegratedBusinessProcessesPostgresE2ETest {
     void executesAllGovernedProcessesAgainstRealPostgres() {
         UUID tenantId = UUID.fromString("91000000-0000-0000-0000-000000000001");
         UUID actorId = UUID.fromString("92000000-0000-0000-0000-000000000001");
-        Instant now = Instant.now();
+        Timestamp now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?)",
                 tenantId, "postgres-process-e2e", "PostgreSQL Process E2E", now, now);
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)",
