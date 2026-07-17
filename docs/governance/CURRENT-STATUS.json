@@ -21,7 +21,7 @@
     "frontend": "https://snad-app.vercel.app",
     "frontend_state": "REACHABLE_AT_LAST_REVIEW",
     "backend_hosting": "TEMPORARY_DEVELOPMENT_TUNNEL",
-    "authentication_reliability": "INTERMITTENT",
+    "authentication_reliability": "APPLICATION_CONTROLS_IMPLEMENTED_PRODUCTION_OBSERVATION_PENDING",
     "production_readiness": "NOT_ACCEPTED"
   },
   "closed_findings": {
@@ -31,7 +31,7 @@
   },
   "open_findings": {
     "REM-P0-001": "Production backend depends on a development tunnel",
-    "REM-P0-002": "BFF authentication reliability is intermittent",
+    "REM-P0-002": "BFF and browser session controls implemented; production observation and REM-P0-001 dependency remain open",
     "REM-P0-004": "Governance sequence for later outputs remains unreconciled",
     "REM-P0-005": "Production backup, restore and disaster-recovery evidence is incomplete",
     "REM-P0-006": "Independent security assurance is not closed",
@@ -42,12 +42,21 @@
     "total": 7,
     "P0": 5,
     "P1": 2,
-    "deferred_but_open": 2
+    "deferred_but_open": 1,
+    "remediated_but_open": 1
   },
   "deferred_findings": [
-    "REM-P0-001",
-    "REM-P0-002"
+    "REM-P0-001"
   ],
+  "remediated_but_open_findings": {
+    "REM-P0-002": {
+      "application_controls": "IMPLEMENTED",
+      "production_synthetic": "ESTABLISHED",
+      "observation_window": "PENDING",
+      "blocking_dependency": "REM-P0-001",
+      "closure_document": "docs/operations/reliability/AUTH-SESSION-RELIABILITY.md"
+    }
+  },
   "historical_gates": {
     "ISSUE-101": {
       "state": "CLOSED",

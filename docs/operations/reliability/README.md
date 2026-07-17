@@ -12,6 +12,7 @@ This directory is the authoritative operating model for service levels, error bu
 - `SLA-SLO-POLICY.md` — definitions, calculations, targets and error-budget controls.
 - `INCIDENT-MANAGEMENT.md` — severity model, command roles, response workflow and evidence.
 - `ON-CALL-ESCALATION.md` — duty ownership, paging and escalation.
+- `AUTH-SESSION-RELIABILITY.md` — REM-P0-002 BFF/authentication controls, production synthetic and closure gate.
 - `service-level-catalog.json` — machine-readable service targets.
 - `on-call-roster.json` — machine-readable accountable duty roster.
 - `templates/INCIDENT-REPORT.md` — live incident record.
@@ -23,6 +24,8 @@ This directory is the authoritative operating model for service levels, error bu
 Internal SLOs are effective immediately. External customer SLAs are policy targets only and become contractual only through an approved customer agreement and commercial-go-live decision.
 
 Deferred backend or tunnel risks are not excluded from availability, latency, incident or error-budget calculations. Deferral changes remediation priority, not operational truth.
+
+Implemented application controls do not close a reliability finding until their exact deployed SHA, production observation window, incident evidence and accountable acceptance are complete.
 
 ## Mandatory evidence
 

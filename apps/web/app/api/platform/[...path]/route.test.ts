@@ -49,6 +49,7 @@ describe("platform BFF", () => {
     );
 
     expect(response.status).toBe(503);
+    expect(response.headers.get("x-request-id")).toBeTruthy();
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -131,6 +132,26 @@ describe("platform BFF", () => {
     expect(headers.get("cookie")).toBeNull();
   });
 
+  it("clears an invalid refresh cookie after an upstream 401", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 401 }));
+
+    const response = await POST(
+      request("/api/v1/auth/refresh", {
+        method: "POST",
+        headers: {
+          origin: "https://snad-app.vercel.app",
+          cookie: "sanad_refresh=invalid-refresh",
+        },
+      }),
+      context("api", "v1", "auth", "refresh"),
+    );
+
+    expect(response.status).toBe(401);
+    const setCookie = response.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("sanad_refresh=");
+    expect(setCookie).toContain("Max-Age=0");
+  });
+
   it("forwards access authorization to protected control-plane endpoints", async () => {
     vi.mocked(fetch).mockResolvedValue(
       new Response(JSON.stringify({ totalTenants: 1 }), {
@@ -150,9 +171,43 @@ describe("platform BFF", () => {
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(url).toBe("https://sanad-backend.example.com/api/v1/control-plane/dashboard");
     expect((init?.headers as Headers).get("authorization")).toBe("Bearer access-token");
+    expect((init?.headers as Headers).get("x-request-id")).toBeTruthy();
   });
 
-  it("clears the refresh cookie on logout", async () => {
+  it("retries one transient 503 for an idempotent GET", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(new Response(null, { status: 401 }));
+
+    const response = await GET(
+      request("/api/v1/auth/me", { headers: { "x-request-id": "request-123" } }),
+      context("api", "v1", "auth", "me"),
+    );
+
+    expect(response.status).toBe(401);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(response.headers.get("x-sanad-bff-attempts")).toBe("2");
+    expect(response.headers.get("x-request-id")).toBe("request-123");
+  });
+
+  it("does not retry a state-changing login request", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 503 }));
+
+    const response = await POST(
+      request("/api/v1/auth/login", {
+        method: "POST",
+        headers: { origin: "https://snad-app.vercel.app" },
+        body: { email: "admin@example.com", password: "secret" },
+      }),
+      context("api", "v1", "auth", "login"),
+    );
+
+    expect(response.status).toBe(503);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(response.headers.get("x-sanad-bff-attempts")).toBe("1");
+  });
+
+  it("clears the refresh cookie on successful logout", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }));
 
     const response = await POST(
@@ -173,6 +228,48 @@ describe("platform BFF", () => {
     expect(setCookie).toContain("Max-Age=0");
   });
 
+  it("clears the local refresh cookie even when upstream logout fails", async () => {
+    vi.mocked(fetch).mockRejectedValue(new Error("backend unavailable"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await POST(
+      request("/api/v1/auth/logout", {
+        method: "POST",
+        headers: {
+          origin: "https://snad-app.vercel.app",
+          authorization: "Bearer access-token",
+          cookie: "sanad_refresh=refresh-from-cookie",
+        },
+      }),
+      context("api", "v1", "auth", "logout"),
+    );
+
+    expect(response.status).toBe(502);
+    const setCookie = response.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("sanad_refresh=");
+    expect(setCookie).toContain("Max-Age=0");
+  });
+
+  it("classifies upstream timeouts as a bounded 504", async () => {
+    vi.mocked(fetch).mockRejectedValue(new DOMException("timed out", "TimeoutError"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await POST(
+      request("/api/v1/auth/login", {
+        method: "POST",
+        headers: { origin: "https://snad-app.vercel.app" },
+        body: { email: "admin@example.com", password: "secret" },
+      }),
+      context("api", "v1", "auth", "login"),
+    );
+
+    expect(response.status).toBe(504);
+    expect(await response.json()).toEqual({ error: "Backend timeout" });
+    expect(response.headers.get("x-sanad-bff-error")).toBe("upstream-timeout");
+    expect(response.headers.get("Retry-After")).toBe("1");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("returns a generic 502 without leaking backend details", async () => {
     vi.mocked(fetch).mockRejectedValue(new Error("database password=do-not-leak"));
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -184,6 +281,9 @@ describe("platform BFF", () => {
 
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: "Backend unavailable" });
+    expect(response.headers.get("x-sanad-bff-error")).toBe("upstream-network");
+    expect(response.headers.get("x-request-id")).toBeTruthy();
+    expect(fetch).toHaveBeenCalledTimes(2);
     expect(JSON.stringify(consoleError.mock.calls)).not.toContain("do-not-leak");
   });
 });

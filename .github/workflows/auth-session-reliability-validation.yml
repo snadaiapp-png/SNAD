@@ -1,0 +1,72 @@
+name: Auth Session Reliability Validation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/web/app/api/platform/**'
+      - 'apps/web/lib/auth/**'
+      - 'scripts/operations/bff_auth_session_synthetic.py'
+      - 'scripts/ci/validate_auth_session_reliability.py'
+      - 'docs/operations/reliability/AUTH-SESSION-RELIABILITY.md'
+      - 'docs/governance/CURRENT-STATUS.json'
+      - '.github/workflows/bff-auth-session-synthetic.yml'
+      - '.github/workflows/auth-session-reliability-validation.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'apps/web/app/api/platform/**'
+      - 'apps/web/lib/auth/**'
+      - 'scripts/operations/bff_auth_session_synthetic.py'
+      - 'scripts/ci/validate_auth_session_reliability.py'
+      - 'docs/operations/reliability/AUTH-SESSION-RELIABILITY.md'
+      - 'docs/governance/CURRENT-STATUS.json'
+      - '.github/workflows/bff-auth-session-synthetic.yml'
+      - '.github/workflows/auth-session-reliability-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auth-session-reliability-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate BFF, refresh rotation and production synthetic controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Compile validators and synthetic
+        run: |
+          python3 -m py_compile scripts/ci/validate_auth_session_reliability.py
+          python3 -m py_compile scripts/operations/bff_auth_session_synthetic.py
+
+      - name: Validate REM-P0-002 controls
+        run: python3 scripts/ci/validate_auth_session_reliability.py
+
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo '## REM-P0-002 Auth Session Reliability'
+            echo
+            echo '- BFF request budget and bounded retry: required'
+            echo '- Refresh/logout cookie lifecycle: required'
+            echo '- Concurrent refresh single-flight: required'
+            echo '- Stale post-logout refresh rejection: required'
+            echo '- Hourly Production BFF synthetic: required'
+            echo '- Finding remains open pending observation window and REM-P0-001 dependency'
+          } >> "$GITHUB_STEP_SUMMARY"

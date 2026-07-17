@@ -37,7 +37,7 @@ Stage closure, a passing CI job, an HTTP `200` response or a healthy endpoint do
 |---|---|---|
 | Frontend | Vercel application at `https://snad-app.vercel.app` | Reachable at last executive review |
 | Backend hosting | Temporary development tunnel | Deferred; not accepted as final enterprise hosting |
-| BFF/authentication | Intermittent timeout evidence | Deferred where tunnel-dependent; not accepted as stable |
+| BFF/authentication | Bounded BFF retry/timeout, refresh single-flight, cookie safety and hourly production synthetic implemented | Open pending deployment evidence, 72-hour observation and REM-P0-001 dependency |
 | Commercial production | Critical gates remain open | Not approved |
 
 Historical Render, Supabase, stage-release and provider observations remain valid only for their stated date and SHA.
@@ -58,21 +58,23 @@ Closed through PR #529 and merge SHA `e6b7cb7e9dde8b603bc282fb5c491c5fdad6a8e0` 
 
 The correction established a machine-readable current status, an explicit authority order, historical/planning classifications, visible warnings on high-risk legacy records, and a fail-closed CI gate.
 
-## 5. Open and deferred findings
+## 5. Open, deferred and remediated findings
 
 | Finding | State | Owner domain |
 |---|---|---|
 | REM-P0-001 — backend development tunnel | Deferred / open | Infrastructure & DevOps |
-| REM-P0-002 — intermittent BFF/authentication | Deferred / open | Identity, Operations and Infrastructure |
+| REM-P0-002 — BFF/authentication/session reliability | Application controls implemented / open pending Production observation and REM-P0-001 | Identity, Operations and Infrastructure |
 | REM-P0-004 — later-deliverable governance sequence | Open | Executive Steering Committee |
 | REM-P0-005 — backup, restore and disaster recovery | Open | Infrastructure and Data Platform |
 | REM-P0-006 — independent security assurance | Open | Security Governance |
 | REM-P1-007 — cross-module E2E business evidence | Open | QA and Business Product Owners |
 | REM-P1-009 — repository visibility decision | Open | Project Owner and Security Governance |
 
+The REM-P0-002 control and closure contract is `docs/operations/reliability/AUTH-SESSION-RELIABILITY.md`.
+
 The detailed current report is `docs/governance/UNRESOLVED-RISKS-REPORT-2026-07-17.md`. It contains the impact, ownership and closure conditions for all seven open findings.
 
-Deferral changes work priority only. It does not close or reduce the severity of a risk.
+Deferral changes work priority only. It does not close or reduce the severity of a risk. Implemented controls do not close a finding until production verification and acceptance criteria are complete.
 
 ## 6. Status-document interpretation
 

@@ -9,14 +9,18 @@ const AUTH_PATH_PREFIX = "/api/v1/auth";
 const REFRESH_PATH = "/api/v1/auth/refresh";
 const LOGOUT_PATH = "/api/v1/auth/logout";
 const COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
-// A local backend reached through an HTTPS tunnel needs more time than a
-// same-region hosted service. Keep the timeout bounded so the BFF still fails
-// closed within the Vercel function execution budget.
+
+// BACKEND_REQUEST_TIMEOUT_MS is an end-to-end BFF budget, not a per-attempt
+// timeout. This prevents two GET retries from exceeding the serverless function
+// execution window and turning a controlled upstream failure into a platform
+// timeout with no deterministic response.
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
-const MIN_REQUEST_TIMEOUT_MS = 1_000;
+const MIN_REQUEST_TIMEOUT_MS = 2_500;
 const MAX_REQUEST_TIMEOUT_MS = 25_000;
+const MIN_ATTEMPT_TIMEOUT_MS = 1_000;
 const RETRY_DELAY_MS = 250;
 const MAX_IDEMPOTENT_ATTEMPTS = 2;
+const RETRYABLE_UPSTREAM_STATUSES = new Set([502, 503, 504]);
 
 const FORWARDED_REQUEST_HEADERS = [
   "accept",
@@ -28,17 +32,49 @@ const FORWARDED_REQUEST_HEADERS = [
   "x-request-id",
 ] as const;
 
-function jsonError(message: string, status: number): NextResponse {
-  return NextResponse.json(
-    { error: message },
-    {
-      status,
-      headers: {
-        "Cache-Control": "no-store",
-        Pragma: "no-cache",
-      },
-    },
+type BackendFailureKind = "timeout" | "network";
+
+type BackendResult = {
+  response: Response;
+  attempts: number;
+};
+
+class BackendRequestError extends Error {
+  constructor(
+    readonly kind: BackendFailureKind,
+    readonly attempts: number,
+  ) {
+    super(kind === "timeout" ? "Backend request timed out" : "Backend request failed");
+    this.name = "BackendRequestError";
+  }
+}
+
+function requestId(request: NextRequest): string {
+  return (
+    request.headers.get("x-request-id") ||
+    request.headers.get("x-correlation-id") ||
+    globalThis.crypto.randomUUID()
   );
+}
+
+function jsonError(
+  message: string,
+  status: number,
+  id: string,
+  failureKind?: BackendFailureKind,
+): NextResponse {
+  const headers = new Headers({
+    "Cache-Control": "no-store",
+    Pragma: "no-cache",
+    "x-request-id": id,
+  });
+
+  if (failureKind) {
+    headers.set("x-sanad-bff-error", failureKind === "timeout" ? "upstream-timeout" : "upstream-network");
+    headers.set("Retry-After", "1");
+  }
+
+  return NextResponse.json({ error: message }, { status, headers });
 }
 
 function backendBaseUrl(): string | null {
@@ -81,23 +117,31 @@ function isIdempotent(method: string): boolean {
   return method === "GET" || method === "HEAD";
 }
 
+function isRetryableStatus(status: number): boolean {
+  return RETRYABLE_UPSTREAM_STATUSES.has(status);
+}
+
+function isTimeoutLike(error: unknown): boolean {
+  return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+}
+
 function hasValidOrigin(request: NextRequest): boolean {
   const origin = request.headers.get("origin");
   return !origin || origin === request.nextUrl.origin;
 }
 
-function requestHeaders(request: NextRequest, path: string, baseUrl: string): Headers {
+function requestHeaders(request: NextRequest, path: string, baseUrl: string, id: string): Headers {
   const headers = new Headers();
   for (const name of FORWARDED_REQUEST_HEADERS) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
 
-  // ngrok free-tier returns ERR_NGROK_6024 (browser warning page) for any request
-  // that looks like it came from a browser. The BFF is a server-side fetch, but
-  // ngrok's heuristic still matches because of the default User-Agent. Adding
-  // this header bypasses the warning. We only add it when the backend is an
-  // ngrok host so we don't pollute requests to other backends.
+  headers.set("x-request-id", id);
+
+  // ngrok free-tier returns ERR_NGROK_6024 (browser warning page) for requests
+  // that resemble browser traffic. The BFF is server-side, but its default
+  // User-Agent may still trigger the warning.
   if (baseUrl.includes("ngrok")) {
     headers.set("ngrok-skip-browser-warning", "any-value");
   }
@@ -110,13 +154,15 @@ function requestHeaders(request: NextRequest, path: string, baseUrl: string): He
   return headers;
 }
 
-function responseHeaders(upstream: Response): Headers {
+function responseHeaders(upstream: Response, id: string, attempts: number): Headers {
   const headers = new Headers({
     "Cache-Control": "no-store",
     Pragma: "no-cache",
+    "x-request-id": upstream.headers.get("x-request-id") || upstream.headers.get("x-correlation-id") || id,
+    "x-sanad-bff-attempts": String(attempts),
   });
 
-  for (const name of ["content-type", "x-correlation-id", "x-request-id"]) {
+  for (const name of ["content-type", "x-correlation-id"]) {
     const value = upstream.headers.get(name);
     if (value) headers.set(name, value);
   }
@@ -124,7 +170,34 @@ function responseHeaders(upstream: Response): Headers {
   return headers;
 }
 
-function persistRefreshToken(response: NextResponse, upstream: Response, path: string): void {
+function clearRefreshCookie(response: NextResponse): void {
+  response.cookies.set({
+    name: REFRESH_COOKIE,
+    value: "",
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    path: "/api/platform/api/v1/auth",
+    maxAge: 0,
+  });
+}
+
+function applyRefreshCookiePolicy(response: NextResponse, upstream: Response, path: string): void {
+  if (path === LOGOUT_PATH) {
+    // Local logout must remain effective even if upstream revocation is
+    // unavailable. Otherwise a stale HttpOnly cookie can silently restore the
+    // session on the next page load.
+    clearRefreshCookie(response);
+    return;
+  }
+
+  if (path === REFRESH_PATH && (upstream.status === 401 || upstream.status === 403)) {
+    // An invalid or revoked refresh token must not remain in the browser and
+    // trigger repeated failed bootstrap attempts.
+    clearRefreshCookie(response);
+    return;
+  }
+
   const refreshToken = upstream.headers.get(REFRESH_HEADER);
   if (refreshToken && path.startsWith(AUTH_PATH_PREFIX)) {
     response.cookies.set({
@@ -133,20 +206,8 @@ function persistRefreshToken(response: NextResponse, upstream: Response, path: s
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      path: AUTH_PATH_PREFIX.replace("/api/v1/auth", "/api/platform/api/v1/auth"),
-      maxAge: COOKIE_MAX_AGE_SECONDS,
-    });
-  }
-
-  if (path === LOGOUT_PATH) {
-    response.cookies.set({
-      name: REFRESH_COOKIE,
-      value: "",
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
       path: "/api/platform/api/v1/auth",
-      maxAge: 0,
+      maxAge: COOKIE_MAX_AGE_SECONDS,
     });
   }
 }
@@ -155,16 +216,30 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function attemptTimeoutMs(deadline: number, attempt: number, totalAttempts: number): number {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return 0;
+
+  const attemptsLeft = totalAttempts - attempt + 1;
+  const reservedRetryDelay = Math.max(0, attemptsLeft - 1) * RETRY_DELAY_MS;
+  const sharedBudget = Math.floor((remaining - reservedRetryDelay) / attemptsLeft);
+  return Math.min(remaining, Math.max(MIN_ATTEMPT_TIMEOUT_MS, sharedBudget));
+}
+
 async function fetchBackend(
   target: string,
   request: NextRequest,
   headers: Headers,
   body: ArrayBuffer | undefined,
-): Promise<Response> {
+): Promise<BackendResult> {
   const attempts = isIdempotent(request.method) ? MAX_IDEMPOTENT_ATTEMPTS : 1;
-  let lastError: unknown;
+  const deadline = Date.now() + requestTimeoutMs();
+  let lastFailure: BackendFailureKind = "network";
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const timeoutMs = attemptTimeoutMs(deadline, attempt, attempts);
+    if (timeoutMs <= 0) throw new BackendRequestError("timeout", attempt - 1);
+
     try {
       const upstream = await fetch(target, {
         method: request.method,
@@ -172,62 +247,89 @@ async function fetchBackend(
         body: body && body.byteLength > 0 ? body : undefined,
         cache: "no-store",
         redirect: "manual",
-        signal: AbortSignal.timeout(requestTimeoutMs()),
+        signal: AbortSignal.timeout(timeoutMs),
       });
 
-      if (upstream.status < 500 || attempt === attempts) return upstream;
+      if (!isRetryableStatus(upstream.status) || attempt === attempts) {
+        return { response: upstream, attempts: attempt };
+      }
+
       await upstream.body?.cancel().catch(() => undefined);
+      lastFailure = "network";
     } catch (error) {
-      lastError = error;
-      if (attempt === attempts) throw error;
+      lastFailure = isTimeoutLike(error) ? "timeout" : "network";
+      if (attempt === attempts) throw new BackendRequestError(lastFailure, attempt);
     }
 
+    if (deadline - Date.now() <= RETRY_DELAY_MS + MIN_ATTEMPT_TIMEOUT_MS) {
+      throw new BackendRequestError(lastFailure, attempt);
+    }
     await sleep(RETRY_DELAY_MS);
   }
 
-  throw lastError instanceof Error ? lastError : new Error("Backend fetch failed");
+  throw new BackendRequestError(lastFailure, attempts);
 }
 
 type RouteContext = { params: Promise<{ path: string[] }> };
 
 async function proxy(request: NextRequest, context: RouteContext): Promise<NextResponse> {
-  if (isStateChanging(request.method) && !hasValidOrigin(request)) {
-    return jsonError("Forbidden", 403);
-  }
+  const id = requestId(request);
 
-  const baseUrl = backendBaseUrl();
-  if (!baseUrl) {
-    console.error("Platform BFF backend URL is not configured");
-    return jsonError("Service unavailable", 503);
+  if (isStateChanging(request.method) && !hasValidOrigin(request)) {
+    return jsonError("Forbidden", 403, id);
   }
 
   const params = await context.params;
   const path = backendPath(params.path);
-  if (!path) return jsonError("Not found", 404);
+  if (!path) return jsonError("Not found", 404, id);
+
+  const baseUrl = backendBaseUrl();
+  if (!baseUrl) {
+    console.error("Platform BFF backend URL is not configured", { path, requestId: id });
+    const response = jsonError("Service unavailable", 503, id);
+    if (path === LOGOUT_PATH) clearRefreshCookie(response);
+    return response;
+  }
 
   const target = `${baseUrl}${path}${request.nextUrl.search}`;
-  const headers = requestHeaders(request, path, baseUrl);
-  const supportsBody = !["GET", "HEAD"].includes(request.method);
-  const body = supportsBody ? await request.arrayBuffer() : undefined;
+  const headers = requestHeaders(request, path, baseUrl, id);
 
   try {
-    const upstream = await fetchBackend(target, request, headers, body);
+    const supportsBody = !["GET", "HEAD"].includes(request.method);
+    const body = supportsBody ? await request.arrayBuffer() : undefined;
+    const result = await fetchBackend(target, request, headers, body);
+    const upstream = result.response;
 
     const response = new NextResponse(
       upstream.status === 204 || upstream.status === 304 ? null : upstream.body,
       {
         status: upstream.status,
-        headers: responseHeaders(upstream),
+        headers: responseHeaders(upstream, id, result.attempts),
       },
     );
-    persistRefreshToken(response, upstream, path);
+    applyRefreshCookiePolicy(response, upstream, path);
     return response;
   } catch (error) {
+    const failure = error instanceof BackendRequestError
+      ? error
+      : new BackendRequestError(isTimeoutLike(error) ? "timeout" : "network", 1);
+
     console.error("Platform BFF request failed", {
-      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorName: failure.name,
+      failureKind: failure.kind,
+      attempts: failure.attempts,
       path,
+      requestId: id,
     });
-    return jsonError("Backend unavailable", 502);
+
+    const response = jsonError(
+      failure.kind === "timeout" ? "Backend timeout" : "Backend unavailable",
+      failure.kind === "timeout" ? 504 : 502,
+      id,
+      failure.kind,
+    );
+    if (path === LOGOUT_PATH) clearRefreshCookie(response);
+    return response;
   }
 }
 
