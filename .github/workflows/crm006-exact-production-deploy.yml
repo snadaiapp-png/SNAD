@@ -1,0 +1,207 @@
+name: CRM-006 Exact Production Deployment
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm006-exact-production-deploy.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm006-exact-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-and-verify:
+    name: Deploy CRM-006 merge SHA and verify production
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: Production
+    env:
+      RELEASE_SHA: d0fe9bdd2aec9f080450b509e9d1a53c9d0ec275
+      PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
+      AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+      AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+
+    steps:
+      - name: Checkout exact CRM-006 merge SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          fetch-depth: 0
+
+      - name: Validate protected configuration and main ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in VERCEL_TOKEN VERCEL_PROJECT_ID VERCEL_TEAM_ID AUTH_SMOKE_TENANT_ID AUTH_SMOKE_EMAIL AUTH_SMOKE_PASSWORD; do
+            test -n "${!name:-}" || { echo "::error::Missing Production secret: $name"; exit 1; }
+            echo "::add-mask::${!name}"
+          done
+          [[ "$PRODUCTION_WEB_BASE_URL" == https://* ]]
+          git fetch origin main
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main || {
+            echo "::error::Release SHA is not contained in current main"; exit 1;
+          }
+
+      - name: Deploy exact SHA to Vercel Production
+        id: vercel
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          TEAM_QUERY="?teamId=${VERCEL_TEAM_ID}"
+          LIST_URL="https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&target=production&limit=100&teamId=${VERCEL_TEAM_ID}"
+
+          curl --fail-with-body --silent --show-error --max-time 30 \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            "$LIST_URL" > "$RUNNER_TEMP/vercel-list.json"
+
+          DEPLOYMENT_ID="$(jq -r --arg sha "$RELEASE_SHA" '
+            [.deployments[]? | select(
+              (.meta.githubCommitSha // "") == $sha and
+              (.target // "") == "production" and
+              ((.readyState // .state // "") == "READY")
+            )] | sort_by(.createdAt) | last | .uid // empty
+          ' "$RUNNER_TEMP/vercel-list.json")"
+
+          if [ -z "$DEPLOYMENT_ID" ]; then
+            curl --fail-with-body --silent --show-error --max-time 30 \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+              "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}${TEAM_QUERY}" \
+              > "$RUNNER_TEMP/vercel-project.json"
+            PROJECT_NAME="$(jq -r '.name // empty' "$RUNNER_TEMP/vercel-project.json")"
+            test -n "$PROJECT_NAME"
+
+            jq -n \
+              --arg name "$PROJECT_NAME" \
+              --arg project "$VERCEL_PROJECT_ID" \
+              --arg sha "$RELEASE_SHA" \
+              '{
+                name:$name,
+                project:$project,
+                target:"production",
+                gitSource:{type:"github",org:"snadaiapp-png",repo:"SNAD",ref:"main",sha:$sha},
+                gitMetadata:{
+                  remoteUrl:"https://github.com/snadaiapp-png/SNAD",
+                  commitRef:"main",
+                  commitSha:$sha,
+                  dirty:"false",
+                  ci:"true",
+                  ciType:"github-actions"
+                },
+                meta:{githubCommitSha:$sha,release:"CRM-006"}
+              }' > "$RUNNER_TEMP/vercel-create.json"
+
+            curl --fail-with-body --silent --show-error --max-time 60 \
+              -X POST \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+              -H 'Content-Type: application/json' \
+              --data @"$RUNNER_TEMP/vercel-create.json" \
+              "https://api.vercel.com/v13/deployments${TEAM_QUERY}" \
+              > "$RUNNER_TEMP/vercel-created.json"
+            DEPLOYMENT_ID="$(jq -r '.id // .uid // empty' "$RUNNER_TEMP/vercel-created.json")"
+            test -n "$DEPLOYMENT_ID" || { cat "$RUNNER_TEMP/vercel-created.json"; exit 1; }
+          fi
+
+          MATCH=""
+          for attempt in $(seq 1 150); do
+            curl --fail-with-body --silent --show-error --max-time 30 \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+              "$LIST_URL" > "$RUNNER_TEMP/vercel-list.json"
+            MATCH="$(jq -c --arg id "$DEPLOYMENT_ID" --arg sha "$RELEASE_SHA" '
+              [.deployments[]? | select(
+                (.uid // "") == $id and
+                (.meta.githubCommitSha // "") == $sha and
+                (.target // "") == "production"
+              )] | last // empty
+            ' "$RUNNER_TEMP/vercel-list.json")"
+            if [ -n "$MATCH" ] && [ "$MATCH" != "null" ]; then
+              STATE="$(jq -r '.readyState // .state // empty' <<< "$MATCH")"
+              case "$STATE" in
+                READY) break ;;
+                ERROR|CANCELED) echo "::error::Vercel deployment failed: $STATE"; exit 1 ;;
+              esac
+            fi
+            sleep 10
+          done
+
+          test -n "$MATCH" && test "$MATCH" != "null"
+          VERCEL_SHA="$(jq -r '.meta.githubCommitSha // empty' <<< "$MATCH")"
+          VERCEL_STATE="$(jq -r '.readyState // .state // empty' <<< "$MATCH")"
+          VERCEL_URL="$(jq -r '.url // empty' <<< "$MATCH")"
+          test "$VERCEL_SHA" = "$RELEASE_SHA"
+          test "$VERCEL_STATE" = "READY"
+          test -n "$VERCEL_URL"
+
+          jq -n --arg sha "$RELEASE_SHA" --argjson deployment "$MATCH" '{
+            release_sha:$sha,
+            deployment_id:$deployment.uid,
+            deployment_url:$deployment.url,
+            target:$deployment.target,
+            ready_state:($deployment.readyState // $deployment.state),
+            deployed_commit_sha:$deployment.meta.githubCommitSha,
+            result:"PASS"
+          }' > evidence/crm006-vercel-deployment.json
+          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+          echo "deployment_url=$VERCEL_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Verify production routes and backend routing
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in / /crm/contacts /crm/accounts; do
+            code="$(curl -sS --show-error --max-time 30 -o /dev/null -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL}${path}")"
+            test "$code" = "200" || { echo "::error::$path returned $code"; exit 1; }
+          done
+
+          for attempt in $(seq 1 24); do
+            CODE="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/backend-status.json" -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL}/api/system/backend-status" || true)"
+            if [ "$CODE" = "200" ] && jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+          test "$CODE" = "200"
+          jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null
+          jq --arg sha "$RELEASE_SHA" '{release_sha:$sha,configured,reachable,statusCode,targetHost,checkedAt,result:"PASS"}' "$RUNNER_TEMP/backend-status.json" > evidence/crm006-backend-routing.json
+
+          auth_code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/auth-me.json" -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL}/api/platform/api/v1/auth/me" || true)"
+          test "$auth_code" = "401" || { echo "::error::Unauthenticated BFF auth/me returned $auth_code"; cat "$RUNNER_TEMP/auth-me.json"; exit 1; }
+          jq -n --arg sha "$RELEASE_SHA" --arg code "$auth_code" '{release_sha:$sha,http_status:($code|tonumber),expected:401,result:"PASS"}' > evidence/crm006-bff-unauthenticated.json
+
+      - name: Run five consecutive production BFF authentication journeys
+        shell: bash
+        env:
+          AUTH_SYNTHETIC_ITERATIONS: '5'
+          AUTH_SYNTHETIC_EVIDENCE_PATH: evidence/crm006-auth-synthetic.json
+        run: |
+          set -euo pipefail
+          python3 scripts/operations/bff_auth_session_synthetic.py
+
+      - name: Upload CRM-006 production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm006-exact-production-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish result
+        if: success()
+        run: |
+          echo '## CRM-006 exact-SHA production deployment passed' >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release SHA: \`$RELEASE_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Deployment ID: \`${{ steps.vercel.outputs.deployment_id }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Deployment URL: \`${{ steps.vercel.outputs.deployment_url }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo '- Routes: /, /crm/contacts, /crm/accounts = HTTP 200' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Backend routing = configured/reachable/statusCode PASS' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Unauthenticated BFF auth/me = HTTP 401' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Authenticated BFF synthetic = 5/5 PASS' >> "$GITHUB_STEP_SUMMARY"
