@@ -48,4 +48,15 @@ public class PartyModuleConfiguration {
             ObjectMapper objectMapper) {
         return new CustomerMasterUseCases(customerMasterRepository, auditPort, timelineEventPort, objectMapper);
     }
+
+    @Bean
+    public AddressCommunicationUseCases addressCommunicationUseCases(
+            AddressCommunicationRepository addressCommunicationRepository,
+            LegacyAddressProjectionPort legacyAddressProjectionPort,
+            AuditPort auditPort,
+            TimelineEventPort timelineEventPort,
+            ObjectMapper objectMapper) {
+        return new AddressCommunicationUseCases(addressCommunicationRepository, legacyAddressProjectionPort,
+                auditPort, timelineEventPort, objectMapper);
+    }
 }

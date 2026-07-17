@@ -14,15 +14,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * CRM-G2 Contract Test — generated OpenAPI conformity.
- *
- * <p>The committed document is filtered deterministically from the platform
- * runtime OpenAPI document. These tests validate public HTTP semantics rather
- * than historical handcrafted component names.</p>
- */
+/** CRM API contract test for the committed, runtime-filtered OpenAPI artifact. */
 class CrmOpenApiContractTest {
 
+    private static final int EXPECTED_PATHS = 72;
+    private static final int EXPECTED_OPERATIONS = 95;
     private static final Set<String> HTTP_METHODS = Set.of(
             "get", "post", "put", "patch", "delete", "head", "options", "trace");
     private static final Path OPENAPI_PATH =
@@ -40,7 +36,7 @@ class CrmOpenApiContractTest {
         JsonNode spec = loadSpec();
         assertNotNull(spec);
         assertTrue(spec.path("openapi").asText().startsWith("3."));
-        assertEquals(50, spec.path("paths").size(), "Approved CRM path count changed");
+        assertEquals(EXPECTED_PATHS, spec.path("paths").size(), "Approved CRM path count changed");
 
         int operations = 0;
         Iterator<JsonNode> paths = spec.path("paths").elements();
@@ -50,7 +46,7 @@ class CrmOpenApiContractTest {
                 if (HTTP_METHODS.contains(methods.next())) operations++;
             }
         }
-        assertEquals(66, operations, "Approved CRM operation count changed");
+        assertEquals(EXPECTED_OPERATIONS, operations, "Approved CRM operation count changed");
         assertEquals("/api/v2/crm", spec.path("servers").path(0).path("url").asText());
     }
 
@@ -60,7 +56,7 @@ class CrmOpenApiContractTest {
         String[] domainPrefixes = {
                 "/accounts", "/contacts", "/leads", "/opportunities",
                 "/activities", "/pipelines", "/imports", "/custom-fields",
-                "/timeline"
+                "/timeline", "/addresses", "/communication-methods"
         };
         for (String prefix : domainPrefixes) {
             boolean found = false;
@@ -100,15 +96,18 @@ class CrmOpenApiContractTest {
                 }
             }
         }
-        assertTrue(boundedLimits >= 8, "Expected pagination on the CRM list operations");
+        assertTrue(boundedLimits >= 14, "Expected pagination on the CRM list operations");
     }
 
     @Test
-    void specDefinesCoreGeneratedSchemas() throws Exception {
+    void specDefinesCoreAndCrm007GeneratedSchemas() throws Exception {
         JsonNode schemas = loadSpec().path("components").path("schemas");
         for (String name : new String[]{
                 "CreateAccountRequest", "AccountResponse", "SingleResponseAccountResponse",
-                "CreateContactRequest", "ContactResponse", "ListResponseContactResponse"}) {
+                "CreateContactRequest", "ContactResponse", "ListResponseContactResponse",
+                "CreateAddressRequest", "AddressResponse", "SingleResponseAddressResponse",
+                "CreateCommunicationMethodRequest", "CommunicationMethodResponse",
+                "SingleResponseCommunicationMethodResponse"}) {
             assertNotNull(schemas.get(name), "OpenAPI spec is missing generated schema: " + name);
         }
     }
@@ -158,32 +157,38 @@ class CrmOpenApiContractTest {
     }
 
     @Test
-    void accountCreateResponseIs201() throws Exception {
-        JsonNode responses = loadSpec().path("paths").path("/accounts")
-                .path("post").path("responses");
-        assertNotNull(responses.get("201"), "POST /accounts must declare 201 Created");
-        assertTrue(responses.get("200") == null,
-                "POST /accounts must not advertise 200 when runtime returns 201");
-    }
-
-    @Test
-    void accountPatchRequiresIfMatchHeader() throws Exception {
-        JsonNode parameters = loadSpec().path("paths").path("/accounts/{accountId}")
-                .path("patch").path("parameters");
-        boolean found = false;
-        for (JsonNode parameter : parameters) {
-            if ("If-Match".equals(parameter.path("name").asText())
-                    && "header".equals(parameter.path("in").asText())
-                    && parameter.path("required").asBoolean()) {
-                found = true;
-                break;
-            }
+    void createResponsesUse201() throws Exception {
+        JsonNode paths = loadSpec().path("paths");
+        for (String path : new String[]{
+                "/accounts", "/accounts/{accountId}/addresses", "/contacts/{contactId}/addresses",
+                "/accounts/{accountId}/communication-methods", "/contacts/{contactId}/communication-methods",
+                "/addresses/import", "/communication-methods/import"}) {
+            JsonNode responses = paths.path(path).path("post").path("responses");
+            assertNotNull(responses.get("201"), "POST " + path + " must declare 201 Created");
+            assertTrue(responses.get("200") == null,
+                    "POST " + path + " must not advertise 200 when runtime returns 201");
         }
-        assertTrue(found, "PATCH /accounts/{accountId} must require If-Match");
     }
 
     @Test
-    void idempotencyKeysAreRequiredWhereDeclared() throws Exception {
+    void versionedCrm007MutationsRequireIfMatch() throws Exception {
+        JsonNode paths = loadSpec().path("paths");
+        String[] mutationPaths = {
+                "/addresses/{addressId}", "/addresses/{addressId}/primary",
+                "/addresses/{addressId}/archive", "/addresses/{addressId}/reactivate",
+                "/communication-methods/{communicationMethodId}",
+                "/communication-methods/{communicationMethodId}/preferred",
+                "/communication-methods/{communicationMethodId}/verification",
+                "/communication-methods/{communicationMethodId}/archive",
+                "/communication-methods/{communicationMethodId}/reactivate"
+        };
+        for (String path : mutationPaths) {
+            assertRequiredHeader(paths.path(path).path("patch"), "If-Match", path);
+        }
+    }
+
+    @Test
+    void idempotencyKeysAreRequiredOnGovernedCreates() throws Exception {
         JsonNode paths = loadSpec().path("paths");
         int protectedOperations = 0;
         Iterator<JsonNode> pathIterator = paths.elements();
@@ -201,7 +206,27 @@ class CrmOpenApiContractTest {
                 }
             }
         }
-        assertTrue(protectedOperations >= 8,
+        assertTrue(protectedOperations >= 12,
                 "Expected idempotency protection on CRM create/action operations");
+        for (String path : new String[]{
+                "/accounts/{accountId}/addresses", "/contacts/{contactId}/addresses",
+                "/accounts/{accountId}/communication-methods", "/contacts/{contactId}/communication-methods",
+                "/addresses/import", "/communication-methods/import"}) {
+            assertRequiredHeader(paths.path(path).path("post"), "Idempotency-Key", path);
+        }
+    }
+
+    private static void assertRequiredHeader(JsonNode operation, String header, String path) {
+        boolean found = false;
+        for (JsonNode parameter : operation.path("parameters")) {
+            if (header.equals(parameter.path("name").asText())
+                    && "header".equals(parameter.path("in").asText())
+                    && parameter.path("required").asBoolean()) {
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found, operation.path("operationId").asText() + " on " + path
+                + " must require " + header);
     }
 }
