@@ -1,7 +1,7 @@
 # CRM Current Baseline
 
 > **Authoritative branch:** `main`
-> **Reconciled main SHA:** `49e404ec38b1bd2a0cbd3c9b0beb56fd2ecc3ab9`
+> **Reconciled main SHA:** `e02594e8cef13d65fb32b996d41e9a3875ce94e2`
 > **Last reconciled:** 2026-07-17
 > **Document status:** AUTHORITATIVE
 
@@ -19,6 +19,7 @@ CRM_BUILD_READINESS: CLOSED
 PLATFORM_CORE_DEPENDENCY: SATISFIED
 PRODUCTION_AUTHORIZATION: PARTIAL
 EXEC-PROMPT-CRM-006: IN PROGRESS
+CRM-G1_EXTENSION_SCHEMA: IN PROGRESS
 ```
 
 The existing CRM runtime, operational routes, account master, contacts,
@@ -32,6 +33,13 @@ runtime deployment.
 required workflows, independent exact-head verification, merge, backend
 acceptance, and Vercel production verification, its status remains
 `IN_PROGRESS`.
+
+CRM-G1 extension completion is being implemented on branch
+`crm/g1-extension-closure`. Migration
+`V20260717_6__complete_crm_g1_extension_tables.sql` is a candidate only. It is
+not classified as merged, applied to production, accepted, or closed until the
+exact-head PostgreSQL acceptance workflow and the production evidence contract
+are complete.
 
 ## 2. Architectural baseline
 
@@ -73,6 +81,11 @@ relationship lifecycle, relationship history, ownership history, accounts by
 contact, contacts by account, and row-oriented relationship imports. These
 operations are `IN_PROGRESS` until PR `#520` is merged and deployed.
 
+The CRM-G1 extension schema adds persistence foundations for assignments,
+transfers, CRM audit evidence, report definitions, normalized phone numbers,
+and contact lookup. It does not claim that application APIs or user interfaces
+for those foundations are delivered by the schema migration.
+
 ## 4. Database migration inventory
 
 The following migrations are authoritative and ordered. Platform migrations are
@@ -94,11 +107,17 @@ listed where the CRM runtime depends on them.
 | `20260717.1` | `V20260717_1__crm_contact_relationship_model.sql` | Person-profile extensions, multi-account relationships, relationship and ownership history, deterministic legacy backfill | `IN_PROGRESS` |
 | `20260717.2` | `V20260717_2__crm_contact_relationship_capabilities.sql` | Relationship, sensitive-field, and import capabilities | `IN_PROGRESS` |
 | `20260717.3` | `V20260717_3__crm_timeline_tenant_lifecycle.sql` | Align CRM timeline retention and cleanup with controlled tenant lifecycle | `IN_PROGRESS` |
+| `20260717.6` | `V20260717_6__complete_crm_g1_extension_tables.sql` | Complete the eight-table CRM-G1 extension schema and 26-index contract | `IN_PROGRESS` |
 
 CRM-006 migrations must pass both clean PostgreSQL installation and upgrade from
 `20260716.4`. The upgrade must retain every contact and legacy account
 association, create no duplicate relationship, preserve the legacy field during
 the transition, and enforce cross-tenant integrity with composite keys.
+
+CRM-G1 migration `20260717.6` must pass clean installation and ordered upgrade,
+prove the cumulative eight-table extension inventory, prove exactly 26 explicit
+business indexes across those tables, and reject cross-tenant composite
+references. Production application remains independently gated.
 
 ## 5. Authorization baseline
 
@@ -119,6 +138,10 @@ No CRM-006 endpoint may infer a tenant from request parameters or payloads.
 Authenticated users without the required capability receive `403`; unauthenticated
 requests receive `401`; cross-tenant entity access is concealed or rejected.
 
+The CRM-G1 completion migration is schema-only. It does not create API
+authorization claims for features that are not yet connected to application
+services.
+
 ## 6. User-interface baseline
 
 Operational CRM routes are mounted below `/crm/(operational)`. The merged
@@ -127,6 +150,9 @@ opportunities, tasks, notes, tags, imports, and settings. CRM-006 extends contac
 and account detail routes with bilingual relationship workspaces. These UI
 changes remain `IN_PROGRESS` until Web CI, lint, production build, Playwright,
 Vercel preview, and authenticated acceptance pass on the exact final head.
+
+CRM-G1 schema completion does not by itself mark assignment, transfer, report,
+phone lookup, or caller-identification user interfaces as delivered.
 
 ## 7. Verification requirements
 
@@ -148,8 +174,20 @@ proven on one unchanged head SHA:
 - Vercel production is `READY` on the CRM-006 merge SHA
 - production routes and runtime logs are verified
 
+CRM-G1 extension completion cannot transition from `IN_PROGRESS` until:
+
+- the exact candidate SHA passes `CRM G1 Schema Acceptance`;
+- PostgreSQL reports all eight extension tables;
+- PostgreSQL reports exactly 26 explicit `idx_crm_%` indexes on those tables;
+- the negative cross-tenant reference test passes;
+- migration `20260717.6` is merged without version conflict;
+- production Flyway application and post-migration verification are recorded;
+- two-tenant runtime isolation evidence passes;
+- the production evidence record and owner approval are complete.
+
 Until those conditions are met, this document must continue to report:
 
 ```text
 EXEC-PROMPT-CRM-006: IN PROGRESS
+CRM-G1_EXTENSION_SCHEMA: IN PROGRESS
 ```
