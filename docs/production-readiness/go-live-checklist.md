@@ -1,3 +1,7 @@
+> **DOCUMENT STATUS: PLANNING BASELINE — NOT CURRENT APPROVAL**  
+> Snapshot: 2026-06-25. Unchecked items are targets, not deployed controls.  
+> Current status: `docs/governance/CURRENT-IMPLEMENTATION-STATUS.md` and GitHub Issue #516.
+
 # SANAD Commercial Production Go-Live Checklist
 
 ## Governance
