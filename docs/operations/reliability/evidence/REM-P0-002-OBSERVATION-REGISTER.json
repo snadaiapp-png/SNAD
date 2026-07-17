@@ -7,13 +7,13 @@
     "current_consecutive_passes": 0,
     "window_started_at": null,
     "last_result": "FAIL",
-    "last_checked_at": "2026-07-17T12:34:00Z",
-    "failure_reason": "The production UI and backend-status recovered (HTTP 200; configured=true, reachable=true, upstream statusCode=200), but unauthenticated BFF auth/me returned HTTP 502 instead of HTTP 401. The latest BFF Auth Session Synthetic run confirmed anonymous /me=401 but login returned HTTP 401 instead of 200, so authenticated /me, refresh, session restoration, logout and post-logout rejection were not reached. Consecutive success counter remains reset to zero."
+    "last_checked_at": "2026-07-17T13:42:24Z",
+    "failure_reason": "The production UI and backend-status remain healthy (HTTP 200; configured=true, reachable=true, upstream statusCode=200), but unauthenticated BFF auth/me still returns HTTP 502 instead of HTTP 401. The latest available BFF Auth Session Synthetic run remains failed: anonymous /me returned 401, login returned 401 instead of 200, and authenticated /me, refresh, session restoration, logout and post-logout rejection were not reached. Production currently serves SHA 654f384c3b3c0b16ade78a4e4c03bd5d7edeae03, which contains the remediation merge SHA. Consecutive success counter remains reset to zero."
   },
   "live_checks": {
     "production_ui": {
       "status_code": 200,
-      "checked_at": "2026-07-17T12:33:52Z",
+      "checked_at": "2026-07-17T13:42:11Z",
       "result": "PASS"
     },
     "backend_status": {
@@ -22,14 +22,14 @@
       "reachable": true,
       "upstream_status_code": 200,
       "target_host": "streak-train-empower.ngrok-free.dev",
-      "checked_at": "2026-07-17T12:33:57.477Z",
+      "checked_at": "2026-07-17T13:42:22.829Z",
       "result": "PASS"
     },
     "unauthenticated_auth_me": {
       "expected_status_code": 401,
       "observed_status_code": 502,
       "upstream_error": "Upstream or external service error",
-      "checked_at": "2026-07-17T12:34:00Z",
+      "checked_at": "2026-07-17T13:42:24Z",
       "result": "FAIL"
     }
   },
@@ -57,9 +57,9 @@
   },
   "deployment": {
     "remediation_merge_sha": "4a99ecdd425d28b3f77871f59b7fa83f1e9ea4d0",
-    "production_deployment_sha": "1c76e879d91d95e29f505250b445463f5ea7a6d4",
+    "production_deployment_sha": "654f384c3b3c0b16ade78a4e4c03bd5d7edeae03",
     "production_deployment_verified": true,
-    "verified_at": "2026-07-17T11:26:31Z"
+    "verified_at": "2026-07-17T13:42:31Z"
   },
   "closure_authorized": false,
   "closure_dependencies": [
