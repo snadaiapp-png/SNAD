@@ -7,32 +7,35 @@ on:
       - '.github/workflows/crm006-source-bundle.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   bundle:
-    name: Package exact CRM-006 merge web source
+    name: Package and publish exact CRM-006 merge web source
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       RELEASE_SHA: d0fe9bdd2aec9f080450b509e9d1a53c9d0ec275
+      PUBLISH_BRANCH: ops/crm006-exact-production-deploy
     steps:
       - name: Checkout exact merge SHA
         uses: actions/checkout@v4
         with:
           ref: ${{ env.RELEASE_SHA }}
           fetch-depth: 0
+
       - name: Verify SHA is contained in current main
         run: |
           set -euo pipefail
-          git fetch origin main
+          git fetch origin main "$PUBLISH_BRANCH"
           git merge-base --is-ancestor "$RELEASE_SHA" origin/main
           test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+
       - name: Create deterministic web source bundle
         run: |
           set -euo pipefail
-          rm -rf crm006-bundle
-          mkdir -p crm006-bundle
+          rm -rf /tmp/crm006-bundle
+          mkdir -p /tmp/crm006-bundle
           tar \
             --sort=name \
             --mtime='UTC 1970-01-01' \
@@ -41,13 +44,32 @@ jobs:
             --numeric-owner \
             --exclude='apps/web/.next' \
             --exclude='apps/web/node_modules' \
-            -czf crm006-bundle/apps-web-source.tar.gz apps/web
-          sha256sum crm006-bundle/apps-web-source.tar.gz > crm006-bundle/apps-web-source.tar.gz.sha256
-          printf '%s\n' "$RELEASE_SHA" > crm006-bundle/release-sha.txt
-      - name: Upload source bundle
+            -czf /tmp/crm006-bundle/apps-web-source.tar.gz apps/web
+          sha256sum /tmp/crm006-bundle/apps-web-source.tar.gz > /tmp/crm006-bundle/apps-web-source.tar.gz.sha256
+          printf '%s\n' "$RELEASE_SHA" > /tmp/crm006-bundle/release-sha.txt
+
+      - name: Publish immutable bundle on non-merge branch
+        run: |
+          set -euo pipefail
+          git checkout -B "$PUBLISH_BRANCH" "origin/$PUBLISH_BRANCH"
+          rm -rf .crm006-deploy
+          mkdir -p .crm006-deploy
+          cp /tmp/crm006-bundle/* .crm006-deploy/
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .crm006-deploy/
+          if git diff --cached --quiet; then
+            echo 'Bundle is already published.'
+          else
+            git commit -m 'ops(crm): publish exact CRM-006 web source bundle'
+            git push origin "HEAD:$PUBLISH_BRANCH"
+          fi
+          git rev-parse HEAD > /tmp/crm006-bundle/bundle-commit-sha.txt
+
+      - name: Upload source bundle evidence
         uses: actions/upload-artifact@v4
         with:
           name: crm006-web-source-${{ env.RELEASE_SHA }}
-          path: crm006-bundle/
+          path: /tmp/crm006-bundle/
           if-no-files-found: error
           retention-days: 7
