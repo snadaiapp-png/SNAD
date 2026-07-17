@@ -6,95 +6,63 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: compile-diagnostics-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  repair-crm007-migration-test:
-    if: github.head_ref == 'crm/007-addresses-communication-methods'
+  compile:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
         with:
-          ref: crm/007-addresses-communication-methods
-          fetch-depth: 0
-      - name: Correct CRM-007 PostgreSQL migration expectations
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Package and capture diagnostics
+        working-directory: apps/sanad-platform
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git fetch origin main
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java')
-          text = path.read_text(encoding='utf-8')
-
-          replacements = [
-              (
-                  '    private static final String BUSINESS_PROCESS_RBAC_VERSION = "20260717.101";\n'
-                  '    private static final String CRM_G1_EXTENSION_VERSION = "20260717.6";',
-                  '    private static final String BUSINESS_PROCESS_RBAC_VERSION = "20260717.5";\n'
-                  '    private static final String CRM_G1_EXTENSION_VERSION = "20260717.6";\n'
-                  '    private static final String CRM_ADDRESS_COMMUNICATION_VERSION = "20260717.100";\n'
-                  '    private static final String CRM_ADDRESS_COMMUNICATION_RBAC_VERSION = "20260717.101";'
-              ),
-              (
-                  '    private static final List<String> CRM_CONTACT_RELATIONSHIP_TABLES = List.of(\n'
-                  '            "crm_contact_relationship_roles", "crm_contact_account_relationships",\n'
-                  '            "crm_contact_relationship_history", "crm_contact_ownership_history");',
-                  '    private static final List<String> CRM_CONTACT_RELATIONSHIP_TABLES = List.of(\n'
-                  '            "crm_contact_relationship_roles", "crm_contact_account_relationships",\n'
-                  '            "crm_contact_relationship_history", "crm_contact_ownership_history");\n'
-                  '    private static final List<String> CRM_ADDRESS_COMMUNICATION_TABLES = List.of(\n'
-                  '            "crm_party_addresses", "crm_party_address_history",\n'
-                  '            "crm_communication_policies", "crm_communication_methods",\n'
-                  '            "crm_communication_method_history");'
-              ),
-              (
-                  '                        MigrationVersion.fromVersion(BUSINESS_PROCESS_RBAC_VERSION),\n'
-                  '                        MigrationVersion.fromVersion(CRM_G1_EXTENSION_VERSION));',
-                  '                        MigrationVersion.fromVersion(BUSINESS_PROCESS_RBAC_VERSION),\n'
-                  '                        MigrationVersion.fromVersion(CRM_G1_EXTENSION_VERSION),\n'
-                  '                        MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_VERSION),\n'
-                  '                        MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_RBAC_VERSION));'
-              ),
-              (
-                  '        assertMigration(jdbc, CRM_G1_EXTENSION_VERSION, "SQL", "create crm g1 extension tables");\n\n'
-                  '        assertThat(latestVersion(jdbc)).isEqualTo(CRM_G1_EXTENSION_VERSION);',
-                  '        assertMigration(jdbc, CRM_G1_EXTENSION_VERSION, "SQL", "create crm g1 extension tables");\n'
-                  '        assertMigration(jdbc, CRM_ADDRESS_COMMUNICATION_VERSION, "SQL", "crm addresses communication methods");\n'
-                  '        assertMigration(jdbc, CRM_ADDRESS_COMMUNICATION_RBAC_VERSION, "SQL", "crm addresses communication capabilities");\n\n'
-                  '        assertThat(latestVersion(jdbc)).isEqualTo(CRM_ADDRESS_COMMUNICATION_RBAC_VERSION);'
-              ),
-              (
-                  '                Long.class)).isEqualTo(29L);',
-                  '                Long.class)).isEqualTo(38L);'
-              ),
-              (
-                  '                        CRM_CUSTOMER_MASTER_TABLES,\n'
-                  '                        CRM_CONTACT_RELATIONSHIP_TABLES)',
-                  '                        CRM_CUSTOMER_MASTER_TABLES,\n'
-                  '                        CRM_CONTACT_RELATIONSHIP_TABLES,\n'
-                  '                        CRM_ADDRESS_COMMUNICATION_TABLES)'
-              ),
-          ]
-
-          for old, new in replacements:
-              count = text.count(old)
-              if count == 0:
-                  raise SystemExit(f'Expected test fragment was not found: {old[:100]!r}')
-              text = text.replace(old, new)
-
-          if text.count('MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_VERSION)') != 2:
-              raise SystemExit('CRM address migration must appear in both pending migration assertions')
-          if text.count('MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_RBAC_VERSION)') != 2:
-              raise SystemExit('CRM address capability migration must appear in both pending migration assertions')
-
-          path.write_text(text, encoding='utf-8')
-          PY
-          git checkout origin/main -- .github/workflows/compile-diagnostics.yml
-          git add apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java .github/workflows/compile-diagnostics.yml
-          git commit -m 'test(crm): align PostgreSQL migration assertions with CRM-007'
-          git push origin HEAD:refs/heads/crm/007-addresses-communication-methods
+          test "$CANDIDATE_SHA" = "$(git rev-parse HEAD^2 2>/dev/null || git rev-parse HEAD)" || {
+            echo "Checked out merge ref; binding artifact metadata to PR head $CANDIDATE_SHA"
+          }
+          mvn -B -ntp clean package -DskipTests -Dgit.commit="$CANDIDATE_SHA" 2>&1 | tee compile.log
+          test -s target/sanad-platform-0.1.0-SNAPSHOT.jar
+      - name: Create immutable provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-provenance
+          cp apps/sanad-platform/target/sanad-platform-0.1.0-SNAPSHOT.jar release-provenance/backend.jar
+          sha256sum release-provenance/backend.jar > release-provenance/SHA256SUMS
+          {
+            echo "candidate_sha=$CANDIDATE_SHA"
+            echo "tested_checkout_sha=$(git rev-parse HEAD)"
+            echo "workflow_run=$GITHUB_RUN_ID"
+            echo "workflow_attempt=$GITHUB_RUN_ATTEMPT"
+            cat release-provenance/SHA256SUMS
+          } > release-provenance/RELEASE-PROVENANCE.txt
+      - name: Upload compiler log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-diagnostics
+          path: apps/sanad-platform/compile.log
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload release provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage07-backend-release-provenance
+          path: release-provenance/
+          if-no-files-found: error
+          retention-days: 90
