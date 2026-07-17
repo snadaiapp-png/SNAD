@@ -10,6 +10,7 @@ import com.sanad.platform.crm.integration.domain.AuditPort.AuditChange;
 import com.sanad.platform.crm.integration.domain.TimelineEventPort;
 import com.sanad.platform.crm.party.domain.AddressCommunicationRepository;
 import com.sanad.platform.crm.party.domain.AddressCommunicationRepository.*;
+import com.sanad.platform.crm.party.domain.LegacyAddressProjectionPort;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -38,16 +39,19 @@ public class AddressCommunicationUseCases {
     private static final Pattern E164 = Pattern.compile("^\\+[1-9][0-9]{7,14}$");
 
     private final AddressCommunicationRepository repository;
+    private final LegacyAddressProjectionPort legacyAddresses;
     private final AuditPort audit;
     private final TimelineEventPort timeline;
     private final ObjectMapper mapper;
 
     public AddressCommunicationUseCases(
             AddressCommunicationRepository repository,
+            LegacyAddressProjectionPort legacyAddresses,
             AuditPort audit,
             TimelineEventPort timeline,
             ObjectMapper mapper) {
         this.repository = repository;
+        this.legacyAddresses = legacyAddresses;
         this.audit = audit;
         this.timeline = timeline;
         this.mapper = mapper;
@@ -70,6 +74,7 @@ public class AddressCommunicationUseCases {
         CreateAddressCommand clean = validateAddress(command);
         AddressRecord created = repository.createAddress(required(tenantId, "tenantId"), required(actorId, "actorId"),
                 owner(ownerType), required(ownerId, "ownerId"), clean);
+        legacyAddresses.upsert(tenantId, actorId, created);
         Instant now = Instant.now();
         audit.record(tenantId, actorId, "CREATE_ADDRESS", "CRM_ADDRESS", created.id(),
                 new AuditChange(null, json(created)), now);
@@ -84,6 +89,7 @@ public class AddressCommunicationUseCases {
         AddressRecord before = address(tenantId, addressId);
         UpdateAddressCommand clean = validateAddressUpdate(command, before);
         AddressRecord after = repository.updateAddress(tenantId, required(actorId, "actorId"), addressId, clean, expectedVersion);
+        legacyAddresses.upsert(tenantId, actorId, after);
         Instant now = Instant.now();
         audit.record(tenantId, actorId, "UPDATE_ADDRESS", "CRM_ADDRESS", addressId,
                 new AuditChange(json(before), json(after)), now);
@@ -98,6 +104,7 @@ public class AddressCommunicationUseCases {
         AddressRecord before = address(tenantId, addressId);
         if ("ARCHIVED".equals(before.status())) throw validation("An archived address cannot be primary.");
         AddressRecord after = repository.setPrimaryAddress(tenantId, required(actorId, "actorId"), addressId, expectedVersion);
+        legacyAddresses.upsert(tenantId, actorId, after);
         Instant now = Instant.now();
         audit.record(tenantId, actorId, "SET_PRIMARY_ADDRESS", "CRM_ADDRESS", addressId,
                 new AuditChange(json(before), json(after)), now);
@@ -113,6 +120,7 @@ public class AddressCommunicationUseCases {
         AddressRecord before = address(tenantId, addressId);
         AddressRecord after = repository.changeAddressStatus(tenantId, required(actorId, "actorId"), addressId,
                 target, expectedVersion);
+        legacyAddresses.upsert(tenantId, actorId, after);
         Instant now = Instant.now();
         String action = "ARCHIVED".equals(target) ? "ARCHIVE_ADDRESS" : "REACTIVATE_ADDRESS";
         String event = "ARCHIVED".equals(target) ? "crm.address.archived" : "crm.address.reactivated";
