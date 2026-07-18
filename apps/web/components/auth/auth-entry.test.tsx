@@ -3,6 +3,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AuthResponse } from "@/lib/api/auth";
 import { AuthProvider } from "@/lib/auth/auth-provider";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 import { AuthEntry } from "./auth-entry";
@@ -21,7 +22,7 @@ const { authApiMock, replaceMock, prefetchMock } = vi.hoisted(() => ({
 
 vi.mock("@/lib/api/auth", () => ({
   authApi: authApiMock,
-  authResponseToMe: (response: any) => ({
+  authResponseToMe: (response: AuthResponse) => ({
     ...response.user,
     lastLoginAt: response.lastLoginAt,
     credentialRotationRequired: response.credentialRotationRequired,
