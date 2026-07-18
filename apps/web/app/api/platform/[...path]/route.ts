@@ -13,6 +13,8 @@ const LOGOUT_PATH = "/api/v1/auth/logout";
 const CHANGE_CREDENTIAL_PATH = "/api/v1/auth/change-credential";
 const COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 
+// BACKEND_REQUEST_TIMEOUT_MS is an end-to-end BFF budget, not a per-attempt timeout.
+// It bounds retries inside the serverless execution window and preserves deterministic failures.
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const MIN_REQUEST_TIMEOUT_MS = 2_500;
 const MAX_REQUEST_TIMEOUT_MS = 25_000;
@@ -35,7 +37,10 @@ type BackendFailureKind = "timeout" | "network";
 type BackendResult = { response: Response; attempts: number };
 
 class BackendRequestError extends Error {
-  constructor(readonly kind: BackendFailureKind, readonly attempts: number) {
+  constructor(
+    readonly kind: BackendFailureKind,
+    readonly attempts: number,
+  ) {
     super(kind === "timeout" ? "Backend request timed out" : "Backend request failed");
     this.name = "BackendRequestError";
   }
@@ -47,7 +52,12 @@ function requestId(request: NextRequest): string {
     || globalThis.crypto.randomUUID();
 }
 
-function jsonError(message: string, status: number, id: string, failureKind?: BackendFailureKind): NextResponse {
+function jsonError(
+  message: string,
+  status: number,
+  id: string,
+  failureKind?: BackendFailureKind,
+): NextResponse {
   const headers = new Headers({
     "Cache-Control": "no-store",
     Pragma: "no-cache",
@@ -79,27 +89,37 @@ function backendBaseUrl(): string | null {
 }
 
 function requestTimeoutMs(): number {
-  const parsed = Number.parseInt(process.env.BACKEND_REQUEST_TIMEOUT_MS || "", 10);
+  const raw = process.env.BACKEND_REQUEST_TIMEOUT_MS || "";
+  const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed)) return DEFAULT_REQUEST_TIMEOUT_MS;
   return Math.min(MAX_REQUEST_TIMEOUT_MS, Math.max(MIN_REQUEST_TIMEOUT_MS, parsed));
 }
 
 function backendPath(path: string[]): string | null {
   if (!path.length) return null;
-  const value = `/${path.map((segment) => encodeURIComponent(segment)).join("/")}`;
-  const supported = value === "/api/v1" || value.startsWith("/api/v1/")
+  const encoded = path.map((segment) => encodeURIComponent(segment)).join("/");
+  const value = `/${encoded}`;
+  const supportedApiRoot = value === "/api/v1" || value.startsWith("/api/v1/")
     || value === "/api/v2" || value.startsWith("/api/v2/");
-  return supported ? value : null;
+  return supportedApiRoot ? value : null;
 }
 
 function isStateChanging(method: string): boolean {
   return ["POST", "PUT", "PATCH", "DELETE"].includes(method);
 }
-function isIdempotent(method: string): boolean { return method === "GET" || method === "HEAD"; }
-function isRetryableStatus(status: number): boolean { return RETRYABLE_UPSTREAM_STATUSES.has(status); }
+
+function isIdempotent(method: string): boolean {
+  return method === "GET" || method === "HEAD";
+}
+
+function isRetryableStatus(status: number): boolean {
+  return RETRYABLE_UPSTREAM_STATUSES.has(status);
+}
+
 function isTimeoutLike(error: unknown): boolean {
   return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
 }
+
 function hasValidOrigin(request: NextRequest): boolean {
   const origin = request.headers.get("origin");
   return !origin || origin === request.nextUrl.origin;
@@ -112,7 +132,9 @@ function requestHeaders(request: NextRequest, path: string, baseUrl: string, id:
     if (value) headers.set(name, value);
   }
   headers.set("x-request-id", id);
-  if (baseUrl.includes("ngrok")) headers.set("ngrok-skip-browser-warning", "any-value");
+  if (baseUrl.includes("ngrok")) {
+    headers.set("ngrok-skip-browser-warning", "any-value");
+  }
   if (path === REFRESH_PATH) {
     const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
     if (refreshToken) headers.set(REFRESH_HEADER, refreshToken);
@@ -146,6 +168,7 @@ function clearRefreshCookie(response: NextResponse): void {
     maxAge: 0,
   });
 }
+
 function setSessionHint(response: NextResponse): void {
   response.cookies.set({
     name: SESSION_HINT_COOKIE,
@@ -157,6 +180,7 @@ function setSessionHint(response: NextResponse): void {
     maxAge: COOKIE_MAX_AGE_SECONDS,
   });
 }
+
 function clearSessionHint(response: NextResponse): void {
   response.cookies.set({
     name: SESSION_HINT_COOKIE,
@@ -175,11 +199,13 @@ function applySessionCookiePolicy(response: NextResponse, upstream: Response, pa
     clearSessionHint(response);
     return;
   }
+
   if (path === REFRESH_PATH && (upstream.status === 401 || upstream.status === 403)) {
     clearRefreshCookie(response);
     clearSessionHint(response);
     return;
   }
+
   const refreshToken = upstream.headers.get(REFRESH_HEADER);
   if (refreshToken && path.startsWith(AUTH_PATH_PREFIX)) {
     response.cookies.set({
@@ -192,10 +218,16 @@ function applySessionCookiePolicy(response: NextResponse, upstream: Response, pa
       maxAge: COOKIE_MAX_AGE_SECONDS,
     });
   }
-  if ((path === LOGIN_PATH || path === REFRESH_PATH) && upstream.ok) setSessionHint(response);
+
+  if ((path === LOGIN_PATH || path === REFRESH_PATH) && upstream.ok) {
+    setSessionHint(response);
+  }
 }
 
-function sleep(ms: number): Promise<void> { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function attemptTimeoutMs(deadline: number, attempt: number, totalAttempts: number): number {
   const remaining = deadline - Date.now();
   if (remaining <= 0) return 0;
@@ -227,7 +259,9 @@ async function fetchBackend(
         redirect: "manual",
         signal: AbortSignal.timeout(timeoutMs),
       });
-      if (!isRetryableStatus(upstream.status) || attempt === attempts) return { response: upstream, attempts: attempt };
+      if (!isRetryableStatus(upstream.status) || attempt === attempts) {
+        return { response: upstream, attempts: attempt };
+      }
       await upstream.body?.cancel().catch(() => undefined);
       lastFailure = "network";
     } catch (error) {
@@ -246,7 +280,9 @@ type RouteContext = { params: Promise<{ path: string[] }> };
 
 async function proxy(request: NextRequest, context: RouteContext): Promise<NextResponse> {
   const id = requestId(request);
-  if (isStateChanging(request.method) && !hasValidOrigin(request)) return jsonError("Forbidden", 403, id);
+  if (isStateChanging(request.method) && !hasValidOrigin(request)) {
+    return jsonError("Forbidden", 403, id);
+  }
 
   const params = await context.params;
   const path = backendPath(params.path);
@@ -265,8 +301,10 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
 
   const target = `${baseUrl}${path}${request.nextUrl.search}`;
   const headers = requestHeaders(request, path, baseUrl, id);
+
   try {
-    const body = ["GET", "HEAD"].includes(request.method) ? undefined : await request.arrayBuffer();
+    const supportsBody = !["GET", "HEAD"].includes(request.method);
+    const body = supportsBody ? await request.arrayBuffer() : undefined;
     const result = await fetchBackend(target, request, headers, body);
     const upstream = result.response;
     const response = new NextResponse(
@@ -279,6 +317,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
     const failure = error instanceof BackendRequestError
       ? error
       : new BackendRequestError(isTimeoutLike(error) ? "timeout" : "network", 1);
+
     console.error("Platform BFF request failed", {
       errorName: failure.name,
       failureKind: failure.kind,
@@ -286,6 +325,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
       path,
       requestId: id,
     });
+
     const response = jsonError(
       failure.kind === "timeout" ? "Backend timeout" : "Backend unavailable",
       failure.kind === "timeout" ? 504 : 502,
@@ -300,8 +340,18 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
   }
 }
 
-export async function GET(request: NextRequest, context: RouteContext) { return proxy(request, context); }
-export async function POST(request: NextRequest, context: RouteContext) { return proxy(request, context); }
-export async function PUT(request: NextRequest, context: RouteContext) { return proxy(request, context); }
-export async function PATCH(request: NextRequest, context: RouteContext) { return proxy(request, context); }
-export async function DELETE(request: NextRequest, context: RouteContext) { return proxy(request, context); }
+export async function GET(request: NextRequest, context: RouteContext) {
+  return proxy(request, context);
+}
+export async function POST(request: NextRequest, context: RouteContext) {
+  return proxy(request, context);
+}
+export async function PUT(request: NextRequest, context: RouteContext) {
+  return proxy(request, context);
+}
+export async function PATCH(request: NextRequest, context: RouteContext) {
+  return proxy(request, context);
+}
+export async function DELETE(request: NextRequest, context: RouteContext) {
+  return proxy(request, context);
+}
