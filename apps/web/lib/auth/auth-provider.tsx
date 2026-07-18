@@ -192,14 +192,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { apiClient.setUnauthorizedHandler(null); };
   }, [clearIdentity, runRefresh]);
 
+  // Resolve the non-sensitive hint before first paint. New visitors are never
+  // blocked by a refresh request; returning users alone enter CHECKING_SESSION.
   useLayoutEffect(() => {
     if (bootstrapStartedRef.current) return;
     bootstrapStartedRef.current = true;
     if (!hasSessionHint()) {
-      setState("ANONYMOUS");
+      queueMicrotask(() => setState("ANONYMOUS"));
       return;
     }
-    void restoreSession();
+    queueMicrotask(() => { void restoreSession(); });
   }, [restoreSession]);
 
   const login = useCallback(async (req: LoginRequest) => {
@@ -315,6 +317,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         newCredential: newPassword,
       });
       credentialChanged = true;
+
+      // Credential rotation revokes the old access/refresh session. Remove the
+      // now-invalid in-memory token before establishing the replacement session.
       clearIdentity();
       sessionGenerationRef.current += 1;
       refreshEnabledRef.current = true;
@@ -323,6 +328,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setState("AUTHENTICATED");
     } catch (err) {
       setError(toUserFacingError(err));
+      // If the credential was already changed, the old authenticated session is
+      // intentionally gone. Return to normal login rather than offering another
+      // rotation attempt that can no longer be authorized.
       setState(credentialChanged ? "ERROR" : "CREDENTIAL_ROTATION_REQUIRED");
       throw err;
     } finally {
