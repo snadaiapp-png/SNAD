@@ -1,13 +1,14 @@
 package com.sanad.platform.security.api;
 
 import com.sanad.platform.access.grant.UserGrantStatus;
-import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.access.grant.UserRoleGrant;
 import com.sanad.platform.access.grant.UserRoleGrantRepository;
 import com.sanad.platform.access.role.Role;
 import com.sanad.platform.access.role.RoleRepository;
 import com.sanad.platform.organization.membership.domain.OrganizationMembership;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
+import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
+import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.security.dto.AdminResetPasswordRequest;
 import com.sanad.platform.security.dto.AuthResponse;
 import com.sanad.platform.security.dto.ChangeCredentialRequest;
@@ -59,6 +60,7 @@ public class AuthController {
     private final OrganizationMembershipRepository membershipRepository;
     private final UserRoleGrantRepository roleGrantRepository;
     private final RoleRepository roleRepository;
+    private final ControlPlaneAccessGuard controlPlaneAccessGuard;
     private final Environment environment;
     private final PasswordRecoveryNotificationCoordinator recoveryNotifications;
 
@@ -68,6 +70,7 @@ public class AuthController {
             OrganizationMembershipRepository membershipRepository,
             UserRoleGrantRepository roleGrantRepository,
             RoleRepository roleRepository,
+            ControlPlaneAccessGuard controlPlaneAccessGuard,
             Environment environment,
             PasswordRecoveryNotificationCoordinator recoveryNotifications
     ) {
@@ -76,6 +79,7 @@ public class AuthController {
         this.membershipRepository = membershipRepository;
         this.roleGrantRepository = roleGrantRepository;
         this.roleRepository = roleRepository;
+        this.controlPlaneAccessGuard = controlPlaneAccessGuard;
         this.environment = environment;
         this.recoveryNotifications = recoveryNotifications;
     }
@@ -228,12 +232,14 @@ public class AuthController {
                 .orElse(null);
         boolean administrator = profile.getRoleGrants().stream()
                 .anyMatch(grant -> "ACTIVE".equals(grant.getStatus()) && "ADMIN".equals(grant.getRoleCode()));
+        boolean controlPlaneAuthorized = administrator
+                && controlPlaneAccessGuard.isControlPlaneTenant(authUser.getTenantId());
 
         List<String> destinations = new ArrayList<>();
         destinations.add("/workspace");
         destinations.add("/crm");
         destinations.add("/crm/command-center");
-        if (administrator) {
+        if (controlPlaneAuthorized) {
             destinations.add("/control-plane");
         }
 
@@ -243,7 +249,7 @@ public class AuthController {
         response.setEffectiveRoleGrants(profile.getRoleGrants());
         response.setDefaultOrganizationId(defaultOrganizationId);
         response.setAvailableDestinations(destinations);
-        response.setDefaultDestination(administrator ? "/control-plane" : "/crm");
+        response.setDefaultDestination(controlPlaneAuthorized ? "/control-plane" : "/crm");
         response.setTenantContext(new AuthResponse.TenantContext(authUser.getTenantId(), defaultOrganizationId));
     }
 
