@@ -18,7 +18,9 @@ import com.sanad.platform.security.dto.MeResponse;
 import com.sanad.platform.security.dto.RefreshRequest;
 import com.sanad.platform.security.dto.ResetPasswordRequest;
 import com.sanad.platform.security.notification.PasswordRecoveryNotificationCoordinator;
+import com.sanad.platform.security.ratelimit.LoginRateLimitKeys;
 import com.sanad.platform.security.service.AuthService;
+import com.sanad.platform.security.service.LoginDestinationResolver;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.repository.UserRepository;
 import io.swagger.v3.oas.annotations.Operation;
@@ -39,7 +41,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -63,6 +64,8 @@ public class AuthController {
     private final ControlPlaneAccessGuard controlPlaneAccessGuard;
     private final Environment environment;
     private final PasswordRecoveryNotificationCoordinator recoveryNotifications;
+    private final LoginDestinationResolver destinationResolver;
+    private final LoginRateLimitKeys rateLimitKeys;
 
     public AuthController(
             AuthService authService,
@@ -72,7 +75,9 @@ public class AuthController {
             RoleRepository roleRepository,
             ControlPlaneAccessGuard controlPlaneAccessGuard,
             Environment environment,
-            PasswordRecoveryNotificationCoordinator recoveryNotifications
+            PasswordRecoveryNotificationCoordinator recoveryNotifications,
+            LoginDestinationResolver destinationResolver,
+            LoginRateLimitKeys rateLimitKeys
     ) {
         this.authService = authService;
         this.userRepository = userRepository;
@@ -82,12 +87,16 @@ public class AuthController {
         this.controlPlaneAccessGuard = controlPlaneAccessGuard;
         this.environment = environment;
         this.recoveryNotifications = recoveryNotifications;
+        this.destinationResolver = destinationResolver;
+        this.rateLimitKeys = rateLimitKeys;
     }
 
     @PostMapping("/login")
     @Operation(summary = "Authenticate and return the complete post-login bootstrap")
-    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
-        return authResponse(authService.login(request));
+    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+        String normalizedEmail = request.getEmail() == null ? "" : request.getEmail().trim().toLowerCase();
+        String[] compositeKeys = rateLimitKeys.keysFor(normalizedEmail, httpRequest);
+        return authResponse(authService.login(request, compositeKeys));
     }
 
     @PostMapping("/refresh")
@@ -224,33 +233,55 @@ public class AuthController {
         }
 
         MeResponse profile = buildMeResponse(authUser.getTenantId(), authUser.getId());
-        UUID defaultOrganizationId = profile.getMemberships().stream()
-                .filter(membership -> "ACTIVE".equals(membership.getStatus()))
-                .map(MeResponse.MembershipSummary::getOrganizationId)
-                .sorted()
-                .findFirst()
-                .orElse(null);
-        boolean administrator = profile.getRoleGrants().stream()
-                .anyMatch(grant -> "ACTIVE".equals(grant.getStatus()) && "ADMIN".equals(grant.getRoleCode()));
-        boolean controlPlaneAuthorized = administrator
-                && controlPlaneAccessGuard.isControlPlaneTenant(authUser.getTenantId());
 
-        List<String> destinations = new ArrayList<>();
-        destinations.add("/workspace");
-        destinations.add("/crm");
-        destinations.add("/crm/command-center");
-        if (controlPlaneAuthorized) {
-            destinations.add("/control-plane");
-        }
+        // Deterministic default-organization policy — see resolveDefaultOrganization.
+        // Previously this picked the lowest UUID among ACTIVE memberships, which is
+        // arbitrary and lets two equivalent users land in different contexts purely
+        // because of UUID issuance order.
+        UUID defaultOrganizationId = resolveDefaultOrganization(profile.getMemberships());
+
+        // Destinations and default landing are derived from EFFECTIVE CAPABILITIES,
+        // not from a hard-coded list gated by the ADMIN role name.
+        LoginDestinationResolver.DestinationSet destinations = destinationResolver.resolve(
+                authUser.getTenantId(), authUser.getId(), profile.isCredentialRotationRequired());
 
         response.setLastLoginAt(profile.getLastLoginAt());
         response.setCredentialRotationRequired(profile.isCredentialRotationRequired());
         response.setMemberships(profile.getMemberships());
         response.setEffectiveRoleGrants(profile.getRoleGrants());
         response.setDefaultOrganizationId(defaultOrganizationId);
-        response.setAvailableDestinations(destinations);
-        response.setDefaultDestination(controlPlaneAuthorized ? "/control-plane" : "/crm");
+        response.setAvailableDestinations(destinations.getAvailable());
+        response.setDefaultDestination(destinations.getDefaultDestination());
         response.setTenantContext(new AuthResponse.TenantContext(authUser.getTenantId(), defaultOrganizationId));
+    }
+
+    /**
+     * Deterministic default-organization selection policy (replaces the previous
+     * "lowest ACTIVE membership UUID" behaviour):
+     * <ol>
+     *   <li>If the user has exactly one ACTIVE membership → that one.</li>
+     *   <li>If the user has more than one ACTIVE membership → {@code null},
+     *       forcing the frontend to show an organization picker rather than
+     *       silently landing in an arbitrary org.</li>
+     *   <li>If the user has no ACTIVE membership → {@code null}.</li>
+     * </ol>
+     * The Organization entity does not currently carry an explicit "isDefault"
+     * flag and MeResponse does not yet record a last-used organization id; both
+     * are tracked as future enhancements. Until then, this policy is the safe
+     * deterministic choice that never relies on UUID ordering.
+     */
+    private UUID resolveDefaultOrganization(List<MeResponse.MembershipSummary> memberships) {
+        if (memberships == null || memberships.isEmpty()) {
+            return null;
+        }
+        List<MeResponse.MembershipSummary> active = memberships.stream()
+                .filter(m -> "ACTIVE".equalsIgnoreCase(m.getStatus()))
+                .collect(Collectors.toList());
+        if (active.size() == 1) {
+            return active.get(0).getOrganizationId();
+        }
+        // Zero or more-than-one: no implicit choice. Frontend must prompt.
+        return null;
     }
 
     private MeResponse buildMeResponse(UUID tenantId, UUID userId) {
@@ -274,13 +305,33 @@ public class AuthController {
 
         List<UserRoleGrant> grants = roleGrantRepository.findByTenantIdAndUserIdAndStatus(
                 tenantId, userId, UserGrantStatus.ACTIVE);
+        // BATCH role resolution — replaces the previous per-grant
+        // roleRepository.findByTenantIdAndId(...) call that caused an N+1 query
+        // on every login/refresh. We fetch all roles in one query, build a
+        // roleId → code lookup map, and stream the grants against it.
+        java.util.Map<UUID, String> roleCodeByRoleId = resolveRoleCodes(tenantId, grants);
         response.setRoleGrants(grants.stream().map(grant -> {
-            String roleCode = roleRepository.findByTenantIdAndId(tenantId, grant.getRoleId())
-                    .map(Role::getCode).orElse("UNKNOWN");
+            String roleCode = roleCodeByRoleId.getOrDefault(grant.getRoleId(), "UNKNOWN");
             return new MeResponse.RoleGrantSummary(
                     grant.getId(), grant.getRoleId(), roleCode, grant.getOrganizationId(), grant.getStatus().name());
         }).collect(Collectors.toList()));
         return response;
+    }
+
+    /**
+     * Single batched role-code lookup. Replaces N per-grant queries.
+     */
+    private java.util.Map<UUID, String> resolveRoleCodes(UUID tenantId, List<UserRoleGrant> grants) {
+        if (grants.isEmpty()) {
+            return java.util.Collections.emptyMap();
+        }
+        java.util.Set<UUID> roleIds = grants.stream()
+                .map(UserRoleGrant::getRoleId)
+                .collect(java.util.stream.Collectors.toSet());
+        List<Role> roles = roleRepository.findByTenantIdAndIdIn(tenantId, roleIds);
+        return roles.stream()
+                .collect(java.util.stream.Collectors.toMap(Role::getId, role ->
+                        role.getCode() == null ? "UNKNOWN" : role.getCode(), (a, b) -> a));
     }
 
     @SuppressWarnings("unchecked")

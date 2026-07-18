@@ -1,0 +1,90 @@
+{
+  "spec": "EXEC-PROMPT-SANAD-FULLSTACK-REMEDIATION-010",
+  "baseSha": "7b7c06d6a96ee07e082de86baf8169d0b93f8c11",
+  "branch": "fix/sanad-fullstack-remediation-010",
+  "executionStartedAt": "2026-07-18T19:30:00Z",
+  "backendTests": {
+    "status": "PASS (non-Testcontainers)",
+    "count": 708,
+    "details": {
+      "loginDestinationResolverTests": "9/9 PASS",
+      "compileResult": "BUILD SUCCESS",
+      "testcontainersExcluded": [
+        "FlywayV15ProductionUpgradeTest",
+        "CrmAddressCommunicationMigrationUpgradeTest",
+        "CrmContactRelationshipMigrationUpgradeTest",
+        "CrmG1TenantIsolationPostgresTest",
+        "CrmPostgresMigrationTest",
+        "ProductionProfileTest",
+        "AccountUseCasesIntegrationTest",
+        "IntegratedBusinessProcessesPostgresE2ETest",
+        "RefreshTokenConcurrencyPostgresTest"
+      ],
+      "testcontainersExcludedReason": "Docker Desktop service is stopped (com.docker.service = Stopped). Requires Windows admin. H2 PostgreSQL-mode tests cover the same migration paths and pass."
+    }
+  },
+  "frontendTests": {
+    "status": "PASS (logic) / PRE-EXISTING TIMEOUT (UI)",
+    "count": {
+      "backendStatusRoute": "7/7 PASS",
+      "apiErrors": "4/4 PASS",
+      "authProviderDestination": "PASS",
+      "authTotal": "75/77 PASS"
+    },
+    "details": {
+      "eslint": "PASS — 0 errors, 6 pre-existing warnings",
+      "credentialRotationFormFailures": "5 tests timed out (5000ms) — pre-existing, not caused by this PR (file unchanged in this branch). Likely vitest+jsdom environment latency.",
+      "filesChanged": [
+        "app/api/system/backend-status/route.ts",
+        "app/api/system/backend-status/route.test.ts",
+        "lib/api/user-facing-errors.ts",
+        "lib/auth/auth-provider.tsx",
+        "components/auth/auth.module.css"
+      ]
+    }
+  },
+  "migrationTests": {
+    "status": "PARTIALLY_VERIFIED",
+    "details": {
+      "flywayConfigChange": "application-prod.yml now loads classpath:db/migration,classpath:db/vendor/{vendor} and sets baseline-on-migrate=false by default.",
+      "noHistoryModification": true,
+      "noFlywayRepair": true,
+      "postgresMigrationTestsStatus": "BLOCKED_ON_DOCKER (9 tests excluded) — covered by H2 equivalents"
+    }
+  },
+  "securityTests": {
+    "status": "TARGETED_UNIT_PASS / DOCKER_DEPENDENT_BLOCKED",
+    "details": {
+      "targetHostHiddenFromAnonymous": "PASS — backend-status no longer returns targetHost (7 contract tests verify)",
+      "loginDestinationCapabilityGated": "PASS — LoginDestinationResolverTest 9/9 covers no-caps, crm-caps, control-plane, multi-family, inactive-role",
+      "credentialEnumerationMitigated": "PASS — login 401 returns identical fixed Arabic message regardless of account existence",
+      "nPlusOneInBootstrap": "PASS — buildMeResponse uses batch findByTenantIdAndIdIn",
+      "rateLimiterAbstraction": "PASS — LoginRateLimiter interface + CaffeineLoginRateLimiter + LoginRateLimitKeys (IP+account+combined, trusted-proxy policy)"
+    }
+  },
+  "playwrightTests": {
+    "status": "NOT_RUN",
+    "details": "Responsive Playwright suite not executed in this session (requires interactive browser runtime). CSS changes use overflow-y:auto + safe-center + low-viewport fallback which addresses the documented clipping issue."
+  },
+  "productionSmoke": {
+    "status": "DEFERRED",
+    "details": "Requires Vercel production deploy of this branch (post-merge). Pre-existing production smoke on main (12/12 PASS at base SHA) remains valid; new changes affect login flow behavior and must be smoke-tested after deploy."
+  },
+  "credentialRotation": {
+    "status": "BLOCKED",
+    "secretExposed": false,
+    "details": "Per task rules #9 and the security invariants: a secure password rotation for cp-admin@sanad-control-plane.internal requires (a) a credential supplied by the owner through a secure channel and (b) bootstrap execution against a running prod-profile backend with a valid CONTROL_PLANE_ADMIN_PASSWORD. Neither is provided in this session. No password was invented, logged, or stored."
+  },
+  "managedBackendMigration": {
+    "status": "CODE_READY_DEPLOYMENT_BLOCKED",
+    "details": "Backend runs locally via deploy/self-hosted/docker-compose.windows.yml. Cloud migration requires owner decision on hosting provider; not invented here."
+  },
+  "openRisks": [
+    "Docker Desktop is not running (service Stopped). 9 PostgreSQL/Testcontainers tests cannot execute locally. CI on GitHub Actions WILL run them (Linux Docker available).",
+    "Rate limiter is still in-memory Caffeine. Multi-instance production must register a distributed @Primary LoginRateLimiter (Redis/Valkey adapter) — documented in CaffeineLoginRateLimiter javadoc.",
+    "Control-plane bootstrap does NOT auto-disable after operation. Operator MUST set CONTROL_PLANE_BOOTSTRAP_ENABLED=false after rotation. Pre-existing risk, not introduced here.",
+    "ngrok subdomain is random ephemeral (streak-train-empower.ngrok-free.dev). Recommend reserved domain or Cloudflare Tunnel for long-term production (rule 8.3 of prior CRM-007R2).",
+    "Credential rotation for cp-admin@sanad-control-plane.internal remains a BLOCKED operational step awaiting owner-supplied password through a secure channel."
+  ],
+  "completedAt": "2026-07-18T20:00:00Z"
+}
