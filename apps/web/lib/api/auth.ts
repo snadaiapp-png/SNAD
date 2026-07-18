@@ -1,8 +1,13 @@
 import { apiClient, ApiClient } from "./client";
 import { ApiHttpError } from "./errors";
 
-const LOGIN_TIMEOUT_MS = 12_000;
-const SESSION_TIMEOUT_MS = 8_000;
+/**
+ * Keep the browser-side budget greater than the BFF's maximum upstream budget
+ * (25 seconds) so the frontend receives the BFF's definitive 502/503/504
+ * response instead of aborting early and masking the real failure as a generic
+ * client timeout.
+ */
+const AUTH_REQUEST_TIMEOUT_MS = 30_000;
 
 export interface AuthUser {
   id: string;
@@ -84,7 +89,7 @@ export function createAuthApi(client: ApiClient = apiClient) {
     async login(req: LoginRequest): Promise<AuthResponse> {
       try {
         return await client.post<AuthResponse, LoginRequest>("/api/v1/auth/login", req, {
-          timeoutMs: LOGIN_TIMEOUT_MS,
+          timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
         });
       } catch (err) {
         if (err instanceof ApiHttpError && err.status === 409) {
@@ -102,28 +107,28 @@ export function createAuthApi(client: ApiClient = apiClient) {
       return client.post<AuthResponse, { refreshToken?: string }>(
         "/api/v1/auth/refresh",
         refreshToken ? { refreshToken } : undefined,
-        { timeoutMs: SESSION_TIMEOUT_MS },
+        { timeoutMs: AUTH_REQUEST_TIMEOUT_MS },
       );
     },
     async logout(): Promise<void> {
-      await client.post<void>("/api/v1/auth/logout", undefined, { timeoutMs: SESSION_TIMEOUT_MS });
+      await client.post<void>("/api/v1/auth/logout", undefined, { timeoutMs: AUTH_REQUEST_TIMEOUT_MS });
     },
     async me(): Promise<MeResponse> {
-      return client.get<MeResponse>("/api/v1/auth/me", { timeoutMs: SESSION_TIMEOUT_MS });
+      return client.get<MeResponse>("/api/v1/auth/me", { timeoutMs: AUTH_REQUEST_TIMEOUT_MS });
     },
     async forgotPassword(req: ForgotPasswordRequest): Promise<ForgotPasswordResponse> {
       return client.post<ForgotPasswordResponse, ForgotPasswordRequest>("/api/v1/auth/forgot-password", req, {
-        timeoutMs: LOGIN_TIMEOUT_MS,
+        timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
       });
     },
     async resetPassword(req: ResetPasswordRequest): Promise<ResetPasswordResponse> {
       return client.post<ResetPasswordResponse, ResetPasswordRequest>("/api/v1/auth/reset-password", req, {
-        timeoutMs: LOGIN_TIMEOUT_MS,
+        timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
       });
     },
     async changeCredential(req: ChangeCredentialRequest): Promise<void> {
       await client.post<void, ChangeCredentialRequest>("/api/v1/auth/change-credential", req, {
-        timeoutMs: LOGIN_TIMEOUT_MS,
+        timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
       });
     },
     async adminResetPassword(
@@ -133,7 +138,7 @@ export function createAuthApi(client: ApiClient = apiClient) {
       return client.post<{ message: string }, AdminResetPasswordRequest>(
         `/api/v1/auth/admin-reset-password/${userId}`,
         req,
-        { timeoutMs: LOGIN_TIMEOUT_MS },
+        { timeoutMs: AUTH_REQUEST_TIMEOUT_MS },
       );
     },
   };
