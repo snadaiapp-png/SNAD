@@ -9,6 +9,15 @@ import { SnadLogo } from "@/components/sds";
 import { useTheme } from "@/lib/hooks/useTheme";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
+function AuthenticatingLabel({ pending, delayed }: { pending: string; delayed: string }) {
+  const [isSlow, setIsSlow] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setIsSlow(true), 3000);
+    return () => window.clearTimeout(timer);
+  }, []);
+  return isSlow ? delayed : pending;
+}
+
 interface LoginFormProps {
   onLogin: (email: string, password: string) => Promise<void>;
   authenticating: boolean;
@@ -30,20 +39,10 @@ export function LoginForm({
   const [showHelp, setShowHelp] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [slowRequest, setSlowRequest] = useState(false);
   const [retryingSession, setRetryingSession] = useState(false);
   const { t } = useI18n();
   const { theme } = useTheme();
   const logoVariant = theme === "dark" ? "white" : "primary";
-
-  useEffect(() => {
-    if (!authenticating) {
-      setSlowRequest(false);
-      return;
-    }
-    const timer = window.setTimeout(() => setSlowRequest(true), 3000);
-    return () => window.clearTimeout(timer);
-  }, [authenticating]);
 
   function validate(): boolean {
     let valid = true;
@@ -193,7 +192,7 @@ export function LoginForm({
 
         <button type="submit" className={styles.authSubmit} disabled={authenticating} aria-busy={authenticating}>
           {authenticating
-            ? (slowRequest ? t("loading.processing") : t("auth.login.submitting"))
+            ? <AuthenticatingLabel pending={t("auth.login.submitting")} delayed={t("loading.processing")} />
             : t("auth.login.submit")}
         </button>
       </form>
