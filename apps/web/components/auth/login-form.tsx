@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import styles from "./auth.module.css";
 import { AuthErrorAlert } from "./auth-error-alert";
 import type { UserFacingError } from "@/lib/api/user-facing-errors";
@@ -14,6 +14,7 @@ interface LoginFormProps {
   authenticating: boolean;
   error: UserFacingError | null;
   sessionExpired?: boolean;
+  onRetrySession?: () => Promise<void>;
 }
 
 export function LoginForm({
@@ -21,6 +22,7 @@ export function LoginForm({
   authenticating,
   error,
   sessionExpired = false,
+  onRetrySession,
 }: LoginFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -28,26 +30,20 @@ export function LoginForm({
   const [showHelp, setShowHelp] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [slowRequest, setSlowRequest] = useState(false);
+  const [retryingSession, setRetryingSession] = useState(false);
   const { t } = useI18n();
-
-  /*
-   * Theme-aware logo variant selection.
-   *
-   * The auth screen runs before the user has any session, so we cannot rely
-   * on a persisted theme preference alone. `useTheme` resolves in this order:
-   *   1. `<html data-theme="...">`  (set by an explicit toggle, if any)
-   *   2. `localStorage['snad-theme']` (returning users)
-   *   3. `prefers-color-scheme: dark` (OS-level)
-   *   4. `'light'` (safe default)
-   *
-   * We pick `variant="white"` when the resolved theme is `'dark'` so the
-   * logo stays legible on dark backgrounds. On SSR, `useTheme` returns
-   * `'light'` to avoid hydration mismatch; the correct variant is rendered
-   * after mount. The `.loginBrandMark` container reserves a fixed minimum
-   * height (see auth.module.css) so this post-mount swap causes ZERO CLS.
-   */
   const { theme } = useTheme();
   const logoVariant = theme === "dark" ? "white" : "primary";
+
+  useEffect(() => {
+    if (!authenticating) {
+      setSlowRequest(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setSlowRequest(true), 3000);
+    return () => window.clearTimeout(timer);
+  }, [authenticating]);
 
   function validate(): boolean {
     let valid = true;
@@ -71,14 +67,26 @@ export function LoginForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (authenticating) return;
-    if (!validate()) return;
-    const normalizedEmail = email.trim().toLowerCase();
-    await onLogin(normalizedEmail, password);
+    if (authenticating || !validate()) return;
+    await onLogin(email.trim().toLowerCase(), password);
+  }
+
+  async function retrySession() {
+    if (!onRetrySession || retryingSession) return;
+    setRetryingSession(true);
+    try {
+      await onRetrySession();
+    } finally {
+      setRetryingSession(false);
+    }
   }
 
   const displayError = sessionExpired && !error
-    ? { title: t("auth.login.sessionExpiredTitle"), message: t("auth.login.sessionExpiredMessage"), kind: "validation" as const }
+    ? {
+        title: t("auth.login.sessionExpiredTitle"),
+        message: t("auth.login.sessionExpiredMessage"),
+        kind: "validation" as const,
+      }
     : error;
 
   return (
@@ -93,17 +101,23 @@ export function LoginForm({
         />
       </div>
       <h1 className={styles.loginWelcomeTitle}>{t("auth.login.welcomeTitle")}</h1>
-      <p className={styles.loginWelcomeSubtitle}>
-        {t("auth.login.welcomeSubtitle")}
-      </p>
+      <p className={styles.loginWelcomeSubtitle}>{t("auth.login.welcomeSubtitle")}</p>
 
       {displayError && <AuthErrorAlert error={displayError} />}
+      {displayError && onRetrySession && (
+        <button
+          type="button"
+          className={styles.workspaceLogoutButton}
+          onClick={retrySession}
+          disabled={retryingSession}
+        >
+          {retryingSession ? t("loading.processing") : t("error.retry")}
+        </button>
+      )}
 
-      <form onSubmit={handleSubmit} noValidate>
+      <form onSubmit={handleSubmit} noValidate aria-busy={authenticating}>
         <div className={styles.authField}>
-          <label htmlFor="login-email" className={styles.authLabel}>
-            {t("auth.login.email")}
-          </label>
+          <label htmlFor="login-email" className={styles.authLabel}>{t("auth.login.email")}</label>
           <div className={styles.authInputWrapper}>
             <input
               id="login-email"
@@ -114,7 +128,7 @@ export function LoginForm({
               className={styles.authInput}
               placeholder={t("auth.login.emailPlaceholder")}
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(event) => setEmail(event.target.value)}
               aria-invalid={!!emailError}
               aria-describedby={emailError ? "login-email-error" : undefined}
               disabled={authenticating}
@@ -129,9 +143,7 @@ export function LoginForm({
         </div>
 
         <div className={styles.authField}>
-          <label htmlFor="login-password" className={styles.authLabel}>
-            {t("auth.login.password")}
-          </label>
+          <label htmlFor="login-password" className={styles.authLabel}>{t("auth.login.password")}</label>
           <div className={styles.authInputWrapper}>
             <input
               id="login-password"
@@ -141,7 +153,7 @@ export function LoginForm({
               className={styles.authInput}
               placeholder={t("auth.login.passwordPlaceholder")}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(event) => setPassword(event.target.value)}
               aria-invalid={!!passwordError}
               aria-describedby={passwordError ? "login-password-error" : undefined}
               disabled={authenticating}
@@ -150,9 +162,8 @@ export function LoginForm({
             <button
               type="button"
               className={styles.passwordToggle}
-              onClick={() => setShowPassword(!showPassword)}
+              onClick={() => setShowPassword((current) => !current)}
               aria-label={showPassword ? t("auth.login.hidePassword") : t("auth.login.showPassword")}
-              tabIndex={0}
             >
               {showPassword ? (
                 <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -175,53 +186,28 @@ export function LoginForm({
         </div>
 
         <div className={styles.authForgotLinkRow}>
-          <Link
-            href="/auth/forgot-password"
-            className={styles.authForgotLink}
-            aria-label={t("auth.login.forgotPassword")}
-          >
-            <svg
-              className={styles.authForgotLinkIcon}
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4" />
-            </svg>
+          <Link href="/auth/forgot-password" className={styles.authForgotLink}>
             <span>{t("auth.login.forgotPassword")}</span>
           </Link>
         </div>
 
-        <button
-          type="submit"
-          className={styles.authSubmit}
-          disabled={authenticating}
-          aria-busy={authenticating}
-        >
-          {authenticating ? t("auth.login.submitting") : t("auth.login.submit")}
+        <button type="submit" className={styles.authSubmit} disabled={authenticating} aria-busy={authenticating}>
+          {authenticating
+            ? (slowRequest ? t("loading.processing") : t("auth.login.submitting"))
+            : t("auth.login.submit")}
         </button>
       </form>
 
       <button
         type="button"
         className={styles.authHelpLink}
-        onClick={() => setShowHelp(!showHelp)}
+        onClick={() => setShowHelp((current) => !current)}
         aria-expanded={showHelp}
       >
         {t("auth.login.helpLink")}
       </button>
 
-      {showHelp && (
-        <div className={styles.authHelpPanel}>
-          {t("auth.login.helpText")}
-        </div>
-      )}
+      {showHelp && <div className={styles.authHelpPanel}>{t("auth.login.helpText")}</div>}
     </div>
   );
 }
