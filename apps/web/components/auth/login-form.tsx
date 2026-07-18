@@ -66,7 +66,8 @@ export function LoginForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (authenticating || !validate()) return;
+    if (authenticating) return;
+    if (!validate()) return;
     await onLogin(email.trim().toLowerCase(), password);
   }
 
@@ -185,12 +186,21 @@ export function LoginForm({
         </div>
 
         <div className={styles.authForgotLinkRow}>
-          <Link href="/auth/forgot-password" className={styles.authForgotLink}>
+          <Link
+            href="/auth/forgot-password"
+            className={styles.authForgotLink}
+            aria-label={t("auth.login.forgotPassword")}
+          >
             <span>{t("auth.login.forgotPassword")}</span>
           </Link>
         </div>
 
-        <button type="submit" className={styles.authSubmit} disabled={authenticating} aria-busy={authenticating}>
+        <button
+          type="submit"
+          className={styles.authSubmit}
+          disabled={authenticating}
+          aria-busy={authenticating}
+        >
           {authenticating
             ? <AuthenticatingLabel pending={t("auth.login.submitting")} delayed={t("loading.processing")} />
             : t("auth.login.submit")}
