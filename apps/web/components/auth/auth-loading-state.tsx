@@ -12,6 +12,15 @@ interface AuthLoadingStateProps {
   subtitle?: string;
 }
 
+function DelayedProgress({ initial, delayed }: { initial: string; delayed: string }) {
+  const [isSlow, setIsSlow] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setIsSlow(true), 3000);
+    return () => window.clearTimeout(timer);
+  }, []);
+  return <p className={styles.authLoadingSubtitle}>{isSlow ? delayed : initial}</p>;
+}
+
 export function AuthLoadingState({
   phase = "workspace",
   title,
@@ -25,20 +34,14 @@ export function AuthLoadingState({
     logout: { title: t("nav.logout"), subtitle: t("loading.processing") },
   };
   const resolved = defaults[phase];
-  const [progressText, setProgressText] = useState(subtitle ?? resolved.subtitle);
-
-  useEffect(() => {
-    setProgressText(subtitle ?? resolved.subtitle);
-    const timer = window.setTimeout(() => setProgressText(t("loading.processing")), 3000);
-    return () => window.clearTimeout(timer);
-  }, [resolved.subtitle, subtitle, t]);
+  const initial = subtitle ?? resolved.subtitle;
 
   return (
     <div className={styles.authLoadingRoot} role="status" aria-live="polite" aria-busy="true">
       <div className={styles.authLoadingCard}>
         <div className={styles.authSpinner} aria-hidden="true" />
         <p className={styles.authLoadingTitle}>{title ?? resolved.title}</p>
-        <p className={styles.authLoadingSubtitle}>{progressText}</p>
+        <DelayedProgress key={`${phase}:${initial}`} initial={initial} delayed={t("loading.processing")} />
       </div>
     </div>
   );
