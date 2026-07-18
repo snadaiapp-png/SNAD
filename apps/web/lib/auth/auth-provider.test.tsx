@@ -5,6 +5,7 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiHttpError } from "@/lib/api/errors";
+import type { AuthResponse } from "@/lib/api/auth";
 import { AuthProvider, useAuth } from "./auth-provider";
 
 const { authApiMock } = vi.hoisted(() => ({
@@ -19,7 +20,7 @@ const { authApiMock } = vi.hoisted(() => ({
 
 vi.mock("@/lib/api/auth", () => ({
   authApi: authApiMock,
-  authResponseToMe: (response: any) => ({
+  authResponseToMe: (response: AuthResponse) => ({
     ...response.user,
     lastLoginAt: response.lastLoginAt,
     credentialRotationRequired: response.credentialRotationRequired,
@@ -147,7 +148,9 @@ describe("AuthProvider bootstrap", () => {
 
   it("re-establishes a fresh bootstrap after mandatory credential rotation without /me", async () => {
     const rotationBootstrap = { ...bootstrap, credentialRotationRequired: true };
-    authApiMock.login.mockResolvedValueOnce(rotationBootstrap).mockResolvedValueOnce(bootstrap);
+    authApiMock.login
+      .mockResolvedValueOnce(rotationBootstrap)
+      .mockResolvedValueOnce(bootstrap);
     authApiMock.changeCredential.mockResolvedValue(undefined);
     renderProvider();
     await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent("ANONYMOUS"));
