@@ -1,13 +1,14 @@
 package com.sanad.platform.security.api;
 
 import com.sanad.platform.access.grant.UserGrantStatus;
-import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.access.grant.UserRoleGrant;
 import com.sanad.platform.access.grant.UserRoleGrantRepository;
 import com.sanad.platform.access.role.Role;
 import com.sanad.platform.access.role.RoleRepository;
 import com.sanad.platform.organization.membership.domain.OrganizationMembership;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
+import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
+import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.security.dto.AdminResetPasswordRequest;
 import com.sanad.platform.security.dto.AuthResponse;
 import com.sanad.platform.security.dto.ChangeCredentialRequest;
@@ -38,6 +39,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -58,6 +60,7 @@ public class AuthController {
     private final OrganizationMembershipRepository membershipRepository;
     private final UserRoleGrantRepository roleGrantRepository;
     private final RoleRepository roleRepository;
+    private final ControlPlaneAccessGuard controlPlaneAccessGuard;
     private final Environment environment;
     private final PasswordRecoveryNotificationCoordinator recoveryNotifications;
 
@@ -67,6 +70,7 @@ public class AuthController {
             OrganizationMembershipRepository membershipRepository,
             UserRoleGrantRepository roleGrantRepository,
             RoleRepository roleRepository,
+            ControlPlaneAccessGuard controlPlaneAccessGuard,
             Environment environment,
             PasswordRecoveryNotificationCoordinator recoveryNotifications
     ) {
@@ -75,18 +79,19 @@ public class AuthController {
         this.membershipRepository = membershipRepository;
         this.roleGrantRepository = roleGrantRepository;
         this.roleRepository = roleRepository;
+        this.controlPlaneAccessGuard = controlPlaneAccessGuard;
         this.environment = environment;
         this.recoveryNotifications = recoveryNotifications;
     }
 
     @PostMapping("/login")
-    @Operation(summary = "Authenticate and return access data to the trusted BFF")
+    @Operation(summary = "Authenticate and return the complete post-login bootstrap")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         return authResponse(authService.login(request));
     }
 
     @PostMapping("/refresh")
-    @Operation(summary = "Rotate a BFF-held refresh token")
+    @Operation(summary = "Rotate a BFF-held refresh token and return a complete session bootstrap")
     public ResponseEntity<AuthResponse> refresh(HttpServletRequest request, @RequestBody(required = false) RefreshRequest body) {
         String refreshToken = request.getHeader(REFRESH_TOKEN_HEADER);
         if ((refreshToken == null || refreshToken.isBlank()) && isLocalOrDev() && body != null) {
@@ -131,36 +136,9 @@ public class AuthController {
         if (principal == null) {
             return ResponseEntity.status(401).header(HttpHeaders.CACHE_CONTROL, "no-store").build();
         }
-
-        UUID tenantId = principal.tenantId();
-        UUID userId = principal.userId();
-        User user = userRepository.findByTenantIdAndId(tenantId, userId)
-                .orElseThrow(() -> new IllegalStateException("Authenticated user not found"));
-
-        MeResponse response = new MeResponse();
-        response.setId(user.getId());
-        response.setTenantId(user.getTenantId());
-        response.setEmail(user.getEmail());
-        response.setDisplayName(user.getDisplayName());
-        response.setStatus(user.getStatus().name());
-        response.setLastLoginAt(user.getLastLoginAt());
-        response.setCredentialRotationRequired(user.isMustChangePassword());
-
-        List<OrganizationMembership> memberships = membershipRepository.findByTenantIdAndUserId(tenantId, userId);
-        response.setMemberships(memberships.stream()
-                .map(membership -> new MeResponse.MembershipSummary(
-                        membership.getId(), membership.getOrganizationId(), membership.getStatus().name()))
-                .collect(Collectors.toList()));
-
-        List<UserRoleGrant> grants = roleGrantRepository.findByTenantIdAndUserIdAndStatus(tenantId, userId, UserGrantStatus.ACTIVE);
-        response.setRoleGrants(grants.stream().map(grant -> {
-            String roleCode = roleRepository.findByTenantIdAndId(tenantId, grant.getRoleId())
-                    .map(Role::getCode).orElse("UNKNOWN");
-            return new MeResponse.RoleGrantSummary(
-                    grant.getId(), grant.getRoleId(), roleCode, grant.getOrganizationId(), grant.getStatus().name());
-        }).collect(Collectors.toList()));
-
-        return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store").body(response);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(buildMeResponse(principal.tenantId(), principal.userId()));
     }
 
     @PostMapping("/forgot-password")
@@ -227,6 +205,7 @@ public class AuthController {
     }
 
     private ResponseEntity<AuthResponse> authResponse(AuthResponse response) {
+        enrichBootstrap(response);
         ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
                 .header(REFRESH_TOKEN_HEADER, response.getRefreshToken())
                 .header(HttpHeaders.CACHE_CONTROL, "no-store");
@@ -236,6 +215,72 @@ public class AuthController {
                             + "; Path=/api/v1/auth; HttpOnly; SameSite=Strict");
         }
         return builder.body(response);
+    }
+
+    private void enrichBootstrap(AuthResponse response) {
+        AuthResponse.AuthUser authUser = response.getUser();
+        if (authUser == null || authUser.getTenantId() == null || authUser.getId() == null) {
+            throw new IllegalStateException("Authentication response is missing the user context");
+        }
+
+        MeResponse profile = buildMeResponse(authUser.getTenantId(), authUser.getId());
+        UUID defaultOrganizationId = profile.getMemberships().stream()
+                .filter(membership -> "ACTIVE".equals(membership.getStatus()))
+                .map(MeResponse.MembershipSummary::getOrganizationId)
+                .sorted()
+                .findFirst()
+                .orElse(null);
+        boolean administrator = profile.getRoleGrants().stream()
+                .anyMatch(grant -> "ACTIVE".equals(grant.getStatus()) && "ADMIN".equals(grant.getRoleCode()));
+        boolean controlPlaneAuthorized = administrator
+                && controlPlaneAccessGuard.isControlPlaneTenant(authUser.getTenantId());
+
+        List<String> destinations = new ArrayList<>();
+        destinations.add("/workspace");
+        destinations.add("/crm");
+        destinations.add("/crm/command-center");
+        if (controlPlaneAuthorized) {
+            destinations.add("/control-plane");
+        }
+
+        response.setLastLoginAt(profile.getLastLoginAt());
+        response.setCredentialRotationRequired(profile.isCredentialRotationRequired());
+        response.setMemberships(profile.getMemberships());
+        response.setEffectiveRoleGrants(profile.getRoleGrants());
+        response.setDefaultOrganizationId(defaultOrganizationId);
+        response.setAvailableDestinations(destinations);
+        response.setDefaultDestination(controlPlaneAuthorized ? "/control-plane" : "/crm");
+        response.setTenantContext(new AuthResponse.TenantContext(authUser.getTenantId(), defaultOrganizationId));
+    }
+
+    private MeResponse buildMeResponse(UUID tenantId, UUID userId) {
+        User user = userRepository.findByTenantIdAndId(tenantId, userId)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user not found"));
+
+        MeResponse response = new MeResponse();
+        response.setId(user.getId());
+        response.setTenantId(user.getTenantId());
+        response.setEmail(user.getEmail());
+        response.setDisplayName(user.getDisplayName());
+        response.setStatus(user.getStatus().name());
+        response.setLastLoginAt(user.getLastLoginAt());
+        response.setCredentialRotationRequired(user.isMustChangePassword());
+
+        List<OrganizationMembership> memberships = membershipRepository.findByTenantIdAndUserId(tenantId, userId);
+        response.setMemberships(memberships.stream()
+                .map(membership -> new MeResponse.MembershipSummary(
+                        membership.getId(), membership.getOrganizationId(), membership.getStatus().name()))
+                .collect(Collectors.toList()));
+
+        List<UserRoleGrant> grants = roleGrantRepository.findByTenantIdAndUserIdAndStatus(
+                tenantId, userId, UserGrantStatus.ACTIVE);
+        response.setRoleGrants(grants.stream().map(grant -> {
+            String roleCode = roleRepository.findByTenantIdAndId(tenantId, grant.getRoleId())
+                    .map(Role::getCode).orElse("UNKNOWN");
+            return new MeResponse.RoleGrantSummary(
+                    grant.getId(), grant.getRoleId(), roleCode, grant.getOrganizationId(), grant.getStatus().name());
+        }).collect(Collectors.toList()));
+        return response;
     }
 
     @SuppressWarnings("unchecked")

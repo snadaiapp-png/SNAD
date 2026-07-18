@@ -4,20 +4,18 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
- * Response body for {@code POST /api/v1/auth/login} and
- * {@code POST /api/v1/auth/refresh}.
+ * Complete authentication bootstrap returned by login and refresh.
  *
- * <p>Contains the short-lived access JWT, the access token's expiry
- * time, and basic user identity (no sensitive data).</p>
+ * <p>The response contains the short-lived access token plus the minimum
+ * identity, membership, authorization and navigation context required to
+ * enter the application without a second sequential {@code /auth/me} call.</p>
  *
- * <p><strong>The refresh token is NOT included in the JSON response.</strong>
- * It is set exclusively as an HttpOnly cookie by the controller (BFF pattern).
- * The {@code refreshToken} field exists only for internal controller use
- * (to set the cookie) and is annotated with {@code @JsonIgnore} to ensure
- * it is never serialized to JSON.</p>
+ * <p><strong>The refresh token is never serialized.</strong> It is transferred
+ * only through the trusted BFF header/cookie boundary.</p>
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class AuthResponse {
@@ -27,6 +25,14 @@ public class AuthResponse {
     private String refreshToken;
     private Instant expiresAt;
     private AuthUser user;
+    private Instant lastLoginAt;
+    private boolean credentialRotationRequired;
+    private List<MeResponse.MembershipSummary> memberships = List.of();
+    private List<MeResponse.RoleGrantSummary> effectiveRoleGrants = List.of();
+    private UUID defaultOrganizationId;
+    private String defaultDestination = "/workspace";
+    private List<String> availableDestinations = List.of("/workspace");
+    private TenantContext tenantContext;
 
     public AuthResponse() {
     }
@@ -40,21 +46,38 @@ public class AuthResponse {
 
     public String getAccessToken() { return accessToken; }
     public void setAccessToken(String accessToken) { this.accessToken = accessToken; }
-
-    /** Internal-only — never serialized to JSON. Used by the controller to set the HttpOnly cookie. */
     public String getRefreshToken() { return refreshToken; }
     public void setRefreshToken(String refreshToken) { this.refreshToken = refreshToken; }
-
     public Instant getExpiresAt() { return expiresAt; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
-
     public AuthUser getUser() { return user; }
     public void setUser(AuthUser user) { this.user = user; }
+    public Instant getLastLoginAt() { return lastLoginAt; }
+    public void setLastLoginAt(Instant lastLoginAt) { this.lastLoginAt = lastLoginAt; }
+    public boolean isCredentialRotationRequired() { return credentialRotationRequired; }
+    public void setCredentialRotationRequired(boolean credentialRotationRequired) {
+        this.credentialRotationRequired = credentialRotationRequired;
+    }
+    public List<MeResponse.MembershipSummary> getMemberships() { return memberships; }
+    public void setMemberships(List<MeResponse.MembershipSummary> memberships) {
+        this.memberships = memberships == null ? List.of() : List.copyOf(memberships);
+    }
+    public List<MeResponse.RoleGrantSummary> getEffectiveRoleGrants() { return effectiveRoleGrants; }
+    public void setEffectiveRoleGrants(List<MeResponse.RoleGrantSummary> effectiveRoleGrants) {
+        this.effectiveRoleGrants = effectiveRoleGrants == null ? List.of() : List.copyOf(effectiveRoleGrants);
+    }
+    public UUID getDefaultOrganizationId() { return defaultOrganizationId; }
+    public void setDefaultOrganizationId(UUID defaultOrganizationId) { this.defaultOrganizationId = defaultOrganizationId; }
+    public String getDefaultDestination() { return defaultDestination; }
+    public void setDefaultDestination(String defaultDestination) { this.defaultDestination = defaultDestination; }
+    public List<String> getAvailableDestinations() { return availableDestinations; }
+    public void setAvailableDestinations(List<String> availableDestinations) {
+        this.availableDestinations = availableDestinations == null ? List.of("/workspace") : List.copyOf(availableDestinations);
+    }
+    public TenantContext getTenantContext() { return tenantContext; }
+    public void setTenantContext(TenantContext tenantContext) { this.tenantContext = tenantContext; }
 
-    /**
-     * Minimal user identity included in auth responses.
-     * Never includes password hash or other sensitive data.
-     */
+    /** Minimal user identity; never includes password or credential material. */
     public static class AuthUser {
         private UUID id;
         private UUID tenantId;
@@ -75,17 +98,32 @@ public class AuthResponse {
 
         public UUID getId() { return id; }
         public void setId(UUID id) { this.id = id; }
+        public UUID getTenantId() { return tenantId; }
+        public void setTenantId(UUID tenantId) { this.tenantId = tenantId; }
+        public String getEmail() { return email; }
+        public void setEmail(String email) { this.email = email; }
+        public String getDisplayName() { return displayName; }
+        public void setDisplayName(String displayName) { this.displayName = displayName; }
+        public String getStatus() { return status; }
+        public void setStatus(String status) { this.status = status; }
+    }
+
+    /** Non-secret tenant navigation context used by the client bootstrap. */
+    public static class TenantContext {
+        private UUID tenantId;
+        private UUID defaultOrganizationId;
+
+        public TenantContext() {
+        }
+
+        public TenantContext(UUID tenantId, UUID defaultOrganizationId) {
+            this.tenantId = tenantId;
+            this.defaultOrganizationId = defaultOrganizationId;
+        }
 
         public UUID getTenantId() { return tenantId; }
         public void setTenantId(UUID tenantId) { this.tenantId = tenantId; }
-
-        public String getEmail() { return email; }
-        public void setEmail(String email) { this.email = email; }
-
-        public String getDisplayName() { return displayName; }
-        public void setDisplayName(String displayName) { this.displayName = displayName; }
-
-        public String getStatus() { return status; }
-        public void setStatus(String status) { this.status = status; }
+        public UUID getDefaultOrganizationId() { return defaultOrganizationId; }
+        public void setDefaultOrganizationId(UUID defaultOrganizationId) { this.defaultOrganizationId = defaultOrganizationId; }
     }
 }

@@ -3,6 +3,9 @@ import { expect, type Page } from "@playwright/test";
 export interface CrmLoginResponse {
   accessToken: string;
   expiresAt: string;
+  credentialRotationRequired?: boolean;
+  defaultDestination?: string;
+  availableDestinations?: string[];
   user: {
     id: string;
     tenantId: string;
@@ -10,6 +13,26 @@ export interface CrmLoginResponse {
     displayName: string | null;
     status: string;
   };
+}
+
+const AUTHENTICATED_DESTINATIONS = [
+  "/workspace",
+  "/crm",
+  "/crm/command-center",
+  "/control-plane",
+] as const;
+
+function expectedDestination(body: CrmLoginResponse): string {
+  const destination = body.defaultDestination;
+  if (
+    typeof destination === "string"
+    && AUTHENTICATED_DESTINATIONS.some(
+      (root) => destination === root || destination.startsWith(`${root}/`),
+    )
+  ) {
+    return destination;
+  }
+  return "/workspace";
 }
 
 /**
@@ -44,8 +67,23 @@ export async function loginThroughUi(
   const body = (await response.json()) as CrmLoginResponse;
   expect(body.accessToken, `Login response for ${email} is missing accessToken`).toBeTruthy();
   expect(body.user?.tenantId, `Login response for ${email} is missing tenantId`).toBeTruthy();
+  expect(body.credentialRotationRequired, `Login for ${email} unexpectedly requires credential rotation`).not.toBe(true);
 
-  await page.waitForURL(/\/workspace(?:[/?#]|$)/, { timeout: 30_000 });
+  const destination = expectedDestination(body);
+  if (Array.isArray(body.availableDestinations)) {
+    expect(
+      body.availableDestinations.some(
+        (root) => destination === root || destination.startsWith(`${root}/`),
+      ),
+      `Bootstrap destination ${destination} is not included in availableDestinations`,
+    ).toBe(true);
+  }
+
+  await page.waitForURL(
+    (url) => url.pathname === destination || url.pathname.startsWith(`${destination}/`),
+    { timeout: 30_000 },
+  );
+
   const refreshCookie = (await page.context().cookies()).find((cookie) => cookie.name === "sanad_refresh");
   expect(refreshCookie, `Refresh cookie was not created for ${email}`).toBeTruthy();
 

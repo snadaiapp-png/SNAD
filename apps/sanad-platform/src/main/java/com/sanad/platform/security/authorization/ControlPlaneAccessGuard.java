@@ -52,9 +52,14 @@ public class ControlPlaneAccessGuard {
         return controlTenantId != null;
     }
 
+    /** Returns true when a known tenant ID is the configured platform control tenant. */
+    public boolean isControlPlaneTenant(UUID tenantId) {
+        return controlTenantId != null && controlTenantId.equals(tenantId);
+    }
+
     /** Returns true if the authenticated user's tenant matches the control-plane tenant. */
     public boolean isControlPlaneTenant(Authentication authentication) {
-        if (controlTenantId == null || authentication == null || !authentication.isAuthenticated()) {
+        if (authentication == null || !authentication.isAuthenticated()) {
             return false;
         }
         if (!(authentication.getDetails() instanceof Map<?, ?> details)) {
@@ -65,8 +70,7 @@ public class ControlPlaneAccessGuard {
             return false;
         }
         try {
-            UUID authenticatedTenant = UUID.fromString(tenantValue.toString());
-            return controlTenantId.equals(authenticatedTenant);
+            return isControlPlaneTenant(UUID.fromString(tenantValue.toString()));
         } catch (IllegalArgumentException exception) {
             return false;
         }

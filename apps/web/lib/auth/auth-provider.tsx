@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -12,6 +13,7 @@ import {
 } from "react";
 import {
   authApi,
+  authResponseToMe,
   type AuthResponse,
   type AuthUser,
   type LoginRequest,
@@ -19,15 +21,20 @@ import {
   AmbiguousTenantError,
 } from "@/lib/api/auth";
 import { apiClient } from "@/lib/api/client";
+import { ApiHttpError } from "@/lib/api/errors";
 import { toUserFacingError, type UserFacingError } from "@/lib/api/user-facing-errors";
 import { SingleFlight } from "@/lib/auth/single-flight";
+import { hasSessionHint } from "@/lib/auth/session-hint";
 
 export type AuthState =
   | "INITIALIZING"
   | "ANONYMOUS"
+  | "CHECKING_SESSION"
   | "AUTHENTICATING"
   | "AUTHENTICATED"
   | "REFRESHING"
+  | "REFRESHING_SESSION"
+  | "LOADING_WORKSPACE"
   | "EXPIRED"
   | "ERROR"
   | "AMBIGUOUS_TENANT"
@@ -41,10 +48,15 @@ interface AuthContextValue {
   error: UserFacingError | null;
   ambiguousTenantIds: string[];
   lastLoginEmail: string;
+  defaultDestination: string;
+  availableDestinations: string[];
+  canRetrySessionRestore: boolean;
+  credentialProcessing: boolean;
   login: (req: LoginRequest) => Promise<void>;
   loginWithTenant: (tenantId: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  retrySessionRestore: () => Promise<void>;
   loadMe: () => Promise<void>;
   dismissAmbiguousTenant: () => void;
   changeCredential: (currentPassword: string, newPassword: string) => Promise<void>;
@@ -53,13 +65,6 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-/**
- * In-memory session store — access tokens are NEVER written to localStorage,
- * sessionStorage, or cookies. They survive SPA navigation but not page reload.
- * On reload, session is restored via silent refresh using the HttpOnly refresh cookie.
- *
- * Expiry is kept in memory for proactive/anticipatory refresh decisions.
- */
 function useInMemorySession() {
   const accessTokenRef = useRef<string | null>(null);
   const expiresAtRef = useRef<string | null>(null);
@@ -80,19 +85,13 @@ function useInMemorySession() {
   const getExpiresAt = useCallback(() => expiresAtRef.current, []);
 
   return useMemo(
-    () => ({
-      setSession,
-      clearSession,
-      getAccessToken,
-      getExpiresAt,
-    }),
-    [
-      setSession,
-      clearSession,
-      getAccessToken,
-      getExpiresAt,
-    ],
+    () => ({ setSession, clearSession, getAccessToken, getExpiresAt }),
+    [setSession, clearSession, getAccessToken, getExpiresAt],
   );
+}
+
+function isTerminalSessionFailure(error: unknown): boolean {
+  return error instanceof ApiHttpError && (error.status === 401 || error.status === 403);
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -102,22 +101,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<UserFacingError | null>(null);
   const [ambiguousTenantIds, setAmbiguousTenantIds] = useState<string[]>([]);
   const [lastLoginEmail, setLastLoginEmail] = useState("");
+  const [defaultDestination, setDefaultDestination] = useState("/workspace");
+  const [availableDestinations, setAvailableDestinations] = useState<string[]>(["/workspace"]);
+  const [canRetrySessionRestore, setCanRetrySessionRestore] = useState(false);
+  const [credentialProcessing, setCredentialProcessing] = useState(false);
   const lastLoginPasswordRef = useRef<string>("");
   const refreshFlightRef = useRef<SingleFlight<AuthResponse> | null>(null);
   const refreshEnabledRef = useRef(true);
   const sessionGenerationRef = useRef(0);
+  const bootstrapStartedRef = useRef(false);
   const session = useInMemorySession();
 
   if (refreshFlightRef.current === null) {
     refreshFlightRef.current = new SingleFlight<AuthResponse>();
   }
 
-  /**
-   * Rotate the HttpOnly refresh session exactly once for all concurrent callers.
-   * Refresh tokens are rotated by the backend; parallel refresh requests can
-   * otherwise make one request look like a replay and incorrectly expire a
-   * valid browser session.
-   */
+  const clearIdentity = useCallback(() => {
+    session.clearSession();
+    setUser(null);
+    setMe(null);
+    setDefaultDestination("/workspace");
+    setAvailableDestinations(["/workspace"]);
+  }, [session]);
+
+  const applyAuthResponse = useCallback((response: AuthResponse) => {
+    session.setSession(response.accessToken, response.expiresAt);
+    setUser(response.user);
+    setMe(authResponseToMe(response));
+    setDefaultDestination(response.defaultDestination || "/workspace");
+    setAvailableDestinations(
+      response.availableDestinations?.length ? response.availableDestinations : ["/workspace"],
+    );
+    setCanRetrySessionRestore(false);
+  }, [session]);
+
   const runRefresh = useCallback((): Promise<AuthResponse> => {
     if (!refreshEnabledRef.current) {
       return Promise.reject(new Error("Session refresh is disabled"));
@@ -129,92 +146,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return flight.run(async () => {
       const response = await authApi.refresh();
-
-      // A logout or a new login invalidates any older in-flight refresh result.
-      // Never let a late response restore a session the user already ended.
       if (!refreshEnabledRef.current || generation !== sessionGenerationRef.current) {
         throw new Error("Stale session refresh result");
       }
-
-      session.setSession(response.accessToken, response.expiresAt);
-      setUser(response.user);
+      applyAuthResponse(response);
       return response;
     });
-  }, [session]);
+  }, [applyAuthResponse]);
 
-  // Register auto-refresh handler: when any API call receives HTTP 401, all
-  // concurrent callers share one refresh rotation and retry only after it wins.
+  const restoreSession = useCallback(async () => {
+    refreshEnabledRef.current = true;
+    setState("CHECKING_SESSION");
+    setError(null);
+    setCanRetrySessionRestore(false);
+    try {
+      const response = await runRefresh();
+      setState(response.credentialRotationRequired ? "CREDENTIAL_ROTATION_REQUIRED" : "AUTHENTICATED");
+    } catch (err) {
+      clearIdentity();
+      if (isTerminalSessionFailure(err)) {
+        setError(null);
+        setCanRetrySessionRestore(false);
+        setState("ANONYMOUS");
+        return;
+      }
+      setError(toUserFacingError(err));
+      setCanRetrySessionRestore(true);
+      setState("ERROR");
+    }
+  }, [clearIdentity, runRefresh]);
+
   useEffect(() => {
     apiClient.setUnauthorizedHandler(async () => {
       try {
-        await runRefresh();
-        setState((current) =>
-          current === "CREDENTIAL_ROTATION_REQUIRED" ? current : "AUTHENTICATED",
-        );
+        const response = await runRefresh();
+        setState(response.credentialRotationRequired ? "CREDENTIAL_ROTATION_REQUIRED" : "AUTHENTICATED");
         return true;
       } catch {
-        session.clearSession();
-        setUser(null);
-        setMe(null);
+        clearIdentity();
+        setCanRetrySessionRestore(false);
         setState("EXPIRED");
         return false;
       }
     });
     return () => { apiClient.setUnauthorizedHandler(null); };
-  }, [runRefresh, session]);
+  }, [clearIdentity, runRefresh]);
 
-  // Bootstrap: attempt silent refresh via the HttpOnly refresh cookie to restore session.
-  // If refresh succeeds, load /me for full profile. If it fails, go to ANONYMOUS.
-  useEffect(() => {
-    if (state !== "INITIALIZING") return;
-
-    let cancelled = false;
-
-    runRefresh()
-      .then(() => {
-        if (cancelled) return undefined;
-        return authApi.me();
-      })
-      .then((meData) => {
-        if (cancelled || !meData) return;
-        setMe(meData);
-        if (meData.credentialRotationRequired) {
-          setState("CREDENTIAL_ROTATION_REQUIRED");
-        } else {
-          setState("AUTHENTICATED");
-        }
-      })
-      .catch(() => {
-        if (cancelled) return;
-        session.clearSession();
-        setUser(null);
-        setMe(null);
-        setState("ANONYMOUS");
-      });
-
-    return () => { cancelled = true; };
-  }, [state, runRefresh, session]);
+  // Resolve the non-sensitive hint before first paint. New visitors are never
+  // blocked by a refresh request; returning users alone enter CHECKING_SESSION.
+  useLayoutEffect(() => {
+    if (bootstrapStartedRef.current) return;
+    bootstrapStartedRef.current = true;
+    if (!hasSessionHint()) {
+      queueMicrotask(() => setState("ANONYMOUS"));
+      return;
+    }
+    queueMicrotask(() => { void restoreSession(); });
+  }, [restoreSession]);
 
   const login = useCallback(async (req: LoginRequest) => {
     refreshEnabledRef.current = true;
     sessionGenerationRef.current += 1;
     setState("AUTHENTICATING");
     setError(null);
+    setCanRetrySessionRestore(false);
     setAmbiguousTenantIds([]);
     setLastLoginEmail(req.email);
     lastLoginPasswordRef.current = req.password;
     try {
-      const res = await authApi.login(req);
-      session.setSession(res.accessToken, res.expiresAt);
-      setUser(res.user);
-
-      const meData = await authApi.me();
-      setMe(meData);
-      if (meData.credentialRotationRequired) {
-        setState("CREDENTIAL_ROTATION_REQUIRED");
-      } else {
-        setState("AUTHENTICATED");
-      }
+      const response = await authApi.login(req);
+      applyAuthResponse(response);
+      setState(response.credentialRotationRequired ? "CREDENTIAL_ROTATION_REQUIRED" : "AUTHENTICATED");
       lastLoginPasswordRef.current = "";
     } catch (err) {
       if (err instanceof AmbiguousTenantError) {
@@ -226,30 +228,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         lastLoginPasswordRef.current = "";
       }
     }
-  }, [session]);
+  }, [applyAuthResponse]);
 
-  /** Re-login with a specific tenantId after an ambiguous tenant 409. */
   const loginWithTenant = useCallback(async (tenantId: string) => {
     refreshEnabledRef.current = true;
     sessionGenerationRef.current += 1;
     setState("AUTHENTICATING");
     setError(null);
     try {
-      const res = await authApi.login({
+      const response = await authApi.login({
         email: lastLoginEmail,
         password: lastLoginPasswordRef.current,
         tenantId,
       });
-      session.setSession(res.accessToken, res.expiresAt);
-      setUser(res.user);
-
-      const meData = await authApi.me();
-      setMe(meData);
-      if (meData.credentialRotationRequired) {
-        setState("CREDENTIAL_ROTATION_REQUIRED");
-      } else {
-        setState("AUTHENTICATED");
-      }
+      applyAuthResponse(response);
+      setState(response.credentialRotationRequired ? "CREDENTIAL_ROTATION_REQUIRED" : "AUTHENTICATED");
       lastLoginPasswordRef.current = "";
     } catch (err) {
       if (err instanceof AmbiguousTenantError) {
@@ -261,9 +254,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         lastLoginPasswordRef.current = "";
       }
     }
-  }, [lastLoginEmail, session]);
+  }, [applyAuthResponse, lastLoginEmail]);
 
-  /** Dismiss the tenant picker and go back to login form. */
   const dismissAmbiguousTenant = useCallback(() => {
     setAmbiguousTenantIds([]);
     setState("ANONYMOUS");
@@ -271,74 +263,128 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    // Invalidate in-flight refresh work before the network request. The BFF also
-    // clears the first-party cookie even when upstream revocation is unavailable.
     refreshEnabledRef.current = false;
     sessionGenerationRef.current += 1;
     setState("LOGGING_OUT");
     try {
       await authApi.logout();
     } catch {
-      // Local logout remains authoritative. The operational synthetic reports
-      // upstream revocation failures separately.
+      // Local logout is authoritative; the BFF clears first-party cookies.
     }
-    session.clearSession();
-    setUser(null);
-    setMe(null);
+    clearIdentity();
     setError(null);
+    setCanRetrySessionRestore(false);
     setState("ANONYMOUS");
     lastLoginPasswordRef.current = "";
-  }, [session]);
+  }, [clearIdentity]);
 
   const refresh = useCallback(async () => {
     refreshEnabledRef.current = true;
-    setState("REFRESHING");
+    setState("REFRESHING_SESSION");
     try {
-      await runRefresh();
-      setState("AUTHENTICATED");
+      const response = await runRefresh();
+      setState(response.credentialRotationRequired ? "CREDENTIAL_ROTATION_REQUIRED" : "AUTHENTICATED");
     } catch (err) {
-      session.clearSession();
-      setUser(null);
-      setMe(null);
+      clearIdentity();
       setError(toUserFacingError(err));
       setState("EXPIRED");
       throw err;
     }
-  }, [runRefresh, session]);
+  }, [clearIdentity, runRefresh]);
+
+  const retrySessionRestore = useCallback(async () => {
+    if (!canRetrySessionRestore) return;
+    await restoreSession();
+  }, [canRetrySessionRestore, restoreSession]);
 
   const loadMe = useCallback(async () => {
     try {
-      const meData = await authApi.me();
-      setMe(meData);
+      setMe(await authApi.me());
     } catch (err) {
       setError(toUserFacingError(err));
     }
   }, []);
 
-  /** Change credential (self-service password rotation). */
   const changeCredential = useCallback(async (currentPassword: string, newPassword: string) => {
+    const email = lastLoginEmail || user?.email || "";
+    const tenantId = user?.tenantId;
+    let credentialChanged = false;
+    setCredentialProcessing(true);
     setError(null);
     try {
       await authApi.changeCredential({
         currentCredential: currentPassword,
         newCredential: newPassword,
       });
-      const meData = await authApi.me();
-      setMe(meData);
+      credentialChanged = true;
+
+      // Credential rotation revokes the old access/refresh session. Remove the
+      // now-invalid in-memory token before establishing the replacement session.
+      clearIdentity();
+      sessionGenerationRef.current += 1;
+      refreshEnabledRef.current = true;
+      const response = await authApi.login({ email, password: newPassword, tenantId });
+      applyAuthResponse(response);
       setState("AUTHENTICATED");
     } catch (err) {
       setError(toUserFacingError(err));
+      // If the credential was already changed, the old authenticated session is
+      // intentionally gone. Return to normal login rather than offering another
+      // rotation attempt that can no longer be authorized.
+      setState(credentialChanged ? "ERROR" : "CREDENTIAL_ROTATION_REQUIRED");
       throw err;
+    } finally {
+      setCredentialProcessing(false);
     }
-  }, []);
+  }, [applyAuthResponse, clearIdentity, lastLoginEmail, user]);
 
   const clearError = useCallback(() => {
     setError(null);
   }, []);
 
   const value = useMemo(
-    () => ({ state, user, me, error, ambiguousTenantIds, lastLoginEmail, login, loginWithTenant, dismissAmbiguousTenant, logout, refresh, loadMe, changeCredential, clearError }),
-    [state, user, me, error, ambiguousTenantIds, lastLoginEmail, login, loginWithTenant, dismissAmbiguousTenant, logout, refresh, loadMe, changeCredential, clearError],
+    () => ({
+      state,
+      user,
+      me,
+      error,
+      ambiguousTenantIds,
+      lastLoginEmail,
+      defaultDestination,
+      availableDestinations,
+      canRetrySessionRestore,
+      credentialProcessing,
+      login,
+      loginWithTenant,
+      dismissAmbiguousTenant,
+      logout,
+      refresh,
+      retrySessionRestore,
+      loadMe,
+      changeCredential,
+      clearError,
+    }),
+    [
+      state,
+      user,
+      me,
+      error,
+      ambiguousTenantIds,
+      lastLoginEmail,
+      defaultDestination,
+      availableDestinations,
+      canRetrySessionRestore,
+      credentialProcessing,
+      login,
+      loginWithTenant,
+      dismissAmbiguousTenant,
+      logout,
+      refresh,
+      retrySessionRestore,
+      loadMe,
+      changeCredential,
+      clearError,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
+import { ApiHttpError } from "@/lib/api/errors";
+import type { AuthResponse } from "@/lib/api/auth";
 import { AuthProvider, useAuth } from "./auth-provider";
 
 const { authApiMock } = vi.hoisted(() => ({
@@ -20,6 +20,13 @@ const { authApiMock } = vi.hoisted(() => ({
 
 vi.mock("@/lib/api/auth", () => ({
   authApi: authApiMock,
+  authResponseToMe: (response: AuthResponse) => ({
+    ...response.user,
+    lastLoginAt: response.lastLoginAt,
+    credentialRotationRequired: response.credentialRotationRequired,
+    memberships: response.memberships,
+    roleGrants: response.effectiveRoleGrants,
+  }),
   AmbiguousTenantError: class AmbiguousTenantError extends Error {
     readonly tenantIds: string[];
     constructor(message: string, tenantIds: string[]) {
@@ -30,281 +37,137 @@ vi.mock("@/lib/api/auth", () => ({
   },
 }));
 
-const defaultUser = {
-  id: "u1",
-  tenantId: "t1",
-  email: "test@example.com",
-  displayName: null,
-  status: "ACTIVE",
-};
-
-const defaultMe = {
-  ...defaultUser,
-  lastLoginAt: null,
+const bootstrap = {
+  accessToken: "access-token",
+  expiresAt: "2099-01-01T00:00:00Z",
+  user: {
+    id: "u1",
+    tenantId: "t1",
+    email: "test@example.com",
+    displayName: "Test User",
+    status: "ACTIVE",
+  },
+  lastLoginAt: "2026-07-18T10:00:00Z",
   credentialRotationRequired: false,
   memberships: [],
-  roleGrants: [],
+  effectiveRoleGrants: [],
+  defaultOrganizationId: null,
+  defaultDestination: "/crm",
+  availableDestinations: ["/workspace", "/crm"],
+  tenantContext: { tenantId: "t1", defaultOrganizationId: null },
 };
 
-/** Container that captures the latest auth context via useEffect. */
 const authContainer: { current: ReturnType<typeof useAuth> | null } = { current: null };
 
-function AuthProbe() {
+function Probe() {
   const auth = useAuth();
-  useEffect(() => {
-    authContainer.current = auth;
-  });
-  return <span data-testid="state">{auth.state}</span>;
-}
-
-function renderProvider() {
-  return render(
-    <AuthProvider>
-      <AuthProbe />
-    </AuthProvider>,
+  useEffect(() => { authContainer.current = auth; });
+  return (
+    <div>
+      <span data-testid="state">{auth.state}</span>
+      <span data-testid="retry">{String(auth.canRetrySessionRestore)}</span>
+      <span data-testid="destination">{auth.defaultDestination}</span>
+    </div>
   );
 }
 
-describe("AuthProvider — Password Ref Security", () => {
+function renderProvider() {
+  return render(<AuthProvider><Probe /></AuthProvider>);
+}
+
+function clearCookies() {
+  document.cookie = "sanad_session_hint=; Max-Age=0; Path=/";
+}
+
+describe("AuthProvider bootstrap", () => {
   beforeEach(() => {
-    authApiMock.refresh.mockReset();
-    authApiMock.login.mockReset();
-    authApiMock.logout.mockReset();
-    authApiMock.me.mockReset();
-    authApiMock.changeCredential.mockReset();
+    clearCookies();
     authContainer.current = null;
-    // Default: fail silent refresh so we start in ANONYMOUS
-    authApiMock.refresh.mockRejectedValue(new Error("no cookie"));
+    for (const mock of Object.values(authApiMock)) mock.mockReset();
   });
 
   afterEach(() => {
     cleanup();
+    clearCookies();
   });
 
-  it("clears password ref after successful direct login", async () => {
-    authApiMock.login.mockResolvedValue({
-      accessToken: "token",
-      expiresAt: "2099-01-01T00:00:00Z",
-      user: defaultUser,
-    });
-    authApiMock.me.mockResolvedValue(defaultMe);
-
+  it("shows anonymous state without making a speculative refresh for a new visitor", async () => {
     renderProvider();
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent("ANONYMOUS"));
+    expect(authApiMock.refresh).not.toHaveBeenCalled();
+  });
 
-    // Wait for INITIALIZING → ANONYMOUS
-    await waitFor(() => {
-      expect(screen.getByTestId("state")).toHaveTextContent("ANONYMOUS");
-    });
+  it("restores a hinted session from one refresh bootstrap and never calls /me", async () => {
+    document.cookie = "sanad_session_hint=1; Path=/";
+    authApiMock.refresh.mockResolvedValue(bootstrap);
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent("AUTHENTICATED"));
+    expect(authApiMock.refresh).toHaveBeenCalledTimes(1);
+    expect(authApiMock.me).not.toHaveBeenCalled();
+    expect(screen.getByTestId("destination")).toHaveTextContent("/crm");
+  });
 
-    // Trigger login
+  it("logs in from a single bootstrap response without a sequential /me request", async () => {
+    authApiMock.login.mockResolvedValue(bootstrap);
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent("ANONYMOUS"));
     await act(async () => {
-      await authContainer.current!.login({ email: "test@example.com", password: "secret123" });
+      await authContainer.current!.login({ email: "test@example.com", password: "secret" });
     });
-
-    // After success, state should be AUTHENTICATED
     expect(screen.getByTestId("state")).toHaveTextContent("AUTHENTICATED");
-
-    // Verify password ref is cleared by attempting loginWithTenant
-    // (should use empty password since ref was cleared)
-    authApiMock.login.mockClear();
-    authApiMock.login.mockResolvedValue({
-      accessToken: "token2",
-      expiresAt: "2099-01-01T00:00:00Z",
-      user: defaultUser,
-    });
-
-    await act(async () => {
-      try {
-        await authContainer.current!.loginWithTenant("t1");
-      } catch {
-        // Expected — password ref is empty
-      }
-    });
-
-    expect(authApiMock.login).toHaveBeenCalledWith(
-      expect.objectContaining({ password: "" }),
-    );
+    expect(authApiMock.login).toHaveBeenCalledTimes(1);
+    expect(authApiMock.me).not.toHaveBeenCalled();
   });
 
-  it("clears password ref after dismissAmbiguousTenant", async () => {
-    const { AmbiguousTenantError } = await import("@/lib/api/auth");
-    authApiMock.login.mockRejectedValue(new AmbiguousTenantError("ambiguous", ["t1", "t2"]));
-
-    renderProvider();
-
-    await waitFor(() => {
-      expect(screen.getByTestId("state")).toHaveTextContent("ANONYMOUS");
-    });
-
-    // Trigger login that results in ambiguous tenant
-    await act(async () => {
-      await authContainer.current!.login({ email: "test@example.com", password: "secret123" });
-    });
-
-    expect(screen.getByTestId("state")).toHaveTextContent("AMBIGUOUS_TENANT");
-
-    // Dismiss
-    await act(async () => {
-      authContainer.current!.dismissAmbiguousTenant();
-    });
-
-    expect(screen.getByTestId("state")).toHaveTextContent("ANONYMOUS");
-
-    // Verify password ref is cleared — loginWithTenant should use empty password
-    authApiMock.login.mockClear();
-    authApiMock.login.mockResolvedValue({
-      accessToken: "token",
-      expiresAt: "2099-01-01T00:00:00Z",
-      user: defaultUser,
-    });
-
-    await act(async () => {
-      try {
-        await authContainer.current!.loginWithTenant("t1");
-      } catch {
-        // Expected
-      }
-    });
-
-    expect(authApiMock.login).toHaveBeenCalledWith(
-      expect.objectContaining({ password: "" }),
-    );
-  });
-
-  it("clears password ref after non-ambiguous error", async () => {
-    authApiMock.login.mockRejectedValue(new Error("invalid credentials"));
-
-    renderProvider();
-
-    await waitFor(() => {
-      expect(screen.getByTestId("state")).toHaveTextContent("ANONYMOUS");
-    });
-
-    await act(async () => {
-      try {
-        await authContainer.current!.login({ email: "test@example.com", password: "secret123" });
-      } catch {
-        // Expected
-      }
-    });
-
-    expect(screen.getByTestId("state")).toHaveTextContent("ERROR");
-
-    // Verify password ref is cleared by attempting loginWithTenant
-    authApiMock.login.mockClear();
-    authApiMock.me.mockResolvedValue(defaultMe);
-    authApiMock.login.mockResolvedValue({
-      accessToken: "token",
-      expiresAt: "2099-01-01T00:00:00Z",
-      user: defaultUser,
-    });
-
-    await act(async () => {
-      try {
-        await authContainer.current!.loginWithTenant("t1");
-      } catch {
-        // Expected
-      }
-    });
-
-    expect(authApiMock.login).toHaveBeenCalledWith(
-      expect.objectContaining({ password: "" }),
-    );
-  });
-
-  it("retains password ref only during ambiguous tenant selection", async () => {
-    const { AmbiguousTenantError } = await import("@/lib/api/auth");
-    authApiMock.login.mockRejectedValueOnce(new AmbiguousTenantError("ambiguous", ["t1"]));
-
-    renderProvider();
-
-    await waitFor(() => {
-      expect(screen.getByTestId("state")).toHaveTextContent("ANONYMOUS");
-    });
-
-    // Trigger login that results in ambiguous tenant
-    await act(async () => {
-      await authContainer.current!.login({ email: "test@example.com", password: "secret123" });
-    });
-
-    expect(screen.getByTestId("state")).toHaveTextContent("AMBIGUOUS_TENANT");
-
-    // Now loginWithTenant should use the retained password (not empty)
-    authApiMock.login.mockResolvedValueOnce({
-      accessToken: "token",
-      expiresAt: "2099-01-01T00:00:00Z",
-      user: defaultUser,
-    });
-    authApiMock.me.mockResolvedValue(defaultMe);
-
-    await act(async () => {
-      await authContainer.current!.loginWithTenant("t1");
-    });
-
-    expect(screen.getByTestId("state")).toHaveTextContent("AUTHENTICATED");
-    // Verify login was called with the retained password (not empty)
-    expect(authApiMock.login).toHaveBeenCalledWith(
-      expect.objectContaining({ password: "secret123", tenantId: "t1" }),
-    );
-  });
-
-  it("runs silent refresh only once while profile loading triggers rerenders", async () => {
-    let resolveMe:
-      | ((value: typeof defaultMe) => void)
-      | undefined;
-
-    authApiMock.refresh.mockImplementation(async () => ({
-      accessToken: "test-access-token",
-      expiresAt: "2099-01-01T00:00:00Z",
-      user: {
-        ...defaultUser,
-      },
+  it("treats rejected refresh credentials as an anonymous session, not an outage", async () => {
+    document.cookie = "sanad_session_hint=1; Path=/";
+    authApiMock.refresh.mockRejectedValue(new ApiHttpError("unauthorized", {
+      status: 401,
+      error: "Unauthorized",
+      message: null,
+      path: null,
+      requestId: null,
+      body: null,
     }));
-
-    authApiMock.me.mockImplementation(
-      () =>
-        new Promise<typeof defaultMe>((resolve) => {
-          resolveMe = resolve;
-        }),
-    );
-
     renderProvider();
-
-    await waitFor(() => {
-      expect(authApiMock.refresh).toHaveBeenCalledTimes(1);
-    });
-
-    await act(async () => {
-      resolveMe?.({
-        ...defaultMe,
-      });
-    });
-
-    await waitFor(() => {
-      expect(screen.getByTestId("state")).toHaveTextContent(
-        "AUTHENTICATED",
-      );
-    });
-
-    expect(authApiMock.refresh).toHaveBeenCalledTimes(1);
-    expect(authApiMock.me).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent("ANONYMOUS"));
+    expect(screen.getByTestId("retry")).toHaveTextContent("false");
   });
 
-  it("does not re-run bootstrap on child rerender after authentication", async () => {
-    authApiMock.refresh.mockResolvedValue({
-      accessToken: "test-access-token",
-      expiresAt: "2099-01-01T00:00:00Z",
-      user: { ...defaultUser },
-    });
-    authApiMock.me.mockResolvedValue({ ...defaultMe });
-
+  it("surfaces transient restore failures with a retry path", async () => {
+    document.cookie = "sanad_session_hint=1; Path=/";
+    authApiMock.refresh
+      .mockRejectedValueOnce(new Error("temporary network failure"))
+      .mockResolvedValueOnce(bootstrap);
     renderProvider();
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent("ERROR"));
+    expect(screen.getByTestId("retry")).toHaveTextContent("true");
+    await act(async () => { await authContainer.current!.retrySessionRestore(); });
+    expect(screen.getByTestId("state")).toHaveTextContent("AUTHENTICATED");
+  });
 
-    await waitFor(() => {
-      expect(screen.getByTestId("state")).toHaveTextContent("AUTHENTICATED");
+  it("re-establishes a fresh bootstrap after mandatory credential rotation without /me", async () => {
+    const rotationBootstrap = { ...bootstrap, credentialRotationRequired: true };
+    authApiMock.login
+      .mockResolvedValueOnce(rotationBootstrap)
+      .mockResolvedValueOnce(bootstrap);
+    authApiMock.changeCredential.mockResolvedValue(undefined);
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent("ANONYMOUS"));
+    await act(async () => {
+      await authContainer.current!.login({ email: "test@example.com", password: "old-secret" });
     });
-
-    // After authenticated, refresh should have been called exactly once
-    expect(authApiMock.refresh).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("state")).toHaveTextContent("CREDENTIAL_ROTATION_REQUIRED");
+    await act(async () => {
+      await authContainer.current!.changeCredential("old-secret", "new-secret");
+    });
+    expect(authApiMock.changeCredential).toHaveBeenCalledTimes(1);
+    expect(authApiMock.login).toHaveBeenLastCalledWith({
+      email: "test@example.com",
+      password: "new-secret",
+      tenantId: "t1",
+    });
+    expect(authApiMock.me).not.toHaveBeenCalled();
+    expect(screen.getByTestId("state")).toHaveTextContent("AUTHENTICATED");
   });
 });

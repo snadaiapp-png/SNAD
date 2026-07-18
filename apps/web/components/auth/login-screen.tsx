@@ -10,6 +10,7 @@ interface LoginScreenProps {
   authenticating: boolean;
   error: UserFacingError | null;
   sessionExpired?: boolean;
+  onRetrySession?: () => Promise<void>;
 }
 
 export function LoginScreen({
@@ -17,6 +18,7 @@ export function LoginScreen({
   authenticating,
   error,
   sessionExpired = false,
+  onRetrySession,
 }: LoginScreenProps) {
   return (
     <div className={styles.authShell}>
@@ -27,6 +29,7 @@ export function LoginScreen({
           authenticating={authenticating}
           error={error}
           sessionExpired={sessionExpired}
+          onRetrySession={onRetrySession}
         />
       </div>
     </div>

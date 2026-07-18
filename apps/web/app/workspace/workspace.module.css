@@ -1,0 +1,63 @@
+.root {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  padding: 2rem;
+}
+.hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+.title { margin: 0 0 0.5rem; font-size: clamp(1.75rem, 4vw, 2.5rem); color: var(--snad-text-primary); }
+.subtitle { margin: 0; color: var(--snad-text-secondary); }
+.sessionCard {
+  min-width: 220px;
+  padding: 1rem;
+  border: 1px solid var(--snad-border-default);
+  border-radius: var(--snad-radius-lg);
+  background: var(--snad-surface-primary);
+}
+.sessionLabel { display: block; color: var(--snad-text-muted); font-size: 0.8rem; margin-bottom: 0.25rem; }
+.sessionValue { color: var(--snad-text-primary); font-weight: 700; overflow-wrap: anywhere; }
+.sectionTitle { margin: 0 0 1rem; font-size: 1.15rem; color: var(--snad-text-primary); }
+.appGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.appCard {
+  display: flex;
+  min-height: 170px;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem;
+  text-decoration: none;
+  border: 1px solid var(--snad-border-default);
+  border-radius: var(--snad-radius-lg);
+  background: var(--snad-surface-primary);
+  color: var(--snad-text-primary);
+  transition: transform var(--snad-motion-fast), border-color var(--snad-motion-fast), box-shadow var(--snad-motion-fast);
+}
+.appCard:hover { transform: translateY(-2px); border-color: var(--snad-brand-primary); box-shadow: var(--snad-shadow-md); }
+.appCard:focus-visible { outline: 3px solid var(--snad-focus-ring); outline-offset: 2px; }
+.appName { font-size: 1.1rem; font-weight: 800; }
+.appDescription { color: var(--snad-text-secondary); line-height: 1.6; }
+.appAction { color: var(--snad-brand-primary); font-weight: 700; }
+.footer { display: flex; justify-content: flex-end; margin-top: 2rem; }
+.logout {
+  min-height: 44px;
+  padding: 0.7rem 1.25rem;
+  border: 1px solid var(--snad-border-default);
+  border-radius: var(--snad-radius-md);
+  background: var(--snad-surface-primary);
+  color: var(--snad-text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+.logout:hover { background: var(--snad-surface-secondary); }
+@media (max-width: 820px) {
+  .hero { flex-direction: column; }
+  .sessionCard { width: 100%; }
+  .appGrid { grid-template-columns: 1fr; }
+  .root { padding: 1rem; }
+}
