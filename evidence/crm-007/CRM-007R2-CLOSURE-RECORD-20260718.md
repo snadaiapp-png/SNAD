@@ -21,7 +21,7 @@ CRM-008:              NOT AUTHORIZED
 CRM-007 feature merge:
 083ea46bec989a27f60d7f6ca0085230188470b9
 
-BFF API v2 hotfix merge:
+BFF route-v2 correction merge:
 ff4fba0bec7873ee11b760fbf43c4e562ba11eaf
 
 CRM-G1 reconciliation merge:
@@ -69,25 +69,20 @@ dpl_CD4Yq9BK1xwwzcjiAsMfwRSR8koe — READY
 
 ## 4. الفحص الحي الحالي
 
-أعيد الفحص على Production بعد تحرك `main` إلى `7b7c06d...`:
+أعيد الفحص على Production بعد تحرك `main` إلى `7b7c06d...`.
+
+فحص مباشر من Vercel أعاد بصورة متقطعة `502` لمساري BFF، كما تحتوي سجلات Vercel على أخطاء timeout حديثة. ثم أعيد تشغيل الـSynthetic المحمي ونجح في الوصول إلى حد المصادقة:
 
 ```text
-GET /api/system/backend-status
-HTTP 200
-configured=true
-reachable=true
-statusCode=200
+Workflow run: 29604059612
+Job: 88103207876
+Protected identity variables: PRESENT
+Anonymous /api/v1/auth/me: HTTP 401 — expected
+Login: HTTP 401 — failed
+Sanitized evidence artifact: 8432109300
 ```
 
-لكن المسارات الفعلية أعادت:
-
-```text
-GET /api/platform/api/v1/auth/me
-HTTP 502
-
-GET /api/platform/api/v2/crm/accounts/{id}/addresses
-HTTP 502
-```
+النتيجة تثبت أن مسار Vercel → BFF → backend وصل إلى خدمة المصادقة في محاولة الـSynthetic، لكنها تثبت أيضًا أن هوية Smoke الحالية غير صالحة في قاعدة runtime النشطة. لا يجوز تسجيل authenticated smoke كناجح.
 
 كما توجد مجموعة أخطاء حديثة في Vercel:
 
@@ -125,12 +120,12 @@ H2 in PostgreSQL mode
 
 ظهور بيانات اعتماد في المحادثة يفرض التدوير قبل استخدام أي منها مجددًا:
 
-- GitHub PAT المشار إليه في الجلسة: rotation/revocation غير مثبت.
-- Vercel tokens المشار إليها في الجلسة: rotation/revocation غير مثبت.
+- بيانات اعتماد GitHub المشار إليها في الجلسة: rotation/revocation غير مثبت.
+- بيانات اعتماد Vercel المشار إليها في الجلسة: rotation/revocation غير مثبت.
 
 لا يحتوي هذا الملف على القيم السرية ولا يجوز إضافتها للمستودع أو السجلات.
 
-Authenticated production smoke غير منفذ لعدم وجود هوية Smoke مخصصة مثبتة. Anonymous `401` يثبت حدود المصادقة فقط، ولا يثبت CRUD أو tenant isolation أو RBAC بعد تسجيل الدخول.
+Authenticated production smoke فشل لأن login أعاد `401`. Anonymous `401` يثبت حدود المصادقة فقط، ولا يثبت CRUD أو tenant isolation أو RBAC بعد تسجيل الدخول.
 
 ## 7. العوائق المتبقية
 
@@ -138,8 +133,8 @@ Authenticated production smoke غير منفذ لعدم وجود هوية Smoke 
 2. تشغيل backend runtime بملف `prod` وقاعدة PostgreSQL دائمة.
 3. إثبات تطبيق Flyway `20260718.1` على قاعدة runtime الدائمة.
 4. إثبات post-migration schema من قاعدة runtime الدائمة.
-5. إنشاء هوية Production Smoke محدودة الصلاحيات.
-6. تنفيذ login/session/refresh smoke عبر Vercel+BFF.
+5. إنشاء أو مزامنة هوية Production Smoke محدودة الصلاحيات داخل قاعدة runtime الدائمة.
+6. تنفيذ login/session/refresh smoke عبر Vercel+BFF بنجاح.
 7. تنفيذ CRM-007 authenticated lifecycle وconflict smoke.
 8. تنفيذ two-tenant isolation وRBAC وaudit/timeline smoke.
 9. استبدال ngrok العشوائي بنطاق محجوز أو Cloudflare Tunnel ثابت، أو إثبات استقرار endpoint المعتمد.
