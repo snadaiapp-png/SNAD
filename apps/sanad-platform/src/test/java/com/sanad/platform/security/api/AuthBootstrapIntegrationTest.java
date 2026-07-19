@@ -65,8 +65,15 @@ class AuthBootstrapIntegrationTest {
                 .andExpect(jsonPath("$.credentialRotationRequired").value(false))
                 .andExpect(jsonPath("$.memberships").isArray())
                 .andExpect(jsonPath("$.effectiveRoleGrants[0].roleCode").value("VIEWER"))
-                .andExpect(jsonPath("$.defaultDestination").value("/crm"))
+                // EXEC-PROMPT-SANAD-FULLSTACK-REMEDIATION-010:
+                // The VIEWER role granted here has NO capabilities, so the new
+                // capability-derived LoginDestinationResolver must return only
+                // the safe /workspace destination (not the legacy hard-coded
+                // /crm). The previous behavior leaked UI destinations the user
+                // had no authorization to use.
+                .andExpect(jsonPath("$.defaultDestination").value("/workspace"))
                 .andExpect(jsonPath("$.availableDestinations").isArray())
+                .andExpect(jsonPath("$.availableDestinations[0]").value("/workspace"))
                 .andExpect(jsonPath("$.tenantContext.tenantId").value(tenant.getId().toString()));
     }
 }
