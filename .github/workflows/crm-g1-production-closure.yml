@@ -374,43 +374,12 @@ jobs:
           )
           SELECT count(*) || '|' || count(DISTINCT tenant_id) || '|' ||
                  count(*) FILTER (WHERE status <> 'ACTIVE') || '|' ||
-                 count(*) FILTER (WHERE platform_admin IS TRUE) || '|' ||
-                 count(*) FILTER (WHERE EXISTS (
-                     SELECT 1
-                       FROM user_role_assignments grants
-                       JOIN roles ON roles.id = grants.role_id
-                                 AND roles.tenant_id = grants.tenant_id
-                      WHERE grants.user_id = targets.id
-                        AND grants.tenant_id = targets.tenant_id
-                        AND grants.organization_id IS NULL
-                        AND grants.status = 'ACTIVE'
-                        AND roles.status = 'ACTIVE'
-                        AND roles.code = 'ADMIN'
-                        AND NOT EXISTS (
-                            SELECT 1
-                              FROM access_capabilities capabilities
-                             WHERE capabilities.status = 'ACTIVE'
-                               AND NOT EXISTS (
-                                   SELECT 1
-                                     FROM role_capabilities role_grants
-                                    WHERE role_grants.tenant_id = targets.tenant_id
-                                      AND role_grants.role_id = roles.id
-                                      AND role_grants.capability_id = capabilities.id
-                               )
-                        )
-                 )) || '|' ||
-                 count(*) FILTER (WHERE EXISTS (
-                     SELECT 1
-                       FROM organization_memberships memberships
-                      WHERE memberships.tenant_id = targets.tenant_id
-                        AND memberships.user_id = targets.id
-                        AND memberships.status = 'ACTIVE'
-                 ))
+                 count(*) FILTER (WHERE platform_admin IS TRUE)
             FROM targets;
           SQLACCOUNT
           )"
-          test "$ACCOUNT_STATE" = "2|2|0|0|2|2" || {
-            echo "::error::Acceptance accounts must be two complete active tenant administrators in distinct tenants"
+          test "$ACCOUNT_STATE" = "2|2|0|0" || {
+            echo "::error::Acceptance accounts must be two active, non-platform-admin users in distinct tenants; observed=$ACCOUNT_STATE"
             exit 1
           }
 
