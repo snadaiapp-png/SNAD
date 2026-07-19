@@ -209,11 +209,15 @@ jobs:
             -DskipTests -Dmaven.test.skip=true clean package
 
           PSQL_URL="${PROD_JDBC_URL#jdbc:}"
-          ORPHANED_HISTORY_COUNT="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+          FLYWAY_HISTORY_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
             -X -v ON_ERROR_STOP=1 -Atc \
-            "SELECT count(*) FROM flyway_schema_history WHERE version IN ('20260716.1','20260716.2','20260717.6') AND success=true")"
-          test "$ORPHANED_HISTORY_COUNT" = "3" || {
-            echo "::error::Expected three successful orphaned Flyway history rows; found $ORPHANED_HISTORY_COUNT"
+            "SELECT count(*) FILTER (WHERE version='20260717.6' AND success=true) || '|' ||
+                    count(*) FILTER (WHERE version IN ('20260716.1','20260716.2') AND success=true) || '|' ||
+                    count(*) FILTER (WHERE success=false)
+               FROM flyway_schema_history
+              WHERE version IN ('20260716.1','20260716.2','20260717.6')")"
+          test "$FLYWAY_HISTORY_STATE" = "1|0|0" || {
+            echo "::error::Unexpected CRM-G1 Flyway history shape; expected target=1 earlier=0 failed=0"
             exit 1
           }
 
