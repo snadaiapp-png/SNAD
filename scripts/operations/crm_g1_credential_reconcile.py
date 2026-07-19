@@ -99,6 +99,7 @@ def reconcile_account(
     bootstrap_values = {
         "SANAD_SECURITY_BOOTSTRAP_ENABLED": "true",
         "SANAD_SECURITY_BOOTSTRAP_FORCE_RESET": "true",
+        "SANAD_SECURITY_BOOTSTRAP_CREDENTIAL_ONLY": "true",
         "SANAD_SECURITY_BOOTSTRAP_TENANT_ID": tenant_id,
         "SANAD_SECURITY_BOOTSTRAP_ADMIN_EMAIL": email,
         "SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD": desired_password,
@@ -132,6 +133,7 @@ def cleanup(client: RenderClient) -> str:
     cleanup_values = {
         "SANAD_SECURITY_BOOTSTRAP_ENABLED": "false",
         "SANAD_SECURITY_BOOTSTRAP_FORCE_RESET": "false",
+        "SANAD_SECURITY_BOOTSTRAP_CREDENTIAL_ONLY": "false",
         "SANAD_SECURITY_BOOTSTRAP_TENANT_ID": "",
         "SANAD_SECURITY_BOOTSTRAP_ADMIN_EMAIL": "",
         "SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD": "",
@@ -182,7 +184,7 @@ def main() -> int:
                 )
 
     evidence = {
-        "operation": "supported-application-bootstrap-and-self-service-rotation",
+        "operation": "credential-only-bootstrap-and-self-service-rotation",
         "accountsReconciled": len(deploy_ids),
         "distinctTenants": 2,
         "platformAdminAccountsModified": 0,
