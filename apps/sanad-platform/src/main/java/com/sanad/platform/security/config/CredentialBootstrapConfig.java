@@ -43,6 +43,9 @@ public class CredentialBootstrapConfig {
     @Value("${sanad.security.bootstrap.force-reset:false}")
     private boolean forceReset;
 
+    @Value("${sanad.security.bootstrap.credential-only:false}")
+    private boolean credentialOnly;
+
     @Value("${sanad.security.bootstrap.tenant-id:}")
     private String tenantIdValue;
 
@@ -86,7 +89,8 @@ public class CredentialBootstrapConfig {
                     adminEmail,
                     adminPassword,
                     adminDisplayName,
-                    auditActor);
+                    auditActor,
+                    credentialOnly);
         };
     }
 }
