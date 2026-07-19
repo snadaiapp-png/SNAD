@@ -162,3 +162,4 @@ download/
 .env.local.secret
 *.token
 *.secrets
+SNAD-https/

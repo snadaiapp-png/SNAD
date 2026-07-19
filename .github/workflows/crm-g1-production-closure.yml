@@ -2,7 +2,7 @@
 # Required Production secrets:
 #   PROD_JDBC_URL, PROD_DB_USER, PROD_DB_PASSWORD
 # Reused Production secrets:
-#   VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_TEAM_ID
+#   VERCEL_TOKEN, VERCEL_TEAM_ID
 #   AUTH_SMOKE_TENANT_A_EMAIL/PASSWORD, AUTH_SMOKE_TENANT_B_EMAIL/PASSWORD
 # Optional CRM-specific overrides:
 #   CRM_TENANT_A_EMAIL/PASSWORD, CRM_TENANT_B_EMAIL/PASSWORD
@@ -52,6 +52,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          submodules: false
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -82,7 +83,6 @@ jobs:
           CRM_TENANT_B_EMAIL: ${{ secrets.CRM_TENANT_B_EMAIL || secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
           CRM_TENANT_B_PASSWORD: ${{ secrets.CRM_TENANT_B_PASSWORD || secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
         run: |
           set -euo pipefail
@@ -94,7 +94,7 @@ jobs:
           for value in "$PROD_JDBC_URL" "$PROD_DB_USER" "$PROD_DB_PASSWORD" \
             "$CRM_TENANT_A_EMAIL" "$CRM_TENANT_A_PASSWORD" \
             "$CRM_TENANT_B_EMAIL" "$CRM_TENANT_B_PASSWORD" \
-            "$VERCEL_TOKEN" "$VERCEL_PROJECT_ID" "$VERCEL_TEAM_ID"; do
+            "$VERCEL_TOKEN" "$VERCEL_TEAM_ID"; do
             test -n "$value" || { echo "::error::A required Production secret is missing"; exit 1; }
             echo "::add-mask::$value"
           done
@@ -131,10 +131,31 @@ jobs:
           STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
-          list_url="https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&target=production&limit=100&teamId=${VERCEL_TEAM_ID}"
+          # Create evidence before any external dependency is contacted so failed runs
+          # always retain a diagnostic artifact.
+          jq -n --arg release "$RELEASE_SHA" --arg run "$RUN_URL" --arg started "$STARTED_AT" \
+            '{report_id:"G1-STAGE-REPORT-V1",result:"IN_PROGRESS",release_sha:$release,workflow_run:$run,started_at_utc:$started}' \
+            > "$EVIDENCE_DIR/run-context.json"
+
+          failure_evidence() {
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              jq -n --arg release "$RELEASE_SHA" --arg run "$RUN_URL" --arg completed "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson exit_code "$rc" \
+                '{report_id:"G1-STAGE-REPORT-V1",result:"FAIL",release_sha:$release,workflow_run:$run,completed_at_utc:$completed,exit_code:$exit_code}' \
+                > "$EVIDENCE_DIR/failure-summary.json"
+            fi
+          }
+          trap failure_evidence EXIT
+
+          # Resolve the deployment currently serving the production hostname instead
+          # of listing deployments and filtering a version-sensitive response shape.
+          PRODUCTION_HOST="${PRODUCTION_WEB_BASE_URL#https://}"
+          PRODUCTION_HOST="${PRODUCTION_HOST%%/*}"
+          details_url="https://api.vercel.com/v13/deployments/${PRODUCTION_HOST}?teamId=${VERCEL_TEAM_ID}"
           match=""
-          for attempt in $(seq 1 60); do
-            if ! curl --http1.1 \
+
+          for attempt in $(seq 1 90); do
+            if curl --http1.1 \
               --fail-with-body \
               --silent \
               --show-error \
@@ -142,24 +163,36 @@ jobs:
               --retry-all-errors \
               --retry-delay 2 \
               --connect-timeout 10 \
-              --max-time 30 \
+              --max-time 45 \
               -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-              "$list_url" > "$RUNNER_TEMP/vercel.json"; then
-              echo "::warning::Vercel API attempt ${attempt}/60 failed; retrying"
-              sleep 10
-              continue
-            fi
-            match="$(jq -c --arg sha "$RELEASE_SHA" '[.deployments[]? | select((.meta.githubCommitSha // "") == $sha and (.target // "") == "production")] | sort_by(.createdAt) | last // empty' "$RUNNER_TEMP/vercel.json")"
-            if [ -n "$match" ] && [ "$match" != "null" ]; then
-              state="$(jq -r '.readyState // .state // empty' <<< "$match")"
-              case "$state" in READY) break ;; ERROR|CANCELED) exit 1 ;; esac
+              "$details_url" > "$RUNNER_TEMP/vercel.json"; then
+
+              cp "$RUNNER_TEMP/vercel.json" "$EVIDENCE_DIR/vercel-last-observation.json"
+              live_sha="$(jq -r '.meta.githubCommitSha // empty' "$RUNNER_TEMP/vercel.json")"
+              state="$(jq -r '.readyState // .state // empty' "$RUNNER_TEMP/vercel.json")"
+              target="$(jq -r '.target // empty' "$RUNNER_TEMP/vercel.json")"
+
+              if [ "$live_sha" = "$RELEASE_SHA" ] && [ "$state" = "READY" ] && [ "$target" = "production" ]; then
+                match="$(cat "$RUNNER_TEMP/vercel.json")"
+                break
+              fi
+
+              if [ "$live_sha" = "$RELEASE_SHA" ] && { [ "$state" = "ERROR" ] || [ "$state" = "CANCELED" ]; }; then
+                echo "::error::Exact release deployment reached terminal state: $state"
+                exit 1
+              fi
+
+              echo "Waiting for production alias: attempt=${attempt}/90 live_sha=${live_sha:-none} state=${state:-none} target=${target:-none}"
+            else
+              echo "::warning::Vercel deployment lookup attempt ${attempt}/90 failed; retrying"
             fi
             sleep 10
           done
-          test -n "$match" && test "$match" != "null" || { echo "::error::No exact-main Vercel production deployment"; exit 1; }
-          test "$(jq -r '.readyState // .state' <<< "$match")" = "READY"
-          DEPLOYMENT_ID="$(jq -r '.uid // .id' <<< "$match")"
-          DEPLOYMENT_URL="$(jq -r '.url' <<< "$match")"
+
+          test -n "$match" || { echo "::error::Production alias did not resolve to exact main SHA in READY state"; exit 1; }
+          DEPLOYMENT_ID="$(jq -r '.id // .uid // empty' <<< "$match")"
+          DEPLOYMENT_URL="$(jq -r '.url // empty' <<< "$match")"
+          test -n "$DEPLOYMENT_ID" && test -n "$DEPLOYMENT_URL"
           jq -n --arg sha "$RELEASE_SHA" --arg id "$DEPLOYMENT_ID" --arg url "$DEPLOYMENT_URL" \
             '{release_sha:$sha,deployment_id:$id,deployment_url:$url,result:"PASS"}' > "$EVIDENCE_DIR/vercel-exact-sha.json"
 
