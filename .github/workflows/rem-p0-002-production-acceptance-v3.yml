@@ -7,7 +7,7 @@ on:
     paths:
       - .github/workflows/rem-p0-002-production-acceptance-v3.yml
       - apps/web/app/api/system/release/route.ts
-      - apps/web/app/api/platform/[...path]/route.ts
+      - apps/web/app/api/platform/**/route.ts
       - apps/web/lib/auth/**
       - scripts/operations/bff_auth_session_synthetic.py
   workflow_dispatch:
