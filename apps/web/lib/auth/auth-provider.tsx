@@ -223,10 +223,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAmbiguousTenantIds(err.tenantIds);
         setState("AMBIGUOUS_TENANT");
       } else {
-        // Mark the context as a login attempt so the user-facing mapper emits
-        // "تعذر تسجيل الدخول / البريد الإلكتروني أو كلمة المرور غير صحيحة." for any
-        // HTTP 401, closing the account-enumeration side channel.
-        setError(toUserFacingError(err, { isLoginAttempt: true }));
+        setError(toUserFacingError(err));
         setState("ERROR");
         lastLoginPasswordRef.current = "";
       }
@@ -252,7 +249,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAmbiguousTenantIds(err.tenantIds);
         setState("AMBIGUOUS_TENANT");
       } else {
-        setError(toUserFacingError(err, { isLoginAttempt: true }));
+        setError(toUserFacingError(err));
         setState("ERROR");
         lastLoginPasswordRef.current = "";
       }
