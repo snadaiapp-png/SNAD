@@ -143,18 +143,17 @@ def run_once(production_url: str, timeout: float) -> list[ProbeResult]:
         and integration.get("configured") is True
         and integration.get("reachable") is True
         and integration.get("statusCode") == 200
-        and isinstance(integration.get("targetHost"), str)
-        and bool(integration.get("targetHost"))
+        and "targetHost" not in integration
     )
     checks.append(
         result(
             name="frontend-backend-integration",
             url=integration_url,
-            expected="HTTP 200; configured=true; reachable=true; statusCode=200; targetHost present",
+            expected="HTTP 200; configured=true; reachable=true; statusCode=200; targetHost absent",
             actual=(
                 f"HTTP {status}; configured={integration.get('configured')}; "
                 f"reachable={integration.get('reachable')}; statusCode={integration.get('statusCode')}; "
-                f"targetHost={integration.get('targetHost')}"
+                f"targetHostExposed={'targetHost' in integration}"
             ),
             passed=integration_passed,
             status_code=status,
@@ -181,7 +180,6 @@ def run_once(production_url: str, timeout: float) -> list[ProbeResult]:
     if not auth_passed:
         return checks
 
-    target_host = integration.get("targetHost") if isinstance(integration.get("targetHost"), str) else ""
     expected_host = os.environ.get("SNAD_BACKEND_EXPECTED_HOST", "").strip().lower()
     if not expected_host:
         checks.append(
@@ -196,30 +194,25 @@ def run_once(production_url: str, timeout: float) -> list[ProbeResult]:
         )
         return checks
 
-    host_passed = target_host.lower() == expected_host
-    checks.append(
-        result(
-            name="backend-host-policy",
-            url=integration_url,
-            expected=f"targetHost={expected_host}",
-            actual=f"targetHost={target_host}",
-            passed=host_passed,
-            status_code=None,
-        )
-    )
-    if not host_passed:
-        return checks
-
     override_health_url = os.environ.get("SNAD_BACKEND_HEALTH_URL", "").strip()
     health_url = override_health_url or f"https://{expected_host}/actuator/health"
 
     try:
         health_url = normalize_https_url(health_url)
         health_host = host_with_optional_port(health_url).lower()
-        if health_host != expected_host:
-            raise ValueError(
-                f"Health URL host {health_host!r} does not match the approved backend host {expected_host!r}"
+        host_passed = health_host == expected_host
+        checks.append(
+            result(
+                name="backend-host-policy",
+                url=health_url,
+                expected=f"approved health host={expected_host}",
+                actual=f"health host={health_host}",
+                passed=host_passed,
+                status_code=None,
             )
+        )
+        if not host_passed:
+            return checks
 
         status, body, _ = request(health_url, timeout)
         health_error: str | None = None
@@ -239,7 +232,19 @@ def run_once(production_url: str, timeout: float) -> list[ProbeResult]:
                 detail=health_error,
             )
         )
-    except (ValueError, urllib.error.URLError, TimeoutError, OSError) as error:
+    except ValueError as error:
+        checks.append(
+            result(
+                name="backend-host-policy",
+                url=health_url,
+                expected=f"approved HTTPS health host={expected_host}",
+                actual=type(error).__name__,
+                passed=False,
+                status_code=None,
+                detail=str(error),
+            )
+        )
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
         checks.append(
             result(
                 name="backend-actuator-health",
