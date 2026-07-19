@@ -548,12 +548,24 @@ jobs:
             FROM candidates;
           SQLEMAILTENANTSTATE
                   )"
-                  echo "::error::Tenant IDs are unset and each protected email must map to exactly one distinct ACTIVE tenant through membership or billing email; observed=$EMAIL_TENANT_STATE"
-                  exit 1
+                  if [ "$EMAIL_TENANT_STATE" = "0|0" ]; then
+                    CRM_TENANT_A_ID=""
+                    CRM_TENANT_B_ID=""
+                    CRM_TENANT_A_NAME="CRM G1 Production Acceptance A"
+                    CRM_TENANT_A_SUBDOMAIN="crm-g1-prod-acceptance-a"
+                    CRM_TENANT_B_NAME="CRM G1 Production Acceptance B"
+                    CRM_TENANT_B_SUBDOMAIN="crm-g1-prod-acceptance-b"
+                    CRM_RECONCILIATION_MODE="create-dedicated-tenants"
+                    ACCOUNT_SOURCE="DEDICATED_ACCEPTANCE_TENANT_BOOTSTRAP"
+                  else
+                    echo "::error::Each protected email must map to exactly one distinct ACTIVE tenant or neither may be mapped; observed=$EMAIL_TENANT_STATE"
+                    exit 1
+                  fi
+                else
+                  CRM_TENANT_A_ID="${CRM_TENANT_IDS[0]}"
+                  CRM_TENANT_B_ID="${CRM_TENANT_IDS[1]}"
+                  ACCOUNT_SOURCE="EMAIL_RELATION_TENANT_PAIR_ENROLLMENT"
                 fi
-                CRM_TENANT_A_ID="${CRM_TENANT_IDS[0]}"
-                CRM_TENANT_B_ID="${CRM_TENANT_IDS[1]}"
-                ACCOUNT_SOURCE="EMAIL_RELATION_TENANT_PAIR_ENROLLMENT"
               fi
 
               if [ -n "$CRM_TENANT_A_EMAIL$CRM_TENANT_A_PASSWORD$CRM_TENANT_B_EMAIL$CRM_TENANT_B_PASSWORD" ]; then
@@ -572,7 +584,9 @@ jobs:
                 CRM_TENANT_B_EMAIL="$AUTH_TENANT_B_EMAIL"
                 CRM_TENANT_B_PASSWORD="$AUTH_TENANT_B_PASSWORD"
               fi
-              CRM_RECONCILIATION_MODE="enroll-missing"
+              if [ -z "$CRM_RECONCILIATION_MODE" ]; then
+                CRM_RECONCILIATION_MODE="enroll-missing"
+              fi
             else
               echo "::error::Refusing partial or unexpected acceptance identity state; crm=$CRM_ACCOUNT_STATE auth=$AUTH_ACCOUNT_STATE"
               exit 1
@@ -581,12 +595,36 @@ jobs:
 
           export CRM_TENANT_A_ID CRM_TENANT_A_EMAIL CRM_TENANT_A_PASSWORD
           export CRM_TENANT_B_ID CRM_TENANT_B_EMAIL CRM_TENANT_B_PASSWORD
+          export CRM_TENANT_A_NAME CRM_TENANT_A_SUBDOMAIN
+          export CRM_TENANT_B_NAME CRM_TENANT_B_SUBDOMAIN
           export CRM_RECONCILIATION_MODE
           export CRM_RECONCILIATION_EVIDENCE_DIR="$EVIDENCE_DIR"
-          echo "::add-mask::$CRM_TENANT_A_ID"
-          echo "::add-mask::$CRM_TENANT_B_ID"
+          if [ -n "$CRM_TENANT_A_ID" ]; then echo "::add-mask::$CRM_TENANT_A_ID"; fi
+          if [ -n "$CRM_TENANT_B_ID" ]; then echo "::add-mask::$CRM_TENANT_B_ID"; fi
 
           python3 scripts/operations/crm_g1_credential_reconcile.py
+
+          if [ "$CRM_RECONCILIATION_MODE" = "create-dedicated-tenants" ]; then
+            mapfile -t CRM_TENANT_IDS < <(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+              -X -v ON_ERROR_STOP=1 -At \
+              -v tenant_a_email="$CRM_TENANT_A_EMAIL" \
+              -v tenant_b_email="$CRM_TENANT_B_EMAIL" <<'SQLCREATEDTENANTS'
+          SELECT tenant_id
+            FROM (
+                SELECT 1 AS ordinal, tenant_id FROM users WHERE lower(email) = lower(:'tenant_a_email')
+                UNION ALL
+                SELECT 2 AS ordinal, tenant_id FROM users WHERE lower(email) = lower(:'tenant_b_email')
+            ) created_tenants
+           ORDER BY ordinal;
+          SQLCREATEDTENANTS
+            )
+            test "${#CRM_TENANT_IDS[@]}" = "2"
+            test "${CRM_TENANT_IDS[0]}" != "${CRM_TENANT_IDS[1]}"
+            CRM_TENANT_A_ID="${CRM_TENANT_IDS[0]}"
+            CRM_TENANT_B_ID="${CRM_TENANT_IDS[1]}"
+            echo "::add-mask::$CRM_TENANT_A_ID"
+            echo "::add-mask::$CRM_TENANT_B_ID"
+          fi
 
           POST_ACCOUNT_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
             -X -v ON_ERROR_STOP=1 -At \
