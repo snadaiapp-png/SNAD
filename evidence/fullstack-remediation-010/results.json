@@ -2,25 +2,26 @@
   "spec": "EXEC-PROMPT-SANAD-FULLSTACK-REMEDIATION-010",
   "baseSha": "7b7c06d6a96ee07e082de86baf8169d0b93f8c11",
   "branch": "fix/sanad-fullstack-remediation-010",
+  "pullRequest": {
+    "number": 569,
+    "url": "https://github.com/snadaiapp-png/SNAD/pull/569",
+    "mergeCommitSha": "cc392786352c9c17b8341ebd6539604bf4ef4691",
+    "mergedAt": "2026-07-19T17:50:41Z",
+    "mergeMethod": "squash",
+    "targetBranch": "main"
+  },
   "executionStartedAt": "2026-07-18T19:30:00Z",
   "backendTests": {
-    "status": "PASS (non-Testcontainers)",
-    "count": 708,
+    "status": "PASS — full Testcontainers suite (727/727 tests)",
+    "count": 727,
+    "ciRunId": 29697442650,
+    "ciRunUrl": "https://github.com/snadaiapp-png/SNAD/actions/runs/29697442650",
+    "ciHeadSha": "d26fd551c56737c01fcb7222eaad1169d2038d56 (merge commit of branch with main)",
     "details": {
       "loginDestinationResolverTests": "9/9 PASS",
+      "authBootstrapIntegrationTest": "1/1 PASS (updated assertion to match capability-derived /workspace for VIEWER-no-caps case)",
       "compileResult": "BUILD SUCCESS",
-      "testcontainersExcluded": [
-        "FlywayV15ProductionUpgradeTest",
-        "CrmAddressCommunicationMigrationUpgradeTest",
-        "CrmContactRelationshipMigrationUpgradeTest",
-        "CrmG1TenantIsolationPostgresTest",
-        "CrmPostgresMigrationTest",
-        "ProductionProfileTest",
-        "AccountUseCasesIntegrationTest",
-        "IntegratedBusinessProcessesPostgresE2ETest",
-        "RefreshTokenConcurrencyPostgresTest"
-      ],
-      "testcontainersExcludedReason": "Docker Desktop service is stopped (com.docker.service = Stopped). Requires Windows admin. H2 PostgreSQL-mode tests cover the same migration paths and pass."
+      "testcontainersExcluded": []
     }
   },
   "frontendTests": {
@@ -44,31 +45,46 @@
     }
   },
   "migrationTests": {
-    "status": "PARTIALLY_VERIFIED",
+    "status": "VERIFIED via CI Testcontainers",
     "details": {
       "flywayConfigChange": "application-prod.yml now loads classpath:db/migration,classpath:db/vendor/{vendor} and sets baseline-on-migrate=false by default.",
       "noHistoryModification": true,
       "noFlywayRepair": true,
-      "postgresMigrationTestsStatus": "BLOCKED_ON_DOCKER (9 tests excluded) — covered by H2 equivalents"
+      "postgresMigrationTestsStatus": "PASS — full Testcontainers suite ran green on CI (PostgreSQL Testcontainers Acceptance + Maven Test Suite on Linux Docker)"
     }
   },
   "securityTests": {
-    "status": "TARGETED_UNIT_PASS / DOCKER_DEPENDENT_BLOCKED",
+    "status": "TARGETED_UNIT_PASS + PRODUCTION_VERIFIED",
     "details": {
-      "targetHostHiddenFromAnonymous": "PASS — backend-status no longer returns targetHost (7 contract tests verify)",
-      "loginDestinationCapabilityGated": "PASS — LoginDestinationResolverTest 9/9 covers no-caps, crm-caps, control-plane, multi-family, inactive-role",
-      "credentialEnumerationMitigated": "PASS — login 401 returns identical fixed Arabic message regardless of account existence",
+      "targetHostHiddenFromAnonymous": "PASS — backend-status no longer returns targetHost (7 contract tests verify). PRODUCTION-VERIFIED: https://snad-app.vercel.app/api/system/backend-status returns only {configured,reachable,statusCode,checkedAt} — no 'ngrok', 'streak-train', 'onrender', 'empower', '.dev', 'targetHost', 'host', 'tunnel', 'password', 'secret', 'token' substrings present.",
+      "loginDestinationCapabilityGated": "PASS — LoginDestinationResolverTest 9/9 covers no-caps, crm-caps, control-plane, multi-family, inactive-role. AuthBootstrapIntegrationTest updated and passing.",
+      "credentialEnumerationMitigated": "PASS — login 401 returns identical fixed Arabic message regardless of account existence. PRODUCTION-VERIFIED: POST /api/platform/api/v1/auth/login with nonexistent-user returns 401 + 'بيانات الدخول غير صحيحة'.",
       "nPlusOneInBootstrap": "PASS — buildMeResponse uses batch findByTenantIdAndIdIn",
       "rateLimiterAbstraction": "PASS — LoginRateLimiter interface + CaffeineLoginRateLimiter + LoginRateLimitKeys (IP+account+combined, trusted-proxy policy)"
     }
   },
   "playwrightTests": {
-    "status": "NOT_RUN",
-    "details": "Responsive Playwright suite not executed in this session (requires interactive browser runtime). CSS changes use overflow-y:auto + safe-center + low-viewport fallback which addresses the documented clipping issue."
+    "status": "PASS via CI",
+    "ciRunId": 29697442624,
+    "details": "Playwright E2E & Visual Regression workflow completed with conclusion=success on merge commit d26fd551. Responsive login CSS changes verified in CI browser environment."
   },
   "productionSmoke": {
-    "status": "DEFERRED",
-    "details": "Requires Vercel production deploy of this branch (post-merge). Pre-existing production smoke on main (12/12 PASS at base SHA) remains valid; new changes affect login flow behavior and must be smoke-tested after deploy."
+    "status": "PASS — PRODUCTION DEPLOYED",
+    "deploymentId": "dpl_7vApyBN9BabXp95jgCJpni72KFFW",
+    "deploymentUrl": "https://snad-app.vercel.app",
+    "deploymentCommitSha": "cc392786352c9c17b8341ebd6539604bf4ef4691",
+    "deploymentState": "READY",
+    "deployedAt": "2026-07-19T17:51:22Z (built in ~37s)",
+    "releaseEndpoint": "https://snad-app.vercel.app/api/system/release",
+    "releaseResponseBody": "{\"service\":\"SNAD Web\",\"contractVersion\":\"3\",\"commitSha\":\"cc392786352c9c17b8341ebd6539604bf4ef4691\",\"commitRef\":\"main\",\"environment\":\"production\"}",
+    "smokeEndpoints": [
+      "GET / -> 200 (15.9KB)",
+      "GET /auth/forgot-password -> 200 (12.6KB)",
+      "GET /api/system/backend-status -> 200 (92b, no infra leakage)",
+      "GET /api/system/release -> 200 (confirms cc392786)",
+      "POST /api/platform/api/v1/auth/login (nonexistent user) -> 401 {بيانات الدخول غير صحيحة}"
+    ],
+    "details": "Production release endpoint serves exactly the merged commit SHA. Backend is reachable through ngrok tunnel (backend-status reports reachable=true, statusCode=200). All four public endpoints return 200; login flow returns proper 401 with safe Arabic message; zero infrastructure leakage detected."
   },
   "credentialRotation": {
     "status": "BLOCKED",
@@ -80,11 +96,11 @@
     "details": "Backend runs locally via deploy/self-hosted/docker-compose.windows.yml. Cloud migration requires owner decision on hosting provider; not invented here."
   },
   "openRisks": [
-    "Docker Desktop is not running (service Stopped). 9 PostgreSQL/Testcontainers tests cannot execute locally. CI on GitHub Actions WILL run them (Linux Docker available).",
     "Rate limiter is still in-memory Caffeine. Multi-instance production must register a distributed @Primary LoginRateLimiter (Redis/Valkey adapter) — documented in CaffeineLoginRateLimiter javadoc.",
     "Control-plane bootstrap does NOT auto-disable after operation. Operator MUST set CONTROL_PLANE_BOOTSTRAP_ENABLED=false after rotation. Pre-existing risk, not introduced here.",
-    "ngrok subdomain is random ephemeral (streak-train-empower.ngrok-free.dev). Recommend reserved domain or Cloudflare Tunnel for long-term production (rule 8.3 of prior CRM-007R2).",
-    "Credential rotation for cp-admin@sanad-control-plane.internal remains a BLOCKED operational step awaiting owner-supplied password through a secure channel."
+    "ngrok subdomain is random ephemeral. Recommend reserved domain or Cloudflare Tunnel for long-term production (rule 8.3 of prior CRM-007R2).",
+    "Credential rotation for cp-admin@sanad-control-plane.internal remains a BLOCKED operational step awaiting owner-supplied password through a secure channel.",
+    "Pre-existing workflow file .github/workflows/rem-p0-002-production-acceptance-v3.yml fails on every push across all branches (workflow file issue, not a code/test regression). Filed separately — out of scope for this remediation."
   ],
-  "completedAt": "2026-07-18T20:00:00Z"
+  "completedAt": "2026-07-19T17:55:00Z"
 }
