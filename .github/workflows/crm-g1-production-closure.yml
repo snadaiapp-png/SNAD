@@ -3,7 +3,7 @@
 #   PROD_JDBC_URL, PROD_DB_USER, PROD_DB_PASSWORD
 # Reused Production secrets:
 #   VERCEL_TOKEN, VERCEL_TEAM_ID, RENDER_API_KEY, RENDER_SERVICE_ID
-#   AUTH_SMOKE_TENANT_A_EMAIL/PASSWORD, AUTH_SMOKE_TENANT_B_EMAIL/PASSWORD
+#   AUTH_SMOKE_TENANT_A_ID/EMAIL/PASSWORD, AUTH_SMOKE_TENANT_B_ID/EMAIL/PASSWORD
 # Optional CRM-specific overrides:
 #   CRM_TENANT_A_EMAIL/PASSWORD, CRM_TENANT_B_EMAIL/PASSWORD
 # Protect the Production environment with required reviewers.
@@ -83,10 +83,16 @@ jobs:
           PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
           PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
           PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
-          CRM_TENANT_A_EMAIL: ${{ secrets.CRM_TENANT_A_EMAIL || secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
-          CRM_TENANT_A_PASSWORD: ${{ secrets.CRM_TENANT_A_PASSWORD || secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
-          CRM_TENANT_B_EMAIL: ${{ secrets.CRM_TENANT_B_EMAIL || secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
-          CRM_TENANT_B_PASSWORD: ${{ secrets.CRM_TENANT_B_PASSWORD || secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
+          CRM_TENANT_A_EMAIL: ${{ secrets.CRM_TENANT_A_EMAIL }}
+          CRM_TENANT_A_PASSWORD: ${{ secrets.CRM_TENANT_A_PASSWORD }}
+          CRM_TENANT_B_EMAIL: ${{ secrets.CRM_TENANT_B_EMAIL }}
+          CRM_TENANT_B_PASSWORD: ${{ secrets.CRM_TENANT_B_PASSWORD }}
+          AUTH_TENANT_A_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
+          AUTH_TENANT_A_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+          AUTH_TENANT_A_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+          AUTH_TENANT_B_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+          AUTH_TENANT_B_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
+          AUTH_TENANT_B_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
@@ -99,12 +105,20 @@ jobs:
           test "$RELEASE_SHA" = "$REMOTE_MAIN_SHA" || { echo "::error::Checkout is not current main"; exit 1; }
 
           for value in "$PROD_JDBC_URL" "$PROD_DB_USER" "$PROD_DB_PASSWORD" \
-            "$CRM_TENANT_A_EMAIL" "$CRM_TENANT_A_PASSWORD" \
-            "$CRM_TENANT_B_EMAIL" "$CRM_TENANT_B_PASSWORD" \
             "$VERCEL_TOKEN" "$VERCEL_TEAM_ID" \
             "$RENDER_API_KEY" "$RENDER_SERVICE_ID"; do
             test -n "$value" || { echo "::error::A required Production secret is missing"; exit 1; }
             echo "::add-mask::$value"
+          done
+
+          for value in \
+            "$CRM_TENANT_A_EMAIL" "$CRM_TENANT_A_PASSWORD" \
+            "$CRM_TENANT_B_EMAIL" "$CRM_TENANT_B_PASSWORD" \
+            "$AUTH_TENANT_A_ID" "$AUTH_TENANT_A_EMAIL" "$AUTH_TENANT_A_PASSWORD" \
+            "$AUTH_TENANT_B_ID" "$AUTH_TENANT_B_EMAIL" "$AUTH_TENANT_B_PASSWORD"; do
+            if [ -n "$value" ]; then
+              echo "::add-mask::$value"
+            fi
           done
 
           [[ "$PROD_JDBC_URL" == jdbc:postgresql://* ]] || { echo "::error::Invalid PROD_JDBC_URL"; exit 1; }
@@ -113,7 +127,6 @@ jobs:
             exit 1
           fi
           [[ "$PRODUCTION_WEB_BASE_URL" == https://* ]] || { echo "::error::Production URL must use HTTPS"; exit 1; }
-          test "$CRM_TENANT_A_EMAIL" != "$CRM_TENANT_B_EMAIL" || { echo "::error::Tenant accounts must differ"; exit 1; }
 
           for value in "$BACKUP_REFERENCE" "$CHANGE_APPROVAL_REFERENCE"; do
             normalized="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
@@ -363,7 +376,7 @@ jobs:
             > "$EVIDENCE_DIR/flyway-target-row.txt"
           test "$(wc -l < "$EVIDENCE_DIR/flyway-target-row.txt" | tr -d ' ')" = "1"
 
-          ACCOUNT_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+          CRM_ACCOUNT_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
             -X -v ON_ERROR_STOP=1 -At \
             -v tenant_a_email="$CRM_TENANT_A_EMAIL" \
             -v tenant_b_email="$CRM_TENANT_B_EMAIL" <<'SQLACCOUNT'
@@ -378,36 +391,132 @@ jobs:
             FROM targets;
           SQLACCOUNT
           )"
-          test "$ACCOUNT_STATE" = "2|2|0|0" || {
-            echo "::error::Acceptance accounts must be two active, non-platform-admin users in distinct tenants; observed=$ACCOUNT_STATE"
-            exit 1
-          }
 
-          mapfile -t CRM_TENANT_IDS < <(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
-            -X -v ON_ERROR_STOP=1 -At \
-            -v tenant_a_email="$CRM_TENANT_A_EMAIL" \
-            -v tenant_b_email="$CRM_TENANT_B_EMAIL" <<'SQLTENANTS'
+          CRM_RECONCILIATION_MODE=""
+          ACCOUNT_SOURCE=""
+          if [ "$CRM_ACCOUNT_STATE" = "2|2|0|0" ]; then
+            ACCOUNT_SOURCE="CRM_EXISTING"
+            CRM_RECONCILIATION_MODE="credential-only"
+            mapfile -t CRM_TENANT_IDS < <(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+              -X -v ON_ERROR_STOP=1 -At \
+              -v tenant_a_email="$CRM_TENANT_A_EMAIL" \
+              -v tenant_b_email="$CRM_TENANT_B_EMAIL" <<'SQLTENANTS'
           SELECT tenant_id
             FROM (
-                SELECT 1 AS ordinal, tenant_id
-                  FROM users
-                 WHERE lower(email) = lower(:'tenant_a_email')
+                SELECT 1 AS ordinal, tenant_id FROM users WHERE lower(email) = lower(:'tenant_a_email')
                 UNION ALL
-                SELECT 2 AS ordinal, tenant_id
-                  FROM users
-                 WHERE lower(email) = lower(:'tenant_b_email')
+                SELECT 2 AS ordinal, tenant_id FROM users WHERE lower(email) = lower(:'tenant_b_email')
             ) target_tenants
            ORDER BY ordinal;
           SQLTENANTS
+            )
+            test "${#CRM_TENANT_IDS[@]}" = "2"
+            CRM_TENANT_A_ID="${CRM_TENANT_IDS[0]}"
+            CRM_TENANT_B_ID="${CRM_TENANT_IDS[1]}"
+          else
+            for value in \
+              "$AUTH_TENANT_A_ID" "$AUTH_TENANT_A_EMAIL" "$AUTH_TENANT_A_PASSWORD" \
+              "$AUTH_TENANT_B_ID" "$AUTH_TENANT_B_EMAIL" "$AUTH_TENANT_B_PASSWORD"; do
+              test -n "$value" || {
+                echo "::error::CRM accounts are unavailable and an AUTH_SMOKE fallback secret is missing"
+                exit 1
+              }
+            done
+            test "$AUTH_TENANT_A_ID" != "$AUTH_TENANT_B_ID"
+            test "${AUTH_TENANT_A_EMAIL,,}" != "${AUTH_TENANT_B_EMAIL,,}"
+
+            AUTH_ACCOUNT_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+              -X -v ON_ERROR_STOP=1 -At \
+              -v tenant_a_id="$AUTH_TENANT_A_ID" \
+              -v tenant_a_email="$AUTH_TENANT_A_EMAIL" \
+              -v tenant_b_id="$AUTH_TENANT_B_ID" \
+              -v tenant_b_email="$AUTH_TENANT_B_EMAIL" <<'SQLAUTHACCOUNT'
+          WITH targets AS (
+              SELECT id, tenant_id, status, platform_admin
+                FROM users
+               WHERE (tenant_id = :'tenant_a_id'::uuid AND lower(email) = lower(:'tenant_a_email'))
+                  OR (tenant_id = :'tenant_b_id'::uuid AND lower(email) = lower(:'tenant_b_email'))
           )
-          test "${#CRM_TENANT_IDS[@]}" = "2"
-          export CRM_TENANT_A_ID="${CRM_TENANT_IDS[0]}"
-          export CRM_TENANT_B_ID="${CRM_TENANT_IDS[1]}"
+          SELECT count(*) || '|' || count(DISTINCT tenant_id) || '|' ||
+                 count(*) FILTER (WHERE status <> 'ACTIVE') || '|' ||
+                 count(*) FILTER (WHERE platform_admin IS TRUE)
+            FROM targets;
+          SQLAUTHACCOUNT
+            )"
+
+            if [ "$AUTH_ACCOUNT_STATE" = "2|2|0|0" ]; then
+              ACCOUNT_SOURCE="AUTH_SMOKE_EXISTING"
+              CRM_RECONCILIATION_MODE="credential-only"
+              CRM_TENANT_A_ID="$AUTH_TENANT_A_ID"
+              CRM_TENANT_A_EMAIL="$AUTH_TENANT_A_EMAIL"
+              CRM_TENANT_A_PASSWORD="$AUTH_TENANT_A_PASSWORD"
+              CRM_TENANT_B_ID="$AUTH_TENANT_B_ID"
+              CRM_TENANT_B_EMAIL="$AUTH_TENANT_B_EMAIL"
+              CRM_TENANT_B_PASSWORD="$AUTH_TENANT_B_PASSWORD"
+            elif [ "$CRM_ACCOUNT_STATE" = "0|0|0|0" ] && [ "$AUTH_ACCOUNT_STATE" = "0|0|0|0" ]; then
+              AUTH_TENANT_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+                -X -v ON_ERROR_STOP=1 -At \
+                -v tenant_a_id="$AUTH_TENANT_A_ID" \
+                -v tenant_b_id="$AUTH_TENANT_B_ID" <<'SQLAUTHTENANTS'
+          SELECT count(*) || '|' || count(*) FILTER (WHERE status <> 'ACTIVE')
+            FROM tenants
+           WHERE id IN (:'tenant_a_id'::uuid, :'tenant_b_id'::uuid);
+          SQLAUTHTENANTS
+              )"
+              test "$AUTH_TENANT_STATE" = "2|0" || {
+                echo "::error::Explicit AUTH_SMOKE tenant IDs must resolve to two ACTIVE tenants"
+                exit 1
+              }
+              for value in \
+                "$CRM_TENANT_A_EMAIL" "$CRM_TENANT_A_PASSWORD" \
+                "$CRM_TENANT_B_EMAIL" "$CRM_TENANT_B_PASSWORD"; do
+                test -n "$value" || {
+                  echo "::error::CRM enrollment requires the complete CRM tenant credential pair"
+                  exit 1
+                }
+              done
+              test "${CRM_TENANT_A_EMAIL,,}" != "${CRM_TENANT_B_EMAIL,,}"
+              ACCOUNT_SOURCE="CRM_EXPLICIT_TENANT_ENROLLMENT"
+              CRM_RECONCILIATION_MODE="enroll-missing"
+              CRM_TENANT_A_ID="$AUTH_TENANT_A_ID"
+              CRM_TENANT_B_ID="$AUTH_TENANT_B_ID"
+            else
+              echo "::error::Refusing partial or unexpected acceptance identity state; crm=$CRM_ACCOUNT_STATE auth=$AUTH_ACCOUNT_STATE"
+              exit 1
+            fi
+          fi
+
+          export CRM_TENANT_A_ID CRM_TENANT_A_EMAIL CRM_TENANT_A_PASSWORD
+          export CRM_TENANT_B_ID CRM_TENANT_B_EMAIL CRM_TENANT_B_PASSWORD
+          export CRM_RECONCILIATION_MODE
           export CRM_RECONCILIATION_EVIDENCE_DIR="$EVIDENCE_DIR"
           echo "::add-mask::$CRM_TENANT_A_ID"
           echo "::add-mask::$CRM_TENANT_B_ID"
 
           python3 scripts/operations/crm_g1_credential_reconcile.py
+
+          POST_ACCOUNT_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -At \
+            -v tenant_a_id="$CRM_TENANT_A_ID" \
+            -v tenant_a_email="$CRM_TENANT_A_EMAIL" \
+            -v tenant_b_id="$CRM_TENANT_B_ID" \
+            -v tenant_b_email="$CRM_TENANT_B_EMAIL" <<'SQLPOSTACCOUNT'
+          WITH targets AS (
+              SELECT id, tenant_id, status, platform_admin
+                FROM users
+               WHERE (tenant_id = :'tenant_a_id'::uuid AND lower(email) = lower(:'tenant_a_email'))
+                  OR (tenant_id = :'tenant_b_id'::uuid AND lower(email) = lower(:'tenant_b_email'))
+          )
+          SELECT count(*) || '|' || count(DISTINCT tenant_id) || '|' ||
+                 count(*) FILTER (WHERE status <> 'ACTIVE') || '|' ||
+                 count(*) FILTER (WHERE platform_admin IS TRUE)
+            FROM targets;
+          SQLPOSTACCOUNT
+          )"
+          test "$POST_ACCOUNT_STATE" = "2|2|0|0" || {
+            echo "::error::Acceptance account postcondition failed; observed=$POST_ACCOUNT_STATE"
+            exit 1
+          }
 
           CREDENTIAL_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
             -X -v ON_ERROR_STOP=1 -At \
@@ -456,7 +565,8 @@ jobs:
             --arg migration "$MIGRATION_RESULT" --arg backup "$BACKUP_REFERENCE" \
             --arg approval "$CHANGE_APPROVAL_REFERENCE" --arg run "$RUN_URL" \
             --arg actor "$GITHUB_ACTOR" --arg started "$STARTED_AT" --arg completed "$COMPLETED_AT" \
-            '{report_id:"G1-STAGE-REPORT-V1",result:"PASS",release_sha:$release,target_flyway_version:$target,migration_result:$migration,backup_reference:$backup,change_approval_reference:$approval,workflow_run:$run,actor:$actor,started_at_utc:$started,completed_at_utc:$completed}' \
+            --arg account_source "$ACCOUNT_SOURCE" --arg reconciliation_mode "$CRM_RECONCILIATION_MODE" \
+            '{report_id:"G1-STAGE-REPORT-V1",result:"PASS",release_sha:$release,target_flyway_version:$target,migration_result:$migration,account_source:$account_source,reconciliation_mode:$reconciliation_mode,backup_reference:$backup,change_approval_reference:$approval,workflow_run:$run,actor:$actor,started_at_utc:$started,completed_at_utc:$completed}' \
             > "$EVIDENCE_DIR/execution-summary.json"
           find "$EVIDENCE_DIR" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > "$EVIDENCE_DIR/SHA256SUMS.txt"
 
