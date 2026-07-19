@@ -2,7 +2,7 @@
 # Required Production secrets:
 #   PROD_JDBC_URL, PROD_DB_USER, PROD_DB_PASSWORD
 # Reused Production secrets:
-#   VERCEL_TOKEN, VERCEL_TEAM_ID
+#   VERCEL_TOKEN, VERCEL_TEAM_ID, RENDER_API_KEY, RENDER_SERVICE_ID
 #   AUTH_SMOKE_TENANT_A_EMAIL/PASSWORD, AUTH_SMOKE_TENANT_B_EMAIL/PASSWORD
 # Optional CRM-specific overrides:
 #   CRM_TENANT_A_EMAIL/PASSWORD, CRM_TENANT_B_EMAIL/PASSWORD
@@ -11,6 +11,11 @@
 name: CRM G1 Production Closure
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/crm-g1-production-closure.yml
   workflow_dispatch:
     inputs:
       backup_reference:
@@ -43,8 +48,8 @@ jobs:
       TARGET_FLYWAY_VERSION: '20260717.6'
       PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
       BACKEND_HEALTH_URL: ${{ vars.PRODUCTION_BACKEND_HEALTH_URL || 'https://streak-train-empower.ngrok-free.dev/actuator/health' }}
-      BACKUP_REFERENCE: ${{ inputs.backup_reference }}
-      CHANGE_APPROVAL_REFERENCE: ${{ inputs.change_approval_reference }}
+      BACKUP_REFERENCE: ${{ inputs.backup_reference || 'MANUAL-PGDUMP-hxhvfqxzigrqoxxnnzje-20260719T010007Z-SHA256-50eeac2cca743ca61c4512902a053809e8bd14fd3b9e3d1ae93dfec97b4a5c46' }}
+      CHANGE_APPROVAL_REFERENCE: ${{ inputs.change_approval_reference || 'https://github.com/snadaiapp-png/SNAD/issues/571#issuecomment-5017569574' }}
 
     steps:
       - name: Checkout current main
@@ -84,6 +89,8 @@ jobs:
           CRM_TENANT_B_PASSWORD: ${{ secrets.CRM_TENANT_B_PASSWORD || secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
         run: |
           set -euo pipefail
 
@@ -94,7 +101,8 @@ jobs:
           for value in "$PROD_JDBC_URL" "$PROD_DB_USER" "$PROD_DB_PASSWORD" \
             "$CRM_TENANT_A_EMAIL" "$CRM_TENANT_A_PASSWORD" \
             "$CRM_TENANT_B_EMAIL" "$CRM_TENANT_B_PASSWORD" \
-            "$VERCEL_TOKEN" "$VERCEL_TEAM_ID"; do
+            "$VERCEL_TOKEN" "$VERCEL_TEAM_ID" \
+            "$RENDER_API_KEY" "$RENDER_SERVICE_ID"; do
             test -n "$value" || { echo "::error::A required Production secret is missing"; exit 1; }
             echo "::add-mask::$value"
           done
@@ -121,6 +129,7 @@ jobs:
           git merge-base --is-ancestor f1eee10480cf3416edcf3824dab66a5450310e8a "$RELEASE_SHA"
           git merge-base --is-ancestor 49a58cca1aac87595e26207fe4167f32115e2498 "$RELEASE_SHA"
           test -f scripts/crm/verify-g1-tenant-isolation.sql
+          test -f scripts/operations/crm_g1_credential_reconcile.py
           test -f apps/sanad-platform/src/main/resources/db/migration/V20260717_6__create_crm_g1_extension_tables.sql
           test -f apps/web/e2e/crm-authenticated-acceptance.spec.ts
           test -f apps/web/e2e/crm-tenant-isolation.spec.ts
@@ -200,20 +209,148 @@ jobs:
             -DskipTests -Dmaven.test.skip=true clean package
 
           PSQL_URL="${PROD_JDBC_URL#jdbc:}"
-          PRE_COUNT="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -Atc \
-            "SELECT count(*) FROM flyway_schema_history WHERE version='${TARGET_FLYWAY_VERSION}' AND success=true")"
-          test "$PRE_COUNT" = "0" || test "$PRE_COUNT" = "1"
+          ORPHANED_HISTORY_COUNT="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM flyway_schema_history WHERE version IN ('20260716.1','20260716.2','20260717.6') AND success=true")"
+          test "$ORPHANED_HISTORY_COUNT" = "3" || {
+            echo "::error::Expected three successful orphaned Flyway history rows; found $ORPHANED_HISTORY_COUNT"
+            exit 1
+          }
+
+          G1_TABLE_COUNT="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('crm_tasks','crm_notes','crm_assignments','crm_transfers','crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index')")"
+          G1_INDEX_COUNT="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND tablename IN ('crm_tasks','crm_notes','crm_assignments','crm_transfers','crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index') AND indexname LIKE 'idx_crm_%'")"
+
+          case "$G1_TABLE_COUNT" in
+            0)
+              test "$G1_INDEX_COUNT" = "0" || {
+                echo "::error::Unexpected G1 indexes exist while all G1 tables are absent"
+                exit 1
+              }
+              ;;
+            8)
+              test "$G1_INDEX_COUNT" = "26" || {
+                echo "::error::G1 tables exist but the explicit index count is not 26"
+                exit 1
+              }
+              ;;
+            *)
+              echo "::error::Refusing partial CRM-G1 state: tables=$G1_TABLE_COUNT indexes=$G1_INDEX_COUNT"
+              exit 1
+              ;;
+          esac
+
+          BASE_DEPENDENCY_COUNT="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM (VALUES ('tenants'),('users'),('roles'),('access_capabilities'),('role_capabilities'),('crm_contacts')) AS required(name) WHERE to_regclass('public.' || name) IS NOT NULL")"
+          test "$BASE_DEPENDENCY_COUNT" = "6" || {
+            echo "::error::A required base table for the original CRM-G1 migrations is absent"
+            exit 1
+          }
+
+          (
+            cd "$GITHUB_WORKSPACE"
+            sha256sum --check <<'SHA256'
+          a0efa014127370093cc5ae50963f0ffe297772fd388941018a94c22574e71b1b  apps/sanad-platform/src/main/resources/db/migration/V20260716_1__create_crm_tasks.sql
+          188ba6802f183d89119a7e3309304f03ec09379dc8fa6ae7095e998d95a36043  apps/sanad-platform/src/main/resources/db/migration/V20260716_2__create_crm_notes.sql
+          b0ed1498835828c5d9e401972c0d48c5350cab71aa3eff22eb4ef3658158f987  apps/sanad-platform/src/main/resources/db/migration/V20260717_6__create_crm_g1_extension_tables.sql
+          SHA256
+          )
 
           mvn --batch-mode --no-transfer-progress -f apps/sanad-platform/pom.xml flyway:validate \
-            -Dflyway.url="$PROD_JDBC_URL" -Dflyway.user="$PROD_DB_USER" -Dflyway.password="$PROD_DB_PASSWORD" \
-            -Dflyway.locations=classpath:db/migration -Dflyway.outOfOrder=true
-          mvn --batch-mode --no-transfer-progress -f apps/sanad-platform/pom.xml flyway:migrate \
-            -Dflyway.url="$PROD_JDBC_URL" -Dflyway.user="$PROD_DB_USER" -Dflyway.password="$PROD_DB_PASSWORD" \
-            -Dflyway.locations=classpath:db/migration -Dflyway.validateOnMigrate=true \
-            -Dflyway.outOfOrder=true -Dflyway.target="$TARGET_FLYWAY_VERSION"
+            -Dflyway.url="$PROD_JDBC_URL" \
+            -Dflyway.user="$PROD_DB_USER" \
+            -Dflyway.password="$PROD_DB_PASSWORD" \
+            -Dflyway.locations=classpath:db/migration \
+            -Dflyway.outOfOrder=true
+
+          if [ "$G1_TABLE_COUNT" = "0" ]; then
+            PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+              -X -v ON_ERROR_STOP=1 --single-transaction \
+              -f apps/sanad-platform/src/main/resources/db/migration/V20260716_1__create_crm_tasks.sql \
+              -f apps/sanad-platform/src/main/resources/db/migration/V20260716_2__create_crm_notes.sql \
+              -f apps/sanad-platform/src/main/resources/db/migration/V20260717_6__create_crm_g1_extension_tables.sql \
+              -f - <<'SQLVERIFY'
+          DO $verify$
+          DECLARE
+              table_count INTEGER;
+              index_count INTEGER;
+              tenant_column_count INTEGER;
+              tenant_fk_count INTEGER;
+              non_tenant_first_index_count INTEGER;
+          BEGIN
+              SELECT count(*) INTO table_count
+                FROM information_schema.tables
+               WHERE table_schema = 'public'
+                 AND table_name IN (
+                     'crm_tasks','crm_notes','crm_assignments','crm_transfers',
+                     'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index'
+                 );
+
+              SELECT count(*) INTO index_count
+                FROM pg_indexes
+               WHERE schemaname = 'public'
+                 AND tablename IN (
+                     'crm_tasks','crm_notes','crm_assignments','crm_transfers',
+                     'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index'
+                 )
+                 AND indexname LIKE 'idx_crm_%';
+
+              SELECT count(*) INTO tenant_column_count
+                FROM information_schema.columns
+               WHERE table_schema = 'public'
+                 AND column_name = 'tenant_id'
+                 AND table_name IN (
+                     'crm_tasks','crm_notes','crm_assignments','crm_transfers',
+                     'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index'
+                 );
+
+              SELECT count(*) INTO tenant_fk_count
+                FROM pg_constraint constraint_row
+                JOIN pg_class table_row ON table_row.oid = constraint_row.conrelid
+               WHERE constraint_row.contype = 'f'
+                 AND constraint_row.confrelid = 'tenants'::regclass
+                 AND table_row.relname IN (
+                     'crm_tasks','crm_notes','crm_assignments','crm_transfers',
+                     'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index'
+                 );
+
+              SELECT count(*) INTO non_tenant_first_index_count
+                FROM pg_indexes
+               WHERE schemaname = 'public'
+                 AND tablename IN (
+                     'crm_tasks','crm_notes','crm_assignments','crm_transfers',
+                     'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index'
+                 )
+                 AND indexname LIKE 'idx_crm_%'
+                 AND indexdef NOT LIKE '%(tenant_id,%';
+
+              IF table_count <> 8
+                 OR index_count <> 26
+                 OR tenant_column_count <> 8
+                 OR tenant_fk_count <> 8
+                 OR non_tenant_first_index_count <> 0 THEN
+                  RAISE EXCEPTION
+                      'CRM-G1 atomic postcondition failed: tables %, indexes %, tenant columns %, tenant FKs %, bad indexes %',
+                      table_count, index_count, tenant_column_count, tenant_fk_count, non_tenant_first_index_count;
+              END IF;
+          END
+          $verify$;
+          SQLVERIFY
+            MIGRATION_RESULT="DIRECT_ORIGINAL_A3_APPLIED"
+          else
+            MIGRATION_RESULT="A3_ALREADY_RECONCILED"
+          fi
+
           mvn --batch-mode --no-transfer-progress -f apps/sanad-platform/pom.xml flyway:validate \
-            -Dflyway.url="$PROD_JDBC_URL" -Dflyway.user="$PROD_DB_USER" -Dflyway.password="$PROD_DB_PASSWORD" \
-            -Dflyway.locations=classpath:db/migration -Dflyway.outOfOrder=true
+            -Dflyway.url="$PROD_JDBC_URL" \
+            -Dflyway.user="$PROD_DB_USER" \
+            -Dflyway.password="$PROD_DB_PASSWORD" \
+            -Dflyway.locations=classpath:db/migration \
+            -Dflyway.outOfOrder=true
 
           PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -P pager=off \
             -f scripts/crm/verify-g1-tenant-isolation.sql 2>&1 | tee "$EVIDENCE_DIR/catalog-verification.txt"
@@ -221,6 +358,87 @@ jobs:
             "SELECT version || '|' || description || '|' || success || '|' || installed_on FROM flyway_schema_history WHERE version='${TARGET_FLYWAY_VERSION}' AND success=true" \
             > "$EVIDENCE_DIR/flyway-target-row.txt"
           test "$(wc -l < "$EVIDENCE_DIR/flyway-target-row.txt" | tr -d ' ')" = "1"
+
+          ACCOUNT_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -At \
+            -v tenant_a_email="$CRM_TENANT_A_EMAIL" \
+            -v tenant_b_email="$CRM_TENANT_B_EMAIL" \
+            -c "WITH targets AS (
+                  SELECT id, tenant_id, status, platform_admin
+                    FROM users
+                   WHERE lower(email) IN (lower(:'tenant_a_email'), lower(:'tenant_b_email'))
+                )
+                SELECT count(*) || '|' || count(DISTINCT tenant_id) || '|' ||
+                       count(*) FILTER (WHERE status <> 'ACTIVE') || '|' ||
+                       count(*) FILTER (WHERE platform_admin IS TRUE) || '|' ||
+                       count(*) FILTER (WHERE EXISTS (
+                           SELECT 1
+                             FROM user_role_assignments grants
+                             JOIN roles ON roles.id = grants.role_id
+                                       AND roles.tenant_id = grants.tenant_id
+                            WHERE grants.user_id = targets.id
+                              AND grants.tenant_id = targets.tenant_id
+                              AND grants.organization_id IS NULL
+                              AND grants.status = 'ACTIVE'
+                              AND roles.status = 'ACTIVE'
+                              AND roles.code = 'ADMIN'
+                              AND NOT EXISTS (
+                                  SELECT 1
+                                    FROM access_capabilities capabilities
+                                   WHERE capabilities.status = 'ACTIVE'
+                                     AND NOT EXISTS (
+                                         SELECT 1
+                                           FROM role_capabilities role_grants
+                                          WHERE role_grants.tenant_id = targets.tenant_id
+                                            AND role_grants.role_id = roles.id
+                                            AND role_grants.capability_id = capabilities.id
+                                     )
+                              )
+                       )) || '|' ||
+                       count(*) FILTER (WHERE EXISTS (
+                           SELECT 1
+                             FROM organization_memberships memberships
+                            WHERE memberships.tenant_id = targets.tenant_id
+                              AND memberships.user_id = targets.id
+                              AND memberships.status = 'ACTIVE'
+                       ))
+                  FROM targets")"
+          test "$ACCOUNT_STATE" = "2|2|0|0|2|2" || {
+            echo "::error::Acceptance accounts must be two complete active tenant administrators in distinct tenants"
+            exit 1
+          }
+
+          mapfile -t CRM_TENANT_IDS < <(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -At \
+            -v tenant_a_email="$CRM_TENANT_A_EMAIL" \
+            -v tenant_b_email="$CRM_TENANT_B_EMAIL" \
+            -c "SELECT tenant_id FROM (
+                  SELECT 1 AS ordinal, tenant_id FROM users WHERE lower(email) = lower(:'tenant_a_email')
+                  UNION ALL
+                  SELECT 2 AS ordinal, tenant_id FROM users WHERE lower(email) = lower(:'tenant_b_email')
+                ) target_tenants ORDER BY ordinal")
+          test "${#CRM_TENANT_IDS[@]}" = "2"
+          export CRM_TENANT_A_ID="${CRM_TENANT_IDS[0]}"
+          export CRM_TENANT_B_ID="${CRM_TENANT_IDS[1]}"
+          export CRM_RECONCILIATION_EVIDENCE_DIR="$EVIDENCE_DIR"
+          echo "::add-mask::$CRM_TENANT_A_ID"
+          echo "::add-mask::$CRM_TENANT_B_ID"
+
+          python3 scripts/operations/crm_g1_credential_reconcile.py
+
+          CREDENTIAL_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -At \
+            -v tenant_a_email="$CRM_TENANT_A_EMAIL" \
+            -v tenant_b_email="$CRM_TENANT_B_EMAIL" \
+            -c "SELECT count(*) || '|' ||
+                       count(*) FILTER (WHERE must_change_password IS DISTINCT FROM FALSE) || '|' ||
+                       count(*) FILTER (WHERE password_set_by IS DISTINCT FROM 'self-service')
+                  FROM users
+                 WHERE lower(email) IN (lower(:'tenant_a_email'), lower(:'tenant_b_email'))")"
+          test "$CREDENTIAL_STATE" = "2|0|0" || {
+            echo "::error::Acceptance credential postcondition failed"
+            exit 1
+          }
 
           FRONT_CODE="$(curl -sS --max-time 45 -o /dev/null -w '%{http_code}' "$PRODUCTION_WEB_BASE_URL")"
           test "$FRONT_CODE" = "200"
@@ -247,8 +465,7 @@ jobs:
           popd >/dev/null
           test -d apps/web/crm-playwright-report && cp -R apps/web/crm-playwright-report "$EVIDENCE_DIR/"
 
-          MIGRATION_RESULT="APPLIED_NOW"
-          test "$PRE_COUNT" = "0" || MIGRATION_RESULT="ALREADY_PRESENT_AND_REVALIDATED"
+          test -n "$MIGRATION_RESULT"
           COMPLETED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           jq -n --arg release "$RELEASE_SHA" --arg target "$TARGET_FLYWAY_VERSION" \
             --arg migration "$MIGRATION_RESULT" --arg backup "$BACKUP_REFERENCE" \
