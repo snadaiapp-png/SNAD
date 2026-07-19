@@ -1,0 +1,329 @@
+# CRM-G1 one-button production closure.
+# Required Production secrets:
+#   PROD_JDBC_URL, PROD_DB_USER, PROD_DB_PASSWORD
+# Reused Production secrets:
+#   VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_TEAM_ID
+#   AUTH_SMOKE_TENANT_A_EMAIL/PASSWORD, AUTH_SMOKE_TENANT_B_EMAIL/PASSWORD
+# Optional CRM-specific overrides:
+#   CRM_TENANT_A_EMAIL/PASSWORD, CRM_TENANT_B_EMAIL/PASSWORD
+# Protect the Production environment with required reviewers.
+
+name: CRM G1 Production Closure
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_reference:
+        description: 'Exact Supabase backup or PITR restore-point reference'
+        required: true
+        type: string
+      change_approval_reference:
+        description: 'Approved change ticket or owner-approval reference'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: crm-g1-production-closure
+  cancel-in-progress: false
+
+jobs:
+  close-crm-g1:
+    name: CRM-G1 controlled production closure
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment:
+      name: Production
+      url: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
+    env:
+      TARGET_FLYWAY_VERSION: '20260717.6'
+      PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
+      BACKEND_HEALTH_URL: ${{ vars.PRODUCTION_BACKEND_HEALTH_URL || 'https://streak-train-empower.ngrok-free.dev/actuator/health' }}
+      BACKUP_REFERENCE: ${{ inputs.backup_reference }}
+      CHANGE_APPROVAL_REFERENCE: ${{ inputs.change_approval_reference }}
+
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Execute controlled CRM-G1 production closure
+        id: closure
+        shell: bash
+        env:
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          CRM_TENANT_A_EMAIL: ${{ secrets.CRM_TENANT_A_EMAIL || secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+          CRM_TENANT_A_PASSWORD: ${{ secrets.CRM_TENANT_A_PASSWORD || secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+          CRM_TENANT_B_EMAIL: ${{ secrets.CRM_TENANT_B_EMAIL || secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
+          CRM_TENANT_B_PASSWORD: ${{ secrets.CRM_TENANT_B_PASSWORD || secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          RELEASE_SHA="$(git rev-parse HEAD)"
+          REMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test "$RELEASE_SHA" = "$REMOTE_MAIN_SHA" || { echo "::error::Checkout is not current main"; exit 1; }
+
+          for value in "$PROD_JDBC_URL" "$PROD_DB_USER" "$PROD_DB_PASSWORD" \
+            "$CRM_TENANT_A_EMAIL" "$CRM_TENANT_A_PASSWORD" \
+            "$CRM_TENANT_B_EMAIL" "$CRM_TENANT_B_PASSWORD" \
+            "$VERCEL_TOKEN" "$VERCEL_PROJECT_ID" "$VERCEL_TEAM_ID"; do
+            test -n "$value" || { echo "::error::A required Production secret is missing"; exit 1; }
+            echo "::add-mask::$value"
+          done
+
+          [[ "$PROD_JDBC_URL" == jdbc:postgresql://* ]] || { echo "::error::Invalid PROD_JDBC_URL"; exit 1; }
+          if [[ "$PROD_JDBC_URL" =~ ^jdbc:postgresql://[^/]*@ ]] || [[ "${PROD_JDBC_URL,,}" == *"password="* ]]; then
+            echo "::error::Do not embed credentials in PROD_JDBC_URL"
+            exit 1
+          fi
+          [[ "$PRODUCTION_WEB_BASE_URL" == https://* ]] || { echo "::error::Production URL must use HTTPS"; exit 1; }
+          test "$CRM_TENANT_A_EMAIL" != "$CRM_TENANT_B_EMAIL" || { echo "::error::Tenant accounts must differ"; exit 1; }
+
+          for value in "$BACKUP_REFERENCE" "$CHANGE_APPROVAL_REFERENCE"; do
+            normalized="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+            test -n "$normalized"
+            case "$normalized" in
+              *example*|*placeholder*|*replace-me*|*enter\ *)
+                echo "::error::A governance input is a placeholder"
+                exit 1
+                ;;
+            esac
+          done
+
+          git merge-base --is-ancestor f1eee10480cf3416edcf3824dab66a5450310e8a "$RELEASE_SHA"
+          git merge-base --is-ancestor 49a58cca1aac87595e26207fe4167f32115e2498 "$RELEASE_SHA"
+          test -f scripts/crm/verify-g1-tenant-isolation.sql
+          test -f apps/sanad-platform/src/main/resources/db/migration/V20260717_6__create_crm_g1_extension_tables.sql
+          test -f apps/web/e2e/crm-authenticated-acceptance.spec.ts
+          test -f apps/web/e2e/crm-tenant-isolation.spec.ts
+
+          EVIDENCE_DIR="$RUNNER_TEMP/crm-g1-production-evidence"
+          rm -rf "$EVIDENCE_DIR"
+          mkdir -p "$EVIDENCE_DIR"
+          STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          list_url="https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&target=production&limit=100&teamId=${VERCEL_TEAM_ID}"
+          match=""
+          for attempt in $(seq 1 60); do
+            if ! curl --http1.1 \
+              --fail-with-body \
+              --silent \
+              --show-error \
+              --retry 5 \
+              --retry-all-errors \
+              --retry-delay 2 \
+              --connect-timeout 10 \
+              --max-time 30 \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+              "$list_url" > "$RUNNER_TEMP/vercel.json"; then
+              echo "::warning::Vercel API attempt ${attempt}/60 failed; retrying"
+              sleep 10
+              continue
+            fi
+            match="$(jq -c --arg sha "$RELEASE_SHA" '[.deployments[]? | select((.meta.githubCommitSha // "") == $sha and (.target // "") == "production")] | sort_by(.createdAt) | last // empty' "$RUNNER_TEMP/vercel.json")"
+            if [ -n "$match" ] && [ "$match" != "null" ]; then
+              state="$(jq -r '.readyState // .state // empty' <<< "$match")"
+              case "$state" in READY) break ;; ERROR|CANCELED) exit 1 ;; esac
+            fi
+            sleep 10
+          done
+          test -n "$match" && test "$match" != "null" || { echo "::error::No exact-main Vercel production deployment"; exit 1; }
+          test "$(jq -r '.readyState // .state' <<< "$match")" = "READY"
+          DEPLOYMENT_ID="$(jq -r '.uid // .id' <<< "$match")"
+          DEPLOYMENT_URL="$(jq -r '.url' <<< "$match")"
+          jq -n --arg sha "$RELEASE_SHA" --arg id "$DEPLOYMENT_ID" --arg url "$DEPLOYMENT_URL" \
+            '{release_sha:$sha,deployment_id:$id,deployment_url:$url,result:"PASS"}' > "$EVIDENCE_DIR/vercel-exact-sha.json"
+
+          mvn --batch-mode --no-transfer-progress -f apps/sanad-platform/pom.xml \
+            -DskipTests -Dmaven.test.skip=true clean package
+
+          PSQL_URL="${PROD_JDBC_URL#jdbc:}"
+          PRE_COUNT="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM flyway_schema_history WHERE version='${TARGET_FLYWAY_VERSION}' AND success=true")"
+          test "$PRE_COUNT" = "0" || test "$PRE_COUNT" = "1"
+
+          mvn --batch-mode --no-transfer-progress -f apps/sanad-platform/pom.xml flyway:validate \
+            -Dflyway.url="$PROD_JDBC_URL" -Dflyway.user="$PROD_DB_USER" -Dflyway.password="$PROD_DB_PASSWORD" \
+            -Dflyway.locations=classpath:db/migration -Dflyway.outOfOrder=true
+          mvn --batch-mode --no-transfer-progress -f apps/sanad-platform/pom.xml flyway:migrate \
+            -Dflyway.url="$PROD_JDBC_URL" -Dflyway.user="$PROD_DB_USER" -Dflyway.password="$PROD_DB_PASSWORD" \
+            -Dflyway.locations=classpath:db/migration -Dflyway.validateOnMigrate=true \
+            -Dflyway.outOfOrder=true -Dflyway.target="$TARGET_FLYWAY_VERSION"
+          mvn --batch-mode --no-transfer-progress -f apps/sanad-platform/pom.xml flyway:validate \
+            -Dflyway.url="$PROD_JDBC_URL" -Dflyway.user="$PROD_DB_USER" -Dflyway.password="$PROD_DB_PASSWORD" \
+            -Dflyway.locations=classpath:db/migration -Dflyway.outOfOrder=true
+
+          PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -P pager=off \
+            -f scripts/crm/verify-g1-tenant-isolation.sql 2>&1 | tee "$EVIDENCE_DIR/catalog-verification.txt"
+          PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -P pager=off -Atc \
+            "SELECT version || '|' || description || '|' || success || '|' || installed_on FROM flyway_schema_history WHERE version='${TARGET_FLYWAY_VERSION}' AND success=true" \
+            > "$EVIDENCE_DIR/flyway-target-row.txt"
+          test "$(wc -l < "$EVIDENCE_DIR/flyway-target-row.txt" | tr -d ' ')" = "1"
+
+          FRONT_CODE="$(curl -sS --max-time 45 -o /dev/null -w '%{http_code}' "$PRODUCTION_WEB_BASE_URL")"
+          test "$FRONT_CODE" = "200"
+          STATUS_CODE="$(curl -sS --max-time 45 -o "$RUNNER_TEMP/backend-status.json" -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL%/}/api/system/backend-status")"
+          test "$STATUS_CODE" = "200"
+          jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null
+          AUTH_CODE="$(curl -sS --max-time 45 -o /dev/null -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL%/}/api/platform/api/v1/auth/me")"
+          test "$AUTH_CODE" = "401"
+          HEALTH_CODE="$(curl -sS --max-time 45 -o "$RUNNER_TEMP/backend-health.json" -w '%{http_code}' "$BACKEND_HEALTH_URL")"
+          test "$HEALTH_CODE" = "200"
+          jq -e '.status == "UP"' "$RUNNER_TEMP/backend-health.json" >/dev/null
+          jq -n --arg frontend "$FRONT_CODE" --arg backend "$STATUS_CODE" --arg auth "$AUTH_CODE" --arg health "$HEALTH_CODE" \
+            '{frontend_http:$frontend,backend_status_http:$backend,auth_me_http:$auth,backend_health_http:$health,result:"PASS"}' \
+            > "$EVIDENCE_DIR/runtime-health.json"
+
+          pushd apps/web >/dev/null
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chrome
+          PLAYWRIGHT_BASE_URL="$PRODUCTION_WEB_BASE_URL" \
+          CRM_TENANT_A_EMAIL="$CRM_TENANT_A_EMAIL" CRM_TENANT_A_PASSWORD="$CRM_TENANT_A_PASSWORD" \
+          CRM_TENANT_B_EMAIL="$CRM_TENANT_B_EMAIL" CRM_TENANT_B_PASSWORD="$CRM_TENANT_B_PASSWORD" \
+            npx playwright test e2e/crm-authenticated-acceptance.spec.ts e2e/crm-tenant-isolation.spec.ts \
+              --config=playwright.crm-acceptance.config.ts --reporter=html,list --trace=off
+          popd >/dev/null
+          test -d apps/web/crm-playwright-report && cp -R apps/web/crm-playwright-report "$EVIDENCE_DIR/"
+
+          MIGRATION_RESULT="APPLIED_NOW"
+          test "$PRE_COUNT" = "0" || MIGRATION_RESULT="ALREADY_PRESENT_AND_REVALIDATED"
+          COMPLETED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          jq -n --arg release "$RELEASE_SHA" --arg target "$TARGET_FLYWAY_VERSION" \
+            --arg migration "$MIGRATION_RESULT" --arg backup "$BACKUP_REFERENCE" \
+            --arg approval "$CHANGE_APPROVAL_REFERENCE" --arg run "$RUN_URL" \
+            --arg actor "$GITHUB_ACTOR" --arg started "$STARTED_AT" --arg completed "$COMPLETED_AT" \
+            '{report_id:"G1-STAGE-REPORT-V1",result:"PASS",release_sha:$release,target_flyway_version:$target,migration_result:$migration,backup_reference:$backup,change_approval_reference:$approval,workflow_run:$run,actor:$actor,started_at_utc:$started,completed_at_utc:$completed}' \
+            > "$EVIDENCE_DIR/execution-summary.json"
+          find "$EVIDENCE_DIR" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > "$EVIDENCE_DIR/SHA256SUMS.txt"
+
+          echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "migration_result=$MIGRATION_RESULT" >> "$GITHUB_OUTPUT"
+          echo "evidence_dir=$EVIDENCE_DIR" >> "$GITHUB_OUTPUT"
+          echo "run_url=$RUN_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Upload immutable CRM-G1 evidence
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-g1-production-closure-${{ github.run_id }}
+          path: ${{ runner.temp }}/crm-g1-production-evidence
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Create evidence record and pull request
+        id: evidence_pr
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.closure.outputs.release_sha }}
+          MIGRATION_RESULT: ${{ steps.closure.outputs.migration_result }}
+          RUN_URL: ${{ steps.closure.outputs.run_url }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          def esc(value): return value.replace('|', '\\|').replace('\n', ' ')
+          lines = [
+              '# CRM-G1 Production Migration Evidence', '',
+              '> **Evidence status:** `COMPLETE / READY_FOR_REVIEW`  ',
+              '> **Gate:** `PRODUCTION_EXECUTION_COMPLETE / EVIDENCE_PR_PENDING_REVIEW`', '',
+              '| Field | Evidence |', '|---|---|',
+              f"| Release SHA | `{esc(os.environ['RELEASE_SHA'])}` |",
+              f"| Flyway target | `{os.environ['TARGET_FLYWAY_VERSION']}` |",
+              f"| Migration result | `{esc(os.environ['MIGRATION_RESULT'])}` |",
+              f"| Backup reference | `{esc(os.environ['BACKUP_REFERENCE'])}` |",
+              f"| Change approval | `{esc(os.environ['CHANGE_APPROVAL_REFERENCE'])}` |",
+              f"| Workflow | {os.environ['RUN_URL']} |",
+              f"| Artifact | {os.environ['ARTIFACT_URL']} |",
+              f"| Artifact digest | `{esc(os.environ['ARTIFACT_DIGEST'])}` |", '',
+              '```text',
+              'EXACT_MAIN_AND_VERCEL_SHA: PASS',
+              'PRODUCTION_FLYWAY_AND_SCHEMA: PASS',
+              'EIGHT_TABLES_AND_26_INDEXES: PASS',
+              'FRONTEND_BFF_BACKEND_HEALTH: PASS',
+              'AUTHENTICATED_TWO_TENANT_CRM: PASS',
+              'CRM-G1: PRODUCTION_EXECUTION_COMPLETE / EVIDENCE_PR_PENDING_REVIEW',
+              '```', '',
+              'Merge this evidence PR to finalize CRM-G1. REM-P0-006 remains independent.', ''
+          ]
+          Path('docs/crm/evidence/CRM-G1-PRODUCTION-MIGRATION-EVIDENCE.md').write_text('\n'.join(lines), encoding='utf-8')
+          PY
+
+          branch="evidence/crm-g1-production-${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add docs/crm/evidence/CRM-G1-PRODUCTION-MIGRATION-EVIDENCE.md
+          git commit -m "docs(crm): record G1 production closure evidence"
+          git push --set-upstream origin "$branch"
+
+          cat > "$RUNNER_TEMP/pr-body.md" <<EOF
+          CRM-G1 production closure passed for release `${RELEASE_SHA}`.
+
+          - Migration: `${MIGRATION_RESULT}`
+          - Backup: `${BACKUP_REFERENCE}`
+          - Approval: `${CHANGE_APPROVAL_REFERENCE}`
+          - Workflow: ${RUN_URL}
+          - Evidence: ${ARTIFACT_URL}
+          - Digest: `${ARTIFACT_DIGEST}`
+
+          Review and merge this PR to finalize CRM-G1. REM-P0-006 is not closed by this PR.
+          EOF
+          PR_URL="$(gh pr create --base main --head "$branch" \
+            --title "CRM-G1: production closure evidence (${GITHUB_RUN_ID})" \
+            --body-file "$RUNNER_TEMP/pr-body.md")"
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Publish result
+        if: always()
+        shell: bash
+        env:
+          STATUS: ${{ job.status }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          PR_URL: ${{ steps.evidence_pr.outputs.pr_url }}
+        run: |
+          {
+            echo "## CRM-G1 Production Closure"
+            echo "- Status: **${STATUS}**"
+            echo "- Evidence artifact: ${ARTIFACT_URL:-not-created}"
+            echo "- Evidence PR: ${PR_URL:-not-created}"
+            if [ "$STATUS" = success ]; then
+              echo "- Gate: **PRODUCTION_EXECUTION_COMPLETE / EVIDENCE_PR_PENDING_REVIEW**"
+            else
+              echo "- Gate: **OPEN / NOT_READY_FOR_CLOSURE**"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
