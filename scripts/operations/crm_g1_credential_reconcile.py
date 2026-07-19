@@ -95,11 +95,12 @@ def reconcile_account(
     email: str,
     desired_password: str,
     ordinal: int,
+    credential_only: bool,
 ) -> str:
     bootstrap_values = {
         "SANAD_SECURITY_BOOTSTRAP_ENABLED": "true",
         "SANAD_SECURITY_BOOTSTRAP_FORCE_RESET": "true",
-        "SANAD_SECURITY_BOOTSTRAP_CREDENTIAL_ONLY": "true",
+        "SANAD_SECURITY_BOOTSTRAP_CREDENTIAL_ONLY": "true" if credential_only else "false",
         "SANAD_SECURITY_BOOTSTRAP_TENANT_ID": tenant_id,
         "SANAD_SECURITY_BOOTSTRAP_ADMIN_EMAIL": email,
         "SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD": desired_password,
@@ -162,13 +163,28 @@ def main() -> int:
     if accounts[0][0] == accounts[1][0] or accounts[0][1].lower() == accounts[1][1].lower():
         raise ReconciliationFailure("acceptance accounts must belong to distinct tenants and emails")
 
+    mode = os.environ.get("CRM_RECONCILIATION_MODE", "credential-only").strip().lower()
+    if mode not in {"credential-only", "enroll-missing"}:
+        raise ReconciliationFailure("unsupported CRM_RECONCILIATION_MODE")
+    credential_only = mode == "credential-only"
+
     client = RenderClient(required("RENDER_API_KEY"), required("RENDER_SERVICE_ID"))
     deploy_ids: list[str] = []
     primary_error: Exception | None = None
     cleanup_deploy_id = ""
     try:
         for ordinal, (tenant_id, email, password) in enumerate(accounts, start=1):
-            deploy_ids.append(reconcile_account(client, base_url, tenant_id, email, password, ordinal))
+            deploy_ids.append(
+                reconcile_account(
+                    client,
+                    base_url,
+                    tenant_id,
+                    email,
+                    password,
+                    ordinal,
+                    credential_only,
+                )
+            )
     except Exception as error:
         primary_error = error
     finally:
@@ -184,10 +200,16 @@ def main() -> int:
                 )
 
     evidence = {
-        "operation": "credential-only-bootstrap-and-self-service-rotation",
+        "operation": (
+            "credential-only-bootstrap-and-self-service-rotation"
+            if credential_only
+            else "explicit-tenant-enrollment-and-self-service-rotation"
+        ),
+        "reconciliationMode": mode,
         "accountsReconciled": len(deploy_ids),
         "distinctTenants": 2,
         "platformAdminAccountsModified": 0,
+        "authorizationEnrollmentExpected": not credential_only,
         "bootstrapDeployments": deploy_ids,
         "cleanupDeployment": cleanup_deploy_id or "UNKNOWN",
         "bootstrapDisabled": bool(cleanup_deploy_id),
