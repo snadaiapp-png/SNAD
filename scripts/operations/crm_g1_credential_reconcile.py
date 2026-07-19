@@ -56,13 +56,16 @@ def request_json(
         return status, {"invalidJson": True}
 
 
-def login(auth_base: str, email: str, password: str, tenant_id: str) -> tuple[str, bool]:
+def login(auth_base: str, email: str, password: str, tenant_id: str = "") -> tuple[str, bool, str]:
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    payload = {"email": email, "password": password}
+    if tenant_id:
+        payload["tenantId"] = tenant_id
     status, body = request_json(
         opener,
         "POST",
         f"{auth_base}/login",
-        payload={"email": email, "password": password, "tenantId": tenant_id},
+        payload=payload,
     )
     if status != 200 or not isinstance(body, dict):
         raise ReconciliationFailure(f"credential login failed with HTTP {status}")
@@ -70,9 +73,12 @@ def login(auth_base: str, email: str, password: str, tenant_id: str) -> tuple[st
     user = body.get("user")
     if not isinstance(token, str) or not token:
         raise ReconciliationFailure("credential login did not return an access token")
-    if not isinstance(user, dict) or user.get("tenantId") != tenant_id:
+    resolved_tenant_id = user.get("tenantId") if isinstance(user, dict) else None
+    if not isinstance(resolved_tenant_id, str) or not resolved_tenant_id:
+        raise ReconciliationFailure("credential login did not return a tenant binding")
+    if tenant_id and resolved_tenant_id != tenant_id:
         raise ReconciliationFailure("credential login tenant binding mismatch")
-    return token, body.get("credentialRotationRequired") is True
+    return token, body.get("credentialRotationRequired") is True, resolved_tenant_id
 
 
 def change_credential(auth_base: str, token: str, current: str, new: str) -> None:
@@ -96,12 +102,16 @@ def reconcile_account(
     desired_password: str,
     ordinal: int,
     credential_only: bool,
-) -> str:
+    tenant_name: str = "",
+    tenant_subdomain: str = "",
+) -> tuple[str, str]:
     bootstrap_values = {
         "SANAD_SECURITY_BOOTSTRAP_ENABLED": "true",
         "SANAD_SECURITY_BOOTSTRAP_FORCE_RESET": "true",
         "SANAD_SECURITY_BOOTSTRAP_CREDENTIAL_ONLY": "true" if credential_only else "false",
         "SANAD_SECURITY_BOOTSTRAP_TENANT_ID": tenant_id,
+        "SANAD_SECURITY_BOOTSTRAP_TENANT_NAME": tenant_name,
+        "SANAD_SECURITY_BOOTSTRAP_TENANT_SUBDOMAIN": tenant_subdomain,
         "SANAD_SECURITY_BOOTSTRAP_ADMIN_EMAIL": email,
         "SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD": desired_password,
         "SANAD_SECURITY_BOOTSTRAP_ADMIN_DISPLAY_NAME": f"CRM G1 Tenant {ordinal} Administrator",
@@ -114,20 +124,26 @@ def reconcile_account(
     wait_backend(base_url)
     auth_base = f"{base_url}/api/platform/api/v1/auth"
 
-    first_token, rotation_required = login(auth_base, email, desired_password, tenant_id)
+    first_token, rotation_required, resolved_tenant_id = login(
+        auth_base, email, desired_password, tenant_id
+    )
     if not rotation_required:
         raise ReconciliationFailure("bootstrap login did not require credential rotation")
 
     temporary_password = secrets.token_urlsafe(48)
     change_credential(auth_base, first_token, desired_password, temporary_password)
-    second_token, still_required = login(auth_base, email, temporary_password, tenant_id)
+    second_token, still_required, _ = login(
+        auth_base, email, temporary_password, resolved_tenant_id
+    )
     if still_required:
         raise ReconciliationFailure("intermediate credential unexpectedly requires rotation")
     change_credential(auth_base, second_token, temporary_password, desired_password)
-    _, final_rotation_required = login(auth_base, email, desired_password, tenant_id)
+    _, final_rotation_required, _ = login(
+        auth_base, email, desired_password, resolved_tenant_id
+    )
     if final_rotation_required:
         raise ReconciliationFailure("final credential still requires rotation")
-    return deploy_id
+    return deploy_id, resolved_tenant_id
 
 
 def cleanup(client: RenderClient) -> str:
@@ -136,6 +152,8 @@ def cleanup(client: RenderClient) -> str:
         "SANAD_SECURITY_BOOTSTRAP_FORCE_RESET": "false",
         "SANAD_SECURITY_BOOTSTRAP_CREDENTIAL_ONLY": "false",
         "SANAD_SECURITY_BOOTSTRAP_TENANT_ID": "",
+        "SANAD_SECURITY_BOOTSTRAP_TENANT_NAME": "",
+        "SANAD_SECURITY_BOOTSTRAP_TENANT_SUBDOMAIN": "",
         "SANAD_SECURITY_BOOTSTRAP_ADMIN_EMAIL": "",
         "SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD": "",
         "SANAD_SECURITY_BOOTSTRAP_ADMIN_DISPLAY_NAME": "",
@@ -156,26 +174,42 @@ def main() -> int:
     base_url = required("PRODUCTION_WEB_BASE_URL").rstrip("/")
     evidence_dir = Path(required("CRM_RECONCILIATION_EVIDENCE_DIR"))
     evidence_dir.mkdir(parents=True, exist_ok=True)
-    accounts = [
-        (required("CRM_TENANT_A_ID"), required("CRM_TENANT_A_EMAIL"), required("CRM_TENANT_A_PASSWORD")),
-        (required("CRM_TENANT_B_ID"), required("CRM_TENANT_B_EMAIL"), required("CRM_TENANT_B_PASSWORD")),
-    ]
-    if accounts[0][0] == accounts[1][0] or accounts[0][1].lower() == accounts[1][1].lower():
-        raise ReconciliationFailure("acceptance accounts must belong to distinct tenants and emails")
-
     mode = os.environ.get("CRM_RECONCILIATION_MODE", "credential-only").strip().lower()
-    if mode not in {"credential-only", "enroll-missing"}:
+    if mode not in {"credential-only", "enroll-missing", "create-dedicated-tenants"}:
         raise ReconciliationFailure("unsupported CRM_RECONCILIATION_MODE")
     credential_only = mode == "credential-only"
+    create_dedicated_tenants = mode == "create-dedicated-tenants"
+    accounts = [
+        (
+            os.environ.get("CRM_TENANT_A_ID", "").strip(),
+            required("CRM_TENANT_A_EMAIL"),
+            required("CRM_TENANT_A_PASSWORD"),
+            required("CRM_TENANT_A_NAME") if create_dedicated_tenants else "",
+            required("CRM_TENANT_A_SUBDOMAIN") if create_dedicated_tenants else "",
+        ),
+        (
+            os.environ.get("CRM_TENANT_B_ID", "").strip(),
+            required("CRM_TENANT_B_EMAIL"),
+            required("CRM_TENANT_B_PASSWORD"),
+            required("CRM_TENANT_B_NAME") if create_dedicated_tenants else "",
+            required("CRM_TENANT_B_SUBDOMAIN") if create_dedicated_tenants else "",
+        ),
+    ]
+    if not create_dedicated_tenants and (not accounts[0][0] or not accounts[1][0]):
+        raise ReconciliationFailure("credential reconciliation requires two explicit tenant IDs")
+    if (accounts[0][0] and accounts[0][0] == accounts[1][0]) or accounts[0][1].lower() == accounts[1][1].lower():
+        raise ReconciliationFailure("acceptance accounts must belong to distinct tenants and emails")
+    if create_dedicated_tenants and accounts[0][4] == accounts[1][4]:
+        raise ReconciliationFailure("dedicated tenant subdomains must differ")
 
     client = RenderClient(required("RENDER_API_KEY"), required("RENDER_SERVICE_ID"))
     deploy_ids: list[str] = []
+    resolved_tenant_ids: list[str] = []
     primary_error: Exception | None = None
     cleanup_deploy_id = ""
     try:
-        for ordinal, (tenant_id, email, password) in enumerate(accounts, start=1):
-            deploy_ids.append(
-                reconcile_account(
+        for ordinal, (tenant_id, email, password, tenant_name, tenant_subdomain) in enumerate(accounts, start=1):
+            deploy_id, resolved_tenant_id = reconcile_account(
                     client,
                     base_url,
                     tenant_id,
@@ -183,8 +217,13 @@ def main() -> int:
                     password,
                     ordinal,
                     credential_only,
+                    tenant_name,
+                    tenant_subdomain,
                 )
-            )
+            deploy_ids.append(deploy_id)
+            resolved_tenant_ids.append(resolved_tenant_id)
+        if len(set(resolved_tenant_ids)) != 2:
+            raise ReconciliationFailure("reconciled accounts did not resolve to two distinct tenants")
     except Exception as error:
         primary_error = error
     finally:
@@ -203,13 +242,18 @@ def main() -> int:
         "operation": (
             "credential-only-bootstrap-and-self-service-rotation"
             if credential_only
-            else "explicit-tenant-enrollment-and-self-service-rotation"
+            else (
+                "dedicated-tenant-bootstrap-and-self-service-rotation"
+                if create_dedicated_tenants
+                else "explicit-tenant-enrollment-and-self-service-rotation"
+            )
         ),
         "reconciliationMode": mode,
         "accountsReconciled": len(deploy_ids),
         "distinctTenants": 2,
         "platformAdminAccountsModified": 0,
         "authorizationEnrollmentExpected": not credential_only,
+        "dedicatedTenantBootstrap": create_dedicated_tenants,
         "bootstrapDeployments": deploy_ids,
         "cleanupDeployment": cleanup_deploy_id or "UNKNOWN",
         "bootstrapDisabled": bool(cleanup_deploy_id),
