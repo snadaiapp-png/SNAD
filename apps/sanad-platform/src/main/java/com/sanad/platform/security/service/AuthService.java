@@ -23,6 +23,7 @@ import com.sanad.platform.security.exception.InvalidResetTokenException;
 import com.sanad.platform.security.exception.LoginRateLimitException;
 import com.sanad.platform.security.exception.PasswordResetRateLimitException;
 import com.sanad.platform.security.exception.RefreshTokenReplayException;
+import com.sanad.platform.security.ratelimit.LoginRateLimiter;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
 import com.sanad.platform.user.repository.UserRepository;
@@ -59,6 +60,7 @@ public class AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
     private final SecurityProperties securityProperties;
+    private final LoginRateLimiter loginRateLimiter;
     private final Cache<String, Integer> loginFailureCache;
     private final Cache<String, Integer> resetRequestCache;
 
@@ -68,7 +70,8 @@ public class AuthService {
             PasswordResetTokenRepository passwordResetTokenRepository,
             JwtTokenProvider jwtTokenProvider,
             PasswordEncoder passwordEncoder,
-            SecurityProperties securityProperties
+            SecurityProperties securityProperties,
+            LoginRateLimiter loginRateLimiter
     ) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
@@ -76,8 +79,12 @@ public class AuthService {
         this.jwtTokenProvider = jwtTokenProvider;
         this.passwordEncoder = passwordEncoder;
         this.securityProperties = securityProperties;
+        this.loginRateLimiter = loginRateLimiter;
 
         SecurityProperties.LoginRateLimit rateLimit = securityProperties.getLoginRateLimit();
+        // Legacy in-process cache retained as a secondary defense-in-depth counter
+        // for callers that do not yet pass the composite rate-limit key (e.g. reset
+        // password flow). The new LoginRateLimiter abstraction is the primary gate.
         this.loginFailureCache = Caffeine.newBuilder()
                 .expireAfterWrite(rateLimit.getWindow().toSeconds(), TimeUnit.SECONDS)
                 .build();
@@ -89,16 +96,41 @@ public class AuthService {
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
+        return login(request, null);
+    }
+
+    /**
+     * Authenticate with composite rate-limit keys (IP + account + combined).
+     *
+     * <p>When {@code rateLimitKeys} is {@code null} (legacy callers), falls back
+     * to the legacy email-only in-memory cache. New callers should pass the
+     * composite keys produced by {@code LoginRateLimitKeys} so the configured
+     * {@link LoginRateLimiter} (in-memory Caffeine by default, replaceable by a
+     * distributed adapter) governs per-IP, per-account, and combined buckets.
+     */
+    @Transactional
+    public AuthResponse login(LoginRequest request, String[] rateLimitKeys) {
         String normalizedEmail = request.getEmail().trim().toLowerCase();
 
-        // Rate limit by email only (no tenantId in key)
-        String rateLimitKey = "email:" + normalizedEmail;
-        Integer failures = loginFailureCache.getIfPresent(rateLimitKey);
-        int maxAttempts = securityProperties.getLoginRateLimit().getMaxAttempts();
-        if (failures != null && failures >= maxAttempts) {
-            log.warn("Login rate limit exceeded for email={}", normalizedEmail);
-            throw new LoginRateLimitException(
-                    "تم تجاوز عدد محاولات الدخول المسموح بها. حاول لاحقًا.");
+        // Rate limit: composite keys (preferred) or legacy email-only fallback.
+        if (rateLimitKeys != null && rateLimitKeys.length > 0) {
+            for (String key : rateLimitKeys) {
+                LoginRateLimiter.Decision decision = loginRateLimiter.check(key);
+                if (!decision.isAllowed()) {
+                    log.warn("Login rate limit exceeded for key={}", key);
+                    throw new LoginRateLimitException(
+                            "تم تجاوز عدد محاولات الدخول المسموح بها. حاول لاحقًا.");
+                }
+            }
+        } else {
+            String legacyKey = "email:" + normalizedEmail;
+            Integer failures = loginFailureCache.getIfPresent(legacyKey);
+            int maxAttempts = securityProperties.getLoginRateLimit().getMaxAttempts();
+            if (failures != null && failures >= maxAttempts) {
+                log.warn("Login rate limit exceeded for email={}", normalizedEmail);
+                throw new LoginRateLimitException(
+                        "تم تجاوز عدد محاولات الدخول المسموح بها. حاول لاحقًا.");
+            }
         }
 
         // Find user by email across all tenants (or scoped if tenantId provided)
@@ -122,14 +154,14 @@ public class AuthService {
         }
 
         if (user == null) {
-            recordLoginFailure(rateLimitKey);
+            recordLoginFailure(rateLimitKeys, normalizedEmail);
             log.warn("Login failed: user not found for email={}", normalizedEmail);
             throw new InvalidCredentialsException("بيانات الدخول غير صحيحة");
         }
 
         if (user.getPasswordHash() == null
                 || !passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            recordLoginFailure(rateLimitKey);
+            recordLoginFailure(rateLimitKeys, normalizedEmail);
             log.warn("Login failed: credential mismatch for userId={}", user.getId());
             throw new InvalidCredentialsException("بيانات الدخول غير صحيحة");
         }
@@ -139,10 +171,31 @@ public class AuthService {
             throw new AccountInactiveException("حساب المستخدم غير نشط");
         }
 
-        loginFailureCache.invalidate(rateLimitKey);
+        recordLoginSuccess(rateLimitKeys, normalizedEmail);
         user.setLastLoginAt(Instant.now());
         userRepository.save(user);
         return issueTokens(user);
+    }
+
+    private void recordLoginFailure(String[] rateLimitKeys, String normalizedEmail) {
+        if (rateLimitKeys != null) {
+            for (String key : rateLimitKeys) {
+                loginRateLimiter.recordFailure(key);
+            }
+        }
+        // Legacy in-memory counter kept for backward compatibility with older callers.
+        loginFailureCache.put("email:" + normalizedEmail,
+                (loginFailureCache.getIfPresent("email:" + normalizedEmail) == null ? 0
+                        : loginFailureCache.getIfPresent("email:" + normalizedEmail)) + 1);
+    }
+
+    private void recordLoginSuccess(String[] rateLimitKeys, String normalizedEmail) {
+        if (rateLimitKeys != null) {
+            for (String key : rateLimitKeys) {
+                loginRateLimiter.recordSuccess(key);
+            }
+        }
+        loginFailureCache.invalidate("email:" + normalizedEmail);
     }
 
     /**
@@ -457,11 +510,6 @@ public class AuthService {
                         user.getEmail(),
                         user.getDisplayName(),
                         user.getStatus().name()));
-    }
-
-    private void recordLoginFailure(String key) {
-        Integer current = loginFailureCache.getIfPresent(key);
-        loginFailureCache.put(key, (current == null ? 0 : current) + 1);
     }
 
     private String generateRefreshTokenValue() {

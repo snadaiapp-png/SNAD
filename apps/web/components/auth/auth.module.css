@@ -4,6 +4,9 @@
 .authShell {
   display: grid;
   grid-template-columns: 1fr;
+  /* `min-height` (not `height`) lets the shell grow when content is taller
+     than the viewport — e.g. when an error alert + help panel are open with
+     200% text zoom on a small phone. The grid row stretches accordingly. */
   min-height: 100svh;
   background: var(--snad-surface-canvas);
 }
@@ -147,13 +150,34 @@
 
 /* ── Login Panel (right side / mobile full) ── */
 
+/*
+ * EXEC-PROMPT-SANAD-FULLSTACK-REMEDIATION-010:
+ *   Previously this used `justify-content: center` with `min-height: 100svh`.
+ *   On short viewports (1280×720, 1024×768, 360×640) the form + submit button
+ *   could be clipped top AND bottom with no way to scroll. The fix:
+ *     - Always allow vertical scrolling on the panel itself (overflow-y: auto).
+ *     - On small viewports AND low-height viewports, switch to safe centering
+ *       (place-content: safe center) which keeps the form reachable when it
+ *       does not fit, and aligns it nicely when it does.
+ *     - Reserve generous block padding so the logo, error alert, fields, and
+ *       submit button are all reachable by scroll, even with 200% text zoom.
+ */
 .loginPanel {
   display: flex;
   flex-direction: column;
-  justify-content: center;
   align-items: center;
+  /* `safe center` falls back to start-overflow when content overflows,
+     preventing top clipping while still centering when there is room. */
+  justify-content: safe center;
   padding: 2rem 1.5rem;
   min-height: 100svh;
+  /* Allow vertical scrolling on the panel itself when the form is taller
+     than the viewport (error alerts, help panel open, 200% text zoom). */
+  overflow-y: auto;
+  /* Explicitly forbid horizontal overflow so wide content never causes
+     a horizontal scrollbar on the auth screen. */
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 @media (min-width: 900px) {
@@ -162,9 +186,21 @@
   }
 }
 
+/* On very short viewports (height < 700px), prefer top alignment so the
+   submit button is never pushed off-screen. Users on laptops at 1280×720
+   or smaller will land here. */
+@media (max-height: 699px) {
+  .loginPanel {
+    justify-content: flex-start;
+    padding-block: 1.5rem;
+  }
+}
+
 .loginCard {
   width: 100%;
   max-width: 440px;
+  /* Prevent the card from shrinking its content below readability. */
+  flex-shrink: 0;
 }
 
 .loginBrandMark {

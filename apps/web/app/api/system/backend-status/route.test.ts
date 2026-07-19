@@ -7,7 +7,7 @@ const { checkBackendIntegration } = await import("@/lib/api");
 describe("GET /api/system/backend-status", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("returns the safe healthy contract with targetHost and checkedAt", async () => {
+  it("returns the minimal healthy contract without exposing targetHost", async () => {
     vi.mocked(checkBackendIntegration).mockResolvedValue({
       configured: true,
       reachable: true,
@@ -22,12 +22,13 @@ describe("GET /api/system/backend-status", () => {
       configured: true,
       reachable: true,
       statusCode: 200,
-      targetHost: "sanad-backend-mcrj.onrender.com",
       checkedAt: "2026-06-21T11:23:26.000Z",
     });
+    // Critical: targetHost must NOT be present in the public response.
+    expect(body).not.toHaveProperty("targetHost");
   });
 
-  it("returns the safe unconfigured contract with null targetHost", async () => {
+  it("returns the minimal unconfigured contract without exposing targetHost", async () => {
     vi.mocked(checkBackendIntegration).mockResolvedValue({
       configured: false,
       reachable: false,
@@ -42,13 +43,13 @@ describe("GET /api/system/backend-status", () => {
       configured: false,
       reachable: false,
       statusCode: null,
-      targetHost: null,
       checkedAt: "2026-06-21T11:23:26.000Z",
     });
     expect(body).not.toHaveProperty("error");
+    expect(body).not.toHaveProperty("targetHost");
   });
 
-  it("returns reachable=false with statusCode=503 when backend is suspended", async () => {
+  it("returns reachable=false with statusCode=503 when backend is suspended, without host leak", async () => {
     vi.mocked(checkBackendIntegration).mockResolvedValue({
       configured: true,
       reachable: false,
@@ -61,10 +62,10 @@ describe("GET /api/system/backend-status", () => {
     const body = await response.json();
     expect(body.reachable).toBe(false);
     expect(body.statusCode).toBe(503);
-    expect(body.targetHost).toBe("sanad-backend.onrender.com");
+    expect(body).not.toHaveProperty("targetHost");
   });
 
-  it("never exposes the internal error field", async () => {
+  it("never exposes the internal error field or targetHost", async () => {
     vi.mocked(checkBackendIntegration).mockResolvedValue({
       configured: true,
       reachable: false,
@@ -79,10 +80,11 @@ describe("GET /api/system/backend-status", () => {
       "configured",
       "reachable",
       "statusCode",
-      "targetHost",
     ]);
     expect(body).not.toHaveProperty("error");
+    expect(body).not.toHaveProperty("targetHost");
     expect(JSON.stringify(body)).not.toContain("sensitive detail");
+    expect(JSON.stringify(body)).not.toContain("api.example.com");
   });
 
   it("sets Cache-Control: no-store on the response", async () => {
@@ -119,19 +121,28 @@ describe("GET /api/system/backend-status", () => {
     expect(body.checkedAt <= after).toBe(true);
   });
 
-  it("does not expose credentials in targetHost", async () => {
+  it("does not leak any host, tunnel, ngrok, or backend URL hint", async () => {
     vi.mocked(checkBackendIntegration).mockResolvedValue({
       configured: true,
       reachable: true,
       statusCode: 200,
-      targetHost: "api.example.com",
+      targetHost: "streak-train-empower.ngrok-free.dev",
       checkedAt: "2026-06-21T11:23:26.000Z",
       error: null,
     });
     const body = await (await GET()).json();
-    expect(body.targetHost).not.toContain(":");
-    expect(body.targetHost).not.toContain("@");
-    expect(body.targetHost).not.toContain("://");
-    expect(body.targetHost).not.toMatch(/password|secret|token/i);
+    const serialized = JSON.stringify(body);
+    // The body must not contain the backend host, tunnel provider, or any URL
+    // indicator. Note: we check against the actual targetHost value, not the
+    // generic ":" character (which appears in every JSON serialization).
+    expect(serialized).not.toContain("ngrok");
+    expect(serialized).not.toContain("streak-train");
+    expect(serialized).not.toContain("onrender");
+    expect(serialized).not.toContain("empower");
+    expect(serialized).not.toContain(".dev");
+    expect(serialized).not.toMatch(/password|secret|token/i);
+    expect(serialized).not.toMatch(/host|tunnel/i);
+    // The response must not carry a targetHost field at all.
+    expect(body).not.toHaveProperty("targetHost");
   });
 });
