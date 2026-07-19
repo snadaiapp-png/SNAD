@@ -124,6 +124,47 @@ class CredentialBootstrapServiceTest {
         assertThat(resetUser.getPasswordSetBy()).isEqualTo("force-reset-actor");
     }
 
+    @Test
+    void credentialOnlyResetRequiresExistingActiveUserAndDoesNotGrantAdmin() {
+        Tenant tenant = activeTenant("credential-only");
+        String email = email();
+        String newPassword = value();
+        User existing = userRepository.save(new User(
+                tenant.getId(), email, "Existing User", UserStatus.ACTIVE));
+
+        User resetUser = service.bootstrap(
+                true,
+                true,
+                tenant.getId(),
+                null,
+                null,
+                email,
+                newPassword,
+                "Ignored Display Name",
+                "credential-only-actor",
+                true);
+
+        assertThat(resetUser.getId()).isEqualTo(existing.getId());
+        assertThat(encoder.matches(newPassword, resetUser.getPasswordHash())).isTrue();
+        assertThat(resetUser.isMustChangePassword()).isTrue();
+        assertThat(resetUser.getPasswordSetBy()).isEqualTo("credential-only-actor");
+        assertThat(roleRepository.findByTenantIdAndCode(tenant.getId(), "ADMIN")).isEmpty();
+
+        assertThatThrownBy(() -> service.bootstrap(
+                true,
+                true,
+                tenant.getId(),
+                null,
+                null,
+                email(),
+                value(),
+                "Missing User",
+                "credential-only-actor",
+                true))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("requires an existing user");
+    }
+
     private Tenant activeTenant(String prefix) {
         return tenantRepository.save(new Tenant(
                 "Active", prefix + "-" + UUID.randomUUID(), TenantStatus.ACTIVE));

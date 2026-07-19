@@ -112,9 +112,45 @@ public class CredentialBootstrapService {
             String displayName,
             String auditActor
     ) {
+        return bootstrap(
+                enabled,
+                forceReset,
+                tenantId,
+                tenantName,
+                tenantSubdomain,
+                adminEmail,
+                adminPassword,
+                displayName,
+                auditActor,
+                false);
+    }
+
+    /**
+     * Reconciles an existing credential without changing authorization state when
+     * {@code credentialOnly} is enabled. This mode is intentionally fail-closed:
+     * it requires force reset, an explicit tenant, and an existing ACTIVE user.
+     */
+    @Transactional
+    public User bootstrap(
+            boolean enabled,
+            boolean forceReset,
+            UUID tenantId,
+            String tenantName,
+            String tenantSubdomain,
+            String adminEmail,
+            String adminPassword,
+            String displayName,
+            String auditActor,
+            boolean credentialOnly
+    ) {
         if (!enabled) {
             log.info("Credential bootstrap is disabled; no enrollment performed.");
             return null;
+        }
+
+        if (credentialOnly && (!forceReset || tenantId == null)) {
+            throw new IllegalStateException(
+                    "Credential-only bootstrap requires force-reset and an explicit tenant-id");
         }
 
         Tenant tenant = resolveTenant(tenantId, tenantName, tenantSubdomain);
@@ -124,7 +160,19 @@ public class CredentialBootstrapService {
         User existingCheck = userRepository.findByTenantIdAndEmail(resolvedTenantId, normalizedEmail)
                 .orElse(null);
         User candidate;
-        if (existingCheck != null) {
+        if (credentialOnly) {
+            if (existingCheck == null) {
+                throw new IllegalStateException(
+                        "Credential-only bootstrap requires an existing user for tenant " + resolvedTenantId);
+            }
+            if (existingCheck.getStatus() != UserStatus.ACTIVE) {
+                throw new IllegalStateException(
+                        "Credential-only bootstrap requires an ACTIVE user for tenant " + resolvedTenantId);
+            }
+            log.info("Credential-only bootstrap: re-enrolling userId={} tenantId={}",
+                    existingCheck.getId(), resolvedTenantId);
+            candidate = existingCheck;
+        } else if (existingCheck != null) {
             if (forceReset) {
                 // Force reset mode: overwrite existing credentials
                 log.info("Bootstrap force-reset: re-enrolling userId={} tenantId={}",
@@ -162,6 +210,12 @@ public class CredentialBootstrapService {
         // Revoke all existing refresh tokens on force reset
         if (forceReset && existingCheck != null) {
             log.info("Bootstrap force-reset: revoking all refresh tokens for userId={}", adminUser.getId());
+        }
+
+        if (credentialOnly) {
+            log.info("Credential-only bootstrap completed for userId={} tenantId={}; authorization unchanged.",
+                    adminUser.getId(), resolvedTenantId);
+            return adminUser;
         }
 
         ensureAdminRoleGrant(resolvedTenantId, adminUser);
