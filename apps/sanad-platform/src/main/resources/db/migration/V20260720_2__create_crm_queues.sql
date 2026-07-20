@@ -11,7 +11,7 @@ BEGIN;
 -- 1. Queues
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS crm_queues (
-    id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                          UUID NOT NULL DEFAULT gen_random_uuid(),
     tenant_id                   UUID NOT NULL,
     code                        VARCHAR(64) NOT NULL,
     display_name                VARCHAR(200) NOT NULL,
@@ -34,14 +34,14 @@ CREATE TABLE IF NOT EXISTS crm_queues (
     )),
     CONSTRAINT ck_queues_capacity CHECK (max_items_per_user >= 1 AND max_items_per_user <= 1000),
     CONSTRAINT ck_queues_no_self_escalation CHECK (escalation_target_queue_id IS NULL
-        OR escalation_target_queue_id <> id)
+        OR escalation_target_queue_id <> id),
+    -- Inline composite UNIQUE so crm_queue_memberships can FK to (tenant_id, queue_id)
+    CONSTRAINT pk_queues PRIMARY KEY (id),
+    CONSTRAINT uk_queues_tenant_id UNIQUE (tenant_id, id)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uk_queues_tenant_code
     ON crm_queues (tenant_id, code);
-
-CREATE UNIQUE INDEX IF NOT EXISTS uk_queues_tenant_id_pk
-    ON crm_queues (tenant_id, id);
 
 CREATE INDEX IF NOT EXISTS idx_queues_tenant_status_type
     ON crm_queues (tenant_id, status, record_type);

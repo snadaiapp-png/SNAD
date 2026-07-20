@@ -13,8 +13,11 @@ BEGIN;
 -- ----------------------------------------------------------------------------
 -- 1. Sales Teams
 -- ----------------------------------------------------------------------------
+-- IMPORTANT: include UNIQUE (tenant_id, id) inline as a table constraint
+-- so that crm_team_memberships can reference it via composite FK below.
+-- (PostgreSQL requires the unique constraint to exist before the FK.)
 CREATE TABLE IF NOT EXISTS crm_sales_teams (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                  UUID NOT NULL DEFAULT gen_random_uuid(),
     tenant_id           UUID NOT NULL,
     code                VARCHAR(64) NOT NULL,
     display_name        VARCHAR(200) NOT NULL,
@@ -25,24 +28,25 @@ CREATE TABLE IF NOT EXISTS crm_sales_teams (
     default_territory_id UUID,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    created_by           UUID,
-    updated_by           UUID,
+    created_by          UUID,
+    updated_by          UUID,
+    -- Composite unique on (tenant_id, id) so child tables can reference it.
+    -- This is required in addition to the PK because PostgreSQL FKs need
+    -- a unique constraint on the exact referenced column list.
+    CONSTRAINT pk_sales_teams PRIMARY KEY (id),
+    CONSTRAINT uk_sales_teams_tenant_id UNIQUE (tenant_id, id),
     CONSTRAINT fk_sales_teams_tenants FOREIGN KEY (tenant_id)
         REFERENCES tenants(id) ON DELETE RESTRICT,
     CONSTRAINT ck_sales_teams_status CHECK (status IN ('ACTIVE','SUSPENDED','ARCHIVED'))
 );
 
--- One team code per tenant
+-- One team code per tenant (separate from the composite unique on (tenant_id, id))
 CREATE UNIQUE INDEX IF NOT EXISTS uk_sales_teams_tenant_code
     ON crm_sales_teams (tenant_id, code);
 
 -- Tenant-leading index for listing
 CREATE INDEX IF NOT EXISTS idx_sales_teams_tenant_status
     ON crm_sales_teams (tenant_id, status, display_name);
-
--- One ACTIVE manager per team (the manager is set on the team row itself)
--- Note: a user can manage multiple teams; the "one primary team per user"
--- is enforced on the team_memberships table below.
 
 -- ----------------------------------------------------------------------------
 -- 2. Team Memberships
@@ -66,6 +70,7 @@ CREATE TABLE IF NOT EXISTS crm_team_memberships (
     updated_by          UUID,
     CONSTRAINT fk_team_memberships_tenants FOREIGN KEY (tenant_id)
         REFERENCES tenants(id) ON DELETE RESTRICT,
+    -- Composite FK referencing the UNIQUE (tenant_id, id) constraint on crm_sales_teams
     CONSTRAINT fk_team_memberships_sales_teams FOREIGN KEY (tenant_id, team_id)
         REFERENCES crm_sales_teams(tenant_id, id) ON DELETE RESTRICT,
     CONSTRAINT ck_team_memberships_role CHECK (role IN (
@@ -75,11 +80,6 @@ CREATE TABLE IF NOT EXISTS crm_team_memberships (
     CONSTRAINT ck_team_memberships_status CHECK (status IN ('ACTIVE','ENDED')),
     CONSTRAINT ck_team_memberships_capacity CHECK (capacity_max >= 0 AND capacity_max <= 1000)
 );
-
--- Composite FK to sales_teams (tenant_id, team_id) — already created via FK above.
--- Add a composite unique constraint on sales_teams for the FK target:
-CREATE UNIQUE INDEX IF NOT EXISTS uk_sales_teams_tenant_id_pk
-    ON crm_sales_teams (tenant_id, id);
 
 -- One ACTIVE membership per (tenant, team, user)
 CREATE UNIQUE INDEX IF NOT EXISTS uk_team_memberships_active
@@ -113,6 +113,5 @@ COMMIT;
 --  WHERE table_name IN ('crm_sales_teams','crm_team_memberships');
 -- Expected: 2
 --
--- SELECT count(*) FROM pg_indexes
---  WHERE tablename IN ('crm_sales_teams','crm_team_memberships');
--- Expected: 6 (1 PK + 2 unique + 3 indexes for teams/memberships)
+-- SELECT indexname FROM pg_indexes WHERE tablename='crm_sales_teams';
+-- Expected: pk_sales_teams, uk_sales_teams_tenant_id, uk_sales_teams_tenant_code, idx_sales_teams_tenant_status

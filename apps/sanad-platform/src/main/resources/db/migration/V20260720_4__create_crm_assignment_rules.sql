@@ -11,7 +11,7 @@ BEGIN;
 -- 1. Assignment Rules (current version pointer)
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS crm_assignment_rules (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                  UUID NOT NULL DEFAULT gen_random_uuid(),
     tenant_id           UUID NOT NULL,
     code                VARCHAR(64) NOT NULL,
     current_version     INTEGER NOT NULL DEFAULT 1,
@@ -22,14 +22,14 @@ CREATE TABLE IF NOT EXISTS crm_assignment_rules (
     updated_by          UUID,
     CONSTRAINT fk_assignment_rules_tenants FOREIGN KEY (tenant_id)
         REFERENCES tenants(id) ON DELETE RESTRICT,
-    CONSTRAINT ck_assignment_rules_status CHECK (status IN ('ACTIVE','INACTIVE','DEPRECATED'))
+    CONSTRAINT ck_assignment_rules_status CHECK (status IN ('ACTIVE','INACTIVE','DEPRECATED')),
+    -- Inline composite UNIQUE so crm_assignment_rule_versions can FK to (tenant_id, rule_id)
+    CONSTRAINT pk_assignment_rules PRIMARY KEY (id),
+    CONSTRAINT uk_assignment_rules_tenant_id UNIQUE (tenant_id, id)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uk_assignment_rules_tenant_code
     ON crm_assignment_rules (tenant_id, code);
-
-CREATE UNIQUE INDEX IF NOT EXISTS uk_assignment_rules_tenant_id_pk
-    ON crm_assignment_rules (tenant_id, id);
 
 -- Only one ACTIVE rule per (tenant, code) — enforced on the rule itself
 -- (status INACTIVE/DEPRECATED versions can coexist for history).

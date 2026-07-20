@@ -11,7 +11,7 @@ BEGIN;
 -- 1. Territories
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS crm_territories (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                  UUID NOT NULL DEFAULT gen_random_uuid(),
     tenant_id           UUID NOT NULL,
     code                VARCHAR(64) NOT NULL,
     display_name        VARCHAR(200) NOT NULL,
@@ -34,14 +34,14 @@ CREATE TABLE IF NOT EXISTS crm_territories (
         'GEOGRAPHIC','SEGMENT','CHANNEL','ACCOUNT_LIST'
     )),
     CONSTRAINT ck_territories_no_self_parent CHECK (parent_id IS NULL OR parent_id <> id),
-    CONSTRAINT ck_territories_priority CHECK (priority >= 0 AND priority <= 10000)
+    CONSTRAINT ck_territories_priority CHECK (priority >= 0 AND priority <= 10000),
+    -- Inline composite UNIQUE so closure table + assignments can FK to (tenant_id, id)
+    CONSTRAINT pk_territories PRIMARY KEY (id),
+    CONSTRAINT uk_territories_tenant_id UNIQUE (tenant_id, id)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uk_territories_tenant_code
     ON crm_territories (tenant_id, code);
-
-CREATE UNIQUE INDEX IF NOT EXISTS uk_territories_tenant_id_pk
-    ON crm_territories (tenant_id, id);
 
 CREATE INDEX IF NOT EXISTS idx_territories_tenant_status
     ON crm_territories (tenant_id, status, display_name);

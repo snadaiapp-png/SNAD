@@ -14,7 +14,7 @@ BEGIN;
 -- 1. Assignments (current and historical)
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS crm_assignments (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                  UUID NOT NULL DEFAULT gen_random_uuid(),
     tenant_id           UUID NOT NULL,
     record_type         VARCHAR(20) NOT NULL,
     record_id           UUID NOT NULL,
@@ -44,16 +44,16 @@ CREATE TABLE IF NOT EXISTS crm_assignments (
         (owner_type = 'USER' AND owner_user_id IS NOT NULL AND owner_team_id IS NULL AND owner_queue_id IS NULL)
         OR (owner_type = 'TEAM' AND owner_team_id IS NOT NULL AND owner_user_id IS NULL AND owner_queue_id IS NULL)
         OR (owner_type = 'QUEUE' AND owner_queue_id IS NOT NULL AND owner_user_id IS NULL AND owner_team_id IS NULL)
-    )
+    ),
+    -- Inline composite UNIQUE so cross-references can FK to (tenant_id, id) if needed
+    CONSTRAINT pk_assignments PRIMARY KEY (id),
+    CONSTRAINT uk_assignments_tenant_id UNIQUE (tenant_id, id)
 );
 
 -- Partial unique index: exactly one ACTIVE assignment per (tenant, record_type, record_id)
 CREATE UNIQUE INDEX IF NOT EXISTS uk_assignments_active_per_record
     ON crm_assignments (tenant_id, record_type, record_id)
     WHERE status = 'ACTIVE';
-
-CREATE UNIQUE INDEX IF NOT EXISTS uk_assignments_tenant_id_pk
-    ON crm_assignments (tenant_id, id);
 
 -- Tenant-leading indexes for queries
 CREATE INDEX IF NOT EXISTS idx_assignments_tenant_record
@@ -78,7 +78,7 @@ CREATE INDEX IF NOT EXISTS idx_assignments_tenant_correlation
 -- 2. Ownership History (append-only ledger)
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS crm_ownership_history (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                  UUID NOT NULL DEFAULT gen_random_uuid(),
     tenant_id           UUID NOT NULL,
     record_type         VARCHAR(20) NOT NULL,
     record_id           UUID NOT NULL,
@@ -110,7 +110,10 @@ CREATE TABLE IF NOT EXISTS crm_ownership_history (
     CONSTRAINT ck_ownership_history_trigger_source CHECK (trigger_source IN (
         'MANUAL','RULE','TRANSFER_REQUEST','WORKFLOW','ABSENCE_POLICY'
     )),
-    CONSTRAINT ck_ownership_history_to_owner_type CHECK (to_owner_type IN ('USER','TEAM','QUEUE'))
+    CONSTRAINT ck_ownership_history_to_owner_type CHECK (to_owner_type IN ('USER','TEAM','QUEUE')),
+    -- Inline PK + composite UNIQUE (tenant_id, id) for cross-references
+    CONSTRAINT pk_ownership_history PRIMARY KEY (id),
+    CONSTRAINT uk_ownership_history_tenant_id UNIQUE (tenant_id, id)
 );
 
 -- Append-only enforcement at app layer; DB role grants only INSERT + SELECT.

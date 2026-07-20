@@ -11,7 +11,7 @@ BEGIN;
 -- 1. Transfer Requests
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS crm_transfer_requests (
-    id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                          UUID NOT NULL DEFAULT gen_random_uuid(),
     tenant_id                   UUID NOT NULL,
     record_type                 VARCHAR(20) NOT NULL,
     -- record_ids is stored as JSONB array (composite type would require CREATE TYPE)
@@ -54,7 +54,10 @@ CREATE TABLE IF NOT EXISTS crm_transfer_requests (
         policy = 'NO_APPROVAL_REQUIRED'
         OR proposed_owner_user_id IS NULL
         OR requester_user_id <> proposed_owner_user_id
-    )
+    ),
+    -- Inline PK + composite UNIQUE so crm_transfer_steps can FK to (tenant_id, transfer_request_id)
+    CONSTRAINT pk_transfer_requests PRIMARY KEY (id),
+    CONSTRAINT uk_transfer_requests_tenant_id UNIQUE (tenant_id, id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_transfer_requests_tenant_state
@@ -74,7 +77,7 @@ CREATE INDEX IF NOT EXISTS idx_transfer_requests_tenant_workflow
 -- 2. Transfer Steps (one row per approval step)
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS crm_transfer_steps (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                  UUID NOT NULL DEFAULT gen_random_uuid(),
     tenant_id           UUID NOT NULL,
     transfer_request_id UUID NOT NULL,
     step_number         INTEGER NOT NULL,
