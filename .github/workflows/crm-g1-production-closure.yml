@@ -290,20 +290,26 @@ jobs:
           SHA256
           )
 
+          # Pre-migrate validate: check for checksum mismatches but IGNORE pending migrations.
+          # Pending migrations (like 20260718.1) are expected here — they will be applied by
+          # flyway:migrate below. We only want to catch checksum mismatches before migrating.
+          # This is NOT flyway repair — it is a standard Flyway configuration.
           mvn --batch-mode --no-transfer-progress -f apps/sanad-platform/pom.xml flyway:validate \
             -Dflyway.url="$PROD_JDBC_URL" \
             -Dflyway.user="$PROD_DB_USER" \
             -Dflyway.password="$PROD_DB_PASSWORD" \
             -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
             -Dflyway.outOfOrder=true \
+            -Dflyway.ignoreMigrationPatterns='*:pending' \
             || {
               echo "::error::flyway:validate FAILED before reconciliation migrate."
               echo "::error::This means there is a checksum mismatch or a missing migration file."
+              echo "::error::Pending migrations are ignored in this step — they are applied by flyway:migrate below."
               echo "::error::DO NOT use flyway repair. DO NOT manually edit flyway_schema_history."
               echo "::error::Investigate which migration has a checksum mismatch and resolve with a forward-only corrective migration."
               exit 1
             }
-          echo "flyway:validate PASS (pre-migrate)."
+          echo "flyway:validate PASS (pre-migrate, pending migrations ignored)."
 
           # Apply the reconciliation migration (20260718.1) via flyway:migrate.
           # This is the critical fix: the previous workflow only validated but never migrated,
