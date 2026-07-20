@@ -31,6 +31,7 @@ jobs:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID || 'srv-d8ragqkm0tmc73bviqq0' }}
       PRODUCTION_BASE_URL: https://sanad-backend-mcrj.onrender.com
+      RENDER_AUTODEPLOY_ENABLED: ${{ vars.RENDER_AUTODEPLOY_ENABLED || 'false' }}
 
     steps:
       - name: Checkout exact source
@@ -72,7 +73,8 @@ jobs:
             echo "- Source: \`${{ github.sha }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Validate protected Render configuration
+      - name: Validate optional protected Render configuration
+        if: env.RENDER_AUTODEPLOY_ENABLED == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -82,6 +84,7 @@ jobs:
           [[ "$PRODUCTION_BASE_URL" == https://*.onrender.com ]] || { echo "::error::Invalid Render production URL"; exit 1; }
 
       - name: Deploy immutable image to Render
+        if: env.RENDER_AUTODEPLOY_ENABLED == 'true'
         id: render
         shell: bash
         run: |
@@ -121,6 +124,7 @@ jobs:
           echo "deployment_id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
 
       - name: Verify Render health and readiness
+        if: env.RENDER_AUTODEPLOY_ENABLED == 'true'
         shell: bash
         run: |
           set -euo pipefail
