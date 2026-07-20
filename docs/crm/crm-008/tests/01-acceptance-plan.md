@@ -1,6 +1,6 @@
 # CRM-008 — Acceptance Plan
 
-> 15 acceptance criteria (AC-01 → AC-15). Each criterion specifies the test type, test class path (proposed), pass criterion, and evidence artifact.
+> 21 acceptance criteria (AC-01 → AC-15 + AC-DB-01, AC-DB-02, AC-DB-03, AC-CONC-01, AC-RR-01, AC-TEST-01). Each criterion specifies the test type, test class path (proposed), pass criterion, and evidence artifact.
 
 ---
 
@@ -323,25 +323,194 @@
 
 ---
 
-## Acceptance Gate Summary
+## AC-DB-01 — Database-Enforced Single Active Assignment (added per EXEC-PROMPT-CRM-008A-R2)
 
-| AC | Test type | Block merge if failing? |
-|---|---|---|
-| AC-01 | Integration + Testcontainers | YES (P0) |
-| AC-02 | Testcontainers + concurrency | YES (P0) |
-| AC-03 | Integration + DB role | YES (P0) |
-| AC-04 | Concurrency | YES (P0) |
-| AC-05 | Integration | YES (P0) |
-| AC-06 | Unit + integration | YES (P0) |
-| AC-07 | Unit + integration | YES (P0) |
-| AC-08 | Unit + integration | YES (P0) |
-| AC-09 | Unit + integration | YES (P0) |
-| AC-10 | Integration | YES (P0) |
-| AC-11 | Contract (mock) | YES (P0) |
-| AC-12 | Playwright | NO (P1 — block commercial go-live, not implementation merge) |
-| AC-13 | Playwright + axe-core | NO (P1) |
-| AC-14 | Performance | NO (P1 — block commercial go-live) |
-| AC-15 | Production smoke | YES (P0, post-merge only — owner sign-off required) |
+**Requirement:** PostgreSQL CANNOT retain two assignments with `status='ACTIVE'` for the same `(tenant_id, record_type, record_id)` — even if two concurrent requests bypass the application layer and reach the database simultaneously.
 
-**P0 = blocks CRM-008 implementation merge to main.**
-**P1 = blocks commercial go-live claim, but does not block implementation merge.**
+**Test type:** Testcontainers (PostgreSQL 16) + concurrency test
+
+**Test class (proposed):**
+- `apps/sanad-platform/src/test/java/com/sanad/platform/crm/ownership/contract/AcDb01DatabaseEnforcedSingleActiveAssignmentTest.java`
+
+**Pass criterion:**
+- The `crm_assignments` table has a partial unique index `uk_assignments_active_per_record ON (tenant_id, record_type, record_id) WHERE status='ACTIVE'`
+- Two concurrent transactions attempt to INSERT a row with `status='ACTIVE'` for the same `(tenant_id, record_type, record_id)`
+- Exactly one INSERT succeeds; the other receives a PostgreSQL unique violation (SQL state `23505`)
+- After both transactions complete, `SELECT count(*) FROM crm_assignments WHERE tenant_id=? AND record_type=? AND record_id=? AND status='ACTIVE'` returns exactly 1
+- The test does NOT rely on the application layer — it uses raw JDBC to bypass `OwnershipWritePort`
+
+**Evidence artifact:** Test log showing the unique violation on the second INSERT + the final count of 1.
+
+---
+
+## AC-DB-02 — Migration Fails Closed on Partial Schema State (added per EXEC-PROMPT-CRM-008A-R2)
+
+**Requirement:** If the schema is in a partial or unexpected state, the migration fails with `MIGRATION_ABORTED / SCHEMA_PARTIAL_OR_UNEXPECTED / NO_SILENT_REPAIR`. No silent repair, no `flyway repair`, no `IF NOT EXISTS` masking.
+
+**Test type:** Testcontainers (PostgreSQL 16) + Flyway migration test
+
+**Test class (proposed):**
+- `apps/sanad-platform/src/test/java/com/sanad/platform/crm/ownership/contract/AcDb02MigrationFailsClosedOnPartialStateTest.java`
+
+**Pass criterion:**
+- Pre-condition: a partial state is simulated (e.g. one of the CRM-008 tables exists but others do not; or a table exists but is missing a required column; or a constraint exists with the wrong definition)
+- The CRM-008B migration is executed against this partial state
+- The migration MUST abort with a clear error message containing `SCHEMA_PARTIAL_OR_UNEXPECTED`
+- The migration MUST NOT auto-repair the partial state
+- The Flyway history MUST NOT contain a successful row for this migration
+- The Flyway history MUST NOT contain a `flyway repair` artifact
+- A separate reconciliation migration is required to repair the state
+
+**Evidence artifact:** Flyway log showing the abort + Flyway history showing no successful row + DB query showing the partial state is unchanged.
+
+---
+
+## AC-DB-03 — Migration Postconditions Verified (added per EXEC-PROMPT-CRM-008A-R2)
+
+**Requirement:** Each migration verifies its postconditions — not just that the table exists, but that all expected columns, primary keys, unique constraints, foreign keys (including same-tenant composite FKs), check constraints, tenant-leading indexes, and partial unique indexes match the design.
+
+**Test type:** Testcontainers (PostgreSQL 16) + Flyway migration test
+
+**Test class (proposed):**
+- `apps/sanad-platform/src/test/java/com/sanad/platform/crm/ownership/contract/AcDb03MigrationPostconditionsVerifiedTest.java`
+
+**Pass criterion:**
+- After each CRM-008B migration executes successfully, a verification query against `information_schema` and `pg_catalog` confirms:
+  - Expected tables exist with expected names
+  - Expected columns exist with expected types and nullability
+  - Primary keys match the design
+  - Unique constraints match the design
+  - Foreign keys (including same-tenant composite FKs) match the design
+  - Check constraints match the design
+  - Tenant-leading indexes match the design
+  - Partial unique indexes match the design (e.g. `WHERE status='ACTIVE'`)
+  - No unexpected additional objects (tables, columns, indexes, constraints) were created
+- If any postcondition fails, the migration transaction rolls back
+
+**Evidence artifact:** Postcondition verification report (structured JSON) showing all checks passed.
+
+---
+
+## AC-CONC-01 — Concurrent Assignment Conflict (added per EXEC-PROMPT-CRM-008A-R2)
+
+**Requirement:** Two simultaneous assignment requests for the same record produce exactly one success and one controlled conflict, with exactly one ACTIVE assignment in the database afterward.
+
+**Test type:** Concurrency test (Testcontainers PostgreSQL 16 + multi-threaded application test)
+
+**Test class (proposed):**
+- `apps/sanad-platform/src/test/java/com/sanad/platform/crm/ownership/contract/AcConc01ConcurrentAssignmentConflictTest.java`
+
+**Pass criterion:**
+- Two threads call `OwnershipWritePort.assign()` for the same `(tenant_id, record_type, record_id)` simultaneously
+- Exactly one call returns a successful `Assignment` result
+- The other call receives a controlled conflict (HTTP 409 or equivalent — `ConcurrentAssignmentConflictException` or PostgreSQL unique violation wrapped in a clear application error)
+- After both calls complete, `SELECT count(*) FROM crm_assignments WHERE tenant_id=? AND record_type=? AND record_id=? AND status='ACTIVE'` returns exactly 1
+- The `crm_ownership_history` table contains exactly one row for this correlation (no duplicate history entries)
+- The test is repeated 10 times with different records to ensure determinism
+
+**Evidence artifact:** Test log showing thread A success + thread B conflict + final DB state showing single ACTIVE assignment + history table showing single entry.
+
+---
+
+## AC-TEST-01 — Test Execution Distinction in Stage Report (added per EXEC-PROMPT-CRM-008A-R2)
+
+**Requirement:** The stage report clearly differentiates between existing repository tests (which were executed) and CRM-008-specific tests (which were NOT executed). The success of existing repository tests MUST NOT be presented as evidence of CRM-008 completion.
+
+**Test type:** Documentation review (manual + automated Markdown lint)
+
+**Test class (proposed):**
+- Manual review by QA Owner
+- Automated check: `scripts/ci/check_crm_008_test_distinction.py` (to be added in CRM-008B)
+
+**Pass criterion:**
+- `STAGE-REPORT-CRM-008A.md` §2.5 contains the precise distinction with both lists:
+  - Tests that WERE executed (existing repository suites — compilation, Maven, architecture, API contract, CI workflows, security baseline, backup validation, CRM-G1 schema isolation, business process E2E)
+  - Tests that were NOT executed (CRM-008 business acceptance, migration, concurrency, tenant-isolation, RBAC, production smoke, Playwright)
+- The stage report explicitly states: "The success of existing repository tests MUST NOT be presented as evidence of CRM-008 completion."
+- No PR description, commit message, or comment claims CRM-008 completion based on existing repository test success
+- The automated check (when implemented in CRM-008B) scans all CRM-008 documents for the required distinction language
+
+**Evidence artifact:** QA Owner sign-off on §2.5 + automated check output (when implemented).
+
+---
+
+## AC-RR-01 — Round-Robin Counter Concurrency (added per Owner Review R2)
+
+**Requirement:** Round-robin counter updates are atomic, concurrency-safe, and produce no lost updates. A repeated user assignment is allowed only after ring wrap or eligibility filtering — NOT as a result of counter corruption.
+
+**Context:** AC-CONC-01 tests concurrent assignment of the same record (one success, one conflict). AC-RR-01 is a **different** test: it tests the round-robin counter itself when N concurrent evaluations target **different records** that share the same assignment rule.
+
+**Test type:** Concurrency test (Testcontainers PostgreSQL 16 + multi-threaded application test)
+
+**Test class (proposed):**
+- `apps/sanad-platform/src/test/java/com/sanad/platform/crm/ownership/contract/AcRr01RoundRobinCounterConcurrencyTest.java`
+
+**Pass criterion:**
+
+```text
+N concurrent evaluations
+→ N atomic counter increments
+→ no lost updates
+→ each evaluation receives one deterministic sequence position
+→ final counter = initial counter + N
+→ distribution follows the eligible-member ring
+→ repeated user is allowed only after ring wrap or eligibility filtering
+```
+
+Specifically:
+- N threads (e.g. N=20) concurrently invoke the round-robin assignment rule for N **different** records (no two threads target the same record)
+- All N assignments succeed (no conflicts — each record is independent)
+- The `crm_assignment_rule_counters` row for this `(tenant_id, rule_id)` has `counter = initial_counter + N` (no lost updates)
+- Each of the N assignments received a deterministic, distinct sequence position (1, 2, 3, …, N)
+- The distribution of owners follows the eligible-member ring (e.g. with 5 eligible members and N=20, each member receives exactly 4 assignments — modulo ring wrap)
+- A repeated user assignment (same user assigned twice) is allowed ONLY after the ring wraps (all eligible members received one assignment) or after eligibility filtering (e.g. a member reached capacity) — NOT as a result of counter corruption
+- The test is repeated 10 times to ensure determinism
+- The test is repeated with N=1, N=5, N=20, N=100 to verify scaling
+
+**Accepted mechanisms** (per Q5 decision):
+- `SELECT ... FOR UPDATE` pessimistic locking on the counter row, OR
+- `UPDATE crm_assignment_rule_counters SET counter = counter + 1 WHERE tenant_id = ? AND rule_id = ? RETURNING counter` atomic increment, OR
+- Equivalent PostgreSQL atomic mechanism (e.g. `SEQUENCE` with application-layer ring resolution)
+
+**Forbidden mechanisms:**
+- ❌ Read-modify-write without locking (lost updates possible)
+- ❌ Application-layer counter without DB-level atomicity (race conditions)
+- ❌ Counter that resets on conflict (loss of sequence integrity)
+
+**Evidence artifact:** Test log showing N=20 concurrent evaluations → 20 atomic increments → final counter = initial + 20 → distribution follows the 5-member ring (4 each) + repeated runs with N=1/5/20/100 all pass.
+
+---
+
+## Acceptance Gate Summary (updated per EXEC-PROMPT-CRM-008A-R2)
+
+> **Three-gate classification** (per P0-07 correction): criteria are classified against Implementation Merge, Formal Stage Closure, and Commercial Go-Live gates. See `STAGE-REPORT-CRM-008A.md` §5 for the full mapping.
+
+| AC | Test type | Implementation Merge | Formal Stage Closure | Commercial Go-Live |
+|---|---|---|---|---|
+| AC-01 | Integration + Testcontainers | YES (P0) | YES (P0) | YES (P0) |
+| AC-02 | Testcontainers + concurrency | YES (P0) | YES (P0) | YES (P0) |
+| AC-03 | Integration + DB role | YES (P0) | YES (P0) | YES (P0) |
+| AC-04 | Concurrency | YES (P0) | YES (P0) | YES (P0) |
+| AC-05 | Integration | YES (P0) | YES (P0) | YES (P0) |
+| AC-06 | Unit + integration | YES (P0) | YES (P0) | YES (P0) |
+| AC-07 | Unit + integration | YES (P0) | YES (P0) | YES (P0) |
+| AC-08 | Unit + integration | YES (P0) | YES (P0) | YES (P0) |
+| AC-09 | Unit + integration | YES (P0) | YES (P0) | YES (P0) |
+| AC-10 | Integration | YES (P0) | YES (P0) | YES (P0) |
+| AC-11 | Contract (mock) | YES (P0) | YES (P0) | YES (P0) |
+| AC-12 | Playwright | NO | YES (P0) | YES (P0) |
+| AC-13 | Playwright + axe-core | NO | YES (P0) | YES (P0) |
+| AC-14 | Performance | NO | YES (P0) | YES (P0) |
+| AC-15 | Production smoke (post-merge) | **NO** | YES (P0) | YES (P0) |
+| **AC-DB-01** | **Testcontainers + concurrency (raw JDBC)** | **YES (P0)** | **YES (P0)** | **YES (P0)** |
+| **AC-DB-02** | **Testcontainers + Flyway migration** | **YES (P0)** | **YES (P0)** | **YES (P0)** |
+| **AC-DB-03** | **Testcontainers + Flyway migration** | **YES (P0)** | **YES (P0)** | **YES (P0)** |
+| **AC-CONC-01** | **Concurrency (Testcontainers + multi-threaded app)** | **YES (P0)** | **YES (P0)** | **YES (P0)** |
+| **AC-RR-01** | **Concurrency (round-robin counter, N=1/5/20/100)** | **YES (P0)** | **YES (P0)** | **YES (P0)** |
+| **AC-TEST-01** | **Documentation review (manual + automated)** | **YES (P0)** | **YES (P0)** | **YES (P0)** |
+
+**Total acceptance criteria: 21** (AC-01 → AC-15 + AC-DB-01/02/03 + AC-CONC-01 + AC-RR-01 + AC-TEST-01)
+
+**Implementation Merge Gate:** 17 P0 criteria must pass (AC-01 → AC-11 + AC-DB-01/02/03 + AC-CONC-01 + AC-RR-01 + AC-TEST-01)
+**Formal Stage Closure Gate:** 21 criteria must pass (all 17 above + AC-12 + AC-13 + AC-14 + AC-15)
+**Commercial Go-Live Gate:** 21 criteria + owner sign-off + REM-P0-006 independent security assurance
