@@ -116,7 +116,7 @@ crm/ownership/
 | 5 | `Territory` | Hierarchy is acyclic (enforced at write time via closure-table cycle check) |
 | 6 | `TerritoryAssignment` | A team or user can be assigned to multiple territories; coverage rules resolve overlaps |
 | 7 | `AssignmentRule` | Versioned; only one ACTIVE version per (tenant, record_type, priority) at a time |
-| 8 | `Assignment` | Exactly one ACTIVE assignment per (tenant, record_id) at any instant — enforced by partial unique index |
+| 8 | `Assignment` | Exactly one ACTIVE assignment per (tenant, record_type, record_id) at any instant — enforced at BOTH database layer (PostgreSQL partial unique index `WHERE status='ACTIVE'`) AND application layer (transactional SUPERSEDE-then-INSERT). See STAGE-REPORT-CRM-008A.md §4.7. |
 | 9 | `TransferRequest` | State machine: DRAFT→SUBMITTED→UNDER_REVIEW→{APPROVED\|REJECTED\|CANCELLED}→COMPLETED; only COMPLETED mutates ownership |
 | 10 | `OwnershipHistory` | Append-only; no UPDATE or DELETE ever (enforced by revoke of UPDATE/DELETE grants at DB role level) |
 
@@ -174,14 +174,14 @@ The existing `ADMIN` role auto-receives all 17 capabilities (via the `ensureAdmi
 | `V20260720_8` | `seed_crm_ownership_capabilities.sql` | 17 capabilities + audit marker |
 
 All planned migrations:
-- Use `IF NOT EXISTS` (forward-only, idempotent re-run safety per CRM-G1 pattern)
+- Follow the **fail-closed strategy** (see `migrations/01-migration-plan.md` §Fail-Closed Strategy) — `IF NOT EXISTS` is **deprecated** for CRM-008B because it can silently mask partial schema states
 - Every table has `tenant_id UUID NOT NULL` as first column
 - Every FK is `(tenant_id, parent_id)` composite
 - Every index leads with `tenant_id`
 - No `DROP` or `TRUNCATE` without explicit ADR
-- The "one active assignment per record" invariant is enforced at the application layer
-  (the partial unique index version was removed for Flyway compatibility — see
-  `migrations/01-migration-plan.md` for details)
+- Each migration includes Preconditions → Transactional DDL → Postconditions, with full rollback on any failure
+- The "one active assignment per record" invariant is enforced at BOTH database layer (partial unique index) AND application layer (transactional SUPERSEDE-then-INSERT) — see STAGE-REPORT-CRM-008A.md §4.7
+- The previous failure that removed the partial unique index is classified as `MIGRATION_DESIGN_OR_SCHEMA_STATE_DEFECT` (not a PostgreSQL/Flyway limitation) and MUST be root-caused in CRM-008B before re-introducing the index
 
 **IMPORTANT — Status of SQL files:**
 
@@ -222,7 +222,7 @@ CRM-008B implementation remains BLOCKED regardless.
 - No Java implementation files (only 4 marker interfaces as `domain/*.java` — no JDBC adapters, no controllers, no use cases, no method bodies)
 - No SQL files committed to `main` (8 migrations are PLANNED in `migrations/01-migration-plan.md` but the `.sql` files were removed before merge — they will be re-added in CRM-008B)
 - No SQL execution against any database
-- No test execution (only test plan documents)
+- No CRM-008-specific implementation or acceptance tests were executed (see STAGE-REPORT-CRM-008A.md §2.5 for the precise distinction between existing repository tests and CRM-008 tests)
 - No frontend changes (frontend design is a separate sub-phase CRM-008E)
 - No changes to existing CRM v1 or v2 endpoints
 - No changes to existing migrations (only new V20260720_* files are planned)
@@ -240,7 +240,7 @@ CRM-008B implementation remains BLOCKED regardless.
 
 4. **Territory overlap policy:** §4.6 requires "uncontrolled overlap" prevention. Should the policy be (a) mutually exclusive territories (DB-level exclusion), or (b) overlap allowed with explicit priority resolution at assignment time? The draft recommends (b) with documented priority.
 
-5. **Round-robin persistence:** Should round-robin state be per-rule (one counter per rule) or per-(rule, tenant) (one counter per rule per tenant)? The draft recommends per-(rule, tenant).
+5. **Round-robin persistence:** DECIDED — per (tenant, assignment_rule). Counter updates MUST be transactional, atomic, and concurrency-safe (`SELECT ... FOR UPDATE` OR `UPDATE ... RETURNING` OR equivalent PostgreSQL atomic mechanism). A new table `crm_assignment_rule_counters` will be added in CRM-008B migration `V20260720_9__create_crm_assignment_rule_counters.sql` (sequential versioning, not fractional).
 
 ---
 

@@ -120,12 +120,51 @@ The full migration plan (table designs, indexes, invariants, execution constrain
 - ❌ No `@RestController` classes
 - ❌ No use cases / application services
 - ❌ No frontend changes
-- ❌ No test execution
+- ❌ No CRM-008-specific implementation or acceptance tests were executed (see §2.5 for the precise distinction between existing repository tests and CRM-008 tests)
 - ❌ No Flyway migration files committed to `main`
 - ❌ No migration execution against any database
 - ❌ No changes to existing CRM v1 or v2 endpoints
 - ❌ No interaction with the active Windows backend or Supabase
 - ❌ No modifications to user's local workflow changes (Render-removal edits preserved untouched)
+
+### 2.5 Test execution — precise distinction (added per EXEC-PROMPT-CRM-008A-R2)
+
+```text
+No CRM-008-specific implementation or acceptance tests were executed.
+
+Existing repository compilation, regression, architecture,
+security and CI suites were executed where applicable.
+```
+
+#### Tests that WERE executed (existing repository suites)
+
+These are pre-existing SANAD repository tests and CI checks that ran on PR #591 and PR #592. They verify the **existing** repository, NOT CRM-008 functionality:
+
+- Repository compilation (`compile` check — Java + TypeScript)
+- Maven regression suites (`Maven Test Suite` — existing SANAD backend tests)
+- Architecture validation (`CRM Modular Architecture Validation`, `Service Decomposition Validation`)
+- API contract validation (`CRM API Contract Validation` — existing CRM v1/v2 contracts)
+- CI workflows (`Build Next.js Web`, `provenance`, `validate` checks)
+- Security baseline (`OWASP Dependency-Check`, `Backend Container Hardening`, `Workflow Security Policy`)
+- PostgreSQL logical backup and restore (`Backup Restore Validation`)
+- CRM G1 schema isolation (`Verify 8 tables, 26 indexes, and tenant isolation` — verifies **existing** CRM-G1 schema, not CRM-008)
+- Business process E2E validation (`Validate governed business process evidence` — existing business processes)
+
+**None of these tests cover CRM-008 functionality.** Their success does not constitute evidence of CRM-008 correctness.
+
+#### Tests that were NOT executed (CRM-008-specific)
+
+The following CRM-008-specific tests are **planned** but have **not been executed** because no CRM-008 implementation exists yet:
+
+- CRM-008 business acceptance tests
+- CRM-008 PostgreSQL migration tests (no migration files committed in CRM-008A)
+- CRM-008 concurrency tests (single active assignment, queue claim, round-robin counter)
+- CRM-008 tenant-isolation tests (SalesTeam, Queue, Territory, Assignment, TransferRequest, OwnershipHistory)
+- CRM-008 RBAC tests (17 capabilities + 2 new roles + escalation paths)
+- CRM-008 production smoke (AC-15)
+- CRM-008 Playwright operational journeys (My Work, Teams, Queues, Territories, Rules, Transfers UI)
+
+**The success of existing repository tests MUST NOT be presented as evidence of CRM-008 completion.** This distinction is enforced by AC-TEST-01 in `tests/01-acceptance-plan.md`.
 
 ---
 
@@ -176,7 +215,12 @@ DECISION: PER TENANT + ASSIGNMENT RULE.
 Counter updates must be transactional and concurrency-safe.
 ```
 
-Round-robin state is stored **per (tenant, assignment_rule)**. A new table `crm_assignment_rule_counters` (added in CRM-008B migration `V20260720_4.1`) stores the counter. Counter increments MUST use `SELECT ... FOR UPDATE` pessimistic locking or PostgreSQL `UPDATE ... RETURNING` atomic increment. Concurrent rule evaluations MUST NOT produce duplicate assignments to the same user.
+Round-robin state is stored **per (tenant, assignment_rule)**. A new table `crm_assignment_rule_counters` (added in CRM-008B migration `V20260720_9__create_crm_assignment_rule_counters.sql`) stores the counter. Counter updates MUST be TRANSACTIONAL, ATOMIC, and CONCURRENCY_SAFE using one of:
+- `SELECT ... FOR UPDATE` pessimistic locking, OR
+- `UPDATE ... RETURNING` atomic increment, OR
+- an equivalent PostgreSQL atomic mechanism.
+
+A multi-transaction concurrency test MUST prove that parallel rule evaluations do not produce duplicate assignments to the same user. See AC-CONC-01 in `tests/01-acceptance-plan.md`.
 
 ### Summary table
 
@@ -217,7 +261,7 @@ Round-robin state is stored **per (tenant, assignment_rule)**. A new table `crm_
 - This enforces immutability even if a future bug tries to mutate history
 
 ### 4.5 Concurrency strategy
-- Single active assignment per record: enforced at application layer (the partial unique index version was removed for Flyway compatibility; the invariant is preserved by `OwnershipWritePort.assign()` moving the previous assignment to SUPERSEDED before inserting the new one in the same transaction)
+- Single active assignment per record: enforced at **both** the database layer AND the application layer (see §4.7 Single Active Assignment Invariant). The previous design relied on application-layer enforcement only; this was corrected per EXEC-PROMPT-CRM-008A-R2 after the partial unique index was temporarily removed for Flyway compatibility. The CRM-008B migration plan now restores the partial unique index with proper schema-state validation (see `migrations/01-migration-plan.md` §Fail-Closed Strategy).
 - Concurrent queue claims: `SELECT ... FOR UPDATE` pessimistic lock + ETag (`If-Match`) optimistic concurrency
 - Bulk transfer atomicity: single DB transaction wrapping all record ownership changes
 
@@ -225,6 +269,109 @@ Round-robin state is stored **per (tenant, assignment_rule)**. A new table `crm_
 - `WorkflowPort` is the only entry point for approval workflows
 - Stub returns `isStub()=true` — health checks flag this clearly
 - Multi-step approvals are blocked when stub is active (single-approver only until real engine arrives, per Q2)
+
+### 4.7 Single Active Assignment Invariant (added per EXEC-PROMPT-CRM-008A-R2)
+
+```text
+SINGLE_ACTIVE_ASSIGNMENT:
+DATABASE_ENFORCED
++
+APPLICATION_ENFORCED
++
+CONCURRENCY_TESTED
+```
+
+The "exactly one ACTIVE assignment per (tenant, record_type, record_id) at any instant" invariant MUST be enforced at **three layers**, not just one:
+
+1. **Database-enforced** — PostgreSQL partial unique index:
+   ```sql
+   CREATE UNIQUE INDEX uk_assignments_active_per_record
+       ON crm_assignments (tenant_id, record_type, record_id)
+       WHERE status = 'ACTIVE';
+   ```
+   This index physically prevents two rows with `status='ACTIVE'` for the same `(tenant_id, record_type, record_id)` — even if two concurrent transactions bypass the application layer.
+
+2. **Application-enforced** — `OwnershipWritePort.assign()` MUST, within a single transaction:
+   - `SELECT ... FOR UPDATE` the previous ACTIVE assignment (if any)
+   - Update it to `status='SUPERSEDED'`, set `effective_to = now()`
+   - Insert the new assignment with `status='ACTIVE'`
+   - The application layer provides the correct semantic ordering and clear error messages, but the database index is the final authority.
+
+3. **Concurrency-tested** — AC-CONC-01 in `tests/01-acceptance-plan.md` requires a test that fires two simultaneous `assign()` calls for the same record and proves:
+   - Exactly one call succeeds
+   - The other receives a controlled conflict (HTTP 409 or equivalent)
+   - The database contains exactly one ACTIVE assignment afterward
+
+#### Documentation of previous failure
+
+The partial unique index was temporarily removed in commit `36d317e4` during CRM-008A because the `CRM G1 Schema Isolation` CI workflow failed with `column "record_type" does not exist` when the index was created inside the same transaction as `CREATE TABLE`.
+
+**This failure is classified as `MIGRATION_DESIGN_OR_SCHEMA_STATE_DEFECT` — NOT as a PostgreSQL or Flyway limitation.** PostgreSQL 16 fully supports partial unique indexes; the failure was caused by the migration design (likely schema-state interaction with the CI workflow's Testcontainers setup), not by PostgreSQL or Flyway.
+
+The CRM-008B migration plan restores the partial unique index with proper fail-closed schema-state validation (see §4.8 and `migrations/01-migration-plan.md` §Fail-Closed Strategy). The previous failure MUST be reproduced and root-caused during CRM-008B before the index is re-introduced; if the root cause cannot be eliminated, an equivalent PostgreSQL mechanism (e.g. exclusion constraint with a `CHECK` expression) MAY be used as long as it provides the same database-level guarantee.
+
+**Forbidden approaches** (per EXEC-PROMPT-CRM-008A-R2 §5):
+- ❌ Application-layer-only enforcement (insufficient — race conditions can bypass it)
+- ❌ Removing the constraint because of the previous migration failure (the failure is a defect to fix, not a constraint to abandon)
+- ❌ Treating `SELECT ... FOR UPDATE` as a sole substitute for the unique index (it serializes access but does not enforce uniqueness at the DB level)
+- ❌ Using a trigger without architectural justification and clear tests (triggers add hidden complexity and are harder to test than declarative constraints)
+
+### 4.8 Fail-Closed Flyway Strategy (added per EXEC-PROMPT-CRM-008A-R2)
+
+CRM-008B migrations MUST NOT rely on `IF NOT EXISTS` to hide partial or unexpected schema state. The previous CRM-008A draft used `IF NOT EXISTS` extensively for idempotency; this is **insufficient** for production migrations because it can silently mask incomplete schema states.
+
+Each CRM-008B migration MUST follow this pattern:
+
+```text
+Preconditions
+  → Exact expected state validation
+  → Transactional schema change
+  → Postconditions
+  → Fail closed on partial or unexpected state
+```
+
+#### Preconditions (before any DDL)
+
+Before executing any DDL, the migration MUST verify:
+
+- The new tables do NOT already exist (or, if they do, they are in the EXACT expected state — same columns, same types, same constraints)
+- There is no partial state — e.g. some tables exist but others do not
+- There are no columns or constraints with matching names but different definitions
+- There are no partial or non-matching indexes
+- The Flyway history is consistent (no failed migration rows, no out-of-order versions)
+- Required tenant constraints from prior migrations are present
+
+If any precondition fails, the migration MUST abort with `MIGRATION_ABORTED / SCHEMA_PARTIAL_OR_UNEXPECTED / NO_SILENT_REPAIR`. A separate, approved reconciliation migration is required to repair the state — the migration itself never auto-repairs.
+
+#### Transaction requirements
+
+- Use a single PostgreSQL transaction per migration whenever PostgreSQL allows it (DDL is transactional in PostgreSQL)
+- Any failure MUST trigger a full rollback — no partial state is left
+- No destructive operations (`DROP TABLE`, `DROP COLUMN`, `TRUNCATE`) without an explicit ADR
+- No `flyway repair`
+- No manual edits to `flyway_schema_history`
+- No out-of-order Flyway execution
+- No `CREATE INDEX CONCURRENTLY` inside a transactional migration (it cannot run in a transaction; use a separate non-transactional migration if concurrency is required)
+
+#### Postconditions (after DDL, before commit)
+
+After the DDL, the migration MUST verify (via `SELECT` against `information_schema` / `pg_catalog`):
+
+- Expected tables exist with expected names
+- Expected columns exist with expected types and nullability
+- Primary keys match the design
+- Unique constraints match the design
+- Foreign keys (including same-tenant composite FKs) match the design
+- Check constraints match the design
+- Tenant-leading indexes match the design
+- Partial unique indexes match the design (e.g. `WHERE status = 'ACTIVE'`)
+- No unexpected additional objects (tables, columns, indexes, constraints) were created
+
+If any postcondition fails, the transaction MUST roll back.
+
+#### Implications for CRM-008A design documents
+
+The `IF NOT EXISTS` pattern documented in `00-discovery-report.md` §7 and `migrations/01-migration-plan.md` is **deprecated** for CRM-008B. The migration plan has been updated to reflect the fail-closed strategy. See `migrations/01-migration-plan.md` §Fail-Closed Strategy for the full pattern and §Migration Template for the new template.
 
 ---
 

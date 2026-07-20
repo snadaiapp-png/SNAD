@@ -250,7 +250,7 @@ The effective or historical assignment of a CRM record.
 - `createdAt: Instant`
 
 ### Invariants
-- Exactly one ACTIVE assignment per `(tenant_id, record_type, record_id)` (partial unique index `WHERE status='ACTIVE'`)
+- Exactly one ACTIVE assignment per `(tenant_id, record_type, record_id)` at any instant — enforced at **both** database layer (PostgreSQL partial unique index `WHERE status='ACTIVE'`) AND application layer (transactional SUPERSEDE-then-INSERT). See STAGE-REPORT-CRM-008A.md §4.7 for the full three-layer enforcement model (DATABASE_ENFORCED + APPLICATION_ENFORCED + CONCURRENCY_TESTED).
 - When `ownerType=USER`, `ownerUserId` must be an ACTIVE user in the tenant
 - When `ownerType=TEAM`, `ownerTeamId` must be an ACTIVE team in the tenant
 - When `ownerType=QUEUE`, `ownerQueueId` must be an ACTIVE queue in the tenant
