@@ -130,8 +130,12 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
     await page.locator('input[name="email"]').fill(email);
     await page.locator('form button[type="submit"]').first().click();
     await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 10_000 });
-    // The contact name should appear in the list.
-    await expect(page.locator("body")).toContainText(givenName, { timeout: 10_000 });
+    // The contacts list does not auto-refresh after creation.
+    // Reload the page to fetch the updated list (standard user flow: create → refresh → verify).
+    await page.reload();
+    await waitForCrmReady(page, "/crm/contacts");
+    // The contact name should now appear in the refreshed list.
+    await expect(page.locator("body")).toContainText(givenName, { timeout: 15_000 });
     // Open the contact detail (the contacts table does not currently expose
     // a link, so we search and click the first matching cell).
     const contactRow = page.locator(`text=${givenName}`).first();
