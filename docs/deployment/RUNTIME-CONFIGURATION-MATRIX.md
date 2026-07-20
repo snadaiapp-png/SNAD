@@ -1,71 +1,60 @@
 # SNAD Runtime Configuration Matrix
 
-## 1. Purpose
-
-This document is the canonical runtime configuration map for the current SNAD pilot topology:
+## 1. Production topology
 
 ```text
-Browser → Vercel Next.js BFF → Public HTTPS tunnel → Local Windows backend → PostgreSQL
+Browser → Vercel Next.js BFF → Render sanad-backend → Supabase PostgreSQL
 ```
 
-The backend is not currently hosted on Render. It runs on the project owner's Windows computer and is exposed to Vercel through an approved HTTPS tunnel.
+The production backend is hosted on Render at:
+
+```text
+https://sanad-backend-mcrj.onrender.com
+```
+
+The local Windows server and ngrok are development-only and are not part of the production request path.
 
 ## 2. Frontend — Vercel
 
-| Variable | Classification | Required | Purpose | Validation |
-|---|---|---:|---|---|
-| `BACKEND_API_BASE_URL` | Server-side deployment configuration | Yes | Public HTTPS tunnel origin used by the trusted Next.js BFF | HTTPS origin, no credentials, no path/query/fragment |
-| `BACKEND_REQUEST_TIMEOUT_MS` | Server-side deployment configuration | No | Bounded upstream timeout for tunneled requests | `1000..25000`; default `15000` |
-| `NEXT_PUBLIC_API_BASE_URL` | Public direct-development override | No | Bypasses the BFF during explicit local diagnostics | Normally unset |
-| Node version | Project configuration | Yes | Next.js build/runtime | `24.x` |
-
-Public frontend:
-
-```text
-https://snad-app.vercel.app
-```
-
-Browser API namespace:
-
-```text
-/api/platform/api/v1/**
-```
-
-The BFF forwards only `/api/v1/**`, protects state-changing requests with same-origin checks, stores refresh tokens in a Secure HttpOnly first-party cookie, forwards bearer authorization, and fails closed when the upstream URL is invalid or unreachable.
-
-## 3. Backend — Local Windows Server
-
-### Network
-
-| Value | Required | Purpose |
-|---|---:|---|
-| `server.address=0.0.0.0` | Yes | Allows the local tunnel agent to reach Spring Boot |
-| `server.port=8080` | Yes | Canonical local backend port |
-| ngrok/approved tunnel process | Yes for Vercel | Creates the public HTTPS origin |
-| `PRODUCTION_BASE_URL` GitHub variable | Yes for monitoring | Must equal the active public tunnel origin |
-
-### Core runtime
-
 | Variable | Required | Purpose |
 |---|---:|---|
-| `SPRING_PROFILES_ACTIVE=prod` | Yes | Production-like profile |
-| `JWT_SECRET` | Yes | JWT signing material |
-| `SANAD_CONTROL_PLANE_TENANT_ID` | Yes for Control Plane | Dedicated platform-control tenant UUID |
-| `SANAD_CORS_ALLOWED_ORIGINS` | Yes | Exact direct-browser origins for controlled development/diagnostics |
-| `BOOTSTRAP_ENABLED=false` | Yes after provisioning | Prevents uncontrolled bootstrap |
-| `SERVER_PORT=8080` | Yes | Backend listener |
+| `BACKEND_API_BASE_URL` | Yes | Server-only Render origin used by the Next.js BFF |
+| `BACKEND_REQUEST_TIMEOUT_MS` | No | Bounded upstream timeout; default `15000` |
+| `NEXT_PUBLIC_API_BASE_URL` | No | Direct-browser development override; normally unset in production |
 
-### Database
+Production frontend: `https://snad-app.vercel.app`
 
-| Variable | Required | Purpose |
-|---|---:|---|
-| `DATABASE_URL` | Yes | PostgreSQL JDBC endpoint |
-| `DATABASE_USERNAME` | Yes | Database login |
-| `DATABASE_PASSWORD` | Yes | Database credential |
-| `JPA_DDL_AUTO=validate` | Yes | Prevents uncontrolled schema mutation |
-| `FLYWAY_ENABLED=true` | Yes | Controlled migrations |
+Browser API requests use `/api/platform/api/v1/**`. Refresh tokens remain in Secure HttpOnly first-party cookies managed by the Vercel BFF.
 
-## 4. Local Frontend Development
+## 3. Backend — Render
+
+| Setting | Required value |
+|---|---|
+| Runtime | Prebuilt image (`runtime: image`) |
+| Image registry | `ghcr.io/snadaiapp-png/snad-backend` |
+| Region | Frankfurt |
+| Health check | `/actuator/health` |
+| `SPRING_PROFILES_ACTIVE` | `prod` |
+| `SERVER_PORT` | `8080` |
+| `BOOTSTRAP_ENABLED` | `false` |
+| `JPA_DDL_AUTO` | `validate` |
+| `FLYWAY_ENABLED` | `true` |
+| `SANAD_CORS_ALLOWED_ORIGINS` | `https://snad-app.vercel.app` |
+
+`DATABASE_URL`, `DATABASE_USERNAME`, `DATABASE_PASSWORD`, `JWT_SECRET`, notification credentials, and the Control Plane tenant ID are encrypted runtime values. They must never be committed.
+
+Temporary `SANAD_SECURITY_BOOTSTRAP_*` and `CONTROL_PLANE_BOOTSTRAP_ENABLED` variables are forbidden after provisioning.
+
+## 4. Release flow
+
+1. A backend change on `main` triggers `.github/workflows/publish-render-image.yml`.
+2. GitHub Actions builds an immutable `linux/amd64` image and publishes both the commit tag and `latest` to GHCR.
+3. The workflow deploys the immutable commit tag through the Render API.
+4. The workflow waits for `live` and verifies health, liveness, and readiness.
+
+Render does not build the repository. This avoids dependence on Render build-pipeline minutes and keeps GitHub as the release authority.
+
+## 5. Local development
 
 Create `apps/web/.env.local` from `apps/web/.env.local.example`:
 
@@ -74,51 +63,27 @@ BACKEND_API_BASE_URL=http://127.0.0.1:8080
 BACKEND_REQUEST_TIMEOUT_MS=15000
 ```
 
-Local browser traffic also uses `/api/platform`, so the Next.js server—not the browser—connects to Spring Boot. This removes local CORS and cross-site refresh-cookie failure modes.
+Local development may use localhost or a temporary tunnel, but those values must not be copied into Vercel Production.
 
-## 5. Connection Bootstrap
-
-Run:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\windows\connect-local-backend.ps1
-```
-
-The script validates local health, starts/reuses ngrok, validates public health, writes the local frontend environment, and updates `PRODUCTION_BASE_URL` through GitHub CLI when available.
-
-The printed tunnel origin must also be configured in Vercel as `BACKEND_API_BASE_URL`, followed by a production redeployment.
-
-## 6. Verification Gate
+## 6. Production verification gate
 
 ```text
-LOCAL_BACKEND_HEALTH_HTTP_200: PASS
-PUBLIC_TUNNEL_HEALTH_HTTP_200: PASS
-FRONTEND_PUBLIC_URL_HTTP_200: PASS
-BFF_ROUTE_INCLUDED_IN_BUILD: PASS
-BFF_AUTH_ME_UNAUTHENTICATED_HTTP_401: PASS
-BFF_AUTH_ME_NOT_404_502_503: PASS
-BACKEND_STATUS_CONFIGURED_TRUE: PASS
-BACKEND_STATUS_REACHABLE_TRUE: PASS
+RENDER_HEALTH_HTTP_200_UP: PASS
+RENDER_LIVENESS_HTTP_200_UP: PASS
+RENDER_READINESS_HTTP_200_UP: PASS
+VERCEL_FRONTEND_HTTP_200: PASS
+VERCEL_BACKEND_STATUS_CONFIGURED_TRUE: PASS
+VERCEL_BACKEND_STATUS_REACHABLE_TRUE: PASS
+VERCEL_BFF_AUTH_ME_UNAUTHENTICATED_HTTP_401: PASS
 DATABASE_MIGRATIONS_VALID: PASS
-JWT_SECRET_PRESENT: PASS
 BOOTSTRAP_DISABLED: PASS
 ```
 
-Failure interpretation:
+An unauthenticated `401` from `/api/v1/auth/me` is expected and proves the authentication boundary is reachable.
 
-- `404`: BFF catch-all route is missing from the Vercel deployment.
-- `503`: Vercel `BACKEND_API_BASE_URL` is missing or invalid.
-- `502`: Vercel cannot reach the tunnel, the tunnel cannot reach the computer, or the backend is not healthy.
-- `401` from `/api/v1/auth/me` without a token: expected and proves the authentication boundary is reachable.
+## 7. Secret handling
 
-## 7. Secret Handling
-
-- Keep database credentials, JWT secrets, tunnel tokens, and Vercel/GitHub tokens out of the repository.
-- Never place credentials inside `BACKEND_API_BASE_URL`.
-- Do not commit `.env.local`.
+- Keep Render, Vercel, database, JWT, and notification credentials out of Git.
+- Rotate any token disclosed in chat, logs, screenshots, or shell history.
 - Do not print authentication tokens in CI or application logs.
-- Rotate credentials after suspected exposure.
-
-## 8. Availability Constraint
-
-The Vercel application is available only while the local computer, backend, database, internet connection, and tunnel process are running. Temporary ngrok URLs change when the tunnel restarts; Vercel and GitHub must point to the same active URL. Use a reserved/static tunnel domain for a stable pilot endpoint.
+- Keep `BACKEND_API_BASE_URL` credential-free and HTTPS-only in production.

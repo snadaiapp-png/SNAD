@@ -26,6 +26,11 @@ jobs:
     name: Build and publish backend image
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    environment: Production
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID || 'srv-d8ragqkm0tmc73bviqq0' }}
+      PRODUCTION_BASE_URL: https://sanad-backend-mcrj.onrender.com
 
     steps:
       - name: Checkout exact source
@@ -65,4 +70,72 @@ jobs:
             echo "- Image: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}\`"
             echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
             echo "- Source: \`${{ github.sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate protected Render configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RENDER_API_KEY" || { echo "::error::Missing Production secret: RENDER_API_KEY"; exit 1; }
+          test -n "$RENDER_SERVICE_ID" || { echo "::error::Missing Render service ID"; exit 1; }
+          echo "::add-mask::$RENDER_API_KEY"
+          [[ "$PRODUCTION_BASE_URL" == https://*.onrender.com ]] || { echo "::error::Invalid Render production URL"; exit 1; }
+
+      - name: Deploy immutable image to Render
+        id: render
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE_URL="${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}"
+          jq -n --arg image "$IMAGE_URL" '{imageUrl:$image}' > "$RUNNER_TEMP/render-deploy.json"
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            -X POST \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H 'Accept: application/json' \
+            -H 'Content-Type: application/json' \
+            --data @"$RUNNER_TEMP/render-deploy.json" \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            > "$RUNNER_TEMP/render-created.json"
+          DEPLOY_ID="$(jq -r '(.deploy // .).id // empty' "$RUNNER_TEMP/render-created.json")"
+          test -n "$DEPLOY_ID" || { echo "::error::Render did not return a deployment ID"; exit 1; }
+
+          STATUS=""
+          for attempt in $(seq 1 180); do
+            curl --fail-with-body --silent --show-error --max-time 30 \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H 'Accept: application/json' \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}" \
+              > "$RUNNER_TEMP/render-state.json"
+            STATUS="$(jq -r '(.deploy // .).status // empty' "$RUNNER_TEMP/render-state.json")"
+            case "$STATUS" in
+              live) break ;;
+              build_failed|update_failed|canceled|deactivated)
+                echo "::error::Render deployment failed: $STATUS"
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
+          test "$STATUS" = "live" || { echo "::error::Render deployment timed out"; exit 1; }
+          test "$(jq -r '(.deploy // .).image.ref // empty' "$RUNNER_TEMP/render-state.json")" = "$IMAGE_URL"
+          echo "deployment_id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Render health and readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in /actuator/health /actuator/health/liveness /actuator/health/readiness; do
+            CODE="000"
+            for attempt in $(seq 1 36); do
+              CODE="$(curl --silent --show-error --max-time 30 -o "$RUNNER_TEMP/health.json" -w '%{http_code}' "${PRODUCTION_BASE_URL}${path}" || true)"
+              if [ "$CODE" = "200" ] && jq -e '.status == "UP"' "$RUNNER_TEMP/health.json" >/dev/null 2>&1; then break; fi
+              sleep 5
+            done
+            test "$CODE" = "200"
+            jq -e '.status == "UP"' "$RUNNER_TEMP/health.json" >/dev/null
+          done
+          {
+            echo ''
+            echo "- Render deployment: \`${{ steps.render.outputs.deployment_id }}\`"
+            echo '- Health/liveness/readiness: **UP**'
           } >> "$GITHUB_STEP_SUMMARY"
