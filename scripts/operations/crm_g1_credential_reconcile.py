@@ -104,6 +104,8 @@ class EphemeralBootstrapClient:
         process: subprocess.Popen[str] | None = None
         bootstrap_complete = False
         application_started = False
+        success_observed_at: float | None = None
+        terminated_after_settle = False
         deadline = time.monotonic() + 5 * 60
         try:
             with raw_log.open("w", encoding="utf-8") as output:
@@ -124,7 +126,17 @@ class EphemeralBootstrapClient:
                     bootstrap_complete = bootstrap_complete or "Credential bootstrap completed" in chunk or "Credential-only bootstrap completed" in chunk
                     application_started = application_started or "Started SanadPlatformApplication" in chunk
                     if bootstrap_complete and application_started:
+                        if success_observed_at is None:
+                            # The service logs completion immediately before the
+                            # surrounding @Transactional proxy commits. Keep the JVM
+                            # alive briefly so the commit is durable before shutdown.
+                            success_observed_at = time.monotonic()
+                        if time.monotonic() - success_observed_at < 10:
+                            if process.poll() is not None:
+                                break
+                            continue
                         process.terminate()
+                        terminated_after_settle = True
                         try:
                             process.wait(timeout=20)
                         except subprocess.TimeoutExpired:
@@ -159,6 +171,12 @@ class EphemeralBootstrapClient:
             if not bootstrap_complete or not application_started:
                 raise ReconciliationFailure(
                     f"ephemeral credential bootstrap {ordinal} did not complete; exit={process.returncode if process else 'UNKNOWN'}"
+                )
+            if "APPLICATION FAILED TO START" in raw_text or (
+                not terminated_after_settle and process is not None and process.returncode not in {0, None}
+            ):
+                raise ReconciliationFailure(
+                    f"ephemeral credential bootstrap {ordinal} exited before a durable commit; exit={process.returncode}"
                 )
         finally:
             if process is not None and process.poll() is None:

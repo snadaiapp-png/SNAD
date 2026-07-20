@@ -594,6 +594,41 @@ jobs:
               if [ -z "$CRM_RECONCILIATION_MODE" ]; then
                 CRM_RECONCILIATION_MODE="enroll-missing"
               fi
+            elif [ "$CRM_ACCOUNT_STATE" = "0|0|0|0" ] && [ "$AUTH_ACCOUNT_STATE" = "1|1|0|0" ]; then
+              PARTIAL_DEDICATED_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+                -X -v ON_ERROR_STOP=1 -At \
+                -v tenant_a_email="$AUTH_TENANT_A_EMAIL" \
+                -v tenant_b_email="$AUTH_TENANT_B_EMAIL" <<'SQLPARTIALDEDICATED'
+          WITH expected(email, subdomain) AS (
+              VALUES
+                  (lower(:'tenant_a_email'), 'crm-g1-prod-acceptance-a'),
+                  (lower(:'tenant_b_email'), 'crm-g1-prod-acceptance-b')
+          ), observed AS (
+              SELECT expected.subdomain AS expected_subdomain, tenants.subdomain AS actual_subdomain
+                FROM expected
+                JOIN users ON lower(users.email) = expected.email
+                JOIN tenants ON tenants.id = users.tenant_id
+          )
+          SELECT count(*) || '|' || count(*) FILTER (WHERE actual_subdomain <> expected_subdomain)
+            FROM observed;
+          SQLPARTIALDEDICATED
+              )"
+              test "$PARTIAL_DEDICATED_STATE" = "1|0" || {
+                echo "::error::A partial acceptance account is not bound to its dedicated tenant"
+                exit 1
+              }
+              CRM_TENANT_A_ID=""
+              CRM_TENANT_B_ID=""
+              CRM_TENANT_A_NAME="CRM G1 Production Acceptance A"
+              CRM_TENANT_A_SUBDOMAIN="crm-g1-prod-acceptance-a"
+              CRM_TENANT_B_NAME="CRM G1 Production Acceptance B"
+              CRM_TENANT_B_SUBDOMAIN="crm-g1-prod-acceptance-b"
+              CRM_RECONCILIATION_MODE="create-dedicated-tenants"
+              ACCOUNT_SOURCE="DEDICATED_ACCEPTANCE_TENANT_BOOTSTRAP_RECOVERY"
+              CRM_TENANT_A_EMAIL="$AUTH_TENANT_A_EMAIL"
+              CRM_TENANT_A_PASSWORD="$AUTH_TENANT_A_PASSWORD"
+              CRM_TENANT_B_EMAIL="$AUTH_TENANT_B_EMAIL"
+              CRM_TENANT_B_PASSWORD="$AUTH_TENANT_B_PASSWORD"
             else
               echo "::error::Refusing partial or unexpected acceptance identity state; crm=$CRM_ACCOUNT_STATE auth=$AUTH_ACCOUNT_STATE"
               exit 1
