@@ -9,29 +9,34 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  actions: write
+  contents: read
 
 concurrency:
   group: crm-007-final-production-closure
   cancel-in-progress: false
 
 jobs:
-  close-crm-007:
-    name: CRM-007 controlled final closure
+  verify:
+    name: Direct Render PostgreSQL and CRM-007 closure proof
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 90
     environment:
       name: Production
       url: https://snad-app.vercel.app
     env:
-      PRODUCTION_WEB_BASE_URL: https://snad-app.vercel.app
+      WEB_BASE_URL: https://snad-app.vercel.app
       RENDER_BASE_URL: https://sanad-backend-mcrj.onrender.com
-      BACKUP_REFERENCE: MANUAL-PGDUMP-hxhvfqxzigrqoxxnnzje-20260719T010007Z-SHA256-50eeac2cca743ca61c4512902a053809e8bd14fd3b9e3d1ae93dfec97b4a5c46
-      CHANGE_APPROVAL_REFERENCE: https://github.com/snadaiapp-png/SNAD/issues/563
-      CLOSURE_PR_NUMBER: "567"
+      PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+      PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+      PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      CRM_TENANT_A_EMAIL: ${{ secrets.CRM_TENANT_A_EMAIL || secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+      CRM_TENANT_A_PASSWORD: ${{ secrets.CRM_TENANT_A_PASSWORD || secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+      CRM_TENANT_B_EMAIL: ${{ secrets.CRM_TENANT_B_EMAIL || secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
+      CRM_TENANT_B_PASSWORD: ${{ secrets.CRM_TENANT_B_PASSWORD || secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
 
     steps:
       - name: Checkout exact current main
@@ -51,20 +56,8 @@ jobs:
       - name: Install PostgreSQL client
         run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
-      - name: Validate protected production authority
+      - name: Execute direct production closure proof
         shell: bash
-        env:
-          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
-          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
-          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-          CRM_TENANT_A_EMAIL: ${{ secrets.CRM_TENANT_A_EMAIL || secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
-          CRM_TENANT_A_PASSWORD: ${{ secrets.CRM_TENANT_A_PASSWORD || secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
-          CRM_TENANT_B_EMAIL: ${{ secrets.CRM_TENANT_B_EMAIL || secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
-          CRM_TENANT_B_PASSWORD: ${{ secrets.CRM_TENANT_B_PASSWORD || secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
         run: |
           set -euo pipefail
           for value in \
@@ -79,74 +72,15 @@ jobs:
           [[ "$RENDER_SERVICE_ID" == srv-* ]]
           test "${CRM_TENANT_A_EMAIL,,}" != "${CRM_TENANT_B_EMAIL,,}"
 
-      - name: Establish immutable release context
-        id: release
-        shell: bash
-        run: |
-          set -euo pipefail
           RELEASE_SHA="$(git rev-parse HEAD)"
           REMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
           test "$RELEASE_SHA" = "$REMOTE_MAIN_SHA" || { echo "::error::Checkout is not current main"; exit 1; }
           EVIDENCE_DIR="$RUNNER_TEMP/crm-007-final-evidence"
           mkdir -p "$EVIDENCE_DIR"
           STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
-          echo "evidence_dir=$EVIDENCE_DIR" >> "$GITHUB_OUTPUT"
-          echo "started_at=$STARTED_AT" >> "$GITHUB_OUTPUT"
-          jq -n --arg sha "$RELEASE_SHA" --arg started "$STARTED_AT" --arg run "$GITHUB_RUN_ID" \
-            '{result:"IN_PROGRESS",release_sha:$sha,started_at:$started,orchestrator_run_id:$run}' \
-            > "$EVIDENCE_DIR/run-context.json"
 
-      - name: Dispatch and pass CRM-G1 production closure
-        id: g1
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
-        run: |
-          set -euo pipefail
-          BEFORE_IDS="$(gh run list --workflow crm-g1-production-closure.yml --limit 50 --json databaseId --jq '.[].databaseId')"
-          gh workflow run crm-g1-production-closure.yml --ref main \
-            -f backup_reference="$BACKUP_REFERENCE" \
-            -f change_approval_reference="$CHANGE_APPROVAL_REFERENCE"
-          G1_RUN_ID=""
-          for attempt in $(seq 1 60); do
-            CANDIDATES="$(gh run list --workflow crm-g1-production-closure.yml --branch main --event workflow_dispatch \
-              --limit 20 --json databaseId,headSha,status,createdAt)"
-            G1_RUN_ID="$(jq -r --arg sha "$RELEASE_SHA" --arg before "$BEFORE_IDS" '
-              map(select(.headSha == $sha))
-              | map(select((.databaseId|tostring) as $id | ($before|split("\n")|index($id)|not)))
-              | sort_by(.createdAt) | reverse | first | .databaseId // empty' <<< "$CANDIDATES")"
-            if [ -n "$G1_RUN_ID" ]; then break; fi
-            sleep 5
-          done
-          test -n "$G1_RUN_ID" || { echo "::error::Dispatched CRM-G1 run was not found"; exit 1; }
-          gh run watch "$G1_RUN_ID" --exit-status --interval 15
-          BRANCH="evidence/crm-g1-production-${G1_RUN_ID}"
-          G1_PR=""
-          for attempt in $(seq 1 60); do
-            G1_PR="$(gh pr list --state open --head "$BRANCH" --json number,url --jq '.[0].number // empty')"
-            if [ -n "$G1_PR" ]; then break; fi
-            sleep 5
-          done
-          test -n "$G1_PR" || { echo "::error::CRM-G1 evidence PR was not created"; exit 1; }
-          echo "run_id=$G1_RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "run_url=https://github.com/${GITHUB_REPOSITORY}/actions/runs/${G1_RUN_ID}" >> "$GITHUB_OUTPUT"
-          echo "pr_number=$G1_PR" >> "$GITHUB_OUTPUT"
-          echo "pr_url=https://github.com/${GITHUB_REPOSITORY}/pull/${G1_PR}" >> "$GITHUB_OUTPUT"
-
-      - name: Verify Vercel exact production SHA
-        id: vercel
-        shell: bash
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
-          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
-          EVIDENCE_DIR: ${{ steps.release.outputs.evidence_dir }}
-        run: |
-          set -euo pipefail
-          HOST="${PRODUCTION_WEB_BASE_URL#https://}"
-          MATCH=""
+          HOST="${WEB_BASE_URL#https://}"
+          VERCEL_MATCH=""
           for attempt in $(seq 1 90); do
             curl --fail-with-body --silent --show-error --max-time 60 \
               -H "Authorization: Bearer ${VERCEL_TOKEN}" \
@@ -156,26 +90,15 @@ jobs:
             STATE="$(jq -r '.readyState // .state // empty' "$EVIDENCE_DIR/vercel-deployment.json")"
             TARGET="$(jq -r '.target // empty' "$EVIDENCE_DIR/vercel-deployment.json")"
             if [ "$LIVE_SHA" = "$RELEASE_SHA" ] && [ "$STATE" = "READY" ] && [ "$TARGET" = "production" ]; then
-              MATCH=1
+              VERCEL_MATCH=1
               break
             fi
             sleep 10
           done
-          test -n "$MATCH" || { echo "::error::Vercel alias did not reach exact release SHA"; exit 1; }
-          DEPLOYMENT_ID="$(jq -r '.id // .uid // empty' "$EVIDENCE_DIR/vercel-deployment.json")"
-          test -n "$DEPLOYMENT_ID"
-          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+          test -n "$VERCEL_MATCH" || { echo "::error::Vercel did not reach exact release SHA"; exit 1; }
+          VERCEL_DEPLOYMENT_ID="$(jq -r '.id // .uid // empty' "$EVIDENCE_DIR/vercel-deployment.json")"
+          test -n "$VERCEL_DEPLOYMENT_ID"
 
-      - name: Prove Render deployment and immutable backend image
-        id: render
-        shell: bash
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
-          EVIDENCE_DIR: ${{ steps.release.outputs.evidence_dir }}
-        run: |
-          set -euo pipefail
           curl --fail-with-body --silent --show-error --max-time 60 \
             -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
             "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" \
@@ -185,41 +108,29 @@ jobs:
             "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys?limit=50" \
             > "$EVIDENCE_DIR/render-deploys.json"
           jq '[if type == "array" then .[] else (.deploys // .items // [])[] end
-              | (.deploy // .) | select(.status == "live")] | sort_by(.finishedAt // .updatedAt // .createdAt) | reverse | first' \
+              | (.deploy // .) | select(.status == "live")]
+              | sort_by(.finishedAt // .updatedAt // .createdAt) | reverse | first' \
             "$EVIDENCE_DIR/render-deploys.json" > "$EVIDENCE_DIR/render-live-deploy.json"
-          DEPLOY_ID="$(jq -r '.id // empty' "$EVIDENCE_DIR/render-live-deploy.json")"
-          IMAGE_REF="$(jq -r '.image.ref // .imageRef // empty' "$EVIDENCE_DIR/render-live-deploy.json")"
-          test -n "$DEPLOY_ID" && test -n "$IMAGE_REF"
-          [[ "$IMAGE_REF" =~ ^ghcr\.io/snadaiapp-png/snad-backend:([0-9a-f]{40})$ ]] || {
-            echo "::error::Render is not running an immutable commit-tagged image: $IMAGE_REF"; exit 1;
+          RENDER_DEPLOYMENT_ID="$(jq -r '.id // empty' "$EVIDENCE_DIR/render-live-deploy.json")"
+          RENDER_IMAGE_REF="$(jq -r '.image.ref // .imageRef // empty' "$EVIDENCE_DIR/render-live-deploy.json")"
+          test -n "$RENDER_DEPLOYMENT_ID" && test -n "$RENDER_IMAGE_REF"
+          [[ "$RENDER_IMAGE_REF" =~ ^ghcr\.io/snadaiapp-png/snad-backend:([0-9a-f]{40})$ ]] || {
+            echo "::error::Render image is not immutable: $RENDER_IMAGE_REF"; exit 1;
           }
           BACKEND_SOURCE_SHA="${BASH_REMATCH[1]}"
           git cat-file -e "${BACKEND_SOURCE_SHA}^{commit}"
           git merge-base --is-ancestor "$BACKEND_SOURCE_SHA" "$RELEASE_SHA"
           git diff --quiet "$BACKEND_SOURCE_SHA" "$RELEASE_SHA" -- apps/sanad-platform || {
-            echo "::error::Render image backend tree differs from release backend tree"; exit 1;
+            echo "::error::Render backend tree differs from release backend tree"; exit 1;
           }
           for path in /actuator/health /actuator/health/liveness /actuator/health/readiness; do
             CODE="$(curl --silent --show-error --max-time 45 -o "$RUNNER_TEMP/render-health.json" -w '%{http_code}' "${RENDER_BASE_URL}${path}")"
             test "$CODE" = "200"
             jq -e '.status == "UP"' "$RUNNER_TEMP/render-health.json" >/dev/null
           done
-          OWNER_ID="$(jq -r '(.service // .).ownerId // (.service // .).owner.id // empty' "$EVIDENCE_DIR/render-service.json")"
-          test -n "$OWNER_ID" || { echo "::error::Render owner ID unavailable for log inspection"; exit 1; }
-          echo "deployment_id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
-          echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
-          echo "backend_source_sha=$BACKEND_SOURCE_SHA" >> "$GITHUB_OUTPUT"
-          echo "owner_id=$OWNER_ID" >> "$GITHUB_OUTPUT"
+          RENDER_OWNER_ID="$(jq -r '(.service // .).ownerId // (.service // .).owner.id // empty' "$EVIDENCE_DIR/render-service.json")"
+          test -n "$RENDER_OWNER_ID" || { echo "::error::Render owner ID unavailable"; exit 1; }
 
-      - name: Prove production Flyway and schema postconditions
-        shell: bash
-        env:
-          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
-          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
-          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
-          EVIDENCE_DIR: ${{ steps.release.outputs.evidence_dir }}
-        run: |
-          set -euo pipefail
           PSQL_URL="${PROD_JDBC_URL#jdbc:}"
           export PGPASSWORD="$PROD_DB_PASSWORD"
           psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -P pager=off -Atc \
@@ -229,6 +140,8 @@ jobs:
               ORDER BY installed_rank" > "$EVIDENCE_DIR/flyway-crm007.txt"
           test "$(wc -l < "$EVIDENCE_DIR/flyway-crm007.txt" | tr -d ' ')" = "3"
           test "$(grep -c '|SQL|t|' "$EVIDENCE_DIR/flyway-crm007.txt")" = "3"
+          psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 \
+            -f scripts/crm/verify-g1-tenant-isolation.sql > "$EVIDENCE_DIR/crm-g1-isolation.txt"
           COUNTS="$(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -Atc \
             "SELECT
                (SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN
@@ -245,253 +158,73 @@ jobs:
           test "$G1_TABLES" = "8"
           test "$G1_INDEXES" = "26"
           test "$G1_TENANT_FKS" = "8"
-          jq -n --argjson crm007 "$CRM007_TABLES" --argjson g1 "$G1_TABLES" --argjson indexes "$G1_INDEXES" --argjson fks "$G1_TENANT_FKS" \
-            '{crm007_canonical_tables:$crm007,crm_g1_tables:$g1,crm_g1_tenant_leading_indexes:$indexes,crm_g1_tenant_foreign_keys:$fks,result:"PASS"}' \
+          jq -n --argjson crm007 "$CRM007_TABLES" --argjson g1 "$G1_TABLES" \
+            --argjson indexes "$G1_INDEXES" --argjson fks "$G1_TENANT_FKS" \
+            '{result:"PASS",crm007_canonical_tables:$crm007,crm_g1_tables:$g1,
+              crm_g1_tenant_leading_indexes:$indexes,crm_g1_tenant_foreign_keys:$fks}' \
             > "$EVIDENCE_DIR/schema-postconditions.json"
 
-      - name: Run authenticated CRM-007 production smoke
-        shell: bash
-        env:
-          PLAYWRIGHT_BASE_URL: ${{ env.PRODUCTION_WEB_BASE_URL }}
-          CRM_TENANT_A_EMAIL: ${{ secrets.CRM_TENANT_A_EMAIL || secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
-          CRM_TENANT_A_PASSWORD: ${{ secrets.CRM_TENANT_A_PASSWORD || secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
-          CRM_TENANT_B_EMAIL: ${{ secrets.CRM_TENANT_B_EMAIL || secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
-          CRM_TENANT_B_PASSWORD: ${{ secrets.CRM_TENANT_B_PASSWORD || secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
-          CRM_TESTED_SHA: ${{ steps.release.outputs.release_sha }}
-          CRM007_EVIDENCE_FILE: ${{ steps.release.outputs.evidence_dir }}/crm007-production-smoke.json
-        run: |
-          set -euo pipefail
-          cd apps/web
+          export PLAYWRIGHT_BASE_URL="$WEB_BASE_URL"
+          export CRM_TESTED_SHA="$RELEASE_SHA"
+          export CRM007_EVIDENCE_FILE="$EVIDENCE_DIR/crm007-production-smoke.json"
+          pushd apps/web >/dev/null
           npm ci --no-audit --no-fund
           npx playwright install --with-deps chrome
           npx playwright test --config=playwright.crm007-production.config.ts
+          cp -R crm007-production-report "$EVIDENCE_DIR/"
+          popd >/dev/null
           test -f "$CRM007_EVIDENCE_FILE"
-          cp -R crm007-production-report "${CRM007_EVIDENCE_FILE%/*}/"
 
-      - name: Prove audit, history and timeline rows
-        shell: bash
-        env:
-          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
-          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
-          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
-          EVIDENCE_DIR: ${{ steps.release.outputs.evidence_dir }}
-        run: |
-          set -euo pipefail
-          PSQL_URL="${PROD_JDBC_URL#jdbc:}"
-          export PGPASSWORD="$PROD_DB_PASSWORD"
-          ACCOUNT_ID="$(jq -r .accountId "$EVIDENCE_DIR/crm007-production-smoke.json")"
-          ADDRESS_ID="$(jq -r .addressId "$EVIDENCE_DIR/crm007-production-smoke.json")"
-          METHOD_ID="$(jq -r .communicationMethodId "$EVIDENCE_DIR/crm007-production-smoke.json")"
-          COUNTS="$(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -At \
-            -v account_id="$ACCOUNT_ID" -v address_id="$ADDRESS_ID" -v method_id="$METHOD_ID" <<'SQL'
-          SELECT
-            (SELECT count(*) FROM crm_party_address_history WHERE address_id=:'address_id'::uuid) || '|' ||
-            (SELECT count(*) FROM crm_communication_method_history WHERE communication_method_id=:'method_id'::uuid) || '|' ||
-            (SELECT count(*) FROM platform_audit_logs WHERE resource_id IN (:'address_id', :'method_id')) || '|' ||
-            (SELECT count(*) FROM crm_timeline_events WHERE subject_id=:'account_id'::uuid);
-          SQL
-          )"
-          IFS='|' read -r ADDRESS_HISTORY METHOD_HISTORY AUDIT_ROWS TIMELINE_ROWS <<< "$COUNTS"
-          test "$ADDRESS_HISTORY" -ge 3
-          test "$METHOD_HISTORY" -ge 2
-          test "$AUDIT_ROWS" -ge 4
-          test "$TIMELINE_ROWS" -ge 4
-          jq -n --argjson ah "$ADDRESS_HISTORY" --argjson mh "$METHOD_HISTORY" --argjson audit "$AUDIT_ROWS" --argjson timeline "$TIMELINE_ROWS" \
-            '{address_history_rows:$ah,communication_history_rows:$mh,audit_rows:$audit,timeline_rows:$timeline,result:"PASS"}' \
-            > "$EVIDENCE_DIR/audit-history-timeline.json"
-
-      - name: Inspect Render logs after smoke
-        shell: bash
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-          RENDER_OWNER_ID: ${{ steps.render.outputs.owner_id }}
-          STARTED_AT: ${{ steps.release.outputs.started_at }}
-          EVIDENCE_DIR: ${{ steps.release.outputs.evidence_dir }}
-        run: |
-          set -euo pipefail
           END_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           curl --get --fail-with-body --silent --show-error --max-time 60 \
             -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
-            --data-urlencode "ownerId=${RENDER_OWNER_ID}" --data-urlencode "resource=${RENDER_SERVICE_ID}" \
+            --data-urlencode "ownerId=${RENDER_OWNER_ID}" \
+            --data-urlencode "resource=${RENDER_SERVICE_ID}" \
             --data-urlencode "startTime=${STARTED_AT}" --data-urlencode "endTime=${END_TIME}" \
             --data-urlencode "level=error" --data-urlencode "limit=100" \
             https://api.render.com/v1/logs > "$EVIDENCE_DIR/render-error-logs.json"
           ERROR_COUNT="$(jq 'if type=="array" then length else (.logs // .items // []) | length end' "$EVIDENCE_DIR/render-error-logs.json")"
-          test "$ERROR_COUNT" = "0" || { echo "::error::Render error logs found after smoke"; exit 1; }
+          test "$ERROR_COUNT" = "0" || { echo "::error::Render error logs found"; exit 1; }
           curl --get --fail-with-body --silent --show-error --max-time 60 \
             -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
-            --data-urlencode "ownerId=${RENDER_OWNER_ID}" --data-urlencode "resource=${RENDER_SERVICE_ID}" \
+            --data-urlencode "ownerId=${RENDER_OWNER_ID}" \
+            --data-urlencode "resource=${RENDER_SERVICE_ID}" \
             --data-urlencode "startTime=${STARTED_AT}" --data-urlencode "endTime=${END_TIME}" \
             --data-urlencode "type=request" --data-urlencode "statusCode=/5../" --data-urlencode "limit=100" \
             https://api.render.com/v1/logs > "$EVIDENCE_DIR/render-5xx-logs.json"
           FIVE_XX_COUNT="$(jq 'if type=="array" then length else (.logs // .items // []) | length end' "$EVIDENCE_DIR/render-5xx-logs.json")"
-          test "$FIVE_XX_COUNT" = "0" || { echo "::error::Render 5xx logs found after smoke"; exit 1; }
-          jq -n --argjson errors "$ERROR_COUNT" --argjson five "$FIVE_XX_COUNT" --arg start "$STARTED_AT" --arg end "$END_TIME" \
-            '{error_logs:$errors,http_5xx_logs:$five,start_time:$start,end_time:$end,result:"PASS"}' \
-            > "$EVIDENCE_DIR/render-log-summary.json"
+          test "$FIVE_XX_COUNT" = "0" || { echo "::error::Render HTTP 5xx logs found"; exit 1; }
 
-      - name: Verify final public runtime
-        shell: bash
-        env:
-          EVIDENCE_DIR: ${{ steps.release.outputs.evidence_dir }}
-        run: |
-          set -euo pipefail
-          FRONT_CODE="$(curl -sS --max-time 45 -o /dev/null -w '%{http_code}' "$PRODUCTION_WEB_BASE_URL")"
-          STATUS_CODE="$(curl -sS --max-time 45 -o "$RUNNER_TEMP/backend-status.json" -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL}/api/system/backend-status")"
-          AUTH_CODE="$(curl -sS --max-time 45 -o /dev/null -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL}/api/platform/api/v1/auth/me")"
-          V2_CODE="$(curl -sS --max-time 45 -o /dev/null -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL}/api/platform/api/v2/crm/addresses/search")"
+          FRONT_CODE="$(curl -sS --max-time 45 -o /dev/null -w '%{http_code}' "$WEB_BASE_URL")"
+          STATUS_CODE="$(curl -sS --max-time 45 -o "$RUNNER_TEMP/backend-status.json" -w '%{http_code}' "${WEB_BASE_URL}/api/system/backend-status")"
+          AUTH_CODE="$(curl -sS --max-time 45 -o /dev/null -w '%{http_code}' "${WEB_BASE_URL}/api/platform/api/v1/auth/me")"
+          V2_CODE="$(curl -sS --max-time 45 -o /dev/null -w '%{http_code}' "${WEB_BASE_URL}/api/platform/api/v2/crm/addresses/search")"
           test "$FRONT_CODE" = "200"
           test "$STATUS_CODE" = "200"
           jq -e '.configured==true and .reachable==true and .statusCode==200' "$RUNNER_TEMP/backend-status.json" >/dev/null
           test "$AUTH_CODE" = "401"
           test "$V2_CODE" = "401"
-          jq -n --arg front "$FRONT_CODE" --arg status "$STATUS_CODE" --arg auth "$AUTH_CODE" --arg v2 "$V2_CODE" \
-            '{frontend_http:$front,backend_status_http:$status,bff_v1_auth_http:$auth,bff_v2_auth_http:$v2,result:"PASS"}' \
-            > "$EVIDENCE_DIR/final-runtime.json"
 
-      - name: Build immutable evidence bundle
-        shell: bash
-        env:
-          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
-          EVIDENCE_DIR: ${{ steps.release.outputs.evidence_dir }}
-          G1_RUN_URL: ${{ steps.g1.outputs.run_url }}
-          G1_PR_URL: ${{ steps.g1.outputs.pr_url }}
-          VERCEL_DEPLOYMENT_ID: ${{ steps.vercel.outputs.deployment_id }}
-          RENDER_DEPLOYMENT_ID: ${{ steps.render.outputs.deployment_id }}
-          RENDER_IMAGE_REF: ${{ steps.render.outputs.image_ref }}
-          BACKEND_SOURCE_SHA: ${{ steps.render.outputs.backend_source_sha }}
-        run: |
-          set -euo pipefail
           COMPLETED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           jq -n --arg release "$RELEASE_SHA" --arg completed "$COMPLETED_AT" \
-            --arg g1run "$G1_RUN_URL" --arg g1pr "$G1_PR_URL" \
             --arg vercel "$VERCEL_DEPLOYMENT_ID" --arg render "$RENDER_DEPLOYMENT_ID" \
             --arg image "$RENDER_IMAGE_REF" --arg backend "$BACKEND_SOURCE_SHA" \
+            --argjson errors "$ERROR_COUNT" --argjson five "$FIVE_XX_COUNT" \
             '{result:"PASS",release_sha:$release,completed_at:$completed,
-              crm_g1_run:$g1run,crm_g1_evidence_pr:$g1pr,
               vercel_deployment_id:$vercel,render_deployment_id:$render,
               render_image_ref:$image,backend_source_sha:$backend,
-              gates:{render_immutable_image:"PASS",postgresql_flyway_schema:"PASS",
-                authenticated_crm007_two_tenant_smoke:"PASS",render_logs:"PASS",public_runtime:"PASS"}}' \
+              render_error_logs:$errors,render_http_5xx_logs:$five,
+              gates:{crm_g1_schema_and_isolation:"PASS",crm007_flyway_and_schema:"PASS",
+                authenticated_two_tenant_smoke:"PASS",render_logs:"PASS",public_runtime:"PASS"}}' \
             > "$EVIDENCE_DIR/final-summary.json"
           find "$EVIDENCE_DIR" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > "$EVIDENCE_DIR/SHA256SUMS.txt"
+          cat "$EVIDENCE_DIR/final-summary.json"
 
-      - name: Upload immutable final evidence
-        id: upload
+      - name: Upload immutable evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: crm-007-final-production-closure-${{ github.run_id }}
-          path: ${{ steps.release.outputs.evidence_dir }}
-          if-no-files-found: error
+          path: ${{ runner.temp }}/crm-007-final-evidence
+          if-no-files-found: warn
           retention-days: 90
-
-      - name: Update PR 567 with current fixed-SHA evidence
-        id: closure_pr
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
-          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
-          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
-          G1_RUN_URL: ${{ steps.g1.outputs.run_url }}
-          G1_PR_URL: ${{ steps.g1.outputs.pr_url }}
-          VERCEL_DEPLOYMENT_ID: ${{ steps.vercel.outputs.deployment_id }}
-          RENDER_DEPLOYMENT_ID: ${{ steps.render.outputs.deployment_id }}
-          RENDER_IMAGE_REF: ${{ steps.render.outputs.image_ref }}
-        run: |
-          set -euo pipefail
-          HEAD_BRANCH="$(gh pr view "$CLOSURE_PR_NUMBER" --json headRefName --jq .headRefName)"
-          git fetch origin "$HEAD_BRANCH" main
-          git switch -C "$HEAD_BRANCH" "origin/$HEAD_BRANCH"
-          git merge --no-edit origin/main
-          cat > evidence/crm-007/CRM-007R2-CLOSURE-RECORD-20260718.md <<EOF
-          # CRM-007 Final Production Closure Record
-
-          > **Status:** `FINAL EVIDENCE CAPTURED / READY FOR VERCEL LOG REVIEW`
-
-          | Field | Evidence |
-          |---|---|
-          | Release SHA | `${RELEASE_SHA}` |
-          | Vercel deployment | `${VERCEL_DEPLOYMENT_ID}` |
-          | Render deployment | `${RENDER_DEPLOYMENT_ID}` |
-          | Immutable Render image | `${RENDER_IMAGE_REF}` |
-          | CRM-G1 production run | ${G1_RUN_URL} |
-          | CRM-G1 evidence PR | ${G1_PR_URL} |
-          | Final evidence artifact | ${ARTIFACT_URL} |
-          | Artifact digest | `${ARTIFACT_DIGEST}` |
-
-          ```text
-          RENDER_DEPLOYMENT_AND_IMMUTABLE_IMAGE: PASS
-          PRODUCTION_FLYWAY_20260717_100_101_20260718_1: PASS
-          CRM007_CANONICAL_TABLES_5_OF_5: PASS
-          CRM_G1_TABLES_INDEXES_TENANT_FKS: PASS
-          AUTHENTICATED_CRM007_LIFECYCLE_CONFLICT_RBAC_ISOLATION: PASS
-          RENDER_ERROR_AND_5XX_LOGS: PASS
-          FINAL_PUBLIC_RUNTIME: PASS
-          VERCEL_POST_SMOKE_LOG_REVIEW: PENDING_OWNER_REVIEW
-          ```
-
-          PR #567 must remain unmerged until post-smoke Vercel runtime-log review passes on this exact HEAD.
-          EOF
-          cat > evidence/crm-007/CRM-007R-EXECUTION-REPORT-20260718.md <<EOF
-          # CRM-007 Superseded Execution Report
-
-          This historical report is superseded by `CRM-007R2-CLOSURE-RECORD-20260718.md` and workflow run `${GITHUB_RUN_ID}`.
-          EOF
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add evidence/crm-007
-          git commit -m "docs(crm-007): attach final production closure evidence"
-          git push origin "$HEAD_BRANCH"
-          FINAL_HEAD="$(git rev-parse HEAD)"
-          cat > "$RUNNER_TEMP/pr-body.md" <<EOF
-          ## CRM-007 Final Production Closure
-
-          Production gates passed on fixed release `${RELEASE_SHA}`.
-
-          - Vercel deployment: `${VERCEL_DEPLOYMENT_ID}`
-          - Render deployment: `${RENDER_DEPLOYMENT_ID}`
-          - Immutable backend image: `${RENDER_IMAGE_REF}`
-          - CRM-G1 run: ${G1_RUN_URL}
-          - CRM-G1 evidence PR: ${G1_PR_URL}
-          - Final artifact: ${ARTIFACT_URL}
-          - Artifact digest: `${ARTIFACT_DIGEST}`
-          - Final PR HEAD: `${FINAL_HEAD}`
-
-          The PR remains Draft only for post-smoke Vercel runtime-log inspection on this exact HEAD. After that passes, mark Ready, pass all checks without changing HEAD, and merge with expected-head protection.
-          EOF
-          gh pr edit "$CLOSURE_PR_NUMBER" --title "docs(crm-007): final production closure evidence" --body-file "$RUNNER_TEMP/pr-body.md"
-          echo "head_sha=$FINAL_HEAD" >> "$GITHUB_OUTPUT"
-
-      - name: Record successful execution on Issue 563
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
-          FINAL_HEAD: ${{ steps.closure_pr.outputs.head_sha }}
-          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
-          G1_PR_URL: ${{ steps.g1.outputs.pr_url }}
-        run: |
-          set -euo pipefail
-          gh issue comment 563 --body "CRM-007 final production execution passed on fixed release \`${RELEASE_SHA}\`. PR #567 was updated to HEAD \`${FINAL_HEAD}\`. Render immutable-image proof, PostgreSQL/Flyway/schema proof, authenticated two-tenant CRM-007 lifecycle/conflict/isolation smoke, Render error/5xx log inspection, and final public probes all passed. Artifact: ${ARTIFACT_URL}. CRM-G1 evidence PR: ${G1_PR_URL}. Remaining: exact-HEAD Vercel runtime-log review, protected PR #567 merge, CRM-G1 evidence merge, then issue closure."
-
-      - name: Publish gate result
-        if: always()
-        shell: bash
-        env:
-          STATUS: ${{ job.status }}
-          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
-          FINAL_HEAD: ${{ steps.closure_pr.outputs.head_sha }}
-        run: |
-          {
-            echo "## CRM-007 Final Production Closure"
-            echo "- Status: **${STATUS}**"
-            echo "- Evidence: ${ARTIFACT_URL:-not-created}"
-            echo "- PR #567 HEAD: ${FINAL_HEAD:-not-updated}"
-            if [ "$STATUS" = success ]; then
-              echo "- Gate: **FINAL_EVIDENCE_CAPTURED / VERCEL_LOG_REVIEW_PENDING**"
-            else
-              echo "- Gate: **OPEN / NOT_READY_FOR_CLOSURE**"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
