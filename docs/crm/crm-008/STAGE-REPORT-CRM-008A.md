@@ -338,50 +338,24 @@ Each CRM-008B migration MUST follow this pattern:
 
 ```text
 Preconditions
-  → Exact expected state validation
+  → Exact expected state validation (split by migration type — see below)
   → Transactional schema change
   → Postconditions
   → Fail closed on partial or unexpected state
 ```
 
-#### Preconditions (before any DDL)
+#### Preconditions, Transaction requirements, and Postconditions
 
-Before executing any DDL, the migration MUST verify:
+The full fail-closed specification — including the **precondition rules split by migration type** (Create, Alter, Seed) — is documented in `migrations/01-migration-plan.md` §Fail-Closed Strategy. That document is the **authoritative source** for the fail-closed pattern; this section is a summary.
 
-- The new tables do NOT already exist (or, if they do, they are in the EXACT expected state — same columns, same types, same constraints)
-- There is no partial state — e.g. some tables exist but others do not
-- There are no columns or constraints with matching names but different definitions
-- There are no partial or non-matching indexes
-- The Flyway history is consistent (no failed migration rows, no out-of-order versions)
-- Required tenant constraints from prior migrations are present
+**Key points** (see `migrations/01-migration-plan.md` for full detail):
 
-If any precondition fails, the migration MUST abort with `MIGRATION_ABORTED / SCHEMA_PARTIAL_OR_UNEXPECTED / NO_SILENT_REPAIR`. A separate, approved reconciliation migration is required to repair the state — the migration itself never auto-repairs.
-
-#### Transaction requirements
-
-- Use a single PostgreSQL transaction per migration whenever PostgreSQL allows it (DDL is transactional in PostgreSQL)
-- Any failure MUST trigger a full rollback — no partial state is left
-- No destructive operations (`DROP TABLE`, `DROP COLUMN`, `TRUNCATE`) without an explicit ADR
-- No `flyway repair`
-- No manual edits to `flyway_schema_history`
-- No out-of-order Flyway execution
-- No `CREATE INDEX CONCURRENTLY` inside a transactional migration (it cannot run in a transaction; use a separate non-transactional migration if concurrency is required)
-
-#### Postconditions (after DDL, before commit)
-
-After the DDL, the migration MUST verify (via `SELECT` against `information_schema` / `pg_catalog`):
-
-- Expected tables exist with expected names
-- Expected columns exist with expected types and nullability
-- Primary keys match the design
-- Unique constraints match the design
-- Foreign keys (including same-tenant composite FKs) match the design
-- Check constraints match the design
-- Tenant-leading indexes match the design
-- Partial unique indexes match the design (e.g. `WHERE status = 'ACTIVE'`)
-- No unexpected additional objects (tables, columns, indexes, constraints) were created
-
-If any postcondition fails, the transaction MUST roll back.
+- **Create Migrations** (V20260720_1, _2, _3, _4, _5, _6, _9): all target objects MUST be absent. If any target object already exists, abort with `MIGRATION_ABORTED / SCHEMA_PARTIAL_OR_UNEXPECTED`. A separate reconciliation migration is required.
+- **Alter Migrations** (V20260720_7): the exact predecessor schema MUST exist. Any missing or different predecessor object aborts the migration.
+- **Seed Migrations** (V20260720_8): the required capability/role baseline MUST exist. Duplicate or conflicting semantic records fail closed. Approved idempotent UPSERT behavior must be explicitly documented.
+- **Forbidden pattern**: "if the table exists and is exact, continue to CREATE TABLE" — this is contradictory (the unconditional `CREATE TABLE` would still fail) and is **forbidden**.
+- **Transaction**: single PostgreSQL transaction per migration; any failure triggers full rollback; no `flyway repair`; no manual `flyway_schema_history` edits; no out-of-order execution; no `CREATE INDEX CONCURRENTLY` inside transactional migrations.
+- **Postconditions**: verify expected tables, columns, types, PKs, UKs, FKs (including same-tenant composite FKs), CHECK constraints, tenant-leading indexes, partial unique indexes, and absence of unexpected objects. Any postcondition failure rolls back the transaction.
 
 #### Implications for CRM-008A design documents
 
@@ -606,13 +580,14 @@ OR PRODUCTION CHANGE IS AUTHORIZED.
 ## 10. Mandatory Actions Before CRM-008B Authorization
 
 1. ✅ Update `STAGE-REPORT-CRM-008A.md` to match actually-merged files (this document)
-2. ✅ Remove claim that eight SQL files are part of CRM-008A delivery (§2.3 of this document)
+2. ✅ Remove claim that any SQL files are part of CRM-008A delivery (§2.3 of this document — nine migrations are PLANNED for CRM-008B, zero `.sql` files in CRM-008A merge)
 3. ✅ Record the retrospective governance exception from merging Design Baseline before CRM-007 closure (§0 of this document)
 4. ✅ Record the five Owner Review decisions (§3 of this document)
-5. ⏳ Complete Product, QA, and Security sign-offs (§6.3 of this document)
-6. ⏳ Reconcile Issue #563 and PR #567 with the current production topology `Vercel → backend → Supabase`
-7. ⏳ Prove CRM-007 and CRM-G1 on production PostgreSQL with a single SHA
-8. ⏳ Issue explicit authorization: `CRM-008B: AUTHORIZED`
+5. ✅ Apply EXEC-PROMPT-CRM-008A-R2 corrections: 9 migrations, 14 tables, 20 ACs, three-gate classification, fail-closed strategy, AC-RR-01 (§4.7, §4.8, §5 of this document)
+6. ⏳ Complete Product, QA, and Security sign-offs (§6.3 of this document)
+7. ⏳ Reconcile Issue #563 and PR #567 with the current production topology `Vercel → backend → Supabase`
+8. ⏳ Prove CRM-007 and CRM-G1 on production PostgreSQL with a single SHA
+9. ⏳ Issue explicit authorization: `CRM-008B: AUTHORIZED`
 
 ---
 
@@ -675,4 +650,7 @@ REMAINS INDEPENDENT AND UNAFFECTED.
 | 2026-07-20 (pre-merge) | Initial stage report written | Principal Engineer |
 | 2026-07-20T10:44:38Z | PR #591 merged to `main` (merge commit `32304c8bba`) | Principal Engineer (via `--admin` override) |
 | 2026-07-20 (post-merge review) | Owner review identified corrections: governance exception, SQL file removal claim, approval count, CI evidence scope | Project Owner |
-| 2026-07-20 (this revision) | Applied all corrections; recorded 5 architecture decisions; added §0 Retrospective Governance Exception; corrected §2.3 SQL file claim; corrected §6 approval count; expanded §7 CI evidence scope | Principal Engineer |
+| 2026-07-20 (PR #592) | Applied Owner Review R1 corrections: §0 Retrospective Governance Exception; §2.3 SQL file claim; §6 approval count; §7 CI evidence scope | Principal Engineer |
+| 2026-07-20 (PR #593 commit `789082f3`) | EXEC-PROMPT-CRM-008A-R2 corrections: Single Active Assignment (DB+App+Concurrency), Test Execution distinction, Fail-closed Flyway strategy, V20260720_9 versioning, 5 new ACs (AC-DB-01/02/03, AC-CONC-01, AC-TEST-01) | Principal Engineer |
+| 2026-07-20 (PR #593 commit `ac5da404`) | Owner Review R2 consistency corrections: migration count 8→9, table count 12→14, Tenant FK inventory (21 constraints), IF NOT EXISTS contradiction removed, Preconditions split by migration type, AC count 15→20, duplicate gate summary removed, AC-15 reclassified (three-gate model), Flyway claim removed, root cause marked UNDETERMINED, AC-RR-01 added | Principal Engineer |
+| 2026-07-20 (PR #593 this revision) | Internal consistency audit: removed duplicated Preconditions section in §4.8 (now references migration-plan as authoritative source); corrected discovery-report §11 (8→9 .sql files, AC-01→AC-15 → 20 ACs); updated §10 Mandatory Actions to reflect R2 completion; expanded §14 Change Log | Principal Engineer |

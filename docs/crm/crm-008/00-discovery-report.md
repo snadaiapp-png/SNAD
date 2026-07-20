@@ -254,7 +254,7 @@ CRM-008B implementation remains BLOCKED regardless.
 4. ⏳ Write `domain/*.java` port interfaces (no impls)
 5. ⏳ Write `contracts/01-openapi-draft.md` (38 endpoints)
 6. ⏳ Write `rbac/01-rbac-matrix.md` (17 capabilities)
-7. ⏳ Write `migrations/01-migration-plan.md` + 8 `.sql` files (review-only, no execution)
-8. ⏳ Write `tests/01-acceptance-plan.md` (AC-01 → AC-15)
+7. ⏳ Write `migrations/01-migration-plan.md` + 9 `.sql` files (review-only, no execution) — deferred to CRM-008B
+8. ⏳ Write `tests/01-acceptance-plan.md` (20 acceptance criteria: AC-01 → AC-15 + AC-DB-01/02/03 + AC-CONC-01 + AC-RR-01 + AC-TEST-01)
 9. ⏳ Commit + push branch + open WIP PR for review
 10. ⏳ Stage report (CRM-008A closure document)
