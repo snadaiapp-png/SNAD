@@ -6,17 +6,166 @@ import http.cookiejar
 import json
 import os
 import secrets
+import subprocess
 import sys
+import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
 
-from rem_p0_002_credential_resync import RenderClient, ResyncFailure, required, wait_backend
-
 
 class ReconciliationFailure(RuntimeError):
     pass
+
+
+def required(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise ReconciliationFailure(f"missing required environment value: {name}")
+    return value
+
+
+def wait_backend(base_url: str) -> dict[str, Any]:
+    deadline = time.monotonic() + 5 * 60
+    last: dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        request = urllib.request.Request(
+            f"{base_url}/api/system/backend-status",
+            headers={"Accept": "application/json", "User-Agent": "SANAD-CRM-G1-Reconciliation/2.0"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                body = json.loads(response.read().decode("utf-8"))
+                if isinstance(body, dict):
+                    last = body
+                    if body.get("configured") is True and body.get("reachable") is True and body.get("statusCode") == 200:
+                        return body
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, json.JSONDecodeError):
+            pass
+        time.sleep(5)
+    raise ReconciliationFailure(f"backend routing did not recover; last={last}")
+
+
+class EphemeralBootstrapClient:
+    """Run the application bootstrap service in a short-lived, non-web JVM."""
+
+    def __init__(self, evidence_dir: Path) -> None:
+        self.jar = Path(required("CRM_BOOTSTRAP_JAR")).resolve()
+        if not self.jar.is_file():
+            raise ReconciliationFailure("credential bootstrap JAR is unavailable")
+        self.evidence_dir = evidence_dir
+
+    @staticmethod
+    def _redact(value: str, secrets_to_redact: list[str]) -> str:
+        result = value
+        for secret in sorted((item for item in secrets_to_redact if item), key=len, reverse=True):
+            result = result.replace(secret, "[REDACTED]")
+        return result
+
+    def bootstrap(self, values: dict[str, str], ordinal: int) -> str:
+        runtime_env = os.environ.copy()
+        runtime_env.update(
+            {
+                "SPRING_PROFILES_ACTIVE": "prod",
+                "SPRING_MAIN_WEB_APPLICATION_TYPE": "none",
+                "SPRING_MAIN_BANNER_MODE": "off",
+                "SPRING_TASK_SCHEDULING_ENABLED": "false",
+                "DATABASE_URL": required("PROD_JDBC_URL"),
+                "DATABASE_USERNAME": required("PROD_DB_USER"),
+                "DATABASE_PASSWORD": required("PROD_DB_PASSWORD"),
+                "DATABASE_DRIVER": "org.postgresql.Driver",
+                "JWT_SECRET": secrets.token_urlsafe(64),
+                "SANAD_CORS_ALLOWED_ORIGINS": required("PRODUCTION_WEB_BASE_URL"),
+                "SANAD_CONTROL_PLANE_TENANT_ID": "00000000-0000-0000-0000-000000000000",
+                "JPA_DDL_AUTO": "validate",
+                "FLYWAY_ENABLED": "false",
+                "BOOTSTRAP_ENABLED": "false",
+                "CONTROL_PLANE_BOOTSTRAP_ENABLED": "false",
+                "LOG_LEVEL_ROOT": "WARN",
+                "LOG_LEVEL_SANAD": "INFO",
+                **values,
+            }
+        )
+
+        raw_fd, raw_name = tempfile.mkstemp(prefix=f"crm-g1-bootstrap-{ordinal}-", suffix=".log")
+        os.close(raw_fd)
+        raw_log = Path(raw_name)
+        command = [
+            "java",
+            "-XX:MaxRAMPercentage=40.0",
+            "-XX:+UseG1GC",
+            "-XX:MaxMetaspaceSize=256m",
+            "-Dfile.encoding=UTF-8",
+            "-jar",
+            str(self.jar),
+        ]
+        process: subprocess.Popen[str] | None = None
+        bootstrap_complete = False
+        application_started = False
+        deadline = time.monotonic() + 5 * 60
+        try:
+            with raw_log.open("w", encoding="utf-8") as output:
+                process = subprocess.Popen(
+                    command,
+                    env=runtime_env,
+                    stdout=output,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+                offset = 0
+                while time.monotonic() < deadline:
+                    time.sleep(1)
+                    with raw_log.open("r", encoding="utf-8", errors="replace") as source:
+                        source.seek(offset)
+                        chunk = source.read()
+                        offset = source.tell()
+                    bootstrap_complete = bootstrap_complete or "Credential bootstrap completed" in chunk or "Credential-only bootstrap completed" in chunk
+                    application_started = application_started or "Started SanadPlatformApplication" in chunk
+                    if bootstrap_complete and application_started:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=20)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait(timeout=10)
+                        break
+                    if process.poll() is not None:
+                        break
+
+            raw_text = raw_log.read_text(encoding="utf-8", errors="replace")
+            redacted = self._redact(
+                raw_text,
+                [
+                    runtime_env["DATABASE_URL"],
+                    runtime_env["DATABASE_USERNAME"],
+                    runtime_env["DATABASE_PASSWORD"],
+                    runtime_env["JWT_SECRET"],
+                    values.get("SANAD_SECURITY_BOOTSTRAP_ADMIN_EMAIL", ""),
+                    values.get("SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD", ""),
+                ],
+            )
+            selected = [
+                line for line in redacted.splitlines()
+                if any(marker in line for marker in (
+                    "Credential bootstrap", "Credential-only bootstrap", "Started SanadPlatformApplication",
+                    "APPLICATION FAILED", "ERROR", "Exception", "Caused by",
+                ))
+            ]
+            (self.evidence_dir / f"credential-bootstrap-runtime-{ordinal}.log").write_text(
+                "\n".join(selected[-120:]) + "\n", encoding="utf-8"
+            )
+            if not bootstrap_complete or not application_started:
+                raise ReconciliationFailure(
+                    f"ephemeral credential bootstrap {ordinal} did not complete; exit={process.returncode if process else 'UNKNOWN'}"
+                )
+        finally:
+            if process is not None and process.poll() is None:
+                process.kill()
+                process.wait(timeout=10)
+            raw_log.unlink(missing_ok=True)
+        return f"github-actions-ephemeral-jvm-{ordinal}"
 
 
 def request_json(
@@ -95,7 +244,7 @@ def change_credential(auth_base: str, token: str, current: str, new: str) -> Non
 
 
 def reconcile_account(
-    client: RenderClient,
+    client: EphemeralBootstrapClient,
     base_url: str,
     tenant_id: str,
     email: str,
@@ -117,10 +266,7 @@ def reconcile_account(
         "SANAD_SECURITY_BOOTSTRAP_ADMIN_DISPLAY_NAME": f"CRM G1 Tenant {ordinal} Administrator",
         "SANAD_SECURITY_BOOTSTRAP_AUDIT_ACTOR": "crm-g1-owner-approved-a3",
     }
-    for key, value in bootstrap_values.items():
-        client.put_variable(key, value)
-
-    deploy_id = client.deploy_and_wait()
+    deploy_id = client.bootstrap(bootstrap_values, ordinal)
     wait_backend(base_url)
     auth_base = f"{base_url}/api/platform/api/v1/auth"
 
@@ -144,30 +290,6 @@ def reconcile_account(
     if final_rotation_required:
         raise ReconciliationFailure("final credential still requires rotation")
     return deploy_id, resolved_tenant_id
-
-
-def cleanup(client: RenderClient) -> str:
-    cleanup_values = {
-        "SANAD_SECURITY_BOOTSTRAP_ENABLED": "false",
-        "SANAD_SECURITY_BOOTSTRAP_FORCE_RESET": "false",
-        "SANAD_SECURITY_BOOTSTRAP_CREDENTIAL_ONLY": "false",
-        "SANAD_SECURITY_BOOTSTRAP_TENANT_ID": "",
-        "SANAD_SECURITY_BOOTSTRAP_TENANT_NAME": "",
-        "SANAD_SECURITY_BOOTSTRAP_TENANT_SUBDOMAIN": "",
-        "SANAD_SECURITY_BOOTSTRAP_ADMIN_EMAIL": "",
-        "SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD": "",
-        "SANAD_SECURITY_BOOTSTRAP_ADMIN_DISPLAY_NAME": "",
-        "SANAD_SECURITY_BOOTSTRAP_AUDIT_ACTOR": "credential-bootstrap",
-    }
-    errors: list[str] = []
-    for key, value in cleanup_values.items():
-        try:
-            client.put_variable(key, value)
-        except Exception as error:
-            errors.append(f"{key}:{type(error).__name__}")
-    if errors:
-        raise ReconciliationFailure("bootstrap cleanup environment update failed: " + ",".join(errors))
-    return client.deploy_and_wait()
 
 
 def main() -> int:
@@ -202,11 +324,10 @@ def main() -> int:
     if create_dedicated_tenants and accounts[0][4] == accounts[1][4]:
         raise ReconciliationFailure("dedicated tenant subdomains must differ")
 
-    client = RenderClient(required("RENDER_API_KEY"), required("RENDER_SERVICE_ID"))
+    client = EphemeralBootstrapClient(evidence_dir)
     deploy_ids: list[str] = []
     resolved_tenant_ids: list[str] = []
     primary_error: Exception | None = None
-    cleanup_deploy_id = ""
     try:
         for ordinal, (tenant_id, email, password, tenant_name, tenant_subdomain) in enumerate(accounts, start=1):
             deploy_id, resolved_tenant_id = reconcile_account(
@@ -226,17 +347,6 @@ def main() -> int:
             raise ReconciliationFailure("reconciled accounts did not resolve to two distinct tenants")
     except Exception as error:
         primary_error = error
-    finally:
-        try:
-            cleanup_deploy_id = cleanup(client)
-            wait_backend(base_url)
-        except Exception as error:
-            if primary_error is None:
-                primary_error = error
-            else:
-                primary_error = ReconciliationFailure(
-                    f"{primary_error}; cleanup also failed: {type(error).__name__}"
-                )
 
     evidence = {
         "operation": (
@@ -254,10 +364,11 @@ def main() -> int:
         "platformAdminAccountsModified": 0,
         "authorizationEnrollmentExpected": not credential_only,
         "dedicatedTenantBootstrap": create_dedicated_tenants,
-        "bootstrapDeployments": deploy_ids,
-        "cleanupDeployment": cleanup_deploy_id or "UNKNOWN",
-        "bootstrapDisabled": bool(cleanup_deploy_id),
-        "bootstrapSecretsCleared": bool(cleanup_deploy_id),
+        "bootstrapRuntime": "github-actions-ephemeral-non-web-jvm",
+        "bootstrapExecutions": deploy_ids,
+        "localServerConfigurationModified": False,
+        "bootstrapDisabled": True,
+        "bootstrapSecretsCleared": True,
         "result": "PASS" if primary_error is None and len(deploy_ids) == 2 else "FAIL",
     }
     (evidence_dir / "credential-reconciliation.json").write_text(
@@ -274,6 +385,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (ReconciliationFailure, ResyncFailure) as error:
+    except ReconciliationFailure as error:
         print(f"CRM-G1 CREDENTIAL RECONCILIATION FAILURE: {error}", file=sys.stderr)
         raise SystemExit(1)
