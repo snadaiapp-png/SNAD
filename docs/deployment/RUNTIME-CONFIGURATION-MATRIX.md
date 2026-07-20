@@ -49,10 +49,11 @@ Temporary `SANAD_SECURITY_BOOTSTRAP_*` and `CONTROL_PLANE_BOOTSTRAP_ENABLED` var
 
 1. A backend change on `main` triggers `.github/workflows/publish-render-image.yml`.
 2. GitHub Actions builds an immutable `linux/amd64` image and publishes both the commit tag and `latest` to GHCR.
-3. The workflow deploys the immutable commit tag through the Render API.
-4. The workflow waits for `live` and verifies health, liveness, and readiness.
+3. Render deploys an immutable commit tag through its API; Render never builds the repository.
+4. The optional CI deployment stage runs only when `RENDER_AUTODEPLOY_ENABLED=true` and the protected `RENDER_API_KEY` is current.
+5. Every deployment must reach `live` and pass health, liveness, and readiness.
 
-Render does not build the repository. This avoids dependence on Render build-pipeline minutes and keeps GitHub as the release authority.
+This avoids dependence on Render build-pipeline minutes and keeps GitHub as the release authority. Rotate exposed Render tokens before storing a replacement in the GitHub `Production` environment.
 
 ## 5. Local development
 
