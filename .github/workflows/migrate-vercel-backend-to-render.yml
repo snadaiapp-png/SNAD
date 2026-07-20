@@ -1,0 +1,168 @@
+name: Migrate Vercel Backend to Render
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/migrate-vercel-backend-to-render.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migrate-vercel-backend-to-render
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Update Vercel BFF upstream, redeploy, and verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: Production
+    env:
+      PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
+      PRODUCTION_BACKEND_BASE_URL: ${{ vars.PRODUCTION_BACKEND_BASE_URL || 'https://sanad-backend-mcrj.onrender.com' }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      CI: '1'
+
+    steps:
+      - name: Checkout exact main SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate protected configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in VERCEL_TOKEN VERCEL_PROJECT_ID VERCEL_TEAM_ID; do
+            test -n "${!name:-}" || { echo "::error::Missing Production secret: $name"; exit 1; }
+            echo "::add-mask::${!name}"
+          done
+          [[ "$PRODUCTION_WEB_BASE_URL" == https://* ]] || { echo "::error::Production web URL must use HTTPS"; exit 1; }
+          case "$PRODUCTION_BACKEND_BASE_URL" in
+            https://*.onrender.com) ;;
+            *) echo "::error::Backend target must be an HTTPS onrender.com service"; exit 1 ;;
+          esac
+
+      - name: Point Vercel Production BFF at Render
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$PRODUCTION_BACKEND_BASE_URL" | \
+            npx --yes vercel@latest env update BACKEND_API_BASE_URL production --yes --token "$VERCEL_TOKEN"
+
+      - name: Force a fresh Vercel Production deployment
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          TEAM_QUERY="?teamId=${VERCEL_TEAM_ID}"
+
+          curl --fail-with-body --silent --show-error --max-time 30 \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}${TEAM_QUERY}" \
+            > "$RUNNER_TEMP/vercel-project.json"
+          PROJECT_NAME="$(jq -r '.name // empty' "$RUNNER_TEMP/vercel-project.json")"
+          test -n "$PROJECT_NAME"
+
+          jq -n \
+            --arg name "$PROJECT_NAME" \
+            --arg project "$VERCEL_PROJECT_ID" \
+            --arg sha "$GITHUB_SHA" \
+            '{
+              name:$name,
+              project:$project,
+              target:"production",
+              gitSource:{type:"github",org:"snadaiapp-png",repo:"SNAD",ref:"main",sha:$sha},
+              gitMetadata:{
+                remoteUrl:"https://github.com/snadaiapp-png/SNAD",
+                commitRef:"main",
+                commitSha:$sha,
+                dirty:"false",
+                ci:"true",
+                ciType:"github-actions"
+              },
+              meta:{githubCommitSha:$sha,migration:"vercel-backend-to-render"}
+            }' > "$RUNNER_TEMP/vercel-create.json"
+
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            -X POST \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data @"$RUNNER_TEMP/vercel-create.json" \
+            "https://api.vercel.com/v13/deployments${TEAM_QUERY}" \
+            > "$RUNNER_TEMP/vercel-created.json"
+          DEPLOYMENT_ID="$(jq -r '.id // .uid // empty' "$RUNNER_TEMP/vercel-created.json")"
+          test -n "$DEPLOYMENT_ID" || { jq -r '.error.message // "Vercel did not return a deployment ID"' "$RUNNER_TEMP/vercel-created.json"; exit 1; }
+
+          LIST_URL="https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&target=production&limit=100&teamId=${VERCEL_TEAM_ID}"
+          MATCH=""
+          for attempt in $(seq 1 150); do
+            curl --fail-with-body --silent --show-error --max-time 30 \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+              "$LIST_URL" > "$RUNNER_TEMP/vercel-list.json"
+            MATCH="$(jq -c --arg id "$DEPLOYMENT_ID" '[.deployments[]? | select((.uid // .id // "") == $id)] | last // empty' "$RUNNER_TEMP/vercel-list.json")"
+            if [ -n "$MATCH" ] && [ "$MATCH" != "null" ]; then
+              STATE="$(jq -r '.readyState // .state // empty' <<< "$MATCH")"
+              case "$STATE" in
+                READY) break ;;
+                ERROR|CANCELED) echo "::error::Vercel deployment failed: $STATE"; exit 1 ;;
+              esac
+            fi
+            sleep 10
+          done
+
+          test -n "$MATCH" && test "$MATCH" != "null"
+          test "$(jq -r '.readyState // .state // empty' <<< "$MATCH")" = "READY"
+          test "$(jq -r '.target // empty' <<< "$MATCH")" = "production"
+          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+          echo "deployment_url=$(jq -r '.url // empty' <<< "$MATCH")" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Render and the Vercel BFF route
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DIRECT_CODE="$(curl --silent --show-error --max-time 30 -o "$RUNNER_TEMP/render-health.json" -w '%{http_code}' "${PRODUCTION_BACKEND_BASE_URL}/actuator/health")"
+          test "$DIRECT_CODE" = "200"
+          jq -e '.status == "UP"' "$RUNNER_TEMP/render-health.json" >/dev/null
+
+          STATUS_CODE="000"
+          BFF_CODE="000"
+          for attempt in $(seq 1 36); do
+            STATUS_CODE="$(curl --silent --show-error --max-time 30 -o "$RUNNER_TEMP/backend-status.json" -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL}/api/system/backend-status" || true)"
+            BFF_CODE="$(curl --silent --show-error --max-time 30 -o "$RUNNER_TEMP/auth-me.json" -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL}/api/platform/api/v1/auth/me" || true)"
+            if [ "$STATUS_CODE" = "200" ] && [ "$BFF_CODE" = "401" ] && \
+               jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+
+          test "$STATUS_CODE" = "200"
+          jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null
+          test "$BFF_CODE" = "401"
+          echo "Render health: UP"
+          echo "Vercel backend status: configured/reachable/200"
+          echo "Unauthenticated BFF auth boundary: 401 (expected)"
+
+      - name: Publish migration summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo '## Vercel backend migration completed'
+            echo ''
+            echo "- Release SHA: \`${GITHUB_SHA}\`"
+            echo "- Deployment ID: \`${{ steps.deploy.outputs.deployment_id }}\`"
+            echo "- Deployment URL: \`${{ steps.deploy.outputs.deployment_url }}\`"
+            echo '- Render health: **UP**'
+            echo '- Vercel BFF routing: **PASS**'
+          } >> "$GITHUB_STEP_SUMMARY"
