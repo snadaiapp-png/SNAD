@@ -6,6 +6,14 @@
 
 ---
 
+## Status
+
+> **IMPORTANT:** The `.sql` files for these migrations were initially included in CRM-008A but **removed** because the CRM G1 Schema Isolation CI workflow applies ALL Flyway migrations on every PR (including design-only PRs), and the new migrations need local PostgreSQL validation before they can pass the strict CI gate.
+>
+> The migrations will be re-added in **CRM-008B (Foundation)** after local validation against PostgreSQL 16 (via Testcontainers). The migration plan, table designs, and invariants documented below remain the authoritative design reference for CRM-008B implementation.
+>
+> The CRM-008A PR is intentionally design-only: documents + pure-domain port interfaces. No SQL migrations are executed.
+
 ## Migration Sequence
 
 | # | Version | File | Purpose | Tables added | Indexes added |
