@@ -1,9 +1,10 @@
 package com.sanad.platform.crm.ownership.domain;
 
-import java.util.UUID;
-
 /**
- * Port for the central Workflow Engine.
+ * Port for the central Workflow Engine (CRM-008A design).
+ *
+ * <p><b>Design-only marker interface.</b> The full method set will be declared
+ * in CRM-008D (Transfers) when the transfer approval workflow is implemented.</p>
  *
  * <p>CRM-008 does NOT implement its own workflow engine. Approval chains,
  * escalations, timers, and SLA-driven reassignments are delegated to the
@@ -12,32 +13,17 @@ import java.util.UUID;
  * <p>Until the central Workflow Engine is built, a synchronous stub adapter
  * will handle single-approver transfers inline. Multi-step approvals are
  * explicitly deferred to CRM-008D and require the real engine.</p>
+ *
+ * <p><b>Planned methods</b> (to be added in CRM-008D):
+ * <pre>
+ *   UUID startTransferApproval(TransferApprovalRequest request);
+ *   ApprovalState getApprovalState(UUID workflowRunId);
+ *   void cancelApproval(UUID workflowRunId, String reason);
+ *   boolean isStub();
+ * </pre>
+ * </p>
  */
 public interface WorkflowPort {
-
-    /**
-     * Starts an approval workflow for a transfer request.
-     *
-     * @return the workflow run id, used to correlate callbacks and audit events
-     */
-    UUID startTransferApproval(TransferApprovalRequest request);
-
-    /**
-     * Returns the current state of an approval workflow.
-     */
-    ApprovalState getApprovalState(UUID workflowRunId);
-
-    /**
-     * Cancels an in-progress approval workflow (e.g. when the transfer request
-     * is CANCELLED by the requester before approval completes).
-     */
-    void cancelApproval(UUID workflowRunId, String reason);
-
-    /**
-     * Stub indicator: returns true when the implementation is a placeholder
-     * (synchronous single-approver only). Used by health checks and the
-     * capabilities catalog to flag that multi-step workflows are not yet
-     * production-ready.
-     */
-    boolean isStub();
+    // Marker interface — methods added in CRM-008D.
+    // See Javadoc above for the planned contract.
 }

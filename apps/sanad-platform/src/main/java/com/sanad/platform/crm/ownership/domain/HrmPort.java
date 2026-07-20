@@ -1,10 +1,10 @@
 package com.sanad.platform.crm.ownership.domain;
 
-import java.time.Instant;
-import java.util.UUID;
-
 /**
- * Port for HRM (Human Resources Module).
+ * Port for HRM (Human Resources Module) — CRM-008A design.
+ *
+ * <p><b>Design-only marker interface.</b> The full method set will be declared
+ * in CRM-008D (Transfers) when absence-driven reassignment is implemented.</p>
  *
  * <p>CRM-008 references employee data (manager, department, employment status,
  * absence) via this port — it does NOT store its own copy of the employee
@@ -14,39 +14,17 @@ import java.util.UUID;
  * <p>Until HRM is built, a stub adapter returns "active, no absence, no manager"
  * for any user. This is explicitly marked and health-checked so production
  * cannot accidentally rely on the stub for absence-driven reassignment.</p>
+ *
+ * <p><b>Planned methods</b> (to be added in CRM-008D):
+ * <pre>
+ *   EmploymentStatus getEmploymentStatus(UUID tenantId, UUID userId);
+ *   Optional&lt;UUID&gt; findManager(UUID tenantId, UUID userId);
+ *   boolean isAbsent(UUID tenantId, UUID userId);
+ *   boolean isStub();
+ * </pre>
+ * </p>
  */
 public interface HrmPort {
-
-    /**
-     * Returns the employment status of the given user in the given tenant.
-     * Used by the absence-driven reassignment workflow (CRM-008 §9.4).
-     */
-    EmploymentStatus getEmploymentStatus(UUID tenantId, UUID userId);
-
-    /**
-     * Returns the user's manager, or empty if no manager is configured.
-     * Used by the transfer approval chain (CRM-008D).
-     */
-    java.util.Optional<UUID> findManager(UUID tenantId, UUID userId);
-
-    /**
-     * Returns true if the user is currently marked as absent (vacation, leave, etc.).
-     * Used by the absence-driven reassignment workflow.
-     */
-    boolean isAbsent(UUID tenantId, UUID userId);
-
-    /**
-     * Stub indicator: returns true when the implementation is a placeholder.
-     */
-    boolean isStub();
-
-    /**
-     * Employment status as reported by HRM.
-     */
-    enum EmploymentStatus {
-        ACTIVE,
-        ON_LEAVE,
-        SUSPENDED,
-        TERMINATED
-    }
+    // Marker interface — methods added in CRM-008D.
+    // See Javadoc above for the planned contract.
 }

@@ -1,54 +1,40 @@
 package com.sanad.platform.crm.ownership.domain;
 
-import java.time.Instant;
-import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Read-side port for ownership queries.
+ * Read-side port for ownership queries (CRM-008A design).
  *
- * <p>This port is the authoritative read path for "who owns this CRM record right now".
- * It is intentionally separate from {@link OwnershipWritePort} so that read paths
- * (My Work, record details, RBAC checks) never acquire write locks.</p>
+ * <p><b>Design-only marker interface.</b> The full method set will be declared
+ * in CRM-008B (Foundation) when the JDBC adapter is implemented. Until then,
+ * this port exists to:</p>
+ * <ul>
+ *   <li>Document the architectural boundary: reads go through this port.</li>
+ *   <li>Provide a wiring point for future implementations.</li>
+ *   <li>Allow architecture tests to assert that no application service bypasses
+ *       the ownership read path with direct SQL.</li>
+ * </ul>
+ *
+ * <p><b>Planned methods</b> (to be added in CRM-008B with their value objects):
+ * <pre>
+ *   Optional&lt;Assignment&gt; findActiveAssignment(UUID tenantId, AssignmentRecordType recordType, UUID recordId);
+ *   OwnershipHistoryPage findOwnershipHistory(UUID tenantId, AssignmentRecordType recordType, UUID recordId, OwnershipHistoryCursor cursor, int pageSize);
+ *   WorkloadSummary findUserWorkload(UUID tenantId, UUID userId);
+ *   int findUserQueueClaimCount(UUID tenantId, UUID queueId, UUID userId);
+ * </pre>
+ * </p>
+ *
+ * <p>The corresponding value objects ({@code Assignment}, {@code AssignmentRecordType},
+ * {@code OwnershipHistoryPage}, {@code OwnershipHistoryCursor}, {@code WorkloadSummary})
+ * are also part of CRM-008B and are intentionally not defined here to keep
+ * CRM-008A as a pure design stage with zero compilation dependencies on
+ * unbuilt types.</p>
  *
  * <p>Implementation note: the JDBC adapter will read from {@code crm_assignments}
  * (the current active row) plus denormalized {@code owner_user_id} columns on
  * the CRM record tables for fast lookup.</p>
  */
 public interface OwnershipReadPort {
-
-    /**
-     * Returns the current active assignment for the given record, or empty if none.
-     *
-     * @param tenantId  the tenant scope (from SecurityContext, never from request body)
-     * @param recordType the CRM record type
-     * @param recordId  the CRM record id
-     */
-    Optional<Assignment> findActiveAssignment(UUID tenantId, AssignmentRecordType recordType, UUID recordId);
-
-    /**
-     * Returns the paginated ownership history for a record, ordered by effectiveAt ASC.
-     * The history is append-only and never redacted.
-     */
-    OwnershipHistoryPage findOwnershipHistory(
-            UUID tenantId,
-            AssignmentRecordType recordType,
-            UUID recordId,
-            OwnershipHistoryCursor cursor,
-            int pageSize
-    );
-
-    /**
-     * Returns the workload summary for a user: counts of records currently owned
-     * by the user, grouped by record type. Used by the assignment engine's
-     * Least-Loaded distribution method.
-     */
-    WorkloadSummary findUserWorkload(UUID tenantId, UUID userId);
-
-    /**
-     * Returns the current claim count for a user against a specific queue.
-     * Used by {@code Queue.claim} to enforce {@code maxItemsPerUser}.
-     */
-    int findUserQueueClaimCount(UUID tenantId, UUID queueId, UUID userId);
+    // Marker interface — methods added in CRM-008B.
+    // See Javadoc above for the planned contract.
 }
