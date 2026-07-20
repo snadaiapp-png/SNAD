@@ -45,7 +45,14 @@ jobs:
       name: Production
       url: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
     env:
-      TARGET_FLYWAY_VERSION: '20260717.6'
+      # Historical baseline version — used ONLY to verify the baseline was recorded.
+      BASELINE_FLYWAY_VERSION: '20260717.6'
+      # Reconciliation target version — this is the version the workflow MUST apply
+      # via flyway:migrate and verify in PRE_COUNT, POST_COUNT, and evidence.
+      # 20260718.1 lives in db/vendor/postgresql/ and reconciles the CRM-G1 baseline gap.
+      RECONCILIATION_FLYWAY_VERSION: '20260718.1'
+      # Kept for backward compatibility with evidence/reporting templates.
+      TARGET_FLYWAY_VERSION: '20260718.1'
       PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
       BACKEND_HEALTH_URL: ${{ vars.PRODUCTION_BACKEND_HEALTH_URL || 'https://streak-train-empower.ngrok-free.dev/actuator/health' }}
       BACKUP_REFERENCE: ${{ inputs.backup_reference || 'MANUAL-PGDUMP-hxhvfqxzigrqoxxnnzje-20260719T010007Z-SHA256-50eeac2cca743ca61c4512902a053809e8bd14fd3b9e3d1ae93dfec97b4a5c46' }}
@@ -219,17 +226,26 @@ jobs:
             -DskipTests -Dmaven.test.skip=true clean package
 
           PSQL_URL="${PROD_JDBC_URL#jdbc:}"
+          # PRE_COUNT: verify the baseline shape BEFORE applying reconciliation.
+          # Expected: baseline (20260717.6) recorded once, earlier CRM-G1 migrations (20260716.1/2)
+          # NOT recorded as SQL (they are reconciled inside 20260718.1), and NO failed rows.
+          # 20260718.1 may or may not be present yet — it will be applied by flyway:migrate below.
           FLYWAY_HISTORY_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
             -X -v ON_ERROR_STOP=1 -Atc \
-            "SELECT count(*) FILTER (WHERE version='20260717.6' AND success=true) || '|' ||
+            "SELECT count(*) FILTER (WHERE version='${BASELINE_FLYWAY_VERSION}' AND success=true) || '|' ||
                     count(*) FILTER (WHERE version IN ('20260716.1','20260716.2') AND success=true) || '|' ||
                     count(*) FILTER (WHERE success=false)
                FROM flyway_schema_history
-              WHERE version IN ('20260716.1','20260716.2','20260717.6')")"
+              WHERE version IN ('20260716.1','20260716.2','${BASELINE_FLYWAY_VERSION}','${RECONCILIATION_FLYWAY_VERSION}'))"
           test "$FLYWAY_HISTORY_STATE" = "1|0|0" || {
-            echo "::error::Unexpected CRM-G1 Flyway history shape; expected target=1 earlier=0 failed=0"
+            echo "::error::PRE_COUNT failed: unexpected CRM-G1 Flyway history shape before reconciliation."
+            echo "::error::Expected baseline=1 earlier=0 failed=0, got: $FLYWAY_HISTORY_STATE"
+            echo "::error::This means either the baseline is missing, an earlier migration was applied as SQL, or there is a failed row."
+            echo "::error::DO NOT use flyway repair. DO NOT manually edit flyway_schema_history."
+            echo "::error::Investigate the actual flyway_schema_history rows and reconcile with a forward-only migration if needed."
             exit 1
           }
+          echo "PRE_COUNT PASS: baseline=${BASELINE_FLYWAY_VERSION} recorded, no earlier SQL, no failed rows."
 
           G1_TABLE_COUNT="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
             -X -v ON_ERROR_STOP=1 -Atc \
@@ -279,7 +295,38 @@ jobs:
             -Dflyway.user="$PROD_DB_USER" \
             -Dflyway.password="$PROD_DB_PASSWORD" \
             -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
-            -Dflyway.outOfOrder=true
+            -Dflyway.outOfOrder=true \
+            || {
+              echo "::error::flyway:validate FAILED before reconciliation migrate."
+              echo "::error::This means there is a checksum mismatch or a missing migration file."
+              echo "::error::DO NOT use flyway repair. DO NOT manually edit flyway_schema_history."
+              echo "::error::Investigate which migration has a checksum mismatch and resolve with a forward-only corrective migration."
+              exit 1
+            }
+          echo "flyway:validate PASS (pre-migrate)."
+
+          # Apply the reconciliation migration (20260718.1) via flyway:migrate.
+          # This is the critical fix: the previous workflow only validated but never migrated,
+          # so 20260718.1 was never applied. Now we explicitly target the reconciliation version.
+          # flyway:migrate is idempotent — if 20260718.1 is already applied, it is a no-op.
+          mvn --batch-mode --no-transfer-progress -f apps/sanad-platform/pom.xml flyway:migrate \
+            -Dflyway.url="$PROD_JDBC_URL" \
+            -Dflyway.user="$PROD_DB_USER" \
+            -Dflyway.password="$PROD_DB_PASSWORD" \
+            -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
+            -Dflyway.target="${RECONCILIATION_FLYWAY_VERSION}" \
+            -Dflyway.outOfOrder=true \
+            -Dflyway.cleanDisabled=true \
+            -Dflyway.validateOnMigrate=true \
+            || {
+              echo "::error::flyway:migrate FAILED for reconciliation version ${RECONCILIATION_FLYWAY_VERSION}."
+              echo "::error::This means the migration could not be applied. Check the migration SQL for errors."
+              echo "::error::DO NOT use flyway repair. DO NOT manually edit flyway_schema_history."
+              echo "::error::DO NOT manually run SQL outside Flyway."
+              echo "::error::Fix the migration SQL with a forward-only corrective migration if needed."
+              exit 1
+            }
+          echo "flyway:migrate PASS: reconciliation version ${RECONCILIATION_FLYWAY_VERSION} applied (or already present)."
 
           if [ "$G1_TABLE_COUNT" = "0" ]; then
             PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
@@ -364,14 +411,54 @@ jobs:
             -Dflyway.user="$PROD_DB_USER" \
             -Dflyway.password="$PROD_DB_PASSWORD" \
             -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
-            -Dflyway.outOfOrder=true
+            -Dflyway.outOfOrder=true \
+            || {
+              echo "::error::flyway:validate FAILED after reconciliation migrate."
+              echo "::error::This means a migration was applied but its checksum does not match the file."
+              echo "::error::DO NOT use flyway repair. DO NOT manually edit flyway_schema_history."
+              echo "::error::Investigate which migration has a checksum mismatch and resolve with a forward-only corrective migration."
+              exit 1
+            }
+          echo "flyway:validate PASS (post-migrate)."
+
+          # POST_COUNT: verify the reconciliation migration is now recorded as success=true.
+          # This is the critical proof that 20260718.1 was applied by Flyway (not manually).
+          POST_COUNT_RECONCILIATION="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM flyway_schema_history WHERE version='${RECONCILIATION_FLYWAY_VERSION}' AND success=true")"
+          test "$POST_COUNT_RECONCILIATION" = "1" || {
+            echo "::error::POST_COUNT failed: reconciliation migration ${RECONCILIATION_FLYWAY_VERSION} is NOT recorded as success=true."
+            echo "::error::Expected count=1, got: $POST_COUNT_RECONCILIATION"
+            echo "::error::This means flyway:migrate did not apply 20260718.1 despite passing validate."
+            echo "::error::DO NOT manually insert into flyway_schema_history."
+            echo "::error::Re-run flyway:migrate or investigate why the migration was skipped."
+            exit 1
+          }
+          echo "POST_COUNT PASS: reconciliation ${RECONCILIATION_FLYWAY_VERSION} is recorded as success=true."
+
+          # Also verify the baseline is still recorded (not deleted by migrate).
+          POST_COUNT_BASELINE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM flyway_schema_history WHERE version='${BASELINE_FLYWAY_VERSION}' AND success=true")"
+          test "$POST_COUNT_BASELINE" = "1" || {
+            echo "::error::POST_COUNT failed: baseline ${BASELINE_FLYWAY_VERSION} is NOT recorded as success=true after migrate."
+            echo "::error::Expected count=1, got: $POST_COUNT_BASELINE"
+            exit 1
+          }
+          echo "POST_COUNT PASS: baseline ${BASELINE_FLYWAY_VERSION} still recorded as success=true."
 
           PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -P pager=off \
             -f scripts/crm/verify-g1-tenant-isolation.sql 2>&1 | tee "$EVIDENCE_DIR/catalog-verification.txt"
+          # Evidence: verify the RECONCILIATION version (20260718.1) is recorded as success=true.
+          # This is the final proof required by the closure criteria.
           PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -P pager=off -Atc \
-            "SELECT version || '|' || description || '|' || success || '|' || installed_on FROM flyway_schema_history WHERE version='${TARGET_FLYWAY_VERSION}' AND success=true" \
+            "SELECT version || '|' || description || '|' || success || '|' || installed_on FROM flyway_schema_history WHERE version='${RECONCILIATION_FLYWAY_VERSION}' AND success=true" \
             > "$EVIDENCE_DIR/flyway-target-row.txt"
-          test "$(wc -l < "$EVIDENCE_DIR/flyway-target-row.txt" | tr -d ' ')" = "1"
+          test "$(wc -l < "$EVIDENCE_DIR/flyway-target-row.txt" | tr -d ' ')" = "1" || {
+            echo "::error::Evidence extraction failed: reconciliation ${RECONCILIATION_FLYWAY_VERSION} row not found in flyway_schema_history."
+            exit 1
+          }
+          echo "Evidence: flyway-target-row.txt contains the reconciliation version row."
 
           # Build the exact main application artifact once. Credential enrollment runs
           # this artifact as a short-lived non-web JVM against the production database;
