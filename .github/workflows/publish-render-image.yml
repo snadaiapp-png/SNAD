@@ -30,7 +30,7 @@ jobs:
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID || 'srv-d8ragqkm0tmc73bviqq0' }}
-      PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL || 'https://sanad-backend-mcrj.onrender.com' }}
+      PRODUCTION_BASE_URL: https://sanad-backend-mcrj.onrender.com
 
     steps:
       - name: Checkout exact source
