@@ -1,6 +1,12 @@
 # CRM-008 — Migration Plan
 
-> 9 forward-only Flyway migrations **PLANNED for CRM-008B** (V20260720_1 through V20260720_9). No `.sql` files are committed in the CRM-008A merge — they were removed before PR #591 was merged and will be re-added in CRM-008B after local PostgreSQL 16 validation via Testcontainers.
+> Nine migrations are planned for CRM-008B (V20260720_1 through V20260720_9).
+>
+> Eight executable draft files (V20260720_1 through V20260720_8) were temporarily committed during CRM-008A and removed before PR #591 merged.
+>
+> V20260720_9 was introduced later as a design-only planned migration during Owner Review R2 and has never been committed as an executable SQL file.
+>
+> No `.sql` files are committed in the CRM-008A merge. All nine migrations will be re-added in CRM-008B after local PostgreSQL 16 validation via Testcontainers.
 >
 > Pattern:
 > Fail-closed PostgreSQL migrations with explicit preconditions,
@@ -11,9 +17,9 @@
 
 ## Status
 
-> **IMPORTANT:** The `.sql` files for these migrations were initially included in CRM-008A but **removed** because the CRM G1 Schema Isolation CI workflow applies ALL Flyway migrations on every PR (including design-only PRs), and the new migrations need local PostgreSQL validation before they can pass the strict CI gate.
+> **IMPORTANT:** Eight executable draft files (V20260720_1 through V20260720_8) were temporarily committed during CRM-008A and removed in commit `b683ec2d` before PR #591 merged. V20260720_9 was introduced later as a design-only planned migration during Owner Review R2 and has **never** been committed as an executable SQL file. The removal was necessary because the CRM G1 Schema Isolation CI workflow applies ALL Flyway migrations on every PR (including design-only PRs), and the new migrations need local PostgreSQL validation before they can pass the strict CI gate.
 >
-> The migrations will be re-added in **CRM-008B (Foundation)** after local validation against PostgreSQL 16 (via Testcontainers). The migration plan, table designs, and invariants documented below remain the authoritative design reference for CRM-008B implementation.
+> All nine migrations will be re-added in **CRM-008B (Foundation)** after local validation against PostgreSQL 16 (via Testcontainers). The migration plan, table designs, and invariants documented below remain the authoritative design reference for CRM-008B implementation.
 >
 > The CRM-008A PR is intentionally design-only: documents + pure-domain port interfaces. No SQL migrations are executed.
 
