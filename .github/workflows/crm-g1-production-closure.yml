@@ -2,7 +2,7 @@
 # Required Production secrets:
 #   PROD_JDBC_URL, PROD_DB_USER, PROD_DB_PASSWORD
 # Reused Production secrets:
-#   VERCEL_TOKEN, VERCEL_TEAM_ID, RENDER_API_KEY, RENDER_SERVICE_ID
+#   VERCEL_TOKEN, VERCEL_TEAM_ID
 #   AUTH_SMOKE_TENANT_A_ID/EMAIL/PASSWORD, AUTH_SMOKE_TENANT_B_ID/EMAIL/PASSWORD
 # Optional CRM-specific overrides:
 #   CRM_TENANT_A_EMAIL/PASSWORD, CRM_TENANT_B_EMAIL/PASSWORD
@@ -95,8 +95,6 @@ jobs:
           AUTH_TENANT_B_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
         run: |
           set -euo pipefail
 
@@ -105,8 +103,7 @@ jobs:
           test "$RELEASE_SHA" = "$REMOTE_MAIN_SHA" || { echo "::error::Checkout is not current main"; exit 1; }
 
           for value in "$PROD_JDBC_URL" "$PROD_DB_USER" "$PROD_DB_PASSWORD" \
-            "$VERCEL_TOKEN" "$VERCEL_TEAM_ID" \
-            "$RENDER_API_KEY" "$RENDER_SERVICE_ID"; do
+            "$VERCEL_TOKEN" "$VERCEL_TEAM_ID"; do
             test -n "$value" || { echo "::error::A required Production secret is missing"; exit 1; }
             echo "::add-mask::$value"
           done
@@ -375,6 +372,16 @@ jobs:
             "SELECT version || '|' || description || '|' || success || '|' || installed_on FROM flyway_schema_history WHERE version='${TARGET_FLYWAY_VERSION}' AND success=true" \
             > "$EVIDENCE_DIR/flyway-target-row.txt"
           test "$(wc -l < "$EVIDENCE_DIR/flyway-target-row.txt" | tr -d ' ')" = "1"
+
+          # Build the exact main application artifact once. Credential enrollment runs
+          # this artifact as a short-lived non-web JVM against the production database;
+          # the locally hosted backend and its tunnel are never reconfigured or restarted.
+          mvn --batch-mode --no-transfer-progress -f apps/sanad-platform/pom.xml \
+            clean package -DskipTests -Dgit.commit="$RELEASE_SHA"
+          CRM_BOOTSTRAP_JAR="$(find apps/sanad-platform/target -maxdepth 1 -type f \
+            -name 'sanad-platform-*.jar' ! -name '*.original' | sort | head -n 1)"
+          test -n "$CRM_BOOTSTRAP_JAR" && test -f "$CRM_BOOTSTRAP_JAR"
+          export CRM_BOOTSTRAP_JAR
 
           CRM_ACCOUNT_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
             -X -v ON_ERROR_STOP=1 -At \
