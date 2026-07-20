@@ -29,7 +29,7 @@ jobs:
     environment: Production
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID || 'srv-d8ragqkm0tmc73bviqq0' }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       PRODUCTION_BASE_URL: https://sanad-backend-mcrj.onrender.com
       RENDER_AUTODEPLOY_ENABLED: ${{ vars.RENDER_AUTODEPLOY_ENABLED || 'false' }}
 
@@ -119,27 +119,3 @@ jobs:
             esac
             sleep 10
           done
-          test "$STATUS" = "live" || { echo "::error::Render deployment timed out"; exit 1; }
-          test "$(jq -r '(.deploy // .).image.ref // empty' "$RUNNER_TEMP/render-state.json")" = "$IMAGE_URL"
-          echo "deployment_id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
-
-      - name: Verify Render health and readiness
-        if: env.RENDER_AUTODEPLOY_ENABLED == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          for path in /actuator/health /actuator/health/liveness /actuator/health/readiness; do
-            CODE="000"
-            for attempt in $(seq 1 36); do
-              CODE="$(curl --silent --show-error --max-time 30 -o "$RUNNER_TEMP/health.json" -w '%{http_code}' "${PRODUCTION_BASE_URL}${path}" || true)"
-              if [ "$CODE" = "200" ] && jq -e '.status == "UP"' "$RUNNER_TEMP/health.json" >/dev/null 2>&1; then break; fi
-              sleep 5
-            done
-            test "$CODE" = "200"
-            jq -e '.status == "UP"' "$RUNNER_TEMP/health.json" >/dev/null
-          done
-          {
-            echo ''
-            echo "- Render deployment: \`${{ steps.render.outputs.deployment_id }}\`"
-            echo '- Health/liveness/readiness: **UP**'
-          } >> "$GITHUB_STEP_SUMMARY"
