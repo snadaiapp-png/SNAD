@@ -1,8 +1,11 @@
 # CRM-008 — Migration Plan
 
-> 8 forward-only Flyway migrations **PLANNED for CRM-008B**. No `.sql` files are committed in the CRM-008A merge — they were removed before PR #591 was merged and will be re-added in CRM-008B after local PostgreSQL 16 validation via Testcontainers.
+> 9 forward-only Flyway migrations **PLANNED for CRM-008B** (V20260720_1 through V20260720_9). No `.sql` files are committed in the CRM-008A merge — they were removed before PR #591 was merged and will be re-added in CRM-008B after local PostgreSQL 16 validation via Testcontainers.
 >
-> Pattern: matches the CRM-G1 idempotent style (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, tenant-leading indexes, composite FKs).
+> Pattern:
+> Fail-closed PostgreSQL migrations with explicit preconditions,
+> transactional DDL, and verified postconditions.
+> (The previous CRM-G1 `IF NOT EXISTS` idempotent pattern is deprecated for CRM-008B — see §Fail-Closed Strategy.)
 
 ---
 
@@ -28,14 +31,41 @@
 | 8 | `V20260720_8` | `seed_crm_ownership_capabilities.sql` | 17 capabilities + 2 roles + role_capabilities | (inserts into existing tables) | 0 |
 | 9 | `V20260720_9` | `create_crm_assignment_rule_counters.sql` | Round-robin counter table (per `tenant_id + assignment_rule_id`) | `crm_assignment_rule_counters` | 2 |
 
-**Total new tables:** 12
-**Total new indexes:** 40 (all tenant-leading; one partial unique index for single-active-assignment)
+**Total new tables:** 14
+  - V20260720_1: 2 (`crm_sales_teams`, `crm_team_memberships`)
+  - V20260720_2: 2 (`crm_queues`, `crm_queue_memberships`)
+  - V20260720_3: 3 (`crm_territories`, `crm_territory_closure`, `crm_territory_assignments`)
+  - V20260720_4: 2 (`crm_assignment_rules`, `crm_assignment_rule_versions`)
+  - V20260720_5: 2 (`crm_assignments`, `crm_ownership_history`)
+  - V20260720_6: 2 (`crm_transfer_requests`, `crm_transfer_steps`)
+  - V20260720_7: 0 (alters existing CRM tables — adds columns only)
+  - V20260720_8: 0 (inserts into existing tables — no new tables)
+  - V20260720_9: 1 (`crm_assignment_rule_counters`)
+  - **Total: 2+2+3+2+2+2+0+0+1 = 14**
+
+**Total new indexes:** 40 (all tenant-leading; one partial unique index `uk_assignments_active_per_record WHERE status='ACTIVE'` for single-active-assignment)
 **Total new capabilities seeded:** 17
 **Total new roles seeded:** 2
 
-> **Note on versioning:** Migration versions use sequential integers (`_1`, `_2`, …, `_9`). Fractional versions like `V20260720_4.1` are **forbidden** — Flyway treats them inconsistently across versions and they complicate history validation. The round-robin counter migration is `V20260720_9`, not `V20260720_4.1`.
+> **Note on versioning:** Migration versions use sequential integers (`_1`, `_2`, …, `_9`). Fractional versions like `V20260720_4.1` are **prohibited by SANAD migration governance** — see §Versioning Policy below. The round-robin counter migration is `V20260720_9`, not `V20260720_4.1`.
 >
 > Before CRM-008B, the implementer MUST verify that no migration version `V20260720_1` through `V20260720_9` is already in use on `main`.
+
+---
+
+## Versioning Policy (P1-01 correction per Owner Review R2)
+
+```text
+SANAD migration governance requires sequential integer versions
+for deterministic ordering, audit clarity, and simplified
+flyway_schema_history reconciliation.
+
+Fractional migration versions are prohibited by project policy.
+```
+
+**Rationale:** Sequential integer versions provide deterministic ordering, audit clarity, and simplified `flyway_schema_history` reconciliation. Fractional versions are prohibited by project policy regardless of any Flyway engine behavior.
+
+**Enforcement:** Any migration file with a fractional version (e.g. `V20260720_4.1`) MUST be rejected at code review. The migration version MUST be the next available sequential integer after the latest applied migration on `main`.
 
 ---
 
@@ -56,9 +86,31 @@
 
 ## Acceptance criteria for migrations (matches PHASE 3 of EXEC-PROMPT)
 
-- ✅ Eight CRM-G1 tables exist (V20260720_5 creates the assignment + history tables — these are the G1-equivalent tables for ownership).
-- ✅ `tenant_id` exists on all 12 new tables (including `crm_assignment_rule_counters`).
-- ✅ Eight tenant foreign keys exist (composite FKs on each child table).
+- ✅ Eight CRM-G1 tables exist on `main` from prior migrations (verified by the `Verify 8 tables, 26 indexes, and tenant isolation` CI check). CRM-008B V20260720_5 adds the ownership-specific tables (`crm_assignments`, `crm_ownership_history`) on top of the existing CRM-G1 baseline — these are NOT a replacement for the G1 tables.
+- ✅ `tenant_id` exists on all 14 new tables.
+- ✅ Tenant foreign keys (composite FKs `(tenant_id, parent_id)`) — explicit inventory:
+  1. `fk_team_memberships_tenants` — `crm_team_memberships.tenant_id` → `tenants(id)`
+  2. `fk_team_memberships_sales_teams` — `crm_team_memberships.(tenant_id, team_id)` → `crm_sales_teams.(tenant_id, id)`
+  3. `fk_queue_memberships_tenants` — `crm_queue_memberships.tenant_id` → `tenants(id)`
+  4. `fk_queue_memberships_queues` — `crm_queue_memberships.(tenant_id, queue_id)` → `crm_queues.(tenant_id, id)`
+  5. `fk_territories_tenants` — `crm_territories.tenant_id` → `tenants(id)`
+  6. `fk_territories_parent` — `crm_territories.(tenant_id, parent_id)` → `crm_territories.(tenant_id, id)`
+  7. `fk_territory_closure_ancestor` — `crm_territory_closure.(tenant_id, ancestor_id)` → `crm_territories.(tenant_id, id)`
+  8. `fk_territory_closure_descendant` — `crm_territory_closure.(tenant_id, descendant_id)` → `crm_territories.(tenant_id, id)`
+  9. `fk_territory_assignments_tenants` — `crm_territory_assignments.tenant_id` → `tenants(id)`
+  10. `fk_territory_assignments_territories` — `crm_territory_assignments.(tenant_id, territory_id)` → `crm_territories.(tenant_id, id)`
+  11. `fk_assignment_rules_tenants` — `crm_assignment_rules.tenant_id` → `tenants(id)`
+  12. `fk_rule_versions_tenants` — `crm_assignment_rule_versions.tenant_id` → `tenants(id)`
+  13. `fk_rule_versions_rules` — `crm_assignment_rule_versions.(tenant_id, rule_id)` → `crm_assignment_rules.(tenant_id, id)`
+  14. `fk_assignments_tenants` — `crm_assignments.tenant_id` → `tenants(id)`
+  15. `fk_assignments_rules` — `crm_assignments.(tenant_id, assigned_by_rule_id)` → `crm_assignment_rules.(tenant_id, id)`
+  16. `fk_ownership_history_tenants` — `crm_ownership_history.tenant_id` → `tenants(id)`
+  17. `fk_transfer_requests_tenants` — `crm_transfer_requests.tenant_id` → `tenants(id)`
+  18. `fk_transfer_steps_tenants` — `crm_transfer_steps.tenant_id` → `tenants(id)`
+  19. `fk_transfer_steps_requests` — `crm_transfer_steps.(tenant_id, transfer_request_id)` → `crm_transfer_requests.(tenant_id, id)`
+  20. `fk_assignment_rule_counters_tenants` — `crm_assignment_rule_counters.tenant_id` → `tenants(id)` (V20260720_9)
+  21. `fk_assignment_rule_counters_rules` — `crm_assignment_rule_counters.(tenant_id, rule_id)` → `crm_assignment_rules.(tenant_id, id)` (V20260720_9)
+  - **Total: 21 composite/tenant FK constraints** (covering both `tenant_id → tenants(id)` single-column FKs and `(tenant_id, parent_id)` composite FKs)
 - ✅ Exactly 40 explicit indexes (above the G1 baseline of 26), including the partial unique index `uk_assignments_active_per_record WHERE status='ACTIVE'`.
 - ✅ `tenant_id` is the leading field in every index.
 - ✅ Composite relations prevent cross-tenant references (FK + app-layer validation).
@@ -66,7 +118,7 @@
 - ✅ No failed Flyway history entries (forward-only, no repair needed).
 - ✅ Flyway remains enabled, `JPA_DDL_AUTO=validate`.
 - ✅ Each migration includes Preconditions → DDL → Postconditions (see §Fail-Closed Strategy).
-- ✅ AC-DB-01, AC-DB-02, AC-DB-03, AC-CONC-01, AC-TEST-01 from `tests/01-acceptance-plan.md` are satisfied.
+- ✅ AC-DB-01, AC-DB-02, AC-DB-03, AC-CONC-01, AC-RR-01, AC-TEST-01 from `tests/01-acceptance-plan.md` are satisfied.
 
 ---
 
@@ -88,14 +140,62 @@ Preconditions
 
 ### Preconditions (before any DDL)
 
-Before executing any DDL, the migration MUST verify:
+Preconditions are **split by migration type** because Create, Alter, and Seed migrations have fundamentally different state requirements. A single generic "if the table exists and is exact, continue to CREATE TABLE" rule is contradictory (the unconditional `CREATE TABLE` would still fail) and is **forbidden**.
 
-- The new tables do NOT already exist (or, if they do, they are in the EXACT expected state — same columns, same types, same constraints)
-- There is no partial state — e.g. some tables exist but others do not
+#### Create Migration (V20260720_1, _2, _3, _4, _5, _6, _9)
+
+```text
+All target objects MUST be absent.
+If any target object already exists, abort with MIGRATION_ABORTED / SCHEMA_PARTIAL_OR_UNEXPECTED.
+A separate reconciliation migration is required to repair the state.
+```
+
+Precondition checks:
+- None of the target tables exist in `information_schema.tables`
+- None of the target indexes exist in `pg_indexes`
+- None of the target constraints exist in `information_schema.table_constraints`
+- There is no partial state — e.g. some target tables exist but others do not
+- There are no columns or constraints with matching names but different definitions on any pre-existing object
+- The Flyway history is consistent (no failed migration rows, no out-of-order versions)
+- Required tenant constraints from prior migrations are present (e.g. `tenants(id)` must exist)
+
+#### Alter Migration (V20260720_7)
+
+```text
+The exact predecessor schema MUST exist.
+Any missing or different predecessor object aborts the migration.
+```
+
+Precondition checks:
+- The target table (e.g. `crm_accounts`) exists with the EXACT expected predecessor schema (existing columns, types, constraints)
+- The columns being added (`owner_team_id`, `owner_queue_id`) do NOT already exist on the target table
+- The indexes being created do NOT already exist
+- If the columns already exist with a different type, abort — do NOT silently alter them
+- The Flyway history is consistent
+
+#### Seed Migration (V20260720_8)
+
+```text
+The required capability/role baseline MUST exist.
+Duplicate or conflicting semantic records fail closed.
+Approved idempotent UPSERT behavior must be explicitly documented.
+```
+
+Precondition checks:
+- The `access_capabilities` table exists with the expected schema (from V7 + V15 + V20260717_5 + V20260717_101)
+- The `platform_audit_logs` table exists (from V17)
+- None of the 17 new capability codes (`CRM.ASSIGNMENT.READ`, etc.) already exist with a different definition
+- If a capability code already exists with the same definition, the seed MUST skip it (idempotent UPSERT, explicitly documented in the migration)
+- If a capability code already exists with a DIFFERENT definition, abort — do NOT silently overwrite
+
+#### Common precondition rules (all migration types)
+
+- There is no partial state across multiple objects in the same migration
 - There are no columns or constraints with matching names but different definitions
-- There are no partial or non-matching indexes
 - The Flyway history is consistent (no failed migration rows, no out-of-order versions)
 - Required tenant constraints from prior migrations are present
+
+#### Failure handling
 
 If any precondition fails, the migration MUST abort with:
 
@@ -149,7 +249,7 @@ This index is the **database-level enforcement** of the single-active-assignment
 
 ## Migration file format (fail-closed template)
 
-Each migration file follows this fail-closed template (replaces the previous `IF NOT EXISTS` template):
+Each migration file follows this fail-closed template (replaces the previous `IF NOT EXISTS` template). The template below is for a **Create Migration** — Alter and Seed migrations have different precondition rules (see §Preconditions above).
 
 ```sql
 -- ============================================================================
@@ -158,31 +258,31 @@ Each migration file follows this fail-closed template (replaces the previous `IF
 -- Fail-closed. Forward-only. Tenant-scoped. Composite FKs.
 -- Tenant-leading indexes. UUID PKs.
 -- Preconditions → DDL → Postconditions → fail closed on partial state.
+-- Migration type: CREATE (target objects MUST be absent)
 -- ============================================================================
 
 BEGIN;
 
 -- -----------------------------------------------------------------------
--- Preconditions: verify schema is in the EXACT expected state.
--- Abort if partial or unexpected state is detected.
+-- Preconditions (CREATE migration): verify all target objects are ABSENT.
+-- If any target object already exists, abort with SCHEMA_PARTIAL_OR_UNEXPECTED.
+-- A separate reconciliation migration is required to repair the state.
 -- -----------------------------------------------------------------------
 DO $$
 BEGIN
-    -- Example: verify the target table does NOT already exist
     IF EXISTS (
         SELECT 1 FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = 'crm_<table_name>'
     ) THEN
-        -- If the table exists, verify it is in the EXACT expected state.
-        -- If not, abort with a clear error.
-        -- (Implemented as a separate DO block or SELECT-into-variables check.)
-        RAISE NOTICE 'Table crm_<table_name> already exists; verifying state...';
-        -- ... verification logic ...;
+        RAISE EXCEPTION 'MIGRATION_ABORTED / SCHEMA_PARTIAL_OR_UNEXPECTED: table crm_<table_name> already exists. Use a reconciliation migration to repair state.';
     END IF;
+    -- Repeat for each target table, index, and constraint in this migration.
+    -- Verify no partial state: if any sibling target exists, abort.
 END $$;
 
 -- -----------------------------------------------------------------------
 -- DDL: the actual schema change (transactional).
+-- No IF NOT EXISTS — preconditions already guaranteed absence.
 -- -----------------------------------------------------------------------
 CREATE TABLE crm_<table_name> (
     id              UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -213,6 +313,7 @@ BEGIN
         RAISE EXCEPTION 'Postcondition failed: crm_<table_name> not created';
     END IF;
     -- ... additional postcondition checks for columns, constraints, indexes ...
+    -- Verify expected columns, types, nullability, PK, UK, FK, CHECK, indexes.
 END $$;
 
 COMMIT;
@@ -220,7 +321,10 @@ COMMIT;
 
 ### Notes on the template
 
-- `IF NOT EXISTS` is **removed** from `CREATE TABLE` and `CREATE INDEX` — the preconditions block handles existence checks explicitly
+- `IF NOT EXISTS` is **removed** from `CREATE TABLE` and `CREATE INDEX` — the preconditions block handles absence checks explicitly and aborts if the object already exists
+- For **Create Migrations**: target objects MUST be absent. If any exists, abort.
+- For **Alter Migrations**: the exact predecessor schema MUST exist. Verify predecessor columns/types/constraints before altering.
+- For **Seed Migrations**: the required baseline tables MUST exist. Use explicitly documented idempotent UPSERT for same-definition records; abort on different-definition conflicts.
 - Preconditions and postconditions use `DO $$ ... END $$` blocks with `RAISE EXCEPTION` to abort the transaction
 - The entire migration runs in a single `BEGIN; ... COMMIT;` transaction — any `RAISE EXCEPTION` triggers an automatic rollback
 - The template is a starting point; each migration will have its own specific pre/postcondition checks documented in the migration file
@@ -229,7 +333,7 @@ COMMIT;
 
 ## Execution constraints (CRITICAL)
 
-1. **No `.sql` files are committed in the CRM-008A merge.** The 8 migration files were temporarily committed during the design phase, then removed in commit `b683ec2d` before PR #591 was merged. They will be re-added in CRM-008B after local PostgreSQL 16 validation via Testcontainers.
+1. **No `.sql` files are committed in the CRM-008A merge.** The migration files (V20260720_1 through V20260720_9) were temporarily committed during the design phase, then removed in commit `b683ec2d` before PR #591 was merged. They will be re-added in CRM-008B after local PostgreSQL 16 validation via Testcontainers.
 2. **Execution happens in CRM-008B** (Foundation phase) — after:
    - CRM-007 closure gate satisfied
    - Issue #563 closed
@@ -247,8 +351,9 @@ COMMIT;
                          'crm_territories','crm_territory_closure','crm_territory_assignments',
                          'crm_assignment_rules','crm_assignment_rule_versions',
                          'crm_assignments','crm_ownership_history',
-                         'crm_transfer_requests','crm_transfer_steps');
-   -- Expected: 13 (11 new tables + 2 closure/versions tables)
+                         'crm_transfer_requests','crm_transfer_steps',
+                         'crm_assignment_rule_counters');
+   -- Expected: 14 (the 14 new tables listed in the Migration Sequence above)
    ```
 
 ---

@@ -149,12 +149,14 @@ The existing `ADMIN` role auto-receives all 17 capabilities (via the `ensureAdmi
 
 ## 6. Acceptance Plan (see `tests/01-acceptance-plan.md`)
 
-15 acceptance criteria (AC-01 → AC-15), each with:
+20 acceptance criteria (AC-01 → AC-15 + AC-DB-01, AC-DB-02, AC-DB-03, AC-CONC-01, AC-RR-01, AC-TEST-01), each with:
 - Test name
-- Test type (unit / integration / Testcontainers / Playwright / production smoke)
+- Test type (unit / integration / Testcontainers / Playwright / production smoke / documentation review)
 - Test class path (proposed)
 - Pass criterion
 - Evidence artifact
+
+See `STAGE-REPORT-CRM-008A.md` §5 for the three-gate classification (Implementation Merge, Formal Stage Closure, Commercial Go-Live).
 
 ---
 
@@ -186,11 +188,11 @@ All planned migrations:
 **IMPORTANT — Status of SQL files:**
 
 ```text
-Eight migrations are planned for CRM-008B.
+Nine migrations are planned for CRM-008B (V20260720_1 through V20260720_9).
 No executable CRM-008 migration file is present in the CRM-008A merge.
 ```
 
-The eight `.sql` files were temporarily committed during the design phase for review,
+The migrations were temporarily committed during the design phase for review,
 then **removed** in commit `b683ec2d` before PR #591 was merged. They will be re-added
 in CRM-008B after local PostgreSQL 16 validation via Testcontainers. See
 `migrations/01-migration-plan.md` for the full plan.
@@ -220,7 +222,7 @@ CRM-008B implementation remains BLOCKED regardless.
 ## 9. What This Discovery Does NOT Include
 
 - No Java implementation files (only 4 marker interfaces as `domain/*.java` — no JDBC adapters, no controllers, no use cases, no method bodies)
-- No SQL files committed to `main` (8 migrations are PLANNED in `migrations/01-migration-plan.md` but the `.sql` files were removed before merge — they will be re-added in CRM-008B)
+- No SQL files committed to `main` (9 migrations are PLANNED in `migrations/01-migration-plan.md` but the `.sql` files were removed before merge — they will be re-added in CRM-008B)
 - No SQL execution against any database
 - No CRM-008-specific implementation or acceptance tests were executed (see STAGE-REPORT-CRM-008A.md §2.5 for the precise distinction between existing repository tests and CRM-008 tests)
 - No frontend changes (frontend design is a separate sub-phase CRM-008E)

@@ -87,8 +87,8 @@ Transform CRM from a record-keeping system into a system that institutionally ma
 | Domain Model (10 aggregates) | `docs/crm/crm-008/domain/01-domain-model.md` | ✅ Written |
 | OpenAPI Contract Draft (38 endpoints) | `docs/crm/crm-008/contracts/01-openapi-draft.md` | ✅ Written |
 | RBAC Matrix (17 capabilities + 2 roles) | `docs/crm/crm-008/rbac/01-rbac-matrix.md` | ✅ Written |
-| Migration Plan (8 migrations planned — NO .sql files committed) | `docs/crm/crm-008/migrations/01-migration-plan.md` | ✅ Written |
-| Acceptance Plan (AC-01 → AC-15) | `docs/crm/crm-008/tests/01-acceptance-plan.md` | ✅ Written |
+| Migration Plan (9 migrations planned — NO .sql files committed) | `docs/crm/crm-008/migrations/01-migration-plan.md` | ✅ Written |
+| Acceptance Plan (AC-01 → AC-15 + AC-DB-01/02/03, AC-CONC-01, AC-RR-01, AC-TEST-01 — 20 total) | `docs/crm/crm-008/tests/01-acceptance-plan.md` | ✅ Written |
 | Stage Report (this document) | `docs/crm/crm-008/STAGE-REPORT-CRM-008A.md` | ✅ Written |
 
 ### 2.2 Pure-domain port interfaces (4 Java marker interfaces — no implementations)
@@ -105,11 +105,11 @@ Transform CRM from a record-keeping system into a system that institutionally ma
 ### 2.3 Flyway migration files
 
 ```text
-Eight migrations are planned for CRM-008B.
+Nine migrations are planned for CRM-008B (V20260720_1 through V20260720_9).
 No executable CRM-008 migration file is present in the CRM-008A merge.
 ```
 
-The eight migration files (`V20260720_1` through `V20260720_8`) were **temporarily committed** during the design phase for review, then **removed** in commit `b683ec2d` before the PR was merged. The removal was necessary because the `CRM G1 Schema Isolation` CI workflow applies all Flyway migrations on every PR, and the new migrations require local PostgreSQL 16 validation (via Testcontainers) before they can pass the strict CI gate.
+The migration files (`V20260720_1` through `V20260720_9`) were **temporarily committed** during the design phase for review, then **removed** in commit `b683ec2d` before the PR was merged. The removal was necessary because the `CRM G1 Schema Isolation` CI workflow applies all Flyway migrations on every PR, and the new migrations require local PostgreSQL 16 validation (via Testcontainers) before they can pass the strict CI gate.
 
 The full migration plan (table designs, indexes, invariants, execution constraints) is documented in `docs/crm/crm-008/migrations/01-migration-plan.md` and remains the authoritative design reference for CRM-008B implementation.
 
@@ -306,7 +306,21 @@ The "exactly one ACTIVE assignment per (tenant, record_type, record_id) at any i
 
 The partial unique index was temporarily removed in commit `36d317e4` during CRM-008A because the `CRM G1 Schema Isolation` CI workflow failed with `column "record_type" does not exist` when the index was created inside the same transaction as `CREATE TABLE`.
 
-**This failure is classified as `MIGRATION_DESIGN_OR_SCHEMA_STATE_DEFECT` — NOT as a PostgreSQL or Flyway limitation.** PostgreSQL 16 fully supports partial unique indexes; the failure was caused by the migration design (likely schema-state interaction with the CI workflow's Testcontainers setup), not by PostgreSQL or Flyway.
+**This failure is classified as `MIGRATION_DESIGN_OR_SCHEMA_STATE_DEFECT` — until proven otherwise.**
+
+```text
+OBSERVED_FAILURE:
+column "record_type" does not exist
+
+ROOT_CAUSE:
+UNDETERMINED — MUST BE REPRODUCED IN CRM-008B
+
+CLASSIFICATION:
+MIGRATION_DESIGN_OR_SCHEMA_STATE_DEFECT
+UNTIL ROOT CAUSE IS PROVEN
+```
+
+PostgreSQL 16 fully supports partial unique indexes. The previous failure was observed when the partial unique index was created inside the same transaction as `CREATE TABLE` in the CRM G1 Schema Isolation CI workflow. The exact root cause was NOT determined during CRM-008A — no speculative cause is recorded as architectural fact. CRM-008B MUST reproduce the failure in isolation, identify the exact root cause, and only then re-introduce the partial unique index with the appropriate fix.
 
 The CRM-008B migration plan restores the partial unique index with proper fail-closed schema-state validation (see §4.8 and `migrations/01-migration-plan.md` §Fail-Closed Strategy). The previous failure MUST be reproduced and root-caused during CRM-008B before the index is re-introduced; if the root cause cannot be eliminated, an equivalent PostgreSQL mechanism (e.g. exclusion constraint with a `CHECK` expression) MAY be used as long as it provides the same database-level guarantee.
 
@@ -377,16 +391,80 @@ The `IF NOT EXISTS` pattern documented in `00-discovery-report.md` §7 and `migr
 
 ## 5. Acceptance Criteria Status
 
-All 15 acceptance criteria (AC-01 → AC-15) have:
+All 20 acceptance criteria (AC-01 → AC-15 + AC-DB-01, AC-DB-02, AC-DB-03, AC-CONC-01, AC-RR-01, AC-TEST-01) have:
 - A test class path proposed
 - A pass criterion defined
 - An evidence artifact specified
 
 **None have been executed yet** — that happens in CRM-008F (Verification and Closure) after implementation.
 
-P0 criteria (block implementation merge): AC-01, AC-02, AC-03, AC-04, AC-05, AC-06, AC-07, AC-08, AC-09, AC-10, AC-11
-P1 criteria (block commercial go-live, not implementation merge): AC-12, AC-13, AC-14
-P0 post-merge: AC-15
+### Three-gate classification (per P0-07 correction)
+
+Acceptance criteria are classified against **three distinct gates**, not a single merge/no-merge flag:
+
+```text
+Implementation Merge Gate:
+  Blocks CRM-008B implementation merge to main.
+  All P0-IMPL criteria MUST pass before merge.
+
+Formal Stage Closure Gate:
+  Blocks CRM-008A formal closure (and thus CRM-008B authorization).
+  All P0-CLOSURE criteria MUST pass before closure.
+
+Commercial Go-Live Gate:
+  Blocks commercial go-live claim.
+  All P0-GOLIVE criteria MUST pass before go-live.
+```
+
+### Criterion-to-gate mapping
+
+| AC | Implementation Merge | Formal Stage Closure | Commercial Go-Live | Notes |
+|---|---|---|---|---|
+| AC-01 → AC-11 | YES (P0) | YES (P0) | YES (P0) | Core invariants — must pass before any merge |
+| AC-12 (Localization) | NO (P1) | YES (P0) | YES (P0) | RTL/LTR + ar/en |
+| AC-13 (Accessibility) | NO (P1) | YES (P0) | YES (P0) | axe-core + keyboard |
+| AC-14 (Performance) | NO (P1) | YES (P0) | YES (P0) | Tenant-leading indexes + pagination |
+| AC-15 (Production smoke) | **NO** | YES (P0) | YES (P0) | **Post-merge only** — see note below |
+| AC-DB-01 (DB-enforced single active) | YES (P0) | YES (P0) | YES (P0) | Raw JDBC concurrency test |
+| AC-DB-02 (Migration fail-closed) | YES (P0) | YES (P0) | YES (P0) | Partial state abort |
+| AC-DB-03 (Migration postconditions) | YES (P0) | YES (P0) | YES (P0) | Verified postconditions |
+| AC-CONC-01 (Concurrent assignment) | YES (P0) | YES (P0) | YES (P0) | One success + one conflict |
+| AC-RR-01 (Round-robin counter) | YES (P0) | YES (P0) | YES (P0) | N concurrent → N atomic increments |
+| AC-TEST-01 (Test distinction) | YES (P0) | YES (P0) | YES (P0) | Documentation review |
+
+### AC-15 reclassification (P0-07 correction)
+
+AC-15 (Production smoke) was previously classified as `YES (P0, post-merge only — owner sign-off required)` which is contradictory: a criterion that runs only post-merge cannot block the same merge it follows.
+
+**Corrected classification:**
+
+```text
+AC-15:
+DOES_NOT_BLOCK_IMPLEMENTATION_MERGE
+BLOCKS_CRM-008_FORMAL_CLOSURE
+BLOCKS_COMMERCIAL_GO_LIVE
+REQUIRES_POST_MERGE_PRODUCTION_EVIDENCE
+```
+
+AC-15 runs **after** the implementation merge (it requires the merged code to be deployed to production). It blocks **formal stage closure** and **commercial go-live**, but not the implementation merge itself. The implementation merge is gated by AC-01 → AC-11 + AC-DB-01/02/03 + AC-CONC-01 + AC-RR-01 + AC-TEST-01.
+
+### Summary by gate
+
+```text
+Implementation Merge Gate (P0-IMPL):
+  AC-01, AC-02, AC-03, AC-04, AC-05, AC-06, AC-07, AC-08, AC-09, AC-10, AC-11,
+  AC-DB-01, AC-DB-02, AC-DB-03, AC-CONC-01, AC-RR-01, AC-TEST-01
+  Total: 17 criteria
+
+Formal Stage Closure Gate (P0-CLOSURE):
+  All P0-IMPL criteria PLUS
+  AC-12, AC-13, AC-14, AC-15
+  Total: 21 criteria (17 + 4)
+
+Commercial Go-Live Gate (P0-GOLIVE):
+  Same as P0-CLOSURE (all 21 criteria must pass)
+  Plus owner sign-off and REM-P0-006 independent security assurance
+```
 
 ---
 
@@ -560,7 +638,7 @@ OR PRODUCTION CHANGE IS AUTHORIZED.
 | Principal Engineer (designer) | ✅ Self-approved for design quality |
 | Project Owner (5 architecture decisions) | ✅ Answered 2026-07-20 (see §3) |
 | Product Owner | ⏳ Pending — review of stage report and acceptance plan |
-| QA Owner | ⏳ Pending — review of acceptance plan (AC-01 → AC-15) |
+| QA Owner | ⏳ Pending — review of acceptance plan (AC-01 → AC-15 + AC-DB-01/02/03, AC-CONC-01, AC-RR-01, AC-TEST-01 — 20 total) |
 | Security Owner | ⏳ Pending — review of RBAC matrix, tenant isolation tests, and pre-existing `Current Tree Secret Scan` failure (§7.2) |
 | Implementation merge authorization | ❌ BLOCKED — pending CRM-007 closure gate |
 
