@@ -278,7 +278,7 @@ jobs:
             -Dflyway.url="$PROD_JDBC_URL" \
             -Dflyway.user="$PROD_DB_USER" \
             -Dflyway.password="$PROD_DB_PASSWORD" \
-            -Dflyway.locations=classpath:db/migration \
+            -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
             -Dflyway.outOfOrder=true
 
           if [ "$G1_TABLE_COUNT" = "0" ]; then
@@ -363,7 +363,7 @@ jobs:
             -Dflyway.url="$PROD_JDBC_URL" \
             -Dflyway.user="$PROD_DB_USER" \
             -Dflyway.password="$PROD_DB_PASSWORD" \
-            -Dflyway.locations=classpath:db/migration \
+            -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
             -Dflyway.outOfOrder=true
 
           PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -P pager=off \

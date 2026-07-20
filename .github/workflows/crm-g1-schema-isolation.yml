@@ -88,7 +88,7 @@ jobs:
           -Dflyway.url="$DATABASE_URL"
           -Dflyway.user="$DATABASE_USERNAME"
           -Dflyway.password="$DATABASE_PASSWORD"
-          -Dflyway.locations=classpath:db/migration
+          -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql
           -Dflyway.baselineOnMigrate=true
           -Dflyway.validateOnMigrate=true
           -Dflyway.outOfOrder=true
