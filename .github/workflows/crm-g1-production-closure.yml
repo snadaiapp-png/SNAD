@@ -236,7 +236,7 @@ jobs:
                     count(*) FILTER (WHERE version IN ('20260716.1','20260716.2') AND success=true) || '|' ||
                     count(*) FILTER (WHERE success=false)
                FROM flyway_schema_history
-              WHERE version IN ('20260716.1','20260716.2','${BASELINE_FLYWAY_VERSION}','${RECONCILIATION_FLYWAY_VERSION}'))"
+              WHERE version IN ('20260716.1','20260716.2','${BASELINE_FLYWAY_VERSION}','${RECONCILIATION_FLYWAY_VERSION}')")"
           test "$FLYWAY_HISTORY_STATE" = "1|0|0" || {
             echo "::error::PRE_COUNT failed: unexpected CRM-G1 Flyway history shape before reconciliation."
             echo "::error::Expected baseline=1 earlier=0 failed=0, got: $FLYWAY_HISTORY_STATE"
