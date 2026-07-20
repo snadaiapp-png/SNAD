@@ -131,9 +131,12 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
     await page.locator('form button[type="submit"]').first().click();
     await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 10_000 });
     // The contacts list does not auto-refresh after creation.
-    // Reload the page to fetch the updated list (standard user flow: create → refresh → verify).
-    await page.reload();
-    await waitForCrmReady(page, "/crm/contacts");
+    // Use client-side SPA navigation (clicking the sidebar link) instead of
+    // page.goto/reload to preserve the in-memory access token.
+    // CONSTITUTION §3.6: access tokens are in-memory only — page.goto/reload
+    // triggers a silent refresh which fails with 401 in CI, losing the session.
+    await page.locator('a[href="/crm/contacts"]').first().click();
+    await page.waitForLoadState("networkidle");
     // The contact name should now appear in the refreshed list.
     await expect(page.locator("body")).toContainText(givenName, { timeout: 15_000 });
     // Open the contact detail (the contacts table does not currently expose

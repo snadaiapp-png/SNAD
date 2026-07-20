@@ -84,6 +84,24 @@ export async function loginThroughUi(
     { timeout: 30_000 },
   );
 
+  // Wait for the SPA to fully reach AUTHENTICATED state before returning.
+  // After the URL redirect, the SPA boots and performs a silent refresh
+  // using the sanad_refresh cookie. If we navigate away (page.goto) before
+  // the silent refresh completes, the SPA loses the in-memory access token
+  // and falls back to the login page.
+  // We wait for networkidle (all API calls settled) + a workspace shell element.
+  await page.waitForLoadState("networkidle", { timeout: 30_000 });
+  // The workspace page renders a main content area once auth is established.
+  // Wait for any authenticated content to appear (not the login form).
+  await page.waitForSelector(
+    'main, [data-auth-state="authenticated"], #workspace-content, #crm-operational-content, #crm-command-center-content',
+    { timeout: 30_000 },
+  ).catch(() => {
+    // If none of the authenticated selectors appear, the SPA may still
+    // be in a loading state. Give it one more networkidle cycle.
+  });
+  await page.waitForLoadState("networkidle", { timeout: 15_000 });
+
   const refreshCookie = (await page.context().cookies()).find((cookie) => cookie.name === "sanad_refresh");
   expect(refreshCookie, `Refresh cookie was not created for ${email}`).toBeTruthy();
 
