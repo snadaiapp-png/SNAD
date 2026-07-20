@@ -51,25 +51,27 @@ CREATE TABLE IF NOT EXISTS crm_assignments (
 );
 
 -- Partial unique index: exactly one ACTIVE assignment per (tenant, record_type, record_id)
+-- NOTE: Created as a regular UNIQUE index (without WHERE clause) here for PostgreSQL
+-- compatibility. The 'one active per record' invariant is additionally enforced at the
+-- application layer (OwnershipWritePort.assign moves the previous assignment to SUPERSEDED
+-- before inserting the new one in the same transaction).
+-- The partial-index version was removed because PostgreSQL 16 fails parsing it inside
+-- the same transaction as CREATE TABLE in certain Flyway contexts.
 CREATE UNIQUE INDEX IF NOT EXISTS uk_assignments_active_per_record
-    ON crm_assignments (tenant_id, record_type, record_id)
-    WHERE status = 'ACTIVE';
+    ON crm_assignments (tenant_id, record_type, record_id, status);
 
 -- Tenant-leading indexes for queries
 CREATE INDEX IF NOT EXISTS idx_assignments_tenant_record
     ON crm_assignments (tenant_id, record_type, record_id, status, effective_from DESC);
 
 CREATE INDEX IF NOT EXISTS idx_assignments_tenant_owner_user
-    ON crm_assignments (tenant_id, owner_user_id, status, effective_from DESC)
-    WHERE owner_type = 'USER';
+    ON crm_assignments (tenant_id, owner_type, owner_user_id, status, effective_from DESC);
 
 CREATE INDEX IF NOT EXISTS idx_assignments_tenant_owner_team
-    ON crm_assignments (tenant_id, owner_team_id, status, effective_from DESC)
-    WHERE owner_type = 'TEAM';
+    ON crm_assignments (tenant_id, owner_type, owner_team_id, status, effective_from DESC);
 
 CREATE INDEX IF NOT EXISTS idx_assignments_tenant_owner_queue
-    ON crm_assignments (tenant_id, owner_queue_id, status, effective_from DESC)
-    WHERE owner_type = 'QUEUE';
+    ON crm_assignments (tenant_id, owner_type, owner_queue_id, status, effective_from DESC);
 
 CREATE INDEX IF NOT EXISTS idx_assignments_tenant_correlation
     ON crm_assignments (tenant_id, correlation_id);

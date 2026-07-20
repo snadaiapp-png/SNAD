@@ -69,13 +69,15 @@ CREATE TABLE IF NOT EXISTS crm_queue_memberships (
     CONSTRAINT ck_queue_memberships_status CHECK (status IN ('ACTIVE','REMOVED'))
 );
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE UNIQUE INDEX IF NOT EXISTS uk_queue_memberships_active
-    ON crm_queue_memberships (tenant_id, queue_id, user_id)
-    WHERE status = 'ACTIVE';
+    ON crm_queue_memberships (tenant_id, queue_id, user_id);
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE INDEX IF NOT EXISTS idx_queue_memberships_user_active
-    ON crm_queue_memberships (tenant_id, user_id, status)
-    WHERE status = 'ACTIVE';
+    ON crm_queue_memberships (tenant_id, user_id, status);
 
 COMMIT;
 

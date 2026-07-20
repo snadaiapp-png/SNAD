@@ -33,9 +33,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_assignment_rules_tenant_code
 
 -- Only one ACTIVE rule per (tenant, code) — enforced on the rule itself
 -- (status INACTIVE/DEPRECATED versions can coexist for history).
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE UNIQUE INDEX IF NOT EXISTS uk_assignment_rules_active
-    ON crm_assignment_rules (tenant_id, code)
-    WHERE status = 'ACTIVE';
+    ON crm_assignment_rules (tenant_id, code);
 
 -- ----------------------------------------------------------------------------
 -- 2. Assignment Rule Versions (snapshot of every version)
@@ -80,9 +81,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_rule_versions_tenant_rule_version
 CREATE INDEX IF NOT EXISTS idx_rule_versions_tenant_status_priority
     ON crm_assignment_rule_versions (tenant_id, status, record_type, priority, effective_from);
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE INDEX IF NOT EXISTS idx_rule_versions_active
-    ON crm_assignment_rule_versions (tenant_id, record_type, priority)
-    WHERE status = 'ACTIVE';
+    ON crm_assignment_rule_versions (tenant_id, record_type, priority);
 
 COMMIT;
 

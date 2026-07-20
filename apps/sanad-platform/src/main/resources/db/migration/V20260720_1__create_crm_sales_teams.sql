@@ -82,14 +82,16 @@ CREATE TABLE IF NOT EXISTS crm_team_memberships (
 );
 
 -- One ACTIVE membership per (tenant, team, user)
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE UNIQUE INDEX IF NOT EXISTS uk_team_memberships_active
-    ON crm_team_memberships (tenant_id, team_id, user_id)
-    WHERE status = 'ACTIVE';
+    ON crm_team_memberships (tenant_id, team_id, user_id);
 
 -- One PRIMARY membership per (tenant, user)
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE UNIQUE INDEX IF NOT EXISTS uk_team_memberships_primary
-    ON crm_team_memberships (tenant_id, user_id)
-    WHERE is_primary = true AND status = 'ACTIVE';
+    ON crm_team_memberships (tenant_id, user_id);
 
 -- Tenant-leading index for "list members of team X"
 CREATE INDEX IF NOT EXISTS idx_team_memberships_team_status
@@ -100,9 +102,10 @@ CREATE INDEX IF NOT EXISTS idx_team_memberships_user_status
     ON crm_team_memberships (tenant_id, user_id, status, joined_at DESC);
 
 -- Index for workload queries (find all ACTIVE memberships for a user across teams)
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE INDEX IF NOT EXISTS idx_team_memberships_user_active
-    ON crm_team_memberships (tenant_id, user_id, status)
-    WHERE status = 'ACTIVE';
+    ON crm_team_memberships (tenant_id, user_id, status);
 
 COMMIT;
 

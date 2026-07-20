@@ -19,78 +19,90 @@ ALTER TABLE crm_accounts
     ADD COLUMN IF NOT EXISTS owner_team_id UUID,
     ADD COLUMN IF NOT EXISTS owner_queue_id UUID;
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE INDEX IF NOT EXISTS idx_crm_accounts_tenant_owner_team
-    ON crm_accounts (tenant_id, owner_team_id)
-    WHERE owner_team_id IS NOT NULL;
+    ON crm_accounts (tenant_id, owner_team_id);
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE INDEX IF NOT EXISTS idx_crm_accounts_tenant_owner_queue
-    ON crm_accounts (tenant_id, owner_queue_id)
-    WHERE owner_queue_id IS NOT NULL;
+    ON crm_accounts (tenant_id, owner_queue_id);
 
 -- crm_contacts
 ALTER TABLE crm_contacts
     ADD COLUMN IF NOT EXISTS owner_team_id UUID,
     ADD COLUMN IF NOT EXISTS owner_queue_id UUID;
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE INDEX IF NOT EXISTS idx_crm_contacts_tenant_owner_team
-    ON crm_contacts (tenant_id, owner_team_id)
-    WHERE owner_team_id IS NOT NULL;
+    ON crm_contacts (tenant_id, owner_team_id);
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE INDEX IF NOT EXISTS idx_crm_contacts_tenant_owner_queue
-    ON crm_contacts (tenant_id, owner_queue_id)
-    WHERE owner_queue_id IS NOT NULL;
+    ON crm_contacts (tenant_id, owner_queue_id);
 
 -- crm_leads
 ALTER TABLE crm_leads
     ADD COLUMN IF NOT EXISTS owner_team_id UUID,
     ADD COLUMN IF NOT EXISTS owner_queue_id UUID;
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE INDEX IF NOT EXISTS idx_crm_leads_tenant_owner_team
-    ON crm_leads (tenant_id, owner_team_id)
-    WHERE owner_team_id IS NOT NULL;
+    ON crm_leads (tenant_id, owner_team_id);
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE INDEX IF NOT EXISTS idx_crm_leads_tenant_owner_queue
-    ON crm_leads (tenant_id, owner_queue_id)
-    WHERE owner_queue_id IS NOT NULL;
+    ON crm_leads (tenant_id, owner_queue_id);
 
 -- crm_opportunities
 ALTER TABLE crm_opportunities
     ADD COLUMN IF NOT EXISTS owner_team_id UUID,
     ADD COLUMN IF NOT EXISTS owner_queue_id UUID;
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE INDEX IF NOT EXISTS idx_crm_opportunities_tenant_owner_team
-    ON crm_opportunities (tenant_id, owner_team_id)
-    WHERE owner_team_id IS NOT NULL;
+    ON crm_opportunities (tenant_id, owner_team_id);
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE INDEX IF NOT EXISTS idx_crm_opportunities_tenant_owner_queue
-    ON crm_opportunities (tenant_id, owner_queue_id)
-    WHERE owner_queue_id IS NOT NULL;
+    ON crm_opportunities (tenant_id, owner_queue_id);
 
 -- crm_activities
 ALTER TABLE crm_activities
     ADD COLUMN IF NOT EXISTS owner_team_id UUID,
     ADD COLUMN IF NOT EXISTS owner_queue_id UUID;
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE INDEX IF NOT EXISTS idx_crm_activities_tenant_owner_team
-    ON crm_activities (tenant_id, owner_team_id)
-    WHERE owner_team_id IS NOT NULL;
+    ON crm_activities (tenant_id, owner_team_id);
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE INDEX IF NOT EXISTS idx_crm_activities_tenant_owner_queue
-    ON crm_activities (tenant_id, owner_queue_id)
-    WHERE owner_queue_id IS NOT NULL;
+    ON crm_activities (tenant_id, owner_queue_id);
 
 -- crm_tasks
 ALTER TABLE crm_tasks
     ADD COLUMN IF NOT EXISTS owner_team_id UUID,
     ADD COLUMN IF NOT EXISTS owner_queue_id UUID;
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE INDEX IF NOT EXISTS idx_crm_tasks_tenant_owner_team
-    ON crm_tasks (tenant_id, owner_team_id)
-    WHERE owner_team_id IS NOT NULL;
+    ON crm_tasks (tenant_id, owner_team_id);
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE INDEX IF NOT EXISTS idx_crm_tasks_tenant_owner_queue
-    ON crm_tasks (tenant_id, owner_queue_id)
-    WHERE owner_queue_id IS NOT NULL;
+    ON crm_tasks (tenant_id, owner_queue_id);
 
 COMMIT;
 

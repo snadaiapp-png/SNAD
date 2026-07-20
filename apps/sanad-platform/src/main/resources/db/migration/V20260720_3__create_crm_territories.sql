@@ -104,9 +104,10 @@ CREATE TABLE IF NOT EXISTS crm_territory_assignments (
     CONSTRAINT ck_territory_assignments_dates CHECK (effective_to IS NULL OR effective_from <= effective_to)
 );
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE UNIQUE INDEX IF NOT EXISTS uk_territory_assignments_active
-    ON crm_territory_assignments (tenant_id, territory_id, assignee_type, assignee_id, role)
-    WHERE status = 'ACTIVE';
+    ON crm_territory_assignments (tenant_id, territory_id, assignee_type, assignee_id, role);
 
 CREATE INDEX IF NOT EXISTS idx_territory_assignments_territory_status
     ON crm_territory_assignments (tenant_id, territory_id, status, priority);

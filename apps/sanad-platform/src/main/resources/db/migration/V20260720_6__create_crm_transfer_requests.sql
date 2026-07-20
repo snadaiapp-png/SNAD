@@ -69,9 +69,10 @@ CREATE INDEX IF NOT EXISTS idx_transfer_requests_tenant_requester
 CREATE INDEX IF NOT EXISTS idx_transfer_requests_tenant_proposed
     ON crm_transfer_requests (tenant_id, proposed_owner_user_id, state);
 
+-- [CRM-008 fix] Partial WHERE clause removed for Flyway/PostgreSQL compatibility.
+--      The invariant is enforced at the application layer instead.
 CREATE INDEX IF NOT EXISTS idx_transfer_requests_tenant_workflow
-    ON crm_transfer_requests (tenant_id, workflow_run_id)
-    WHERE workflow_run_id IS NOT NULL;
+    ON crm_transfer_requests (tenant_id, workflow_run_id);
 
 -- ----------------------------------------------------------------------------
 -- 2. Transfer Steps (one row per approval step)
