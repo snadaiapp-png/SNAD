@@ -70,6 +70,7 @@ jobs:
           }
           echo "deployment_id=vercel-cli" >> "$GITHUB_OUTPUT"
           echo "deployment_url=${DEPLOYMENT_URL#https://}" >> "$GITHUB_OUTPUT"
+
       - name: Verify Render and the Vercel BFF route
         shell: bash
         run: |
@@ -111,3 +112,5 @@ jobs:
             echo '- Render health: **UP**'
             echo '- Vercel BFF routing: **PASS**'
           } >> "$GITHUB_STEP_SUMMARY"
+
+# Production redeploy trigger for CRM-008A closure baseline — 2026-07-20.
