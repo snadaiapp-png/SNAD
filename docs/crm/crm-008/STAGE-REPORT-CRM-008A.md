@@ -88,7 +88,7 @@ Transform CRM from a record-keeping system into a system that institutionally ma
 | OpenAPI Contract Draft (38 endpoints) | `docs/crm/crm-008/contracts/01-openapi-draft.md` | ✅ Written |
 | RBAC Matrix (17 capabilities + 2 roles) | `docs/crm/crm-008/rbac/01-rbac-matrix.md` | ✅ Written |
 | Migration Plan (9 migrations planned — NO .sql files committed) | `docs/crm/crm-008/migrations/01-migration-plan.md` | ✅ Written |
-| Acceptance Plan (AC-01 → AC-15 + AC-DB-01/02/03, AC-CONC-01, AC-RR-01, AC-TEST-01 — 20 total) | `docs/crm/crm-008/tests/01-acceptance-plan.md` | ✅ Written |
+| Acceptance Plan (AC-01 → AC-15 + AC-DB-01/02/03, AC-CONC-01, AC-RR-01, AC-TEST-01 — 21 total) | `docs/crm/crm-008/tests/01-acceptance-plan.md` | ✅ Written |
 | Stage Report (this document) | `docs/crm/crm-008/STAGE-REPORT-CRM-008A.md` | ✅ Written |
 
 ### 2.2 Pure-domain port interfaces (4 Java marker interfaces — no implementations)
@@ -109,7 +109,7 @@ Nine migrations are planned for CRM-008B (V20260720_1 through V20260720_9).
 No executable CRM-008 migration file is present in the CRM-008A merge.
 ```
 
-The migration files (`V20260720_1` through `V20260720_9`) were **temporarily committed** during the design phase for review, then **removed** in commit `b683ec2d` before the PR was merged. The removal was necessary because the `CRM G1 Schema Isolation` CI workflow applies all Flyway migrations on every PR, and the new migrations require local PostgreSQL 16 validation (via Testcontainers) before they can pass the strict CI gate.
+Eight migration files (`V20260720_1` through `V20260720_8`) were **temporarily committed** during CRM-008A and then **removed** in commit `b683ec2d` before PR #591 was merged. `V20260720_9` was introduced later as a planned migration during Owner Review R2 and has **never** been committed as an executable SQL file. The removal was necessary because the `CRM G1 Schema Isolation` CI workflow applies all Flyway migrations on every PR, and the new migrations require local PostgreSQL 16 validation (via Testcontainers) before they can pass the strict CI gate.
 
 The full migration plan (table designs, indexes, invariants, execution constraints) is documented in `docs/crm/crm-008/migrations/01-migration-plan.md` and remains the authoritative design reference for CRM-008B implementation.
 
@@ -220,7 +220,16 @@ Round-robin state is stored **per (tenant, assignment_rule)**. A new table `crm_
 - `UPDATE ... RETURNING` atomic increment, OR
 - an equivalent PostgreSQL atomic mechanism.
 
-A multi-transaction concurrency test MUST prove that parallel rule evaluations do not produce duplicate assignments to the same user. See AC-CONC-01 in `tests/01-acceptance-plan.md`.
+Round-robin concurrency is governed by AC-RR-01 in `tests/01-acceptance-plan.md`.
+
+The test proves:
+- N atomic counter increments
+- no lost updates
+- deterministic sequence positions
+- final counter = initial counter + N
+- distribution follows the eligible-member ring
+
+Repeated assignment to the same user is valid only after ring wrap or eligibility filtering — NOT as a result of counter corruption. AC-RR-01 is distinct from AC-CONC-01 (which tests concurrent assignment of the **same record**, not the round-robin counter).
 
 ### Summary table
 
@@ -365,7 +374,7 @@ The `IF NOT EXISTS` pattern documented in `00-discovery-report.md` §7 and `migr
 
 ## 5. Acceptance Criteria Status
 
-All 20 acceptance criteria (AC-01 → AC-15 + AC-DB-01, AC-DB-02, AC-DB-03, AC-CONC-01, AC-RR-01, AC-TEST-01) have:
+All 21 acceptance criteria (AC-01 → AC-15 + AC-DB-01, AC-DB-02, AC-DB-03, AC-CONC-01, AC-RR-01, AC-TEST-01) have:
 - A test class path proposed
 - A pass criterion defined
 - An evidence artifact specified
@@ -613,7 +622,7 @@ OR PRODUCTION CHANGE IS AUTHORIZED.
 | Principal Engineer (designer) | ✅ Self-approved for design quality |
 | Project Owner (5 architecture decisions) | ✅ Answered 2026-07-20 (see §3) |
 | Product Owner | ⏳ Pending — review of stage report and acceptance plan |
-| QA Owner | ⏳ Pending — review of acceptance plan (AC-01 → AC-15 + AC-DB-01/02/03, AC-CONC-01, AC-RR-01, AC-TEST-01 — 20 total) |
+| QA Owner | ⏳ Pending — review of acceptance plan (AC-01 → AC-15 + AC-DB-01/02/03, AC-CONC-01, AC-RR-01, AC-TEST-01 — 21 total) |
 | Security Owner | ⏳ Pending — review of RBAC matrix, tenant isolation tests, and pre-existing `Current Tree Secret Scan` failure (§7.2) |
 | Implementation merge authorization | ❌ BLOCKED — pending CRM-007 closure gate |
 
@@ -654,3 +663,4 @@ REMAINS INDEPENDENT AND UNAFFECTED.
 | 2026-07-20 (PR #593 commit `789082f3`) | EXEC-PROMPT-CRM-008A-R2 corrections: Single Active Assignment (DB+App+Concurrency), Test Execution distinction, Fail-closed Flyway strategy, V20260720_9 versioning, 5 new ACs (AC-DB-01/02/03, AC-CONC-01, AC-TEST-01) | Principal Engineer |
 | 2026-07-20 (PR #593 commit `ac5da404`) | Owner Review R2 consistency corrections: migration count 8→9, table count 12→14, Tenant FK inventory (21 constraints), IF NOT EXISTS contradiction removed, Preconditions split by migration type, AC count 15→20, duplicate gate summary removed, AC-15 reclassified (three-gate model), Flyway claim removed, root cause marked UNDETERMINED, AC-RR-01 added | Principal Engineer |
 | 2026-07-20 (PR #593 this revision) | Internal consistency audit: removed duplicated Preconditions section in §4.8 (now references migration-plan as authoritative source); corrected discovery-report §11 (8→9 .sql files, AC-01→AC-15 → 20 ACs); updated §10 Mandatory Actions to reflect R2 completion; expanded §14 Change Log | Principal Engineer |
+| 2026-07-20 (PR #593 final consistency) | Owner Review R2 re-review corrections: (1) AC count 20→21 (AC-01→AC-15=15, AC-DB-01/02/03=3, AC-CONC-01=1, AC-RR-01=1, AC-TEST-01=1); (2) Round-robin reference AC-CONC-01→AC-RR-01 in §3 Q5; (3) migration acceptance ✅→⏳ PLANNED/NOT_EXECUTED in migration-plan; (4) removed flyway repair + V20260720_X_rollback.sql from Rollback Plan → forward-only Rollback Policy; (5) historical SQL statement corrected (V20260720_1.._8 were temporarily committed and removed; V20260720_9 was introduced in R2 and never committed as SQL); (6) PR description refreshed to HEAD cc2f2834 | Principal Engineer |

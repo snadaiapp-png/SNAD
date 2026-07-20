@@ -1,6 +1,6 @@
 # CRM-008 — Acceptance Plan
 
-> 20 acceptance criteria (AC-01 → AC-15 + AC-DB-01, AC-DB-02, AC-DB-03, AC-CONC-01, AC-RR-01, AC-TEST-01). Each criterion specifies the test type, test class path (proposed), pass criterion, and evidence artifact.
+> 21 acceptance criteria (AC-01 → AC-15 + AC-DB-01, AC-DB-02, AC-DB-03, AC-CONC-01, AC-RR-01, AC-TEST-01). Each criterion specifies the test type, test class path (proposed), pass criterion, and evidence artifact.
 
 ---
 
@@ -509,7 +509,7 @@ Specifically:
 | **AC-RR-01** | **Concurrency (round-robin counter, N=1/5/20/100)** | **YES (P0)** | **YES (P0)** | **YES (P0)** |
 | **AC-TEST-01** | **Documentation review (manual + automated)** | **YES (P0)** | **YES (P0)** | **YES (P0)** |
 
-**Total acceptance criteria: 20** (AC-01 → AC-15 + AC-DB-01/02/03 + AC-CONC-01 + AC-RR-01 + AC-TEST-01)
+**Total acceptance criteria: 21** (AC-01 → AC-15 + AC-DB-01/02/03 + AC-CONC-01 + AC-RR-01 + AC-TEST-01)
 
 **Implementation Merge Gate:** 17 P0 criteria must pass (AC-01 → AC-11 + AC-DB-01/02/03 + AC-CONC-01 + AC-RR-01 + AC-TEST-01)
 **Formal Stage Closure Gate:** 21 criteria must pass (all 17 above + AC-12 + AC-13 + AC-14 + AC-15)

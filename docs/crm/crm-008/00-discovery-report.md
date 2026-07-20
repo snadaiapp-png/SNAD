@@ -149,7 +149,7 @@ The existing `ADMIN` role auto-receives all 17 capabilities (via the `ensureAdmi
 
 ## 6. Acceptance Plan (see `tests/01-acceptance-plan.md`)
 
-20 acceptance criteria (AC-01 → AC-15 + AC-DB-01, AC-DB-02, AC-DB-03, AC-CONC-01, AC-RR-01, AC-TEST-01), each with:
+21 acceptance criteria (AC-01 → AC-15 + AC-DB-01, AC-DB-02, AC-DB-03, AC-CONC-01, AC-RR-01, AC-TEST-01), each with:
 - Test name
 - Test type (unit / integration / Testcontainers / Playwright / production smoke / documentation review)
 - Test class path (proposed)
@@ -255,6 +255,6 @@ CRM-008B implementation remains BLOCKED regardless.
 5. ⏳ Write `contracts/01-openapi-draft.md` (38 endpoints)
 6. ⏳ Write `rbac/01-rbac-matrix.md` (17 capabilities)
 7. ⏳ Write `migrations/01-migration-plan.md` + 9 `.sql` files (review-only, no execution) — deferred to CRM-008B
-8. ⏳ Write `tests/01-acceptance-plan.md` (20 acceptance criteria: AC-01 → AC-15 + AC-DB-01/02/03 + AC-CONC-01 + AC-RR-01 + AC-TEST-01)
+8. ⏳ Write `tests/01-acceptance-plan.md` (21 acceptance criteria: AC-01 → AC-15 + AC-DB-01/02/03 + AC-CONC-01 + AC-RR-01 + AC-TEST-01)
 9. ⏳ Commit + push branch + open WIP PR for review
 10. ⏳ Stage report (CRM-008A closure document)

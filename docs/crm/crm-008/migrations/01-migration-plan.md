@@ -84,11 +84,18 @@ Fractional migration versions are prohibited by project policy.
 
 ---
 
-## Acceptance criteria for migrations (matches PHASE 3 of EXEC-PROMPT)
+## Planned CRM-008B Migration Acceptance Requirements
 
-- ✅ Eight CRM-G1 tables exist on `main` from prior migrations (verified by the `Verify 8 tables, 26 indexes, and tenant isolation` CI check). CRM-008B V20260720_5 adds the ownership-specific tables (`crm_assignments`, `crm_ownership_history`) on top of the existing CRM-G1 baseline — these are NOT a replacement for the G1 tables.
-- ✅ `tenant_id` exists on all 14 new tables.
-- ✅ Tenant foreign keys (composite FKs `(tenant_id, parent_id)`) — explicit inventory:
+> **IMPORTANT (per Owner Review R2 P0-03):** The requirements below are **PLANNED** for CRM-008B. They have **NOT** been executed or verified in CRM-008A. No CRM-008 migration files exist on `main`. The ✅ markers below indicate **design completeness** (the requirement is documented and ready for implementation), NOT execution success.
+
+### Existing baseline (already verified on `main` — NOT a CRM-008 deliverable)
+
+- ✅ Eight CRM-G1 tables exist on `main` from prior migrations (verified by the `Verify 8 tables, 26 indexes, and tenant isolation` CI check). This is the **existing CRM-G1 baseline** and is NOT evidence of CRM-008 completion.
+
+### Planned CRM-008B requirements (NOT YET EXECUTED)
+
+- ⏳ `tenant_id` exists on all 14 new tables — **PLANNED / NOT_EXECUTED**
+- ⏳ Tenant foreign keys (composite FKs `(tenant_id, parent_id)`) — explicit inventory of 21 constraints — **PLANNED / NOT_EXECUTED**:
   1. `fk_team_memberships_tenants` — `crm_team_memberships.tenant_id` → `tenants(id)`
   2. `fk_team_memberships_sales_teams` — `crm_team_memberships.(tenant_id, team_id)` → `crm_sales_teams.(tenant_id, id)`
   3. `fk_queue_memberships_tenants` — `crm_queue_memberships.tenant_id` → `tenants(id)`
@@ -110,15 +117,15 @@ Fractional migration versions are prohibited by project policy.
   19. `fk_transfer_steps_requests` — `crm_transfer_steps.(tenant_id, transfer_request_id)` → `crm_transfer_requests.(tenant_id, id)`
   20. `fk_assignment_rule_counters_tenants` — `crm_assignment_rule_counters.tenant_id` → `tenants(id)` (V20260720_9)
   21. `fk_assignment_rule_counters_rules` — `crm_assignment_rule_counters.(tenant_id, rule_id)` → `crm_assignment_rules.(tenant_id, id)` (V20260720_9)
-  - **Total: 21 composite/tenant FK constraints** (covering both `tenant_id → tenants(id)` single-column FKs and `(tenant_id, parent_id)` composite FKs)
-- ✅ Exactly 40 explicit indexes (above the G1 baseline of 26), including the partial unique index `uk_assignments_active_per_record WHERE status='ACTIVE'`.
-- ✅ `tenant_id` is the leading field in every index.
-- ✅ Composite relations prevent cross-tenant references (FK + app-layer validation).
-- ✅ Flyway `validate` passes.
-- ✅ No failed Flyway history entries (forward-only, no repair needed).
-- ✅ Flyway remains enabled, `JPA_DDL_AUTO=validate`.
-- ✅ Each migration includes Preconditions → DDL → Postconditions (see §Fail-Closed Strategy).
-- ✅ AC-DB-01, AC-DB-02, AC-DB-03, AC-CONC-01, AC-RR-01, AC-TEST-01 from `tests/01-acceptance-plan.md` are satisfied.
+  - **Total: 21 composite/tenant FK constraints planned** (covering both `tenant_id → tenants(id)` single-column FKs and `(tenant_id, parent_id)` composite FKs)
+- ⏳ Exactly 40 explicit indexes (above the G1 baseline of 26), including the partial unique index `uk_assignments_active_per_record WHERE status='ACTIVE'` — **PLANNED / NOT_EXECUTED**
+- ⏳ `tenant_id` is the leading field in every index — **PLANNED / NOT_EXECUTED**
+- ⏳ Composite relations prevent cross-tenant references (FK + app-layer validation) — **PLANNED / NOT_EXECUTED**
+- ⏳ Flyway `validate` passes — **PLANNED / NOT_EXECUTED** (will be verified in CRM-008B)
+- ⏳ No failed Flyway history entries (forward-only, no repair needed) — **PLANNED / NOT_EXECUTED**
+- ⏳ Flyway remains enabled, `JPA_DDL_AUTO=validate` — **PLANNED / NOT_EXECUTED** (already the production setting; CRM-008B must not change this)
+- ⏳ Each migration includes Preconditions → DDL → Postconditions (see §Fail-Closed Strategy) — **PLANNED / NOT_EXECUTED**
+- ⏳ AC-DB-01, AC-DB-02, AC-DB-03, AC-CONC-01, AC-RR-01, AC-TEST-01 from `tests/01-acceptance-plan.md` are satisfied — **PLANNED / NOT_EXECUTED**
 
 ---
 
@@ -333,7 +340,7 @@ COMMIT;
 
 ## Execution constraints (CRITICAL)
 
-1. **No `.sql` files are committed in the CRM-008A merge.** The migration files (V20260720_1 through V20260720_9) were temporarily committed during the design phase, then removed in commit `b683ec2d` before PR #591 was merged. They will be re-added in CRM-008B after local PostgreSQL 16 validation via Testcontainers.
+1. **No `.sql` files are committed in the CRM-008A merge.** Eight migration files (`V20260720_1` through `V20260720_8`) were temporarily committed during CRM-008A and removed in commit `b683ec2d` before PR #591 was merged. `V20260720_9` was introduced later as a planned migration during Owner Review R2 and has **never** been committed as an executable SQL file. All nine migrations will be re-added in CRM-008B after local PostgreSQL 16 validation via Testcontainers.
 2. **Execution happens in CRM-008B** (Foundation phase) — after:
    - CRM-007 closure gate satisfied
    - Issue #563 closed
@@ -358,15 +365,54 @@ COMMIT;
 
 ---
 
-## Rollback plan (if migration fails)
+## Rollback policy (per Owner Review R2 P0-04)
 
-Each migration is wrapped in `BEGIN; ... COMMIT;`. If any statement fails, the entire migration rolls back. No partial state is left.
+**This section is a forward-only rollback POLICY, not a procedure.** Ad-hoc rollback migrations are prohibited by default.
 
-If a migration is applied successfully but needs to be reverted (rare — requires owner ADR):
-1. Stop the backend
-2. Take a fresh Supabase backup
-3. Execute a documented `V20260720_X_rollback.sql` (NOT committed in this design — created only if needed)
-4. Verify Flyway history via `flyway repair` if needed
-5. Restart the backend with `FLYWAY_VALIDATE_ON_MIGRATE=true`
+### Failed-before-commit (transaction failure)
 
-**Revert is the last resort.** Forward-only is the default.
+```text
+Transaction rollback only.
+No flyway repair.
+No manual flyway_schema_history edit.
+No ad-hoc rollback migration.
+```
+
+Each migration is wrapped in `BEGIN; ... COMMIT;`. If any statement fails (including any precondition or postcondition `RAISE EXCEPTION`), the entire transaction rolls back automatically. No partial state is left. The Flyway history will contain a single `success` row only if the migration committed; a failed migration leaves no Flyway history row.
+
+### Successfully-applied migration (forward-only)
+
+```text
+Forward-only corrective migration or approved reconciliation migration.
+NO_FLYWAY_REPAIR.
+NO_MANUAL_FLYWAY_HISTORY_EDIT.
+NO AD-HOC ROLLBACK MIGRATION NAMING.
+```
+
+If a migration was applied successfully but later needs correction (e.g. a column has the wrong type, a constraint is missing), the remedy is a **new forward-only corrective migration** with the next sequential version number (e.g. `V20260720_10__correct_<description>.sql`). This corrective migration follows the same fail-closed pattern (Preconditions → DDL → Postconditions).
+
+### Exceptional reverse operations (rare — requires ADR + independent runbook)
+
+Any operation that reverses a successfully-applied migration (e.g. `DROP TABLE`, `DROP COLUMN`, `TRUNCATE`, manual `flyway_schema_history` edit) requires:
+
+1. An explicit Architecture Decision Record (ADR) approved by the Project Owner
+2. An independent rollback runbook (separate from this migration plan)
+3. A verified fresh backup taken immediately before the operation
+4. Owner sign-off on the specific operation
+
+**Ad-hoc rollback migration naming like `V20260720_X_rollback.sql` is prohibited.** Reverse operations are never the default; they are exceptional and require their own governance.
+
+### Summary
+
+```text
+FAILED_BEFORE_COMMIT:
+  Transaction rollback only.
+
+SUCCESSFULLY_APPLIED_MIGRATION:
+  Forward-only corrective migration or approved reconciliation migration.
+
+NO_FLYWAY_REPAIR.
+NO_MANUAL_FLYWAY_HISTORY_EDIT.
+FORWARD_ONLY.
+NO AD-HOC ROLLBACK MIGRATION NAMING.
+```
