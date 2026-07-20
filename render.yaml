@@ -1,26 +1,26 @@
 # Render Blueprint for SANAD Backend
 # ============================================================
-# GitHub is the release authority. Render stores runtime secrets.
+# GitHub Actions builds immutable GHCR images. Render pulls and
+# runs the published image; all credentials remain in Render.
 # ============================================================
 
 services:
   - type: web
     name: sanad-backend
-    runtime: docker
-    repo: https://github.com/snadaiapp-png/SNAD
-    branch: main
+    runtime: image
+    image:
+      url: ghcr.io/snadaiapp-png/snad-backend:latest
     region: frankfurt
     plan: free
-    rootDir: apps/sanad-platform
-    dockerfilePath: Dockerfile
-    dockerContext: .
     healthCheckPath: /actuator/health
-    autoDeployTrigger: "off"
+    maxShutdownDelaySeconds: 30
     envVars:
       - key: SPRING_PROFILES_ACTIVE
         value: prod
       - key: SERVER_PORT
         value: "8080"
+      - key: JAVA_OPTS
+        value: -Xms64m -Xmx128m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8
       - key: JWT_SECRET
         generateValue: true
       - key: DATABASE_DRIVER
@@ -46,7 +46,7 @@ services:
       - key: LOG_LEVEL_SANAD
         value: INFO
       - key: LAZY_INIT
-        value: "false"
+        value: "true"
       - key: MANAGEMENT_ENDPOINTS
         value: health
       - key: SHUTDOWN_TIMEOUT
@@ -63,10 +63,7 @@ services:
         sync: false
       - key: SECURITY_NOTIFICATION_RESEND_API_KEY
         sync: false
-      # Legacy HTTP proxy settings (kept for backward compatibility)
       - key: SECURITY_NOTIFICATION_ENDPOINT
         value: https://snad-app.vercel.app/api/email-proxy
-      - key: SECURITY_NOTIFICATION_BEARER_TOKEN
-        sync: false
       - key: APPLICATION_BASE_URL
         value: https://snad-app.vercel.app
