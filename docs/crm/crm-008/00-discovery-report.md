@@ -160,7 +160,7 @@ The existing `ADMIN` role auto-receives all 17 capabilities (via the `ensureAdmi
 
 ## 7. Migration Plan (see `migrations/01-migration-plan.md`)
 
-**Forward-only Flyway migrations, planned sequence:**
+**Forward-only Flyway migrations, planned sequence (PLANNED for CRM-008B — NOT committed in CRM-008A):**
 
 | Version | File | Purpose |
 |---|---|---|
@@ -168,45 +168,64 @@ The existing `ADMIN` role auto-receives all 17 capabilities (via the `ensureAdmi
 | `V20260720_2` | `create_crm_queues.sql` | Queues + queue_memberships |
 | `V20260720_3` | `create_crm_territories.sql` | Territories + closure table + territory_assignments |
 | `V20260720_4` | `create_crm_assignment_rules.sql` | Rules + rule_versions |
-| `V20260720_5` | `create_crm_assignments.sql` | Assignments (with partial unique index for "one active per record") |
+| `V20260720_5` | `create_crm_assignments.sql` | Assignments (with application-layer enforcement of "one active per record") |
 | `V20260720_6` | `create_crm_transfer_requests.sql` | Transfers + transfer_steps |
-| `V20260720_7` | `create_crm_ownership_history.sql` | Append-only ledger |
-| `V20260720_8` | `seed_crm_ownership_capabilities.sql` | 17 capabilities + 2 new roles + role_capabilities grants |
+| `V20260720_7` | `add_owner_team_queue_columns.sql` | Add owner_team_id, owner_queue_id to existing CRM tables |
+| `V20260720_8` | `seed_crm_ownership_capabilities.sql` | 17 capabilities + audit marker |
 
-All migrations:
+All planned migrations:
 - Use `IF NOT EXISTS` (forward-only, idempotent re-run safety per CRM-G1 pattern)
 - Every table has `tenant_id UUID NOT NULL` as first column
 - Every FK is `(tenant_id, parent_id)` composite
 - Every index leads with `tenant_id`
 - No `DROP` or `TRUNCATE` without explicit ADR
+- The "one active assignment per record" invariant is enforced at the application layer
+  (the partial unique index version was removed for Flyway compatibility — see
+  `migrations/01-migration-plan.md` for details)
 
-**No migration will be executed in this design phase.** They are committed as `.sql` files for review only.
+**IMPORTANT — Status of SQL files:**
+
+```text
+Eight migrations are planned for CRM-008B.
+No executable CRM-008 migration file is present in the CRM-008A merge.
+```
+
+The eight `.sql` files were temporarily committed during the design phase for review,
+then **removed** in commit `b683ec2d` before PR #591 was merged. They will be re-added
+in CRM-008B after local PostgreSQL 16 validation via Testcontainers. See
+`migrations/01-migration-plan.md` for the full plan.
 
 ---
 
 ## 8. Branch Strategy
 
-- **Branch:** `feature/crm-008-design` (created)
-- **Base SHA:** `d2f07a8b44905ef91e88aec77afb079b0a9ab79b`
-- **Target:** `main` (after CRM-007 closure gate is satisfied)
-- **No merge to main in this phase**
-- **PR will be opened as `WIP: CRM-008A design` for review only**
-- **Implementation merge** (separate PR, separate branch `feature/crm-008-implementation`) is blocked until:
+- **Design branch:** `feature/crm-008-design` (merged to `main` via PR #591 on 2026-07-20T10:44:38Z)
+- **Merge commit:** `32304c8bbae8a95aeccdad4dceb42dd053d2e39b`
+- **Design baseline status:** MERGED / AWAITING GOVERNANCE RECONCILIATION
+- **Formal closure status:** NOT_COMPLETED — awaiting Product, QA, Security sign-offs
+- **Implementation merge (CRM-008B):** BLOCKED until:
   - Issue #563 closed
   - PR #567 merged
   - CRM G1 Production Closure workflow green
-  - Formal closure record issued authorizing CRM-008 implementation start
+  - Formal closure record issued authorizing CRM-008B implementation start
+
+**Retrospective governance exception:** The design baseline was merged to `main`
+before the CRM-007 closure gate was satisfied. This is documented in
+`STAGE-REPORT-CRM-008A.md` §0. The merge is acceptable because the merged
+content is design-only (no executable code, no migrations, no runtime impact).
+CRM-008B implementation remains BLOCKED regardless.
 
 ---
 
 ## 9. What This Discovery Does NOT Include
 
-- No Java implementation files (only port interfaces as `domain/*.java` — no JDBC adapters, no controllers, no use cases)
+- No Java implementation files (only 4 marker interfaces as `domain/*.java` — no JDBC adapters, no controllers, no use cases, no method bodies)
+- No SQL files committed to `main` (8 migrations are PLANNED in `migrations/01-migration-plan.md` but the `.sql` files were removed before merge — they will be re-added in CRM-008B)
 - No SQL execution against any database
 - No test execution (only test plan documents)
 - No frontend changes (frontend design is a separate sub-phase CRM-008E)
 - No changes to existing CRM v1 or v2 endpoints
-- No changes to existing migrations (only new V20260720_* files)
+- No changes to existing migrations (only new V20260720_* files are planned)
 - No interaction with the active Windows backend or Supabase
 
 ---

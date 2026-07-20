@@ -1,6 +1,6 @@
 # CRM-008 — Migration Plan
 
-> 8 forward-only Flyway migrations. **All committed for review only — NO execution in this design phase.**
+> 8 forward-only Flyway migrations **PLANNED for CRM-008B**. No `.sql` files are committed in the CRM-008A merge — they were removed before PR #591 was merged and will be re-added in CRM-008B after local PostgreSQL 16 validation via Testcontainers.
 >
 > Pattern: matches the CRM-G1 idempotent style (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, tenant-leading indexes, composite FKs).
 
@@ -98,7 +98,7 @@ COMMIT;
 
 ## Execution constraints (CRITICAL)
 
-1. **NO execution in this design phase.** The SQL files are committed for review only.
+1. **No `.sql` files are committed in the CRM-008A merge.** The 8 migration files were temporarily committed during the design phase, then removed in commit `b683ec2d` before PR #591 was merged. They will be re-added in CRM-008B after local PostgreSQL 16 validation via Testcontainers.
 2. **Execution happens in CRM-008B** (Foundation phase) — after:
    - CRM-007 closure gate satisfied
    - Issue #563 closed
