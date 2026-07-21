@@ -30,7 +30,6 @@ const FORWARDED_REQUEST_HEADERS = [
   "authorization",
   "content-type",
   "idempotency-key",
-  "if-match",
   "x-correlation-id",
   "x-request-id",
 ] as const;
@@ -135,6 +134,19 @@ function requestHeaders(request: NextRequest, path: string, baseUrl: string, id:
     if (value) headers.set(name, value);
   }
   headers.set("x-request-id", id);
+
+  // Vercel edge intercepts standard If-Match and returns 412 PRECONDITION_FAILED
+  // before the request reaches the BFF Route Handler.  The browser sends the
+  // custom X-SNAD-If-Match header which passes through Vercel untouched.  The
+  // BFF translates it to the standard If-Match before forwarding to the backend.
+  const customIfMatch = request.headers.get("x-snad-if-match");
+  const standardIfMatch = request.headers.get("if-match");
+  if (customIfMatch && standardIfMatch && customIfMatch !== standardIfMatch) {
+    throw new Error("Conflicting If-Match and X-SNAD-If-Match values");
+  }
+  const ifMatchValue = customIfMatch || standardIfMatch;
+  if (ifMatchValue) headers.set("if-match", ifMatchValue);
+
   if (path === REFRESH_PATH) {
     const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
     if (refreshToken) headers.set(REFRESH_HEADER, refreshToken);
@@ -300,7 +312,15 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
   }
 
   const target = `${baseUrl}${path}${request.nextUrl.search}`;
-  const headers = requestHeaders(request, path, baseUrl, id);
+  let headers: Headers;
+  try {
+    headers = requestHeaders(request, path, baseUrl, id);
+  } catch (error) {
+    if (error instanceof Error && error.message === "Conflicting If-Match and X-SNAD-If-Match values") {
+      return jsonError(error.message, 400, id);
+    }
+    throw error;
+  }
 
   try {
     const supportsBody = !["GET", "HEAD"].includes(request.method);

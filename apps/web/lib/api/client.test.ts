@@ -105,3 +105,79 @@ describe("ApiClient", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+describe("X-SNAD-If-Match transport header", () => {
+  it("rewrites If-Match to X-SNAD-If-Match for same-origin BFF", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: "addr-1" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const bffClient = new ApiClient({ baseUrl: "/api/platform", timeoutMs: 5000 });
+    await bffClient.patch("/api/v2/crm/addresses/addr-1", { line1: "Updated" }, {
+      context: { headers: { "If-Match": '"addr-v1-abc12345"' } },
+    });
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers["X-SNAD-If-Match"]).toBe('"addr-v1-abc12345"');
+    expect(headers["If-Match"]).toBeUndefined();
+  });
+
+  it("does not include browser-facing If-Match on same-origin request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: "addr-1" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const bffClient = new ApiClient({ baseUrl: "/api/platform", timeoutMs: 5000 });
+    await bffClient.patch("/api/v2/crm/addresses/addr-1", { line1: "Updated" }, {
+      context: { headers: { "If-Match": '"addr-v1-abc12345"' } },
+    });
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+    // The key insight: "If-Match" must not be present in the browser-facing
+    // request headers so Vercel cannot intercept it.
+    expect(Object.keys(headers).some((k) => k.toLowerCase() === "if-match")).toBe(false);
+  });
+
+  it("preserves standard If-Match for direct backend URL", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: "addr-1" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const directClient = new ApiClient({ baseUrl: "https://localhost:8080", timeoutMs: 5000 });
+    await directClient.patch("/api/v2/crm/addresses/addr-1", { line1: "Updated" }, {
+      context: { headers: { "If-Match": '"addr-v1-abc12345"' } },
+    });
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers["If-Match"]).toBe('"addr-v1-abc12345"');
+    expect(headers["X-SNAD-If-Match"]).toBeUndefined();
+  });
+
+  it("applies translation on retry after token refresh", async () => {
+    let callCount = 0;
+    const fetchMock = vi.fn().mockImplementation(() => {
+      callCount += 1;
+      if (callCount === 1) {
+        return new Response(null, { status: 401 });
+      }
+      return jsonResponse({ id: "addr-1" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const bffClient = new ApiClient({ baseUrl: "/api/platform", timeoutMs: 5000 });
+    let refreshCalled = false;
+    bffClient.setUnauthorizedHandler(async () => { refreshCalled = true; return true; });
+
+    await bffClient.patch("/api/v2/crm/addresses/addr-1", { line1: "Updated" }, {
+      context: { headers: { "If-Match": '"addr-v1-abc12345"' } },
+    });
+
+    expect(refreshCalled).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Both the original and retry requests must use X-SNAD-If-Match
+    const retryHeaders = fetchMock.mock.calls[1][1].headers as Record<string, string>;
+    expect(retryHeaders["X-SNAD-If-Match"]).toBe('"addr-v1-abc12345"');
+    expect(retryHeaders["If-Match"]).toBeUndefined();
+  });
+
+  it("does not rewrite when no If-Match is provided", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: "addr-1" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const bffClient = new ApiClient({ baseUrl: "/api/platform", timeoutMs: 5000 });
+    await bffClient.get("/api/v2/crm/addresses/addr-1");
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers["X-SNAD-If-Match"]).toBeUndefined();
+    expect(headers["If-Match"]).toBeUndefined();
+  });
+});

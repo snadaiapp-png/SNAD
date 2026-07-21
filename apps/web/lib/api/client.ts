@@ -16,6 +16,25 @@ const PROTECTED_HEADERS = new Set(["host", "content-length", "connection", "orig
 const CALLER_PROTECTED_HEADERS = new Set(["host", "content-length", "connection", "origin", "authorization"]);
 
 /**
+ * Vercel intercepts the standard `If-Match` header at the edge/CDN level and
+ * returns `412 PRECONDITION_FAILED` before the BFF Route Handler executes.  For
+ * same-origin BFF requests (base URL starts with `/api/platform`) the client
+ * rewrites `If-Match` to the custom `X-SNAD-If-Match` transport header that
+ * passes through Vercel untouched.  The BFF translates it back before forwarding
+ * to the backend.  For direct-backend URLs (local development) the standard
+ * `If-Match` is preserved unchanged.
+ */
+const SAME_ORIGIN_BFF_PREFIX = "/api/platform";
+
+function applyTransportHeaders(headers: Record<string, string>, baseUrl: string): void {
+  const isSameOriginBff = baseUrl.startsWith(SAME_ORIGIN_BFF_PREFIX);
+  if (isSameOriginBff && "If-Match" in headers) {
+    headers["X-SNAD-If-Match"] = headers["If-Match"];
+    delete headers["If-Match"];
+  }
+}
+
+/**
  * Decide whether the request body should bypass JSON serialization and the
  * default `Content-Type: application/json` header. FormData and Blob bodies
  * must be handed to fetch verbatim so the browser can manage their framing
@@ -161,6 +180,7 @@ export class ApiClient {
     const timeoutMs = req.timeoutMs ?? this.defaultTimeoutMs;
     const fullUrl = this.buildUrl(req.path, req.query as QueryParams);
     const headers = mergeHeaders(hasBody, req.body, req.context?.headers, this.defaultHeaders);
+    applyTransportHeaders(headers, this.baseUrl);
 
     let serializedBody: string | undefined;
     let rawBody: BodyInit | undefined;
@@ -197,6 +217,7 @@ export class ApiClient {
         if (refreshed) {
           // Rebuild headers with the new Authorization token and retry.
           const retryHeaders = mergeHeaders(hasBody, req.body, req.context?.headers, this.defaultHeaders);
+          applyTransportHeaders(retryHeaders, this.baseUrl);
           const retryInit: RequestInit = { method: req.method, headers: retryHeaders, credentials: "include", signal: requestSignal.signal };
           if (req.cache !== undefined) retryInit.cache = req.cache;
           if (serializedBody !== undefined) retryInit.body = serializedBody;
@@ -245,6 +266,7 @@ export class ApiClient {
     const timeoutMs = options?.timeoutMs ?? this.defaultTimeoutMs;
     const fullUrl = this.buildUrl(path, options?.query as QueryParams);
     const headers = mergeHeaders(false, undefined, options?.context?.headers, this.defaultHeaders);
+    applyTransportHeaders(headers, this.baseUrl);
     const requestSignal = createRequestSignal(timeoutMs, options?.signal);
     try {
       const init: RequestInit = { method: "GET", headers, credentials: "include", signal: requestSignal.signal };
@@ -256,6 +278,7 @@ export class ApiClient {
         const refreshed = await this.unauthorizedHandler();
         if (refreshed) {
           const retryHeaders = mergeHeaders(false, undefined, options?.context?.headers, this.defaultHeaders);
+          applyTransportHeaders(retryHeaders, this.baseUrl);
           const retryInit: RequestInit = { method: "GET", headers: retryHeaders, credentials: "include", signal: requestSignal.signal };
           if (options?.cache !== undefined) retryInit.cache = options.cache;
           response = await fetch(fullUrl, retryInit);
