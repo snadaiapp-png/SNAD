@@ -26,7 +26,7 @@ test("CRM-007 authenticated lifecycle, conflict, refresh and two-tenant isolatio
     const loginB = await loginThroughUi(pageB, TENANT_B_EMAIL, TENANT_B_PASSWORD);
     expect(loginA.user.tenantId).not.toBe(loginB.user.tenantId);
 
-    const authA = { Authorization: `Bearer ${loginA.accessToken}` };
+    let authA = { Authorization: `Bearer ${loginA.accessToken}` };
     const authB = { Authorization: `Bearer ${loginB.accessToken}` };
     const runId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
 
@@ -152,6 +152,7 @@ test("CRM-007 authenticated lifecycle, conflict, refresh and two-tenant isolatio
       headers: { Authorization: `Bearer ${refreshed.accessToken}` },
     });
     expect(refreshedMe.ok()).toBe(true);
+    authA = { Authorization: `Bearer ${refreshed.accessToken}` };
 
     const archiveCommunication = await pageA.request.patch(
       `/api/platform/api/v2/crm/communication-methods/${communicationMethodId}/archive`,
