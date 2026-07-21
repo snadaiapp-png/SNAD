@@ -1,0 +1,940 @@
+# CRM-G1 one-button production closure.
+# Required Production secrets:
+#   PROD_JDBC_URL, PROD_DB_USER, PROD_DB_PASSWORD
+# Reused Production secrets:
+#   VERCEL_TOKEN, VERCEL_TEAM_ID
+#   AUTH_SMOKE_TENANT_A_ID/EMAIL/PASSWORD, AUTH_SMOKE_TENANT_B_ID/EMAIL/PASSWORD
+# Optional CRM-specific overrides:
+#   CRM_TENANT_A_EMAIL/PASSWORD, CRM_TENANT_B_EMAIL/PASSWORD
+# Protect the Production environment with required reviewers.
+
+name: CRM G1 Production Closure
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/crm-g1-production-closure.yml
+  workflow_dispatch:
+    inputs:
+      backup_reference:
+        description: 'Exact Supabase backup or PITR restore-point reference'
+        required: true
+        type: string
+      change_approval_reference:
+        description: 'Approved change ticket or owner-approval reference'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: crm-g1-production-closure
+  cancel-in-progress: false
+
+jobs:
+  close-crm-g1:
+    name: CRM-G1 controlled production closure
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment:
+      name: Production
+      url: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
+    env:
+      # Historical baseline version — used ONLY to verify the baseline was recorded.
+      BASELINE_FLYWAY_VERSION: '20260717.6'
+      # Reconciliation target version — this is the version the workflow MUST apply
+      # via flyway:migrate and verify in PRE_COUNT, POST_COUNT, and evidence.
+      # 20260718.1 lives in db/vendor/postgresql/ and reconciles the CRM-G1 baseline gap.
+      RECONCILIATION_FLYWAY_VERSION: '20260718.1'
+      # Kept for backward compatibility with evidence/reporting templates.
+      TARGET_FLYWAY_VERSION: '20260718.1'
+      PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
+      BACKEND_HEALTH_URL: ${{ vars.PRODUCTION_BACKEND_HEALTH_URL || 'https://sanad-backend-mcrj.onrender.com/actuator/health' }}
+      BACKUP_REFERENCE: ${{ inputs.backup_reference || 'MANUAL-PGDUMP-hxhvfqxzigrqoxxnnzje-20260719T010007Z-SHA256-50eeac2cca743ca61c4512902a053809e8bd14fd3b9e3d1ae93dfec97b4a5c46' }}
+      CHANGE_APPROVAL_REFERENCE: ${{ inputs.change_approval_reference || 'https://github.com/snadaiapp-png/SNAD/issues/571#issuecomment-5017569574' }}
+
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Execute controlled CRM-G1 production closure
+        id: closure
+        shell: bash
+        env:
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          CRM_TENANT_A_EMAIL: ${{ secrets.CRM_TENANT_A_EMAIL }}
+          CRM_TENANT_A_PASSWORD: ${{ secrets.CRM_TENANT_A_PASSWORD }}
+          CRM_TENANT_B_EMAIL: ${{ secrets.CRM_TENANT_B_EMAIL }}
+          CRM_TENANT_B_PASSWORD: ${{ secrets.CRM_TENANT_B_PASSWORD }}
+          AUTH_TENANT_A_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
+          AUTH_TENANT_A_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+          AUTH_TENANT_A_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+          AUTH_TENANT_B_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+          AUTH_TENANT_B_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
+          AUTH_TENANT_B_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          RELEASE_SHA="$(git rev-parse HEAD)"
+          REMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test "$RELEASE_SHA" = "$REMOTE_MAIN_SHA" || { echo "::error::Checkout is not current main"; exit 1; }
+
+          for value in "$PROD_JDBC_URL" "$PROD_DB_USER" "$PROD_DB_PASSWORD" \
+            "$VERCEL_TOKEN" "$VERCEL_TEAM_ID"; do
+            test -n "$value" || { echo "::error::A required Production secret is missing"; exit 1; }
+            echo "::add-mask::$value"
+          done
+
+          for value in \
+            "$CRM_TENANT_A_EMAIL" "$CRM_TENANT_A_PASSWORD" \
+            "$CRM_TENANT_B_EMAIL" "$CRM_TENANT_B_PASSWORD" \
+            "$AUTH_TENANT_A_ID" "$AUTH_TENANT_A_EMAIL" "$AUTH_TENANT_A_PASSWORD" \
+            "$AUTH_TENANT_B_ID" "$AUTH_TENANT_B_EMAIL" "$AUTH_TENANT_B_PASSWORD"; do
+            if [ -n "$value" ]; then
+              echo "::add-mask::$value"
+            fi
+          done
+
+          [[ "$PROD_JDBC_URL" == jdbc:postgresql://* ]] || { echo "::error::Invalid PROD_JDBC_URL"; exit 1; }
+          if [[ "$PROD_JDBC_URL" =~ ^jdbc:postgresql://[^/]*@ ]] || [[ "${PROD_JDBC_URL,,}" == *"password="* ]]; then
+            echo "::error::Do not embed credentials in PROD_JDBC_URL"
+            exit 1
+          fi
+          [[ "$PRODUCTION_WEB_BASE_URL" == https://* ]] || { echo "::error::Production URL must use HTTPS"; exit 1; }
+
+          for value in "$BACKUP_REFERENCE" "$CHANGE_APPROVAL_REFERENCE"; do
+            normalized="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+            test -n "$normalized"
+            case "$normalized" in
+              *example*|*placeholder*|*replace-me*|*enter\ *)
+                echo "::error::A governance input is a placeholder"
+                exit 1
+                ;;
+            esac
+          done
+
+          git merge-base --is-ancestor f1eee10480cf3416edcf3824dab66a5450310e8a "$RELEASE_SHA"
+          git merge-base --is-ancestor 49a58cca1aac87595e26207fe4167f32115e2498 "$RELEASE_SHA"
+          test -f scripts/crm/verify-g1-tenant-isolation.sql
+          test -f scripts/operations/crm_g1_credential_reconcile.py
+          test -f apps/sanad-platform/src/main/resources/db/migration/V20260717_6__create_crm_g1_extension_tables.sql
+          test -f apps/web/e2e/crm-authenticated-acceptance.spec.ts
+          test -f apps/web/e2e/crm-tenant-isolation.spec.ts
+
+          EVIDENCE_DIR="$RUNNER_TEMP/crm-g1-production-evidence"
+          rm -rf "$EVIDENCE_DIR"
+          mkdir -p "$EVIDENCE_DIR"
+          STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          # Create evidence before any external dependency is contacted so failed runs
+          # always retain a diagnostic artifact.
+          jq -n --arg release "$RELEASE_SHA" --arg run "$RUN_URL" --arg started "$STARTED_AT" \
+            '{report_id:"G1-STAGE-REPORT-V1",result:"IN_PROGRESS",release_sha:$release,workflow_run:$run,started_at_utc:$started}' \
+            > "$EVIDENCE_DIR/run-context.json"
+
+          failure_evidence() {
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              jq -n --arg release "$RELEASE_SHA" --arg run "$RUN_URL" --arg completed "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson exit_code "$rc" \
+                '{report_id:"G1-STAGE-REPORT-V1",result:"FAIL",release_sha:$release,workflow_run:$run,completed_at_utc:$completed,exit_code:$exit_code}' \
+                > "$EVIDENCE_DIR/failure-summary.json"
+            fi
+          }
+          trap failure_evidence EXIT
+
+          # Resolve the deployment currently serving the production hostname instead
+          # of listing deployments and filtering a version-sensitive response shape.
+          PRODUCTION_HOST="${PRODUCTION_WEB_BASE_URL#https://}"
+          PRODUCTION_HOST="${PRODUCTION_HOST%%/*}"
+          details_url="https://api.vercel.com/v13/deployments/${PRODUCTION_HOST}?teamId=${VERCEL_TEAM_ID}"
+          match=""
+
+          for attempt in $(seq 1 90); do
+            if curl --http1.1 \
+              --fail-with-body \
+              --silent \
+              --show-error \
+              --retry 5 \
+              --retry-all-errors \
+              --retry-delay 2 \
+              --connect-timeout 10 \
+              --max-time 45 \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+              "$details_url" > "$RUNNER_TEMP/vercel.json"; then
+
+              cp "$RUNNER_TEMP/vercel.json" "$EVIDENCE_DIR/vercel-last-observation.json"
+              live_sha="$(jq -r '.meta.githubCommitSha // empty' "$RUNNER_TEMP/vercel.json")"
+              state="$(jq -r '.readyState // .state // empty' "$RUNNER_TEMP/vercel.json")"
+              target="$(jq -r '.target // empty' "$RUNNER_TEMP/vercel.json")"
+
+              if [ "$live_sha" = "$RELEASE_SHA" ] && [ "$state" = "READY" ] && [ "$target" = "production" ]; then
+                match="$(cat "$RUNNER_TEMP/vercel.json")"
+                break
+              fi
+
+              if [ "$live_sha" = "$RELEASE_SHA" ] && { [ "$state" = "ERROR" ] || [ "$state" = "CANCELED" ]; }; then
+                echo "::error::Exact release deployment reached terminal state: $state"
+                exit 1
+              fi
+
+              echo "Waiting for production alias: attempt=${attempt}/90 live_sha=${live_sha:-none} state=${state:-none} target=${target:-none}"
+            else
+              echo "::warning::Vercel deployment lookup attempt ${attempt}/90 failed; retrying"
+            fi
+            sleep 10
+          done
+
+          test -n "$match" || { echo "::error::Production alias did not resolve to exact main SHA in READY state"; exit 1; }
+          DEPLOYMENT_ID="$(jq -r '.id // .uid // empty' <<< "$match")"
+          DEPLOYMENT_URL="$(jq -r '.url // empty' <<< "$match")"
+          test -n "$DEPLOYMENT_ID" && test -n "$DEPLOYMENT_URL"
+          jq -n --arg sha "$RELEASE_SHA" --arg id "$DEPLOYMENT_ID" --arg url "$DEPLOYMENT_URL" \
+            '{release_sha:$sha,deployment_id:$id,deployment_url:$url,result:"PASS"}' > "$EVIDENCE_DIR/vercel-exact-sha.json"
+
+          mvn --batch-mode --no-transfer-progress -f apps/sanad-platform/pom.xml \
+            -DskipTests -Dmaven.test.skip=true clean package
+
+          PSQL_URL="${PROD_JDBC_URL#jdbc:}"
+          # PRE_COUNT: verify the baseline shape BEFORE applying reconciliation.
+          # Expected: baseline (20260717.6) recorded once, earlier CRM-G1 migrations (20260716.1/2)
+          # NOT recorded as SQL (they are reconciled inside 20260718.1), and NO failed rows.
+          # 20260718.1 may or may not be present yet — it will be applied by flyway:migrate below.
+          FLYWAY_HISTORY_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FILTER (WHERE version='${BASELINE_FLYWAY_VERSION}' AND success=true) || '|' ||
+                    count(*) FILTER (WHERE version IN ('20260716.1','20260716.2') AND success=true) || '|' ||
+                    count(*) FILTER (WHERE success=false)
+               FROM flyway_schema_history
+              WHERE version IN ('20260716.1','20260716.2','${BASELINE_FLYWAY_VERSION}','${RECONCILIATION_FLYWAY_VERSION}')")"
+          test "$FLYWAY_HISTORY_STATE" = "1|0|0" || {
+            echo "::error::PRE_COUNT failed: unexpected CRM-G1 Flyway history shape before reconciliation."
+            echo "::error::Expected baseline=1 earlier=0 failed=0, got: $FLYWAY_HISTORY_STATE"
+            echo "::error::This means either the baseline is missing, an earlier migration was applied as SQL, or there is a failed row."
+            echo "::error::DO NOT use flyway repair. DO NOT manually edit flyway_schema_history."
+            echo "::error::Investigate the actual flyway_schema_history rows and reconcile with a forward-only migration if needed."
+            exit 1
+          }
+          echo "PRE_COUNT PASS: baseline=${BASELINE_FLYWAY_VERSION} recorded, no earlier SQL, no failed rows."
+
+          G1_TABLE_COUNT="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('crm_tasks','crm_notes','crm_assignments','crm_transfers','crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index')")"
+          G1_INDEX_COUNT="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND tablename IN ('crm_tasks','crm_notes','crm_assignments','crm_transfers','crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index') AND indexname LIKE 'idx_crm_%'")"
+
+          case "$G1_TABLE_COUNT" in
+            0)
+              test "$G1_INDEX_COUNT" = "0" || {
+                echo "::error::Unexpected G1 indexes exist while all G1 tables are absent"
+                exit 1
+              }
+              ;;
+            8)
+              test "$G1_INDEX_COUNT" = "26" || {
+                echo "::error::G1 tables exist but the explicit index count is not 26"
+                exit 1
+              }
+              ;;
+            *)
+              echo "::error::Refusing partial CRM-G1 state: tables=$G1_TABLE_COUNT indexes=$G1_INDEX_COUNT"
+              exit 1
+              ;;
+          esac
+
+          BASE_DEPENDENCY_COUNT="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM (VALUES ('tenants'),('users'),('roles'),('access_capabilities'),('role_capabilities'),('crm_contacts')) AS required(name) WHERE to_regclass('public.' || name) IS NOT NULL")"
+          test "$BASE_DEPENDENCY_COUNT" = "6" || {
+            echo "::error::A required base table for the original CRM-G1 migrations is absent"
+            exit 1
+          }
+
+          (
+            cd "$GITHUB_WORKSPACE"
+            sha256sum --check <<'SHA256'
+          a0efa014127370093cc5ae50963f0ffe297772fd388941018a94c22574e71b1b  apps/sanad-platform/src/main/resources/db/migration/V20260716_1__create_crm_tasks.sql
+          188ba6802f183d89119a7e3309304f03ec09379dc8fa6ae7095e998d95a36043  apps/sanad-platform/src/main/resources/db/migration/V20260716_2__create_crm_notes.sql
+          b0ed1498835828c5d9e401972c0d48c5350cab71aa3eff22eb4ef3658158f987  apps/sanad-platform/src/main/resources/db/migration/V20260717_6__create_crm_g1_extension_tables.sql
+          SHA256
+          )
+
+          # Pre-migrate validate: check for checksum mismatches but IGNORE pending migrations.
+          # Pending migrations (like 20260718.1) are expected here — they will be applied by
+          # flyway:migrate below. We only want to catch checksum mismatches before migrating.
+          # This is NOT flyway repair — it is a standard Flyway configuration.
+          mvn --batch-mode --no-transfer-progress -f apps/sanad-platform/pom.xml flyway:validate \
+            -Dflyway.url="$PROD_JDBC_URL" \
+            -Dflyway.user="$PROD_DB_USER" \
+            -Dflyway.password="$PROD_DB_PASSWORD" \
+            -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
+            -Dflyway.outOfOrder=true \
+            -Dflyway.ignoreMigrationPatterns='*:pending' \
+            || {
+              echo "::error::flyway:validate FAILED before reconciliation migrate."
+              echo "::error::This means there is a checksum mismatch or a missing migration file."
+              echo "::error::Pending migrations are ignored in this step — they are applied by flyway:migrate below."
+              echo "::error::DO NOT use flyway repair. DO NOT manually edit flyway_schema_history."
+              echo "::error::Investigate which migration has a checksum mismatch and resolve with a forward-only corrective migration."
+              exit 1
+            }
+          echo "flyway:validate PASS (pre-migrate, pending migrations ignored)."
+
+          # Apply the reconciliation migration (20260718.1) via flyway:migrate.
+          # This is the critical fix: the previous workflow only validated but never migrated,
+          # so 20260718.1 was never applied. Now we explicitly target the reconciliation version.
+          # flyway:migrate is idempotent — if 20260718.1 is already applied, it is a no-op.
+          mvn --batch-mode --no-transfer-progress -f apps/sanad-platform/pom.xml flyway:migrate \
+            -Dflyway.url="$PROD_JDBC_URL" \
+            -Dflyway.user="$PROD_DB_USER" \
+            -Dflyway.password="$PROD_DB_PASSWORD" \
+            -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
+            -Dflyway.target="${RECONCILIATION_FLYWAY_VERSION}" \
+            -Dflyway.outOfOrder=true \
+            -Dflyway.cleanDisabled=true \
+            -Dflyway.validateOnMigrate=true \
+            || {
+              echo "::error::flyway:migrate FAILED for reconciliation version ${RECONCILIATION_FLYWAY_VERSION}."
+              echo "::error::This means the migration could not be applied. Check the migration SQL for errors."
+              echo "::error::DO NOT use flyway repair. DO NOT manually edit flyway_schema_history."
+              echo "::error::DO NOT manually run SQL outside Flyway."
+              echo "::error::Fix the migration SQL with a forward-only corrective migration if needed."
+              exit 1
+            }
+          echo "flyway:migrate PASS: reconciliation version ${RECONCILIATION_FLYWAY_VERSION} applied (or already present)."
+
+          if [ "$G1_TABLE_COUNT" = "0" ]; then
+            PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+              -X -v ON_ERROR_STOP=1 --single-transaction \
+              -f apps/sanad-platform/src/main/resources/db/migration/V20260716_1__create_crm_tasks.sql \
+              -f apps/sanad-platform/src/main/resources/db/migration/V20260716_2__create_crm_notes.sql \
+              -f apps/sanad-platform/src/main/resources/db/migration/V20260717_6__create_crm_g1_extension_tables.sql \
+              -f - <<'SQLVERIFY'
+          DO $verify$
+          DECLARE
+              table_count INTEGER;
+              index_count INTEGER;
+              tenant_column_count INTEGER;
+              tenant_fk_count INTEGER;
+              non_tenant_first_index_count INTEGER;
+          BEGIN
+              SELECT count(*) INTO table_count
+                FROM information_schema.tables
+               WHERE table_schema = 'public'
+                 AND table_name IN (
+                     'crm_tasks','crm_notes','crm_assignments','crm_transfers',
+                     'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index'
+                 );
+
+              SELECT count(*) INTO index_count
+                FROM pg_indexes
+               WHERE schemaname = 'public'
+                 AND tablename IN (
+                     'crm_tasks','crm_notes','crm_assignments','crm_transfers',
+                     'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index'
+                 )
+                 AND indexname LIKE 'idx_crm_%';
+
+              SELECT count(*) INTO tenant_column_count
+                FROM information_schema.columns
+               WHERE table_schema = 'public'
+                 AND column_name = 'tenant_id'
+                 AND table_name IN (
+                     'crm_tasks','crm_notes','crm_assignments','crm_transfers',
+                     'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index'
+                 );
+
+              SELECT count(*) INTO tenant_fk_count
+                FROM pg_constraint constraint_row
+                JOIN pg_class table_row ON table_row.oid = constraint_row.conrelid
+               WHERE constraint_row.contype = 'f'
+                 AND constraint_row.confrelid = 'tenants'::regclass
+                 AND table_row.relname IN (
+                     'crm_tasks','crm_notes','crm_assignments','crm_transfers',
+                     'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index'
+                 );
+
+              SELECT count(*) INTO non_tenant_first_index_count
+                FROM pg_indexes
+               WHERE schemaname = 'public'
+                 AND tablename IN (
+                     'crm_tasks','crm_notes','crm_assignments','crm_transfers',
+                     'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index'
+                 )
+                 AND indexname LIKE 'idx_crm_%'
+                 AND indexdef NOT LIKE '%(tenant_id,%';
+
+              IF table_count <> 8
+                 OR index_count <> 26
+                 OR tenant_column_count <> 8
+                 OR tenant_fk_count <> 8
+                 OR non_tenant_first_index_count <> 0 THEN
+                  RAISE EXCEPTION
+                      'CRM-G1 atomic postcondition failed: tables %, indexes %, tenant columns %, tenant FKs %, bad indexes %',
+                      table_count, index_count, tenant_column_count, tenant_fk_count, non_tenant_first_index_count;
+              END IF;
+          END
+          $verify$;
+          SQLVERIFY
+            MIGRATION_RESULT="DIRECT_ORIGINAL_A3_APPLIED"
+          else
+            MIGRATION_RESULT="A3_ALREADY_RECONCILED"
+          fi
+
+          mvn --batch-mode --no-transfer-progress -f apps/sanad-platform/pom.xml flyway:validate \
+            -Dflyway.url="$PROD_JDBC_URL" \
+            -Dflyway.user="$PROD_DB_USER" \
+            -Dflyway.password="$PROD_DB_PASSWORD" \
+            -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
+            -Dflyway.outOfOrder=true \
+            || {
+              echo "::error::flyway:validate FAILED after reconciliation migrate."
+              echo "::error::This means a migration was applied but its checksum does not match the file."
+              echo "::error::DO NOT use flyway repair. DO NOT manually edit flyway_schema_history."
+              echo "::error::Investigate which migration has a checksum mismatch and resolve with a forward-only corrective migration."
+              exit 1
+            }
+          echo "flyway:validate PASS (post-migrate)."
+
+          # POST_COUNT: verify the reconciliation migration is now recorded as success=true.
+          # This is the critical proof that 20260718.1 was applied by Flyway (not manually).
+          POST_COUNT_RECONCILIATION="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM flyway_schema_history WHERE version='${RECONCILIATION_FLYWAY_VERSION}' AND success=true")"
+          test "$POST_COUNT_RECONCILIATION" = "1" || {
+            echo "::error::POST_COUNT failed: reconciliation migration ${RECONCILIATION_FLYWAY_VERSION} is NOT recorded as success=true."
+            echo "::error::Expected count=1, got: $POST_COUNT_RECONCILIATION"
+            echo "::error::This means flyway:migrate did not apply 20260718.1 despite passing validate."
+            echo "::error::DO NOT manually insert into flyway_schema_history."
+            echo "::error::Re-run flyway:migrate or investigate why the migration was skipped."
+            exit 1
+          }
+          echo "POST_COUNT PASS: reconciliation ${RECONCILIATION_FLYWAY_VERSION} is recorded as success=true."
+
+          # Also verify the baseline is still recorded (not deleted by migrate).
+          POST_COUNT_BASELINE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM flyway_schema_history WHERE version='${BASELINE_FLYWAY_VERSION}' AND success=true")"
+          test "$POST_COUNT_BASELINE" = "1" || {
+            echo "::error::POST_COUNT failed: baseline ${BASELINE_FLYWAY_VERSION} is NOT recorded as success=true after migrate."
+            echo "::error::Expected count=1, got: $POST_COUNT_BASELINE"
+            exit 1
+          }
+          echo "POST_COUNT PASS: baseline ${BASELINE_FLYWAY_VERSION} still recorded as success=true."
+
+          PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -P pager=off \
+            -f scripts/crm/verify-g1-tenant-isolation.sql 2>&1 | tee "$EVIDENCE_DIR/catalog-verification.txt"
+          # Evidence: verify the RECONCILIATION version (20260718.1) is recorded as success=true.
+          # This is the final proof required by the closure criteria.
+          PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -P pager=off -Atc \
+            "SELECT version || '|' || description || '|' || success || '|' || installed_on FROM flyway_schema_history WHERE version='${RECONCILIATION_FLYWAY_VERSION}' AND success=true" \
+            > "$EVIDENCE_DIR/flyway-target-row.txt"
+          test "$(wc -l < "$EVIDENCE_DIR/flyway-target-row.txt" | tr -d ' ')" = "1" || {
+            echo "::error::Evidence extraction failed: reconciliation ${RECONCILIATION_FLYWAY_VERSION} row not found in flyway_schema_history."
+            exit 1
+          }
+          echo "Evidence: flyway-target-row.txt contains the reconciliation version row."
+
+          # Build the exact main application artifact once. Credential enrollment runs
+          # this artifact as a short-lived non-web JVM against the production database;
+          # the locally hosted backend and its tunnel are never reconfigured or restarted.
+          mvn --batch-mode --no-transfer-progress -f apps/sanad-platform/pom.xml \
+            clean package -DskipTests -Dgit.commit="$RELEASE_SHA"
+          CRM_BOOTSTRAP_JAR="$(find apps/sanad-platform/target -maxdepth 1 -type f \
+            -name 'sanad-platform-*.jar' ! -name '*.original' | sort | head -n 1)"
+          test -n "$CRM_BOOTSTRAP_JAR" && test -f "$CRM_BOOTSTRAP_JAR"
+          export CRM_BOOTSTRAP_JAR
+
+          CRM_ACCOUNT_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -At \
+            -v tenant_a_email="$CRM_TENANT_A_EMAIL" \
+            -v tenant_b_email="$CRM_TENANT_B_EMAIL" <<'SQLACCOUNT'
+          WITH targets AS (
+              SELECT id, tenant_id, status, platform_admin
+                FROM users
+               WHERE lower(email) IN (lower(:'tenant_a_email'), lower(:'tenant_b_email'))
+          )
+          SELECT count(*) || '|' || count(DISTINCT tenant_id) || '|' ||
+                 count(*) FILTER (WHERE status <> 'ACTIVE') || '|' ||
+                 count(*) FILTER (WHERE platform_admin IS TRUE)
+            FROM targets;
+          SQLACCOUNT
+          )"
+
+          CRM_RECONCILIATION_MODE=""
+          ACCOUNT_SOURCE=""
+          if [ "$CRM_ACCOUNT_STATE" = "2|2|0|0" ]; then
+            ACCOUNT_SOURCE="CRM_EXISTING"
+            CRM_RECONCILIATION_MODE="credential-only"
+            mapfile -t CRM_TENANT_IDS < <(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+              -X -v ON_ERROR_STOP=1 -At \
+              -v tenant_a_email="$CRM_TENANT_A_EMAIL" \
+              -v tenant_b_email="$CRM_TENANT_B_EMAIL" <<'SQLTENANTS'
+          SELECT tenant_id
+            FROM (
+                SELECT 1 AS ordinal, tenant_id FROM users WHERE lower(email) = lower(:'tenant_a_email')
+                UNION ALL
+                SELECT 2 AS ordinal, tenant_id FROM users WHERE lower(email) = lower(:'tenant_b_email')
+            ) target_tenants
+           ORDER BY ordinal;
+          SQLTENANTS
+            )
+            test "${#CRM_TENANT_IDS[@]}" = "2"
+            CRM_TENANT_A_ID="${CRM_TENANT_IDS[0]}"
+            CRM_TENANT_B_ID="${CRM_TENANT_IDS[1]}"
+          else
+            for value in \
+              "$AUTH_TENANT_A_EMAIL" "$AUTH_TENANT_A_PASSWORD" \
+              "$AUTH_TENANT_B_EMAIL" "$AUTH_TENANT_B_PASSWORD"; do
+              test -n "$value" || {
+                echo "::error::CRM accounts are unavailable and an AUTH_SMOKE credential fallback is missing"
+                exit 1
+              }
+            done
+            test "${AUTH_TENANT_A_EMAIL,,}" != "${AUTH_TENANT_B_EMAIL,,}"
+
+            AUTH_ACCOUNT_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+              -X -v ON_ERROR_STOP=1 -At \
+              -v tenant_a_email="$AUTH_TENANT_A_EMAIL" \
+              -v tenant_b_email="$AUTH_TENANT_B_EMAIL" <<'SQLAUTHACCOUNT'
+          WITH targets AS (
+              SELECT id, tenant_id, status, platform_admin
+                FROM users
+               WHERE lower(email) IN (lower(:'tenant_a_email'), lower(:'tenant_b_email'))
+          )
+          SELECT count(*) || '|' || count(DISTINCT tenant_id) || '|' ||
+                 count(*) FILTER (WHERE status <> 'ACTIVE') || '|' ||
+                 count(*) FILTER (WHERE platform_admin IS TRUE)
+            FROM targets;
+          SQLAUTHACCOUNT
+            )"
+
+            if [ "$AUTH_ACCOUNT_STATE" = "2|2|0|0" ]; then
+              ACCOUNT_SOURCE="AUTH_SMOKE_EXISTING"
+              CRM_RECONCILIATION_MODE="credential-only"
+              CRM_TENANT_A_EMAIL="$AUTH_TENANT_A_EMAIL"
+              CRM_TENANT_A_PASSWORD="$AUTH_TENANT_A_PASSWORD"
+              CRM_TENANT_B_EMAIL="$AUTH_TENANT_B_EMAIL"
+              CRM_TENANT_B_PASSWORD="$AUTH_TENANT_B_PASSWORD"
+              mapfile -t CRM_TENANT_IDS < <(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+                -X -v ON_ERROR_STOP=1 -At \
+                -v tenant_a_email="$AUTH_TENANT_A_EMAIL" \
+                -v tenant_b_email="$AUTH_TENANT_B_EMAIL" <<'SQLAUTHEXISTINGTENANTS'
+          SELECT tenant_id
+            FROM (
+                SELECT 1 AS ordinal, tenant_id FROM users WHERE lower(email) = lower(:'tenant_a_email')
+                UNION ALL
+                SELECT 2 AS ordinal, tenant_id FROM users WHERE lower(email) = lower(:'tenant_b_email')
+            ) target_tenants
+           ORDER BY ordinal;
+          SQLAUTHEXISTINGTENANTS
+              )
+              test "${#CRM_TENANT_IDS[@]}" = "2"
+              CRM_TENANT_A_ID="${CRM_TENANT_IDS[0]}"
+              CRM_TENANT_B_ID="${CRM_TENANT_IDS[1]}"
+              if [ -n "$AUTH_TENANT_A_ID$AUTH_TENANT_B_ID" ]; then
+                test -n "$AUTH_TENANT_A_ID" && test -n "$AUTH_TENANT_B_ID"
+                test "$CRM_TENANT_A_ID" = "$AUTH_TENANT_A_ID"
+                test "$CRM_TENANT_B_ID" = "$AUTH_TENANT_B_ID"
+              fi
+            elif [ "$CRM_ACCOUNT_STATE" = "0|0|0|0" ] && [ "$AUTH_ACCOUNT_STATE" = "0|0|0|0" ]; then
+              if [ -n "$AUTH_TENANT_A_ID$AUTH_TENANT_B_ID" ]; then
+                test -n "$AUTH_TENANT_A_ID" && test -n "$AUTH_TENANT_B_ID"
+                test "$AUTH_TENANT_A_ID" != "$AUTH_TENANT_B_ID"
+                AUTH_TENANT_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+                  -X -v ON_ERROR_STOP=1 -At \
+                  -v tenant_a_id="$AUTH_TENANT_A_ID" \
+                  -v tenant_b_id="$AUTH_TENANT_B_ID" <<'SQLAUTHTENANTS'
+          SELECT count(*) || '|' || count(*) FILTER (WHERE status <> 'ACTIVE')
+            FROM tenants
+           WHERE id IN (:'tenant_a_id'::uuid, :'tenant_b_id'::uuid);
+          SQLAUTHTENANTS
+                )"
+                test "$AUTH_TENANT_STATE" = "2|0" || {
+                  echo "::error::Explicit AUTH_SMOKE tenant IDs must resolve to two ACTIVE tenants"
+                  exit 1
+                }
+                CRM_TENANT_A_ID="$AUTH_TENANT_A_ID"
+                CRM_TENANT_B_ID="$AUTH_TENANT_B_ID"
+                ACCOUNT_SOURCE="EXPLICIT_TENANT_ENROLLMENT"
+              else
+                mapfile -t CRM_TENANT_IDS < <(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+                  -X -v ON_ERROR_STOP=1 -At \
+                  -v tenant_a_email="$AUTH_TENANT_A_EMAIL" \
+                  -v tenant_b_email="$AUTH_TENANT_B_EMAIL" <<'SQLEMAILTENANTS'
+          WITH candidates AS (
+              SELECT 1 AS ordinal, memberships.tenant_id
+                FROM organization_memberships memberships
+                JOIN tenants ON tenants.id = memberships.tenant_id
+               WHERE tenants.status = 'ACTIVE'
+                 AND lower(memberships.email) = lower(:'tenant_a_email')
+              UNION ALL
+              SELECT 1 AS ordinal, tenants.id
+                FROM tenants
+               WHERE tenants.status = 'ACTIVE'
+                 AND lower(tenants.billing_email) = lower(:'tenant_a_email')
+              UNION ALL
+              SELECT 2 AS ordinal, memberships.tenant_id
+                FROM organization_memberships memberships
+                JOIN tenants ON tenants.id = memberships.tenant_id
+               WHERE tenants.status = 'ACTIVE'
+                 AND lower(memberships.email) = lower(:'tenant_b_email')
+              UNION ALL
+              SELECT 2 AS ordinal, tenants.id
+                FROM tenants
+               WHERE tenants.status = 'ACTIVE'
+                 AND lower(tenants.billing_email) = lower(:'tenant_b_email')
+          )
+          SELECT min(tenant_id::text)
+            FROM candidates
+           GROUP BY ordinal
+          HAVING count(DISTINCT tenant_id) = 1
+           ORDER BY ordinal;
+          SQLEMAILTENANTS
+                )
+                if [ "${#CRM_TENANT_IDS[@]}" != "2" ] || [ "${CRM_TENANT_IDS[0]:-}" = "${CRM_TENANT_IDS[1]:-}" ]; then
+                  EMAIL_TENANT_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+                    -X -v ON_ERROR_STOP=1 -At \
+                    -v tenant_a_email="$AUTH_TENANT_A_EMAIL" \
+                    -v tenant_b_email="$AUTH_TENANT_B_EMAIL" <<'SQLEMAILTENANTSTATE'
+          WITH candidates AS (
+              SELECT 1 AS ordinal, memberships.tenant_id
+                FROM organization_memberships memberships
+                JOIN tenants ON tenants.id = memberships.tenant_id AND tenants.status = 'ACTIVE'
+               WHERE lower(memberships.email) = lower(:'tenant_a_email')
+              UNION ALL
+              SELECT 1, id FROM tenants WHERE status = 'ACTIVE' AND lower(billing_email) = lower(:'tenant_a_email')
+              UNION ALL
+              SELECT 2, memberships.tenant_id
+                FROM organization_memberships memberships
+                JOIN tenants ON tenants.id = memberships.tenant_id AND tenants.status = 'ACTIVE'
+               WHERE lower(memberships.email) = lower(:'tenant_b_email')
+              UNION ALL
+              SELECT 2, id FROM tenants WHERE status = 'ACTIVE' AND lower(billing_email) = lower(:'tenant_b_email')
+          )
+          SELECT count(DISTINCT tenant_id) FILTER (WHERE ordinal = 1) || '|' ||
+                 count(DISTINCT tenant_id) FILTER (WHERE ordinal = 2)
+            FROM candidates;
+          SQLEMAILTENANTSTATE
+                  )"
+                  if [ "$EMAIL_TENANT_STATE" = "0|0" ]; then
+                    CRM_TENANT_A_ID=""
+                    CRM_TENANT_B_ID=""
+                    CRM_TENANT_A_NAME="CRM G1 Production Acceptance A"
+                    CRM_TENANT_A_SUBDOMAIN="crm-g1-prod-acceptance-a"
+                    CRM_TENANT_B_NAME="CRM G1 Production Acceptance B"
+                    CRM_TENANT_B_SUBDOMAIN="crm-g1-prod-acceptance-b"
+                    CRM_RECONCILIATION_MODE="create-dedicated-tenants"
+                    ACCOUNT_SOURCE="DEDICATED_ACCEPTANCE_TENANT_BOOTSTRAP"
+                  else
+                    echo "::error::Each protected email must map to exactly one distinct ACTIVE tenant or neither may be mapped; observed=$EMAIL_TENANT_STATE"
+                    exit 1
+                  fi
+                else
+                  CRM_TENANT_A_ID="${CRM_TENANT_IDS[0]}"
+                  CRM_TENANT_B_ID="${CRM_TENANT_IDS[1]}"
+                  ACCOUNT_SOURCE="EMAIL_RELATION_TENANT_PAIR_ENROLLMENT"
+                fi
+              fi
+
+              if [ -n "$CRM_TENANT_A_EMAIL$CRM_TENANT_A_PASSWORD$CRM_TENANT_B_EMAIL$CRM_TENANT_B_PASSWORD" ]; then
+                for value in \
+                  "$CRM_TENANT_A_EMAIL" "$CRM_TENANT_A_PASSWORD" \
+                  "$CRM_TENANT_B_EMAIL" "$CRM_TENANT_B_PASSWORD"; do
+                  test -n "$value" || {
+                    echo "::error::The optional CRM credential override must be complete"
+                    exit 1
+                  }
+                done
+                test "${CRM_TENANT_A_EMAIL,,}" != "${CRM_TENANT_B_EMAIL,,}"
+              else
+                CRM_TENANT_A_EMAIL="$AUTH_TENANT_A_EMAIL"
+                CRM_TENANT_A_PASSWORD="$AUTH_TENANT_A_PASSWORD"
+                CRM_TENANT_B_EMAIL="$AUTH_TENANT_B_EMAIL"
+                CRM_TENANT_B_PASSWORD="$AUTH_TENANT_B_PASSWORD"
+              fi
+              if [ -z "$CRM_RECONCILIATION_MODE" ]; then
+                CRM_RECONCILIATION_MODE="enroll-missing"
+              fi
+            elif [ "$CRM_ACCOUNT_STATE" = "0|0|0|0" ] && [ "$AUTH_ACCOUNT_STATE" = "1|1|0|0" ]; then
+              PARTIAL_DEDICATED_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+                -X -v ON_ERROR_STOP=1 -At \
+                -v tenant_a_email="$AUTH_TENANT_A_EMAIL" \
+                -v tenant_b_email="$AUTH_TENANT_B_EMAIL" <<'SQLPARTIALDEDICATED'
+          WITH expected(email, subdomain) AS (
+              VALUES
+                  (lower(:'tenant_a_email'), 'crm-g1-prod-acceptance-a'),
+                  (lower(:'tenant_b_email'), 'crm-g1-prod-acceptance-b')
+          ), observed AS (
+              SELECT expected.subdomain AS expected_subdomain, tenants.subdomain AS actual_subdomain
+                FROM expected
+                JOIN users ON lower(users.email) = expected.email
+                JOIN tenants ON tenants.id = users.tenant_id
+          )
+          SELECT count(*) || '|' || count(*) FILTER (WHERE actual_subdomain <> expected_subdomain)
+            FROM observed;
+          SQLPARTIALDEDICATED
+              )"
+              test "$PARTIAL_DEDICATED_STATE" = "1|0" || {
+                echo "::error::A partial acceptance account is not bound to its dedicated tenant"
+                exit 1
+              }
+              CRM_TENANT_A_ID=""
+              CRM_TENANT_B_ID=""
+              CRM_TENANT_A_NAME="CRM G1 Production Acceptance A"
+              CRM_TENANT_A_SUBDOMAIN="crm-g1-prod-acceptance-a"
+              CRM_TENANT_B_NAME="CRM G1 Production Acceptance B"
+              CRM_TENANT_B_SUBDOMAIN="crm-g1-prod-acceptance-b"
+              CRM_RECONCILIATION_MODE="create-dedicated-tenants"
+              ACCOUNT_SOURCE="DEDICATED_ACCEPTANCE_TENANT_BOOTSTRAP_RECOVERY"
+              CRM_TENANT_A_EMAIL="$AUTH_TENANT_A_EMAIL"
+              CRM_TENANT_A_PASSWORD="$AUTH_TENANT_A_PASSWORD"
+              CRM_TENANT_B_EMAIL="$AUTH_TENANT_B_EMAIL"
+              CRM_TENANT_B_PASSWORD="$AUTH_TENANT_B_PASSWORD"
+            else
+              echo "::error::Refusing partial or unexpected acceptance identity state; crm=$CRM_ACCOUNT_STATE auth=$AUTH_ACCOUNT_STATE"
+              exit 1
+            fi
+          fi
+
+          export CRM_TENANT_A_ID CRM_TENANT_A_EMAIL CRM_TENANT_A_PASSWORD
+          export CRM_TENANT_B_ID CRM_TENANT_B_EMAIL CRM_TENANT_B_PASSWORD
+          export CRM_TENANT_A_NAME CRM_TENANT_A_SUBDOMAIN
+          export CRM_TENANT_B_NAME CRM_TENANT_B_SUBDOMAIN
+          export CRM_RECONCILIATION_MODE
+          export CRM_RECONCILIATION_EVIDENCE_DIR="$EVIDENCE_DIR"
+          if [ -n "$CRM_TENANT_A_ID" ]; then echo "::add-mask::$CRM_TENANT_A_ID"; fi
+          if [ -n "$CRM_TENANT_B_ID" ]; then echo "::add-mask::$CRM_TENANT_B_ID"; fi
+
+          python3 scripts/operations/crm_g1_credential_reconcile.py
+
+          if [ "$CRM_RECONCILIATION_MODE" = "create-dedicated-tenants" ]; then
+            mapfile -t CRM_TENANT_IDS < <(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+              -X -v ON_ERROR_STOP=1 -At \
+              -v tenant_a_email="$CRM_TENANT_A_EMAIL" \
+              -v tenant_b_email="$CRM_TENANT_B_EMAIL" <<'SQLCREATEDTENANTS'
+          SELECT tenant_id
+            FROM (
+                SELECT 1 AS ordinal, tenant_id FROM users WHERE lower(email) = lower(:'tenant_a_email')
+                UNION ALL
+                SELECT 2 AS ordinal, tenant_id FROM users WHERE lower(email) = lower(:'tenant_b_email')
+            ) created_tenants
+           ORDER BY ordinal;
+          SQLCREATEDTENANTS
+            )
+            test "${#CRM_TENANT_IDS[@]}" = "2"
+            test "${CRM_TENANT_IDS[0]}" != "${CRM_TENANT_IDS[1]}"
+            CRM_TENANT_A_ID="${CRM_TENANT_IDS[0]}"
+            CRM_TENANT_B_ID="${CRM_TENANT_IDS[1]}"
+            echo "::add-mask::$CRM_TENANT_A_ID"
+            echo "::add-mask::$CRM_TENANT_B_ID"
+          fi
+
+          POST_ACCOUNT_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -At \
+            -v tenant_a_id="$CRM_TENANT_A_ID" \
+            -v tenant_a_email="$CRM_TENANT_A_EMAIL" \
+            -v tenant_b_id="$CRM_TENANT_B_ID" \
+            -v tenant_b_email="$CRM_TENANT_B_EMAIL" <<'SQLPOSTACCOUNT'
+          WITH targets AS (
+              SELECT id, tenant_id, status, platform_admin
+                FROM users
+               WHERE (tenant_id = :'tenant_a_id'::uuid AND lower(email) = lower(:'tenant_a_email'))
+                  OR (tenant_id = :'tenant_b_id'::uuid AND lower(email) = lower(:'tenant_b_email'))
+          )
+          SELECT count(*) || '|' || count(DISTINCT tenant_id) || '|' ||
+                 count(*) FILTER (WHERE status <> 'ACTIVE') || '|' ||
+                 count(*) FILTER (WHERE platform_admin IS TRUE)
+            FROM targets;
+          SQLPOSTACCOUNT
+          )"
+          test "$POST_ACCOUNT_STATE" = "2|2|0|0" || {
+            echo "::error::Acceptance account postcondition failed; observed=$POST_ACCOUNT_STATE"
+            exit 1
+          }
+
+          CREDENTIAL_STATE="$(PGPASSWORD="$PROD_DB_PASSWORD" psql "$PSQL_URL" -U "$PROD_DB_USER" \
+            -X -v ON_ERROR_STOP=1 -At \
+            -v tenant_a_email="$CRM_TENANT_A_EMAIL" \
+            -v tenant_b_email="$CRM_TENANT_B_EMAIL" <<'SQLCREDENTIALS'
+          SELECT count(*) || '|' ||
+                 count(*) FILTER (WHERE must_change_password IS DISTINCT FROM FALSE) || '|' ||
+                 count(*) FILTER (WHERE password_set_by IS DISTINCT FROM 'self-service')
+            FROM users
+           WHERE lower(email) IN (lower(:'tenant_a_email'), lower(:'tenant_b_email'));
+          SQLCREDENTIALS
+          )"
+          test "$CREDENTIAL_STATE" = "2|0|0" || {
+            echo "::error::Acceptance credential postcondition failed"
+            exit 1
+          }
+
+          FRONT_CODE="$(curl -sS --max-time 45 -o /dev/null -w '%{http_code}' "$PRODUCTION_WEB_BASE_URL")"
+          test "$FRONT_CODE" = "200"
+          STATUS_CODE="$(curl -sS --max-time 45 -o "$RUNNER_TEMP/backend-status.json" -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL%/}/api/system/backend-status")"
+          test "$STATUS_CODE" = "200"
+          jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null
+          AUTH_CODE="$(curl -sS --max-time 45 -o /dev/null -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL%/}/api/platform/api/v1/auth/me")"
+          test "$AUTH_CODE" = "401"
+          HEALTH_CODE="$(curl -sS --max-time 45 -o "$RUNNER_TEMP/backend-health.json" -w '%{http_code}' "$BACKEND_HEALTH_URL")"
+          test "$HEALTH_CODE" = "200"
+          jq -e '.status == "UP"' "$RUNNER_TEMP/backend-health.json" >/dev/null
+          jq -n --arg frontend "$FRONT_CODE" --arg backend "$STATUS_CODE" --arg auth "$AUTH_CODE" --arg health "$HEALTH_CODE" \
+            '{frontend_http:$frontend,backend_status_http:$backend,auth_me_http:$auth,backend_health_http:$health,result:"PASS"}' \
+            > "$EVIDENCE_DIR/runtime-health.json"
+
+          pushd apps/web >/dev/null
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chrome
+          PLAYWRIGHT_BASE_URL="$PRODUCTION_WEB_BASE_URL" \
+          CRM_TENANT_A_EMAIL="$CRM_TENANT_A_EMAIL" CRM_TENANT_A_PASSWORD="$CRM_TENANT_A_PASSWORD" \
+          CRM_TENANT_B_EMAIL="$CRM_TENANT_B_EMAIL" CRM_TENANT_B_PASSWORD="$CRM_TENANT_B_PASSWORD" \
+            npx playwright test e2e/crm-authenticated-acceptance.spec.ts e2e/crm-tenant-isolation.spec.ts \
+              --config=playwright.crm-acceptance.config.ts --reporter=html,list --trace=off
+          popd >/dev/null
+          test -d apps/web/crm-playwright-report && cp -R apps/web/crm-playwright-report "$EVIDENCE_DIR/"
+
+          test -n "$MIGRATION_RESULT"
+          COMPLETED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          jq -n --arg release "$RELEASE_SHA" --arg target "$TARGET_FLYWAY_VERSION" \
+            --arg migration "$MIGRATION_RESULT" --arg backup "$BACKUP_REFERENCE" \
+            --arg approval "$CHANGE_APPROVAL_REFERENCE" --arg run "$RUN_URL" \
+            --arg actor "$GITHUB_ACTOR" --arg started "$STARTED_AT" --arg completed "$COMPLETED_AT" \
+            --arg account_source "$ACCOUNT_SOURCE" --arg reconciliation_mode "$CRM_RECONCILIATION_MODE" \
+            '{report_id:"G1-STAGE-REPORT-V1",result:"PASS",release_sha:$release,target_flyway_version:$target,migration_result:$migration,account_source:$account_source,reconciliation_mode:$reconciliation_mode,backup_reference:$backup,change_approval_reference:$approval,workflow_run:$run,actor:$actor,started_at_utc:$started,completed_at_utc:$completed}' \
+            > "$EVIDENCE_DIR/execution-summary.json"
+          find "$EVIDENCE_DIR" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > "$EVIDENCE_DIR/SHA256SUMS.txt"
+
+          echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "migration_result=$MIGRATION_RESULT" >> "$GITHUB_OUTPUT"
+          echo "evidence_dir=$EVIDENCE_DIR" >> "$GITHUB_OUTPUT"
+          echo "run_url=$RUN_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Upload immutable CRM-G1 evidence
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-g1-production-closure-${{ github.run_id }}
+          path: ${{ runner.temp }}/crm-g1-production-evidence
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Create evidence record and pull request
+        id: evidence_pr
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.closure.outputs.release_sha }}
+          MIGRATION_RESULT: ${{ steps.closure.outputs.migration_result }}
+          RUN_URL: ${{ steps.closure.outputs.run_url }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          def esc(value): return value.replace('|', '\\|').replace('\n', ' ')
+          lines = [
+              '# CRM-G1 Production Migration Evidence', '',
+              '> **Evidence status:** `COMPLETE / READY_FOR_REVIEW`  ',
+              '> **Gate:** `PRODUCTION_EXECUTION_COMPLETE / EVIDENCE_PR_PENDING_REVIEW`', '',
+              '| Field | Evidence |', '|---|---|',
+              f"| Release SHA | `{esc(os.environ['RELEASE_SHA'])}` |",
+              f"| Flyway target | `{os.environ['TARGET_FLYWAY_VERSION']}` |",
+              f"| Migration result | `{esc(os.environ['MIGRATION_RESULT'])}` |",
+              f"| Backup reference | `{esc(os.environ['BACKUP_REFERENCE'])}` |",
+              f"| Change approval | `{esc(os.environ['CHANGE_APPROVAL_REFERENCE'])}` |",
+              f"| Workflow | {os.environ['RUN_URL']} |",
+              f"| Artifact | {os.environ['ARTIFACT_URL']} |",
+              f"| Artifact digest | `{esc(os.environ['ARTIFACT_DIGEST'])}` |", '',
+              '```text',
+              'EXACT_MAIN_AND_VERCEL_SHA: PASS',
+              'PRODUCTION_FLYWAY_AND_SCHEMA: PASS',
+              'EIGHT_TABLES_AND_26_INDEXES: PASS',
+              'FRONTEND_BFF_BACKEND_HEALTH: PASS',
+              'AUTHENTICATED_TWO_TENANT_CRM: PASS',
+              'CRM-G1: PRODUCTION_EXECUTION_COMPLETE / EVIDENCE_PR_PENDING_REVIEW',
+              '```', '',
+              'Merge this evidence PR to finalize CRM-G1. REM-P0-006 remains independent.', ''
+          ]
+          Path('docs/crm/evidence/CRM-G1-PRODUCTION-MIGRATION-EVIDENCE.md').write_text('\n'.join(lines), encoding='utf-8')
+          PY
+
+          branch="evidence/crm-g1-production-${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add docs/crm/evidence/CRM-G1-PRODUCTION-MIGRATION-EVIDENCE.md
+          git commit -m "docs(crm): record G1 production closure evidence"
+          git push --set-upstream origin "$branch"
+
+          cat > "$RUNNER_TEMP/pr-body.md" <<EOF
+          CRM-G1 production closure passed for release `${RELEASE_SHA}`.
+
+          - Migration: `${MIGRATION_RESULT}`
+          - Backup: `${BACKUP_REFERENCE}`
+          - Approval: `${CHANGE_APPROVAL_REFERENCE}`
+          - Workflow: ${RUN_URL}
+          - Evidence: ${ARTIFACT_URL}
+          - Digest: `${ARTIFACT_DIGEST}`
+
+          Review and merge this PR to finalize CRM-G1. REM-P0-006 is not closed by this PR.
+          EOF
+          PR_URL="$(gh pr create --base main --head "$branch" \
+            --title "CRM-G1: production closure evidence (${GITHUB_RUN_ID})" \
+            --body-file "$RUNNER_TEMP/pr-body.md")"
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Publish result
+        if: always()
+        shell: bash
+        env:
+          STATUS: ${{ job.status }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          PR_URL: ${{ steps.evidence_pr.outputs.pr_url }}
+        run: |
+          {
+            echo "## CRM-G1 Production Closure"
+            echo "- Status: **${STATUS}**"
+            echo "- Evidence artifact: ${ARTIFACT_URL:-not-created}"
+            echo "- Evidence PR: ${PR_URL:-not-created}"
+            if [ "$STATUS" = success ]; then
+              echo "- Gate: **PRODUCTION_EXECUTION_COMPLETE / EVIDENCE_PR_PENDING_REVIEW**"
+            else
+              echo "- Gate: **OPEN / NOT_READY_FOR_CLOSURE**"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

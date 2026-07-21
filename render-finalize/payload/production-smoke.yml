@@ -1,0 +1,106 @@
+name: Production Readiness Gate
+
+# ============================================================
+# SNAD Platform — Fail-Closed Production Readiness Gate
+# ------------------------------------------------------------
+# Verifies the complete production chain:
+# Vercel UI -> integration status -> BFF -> backend auth -> Actuator.
+# Runs after relevant changes, on pull requests, manually, and hourly.
+# ============================================================
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/web/**'
+      - 'apps/sanad-platform/**'
+      - 'scripts/ci/check-production-readiness.py'
+      - '.github/workflows/production-smoke.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'apps/web/**'
+      - 'apps/sanad-platform/**'
+      - 'scripts/ci/check-production-readiness.py'
+      - '.github/workflows/production-smoke.yml'
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-readiness-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-production:
+    name: Verify End-to-End Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Compile readiness probe
+        run: python3 -m py_compile scripts/ci/check-production-readiness.py
+
+      - name: Verify production readiness
+        env:
+          SNAD_PRODUCTION_URL: https://snad-app.vercel.app
+          # Fail closed if production unexpectedly points to another backend.
+          # Update this value only as part of an approved backend cutover.
+          SNAD_BACKEND_EXPECTED_HOST: sanad-backend-mcrj.onrender.com
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/check-production-readiness.py \
+            --attempts 18 \
+            --delay-seconds 10 \
+            --timeout-seconds 15 \
+            --evidence-file "$RUNNER_TEMP/production-readiness-evidence.json"
+
+      - name: Publish readiness summary
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = Path(os.environ["RUNNER_TEMP"]) / "production-readiness-evidence.json"
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          with summary.open("a", encoding="utf-8") as output:
+              output.write("## SNAD Production Readiness\n\n")
+              if not evidence.exists():
+                  output.write("No evidence file was produced. The gate failed before completing a probe.\n")
+              else:
+                  data = json.loads(evidence.read_text(encoding="utf-8"))
+                  output.write(f"**Overall:** {'PASS' if data['passed'] else 'FAIL'}  \n")
+                  output.write(f"**Attempt:** {data['attempt']}  \n")
+                  output.write(f"**Generated:** {data['generatedAt']}\n\n")
+                  output.write("| Check | Result | Actual | Expected |\n")
+                  output.write("|---|---:|---|---|\n")
+                  for check in data["checks"]:
+                      result = "PASS" if check["passed"] else "FAIL"
+                      actual = str(check["actual"]).replace("|", "\\|")
+                      expected = str(check["expected"]).replace("|", "\\|")
+                      output.write(f"| {check['name']} | {result} | {actual} | {expected} |\n")
+          PY
+
+      - name: Upload production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-readiness-${{ github.run_id }}
+          path: ${{ runner.temp }}/production-readiness-evidence.json
+          if-no-files-found: error
+          retention-days: 30

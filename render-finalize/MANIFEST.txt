@@ -1,0 +1,10 @@
+payload/RENDER-PRODUCTION-CUTOVER.md
+payload/backend-status-route.test.ts
+payload/backend-status-route.ts
+payload/check-production-readiness.py
+payload/connect-local-backend.ps1
+payload/crm-g1-production-closure.yml
+payload/health.ts
+payload/platform-route.ts
+payload/production-smoke.yml
+payload/self-hosted-deploy.yml.disabled
