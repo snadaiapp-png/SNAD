@@ -46,11 +46,11 @@ test.describe("CRM unauthenticated route contract", () => {
     }
   });
 
-  test("anonymous /crm navigation preserves the canonical redirected return URL", async ({ page }) => {
+  test("anonymous /crm navigation ends at login with its return URL preserved", async ({ page }) => {
     const hydrationErrors = collectHydrationErrors(page);
     const response = await page.goto("/crm");
     if (response) expect(response.status()).toBeLessThan(500);
-    await expectProtectedLogin(page, "/crm/overview");
+    await expectProtectedLogin(page, "/crm");
     expect(hydrationErrors).toEqual([]);
   });
 
