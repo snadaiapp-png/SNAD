@@ -1,0 +1,29 @@
+name: Diagnose Current Production Orchestrator
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/diag-current-orchestrator.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  read-state:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: 9d42d4587d3b6f7ba04f11ca7f68c60b6b088238
+    steps:
+      - name: Print exact orchestrator state
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/crm-exact-sha-production-orchestrator.yml/runs?branch=main&per_page=30" > "$RUNNER_TEMP/runs.json"
+          jq --arg sha "$TARGET_SHA" '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.created_at) | reverse | first // empty | {id,name,event,status,conclusion,head_sha,created_at,updated_at,html_url}' "$RUNNER_TEMP/runs.json" > "$RUNNER_TEMP/run.json"
+          cat "$RUNNER_TEMP/run.json"
+          RUN_ID="$(jq -r '.id // empty' "$RUNNER_TEMP/run.json")"
+          test -n "$RUN_ID" || { echo '::error::Exact-SHA orchestrator run not found'; exit 1; }
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" | jq '{jobs:[.jobs[] | {id,name,status,conclusion,started_at,completed_at,steps:[.steps[] | {number,name,status,conclusion}]}]}'
