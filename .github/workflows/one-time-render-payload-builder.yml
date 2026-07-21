@@ -1,0 +1,121 @@
+name: One-Time Render Payload Builder
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-render-payload-builder.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-payload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Build patched payload copies
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf render-finalize
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path('render-finalize/payload')
+          render_host = 'sanad-backend-mcrj.onrender.com'
+          old_host = 'streak-train-empower.ngrok-free.dev'
+
+          def write_copy(source: str, destination: str, replacements: list[tuple[str, str]]):
+              text = Path(source).read_text(encoding='utf-8')
+              for old, new in replacements:
+                  if old not in text:
+                      raise SystemExit(f'Expected text not found in {source}: {old!r}')
+                  text = text.replace(old, new)
+              out = root / destination
+              out.parent.mkdir(parents=True, exist_ok=True)
+              out.write_text(text, encoding='utf-8')
+
+          write_copy(
+              '.github/workflows/production-smoke.yml',
+              'production-smoke.yml',
+              [(old_host, render_host)],
+          )
+          write_copy(
+              '.github/workflows/crm-g1-production-closure.yml',
+              'crm-g1-production-closure.yml',
+              [(f'https://{old_host}/actuator/health', f'https://{render_host}/actuator/health')],
+          )
+          write_copy(
+              'apps/web/app/api/system/backend-status/route.test.ts',
+              'backend-status-route.test.ts',
+              [(old_host, render_host)],
+          )
+          write_copy(
+              'apps/web/app/api/platform/[...path]/route.ts',
+              'platform-route.ts',
+              [('  if (baseUrl.includes("ngrok")) {\n    headers.set("ngrok-skip-browser-warning", "any-value");\n  }\n', '')],
+          )
+          write_copy(
+              'scripts/ci/check-production-readiness.py',
+              'check-production-readiness.py',
+              [('    hostname = urllib.parse.urlparse(url).hostname or ""\n    if "ngrok" in hostname.lower():\n        headers["ngrok-skip-browser-warning"] = "true"\n\n', '')],
+          )
+          write_copy(
+              'apps/web/lib/api/health.ts',
+              'health.ts',
+              [('// Tunneled local backends can take longer than a same-region hosted service.\n', '// Hosted backends are probed within the bounded BFF timeout contract.\n')],
+          )
+          write_copy(
+              'apps/web/app/api/system/backend-status/route.ts',
+              'backend-status-route.ts',
+              [('the public ngrok / Render host', 'the private backend host')],
+          )
+          write_copy(
+              '.github/workflows/self-hosted-deploy.yml',
+              'self-hosted-deploy.yml.disabled',
+              [],
+          )
+
+          retired = root / 'connect-local-backend.ps1'
+          retired.write_text(
+              "$ErrorActionPreference = 'Stop'\n"
+              "throw 'Retired: SNAD production backend is hosted exclusively on Render. Local tunnel connection is disabled.'\n",
+              encoding='utf-8',
+          )
+
+          cutover = root / 'RENDER-PRODUCTION-CUTOVER.md'
+          cutover.write_text(
+              "# Render Production Cutover\n\n"
+              "- Production frontend: `https://snad-app.vercel.app`\n"
+              "- Production backend: `https://sanad-backend-mcrj.onrender.com`\n"
+              "- Vercel BFF upstream: Render only\n"
+              "- Self-hosted automatic deployment: disabled\n"
+              "- Local/ngrok production tunnel: retired\n"
+              "- Health contract: `/actuator/health` must return HTTP 200 and `status=UP`\n"
+              "- BFF unauthenticated boundary: `/api/platform/api/v1/auth/me` must return HTTP 401\n",
+              encoding='utf-8',
+          )
+
+          manifest = root.parent / 'MANIFEST.txt'
+          manifest.write_text('\n'.join(sorted(str(p.relative_to(root.parent)) for p in root.rglob('*') if p.is_file())) + '\n', encoding='utf-8')
+          PY
+
+          ! grep -R --line-number --fixed-strings 'streak-train-empower.ngrok-free.dev' render-finalize/payload
+          git diff --check -- render-finalize
+
+      - name: Push payload branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -B ops/render-finalize-payload
+          git add render-finalize
+          git commit -m 'ops: prepare Render-only finalization payload'
+          git push --force-with-lease origin HEAD:refs/heads/ops/render-finalize-payload
