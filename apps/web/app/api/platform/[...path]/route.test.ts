@@ -29,7 +29,7 @@ function request(
 describe("platform BFF", () => {
   beforeEach(() => {
     vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("BACKEND_API_BASE_URL", "https://sanad-backend.example.com");
+    vi.stubEnv("BACKEND_API_BASE_URL", "https://sanad-backend-mcrj.onrender.com");
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -50,6 +50,18 @@ describe("platform BFF", () => {
 
     expect(response.status).toBe(503);
     expect(response.headers.get("x-request-id")).toBeTruthy();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-Render backend URL in production", async () => {
+    vi.stubEnv("BACKEND_API_BASE_URL", "https://unapproved-backend.example.com");
+
+    const response = await GET(
+      request("/api/v1/auth/me"),
+      context("api", "v1", "auth", "me"),
+    );
+
+    expect(response.status).toBe(503);
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -169,7 +181,7 @@ describe("platform BFF", () => {
 
     expect(response.status).toBe(200);
     const [url, init] = vi.mocked(fetch).mock.calls[0];
-    expect(url).toBe("https://sanad-backend.example.com/api/v1/control-plane/dashboard");
+    expect(url).toBe("https://sanad-backend-mcrj.onrender.com/api/v1/control-plane/dashboard");
     expect((init?.headers as Headers).get("authorization")).toBe("Bearer access-token");
     expect((init?.headers as Headers).get("x-request-id")).toBeTruthy();
   });
