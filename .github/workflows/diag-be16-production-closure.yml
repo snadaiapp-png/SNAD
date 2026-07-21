@@ -1,4 +1,4 @@
-name: Diagnose BE16 Production Closure
+name: Diagnose D321 Required Gates
 
 on:
   pull_request:
@@ -11,54 +11,48 @@ permissions:
 
 jobs:
   inspect:
-    name: Read exact-SHA workflow states
+    name: Read exact D321 gate runs
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      RELEASE_SHA: be16fe5c6321d22a290cc792808accc6f62e11b1
+      RELEASE_SHA: d3212429c66b6db663fa7eef7faa424b54cb442a
+      RELEASE_REF: release/d321-exact-production
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Query exact-SHA and recent workflow runs
         shell: bash
         run: |
           set -euo pipefail
-          OUT="$RUNNER_TEMP/be16-production-status"
+          OUT="$RUNNER_TEMP/d321-gate-status"
           mkdir -p "$OUT"
-          workflows=(
-            crm007-current-main-closure-trigger.yml
-            crm-exact-sha-production-orchestrator.yml
-            publish-render-image.yml
-            crm-idempotency-production-reconciliation.yml
-            crm-g1-production-closure.yml
-            crm-007-final-production-closure.yml
-          )
+          workflows=(playwright-ci.yml production-smoke.yml crm-deployment-readiness.yml)
           for workflow in "${workflows[@]}"; do
             curl --fail-with-body --silent --show-error --max-time 45 \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H 'Accept: application/vnd.github+json' \
               -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?branch=main&per_page=50" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?per_page=50" \
               > "$OUT/${workflow}.all.json"
             jq --arg sha "$RELEASE_SHA" \
-              '[.workflow_runs[] | select(.head_sha == $sha) | {id,name,event,status,conclusion,head_sha,created_at,updated_at,html_url,run_attempt}] | sort_by(.created_at)' \
-              "$OUT/${workflow}.all.json" > "$OUT/${workflow}.json"
-            jq '[.workflow_runs[:10][] | {id,name,event,status,conclusion,head_sha,head_branch,created_at,updated_at,html_url,run_attempt}]' \
+              '[.workflow_runs[] | select(.head_sha == $sha) | {id,name,event,status,conclusion,head_sha,head_branch,created_at,updated_at,html_url,run_attempt}] | sort_by(.created_at) | reverse' \
+              "$OUT/${workflow}.all.json" > "$OUT/${workflow}.exact.json"
+            jq '[.workflow_runs[:15][] | {id,name,event,status,conclusion,head_sha,head_branch,created_at,updated_at,html_url,run_attempt}]' \
               "$OUT/${workflow}.all.json" > "$OUT/${workflow}.recent.json"
             rm "$OUT/${workflow}.all.json"
           done
-          jq -n --arg release "$RELEASE_SHA" '{release_sha:$release,mode:"READ_ONLY_REFRESHED"}' > "$OUT/context.json"
+          jq -n --arg release "$RELEASE_SHA" --arg ref "$RELEASE_REF" '{release_sha:$release,release_ref:$ref,mode:"READ_ONLY"}' > "$OUT/context.json"
           {
-            echo '## Exact-SHA Production Workflow States'
+            echo '## Exact D321 Required Gate Runs'
             echo "- Release SHA: \`$RELEASE_SHA\`"
             for workflow in "${workflows[@]}"; do
-              echo "- ${workflow}: \`$(jq -c . "$OUT/${workflow}.json")\`"
+              echo "- ${workflow}: \`$(jq -c . "$OUT/${workflow}.exact.json")\`"
             done
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload read-only diagnostics
         uses: actions/upload-artifact@v4
         with:
-          name: be16-production-workflow-status
-          path: ${{ runner.temp }}/be16-production-status
+          name: d321-required-gate-status
+          path: ${{ runner.temp }}/d321-gate-status
           if-no-files-found: error
           retention-days: 7
