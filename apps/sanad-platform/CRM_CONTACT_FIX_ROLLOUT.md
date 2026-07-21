@@ -9,6 +9,14 @@ The publish workflow must first reconcile the direct Render runtime variables:
 
 It then deploys `ghcr.io/snadaiapp-png/snad-backend:<exact-merge-sha>`. A successful publish dispatches the read-only CRM-G1 gate, and CRM-007 is chained only after CRM-G1 succeeds.
 
+Runtime remediation generation: `render-flyway-runtime-v1`.
+
+Before the exact image is redeployed, the protected remediation workflow enforces the direct Render runtime contract:
+
+- `SPRING_PROFILES_ACTIVE=prod`;
+- `FLYWAY_ENABLED=true`;
+- `FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/vendor/{vendor}`.
+
 Required closure evidence:
 
 - Vercel Production is `READY` on the exact merge SHA;
