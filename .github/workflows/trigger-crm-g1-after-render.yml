@@ -1,0 +1,42 @@
+name: Trigger CRM-G1 After Render
+
+on:
+  workflow_run:
+    workflows: ["Publish Render Backend Image"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: trigger-crm-g1-after-render
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: github.event.workflow_run.conclusion == 'success'
+    name: Dispatch read-only CRM-G1 closure for published SHA
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify published SHA is current main
+        env:
+          PUBLISHED_SHA: ${{ github.event.workflow_run.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT_MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          test "$PUBLISHED_SHA" = "$CURRENT_MAIN_SHA" || {
+            echo "::error::The successful Render publish does not match current main"
+            exit 1
+          }
+
+      - name: Dispatch CRM-G1 read-only Production closure
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run crm-g1-production-closure.yml --repo "$GITHUB_REPOSITORY" --ref main
