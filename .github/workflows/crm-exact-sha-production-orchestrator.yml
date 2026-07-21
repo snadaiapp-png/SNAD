@@ -72,25 +72,36 @@ jobs:
           REMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
           test "$REMOTE_MAIN_SHA" = "$GITHUB_SHA" || { echo "::error::Workflow is not executing current main"; exit 1; }
 
-      - name: Deploy exact SHA to Vercel Production
+      - name: Await exact-SHA Vercel Git deployment
         id: vercel
         shell: bash
         run: |
           set -euo pipefail
-          DEPLOY_LOG="$RUNNER_TEMP/vercel-deploy.log"
-          npx --yes vercel@56.4.1 deploy \
-            --prod \
-            --force \
-            --yes \
-            --token "$VERCEL_TOKEN" \
-            --scope "$VERCEL_TEAM_SLUG" \
-            --meta "githubCommitSha=$GITHUB_SHA" \
-            --meta 'githubCommitRef=main' \
-            --meta "githubOrg=${GITHUB_REPOSITORY_OWNER}" \
-            --meta "githubRepo=${GITHUB_REPOSITORY#*/}" \
-            2>&1 | tee "$DEPLOY_LOG"
-          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$DEPLOY_LOG" | tail -n 1)"
-          test -n "$DEPLOYMENT_URL" || { echo "::error::Vercel CLI returned no deployment URL"; exit 1; }
+          HOST="${WEB_BASE_URL#https://}"
+          MATCHED=false
+          DEPLOYMENT_URL=""
+          for attempt in $(seq 1 120); do
+            curl --fail-with-body --silent --show-error --max-time 45 \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+              "https://api.vercel.com/v13/deployments/${HOST}?teamId=${VERCEL_TEAM_ID}" \
+              > "$RUNNER_TEMP/vercel-git-production.json"
+            LIVE_SHA="$(jq -r '.meta.githubCommitSha // empty' "$RUNNER_TEMP/vercel-git-production.json")"
+            STATE="$(jq -r '.readyState // .state // empty' "$RUNNER_TEMP/vercel-git-production.json")"
+            TARGET="$(jq -r '.target // empty' "$RUNNER_TEMP/vercel-git-production.json")"
+            if [ "$LIVE_SHA" = "$GITHUB_SHA" ] && [ "$STATE" = "READY" ] && [ "$TARGET" = "production" ]; then
+              LIVE_URL="$(jq -r '.url // empty' "$RUNNER_TEMP/vercel-git-production.json")"
+              test -n "$LIVE_URL" || { echo "::error::Exact-SHA Vercel deployment returned no URL"; exit 1; }
+              DEPLOYMENT_URL="https://${LIVE_URL#https://}"
+              MATCHED=true
+              break
+            fi
+            if [ "$LIVE_SHA" = "$GITHUB_SHA" ] && { [ "$STATE" = "ERROR" ] || [ "$STATE" = "CANCELED" ]; }; then
+              echo "::error::Exact-SHA Vercel Git deployment reached terminal state: $STATE"
+              exit 1
+            fi
+            sleep 5
+          done
+          test "$MATCHED" = "true" || { echo "::error::Vercel Git Integration did not produce an exact-SHA READY production deployment"; exit 1; }
           echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
 
       - name: Verify Vercel Production alias and exact SHA
