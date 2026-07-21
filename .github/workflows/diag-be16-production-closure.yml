@@ -18,7 +18,7 @@ jobs:
       RELEASE_SHA: be16fe5c6321d22a290cc792808accc6f62e11b1
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Query exact-SHA workflow runs
+      - name: Query exact-SHA and recent workflow runs
         shell: bash
         run: |
           set -euo pipefail
@@ -42,9 +42,11 @@ jobs:
             jq --arg sha "$RELEASE_SHA" \
               '[.workflow_runs[] | select(.head_sha == $sha) | {id,name,event,status,conclusion,head_sha,created_at,updated_at,html_url,run_attempt}] | sort_by(.created_at)' \
               "$OUT/${workflow}.all.json" > "$OUT/${workflow}.json"
+            jq '[.workflow_runs[:10][] | {id,name,event,status,conclusion,head_sha,head_branch,created_at,updated_at,html_url,run_attempt}]' \
+              "$OUT/${workflow}.all.json" > "$OUT/${workflow}.recent.json"
             rm "$OUT/${workflow}.all.json"
           done
-          jq -n --arg release "$RELEASE_SHA" '{release_sha:$release,mode:"READ_ONLY"}' > "$OUT/context.json"
+          jq -n --arg release "$RELEASE_SHA" '{release_sha:$release,mode:"READ_ONLY_REFRESHED"}' > "$OUT/context.json"
           {
             echo '## Exact-SHA Production Workflow States'
             echo "- Release SHA: \`$RELEASE_SHA\`"
