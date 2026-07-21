@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import subprocess
 import sys
 import time
@@ -129,13 +130,99 @@ class RenderClient:
         return deploy_id
 
 
+def request_json(
+    method: str,
+    url: str,
+    *,
+    origin: str,
+    payload: dict[str, Any],
+    access_token: str | None = None,
+) -> tuple[int, Any]:
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Origin": origin,
+        "User-Agent": "SANAD-REM-P0-002-Resync/3.0",
+    }
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+        headers=headers,
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            status = response.status
+            raw = response.read()
+    except urllib.error.HTTPError as error:
+        status = error.code
+        raw = error.read()
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        raise ResyncFailure(f"production credential request failed: {type(error).__name__}") from error
+
+    if not raw:
+        return status, None
+    try:
+        return status, json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return status, {"invalidJson": True}
+
+
+def complete_required_rotation(
+    base_url: str,
+    tenant_id: str,
+    email: str,
+    temporary_password: str,
+    final_password: str,
+) -> None:
+    auth_base = f"{base_url}/api/platform/api/v1/auth"
+    login_status, login_body = request_json(
+        "POST",
+        f"{auth_base}/login",
+        origin=base_url,
+        payload={"tenantId": tenant_id, "email": email, "password": temporary_password},
+    )
+    if login_status != 200 or not isinstance(login_body, dict):
+        raise ResyncFailure(f"temporary credential login failed with HTTP {login_status}")
+    access_token = login_body.get("accessToken")
+    user = login_body.get("user")
+    if not isinstance(access_token, str) or not access_token:
+        raise ResyncFailure("temporary credential login did not return an access token")
+    if not isinstance(user, dict) or user.get("tenantId") != tenant_id:
+        raise ResyncFailure("temporary credential login tenant binding mismatch")
+
+    change_status, _ = request_json(
+        "POST",
+        f"{auth_base}/change-credential",
+        origin=base_url,
+        access_token=access_token,
+        payload={"currentCredential": temporary_password, "newCredential": final_password},
+    )
+    if change_status != 204:
+        raise ResyncFailure(f"required credential rotation failed with HTTP {change_status}")
+
+    write_json(
+        "rem-p0-002-credential-rotation-v4.json",
+        {
+            "finding": "REM-P0-002",
+            "operation": "official-change-credential",
+            "loginStatus": login_status,
+            "changeCredentialStatus": change_status,
+            "tenantBinding": "PASS",
+            "result": "PASS",
+        },
+    )
+
+
 def wait_backend(base_url: str) -> dict[str, Any]:
     deadline = time.monotonic() + 5 * 60
     last: dict[str, Any] | None = None
     while time.monotonic() < deadline:
         request = urllib.request.Request(
             f"{base_url}/api/system/backend-status",
-            headers={"Accept": "application/json", "User-Agent": "SANAD-REM-P0-002-Resync/2.0"},
+            headers={"Accept": "application/json", "User-Agent": "SANAD-REM-P0-002-Resync/3.0"},
         )
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
@@ -154,7 +241,7 @@ def run_synthetic(base_url: str) -> None:
     env = os.environ.copy()
     env["PRODUCTION_WEB_BASE_URL"] = base_url
     env["AUTH_SYNTHETIC_ITERATIONS"] = "5"
-    env["AUTH_SYNTHETIC_EVIDENCE_PATH"] = str(EVIDENCE / "rem-p0-002-post-resync-synthetic-v3.json")
+    env["AUTH_SYNTHETIC_EVIDENCE_PATH"] = str(EVIDENCE / "rem-p0-002-post-resync-synthetic-v4.json")
     result = subprocess.run([sys.executable, "scripts/operations/bff_auth_session_synthetic.py"], env=env, check=False)
     if result.returncode != 0:
         raise ResyncFailure("five production authentication journeys failed after credential synchronization")
@@ -170,8 +257,9 @@ def main() -> int:
     client = RenderClient(required("RENDER_API_KEY"), required("RENDER_SERVICE_ID"))
     tenant_id = required("AUTH_SMOKE_TENANT_ID")
     email = required("AUTH_SMOKE_EMAIL")
-    password = required("AUTH_SMOKE_PASSWORD")
+    final_password = required("AUTH_SMOKE_PASSWORD")
     base_url = required("PRODUCTION_WEB_BASE_URL").rstrip("/")
+    temporary_password = secrets.token_urlsafe(48)
 
     reset_deploy_id = ""
     cleanup_deploy_id = ""
@@ -183,24 +271,27 @@ def main() -> int:
             "SANAD_SECURITY_BOOTSTRAP_FORCE_RESET": "true",
             "SANAD_SECURITY_BOOTSTRAP_TENANT_ID": tenant_id,
             "SANAD_SECURITY_BOOTSTRAP_ADMIN_EMAIL": email,
-            "SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD": password,
+            "SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD": temporary_password,
             "SANAD_SECURITY_BOOTSTRAP_ADMIN_DISPLAY_NAME": "SANAD Synthetic Operator",
-            "SANAD_SECURITY_BOOTSTRAP_AUDIT_ACTOR": "rem-p0-002-credential-resync-v3",
+            "SANAD_SECURITY_BOOTSTRAP_AUDIT_ACTOR": "rem-p0-002-credential-resync-v4",
         }
         for key, value in values.items():
             client.put_variable(key, value)
         reset_deploy_id = client.deploy_and_wait()
         write_json(
-            "rem-p0-002-credential-resync-v3.json",
+            "rem-p0-002-credential-resync-v4.json",
             {
                 "finding": "REM-P0-002",
                 "operation": "credential-bootstrap-force-reset",
                 "deployId": reset_deploy_id,
                 "tenantId": tenant_id,
-                "auditActor": "rem-p0-002-credential-resync-v3",
+                "auditActor": "rem-p0-002-credential-resync-v4",
+                "temporaryCredential": "GENERATED_NOT_PERSISTED",
                 "result": "PASS",
             },
         )
+        wait_backend(base_url)
+        complete_required_rotation(base_url, tenant_id, email, temporary_password, final_password)
     except Exception as error:  # cleanup must run for any failure
         primary_error = error
     finally:
@@ -217,7 +308,7 @@ def main() -> int:
             except Exception as error:
                 cleanup_errors.append(str(error))
         write_json(
-            "rem-p0-002-bootstrap-cleanup-v3.json",
+            "rem-p0-002-bootstrap-cleanup-v4.json",
             {
                 "bootstrapEnabled": False,
                 "forceReset": False,
@@ -234,16 +325,17 @@ def main() -> int:
         return 1
 
     routing = wait_backend(base_url)
-    write_json("rem-p0-002-post-resync-routing-v3.json", {**routing, "result": "PASS"})
+    write_json("rem-p0-002-post-resync-routing-v4.json", {**routing, "result": "PASS"})
     run_synthetic(base_url)
     write_json(
-        "rem-p0-002-resync-summary-v3.json",
+        "rem-p0-002-resync-summary-v4.json",
         {
             "finding": "REM-P0-002",
             "status": "passed",
             "resetDeployId": reset_deploy_id,
             "cleanupDeployId": cleanup_deploy_id,
             "bootstrapDisabled": True,
+            "credentialRotation": "OFFICIAL_ENDPOINT_PASS",
             "syntheticIterations": 5,
         },
     )
