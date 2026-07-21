@@ -39,7 +39,7 @@ UPDATE crm_communication_methods SET status=?,
 WHERE tenant_id=? AND id=? AND version=?
 ```
 
-The bound parameter `:now` (`java.sql.Timestamp`) is not cast to `timestamptz` inside the `CASE WHEN` expression. PostgreSQL infers the `CASE WHEN` result as `text` type, which is incompatible with the `archived_at` column (`TIMESTAMP WITH TIME ZONE`).
+The bound parameter `:now` (`java.sql.Timestamp`) is not cast inside the `CASE WHEN` expression. PostgreSQL infers the `CASE WHEN` result as `text` type, which is incompatible with the `archived_at` column (`TIMESTAMP WITH TIME ZONE`).
 
 ## Top application stack frame
 
@@ -59,12 +59,14 @@ The `BadSqlGrammarException` propagates through `PersistenceExceptionTranslation
 2. `JdbcAddressCommunicationRepository.changeAddressStatus()` — line 168
    Same pattern, same latent bug.
 
+**Root cause:** PostgreSQL cannot infer the result type of a `CASE WHEN` expression containing a named parameter (`:now`). The parameter is typed as `text`, which is incompatible with the `archived_at` column (`TIMESTAMP WITH TIME ZONE`). This is a PostgreSQL-specific limitation — H2 in `MODE=PostgreSQL` does not exhibit this behavior.
+
 ## Fix
 
-Add explicit `::timestamptz` cast to the `:now` parameter inside `CASE WHEN`:
+Add explicit `CAST(:now AS TIMESTAMP)` to force PostgreSQL type inference inside `CASE WHEN`:
 
 ```sql
-archived_at=CASE WHEN :status='ARCHIVED' THEN :now::timestamptz ELSE NULL END
+archived_at=CASE WHEN :status='ARCHIVED' THEN CAST(:now AS TIMESTAMP) ELSE NULL END
 ```
 
 ## Redacted fields

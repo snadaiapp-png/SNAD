@@ -79,10 +79,10 @@ class JdbcAddressCommunicationArchivePostgresTest {
 
         // Create tenant
         jdbc.update("""
-                INSERT INTO tenants (id, name, created_at, updated_at)
-                VALUES (:id, :name, :now, :now)
+                INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
+                VALUES (:id, :name, :subdomain, 'ACTIVE', :now, :now)
                 """, Map.of("id", (Object) tenantId, "name", "CRM-007-R7-Tenant",
-                "now", ts));
+                "subdomain", "crm007r7-" + tenantId.toString().substring(0, 8), "now", ts));
 
         // Create account
         jdbc.update("""
@@ -200,7 +200,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
                 UPDATE crm_communication_methods SET status=:status,
                     preferred=CASE WHEN :status='ARCHIVED' THEN FALSE ELSE preferred END,
                     preferred_slot=CASE WHEN :status='ARCHIVED' THEN NULL ELSE preferred_slot END,
-                    archived_at=CASE WHEN :status='ARCHIVED' THEN :now::timestamptz ELSE NULL END,
+                    archived_at=CASE WHEN :status='ARCHIVED' THEN CAST(:now AS TIMESTAMP) ELSE NULL END,
                     updated_by=:actorId,updated_at=:now,version=version+1
                 WHERE tenant_id=:tenantId AND id=:id AND version=:expectedVersion
                 """, new MapSqlParameterSource()
@@ -260,7 +260,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
                 UPDATE crm_communication_methods SET status=:status,
                     preferred=CASE WHEN :status='ARCHIVED' THEN FALSE ELSE preferred END,
                     preferred_slot=CASE WHEN :status='ARCHIVED' THEN NULL ELSE preferred_slot END,
-                    archived_at=CASE WHEN :status='ARCHIVED' THEN :now::timestamptz ELSE NULL END,
+                    archived_at=CASE WHEN :status='ARCHIVED' THEN CAST(:now AS TIMESTAMP) ELSE NULL END,
                     updated_by=:actorId,updated_at=:now,version=version+1
                 WHERE tenant_id=:tenantId AND id=:id AND version=0
                 """, new MapSqlParameterSource()
@@ -288,7 +288,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
                 UPDATE crm_communication_methods SET status=:status,
                     preferred=CASE WHEN :status='ARCHIVED' THEN FALSE ELSE preferred END,
                     preferred_slot=CASE WHEN :status='ARCHIVED' THEN NULL ELSE preferred_slot END,
-                    archived_at=CASE WHEN :status='ARCHIVED' THEN :now::timestamptz ELSE NULL END,
+                    archived_at=CASE WHEN :status='ARCHIVED' THEN CAST(:now AS TIMESTAMP) ELSE NULL END,
                     updated_by=:actorId,updated_at=:now,version=version+1
                 WHERE tenant_id=:tenantId AND id=:id AND version=0
                 """, new MapSqlParameterSource()
@@ -318,7 +318,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
                 UPDATE crm_communication_methods SET status=:status,
                     preferred=CASE WHEN :status='ARCHIVED' THEN FALSE ELSE preferred END,
                     preferred_slot=CASE WHEN :status='ARCHIVED' THEN NULL ELSE preferred_slot END,
-                    archived_at=CASE WHEN :status='ARCHIVED' THEN :now::timestamptz ELSE NULL END,
+                    archived_at=CASE WHEN :status='ARCHIVED' THEN CAST(:now AS TIMESTAMP) ELSE NULL END,
                     updated_by=:actorId,updated_at=:now,version=version+1
                 WHERE tenant_id=:tenantId AND id=:id AND version=0
                 """, new MapSqlParameterSource()
@@ -363,7 +363,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
                 UPDATE crm_party_addresses SET status=:status,
                     primary_address=CASE WHEN :status='ARCHIVED' THEN FALSE ELSE primary_address END,
                     primary_slot=CASE WHEN :status='ARCHIVED' THEN NULL ELSE primary_slot END,
-                    archived_at=CASE WHEN :status='ARCHIVED' THEN :now::timestamptz ELSE NULL END,
+                    archived_at=CASE WHEN :status='ARCHIVED' THEN CAST(:now AS TIMESTAMP) ELSE NULL END,
                     updated_by=:actorId,updated_at=:now,version=version+1
                 WHERE tenant_id=:tenantId AND id=:id AND version=0
                 """, new MapSqlParameterSource()
@@ -413,7 +413,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
                 UPDATE crm_communication_methods SET status=:status,
                     preferred=CASE WHEN :status='ARCHIVED' THEN FALSE ELSE preferred END,
                     preferred_slot=CASE WHEN :status='ARCHIVED' THEN NULL ELSE preferred_slot END,
-                    archived_at=CASE WHEN :status='ARCHIVED' THEN :now::timestamptz ELSE NULL END,
+                    archived_at=CASE WHEN :status='ARCHIVED' THEN CAST(:now AS TIMESTAMP) ELSE NULL END,
                     updated_by=:actorId,updated_at=:now,version=version+1
                 WHERE tenant_id=:tenantId AND id=:id AND version=0
                 """, new MapSqlParameterSource()
@@ -426,7 +426,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
                 UPDATE crm_communication_methods SET status=:status,
                     preferred=CASE WHEN :status='ARCHIVED' THEN FALSE ELSE preferred END,
                     preferred_slot=CASE WHEN :status='ARCHIVED' THEN NULL ELSE preferred_slot END,
-                    archived_at=CASE WHEN :status='ARCHIVED' THEN :now::timestamptz ELSE NULL END,
+                    archived_at=CASE WHEN :status='ARCHIVED' THEN CAST(:now AS TIMESTAMP) ELSE NULL END,
                     updated_by=:actorId,updated_at=:now,version=version+1
                 WHERE tenant_id=:tenantId AND id=:id AND version=0
                 """, new MapSqlParameterSource()
@@ -442,7 +442,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
                 "src/main/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationRepository.java"));
 
         assertThat(source)
-                .contains(":now::timestamptz")
-                .as("changeCommunicationStatus and changeAddressStatus must cast :now to timestamptz inside CASE WHEN");
+                .contains("CAST(:now AS TIMESTAMP)")
+                .as("changeCommunicationStatus and changeAddressStatus must cast :now inside CASE WHEN");
     }
 }
