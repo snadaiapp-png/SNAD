@@ -58,8 +58,8 @@ class JdbcAddressCommunicationNullableFilterPostgresTest {
         assertThat(jdbc.queryForList("""
                 SELECT id FROM crm_party_addresses
                 WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId
-                  AND (:beforeTime IS NULL OR updated_at<:beforeTime
-                       OR (updated_at=:beforeTime AND (:beforeId IS NULL OR id<:beforeId)))
+                  AND (CAST(:beforeTime AS TIMESTAMP) IS NULL OR updated_at<:beforeTime
+                       OR (updated_at=:beforeTime AND (CAST(:beforeId AS UUID) IS NULL OR id<:beforeId)))
                 ORDER BY updated_at DESC,id DESC LIMIT :limit
                 """, params)).isEmpty();
     }
@@ -77,10 +77,10 @@ class JdbcAddressCommunicationNullableFilterPostgresTest {
         assertThat(jdbc.queryForList("""
                 SELECT id FROM crm_communication_methods
                 WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId
-                  AND (:methodType IS NULL OR method_type=:methodType)
-                  AND (:verificationStatus IS NULL OR verification_status=:verificationStatus)
-                  AND (:beforeTime IS NULL OR updated_at<:beforeTime
-                       OR (updated_at=:beforeTime AND (:beforeId IS NULL OR id<:beforeId)))
+                  AND (CAST(:methodType AS VARCHAR) IS NULL OR method_type=:methodType)
+                  AND (CAST(:verificationStatus AS VARCHAR) IS NULL OR verification_status=:verificationStatus)
+                  AND (CAST(:beforeTime AS TIMESTAMP) IS NULL OR updated_at<:beforeTime
+                       OR (updated_at=:beforeTime AND (CAST(:beforeId AS UUID) IS NULL OR id<:beforeId)))
                 ORDER BY updated_at DESC,id DESC LIMIT :limit
                 """, params)).isEmpty();
     }
@@ -94,7 +94,11 @@ class JdbcAddressCommunicationNullableFilterPostgresTest {
                 .contains("addValue(\"beforeTime\", timestamp(beforeUpdatedAt), Types.TIMESTAMP)")
                 .contains("addValue(\"beforeId\", beforeId, Types.OTHER)")
                 .contains("addValue(\"methodType\", methodType, Types.VARCHAR)")
-                .contains("addValue(\"verificationStatus\", verificationStatus, Types.VARCHAR)");
+                .contains("addValue(\"verificationStatus\", verificationStatus, Types.VARCHAR)")
+                .contains("CAST(:beforeTime AS TIMESTAMP) IS NULL")
+                .contains("CAST(:beforeId AS UUID) IS NULL")
+                .contains("CAST(:methodType AS VARCHAR) IS NULL")
+                .contains("CAST(:verificationStatus AS VARCHAR) IS NULL");
     }
 
     private static MapSqlParameterSource baseParams() {
