@@ -1,0 +1,45 @@
+name: CRM-007 Current-Main Closure Trigger
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm-007-final-production-closure.yml'
+      - 'scripts/crm/crm007-final-production-closure.sh'
+      - '.github/workflows/crm007-current-main-closure-trigger.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: crm007-current-main-closure-trigger
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Dispatch exact-SHA Production orchestrator
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify current main and dispatch once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test "$REMOTE_MAIN_SHA" = "$GITHUB_SHA" || { echo "::error::Trigger is not executing current main"; exit 1; }
+          jq -n --arg ref main '{ref:$ref}' > "$RUNNER_TEMP/dispatch.json"
+          CODE="$(curl --silent --show-error --max-time 45 \
+            -o "$RUNNER_TEMP/dispatch-response.txt" -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            -H 'Content-Type: application/json' \
+            --data @"$RUNNER_TEMP/dispatch.json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/crm-exact-sha-production-orchestrator.yml/dispatches")"
+          test "$CODE" = "204" || { echo "::error::Production orchestrator dispatch returned ${CODE}"; cat "$RUNNER_TEMP/dispatch-response.txt"; exit 1; }
+          echo "Exact-SHA Production orchestrator dispatched for ${GITHUB_SHA}."
