@@ -79,7 +79,6 @@ jobs:
           set -euo pipefail
           DEPLOY_LOG="$RUNNER_TEMP/vercel-deploy.log"
           npx --yes vercel@56.4.1 deploy \
-            --cwd apps/web \
             --prod \
             --force \
             --yes \
