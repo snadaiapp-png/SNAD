@@ -195,11 +195,13 @@ jobs:
           retention-days: 90
 
       - name: Dispatch CRM-G1 final production closure
+        id: dispatch_g1
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
+          DISPATCHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           jq -n --arg ref main '{ref:$ref}' > "$RUNNER_TEMP/g1-dispatch.json"
           CODE="$(curl --silent --show-error --max-time 45 -o "$RUNNER_TEMP/g1-dispatch-response.txt" -w '%{http_code}' \
             -X POST \
@@ -210,6 +212,62 @@ jobs:
             --data @"$RUNNER_TEMP/g1-dispatch.json" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/crm-g1-production-closure.yml/dispatches")"
           test "$CODE" = "204"
+          echo "dispatched_at=$DISPATCHED_AT" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for exact CRM-G1 success
+        id: g1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISPATCHED_AT: ${{ steps.dispatch_g1.outputs.dispatched_at }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          G1_RUN_ID=""
+          for attempt in $(seq 1 180); do
+            curl --fail-with-body --silent --show-error --max-time 30 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/crm-g1-production-closure.yml/runs?event=workflow_dispatch&branch=main&per_page=20" \
+              > "$RUNNER_TEMP/g1-runs.json"
+
+            jq --arg sha "$GITHUB_SHA" --arg started "$DISPATCHED_AT" \
+              '[.workflow_runs[] | select(.head_sha == $sha and .created_at >= $started)] | sort_by(.created_at) | first // empty' \
+              "$RUNNER_TEMP/g1-runs.json" > "$RUNNER_TEMP/g1-run.json"
+            G1_RUN_ID="$(jq -r '.id // empty' "$RUNNER_TEMP/g1-run.json")"
+            G1_STATUS="$(jq -r '.status // empty' "$RUNNER_TEMP/g1-run.json")"
+            G1_CONCLUSION="$(jq -r '.conclusion // empty' "$RUNNER_TEMP/g1-run.json")"
+
+            if [ -n "$G1_RUN_ID" ] && [ "$G1_STATUS" = "completed" ]; then
+              test "$G1_CONCLUSION" = "success" || {
+                echo "::error::CRM-G1 run ${G1_RUN_ID} completed with ${G1_CONCLUSION}"
+                exit 1
+              }
+              break
+            fi
+            sleep 10
+          done
+          test -n "$G1_RUN_ID" || { echo "::error::CRM-G1 run was not observed"; exit 1; }
+          test "$(jq -r '.status // empty' "$RUNNER_TEMP/g1-run.json")" = "completed"
+          test "$(jq -r '.conclusion // empty' "$RUNNER_TEMP/g1-run.json")" = "success"
+          echo "run_id=$G1_RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch CRM-007 final production closure
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -n --arg ref main '{ref:$ref}' > "$RUNNER_TEMP/crm007-dispatch.json"
+          CODE="$(curl --silent --show-error --max-time 45 -o "$RUNNER_TEMP/crm007-dispatch-response.txt" -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            -H 'Content-Type: application/json' \
+            --data @"$RUNNER_TEMP/crm007-dispatch.json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/crm-007-final-production-closure.yml/dispatches")"
+          test "$CODE" = "204"
 
       - name: Record remediation success
         if: success()
@@ -219,17 +277,18 @@ jobs:
         run: |
           set -euo pipefail
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          BODY="Render Flyway runtime remediation PASS. Exact SHA: ${GITHUB_SHA}. Exact image redeployed after enforcing SPRING_PROFILES_ACTIVE=prod, FLYWAY_ENABLED=true and vendor-aware FLYWAY_LOCATIONS. Flyway 20260721.1 = SQL / true; Contact reconciliation schema = 5 columns / 4 tables; database verification was read-only. CRM-G1 final closure was dispatched. Evidence: ${RUN_URL}."
+          G1_RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${{ steps.g1.outputs.run_id }}"
+          BODY="Render Flyway runtime remediation PASS. Exact SHA: ${GITHUB_SHA}. Exact image redeployed after enforcing SPRING_PROFILES_ACTIVE=prod, FLYWAY_ENABLED=true and vendor-aware FLYWAY_LOCATIONS. Flyway 20260721.1 = SQL / true; Contact reconciliation schema = 5 columns / 4 tables; database verification was read-only. CRM-G1 succeeded at ${G1_RUN_URL}. CRM-007 was explicitly dispatched. Evidence: ${RUN_URL}."
           gh issue comment 563 --repo "$GITHUB_REPOSITORY" --body "$BODY"
           gh issue comment 571 --repo "$GITHUB_REPOSITORY" --body "$BODY"
 
       - name: Record remediation failure
         if: failure()
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          set -euo pipefail
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           BODY="Render Flyway runtime remediation FAILED closed. No Flyway repair, schema-history edit, or manual Production SQL was performed. Evidence: ${RUN_URL}. CRM-G1 and CRM-007 remain open."
           gh issue comment 563 --repo "$GITHUB_REPOSITORY" --body "$BODY"
