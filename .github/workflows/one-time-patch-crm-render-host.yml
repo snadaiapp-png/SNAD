@@ -1,0 +1,49 @@
+name: One-Time Patch CRM Render Host
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-patch-crm-render-host.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/render-only-final
+          fetch-depth: 0
+
+      - name: Replace legacy production host without altering workflow logic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/crm-g1-production-closure.yml')
+          text = path.read_text(encoding='utf-8')
+          old = 'https://streak-train-empower.ngrok-free.dev/actuator/health'
+          new = 'https://sanad-backend-mcrj.onrender.com/actuator/health'
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one legacy CRM health target, found {text.count(old)}')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+
+          git diff --check
+          ! grep --fixed-strings 'streak-train-empower.ngrok-free.dev' .github/workflows/crm-g1-production-closure.yml
+
+      - name: Commit to finalization branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/crm-g1-production-closure.yml
+          git commit -m 'ops: point CRM production health gate to Render'
+          git push origin HEAD:refs/heads/ops/render-only-final
