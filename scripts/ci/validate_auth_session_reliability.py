@@ -84,7 +84,21 @@ def main() -> int:
 
     require("schedule:" in synthetic_workflow and "cron:" in synthetic_workflow, "hourly schedule missing")
     require("environment: Production" in synthetic_workflow, "Production environment protection missing")
-    require("AUTH_SMOKE_TENANT_A_ID" in synthetic_workflow, "protected tenant identity missing")
+    for token in (
+        "AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}",
+        "AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}",
+        "AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}",
+    ):
+        require(token in synthetic_workflow, f"dedicated protected identity mapping missing: {token}")
+    for forbidden in (
+        "BOOTSTRAP_TENANT_ID",
+        "CONTROL_PLANE_ADMIN_EMAIL",
+        "CONTROL_PLANE_ADMIN_PASSWORD",
+        "SANAD_ADMIN_EMAIL",
+        "SANAD_ADMIN_PASSWORD",
+        "|| secrets.",
+    ):
+        require(forbidden not in synthetic_workflow, f"synthetic identity fallback is forbidden: {forbidden}")
     require("actions/upload-artifact@v4" in synthetic_workflow, "sanitized evidence artifact missing")
     require("Open or update authentication incident" in synthetic_workflow, "failure incident automation missing")
     require("Close recovered authentication incident" in synthetic_workflow, "recovery incident automation missing")
@@ -106,7 +120,7 @@ def main() -> int:
     print("REM-P0-002 AUTH SESSION RELIABILITY VALIDATION PASSED")
     print("BFF=BOUNDED_RETRY+CORRELATION+COOKIE_SAFETY")
     print("SESSION=SINGLE_FLIGHT+STALE_RESULT_REJECTION")
-    print("SYNTHETIC=HOURLY_LOGIN+ME+REFRESH+LOGOUT")
+    print("SYNTHETIC=HOURLY_LOGIN+ME+REFRESH+LOGOUT+DEDICATED_IDENTITY")
     print("FINDING=OPEN_PENDING_OBSERVATION_AND_REM-P0-001")
     return 0
 
