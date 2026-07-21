@@ -9,6 +9,7 @@ on:
 permissions:
   actions: write
   contents: read
+  issues: write
 
 jobs:
   configure:
@@ -62,6 +63,13 @@ jobs:
             "$api" > "$RUNNER_TEMP/verified.json"
 
           test "$(jq -r '.value' "$RUNNER_TEMP/verified.json")" = "$VARIABLE_VALUE"
-          echo "Configured ${VARIABLE_NAME} for Render-only production health checks."
 
-# Triggered after workflow registration.
+          attestation="$(jq -n --arg body "Render production variable verified by workflow ${GITHUB_RUN_ID}: \\`${VARIABLE_NAME}\` is set to \\`${VARIABLE_VALUE}\`." '{body:$body}')"
+          curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            -H 'Content-Type: application/json' \
+            --data "$attestation" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/610/comments"
