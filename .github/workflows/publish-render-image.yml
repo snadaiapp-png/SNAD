@@ -33,6 +33,7 @@ jobs:
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       PRODUCTION_BASE_URL: https://sanad-backend-mcrj.onrender.com
       RENDER_AUTODEPLOY_ENABLED: ${{ vars.RENDER_AUTODEPLOY_ENABLED || 'false' }}
+      EXPECTED_FLYWAY_LOCATIONS: classpath:db/migration,classpath:db/vendor/{vendor}
 
     steps:
       - name: Checkout exact source
@@ -74,7 +75,7 @@ jobs:
             echo "- Source: ${{ github.sha }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Validate optional protected Render configuration
+      - name: Validate protected Render configuration
         if: env.RENDER_AUTODEPLOY_ENABLED == 'true'
         shell: bash
         run: |
@@ -82,7 +83,51 @@ jobs:
           test -n "$RENDER_API_KEY" || { echo "::error::Missing Production secret: RENDER_API_KEY"; exit 1; }
           test -n "$RENDER_SERVICE_ID" || { echo "::error::Missing Render service ID"; exit 1; }
           echo "::add-mask::$RENDER_API_KEY"
+          [[ "$RENDER_SERVICE_ID" == srv-* ]] || { echo "::error::Invalid Render service ID"; exit 1; }
           [[ "$PRODUCTION_BASE_URL" == https://*.onrender.com ]] || { echo "::error::Invalid Render production URL"; exit 1; }
+
+      - name: Reconcile Flyway runtime configuration
+        if: env.RENDER_AUTODEPLOY_ENABLED == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          EVIDENCE_DIR="$RUNNER_TEMP/render-publish-evidence"
+          rm -rf "$EVIDENCE_DIR"
+          mkdir -p "$EVIDENCE_DIR"
+          echo "EVIDENCE_DIR=$EVIDENCE_DIR" >> "$GITHUB_ENV"
+
+          update_env_var() {
+            local key="$1" value="$2"
+            jq -n --arg value "$value" '{value:$value}' > "$RUNNER_TEMP/env-update.json"
+            curl --fail-with-body --silent --show-error --max-time 45 \
+              -X PUT \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H 'Accept: application/json' \
+              -H 'Content-Type: application/json' \
+              --data @"$RUNNER_TEMP/env-update.json" \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/${key}" \
+              > "$RUNNER_TEMP/env-update-response.json"
+          }
+
+          verify_env_var() {
+            local key="$1" expected="$2"
+            curl --fail-with-body --silent --show-error --max-time 45 \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H 'Accept: application/json' \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/${key}" \
+              > "$RUNNER_TEMP/env-${key}.json"
+            actual="$(jq -r '(.envVar // .).value // empty' "$RUNNER_TEMP/env-${key}.json")"
+            test "$actual" = "$expected" || { echo "::error::Render ${key} did not match the required value"; exit 1; }
+          }
+
+          update_env_var FLYWAY_ENABLED true
+          update_env_var FLYWAY_LOCATIONS "$EXPECTED_FLYWAY_LOCATIONS"
+          verify_env_var FLYWAY_ENABLED true
+          verify_env_var FLYWAY_LOCATIONS "$EXPECTED_FLYWAY_LOCATIONS"
+
+          jq -n \
+            '{flyway_enabled:{direct_service_variable_present:true,value_matches_expected:true},flyway_locations:{direct_service_variable_present:true,value_matches_expected:true},method:"Render single-variable API",deployment_required_after_update:true}' \
+            > "$EVIDENCE_DIR/render-flyway-runtime-config.json"
 
       - name: Deploy immutable image to Render
         if: env.RENDER_AUTODEPLOY_ENABLED == 'true'
@@ -146,6 +191,7 @@ jobs:
           {
             echo ''
             echo "- Render deployment: ${{ steps.render.outputs.deployment_id }}"
+            echo '- Flyway enabled with portable + PostgreSQL vendor locations'
             echo '- Health/liveness/readiness: UP'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -154,8 +200,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EVIDENCE_DIR="$RUNNER_TEMP/render-publish-evidence"
-          mkdir -p "$EVIDENCE_DIR"
           jq \
             --arg sourceSha "$GITHUB_SHA" \
             --arg imageRef "${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}" \
@@ -170,10 +214,12 @@ jobs:
               render_status:.status,
               render_image_ref:.image.ref,
               render_image_digest:(.image.digest // null),
+              flyway_enabled:true,
+              flyway_locations:"portable + vendor/postgresql",
               created_at:.createdAt,
               finished_at:.finishedAt
             }' "$RUNNER_TEMP/render-state.json" > "$EVIDENCE_DIR/render-publish-proof.json"
-          sha256sum "$EVIDENCE_DIR/render-publish-proof.json" > "$EVIDENCE_DIR/SHA256SUMS.txt"
+          find "$EVIDENCE_DIR" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > "$EVIDENCE_DIR/SHA256SUMS.txt"
 
       - name: Upload immutable deployment evidence
         if: env.RENDER_AUTODEPLOY_ENABLED == 'true'
@@ -199,6 +245,8 @@ jobs:
           - Image: ${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}
           - Build digest: ${{ steps.build.outputs.digest }}
           - Render deployment ID: ${{ steps.render.outputs.deployment_id }}
+          - Flyway enabled: true
+          - Flyway locations: portable + PostgreSQL vendor migrations
           - Health/liveness/readiness: UP
           - Evidence artifact: render-publish-evidence-${GITHUB_RUN_ID}
 
