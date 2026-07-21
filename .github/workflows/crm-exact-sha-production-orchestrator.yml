@@ -188,11 +188,18 @@ jobs:
         id: dispatch_reconciliation
         env:
           GH_TOKEN: ${{ github.token }}
+          PUBLISH_RUN_ID: ${{ steps.image.outputs.run_id }}
+          RELEASE_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
           DISPATCHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          jq -n --arg ref main '{ref:$ref}' > "$RUNNER_TEMP/reconciliation-dispatch.json"
+          jq -n \
+            --arg ref main \
+            --arg release_sha "$RELEASE_SHA" \
+            --arg publish_run_id "$PUBLISH_RUN_ID" \
+            '{ref:$ref,inputs:{release_sha:$release_sha,publish_run_id:$publish_run_id}}' \
+            > "$RUNNER_TEMP/reconciliation-dispatch.json"
           CODE="$(curl --silent --show-error --max-time 45 -o "$RUNNER_TEMP/reconciliation-dispatch-response.txt" -w '%{http_code}' \
             -X POST \
             -H "Authorization: Bearer ${GH_TOKEN}" \

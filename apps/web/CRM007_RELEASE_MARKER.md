@@ -2,7 +2,7 @@
 
 This tracked marker forces the Vercel project rooted at `apps/web` to build the same merge SHA that publishes and deploys the corrected backend image.
 
-Release generation: `crm-current-main-exact-sha-closure-v5`.
+Release generation: `crm-current-main-exact-sha-closure-v6`.
 
 Authoritative correction:
 
@@ -10,8 +10,7 @@ Authoritative correction:
 - PR #657 serialized CRM-007 behind exact-SHA CRM-G1 success.
 - PR #659 corrected the duplicated Vercel Root Directory.
 - PR #661 removed the duplicate API deployment and now consumes the canonical Vercel Git Integration deployment.
-- Nullable Address and Communication exclusion parameters are explicitly typed as PostgreSQL UUIDs.
-- HTTP 500 is a hard failure and is not an accepted test outcome.
+- Corrective PR fixes reconciliation workflow correlation: orchestrator now passes `publish_run_id` and `release_sha` as explicit inputs, replacing ambiguous `event=push` filtering with direct run identity verification.
 
 Exact-SHA closure requirements:
 

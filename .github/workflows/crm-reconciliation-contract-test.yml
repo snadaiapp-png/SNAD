@@ -1,0 +1,82 @@
+name: CRM Reconciliation Contract Test
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/crm-idempotency-production-reconciliation.yml'
+      - '.github/workflows/crm-exact-sha-production-orchestrator.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract-test:
+    name: Validate workflow contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Verify reconciliation workflow inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE=".github/workflows/crm-idempotency-production-reconciliation.yml"
+
+          # Verify release_sha input exists and is required
+          echo "=== Checking release_sha input ==="
+          test -n "$(grep -A5 'workflow_dispatch:' "$FILE" | grep 'release_sha:')" || {
+            echo "::error::release_sha input not found in workflow_dispatch"
+            exit 1
+          }
+
+          # Verify publish_run_id input exists and is required
+          echo "=== Checking publish_run_id input ==="
+          test -n "$(grep -A5 'workflow_dispatch:' "$FILE" | grep 'publish_run_id:')" || {
+            echo "::error::publish_run_id input not found in workflow_dispatch"
+            exit 1
+          }
+
+          # Verify push trigger is removed
+          echo "=== Verifying push trigger is removed ==="
+          if grep -q '^  push:' "$FILE"; then
+            echo "::error::push trigger still exists in reconciliation workflow"
+            exit 1
+          fi
+          echo "PASS: push trigger removed"
+
+          # Verify event=push filter is removed from API calls
+          echo "=== Verifying event=push filter removed ==="
+          if grep -q 'event=push' "$FILE"; then
+            echo "::error::event=push filter still exists in workflow"
+            exit 1
+          fi
+          echo "PASS: event=push filter removed"
+
+          # Verify publish_run_id is used for direct run verification
+          echo "=== Verifying direct run verification ==="
+          if grep -q 'actions/runs/\${PUBLISH_RUN_ID}' "$FILE"; then
+            echo "PASS: Direct run verification using PUBLISH_RUN_ID found"
+          else
+            echo "::error::Direct run verification using PUBLISH_RUN_ID not found"
+            exit 1
+          fi
+
+          # Verify RELEASE_SHA is used instead of github.sha
+          echo "=== Verifying RELEASE_SHA usage ==="
+          if grep -q 'RELEASE_SHA' "$FILE"; then
+            echo "PASS: RELEASE_SHA is used"
+          else
+            echo "::error::RELEASE_SHA not used in workflow"
+            exit 1
+          fi
+
+          REMAINING_GITHUB_SHA=$(grep -c 'github\.sha' "$FILE" || true)
+          if [ "$REMAINING_GITHUB_SHA" -gt 0 ]; then
+            echo "::error::github.sha still referenced ${REMAINING_GITHUB_SHA} times"
+            exit 1
+          fi
+          echo "PASS: No github.sha references remain"
+
+          echo ""
+          echo "=== All contract tests passed ==="
