@@ -1,0 +1,92 @@
+name: Capture Render Address 500
+
+on:
+  push:
+    branches:
+      - diag/crm007-run-status
+    paths:
+      - .github/workflows/capture-render-address-500.yml
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: Production
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diag/crm007-run-status
+      - name: Capture sanitized Render logs around address failure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RENDER_API_KEY"
+          test -n "$RENDER_SERVICE_ID"
+          echo "::add-mask::$RENDER_API_KEY"
+          echo "::add-mask::$RENDER_SERVICE_ID"
+          mkdir -p evidence/diagnostics
+
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H 'Accept: application/json' \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" \
+            > "$RUNNER_TEMP/service.json"
+          OWNER_ID="$(jq -r '(.service // .).ownerId // (.service // .).owner.id // empty' "$RUNNER_TEMP/service.json")"
+          test -n "$OWNER_ID"
+
+          fetch_logs() {
+            local output="$1"; shift
+            curl --get --fail-with-body --silent --show-error --max-time 45 \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H 'Accept: application/json' \
+              --data-urlencode "ownerId=${OWNER_ID}" \
+              --data-urlencode "resource=${RENDER_SERVICE_ID}" \
+              --data-urlencode 'startTime=2026-07-21T10:49:30Z' \
+              --data-urlencode 'endTime=2026-07-21T10:51:10Z' \
+              --data-urlencode 'limit=200' \
+              "$@" \
+              https://api.render.com/v1/logs > "$RUNNER_TEMP/${output}.json"
+          }
+
+          fetch_logs all
+          fetch_logs requests --data-urlencode 'type=request' --data-urlencode 'statusCode=500'
+
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+
+          blocked = re.compile(r'(authorization|password|secret|token|cookie|jdbc:|postgresql://)', re.I)
+          relevant = re.compile(r'(address|crm_party_address|exception|error|constraint|column|sql|500|d876297a)', re.I)
+          output = {}
+          for name in ('all', 'requests'):
+              raw = json.loads(Path(f'/home/runner/work/_temp/{name}.json').read_text(encoding='utf-8'))
+              items = raw if isinstance(raw, list) else raw.get('logs') or raw.get('items') or []
+              selected = []
+              for item in items:
+                  text = json.dumps(item, ensure_ascii=False)
+                  if not relevant.search(text):
+                      continue
+                  clean = {}
+                  for key, value in item.items() if isinstance(item, dict) else []:
+                      rendered = str(value)
+                      if blocked.search(key) or blocked.search(rendered):
+                          continue
+                      clean[key] = value
+                  selected.append(clean)
+              output[name] = selected
+          Path('evidence/diagnostics/render-address-500.json').write_text(
+              json.dumps(output, indent=2, ensure_ascii=False) + '\n', encoding='utf-8'
+          )
+          PY
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add evidence/diagnostics/render-address-500.json
+          git commit -m 'docs(diag): record Render address 500 logs'
+          git push origin HEAD:diag/crm007-run-status
