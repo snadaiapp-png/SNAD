@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_PRODUCTION_URL = "https://snad-app.vercel.app"
+APPROVED_PRODUCTION_BACKEND_HOST = "sanad-backend-mcrj.onrender.com"
 DEFAULT_ATTEMPTS = 18
 DEFAULT_DELAY_SECONDS = 10.0
 DEFAULT_TIMEOUT_SECONDS = 15.0
@@ -62,9 +63,6 @@ def request(url: str, timeout: float) -> tuple[int, bytes, dict[str, str]]:
         "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
         "User-Agent": "SNAD-Production-Readiness/1.0",
     }
-    hostname = urllib.parse.urlparse(url).hostname or ""
-    if "ngrok" in hostname.lower():
-        headers["ngrok-skip-browser-warning"] = "true"
 
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
@@ -188,6 +186,19 @@ def run_once(production_url: str, timeout: float) -> list[ProbeResult]:
                 url=integration_url,
                 expected="SNAD_BACKEND_EXPECTED_HOST configured",
                 actual="Expected backend host is not configured",
+                passed=False,
+                status_code=None,
+            )
+        )
+        return checks
+
+    if expected_host != APPROVED_PRODUCTION_BACKEND_HOST:
+        checks.append(
+            result(
+                name="backend-host-policy",
+                url=integration_url,
+                expected=f"approved production host={APPROVED_PRODUCTION_BACKEND_HOST}",
+                actual=f"configured expected host={expected_host}",
                 passed=False,
                 status_code=None,
             )
