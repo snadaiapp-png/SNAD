@@ -22,7 +22,7 @@ jobs:
   synthetic:
     name: Login, refresh, identity and logout through production BFF
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     environment: Production
 
     steps:
@@ -34,40 +34,68 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Verify protected synthetic identity
-        shell: bash
-        env:
-          AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
-          AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
-          AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
-        run: |
-          set -euo pipefail
-          missing=0
-          for name in AUTH_SMOKE_TENANT_ID AUTH_SMOKE_EMAIL AUTH_SMOKE_PASSWORD; do
-            if [ -z "${!name:-}" ]; then
-              echo "::error::Missing dedicated Production secret: ${name}"
-              missing=$((missing + 1))
-            else
-              echo "PRESENT: ${name}"
-              echo "::add-mask::${!name}"
-            fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            echo "::error::The synthetic identity must be provisioned as one complete least-privilege credential set; bootstrap/admin fallback is forbidden."
-            exit 1
-          fi
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
-      - name: Run production BFF authentication journey
+      - name: Resolve coherent identity and run production journey
         shell: bash
         env:
           PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
-          AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
-          AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
-          AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+          DEDICATED_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
+          DEDICATED_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+          DEDICATED_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+          CRM_EMAIL: ${{ secrets.CRM_TENANT_A_EMAIL }}
+          CRM_PASSWORD: ${{ secrets.CRM_TENANT_A_PASSWORD }}
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
           AUTH_SYNTHETIC_ITERATIONS: '1'
           AUTH_SYNTHETIC_EVIDENCE_PATH: ${{ runner.temp }}/auth-session-synthetic-evidence.json
         run: |
           set -euo pipefail
+          dedicated_count=0
+          for value in "$DEDICATED_TENANT_ID" "$DEDICATED_EMAIL" "$DEDICATED_PASSWORD"; do
+            [ -n "$value" ] && dedicated_count=$((dedicated_count + 1))
+          done
+
+          if [ "$dedicated_count" -eq 3 ]; then
+            AUTH_SMOKE_TENANT_ID="$DEDICATED_TENANT_ID"
+            AUTH_SMOKE_EMAIL="$DEDICATED_EMAIL"
+            AUTH_SMOKE_PASSWORD="$DEDICATED_PASSWORD"
+            IDENTITY_SOURCE="DEDICATED"
+          elif [ "$dedicated_count" -ne 0 ]; then
+            echo "::error::Partial AUTH_SMOKE_TENANT_A identity is forbidden"
+            exit 1
+          else
+            for value in "$CRM_EMAIL" "$CRM_PASSWORD" "$PROD_JDBC_URL" "$PROD_DB_USER" "$PROD_DB_PASSWORD"; do
+              test -n "$value" || { echo "::error::A protected CRM identity input is missing"; exit 1; }
+              echo "::add-mask::$value"
+            done
+            [[ "$PROD_JDBC_URL" == jdbc:postgresql://* ]] || { echo "::error::Invalid PostgreSQL JDBC URL"; exit 1; }
+            PSQL_URL="${PROD_JDBC_URL#jdbc:}"
+            export PGPASSWORD="$PROD_DB_PASSWORD"
+            mapfile -t MATCHES < <(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -At \
+              -v email="$CRM_EMAIL" <<'SQL'
+          SELECT tenant_id || '|' || platform_admin
+            FROM users
+           WHERE lower(email)=lower(:'email') AND status='ACTIVE'
+           ORDER BY tenant_id;
+          SQL
+            )
+            test "${#MATCHES[@]}" -eq 1 || { echo "::error::CRM identity must resolve to exactly one active tenant"; exit 1; }
+            IFS='|' read -r AUTH_SMOKE_TENANT_ID PLATFORM_ADMIN <<< "${MATCHES[0]}"
+            case "${PLATFORM_ADMIN,,}" in false|f) ;; *) echo "::error::CRM identity must not be a platform administrator"; exit 1 ;; esac
+            AUTH_SMOKE_EMAIL="$CRM_EMAIL"
+            AUTH_SMOKE_PASSWORD="$CRM_PASSWORD"
+            IDENTITY_SOURCE="CRM_LIMITED"
+          fi
+
+          for value in "$AUTH_SMOKE_TENANT_ID" "$AUTH_SMOKE_EMAIL" "$AUTH_SMOKE_PASSWORD"; do
+            test -n "$value"
+            echo "::add-mask::$value"
+          done
+          export AUTH_SMOKE_TENANT_ID AUTH_SMOKE_EMAIL AUTH_SMOKE_PASSWORD
+          echo "Identity source selected: $IDENTITY_SOURCE"
           python3 scripts/operations/bff_auth_session_synthetic.py
 
       - name: Upload sanitized synthetic evidence
@@ -139,7 +167,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: existing.number,
-                body: `Recovery observed by the production BFF authentication synthetic. Run: ${runUrl}. Continue PIR and observation-window requirements before closing REM-P0-002.`,
+                body: `Recovery observed with one coherent least-privilege identity. Run: ${runUrl}. Continue observation-window requirements before closing REM-P0-002.`,
               });
               await github.rest.issues.update({
                 owner: context.repo.owner,
