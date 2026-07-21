@@ -108,7 +108,7 @@ def main() -> int:
         "REM-P0-002: OPEN",
         "APPLICATION CONTROLS: IMPLEMENTED",
         "REM-P0-001 DEPENDENCY: OPEN",
-        "BROAD COMMERCIAL GO-LIVE: NOT_APPROVED",
+        "BROAD COMMERCIAL GO-LIVE: NOT APPROVED",
     ):
         require(token in runbook, f"closure boundary missing: {token}")
 
