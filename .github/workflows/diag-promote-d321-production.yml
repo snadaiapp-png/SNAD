@@ -1,0 +1,133 @@
+name: Promote Exact D321 to Production
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/diag-promote-d321-production.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  RELEASE_SHA: d3212429c66b6db663fa7eef7faa424b54cb442a
+  DEPLOYMENT_ID: dpl_CttuusfTMsE9J34QFnxyuRXdbZ3E
+  WEB_BASE_URL: https://snad-app.vercel.app
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  promote:
+    name: Promote existing exact-SHA deployment and dispatch closure
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: Production
+      url: https://snad-app.vercel.app
+    steps:
+      - name: Validate immutable identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          for value in "$VERCEL_TOKEN" "$VERCEL_TEAM_ID" "$VERCEL_PROJECT_ID"; do
+            test -n "$value" || { echo "::error::Required Vercel Production secret is missing"; exit 1; }
+            echo "::add-mask::$value"
+          done
+          test "$VERCEL_TEAM_ID" = "team_kzO2MiiSbpoP0gWXojwUFSvR"
+          test "$VERCEL_PROJECT_ID" = "prj_WM5fbCPCycdogZQaWFnLKDgb5bA9"
+          REMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test "$REMOTE_MAIN_SHA" = "$RELEASE_SHA" || { echo "::error::Current main changed before promotion"; exit 1; }
+          OUT="$RUNNER_TEMP/d321-production-promotion"
+          mkdir -p "$OUT"
+          echo "OUT=$OUT" >> "$GITHUB_ENV"
+
+      - name: Verify existing exact-SHA Preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            "https://api.vercel.com/v13/deployments/${DEPLOYMENT_ID}?teamId=${VERCEL_TEAM_ID}" \
+            > "$OUT/deployment-before.json"
+          test "$(jq -r '.id // .uid // empty' "$OUT/deployment-before.json")" = "$DEPLOYMENT_ID"
+          test "$(jq -r '.projectId // .project.id // empty' "$OUT/deployment-before.json")" = "$VERCEL_PROJECT_ID"
+          test "$(jq -r '.meta.githubCommitSha // empty' "$OUT/deployment-before.json")" = "$RELEASE_SHA"
+          test "$(jq -r '.readyState // .state // empty' "$OUT/deployment-before.json")" = "READY"
+
+      - name: Promote existing deployment without rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODE="$(curl --silent --show-error --max-time 60 \
+            -o "$OUT/promote-response.json" -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/promote/${DEPLOYMENT_ID}?teamId=${VERCEL_TEAM_ID}")"
+          case "$CODE" in 200|201|202) ;; *) echo "::error::Vercel promote returned ${CODE}"; cat "$OUT/promote-response.json"; exit 1;; esac
+          jq -n --arg code "$CODE" --arg deployment "$DEPLOYMENT_ID" --arg sha "$RELEASE_SHA" \
+            '{http_status:($code|tonumber),deployment_id:$deployment,release_sha:$sha,rebuild:false}' \
+            > "$OUT/promote-request.json"
+
+      - name: Verify exact Production traffic
+        shell: bash
+        run: |
+          set -euo pipefail
+          HOST="${WEB_BASE_URL#https://}"
+          MATCHED=false
+          for attempt in $(seq 1 120); do
+            curl --fail-with-body --silent --show-error --max-time 45 \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+              "https://api.vercel.com/v13/deployments/${HOST}?teamId=${VERCEL_TEAM_ID}" \
+              > "$OUT/production-deployment.json"
+            LIVE_ID="$(jq -r '.id // .uid // empty' "$OUT/production-deployment.json")"
+            LIVE_SHA="$(jq -r '.meta.githubCommitSha // empty' "$OUT/production-deployment.json")"
+            STATE="$(jq -r '.readyState // .state // empty' "$OUT/production-deployment.json")"
+            TARGET="$(jq -r '.target // empty' "$OUT/production-deployment.json")"
+            if [ "$LIVE_ID" = "$DEPLOYMENT_ID" ] && [ "$LIVE_SHA" = "$RELEASE_SHA" ] && [ "$STATE" = "READY" ] && [ "$TARGET" = "production" ]; then
+              MATCHED=true
+              break
+            fi
+            sleep 5
+          done
+          test "$MATCHED" = "true" || { echo "::error::Production traffic did not reach exact promoted deployment"; exit 1; }
+          FRONT_CODE="$(curl --silent --show-error --max-time 45 -o /dev/null -w '%{http_code}' "$WEB_BASE_URL")"
+          STATUS_CODE="$(curl --silent --show-error --max-time 45 -o "$OUT/backend-status.json" -w '%{http_code}' "${WEB_BASE_URL}/api/system/backend-status")"
+          AUTH_CODE="$(curl --silent --show-error --max-time 45 -o /dev/null -w '%{http_code}' "${WEB_BASE_URL}/api/platform/api/v1/auth/me")"
+          test "$FRONT_CODE" = "200"
+          test "$STATUS_CODE" = "200"
+          jq -e '.configured==true and .reachable==true and .statusCode==200' "$OUT/backend-status.json" >/dev/null
+          test "$AUTH_CODE" = "401"
+
+      - name: Dispatch exact-SHA Production orchestrator
+        shell: bash
+        run: |
+          set -euo pipefail
+          REMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test "$REMOTE_MAIN_SHA" = "$RELEASE_SHA"
+          jq -n --arg ref main '{ref:$ref}' > "$OUT/orchestrator-dispatch.json"
+          CODE="$(curl --silent --show-error --max-time 45 \
+            -o "$OUT/orchestrator-dispatch-response.txt" -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            -H 'Content-Type: application/json' \
+            --data @"$OUT/orchestrator-dispatch.json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/crm-exact-sha-production-orchestrator.yml/dispatches")"
+          test "$CODE" = "204" || { echo "::error::Orchestrator dispatch returned ${CODE}"; exit 1; }
+          jq -n --arg release "$RELEASE_SHA" --arg deployment "$DEPLOYMENT_ID" --arg dispatched_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{result:"PASS",release_sha:$release,vercel_deployment_id:$deployment,promotion_rebuild:false,orchestrator_dispatched_at:$dispatched_at}' \
+            > "$OUT/promotion-summary.json"
+          find "$OUT" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 -r sha256sum > "$OUT/SHA256SUMS.txt"
+
+      - name: Upload immutable promotion evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d321-exact-production-promotion
+          path: ${{ runner.temp }}/d321-production-promotion
+          if-no-files-found: error
+          retention-days: 90
