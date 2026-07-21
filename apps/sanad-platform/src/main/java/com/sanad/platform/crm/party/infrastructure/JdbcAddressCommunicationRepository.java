@@ -14,6 +14,7 @@ import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -60,12 +61,12 @@ public class JdbcAddressCommunicationRepository implements AddressCommunicationR
         String sql = "SELECT " + ADDRESS_COLUMNS + " FROM crm_party_addresses " +
                 "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
                 (includeArchived ? "" : "AND status<>'ARCHIVED' ") +
-                "AND (:beforeTime IS NULL OR updated_at<:beforeTime " +
-                "OR (updated_at=:beforeTime AND (:beforeId IS NULL OR id<:beforeId))) " +
+                "AND (CAST(:beforeTime AS TIMESTAMP) IS NULL OR updated_at<:beforeTime " +
+                "OR (updated_at=:beforeTime AND (CAST(:beforeId AS UUID) IS NULL OR id<:beforeId))) " +
                 "ORDER BY updated_at DESC,id DESC LIMIT :limit";
         return jdbc.query(sql, p().addValue("tenantId", tenantId).addValue("ownerType", ownerType)
-                        .addValue("ownerId", ownerId).addValue("beforeTime", timestamp(beforeUpdatedAt))
-                        .addValue("beforeId", beforeId).addValue("limit", limit),
+                        .addValue("ownerId", ownerId).addValue("beforeTime", timestamp(beforeUpdatedAt), Types.TIMESTAMP)
+                        .addValue("beforeId", beforeId, Types.OTHER).addValue("limit", limit),
                 (rs, rowNum) -> address(rs));
     }
 
@@ -209,15 +210,15 @@ public class JdbcAddressCommunicationRepository implements AddressCommunicationR
         String sql = "SELECT " + COMMUNICATION_COLUMNS + " FROM crm_communication_methods " +
                 "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
                 (includeArchived ? "" : "AND status<>'ARCHIVED' ") +
-                "AND (:methodType IS NULL OR method_type=:methodType) " +
-                "AND (:verificationStatus IS NULL OR verification_status=:verificationStatus) " +
-                "AND (:beforeTime IS NULL OR updated_at<:beforeTime " +
-                "OR (updated_at=:beforeTime AND (:beforeId IS NULL OR id<:beforeId))) " +
+                "AND (CAST(:methodType AS VARCHAR) IS NULL OR method_type=:methodType) " +
+                "AND (CAST(:verificationStatus AS VARCHAR) IS NULL OR verification_status=:verificationStatus) " +
+                "AND (CAST(:beforeTime AS TIMESTAMP) IS NULL OR updated_at<:beforeTime " +
+                "OR (updated_at=:beforeTime AND (CAST(:beforeId AS UUID) IS NULL OR id<:beforeId))) " +
                 "ORDER BY updated_at DESC,id DESC LIMIT :limit";
         return jdbc.query(sql, p().addValue("tenantId", tenantId).addValue("ownerType", ownerType)
-                        .addValue("ownerId", ownerId).addValue("methodType", methodType)
-                        .addValue("verificationStatus", verificationStatus)
-                        .addValue("beforeTime", timestamp(beforeUpdatedAt)).addValue("beforeId", beforeId)
+                        .addValue("ownerId", ownerId).addValue("methodType", methodType, Types.VARCHAR)
+                        .addValue("verificationStatus", verificationStatus, Types.VARCHAR)
+                        .addValue("beforeTime", timestamp(beforeUpdatedAt), Types.TIMESTAMP).addValue("beforeId", beforeId, Types.OTHER)
                         .addValue("limit", limit), (rs, rowNum) -> communication(rs));
     }
 
