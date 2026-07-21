@@ -1,0 +1,61 @@
+name: Observe CRM Closure 31cac69
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/diag-crm-closure-31cac69.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  observe:
+    name: Read exact-SHA closure runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: 31cac69fc1a336ffa29288929be7d086fc76a121
+      TARGET_WORKFLOW: crm-idempotency-production-reconciliation.yml
+    steps:
+      - name: Read exact-SHA closure runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAIN_SHA="$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          test "$MAIN_SHA" = "$TARGET_SHA" || { echo "::error::main moved from target SHA"; exit 1; }
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TARGET_SHA}&per_page=100" > "$RUNNER_TEMP/all-runs.json"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/${TARGET_WORKFLOW}/runs?head_sha=${TARGET_SHA}&per_page=20" > "$RUNNER_TEMP/reconciliation-runs.json"
+          jq -n \
+            --slurpfile all "$RUNNER_TEMP/all-runs.json" \
+            --slurpfile reconciliation "$RUNNER_TEMP/reconciliation-runs.json" \
+            '{target_sha:env.TARGET_SHA,runs:(([$all[0].workflow_runs[] | select(.name | test("Publish Render Backend Image|CRM-G1|CRM-007"; "i"))] + [$reconciliation[0].workflow_runs[] | select(.head_sha == env.TARGET_SHA)]) | unique_by(.id) | sort_by(.created_at) | map({id,name,path,event,status,conclusion,head_sha,created_at,updated_at,html_url}))}' \
+            | tee "$RUNNER_TEMP/closure-runs.json"
+
+      - name: Read current jobs and failed steps
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '{"runs":[' > "$RUNNER_TEMP/jobs.json"
+          FIRST=true
+          while IFS= read -r run_id; do
+            [ -n "$run_id" ] || continue
+            gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" > "$RUNNER_TEMP/jobs-${run_id}.json"
+            if [ "$FIRST" = false ]; then printf ',' >> "$RUNNER_TEMP/jobs.json"; fi
+            FIRST=false
+            jq -c --arg run_id "$run_id" '{run_id:($run_id|tonumber),jobs:[.jobs[] | {id,name,status,conclusion,steps:[.steps[] | {number,name,status,conclusion}]}]}' \
+              "$RUNNER_TEMP/jobs-${run_id}.json" >> "$RUNNER_TEMP/jobs.json"
+          done < <(jq -r '.runs[].id' "$RUNNER_TEMP/closure-runs.json")
+          printf ']}' >> "$RUNNER_TEMP/jobs.json"
+          cat "$RUNNER_TEMP/jobs.json"
+
+      - name: Upload sanitized observation
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-closure-31cac69-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/closure-runs.json
+            ${{ runner.temp }}/jobs.json
+          if-no-files-found: error
+          retention-days: 1
