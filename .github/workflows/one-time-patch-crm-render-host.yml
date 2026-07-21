@@ -47,3 +47,5 @@ jobs:
           git add .github/workflows/crm-g1-production-closure.yml
           git commit -m 'ops: point CRM production health gate to Render'
           git push origin HEAD:refs/heads/ops/render-only-final
+
+# Triggered after initial workflow registration.
