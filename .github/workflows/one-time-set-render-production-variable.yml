@@ -63,3 +63,5 @@ jobs:
 
           test "$(jq -r '.value' "$RUNNER_TEMP/verified.json")" = "$VARIABLE_VALUE"
           echo "Configured ${VARIABLE_NAME} for Render-only production health checks."
+
+# Triggered after workflow registration.
