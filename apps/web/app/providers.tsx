@@ -8,6 +8,17 @@ import { I18nProvider } from "@/lib/i18n/I18nProvider";
 import { ThemeProvider } from "@/lib/theme/ThemeProvider";
 
 const PROTECTED_ROOTS = ["/workspace", "/crm", "/control-plane"];
+const CRM_ROOT_ENTRY_COOKIE = "snad_crm_root_entry";
+
+function hasCrmRootEntryMarker(): boolean {
+  return document.cookie
+    .split(";")
+    .some((cookie) => cookie.trim() === `${CRM_ROOT_ENTRY_COOKIE}=1`);
+}
+
+function clearCrmRootEntryMarker(): void {
+  document.cookie = `${CRM_ROOT_ENTRY_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
+}
 
 function AuthRouteRecovery({ children }: { children: ReactNode }) {
   const { state } = useAuth();
@@ -18,9 +29,20 @@ function AuthRouteRecovery({ children }: { children: ReactNode }) {
     const protectedRoute = PROTECTED_ROOTS.some(
       (root) => pathname === root || pathname.startsWith(`${root}/`),
     );
+    if (!protectedRoute) return;
+
+    const crmRootEntry = pathname === "/crm/overview" && hasCrmRootEntryMarker();
     const sessionGone = ["ANONYMOUS", "ERROR", "EXPIRED", "CREDENTIAL_ROTATION_REQUIRED"].includes(state);
-    if (!protectedRoute || !sessionGone) return;
-    const returnUrl = `${pathname}${window.location.search}${window.location.hash}`;
+
+    if (!sessionGone) {
+      if (state === "AUTHENTICATED" && crmRootEntry) clearCrmRootEntryMarker();
+      return;
+    }
+
+    if (crmRootEntry) clearCrmRootEntryMarker();
+    const returnUrl = crmRootEntry
+      ? "/crm"
+      : `${pathname}${window.location.search}${window.location.hash}`;
     router.replace(`/?returnUrl=${encodeURIComponent(returnUrl)}`);
   }, [pathname, router, state]);
 
