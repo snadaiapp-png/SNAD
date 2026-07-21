@@ -54,7 +54,7 @@ jobs:
       # Kept for backward compatibility with evidence/reporting templates.
       TARGET_FLYWAY_VERSION: '20260718.1'
       PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
-      BACKEND_HEALTH_URL: ${{ vars.PRODUCTION_BACKEND_HEALTH_URL || 'https://streak-train-empower.ngrok-free.dev/actuator/health' }}
+      BACKEND_HEALTH_URL: ${{ vars.PRODUCTION_BACKEND_HEALTH_URL || 'https://sanad-backend-mcrj.onrender.com/actuator/health' }}
       BACKUP_REFERENCE: ${{ inputs.backup_reference || 'MANUAL-PGDUMP-hxhvfqxzigrqoxxnnzje-20260719T010007Z-SHA256-50eeac2cca743ca61c4512902a053809e8bd14fd3b9e3d1ae93dfec97b4a5c46' }}
       CHANGE_APPROVAL_REFERENCE: ${{ inputs.change_approval_reference || 'https://github.com/snadaiapp-png/SNAD/issues/571#issuecomment-5017569574' }}
 
