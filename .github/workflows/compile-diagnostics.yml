@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Query current CRM closure runs read-only
+      - name: Query current CRM closure runs and failed job logs read-only
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ea7ef51d1ec96d87893ee8d193eb122619029aaa
@@ -45,6 +45,21 @@ jobs:
               "$raw" > "$output"
             cat "$output"
           done
+
+          for item in crm007:88625985514 reconciliation:88624391031; do
+            label="${item%%:*}"
+            job_id="${item##*:}"
+            gh api \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${GITHUB_REPOSITORY}/actions/jobs/${job_id}/logs" \
+              > "$evidence/${label}-job.log"
+            sed -r 's/\x1B\[[0-9;]*[mK]//g' "$evidence/${label}-job.log" \
+              | grep -Ei 'error|fail|expected|received|http|address|communication|duplicate|conflict|refresh|session|timeout|render|image|relation|parameter|status' \
+              | tail -n 500 > "$evidence/${label}-relevant.log" || true
+            tail -n 350 "$evidence/${label}-job.log" > "$evidence/${label}-tail.log"
+          done
+
           find "$evidence" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > "$evidence/SHA256SUMS.txt"
       - name: Upload exact CRM closure observation
         uses: actions/upload-artifact@v4
