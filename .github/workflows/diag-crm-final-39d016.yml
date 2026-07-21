@@ -1,4 +1,4 @@
-name: Diagnose Root-Level Vercel Failure
+name: Diagnose Terminal Vercel Failure
 
 on:
   pull_request:
@@ -11,14 +11,14 @@ permissions:
 
 jobs:
   diagnose:
-    name: Read root-level Vercel failure tail
+    name: Read terminal Vercel failure lines
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
       FAILED_JOB_ID: '88642336844'
     steps:
-      - name: Print sanitized final lines
+      - name: Print final 28 sanitized lines
         shell: bash
         run: |
           set -euo pipefail
@@ -28,4 +28,4 @@ jobs:
             -H 'X-GitHub-Api-Version: 2022-11-28' \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/jobs/${FAILED_JOB_ID}/logs" \
             > "$RUNNER_TEMP/vercel.log"
-          sed -E 's/\x1B\[[0-9;]*[mK]//g' "$RUNNER_TEMP/vercel.log" | tail -n 70
+          sed -E 's/\x1B\[[0-9;]*[mK]//g' "$RUNNER_TEMP/vercel.log" | tail -n 28
