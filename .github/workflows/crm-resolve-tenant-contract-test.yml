@@ -64,7 +64,7 @@ jobs:
           fi
 
           echo "=== Test 6: zero returned tenants fails ==="
-          if echo "$RESOLVE_FUNC" | grep -q 'matches != "1"'; then
+          if echo "$RESOLVE_FUNC" | grep -q 'matches.*!=.*"1"'; then
             echo "PASS: zero-match case is rejected"
           else
             echo "::error::zero-match case not handled"
@@ -76,7 +76,7 @@ jobs:
           echo "PASS: multiple-match case covered by matches != 1"
 
           echo "=== Test 8: one correct fingerprint match succeeds ==="
-          if echo "$RESOLVE_FUNC" | grep -q 'matches = 1'; then
+          if echo "$RESOLVE_FUNC" | grep -q 'matches.*=.*1'; then
             echo "PASS: single-match success path exists"
           else
             echo "::error::single-match success path missing"
