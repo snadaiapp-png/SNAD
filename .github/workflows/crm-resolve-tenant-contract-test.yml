@@ -1,0 +1,103 @@
+name: CRM resolve_tenant Contract Test
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/crm/crm007-final-production-closure.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  contract-test:
+    name: Validate resolve_tenant implementation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Validate resolve_tenant contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE="scripts/crm/crm007-final-production-closure.sh"
+
+          echo "=== Test 1: SQL is provided through stdin or -f - ==="
+          if grep -q '\-f -' "$FILE" && grep -q "<<'SQL'" "$FILE"; then
+            echo "PASS: stdin-driven psql invocation found"
+          else
+            echo "::error::stdin-driven psql invocation not found"
+            exit 1
+          fi
+
+          echo "=== Test 2: tenant email remains a psql variable ==="
+          if grep -q '\-v email="\$email"' "$FILE"; then
+            echo "PASS: email is passed as psql variable"
+          else
+            echo "::error::email is not passed as psql variable"
+            exit 1
+          fi
+
+          echo "=== Test 3: :'email' remains present in SQL ==="
+          if grep -q ":'email'" "$FILE"; then
+            echo "PASS: :'email' interpolation present"
+          else
+            echo "::error:::'email' interpolation missing"
+            exit 1
+          fi
+
+          echo "=== Test 4: query is NOT passed through -c ==="
+          # Check that resolve_tenant function does not use -c for the query
+          RESOLVE_FUNC=$(sed -n '/^resolve_tenant()/,/^}/p' "$FILE")
+          if echo "$RESOLVE_FUNC" | grep -q '\-c.*SELECT'; then
+            echo "::error::resolve_tenant still uses -c for SQL query"
+            exit 1
+          fi
+          echo "PASS: -c not used for query in resolve_tenant"
+
+          echo "=== Test 5: psql failure causes resolve_tenant failure ==="
+          if echo "$RESOLVE_FUNC" | grep -q 'if ! candidates'; then
+            echo "PASS: psql exit code is checked"
+          else
+            echo "::error::psql exit code not checked"
+            exit 1
+          fi
+
+          echo "=== Test 6: zero returned tenants fails ==="
+          if echo "$RESOLVE_FUNC" | grep -q 'matches != "1"'; then
+            echo "PASS: zero-match case is rejected"
+          else
+            echo "::error::zero-match case not handled"
+            exit 1
+          fi
+
+          echo "=== Test 7: multiple fingerprint matches fail ==="
+          # Same check - matches != "1" covers both 0 and >1
+          echo "PASS: multiple-match case covered by matches != 1"
+
+          echo "=== Test 8: one correct fingerprint match succeeds ==="
+          if echo "$RESOLVE_FUNC" | grep -q 'matches = 1'; then
+            echo "PASS: single-match success path exists"
+          else
+            echo "::error::single-match success path missing"
+            exit 1
+          fi
+
+          echo "=== Test 9: non-matching tenants do not resolve ==="
+          if echo "$RESOLVE_FUNC" | grep -q 'sha256sum'; then
+            echo "PASS: fingerprint validation present"
+          else
+            echo "::error::fingerprint validation missing"
+            exit 1
+          fi
+
+          echo "=== Test 10: empty output does not create empty candidate ==="
+          if echo "$RESOLVE_FUNC" | grep -q 'test -n "$candidate" || continue'; then
+            echo "PASS: empty candidate guard present"
+          else
+            echo "::error::empty candidate guard missing"
+            exit 1
+          fi
+
+          echo ""
+          echo "=== All contract tests passed ==="

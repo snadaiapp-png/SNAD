@@ -12,15 +12,48 @@ mask_required() {
 }
 
 resolve_tenant() {
-  local email="$1" fingerprint="$2" candidate matches=0 resolved=""
+  local email="$1"
+  local fingerprint="$2"
+  local candidates=""
+  local candidate=""
+  local matches=0
+  local resolved=""
+
+  if ! candidates="$(
+    psql "$PSQL_URL" \
+      -U "$PROD_DB_USER" \
+      -X \
+      -v ON_ERROR_STOP=1 \
+      -At \
+      -v email="$email" \
+      -f - <<'SQL'
+SELECT DISTINCT tenant_id
+FROM users
+WHERE lower(email) = lower(:'email')
+  AND status = 'ACTIVE'
+ORDER BY tenant_id;
+SQL
+  )"; then
+    echo "::error::Tenant resolution query failed" >&2
+    return 1
+  fi
+
   while IFS= read -r candidate; do
+    test -n "$candidate" || continue
+
     echo "::add-mask::$candidate" >&2
-    if [ "$(printf '%s' "$candidate" | sha256sum | awk '{print $1}')" = "$fingerprint" ]; then
-      resolved="$candidate"; matches=$((matches+1))
+
+    if test "$(printf '%s' "$candidate" | sha256sum | awk '{print $1}')" = "$fingerprint"; then
+      resolved="$candidate"
+      matches=$((matches + 1))
     fi
-  done < <(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -At -v email="$email" \
-    -c "SELECT DISTINCT tenant_id FROM users WHERE lower(email)=lower(:'email') AND status='ACTIVE' ORDER BY tenant_id")
-  test "$matches" = "1"
+  done <<< "$candidates"
+
+  if test "$matches" != "1"; then
+    echo "::error::Expected exactly one fingerprint-matching active tenant" >&2
+    return 1
+  fi
+
   printf '%s' "$resolved"
 }
 
