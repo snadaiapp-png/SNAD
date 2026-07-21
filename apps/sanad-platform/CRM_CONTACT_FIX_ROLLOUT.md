@@ -2,7 +2,7 @@
 
 This marker triggers the protected exact-SHA Production chain.
 
-Runtime remediation generation: `render-flyway-runtime-v2`.
+Runtime remediation generation: `crm-idempotency-reconciliation-v1`.
 
 The remediation workflow:
 
@@ -12,9 +12,15 @@ The remediation workflow:
    - `FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/vendor/{vendor}`;
 2. waits for `ghcr.io/snadaiapp-png/snad-backend:<exact-merge-sha>`;
 3. redeploys that exact image;
-4. verifies health and `20260721.1 = SQL / true` read-only;
-5. dispatches CRM-G1 and waits for exact-SHA success;
-6. explicitly dispatches CRM-007.
+4. verifies health and Flyway `20260721.1` plus `20260721.2` as `SQL / true` using read-only PostgreSQL checks;
+5. verifies `crm_idempotency_records` with 12 columns, its uniqueness constraint, and both indexes;
+6. dispatches CRM-G1 and waits for exact-SHA success;
+7. explicitly dispatches CRM-007.
+
+The application corrections in this generation also:
+
+- perform the `/crm` → `/crm/overview` redirect at the HTTP routing layer before the authenticated SPA boots, preventing duplicate refresh-token rotation;
+- bind nullable address and communication list filters with explicit PostgreSQL JDBC types.
 
 The obsolete workflow-run G1 trigger is removed to prevent duplicate G1 evidence and duplicate CRM-007 queues.
 
@@ -23,6 +29,7 @@ Required closure evidence:
 - Vercel Production is `READY` on the exact merge SHA;
 - Render is `live` on the exact immutable image;
 - Contact Create returns HTTP 201 and Contact Detail returns HTTP 200;
-- Tenant B receives HTTP 404 for Tenant A's Contact;
+- Address and communication lifecycle operations return their exact accepted statuses without 5xx responses;
+- Tenant B receives HTTP 404 for Tenant A's records;
 - CRM-007 authenticated lifecycle and isolation pass after CRM-G1 success;
 - closure workflows perform no Flyway migrate, repair, schema-history edit, manual Production SQL, test skip, or `continue-on-error`.
