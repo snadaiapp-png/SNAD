@@ -7,12 +7,51 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: compile-diagnostics-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  observe-crm-final-state:
+    name: Observe exact CRM closure workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Query current CRM closure runs read-only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ea7ef51d1ec96d87893ee8d193eb122619029aaa
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/crm-final-state"
+          mkdir -p "$evidence"
+          for workflow in \
+            publish-render-image.yml \
+            crm-idempotency-production-reconciliation.yml \
+            crm-g1-production-closure.yml \
+            crm-007-final-production-closure.yml; do
+            output="$evidence/${workflow%.yml}.json"
+            gh api \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?per_page=30" \
+              --jq --arg sha "$RELEASE_SHA" \
+              '{workflow:"'"$workflow"'",observed_at:(now|todate),exact_sha:$sha,runs:[.workflow_runs[]|select(.head_sha==$sha)|{id,name,event,status,conclusion,head_sha,head_branch,run_number,run_attempt,created_at,updated_at,html_url}]}' \
+              > "$output"
+            cat "$output"
+          done
+          find "$evidence" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > "$evidence/SHA256SUMS.txt"
+      - name: Upload exact CRM closure observation
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-final-state-observation-${{ github.run_id }}
+          path: ${{ runner.temp }}/crm-final-state
+          if-no-files-found: error
+          retention-days: 1
+
   compile:
     runs-on: ubuntu-latest
     timeout-minutes: 20
