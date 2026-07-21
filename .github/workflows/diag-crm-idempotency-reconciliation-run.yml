@@ -1,0 +1,61 @@
+name: Diagnose CRM Idempotency Reconciliation
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/diag-crm-idempotency-reconciliation-run.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  observe:
+    name: Read failed reconciliation run
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: ea7ef51d1ec96d87893ee8d193eb122619029aaa
+    steps:
+      - name: Locate exact-SHA reconciliation run
+        id: locate
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/crm-idempotency-production-reconciliation.yml/runs?head_sha=${TARGET_SHA}&per_page=20" \
+            > "$RUNNER_TEMP/runs.json"
+          jq '[.workflow_runs[] | select(.head_sha == env.TARGET_SHA)] | sort_by(.created_at) | reverse | first' \
+            "$RUNNER_TEMP/runs.json" > "$RUNNER_TEMP/run.json"
+          RUN_ID="$(jq -r '.id // empty' "$RUNNER_TEMP/run.json")"
+          test -n "$RUN_ID" || { echo '::error::No reconciliation run found for exact merge SHA'; exit 1; }
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          jq '{id,name,event,status,conclusion,head_sha,created_at,updated_at,html_url}' "$RUNNER_TEMP/run.json"
+
+      - name: Read jobs and failed steps
+        env:
+          RUN_ID: ${{ steps.locate.outputs.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+            > "$RUNNER_TEMP/jobs.json"
+          jq '{jobs:[.jobs[] | {id,name,status,conclusion,started_at,completed_at,failed_steps:[.steps[] | select(.conclusion == "failure") | {number,name,status,conclusion}]}]}' \
+            "$RUNNER_TEMP/jobs.json" | tee "$RUNNER_TEMP/diagnosis.json"
+          test "$(jq '[.jobs[].failed_steps[]] | length' "$RUNNER_TEMP/diagnosis.json")" -gt 0 || {
+            echo '::error::Run did not expose a failed step'; exit 1;
+          }
+
+      - name: Upload sanitized diagnosis
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-idempotency-reconciliation-diagnosis
+          path: ${{ runner.temp }}/diagnosis.json
+          if-no-files-found: error
+          retention-days: 1
