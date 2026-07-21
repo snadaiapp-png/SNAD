@@ -1,94 +1,4 @@
-from pathlib import Path
-
-
-next_config = Path("apps/web/next.config.ts")
-next_config.write_text(
-    '''import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  async redirects() {
-    return [
-      {
-        source: "/crm",
-        destination: "/crm/overview",
-        permanent: false,
-      },
-    ];
-  },
-};
-
-export default nextConfig;
-''',
-    encoding="utf-8",
-)
-
-Path("apps/web/next-config-redirect.test.ts").write_text(
-    '''import { describe, expect, it } from "vitest";
-
-import nextConfig from "./next.config";
-
-describe("Next.js HTTP redirects", () => {
-  it("redirects /crm to /crm/overview before the authenticated SPA boots", async () => {
-    const redirects = await nextConfig.redirects?.();
-
-    expect(redirects).toEqual(
-      expect.arrayContaining([
-        {
-          source: "/crm",
-          destination: "/crm/overview",
-          permanent: false,
-        },
-      ]),
-    );
-  });
-});
-''',
-    encoding="utf-8",
-)
-
-repository = Path(
-    "apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/infrastructure/"
-    "JdbcAddressCommunicationRepository.java"
-)
-source = repository.read_text(encoding="utf-8")
-original = source
-source = source.replace(
-    "import java.sql.Timestamp;\n",
-    "import java.sql.Timestamp;\nimport java.sql.Types;\n",
-    1,
-)
-assert source != original, "Types import was not inserted"
-
-replacements = {
-    '.addValue("beforeTime", timestamp(beforeUpdatedAt))':
-        '.addValue("beforeTime", timestamp(beforeUpdatedAt), Types.TIMESTAMP)',
-    '.addValue("beforeId", beforeId)':
-        '.addValue("beforeId", beforeId, Types.OTHER)',
-}
-for old, new in replacements.items():
-    count = source.count(old)
-    assert count == 2, f"expected 2 occurrences of {old}, found {count}"
-    source = source.replace(old, new)
-
-old_filters = '''.addValue("ownerId", ownerId).addValue("methodType", methodType)
-                        .addValue("verificationStatus", verificationStatus)
-                        .addValue("beforeTime", timestamp(beforeUpdatedAt), Types.TIMESTAMP)'''
-new_filters = '''.addValue("ownerId", ownerId).addValue("methodType", methodType, Types.VARCHAR)
-                        .addValue("verificationStatus", verificationStatus, Types.VARCHAR)
-                        .addValue("beforeTime", timestamp(beforeUpdatedAt), Types.TIMESTAMP)'''
-assert source.count(old_filters) == 1, (
-    "communication list filter parameter block changed unexpectedly"
-)
-source = source.replace(old_filters, new_filters, 1)
-repository.write_text(source, encoding="utf-8")
-
-test_path = Path(
-    "apps/sanad-platform/src/test/java/com/sanad/platform/crm/party/infrastructure/"
-    "JdbcAddressCommunicationNullableFilterPostgresTest.java"
-)
-test_path.parent.mkdir(parents=True, exist_ok=True)
-test_path.write_text(
-    '''package com.sanad.platform.crm.party.infrastructure;
+package com.sanad.platform.crm.party.infrastructure;
 
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import org.flywaydb.core.Flyway;
@@ -181,10 +91,10 @@ class JdbcAddressCommunicationNullableFilterPostgresTest {
                 "src/main/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationRepository.java"));
 
         assertThat(source)
-                .contains("addValue(\\\"beforeTime\\\", timestamp(beforeUpdatedAt), Types.TIMESTAMP)")
-                .contains("addValue(\\\"beforeId\\\", beforeId, Types.OTHER)")
-                .contains("addValue(\\\"methodType\\\", methodType, Types.VARCHAR)")
-                .contains("addValue(\\\"verificationStatus\\\", verificationStatus, Types.VARCHAR)");
+                .contains("addValue(\"beforeTime\", timestamp(beforeUpdatedAt), Types.TIMESTAMP)")
+                .contains("addValue(\"beforeId\", beforeId, Types.OTHER)")
+                .contains("addValue(\"methodType\", methodType, Types.VARCHAR)")
+                .contains("addValue(\"verificationStatus\", verificationStatus, Types.VARCHAR)");
     }
 
     private static MapSqlParameterSource baseParams() {
@@ -201,9 +111,3 @@ class JdbcAddressCommunicationNullableFilterPostgresTest {
         return new NamedParameterJdbcTemplate(dataSource);
     }
 }
-''',
-    encoding="utf-8",
-)
-
-Path(".github/workflows/apply-pr639-runtime-fixes.yml").unlink()
-Path(".github/scripts/apply_pr639_runtime_fixes.py").unlink()

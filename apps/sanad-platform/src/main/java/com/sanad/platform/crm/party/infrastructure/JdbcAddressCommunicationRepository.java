@@ -14,6 +14,7 @@ import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -64,8 +65,8 @@ public class JdbcAddressCommunicationRepository implements AddressCommunicationR
                 "OR (updated_at=:beforeTime AND (:beforeId IS NULL OR id<:beforeId))) " +
                 "ORDER BY updated_at DESC,id DESC LIMIT :limit";
         return jdbc.query(sql, p().addValue("tenantId", tenantId).addValue("ownerType", ownerType)
-                        .addValue("ownerId", ownerId).addValue("beforeTime", timestamp(beforeUpdatedAt))
-                        .addValue("beforeId", beforeId).addValue("limit", limit),
+                        .addValue("ownerId", ownerId).addValue("beforeTime", timestamp(beforeUpdatedAt), Types.TIMESTAMP)
+                        .addValue("beforeId", beforeId, Types.OTHER).addValue("limit", limit),
                 (rs, rowNum) -> address(rs));
     }
 
@@ -215,9 +216,9 @@ public class JdbcAddressCommunicationRepository implements AddressCommunicationR
                 "OR (updated_at=:beforeTime AND (:beforeId IS NULL OR id<:beforeId))) " +
                 "ORDER BY updated_at DESC,id DESC LIMIT :limit";
         return jdbc.query(sql, p().addValue("tenantId", tenantId).addValue("ownerType", ownerType)
-                        .addValue("ownerId", ownerId).addValue("methodType", methodType)
-                        .addValue("verificationStatus", verificationStatus)
-                        .addValue("beforeTime", timestamp(beforeUpdatedAt)).addValue("beforeId", beforeId)
+                        .addValue("ownerId", ownerId).addValue("methodType", methodType, Types.VARCHAR)
+                        .addValue("verificationStatus", verificationStatus, Types.VARCHAR)
+                        .addValue("beforeTime", timestamp(beforeUpdatedAt), Types.TIMESTAMP).addValue("beforeId", beforeId, Types.OTHER)
                         .addValue("limit", limit), (rs, rowNum) -> communication(rs));
     }
 
