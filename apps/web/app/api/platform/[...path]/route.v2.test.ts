@@ -13,7 +13,7 @@ function request(path: string, headers: Record<string, string> = {}): NextReques
 describe("platform BFF API v2 forwarding", () => {
   beforeEach(() => {
     vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("BACKEND_API_BASE_URL", "https://sanad-backend.example.com");
+    vi.stubEnv("BACKEND_API_BASE_URL", "https://sanad-backend-mcrj.onrender.com");
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -41,7 +41,7 @@ describe("platform BFF API v2 forwarding", () => {
 
     expect(response.status).toBe(200);
     const [url, init] = vi.mocked(fetch).mock.calls[0];
-    expect(url).toBe(`https://sanad-backend.example.com/api/v2/crm/accounts/${accountId}/addresses?limit=1`);
+    expect(url).toBe(`https://sanad-backend-mcrj.onrender.com/api/v2/crm/accounts/${accountId}/addresses?limit=1`);
     expect((init?.headers as Headers).get("authorization")).toBe("Bearer crm-access-token");
   });
 
