@@ -1,0 +1,63 @@
+name: Observe Exact-SHA CRM Closure
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/diag-crm-closure-exact-sha.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  observe:
+    name: Read exact-SHA closure runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: 098a6124c4274a8de65188d1622b336e9d3a2fb4
+    steps:
+      - name: Read relevant workflow runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TARGET_SHA}&per_page=100" \
+            > "$RUNNER_TEMP/all-runs.json"
+          jq '{target_sha:env.TARGET_SHA,runs:[.workflow_runs[] | select(.name | test("Publish Render Backend Image|CRM Idempotency Production Reconciliation|CRM-G1|CRM-007"; "i")) | {id,name,event,status,conclusion,head_sha,created_at,updated_at,html_url}]}' \
+            "$RUNNER_TEMP/all-runs.json" | tee "$RUNNER_TEMP/closure-runs.json"
+
+      - name: Read failed steps when present
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -r '.runs[] | select(.status == "completed" and .conclusion != "success") | .id' "$RUNNER_TEMP/closure-runs.json" > "$RUNNER_TEMP/failed-run-ids.txt"
+          printf '{"failed_runs":[' > "$RUNNER_TEMP/failed-steps.json"
+          FIRST=true
+          while IFS= read -r run_id; do
+            [ -n "$run_id" ] || continue
+            gh api \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" \
+              > "$RUNNER_TEMP/jobs-${run_id}.json"
+            if [ "$FIRST" = false ]; then printf ',' >> "$RUNNER_TEMP/failed-steps.json"; fi
+            FIRST=false
+            jq -c --arg run_id "$run_id" '{run_id:($run_id|tonumber),jobs:[.jobs[] | {id,name,status,conclusion,failed_steps:[.steps[] | select(.conclusion == "failure") | {number,name,status,conclusion}]}]}' \
+              "$RUNNER_TEMP/jobs-${run_id}.json" >> "$RUNNER_TEMP/failed-steps.json"
+          done < "$RUNNER_TEMP/failed-run-ids.txt"
+          printf ']}' >> "$RUNNER_TEMP/failed-steps.json"
+          cat "$RUNNER_TEMP/failed-steps.json"
+
+      - name: Upload sanitized observation
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-closure-observation-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/closure-runs.json
+            ${{ runner.temp }}/failed-steps.json
+          if-no-files-found: error
+          retention-days: 1
