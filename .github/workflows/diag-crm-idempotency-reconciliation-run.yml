@@ -52,10 +52,27 @@ jobs:
             echo '::error::Run did not expose a failed step'; exit 1;
           }
 
+      - name: Extract sanitized failed log tail
+        env:
+          RUN_ID: ${{ steps.locate.outputs.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed > "$RUNNER_TEMP/failed-raw.log"
+          sed -E 's/\x1B\[[0-9;]*[mK]//g' "$RUNNER_TEMP/failed-raw.log" > "$RUNNER_TEMP/failed-sanitized.log"
+          grep -Ei 'Redeploy exact image|Render|curl:|HTTP|error|Process completed|image|status|deployment|exit code|test ' \
+            "$RUNNER_TEMP/failed-sanitized.log" | tail -n 200 > "$RUNNER_TEMP/failed-log-tail.txt" || true
+          if [ ! -s "$RUNNER_TEMP/failed-log-tail.txt" ]; then
+            tail -n 200 "$RUNNER_TEMP/failed-sanitized.log" > "$RUNNER_TEMP/failed-log-tail.txt"
+          fi
+          cat "$RUNNER_TEMP/failed-log-tail.txt"
+
       - name: Upload sanitized diagnosis
         uses: actions/upload-artifact@v4
         with:
           name: crm-idempotency-reconciliation-diagnosis
-          path: ${{ runner.temp }}/diagnosis.json
+          path: |
+            ${{ runner.temp }}/diagnosis.json
+            ${{ runner.temp }}/failed-log-tail.txt
           if-no-files-found: error
           retention-days: 1
