@@ -20,6 +20,7 @@ jobs:
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      VERCEL_TEAM_SLUG: snad-team
       VERCEL_PROJECT_ID: prj_WM5fbCPCycdogZQaWFnLKDgb5bA9
       TARGET_SHA: 39d0163189ff3301e8565f7f004839a618f8a021
     steps:
@@ -61,7 +62,7 @@ jobs:
             --prod \
             --yes \
             --token "$VERCEL_TOKEN" \
-            --scope "$VERCEL_TEAM_ID" \
+            --scope "$VERCEL_TEAM_SLUG" \
             --meta "githubCommitSha=$TARGET_SHA" \
             --meta 'githubCommitRef=main' \
             --meta 'githubOrg=snadaiapp-png' \
