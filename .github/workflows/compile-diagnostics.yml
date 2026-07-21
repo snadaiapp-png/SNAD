@@ -6,58 +6,13 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: compile-diagnostics-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  apply-crm007-source-fix:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'fix/crm007-nullable-exclusion-final'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout exact PR head
-        uses: actions/checkout@v4
-        with:
-          ref: fix/crm007-nullable-exclusion-final
-          fetch-depth: 0
-      - name: Apply source-only correction
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -f scripts/ci/apply_crm007_nullable_exclusion_final.py ]; then
-            echo "Source correction already committed."
-            exit 0
-          fi
-          python scripts/ci/apply_crm007_nullable_exclusion_final.py
-          git checkout HEAD -- \
-            .github/workflows/crm-idempotency-production-reconciliation.yml \
-            .github/workflows/crm-007-final-production-closure.yml
-          git diff --check
-          git status --short
-      - name: Commit source and PostgreSQL regression only
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f scripts/ci/apply_crm007_nullable_exclusion_final.py ]; then
-            echo "Applicator unexpectedly still exists."
-            exit 1
-          fi
-          if git diff --quiet && git diff --cached --quiet; then
-            echo "No source changes remain to commit."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationRepository.java \
-            apps/sanad-platform/src/test/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationNullableFilterPostgresTest.java \
-            scripts/ci/apply_crm007_nullable_exclusion_final.py
-          git commit -m "fix(crm): bind nullable mutation exclusions as PostgreSQL UUID"
-          git push origin HEAD:fix/crm007-nullable-exclusion-final
-
   compile:
     runs-on: ubuntu-latest
     timeout-minutes: 20
