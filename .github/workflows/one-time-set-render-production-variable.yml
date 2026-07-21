@@ -1,0 +1,65 @@
+name: One-Time Set Render Production Variable
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-set-render-production-variable.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Set and verify production backend health variable
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VARIABLE_NAME: PRODUCTION_BACKEND_HEALTH_URL
+          VARIABLE_VALUE: https://sanad-backend-mcrj.onrender.com/actuator/health
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/variables/${VARIABLE_NAME}"
+          payload="$(jq -n --arg name "$VARIABLE_NAME" --arg value "$VARIABLE_VALUE" '{name:$name,value:$value}')"
+
+          code="$(curl --silent --show-error --output "$RUNNER_TEMP/current.json" --write-out '%{http_code}' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$api")"
+
+          if [ "$code" = "200" ]; then
+            curl --fail-with-body --silent --show-error \
+              -X PATCH \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              -H 'Content-Type: application/json' \
+              --data "$payload" \
+              "$api"
+          elif [ "$code" = "404" ]; then
+            curl --fail-with-body --silent --show-error \
+              -X POST \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              -H 'Content-Type: application/json' \
+              --data "$payload" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/variables"
+          else
+            cat "$RUNNER_TEMP/current.json"
+            exit 1
+          fi
+
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$api" > "$RUNNER_TEMP/verified.json"
+
+          test "$(jq -r '.value' "$RUNNER_TEMP/verified.json")" = "$VARIABLE_VALUE"
+          echo "Configured ${VARIABLE_NAME} for Render-only production health checks."
