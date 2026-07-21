@@ -27,10 +27,8 @@ jobs:
           test "$MAIN_SHA" = "$AUTHORIZED_MAIN_SHA" || { echo "::error::main moved from authorized SHA"; exit 1; }
           BRANCH_SHA="$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${TARGET_BRANCH}" --jq '.object.sha')"
           test -n "$BRANCH_SHA"
-          echo "branch_sha=$BRANCH_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Patch exact invalid context usage
-        id: patch
         shell: bash
         run: |
           set -euo pipefail
@@ -44,7 +42,8 @@ jobs:
 
           path = Path(sys.argv[1])
           text = path.read_text(encoding="utf-8")
-          invalid = "      EVIDENCE_DIR: ${{ runner.temp }}/crm-idempotency-reconciliation\n"
+          expression = "$" + "{{ runner.temp }}"
+          invalid = f"      EVIDENCE_DIR: {expression}/crm-idempotency-reconciliation\n"
           anchor = '          set -euo pipefail\n          mkdir -p "$EVIDENCE_DIR"\n'
           fixed = (
               '          set -euo pipefail\n'
@@ -65,13 +64,19 @@ jobs:
               raise SystemExit("Workflow is neither in the expected invalid nor fixed state")
           PY
 
-          test "$(grep -cF 'EVIDENCE_DIR: ${{ runner.temp }}/crm-idempotency-reconciliation' "$RUNNER_TEMP/workflow.yml" || true)" = "0"
-          test "$(grep -cF 'echo "EVIDENCE_DIR=$EVIDENCE_DIR" >> "$GITHUB_ENV"' "$RUNNER_TEMP/workflow.yml")" = "1"
+          python - "$RUNNER_TEMP/workflow.yml" <<'PY'
+          from pathlib import Path
+          import sys
+          text = Path(sys.argv[1]).read_text(encoding="utf-8")
+          invalid = "      EVIDENCE_DIR: $" + "{{ runner.temp }}/crm-idempotency-reconciliation\n"
+          assert invalid not in text
+          assert text.count('echo "EVIDENCE_DIR=$EVIDENCE_DIR" >> "$GITHUB_ENV"') == 1
+          PY
 
           CURRENT_CONTENT="$(jq -r '.content' "$RUNNER_TEMP/file.json" | tr -d '\n')"
           NEW_CONTENT="$(base64 -w0 "$RUNNER_TEMP/workflow.yml")"
           if [ "$CURRENT_CONTENT" = "$NEW_CONTENT" ]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Branch already contains the exact fix."
             exit 0
           fi
 
@@ -83,10 +88,7 @@ jobs:
             '{message:$message,content:$content,branch:$branch,sha:$sha}' \
             > "$RUNNER_TEMP/update.json"
           gh api --method PUT "/repos/${GITHUB_REPOSITORY}/contents/${TARGET_PATH}" --input "$RUNNER_TEMP/update.json" > "$RUNNER_TEMP/update-response.json"
-          COMMIT_SHA="$(jq -r '.commit.sha' "$RUNNER_TEMP/update-response.json")"
-          test -n "$COMMIT_SHA"
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-          echo "commit_sha=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
+          test -n "$(jq -r '.commit.sha // empty' "$RUNNER_TEMP/update-response.json")"
           jq '{commit_sha:.commit.sha,content_sha:.content.sha}' "$RUNNER_TEMP/update-response.json"
 
       - name: Verify branch file
@@ -95,5 +97,12 @@ jobs:
           set -euo pipefail
           gh api "/repos/${GITHUB_REPOSITORY}/contents/${TARGET_PATH}?ref=${TARGET_BRANCH}" --jq '.content' \
             | tr -d '\n' | base64 -d > "$RUNNER_TEMP/verified.yml"
-          test "$(grep -cF 'EVIDENCE_DIR: ${{ runner.temp }}/crm-idempotency-reconciliation' "$RUNNER_TEMP/verified.yml" || true)" = "0"
-          test "$(grep -cF 'echo "EVIDENCE_DIR=$EVIDENCE_DIR" >> "$GITHUB_ENV"' "$RUNNER_TEMP/verified.yml")" = "1"
+          python - "$RUNNER_TEMP/verified.yml" <<'PY'
+          from pathlib import Path
+          import sys
+          text = Path(sys.argv[1]).read_text(encoding="utf-8")
+          invalid = "      EVIDENCE_DIR: $" + "{{ runner.temp }}/crm-idempotency-reconciliation\n"
+          assert invalid not in text
+          assert text.count('echo "EVIDENCE_DIR=$EVIDENCE_DIR" >> "$GITHUB_ENV"') == 1
+          print("verified")
+          PY
