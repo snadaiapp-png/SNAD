@@ -1,19 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { NextRequest } from "next/server";
 
-import nextConfig from "./next.config";
+import { CRM_ROOT_ENTRY_COOKIE, middleware } from "./middleware";
 
-describe("Next.js HTTP redirects", () => {
-  it("redirects /crm to /crm/overview before the authenticated SPA boots", async () => {
-    const redirects = await nextConfig.redirects?.();
+describe("CRM root HTTP redirect", () => {
+  it("redirects before the authenticated SPA boots and preserves root intent", () => {
+    const response = middleware(new NextRequest("http://localhost:3000/crm"));
 
-    expect(redirects).toEqual(
-      expect.arrayContaining([
-        {
-          source: "/crm",
-          destination: "/crm/overview",
-          permanent: false,
-        },
-      ]),
-    );
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("http://localhost:3000/crm/overview");
+    expect(response.cookies.get(CRM_ROOT_ENTRY_COOKIE)?.value).toBe("1");
   });
 });
