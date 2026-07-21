@@ -1,0 +1,88 @@
+name: CRM Contact Render Log Extraction
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm-contact-render-log-extraction.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    name: Extract delayed Contact 500 logs from Render
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: Production
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      REQUEST_ID: 7e5d644d-116a-4661-9f6b-d108eeb2b6b8
+      START_TIME: 2026-07-21T06:28:30Z
+      END_TIME: 2026-07-21T06:31:30Z
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Query exact request and surrounding application logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RENDER_API_KEY" && test -n "$RENDER_SERVICE_ID"
+          [[ "$RENDER_SERVICE_ID" == srv-* ]]
+          echo "::add-mask::$RENDER_API_KEY"
+          EVIDENCE_DIR="$RUNNER_TEMP/crm-contact-render-logs"
+          rm -rf "$EVIDENCE_DIR" && mkdir -p "$EVIDENCE_DIR"
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" > "$RUNNER_TEMP/render-service.json"
+          OWNER_ID="$(jq -r '(.service // .).ownerId // (.service // .).owner.id // empty' "$RUNNER_TEMP/render-service.json")"
+          test -n "$OWNER_ID"
+          fetch_logs() {
+            local output="$1"; shift
+            curl --get --fail-with-body --silent --show-error --max-time 45 \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
+              --data-urlencode "ownerId=${OWNER_ID}" --data-urlencode "resource=${RENDER_SERVICE_ID}" \
+              --data-urlencode "startTime=${START_TIME}" --data-urlencode "endTime=${END_TIME}" \
+              --data-urlencode "direction=forward" --data-urlencode "limit=100" "$@" \
+              https://api.render.com/v1/logs > "$output"
+          }
+          fetch_logs "$EVIDENCE_DIR/exact-request-id.json" --data-urlencode "text=${REQUEST_ID}"
+          fetch_logs "$EVIDENCE_DIR/request-log.json" --data-urlencode "type=request" --data-urlencode "method=POST" --data-urlencode "statusCode=500" --data-urlencode "path=/api/v1/crm/contacts"
+          fetch_logs "$EVIDENCE_DIR/error-app-logs.json" --data-urlencode "type=app" --data-urlencode "level=error"
+          fetch_logs "$EVIDENCE_DIR/all-window-logs.json"
+          export EVIDENCE_DIR REQUEST_ID RENDER_SERVICE_ID
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          evidence = Path(os.environ['EVIDENCE_DIR'])
+          service_id = os.environ['RENDER_SERVICE_ID']
+          request_id = os.environ['REQUEST_ID']
+          combined, counts = [], {}
+          for path in sorted(evidence.glob('*.json')):
+              raw = path.read_text(encoding='utf-8', errors='replace').replace(service_id, '[RENDER_SERVICE_ID]')
+              raw = re.sub(r'(?i)Bearer\s+[A-Za-z0-9._~+/-]+=*', 'Bearer [REDACTED]', raw)
+              data = json.loads(raw)
+              path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+              logs = data.get('logs', []) if isinstance(data, dict) else []
+              counts[path.name] = len(logs)
+              for entry in logs:
+                  text = json.dumps(entry, ensure_ascii=False)
+                  if request_id in text or any(term in text for term in ('/api/v1/crm/contacts','crm_contacts','BadSqlGrammarException','PSQLException','SQLState','legal_name','preferred_name','column')):
+                      combined.append(entry)
+          (evidence/'matched-contact-error.json').write_text(json.dumps({'request_id':request_id,'matched_entries':combined}, ensure_ascii=False, indent=2), encoding='utf-8')
+          (evidence/'counts.json').write_text(json.dumps(counts, indent=2), encoding='utf-8')
+          if not combined: raise SystemExit('No Contact error log matched the proven request window')
+          PY
+          find "$EVIDENCE_DIR" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > "$EVIDENCE_DIR/SHA256SUMS.txt"
+      - name: Upload immutable Render log evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-contact-render-logs-${{ github.run_id }}
+          path: ${{ runner.temp }}/crm-contact-render-logs
+          if-no-files-found: error
+          retention-days: 90
