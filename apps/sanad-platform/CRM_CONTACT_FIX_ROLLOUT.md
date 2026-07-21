@@ -2,35 +2,38 @@
 
 This marker triggers the protected exact-SHA Production chain.
 
-Runtime remediation generation: `crm-idempotency-reconciliation-v3`.
+Runtime remediation generation: `crm-nullable-exclusion-closure-v4`.
 
-The remediation workflow:
+Authoritative source fix:
 
-1. initializes evidence only after the GitHub runner starts, using `$RUNNER_TEMP` and `GITHUB_ENV`;
-2. enforces the direct Render runtime contract:
+- PR #651 merged successfully.
+- Previous HTTP 500 root cause: PostgreSQL could not determine the type of nullable `exceptId`.
+- Repository remediation: explicit PostgreSQL UUID casts and JDBC `Types.OTHER` bindings.
+- Regression evidence: PostgreSQL 16 Testcontainers.
+
+The protected closure workflow must:
+
+1. publish `ghcr.io/snadaiapp-png/snad-backend:<exact-merge-sha>`;
+2. deploy Vercel Production and Render from the same exact merge SHA;
+3. enforce the direct Render runtime contract:
    - `SPRING_PROFILES_ACTIVE=prod`;
    - `FLYWAY_ENABLED=true`;
    - `FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/vendor/{vendor}`;
-3. waits for `ghcr.io/snadaiapp-png/snad-backend:<exact-merge-sha>`;
-4. redeploys that exact image and requires the complete owner, image name, and merge-SHA tag to match after canonicalizing only optional transport prefixes;
-5. verifies health and Flyway `20260721.2` as `SQL / true` using read-only PostgreSQL checks;
-6. verifies `crm_idempotency_records` with 12 columns, its uniqueness constraint, and both indexes;
-7. dispatches CRM-G1 and waits for exact-SHA success;
-8. dispatches CRM-007 and waits for exact-SHA success;
-9. uploads immutable evidence on both success and failure.
-
-The application corrections in this generation also:
-
-- perform the `/crm` → `/crm/overview` redirect at the HTTP routing layer before the authenticated SPA boots, preventing duplicate refresh-token rotation;
-- bind nullable address and communication list filters with explicit PostgreSQL JDBC types.
+4. verify Render health, liveness and readiness;
+5. verify Flyway `20260721.2` as `SQL / true` using read-only PostgreSQL checks;
+6. verify `crm_idempotency_records` with 12 columns, its uniqueness constraint and both indexes;
+7. dispatch CRM-G1 and require exact-SHA success;
+8. dispatch CRM-007 and require exact-SHA authenticated lifecycle and two-tenant success;
+9. upload immutable success or failure evidence.
 
 Required closure evidence:
 
-- Vercel Production is `READY` on the exact merge SHA;
-- Render is `live` on the exact immutable image;
-- Flyway `20260721.2` is `SQL / true` and the idempotency table contract is complete;
-- Contact Create returns HTTP 201 and Contact Detail returns HTTP 200;
-- address and communication lifecycle operations return their exact accepted statuses without 5xx responses;
-- Tenant B receives HTTP 404 for Tenant A's records;
-- CRM-G1 and CRM-007 authenticated lifecycle and isolation both pass on the same exact SHA;
-- closure workflows perform no Flyway migrate, repair, schema-history edit, manual Production SQL, test skip, timeout increase, or `continue-on-error`.
+- Vercel Production is `READY` on the exact merge SHA.
+- Render is `live` on the exact immutable backend image.
+- Contact Create returns HTTP 201 and Contact Detail returns HTTP 200.
+- Address and communication lifecycle operations return their exact accepted statuses without HTTP 5xx.
+- Tenant B receives HTTP 404 for Tenant A records.
+- Audit, idempotency and ownership evidence is tied to the same SHA.
+- No Flyway migrate/repair by the closure verifier, no schema-history edit, no manual Production SQL, no test skip, no timeout increase and no `continue-on-error`.
+
+This marker contains no executable application or migration change.
