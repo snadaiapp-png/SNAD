@@ -1,0 +1,66 @@
+name: Capture CRM-007 Failure Log
+
+on:
+  push:
+    branches:
+      - diag/crm007-run-status
+    paths:
+      - .github/workflows/capture-crm007-failure-log.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diag/crm007-run-status
+      - name: Download and sanitize failed job log
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FAILED_JOB_ID: '88612023831'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/diagnostics
+          curl --fail-with-body --silent --show-error --location --max-time 120 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/jobs/${FAILED_JOB_ID}/logs" \
+            > "$RUNNER_TEMP/crm007-job.log"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          src = Path('/home/runner/work/_temp/crm007-job.log')
+          text = src.read_text(encoding='utf-8-sig', errors='replace')
+          lines = text.splitlines()
+          selected = []
+          for i, line in enumerate(lines):
+              lower = line.lower()
+              if any(token in lower for token in ('error', 'failed', 'failure', 'expect(', 'locator', 'timeout', 'playwright', 'crm-007')):
+                  start = max(0, i - 3)
+                  end = min(len(lines), i + 5)
+                  selected.extend(lines[start:end])
+          # Stable deduplication and conservative sanitization.
+          seen = set()
+          clean = []
+          for line in selected + lines[-180:]:
+              if line in seen:
+                  continue
+              seen.add(line)
+              if 'authorization:' in line.lower() or 'password' in line.lower() or 'cookie' in line.lower():
+                  continue
+              clean.append(line.replace('::add-mask::', 'MASKED:'))
+          Path('evidence/diagnostics/crm007-failure-log.txt').write_text('\n'.join(clean[-500:]) + '\n', encoding='utf-8')
+          PY
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add evidence/diagnostics/crm007-failure-log.txt
+          git commit -m 'docs(diag): record CRM-007 failure log'
+          git push origin HEAD:diag/crm007-run-status
