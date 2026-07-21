@@ -1,0 +1,44 @@
+name: Temporary Vercel Root Patch
+
+on:
+  push:
+    branches:
+      - fix/vercel-project-root-path
+    paths:
+      - '.github/workflows/temp-patch-vercel-root.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/vercel-project-root-path
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply one-line root correction and remove patcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/crm-exact-sha-production-orchestrator.yml')
+          text = path.read_text()
+          needle = '            --cwd apps/web \\\n'
+          if text.count(needle) != 1:
+              raise SystemExit('expected exactly one Vercel --cwd apps/web line')
+          path.write_text(text.replace(needle, '', 1))
+          PY
+          rm .github/workflows/temp-patch-vercel-root.yml
+          git diff --check
+          test "$(grep -c -- '--cwd apps/web' .github/workflows/crm-exact-sha-production-orchestrator.yml || true)" = "0"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/crm-exact-sha-production-orchestrator.yml .github/workflows/temp-patch-vercel-root.yml
+          git commit -m 'fix(ci): avoid duplicated Vercel project root'
+          git push origin HEAD:fix/vercel-project-root-path
