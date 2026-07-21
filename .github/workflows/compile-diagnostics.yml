@@ -13,6 +13,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  export-crm-workflows:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'fix/crm007-nullable-exclusion-current-main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: fix/crm007-nullable-exclusion-current-main
+          fetch-depth: 0
+      - name: Build workflow corrections from current main baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/ci/build_crm007_current_main_workflows.py
+          test ! -e scripts/ci/build_crm007_current_main_workflows.py
+          git diff --check
+          export_dir="$RUNNER_TEMP/crm-workflows"
+          rm -rf "$export_dir"
+          mkdir -p "$export_dir"
+          cp .github/workflows/crm-idempotency-production-reconciliation.yml "$export_dir/"
+          cp .github/workflows/crm-007-final-production-closure.yml "$export_dir/"
+          (
+            cd "$export_dir"
+            sha256sum *.yml > SHA256SUMS.txt
+          )
+      - name: Upload patched workflows
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-current-main-workflows-${{ github.run_id }}
+          path: ${{ runner.temp }}/crm-workflows
+          if-no-files-found: error
+          retention-days: 1
+
   compile:
     runs-on: ubuntu-latest
     timeout-minutes: 20
