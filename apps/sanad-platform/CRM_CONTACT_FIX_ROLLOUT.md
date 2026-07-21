@@ -2,6 +2,14 @@
 
 This marker triggers the protected `Publish Render Backend Image` workflow from the final CRM-G1 / CRM-007 closure merge SHA.
 
+Runtime remediation generation: `render-flyway-runtime-v1`.
+
+Before the exact image is redeployed, the protected remediation workflow enforces the direct Render runtime contract:
+
+- `SPRING_PROFILES_ACTIVE=prod`;
+- `FLYWAY_ENABLED=true`;
+- `FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/vendor/{vendor}`.
+
 Required closure evidence:
 
 - Vercel Production is `READY` on the exact merge SHA;
