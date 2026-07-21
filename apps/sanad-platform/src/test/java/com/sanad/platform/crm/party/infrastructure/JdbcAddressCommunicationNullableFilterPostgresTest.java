@@ -86,6 +86,41 @@ class JdbcAddressCommunicationNullableFilterPostgresTest {
     }
 
     @Test
+    void bindsNullableMutationExclusionsWithExplicitPostgresUuidType() {
+        NamedParameterJdbcTemplate jdbc = jdbc();
+        MapSqlParameterSource params = baseParams()
+                .addValue("actorId", UUID.randomUUID())
+                .addValue("now", java.sql.Timestamp.from(java.time.Instant.now()), Types.TIMESTAMP)
+                .addValue("addressType", "WORK")
+                .addValue("methodType", "EMAIL")
+                .addValue("normalizedValue", "nullable-exclusion@example.invalid")
+                .addValue("exceptId", null, Types.OTHER);
+
+        assertThat(jdbc.update("""
+                UPDATE crm_party_addresses
+                   SET primary_address=FALSE,primary_slot=NULL,updated_by=:actorId,updated_at=:now,version=version+1
+                 WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId
+                   AND address_type=:addressType AND primary_address=TRUE
+                   AND (CAST(:exceptId AS UUID) IS NULL OR id<>:exceptId)
+                """, params)).isZero();
+
+        assertThat(jdbc.update("""
+                UPDATE crm_communication_methods
+                   SET preferred=FALSE,preferred_slot=NULL,updated_by=:actorId,updated_at=:now,version=version+1
+                 WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId
+                   AND method_type=:methodType AND preferred=TRUE
+                   AND (CAST(:exceptId AS UUID) IS NULL OR id<>:exceptId)
+                """, params)).isZero();
+
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM crm_communication_methods
+                 WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId
+                   AND method_type=:methodType AND normalized_value=:normalizedValue AND status<>'ARCHIVED'
+                   AND (CAST(:exceptId AS UUID) IS NULL OR id<>:exceptId)
+                """, params, Long.class)).isZero();
+    }
+
+    @Test
     void productionRepositoryDeclaresAllNullableSqlTypes() throws Exception {
         String source = Files.readString(Path.of(
                 "src/main/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationRepository.java"));
@@ -98,7 +133,9 @@ class JdbcAddressCommunicationNullableFilterPostgresTest {
                 .contains("CAST(:beforeTime AS TIMESTAMP) IS NULL")
                 .contains("CAST(:beforeId AS UUID) IS NULL")
                 .contains("CAST(:methodType AS VARCHAR) IS NULL")
-                .contains("CAST(:verificationStatus AS VARCHAR) IS NULL");
+                .contains("CAST(:verificationStatus AS VARCHAR) IS NULL")
+                .contains("CAST(:exceptId AS UUID) IS NULL")
+                .contains("addValue(\"exceptId\", exceptId, Types.OTHER)");
     }
 
     private static MapSqlParameterSource baseParams() {
