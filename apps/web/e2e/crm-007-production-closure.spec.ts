@@ -89,7 +89,7 @@ test("CRM-007 authenticated lifecycle, conflict, refresh and two-tenant isolatio
     const updateResponse = await pageA.request.patch(
       `/api/platform/api/v2/crm/addresses/${addressId}`,
       {
-        headers: { ...authA, "If-Match": addressEtag },
+        headers: { ...authA, "X-SNAD-If-Match": addressEtag },
         data: { city: "Jeddah" },
       },
     );
@@ -101,7 +101,7 @@ test("CRM-007 authenticated lifecycle, conflict, refresh and two-tenant isolatio
     const staleUpdateResponse = await pageA.request.patch(
       `/api/platform/api/v2/crm/addresses/${addressId}`,
       {
-        headers: { ...authA, "If-Match": addressEtag },
+        headers: { ...authA, "X-SNAD-If-Match": addressEtag },
         data: { city: "Dammam" },
       },
     );
@@ -156,7 +156,7 @@ test("CRM-007 authenticated lifecycle, conflict, refresh and two-tenant isolatio
     const archiveCommunication = await pageA.request.patch(
       `/api/platform/api/v2/crm/communication-methods/${communicationMethodId}/archive`,
       {
-        headers: { ...authA, "If-Match": communicationEtag },
+        headers: { ...authA, "X-SNAD-If-Match": communicationEtag },
         data: {},
       },
     );
@@ -166,7 +166,7 @@ test("CRM-007 authenticated lifecycle, conflict, refresh and two-tenant isolatio
     const archiveAddress = await pageA.request.patch(
       `/api/platform/api/v2/crm/addresses/${addressId}/archive`,
       {
-        headers: { ...authA, "If-Match": updatedAddressEtag },
+        headers: { ...authA, "X-SNAD-If-Match": updatedAddressEtag },
         data: {},
       },
     );

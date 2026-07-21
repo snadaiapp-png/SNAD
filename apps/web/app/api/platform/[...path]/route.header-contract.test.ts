@@ -165,8 +165,8 @@ describe("BFF header contract", () => {
   // Request propagation
   // ---------------------------------------------------------------------------
 
-  describe("request If-Match propagation", () => {
-    it("forwards incoming If-Match to the upstream request", async () => {
+  describe("request X-SNAD-If-Match → If-Match translation", () => {
+    it("translates X-SNAD-If-Match to upstream If-Match", async () => {
       vi.mocked(fetch).mockResolvedValue(
         new Response(JSON.stringify({ id: "addr-1" }), {
           status: 200,
@@ -179,7 +179,7 @@ describe("BFF header contract", () => {
           method: "PATCH",
           headers: {
             authorization: "Bearer token",
-            "if-match": '"account-addr-1-v1-a1b2c3d4"',
+            "x-snad-if-match": '"account-addr-1-v1-a1b2c3d4"',
           },
           body: { line1: "Updated" },
         }),
@@ -191,7 +191,32 @@ describe("BFF header contract", () => {
       expect(headers.get("if-match")).toBe('"account-addr-1-v1-a1b2c3d4"');
     });
 
-    it("preserves quoted If-Match values", async () => {
+    it("does not forward x-snad-if-match to the backend", async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(JSON.stringify({ id: "addr-1" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+      await PATCH(
+        request("/api/v2/crm/addresses/addr-1", {
+          method: "PATCH",
+          headers: {
+            authorization: "Bearer token",
+            "x-snad-if-match": '"addr-1-v1-abc12345"',
+          },
+          body: { line1: "Updated" },
+        }),
+        context("api", "v2", "crm", "addresses", "addr-1"),
+      );
+
+      const [, init] = vi.mocked(fetch).mock.calls[0];
+      const headers = init?.headers as Headers;
+      expect(headers.get("x-snad-if-match")).toBeNull();
+    });
+
+    it("preserves quoted X-SNAD-If-Match values", async () => {
       vi.mocked(fetch).mockResolvedValue(
         new Response(null, { status: 412 }),
       );
@@ -201,7 +226,7 @@ describe("BFF header contract", () => {
           method: "PATCH",
           headers: {
             authorization: "Bearer token",
-            "if-match": '"stale-addr-1-v0-00000000"',
+            "x-snad-if-match": '"stale-addr-1-v0-00000000"',
           },
           body: { line1: "Stale" },
         }),
@@ -213,7 +238,7 @@ describe("BFF header contract", () => {
       expect(headers.get("if-match")).toBe('"stale-addr-1-v0-00000000"');
     });
 
-    it("preserves weak ETag If-Match values", async () => {
+    it("preserves weak validator prefix from X-SNAD-If-Match", async () => {
       vi.mocked(fetch).mockResolvedValue(
         new Response(JSON.stringify({ id: "addr-1" }), {
           status: 200,
@@ -226,7 +251,7 @@ describe("BFF header contract", () => {
           method: "PATCH",
           headers: {
             authorization: "Bearer token",
-            "if-match": 'W/"12"',
+            "x-snad-if-match": 'W/"12"',
           },
           body: { line1: "Updated" },
         }),
@@ -238,7 +263,32 @@ describe("BFF header contract", () => {
       expect(headers.get("if-match")).toBe('W/"12"');
     });
 
-    it("forwards If-Match for DELETE requests", async () => {
+    it("preserves comma-separated candidate list from X-SNAD-If-Match", async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(JSON.stringify({ id: "addr-1" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+      await PATCH(
+        request("/api/v2/crm/addresses/addr-1", {
+          method: "PATCH",
+          headers: {
+            authorization: "Bearer token",
+            "x-snad-if-match": '"addr-v1-aaa", "addr-v2-bbb"',
+          },
+          body: { line1: "Updated" },
+        }),
+        context("api", "v2", "crm", "addresses", "addr-1"),
+      );
+
+      const [, init] = vi.mocked(fetch).mock.calls[0];
+      const headers = init?.headers as Headers;
+      expect(headers.get("if-match")).toBe('"addr-v1-aaa", "addr-v2-bbb"');
+    });
+
+    it("translates X-SNAD-If-Match for DELETE requests", async () => {
       vi.mocked(fetch).mockResolvedValue(
         new Response(null, { status: 204 }),
       );
@@ -248,7 +298,7 @@ describe("BFF header contract", () => {
           method: "DELETE",
           headers: {
             authorization: "Bearer token",
-            "if-match": '"account-addr-1-v1-a1b2c3d4"',
+            "x-snad-if-match": '"account-addr-1-v1-a1b2c3d4"',
           },
         }),
         context("api", "v2", "crm", "addresses", "addr-1"),
@@ -259,7 +309,7 @@ describe("BFF header contract", () => {
       expect(headers.get("if-match")).toBe('"account-addr-1-v1-a1b2c3d4"');
     });
 
-    it("does not synthesize an absent If-Match header", async () => {
+    it("does not synthesize an absent X-SNAD-If-Match header", async () => {
       vi.mocked(fetch).mockResolvedValue(
         new Response(JSON.stringify({ id: "addr-1" }), {
           status: 200,
@@ -279,6 +329,75 @@ describe("BFF header contract", () => {
       const [, init] = vi.mocked(fetch).mock.calls[0];
       const headers = init?.headers as Headers;
       expect(headers.get("if-match")).toBeNull();
+    });
+
+    it("also accepts standard If-Match for local development", async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(JSON.stringify({ id: "addr-1" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+      await PATCH(
+        request("/api/v2/crm/addresses/addr-1", {
+          method: "PATCH",
+          headers: {
+            authorization: "Bearer token",
+            "if-match": '"account-addr-1-v1-a1b2c3d4"',
+          },
+          body: { line1: "Updated" },
+        }),
+        context("api", "v2", "crm", "addresses", "addr-1"),
+      );
+
+      const [, init] = vi.mocked(fetch).mock.calls[0];
+      const headers = init?.headers as Headers;
+      expect(headers.get("if-match")).toBe('"account-addr-1-v1-a1b2c3d4"');
+    });
+
+    it("rejects request when X-SNAD-If-Match and If-Match differ", async () => {
+      const response = await PATCH(
+        request("/api/v2/crm/addresses/addr-1", {
+          method: "PATCH",
+          headers: {
+            authorization: "Bearer token",
+            "if-match": '"addr-v1-aaa"',
+            "x-snad-if-match": '"addr-v2-bbb"',
+          },
+          body: { line1: "Conflict" },
+        }),
+        context("api", "v2", "crm", "addresses", "addr-1"),
+      );
+
+      expect(response.status).toBe(400);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("allows identical values in both If-Match and X-SNAD-If-Match", async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(JSON.stringify({ id: "addr-1" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+      await PATCH(
+        request("/api/v2/crm/addresses/addr-1", {
+          method: "PATCH",
+          headers: {
+            authorization: "Bearer token",
+            "if-match": '"addr-v1-aaa"',
+            "x-snad-if-match": '"addr-v1-aaa"',
+          },
+          body: { line1: "Same value" },
+        }),
+        context("api", "v2", "crm", "addresses", "addr-1"),
+      );
+
+      const [, init] = vi.mocked(fetch).mock.calls[0];
+      const headers = init?.headers as Headers;
+      expect(headers.get("if-match")).toBe('"addr-v1-aaa"');
     });
   });
 
