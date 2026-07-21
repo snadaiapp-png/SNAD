@@ -1,0 +1,50 @@
+name: Self-Hosted Backend Deploy
+
+# ============================================================
+# SANAD Platform — Self-Hosted Backend Deployment
+# ------------------------------------------------------------
+# RETIRED: Production backend is hosted exclusively on Render.
+# This archived file is not a GitHub Actions workflow.
+# ============================================================
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/**'
+      - '.github/workflows/self-hosted-deploy.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.repository == 'snadaiapp-png/SNAD'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SELF_HOSTED_SERVER }}
+          username: ${{ secrets.SELF_HOSTED_USER }}
+          key: ${{ secrets.SELF_HOSTED_SSH_KEY }}
+          script: |
+            cd /srv/sanad/repo
+            git pull origin main
+            cd apps/sanad-platform
+            docker compose -f docker-compose.self-hosted.yml \
+              --env-file /srv/sanad/config/.env \
+              up -d --build
+
+            for i in $(seq 1 30); do
+              HEALTH=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:8080/actuator/health 2>/dev/null || echo "000")
+              if [ "$HEALTH" = "200" ]; then
+                echo "Backend healthy after $i attempts"
+                exit 0
+              fi
+              sleep 5
+            done
+
+            docker compose -f docker-compose.self-hosted.yml logs --tail 50 backend
+            exit 1
