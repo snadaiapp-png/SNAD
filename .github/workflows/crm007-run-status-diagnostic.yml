@@ -41,5 +41,7 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add evidence/diagnostics/crm007-run-status.json evidence/diagnostics/crm007-dispatcher-status.json
-          git commit -m 'docs(diag): refresh CRM-007 action status'
+          git commit -m 'docs(diag): refresh CRM-007 action status after REST dispatch'
           git push origin HEAD:diag/crm007-run-status
+
+          echo 'Status refresh generation: 2'
