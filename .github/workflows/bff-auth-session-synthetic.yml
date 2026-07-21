@@ -37,30 +37,33 @@ jobs:
       - name: Verify protected synthetic identity
         shell: bash
         env:
-          AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID || secrets.BOOTSTRAP_TENANT_ID }}
-          AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL || secrets.CONTROL_PLANE_ADMIN_EMAIL }}
-          AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD || secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+          AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
+          AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+          AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
         run: |
           set -euo pipefail
           missing=0
           for name in AUTH_SMOKE_TENANT_ID AUTH_SMOKE_EMAIL AUTH_SMOKE_PASSWORD; do
             if [ -z "${!name:-}" ]; then
-              echo "::error::Missing Production secret: ${name}"
+              echo "::error::Missing dedicated Production secret: ${name}"
               missing=$((missing + 1))
             else
               echo "PRESENT: ${name}"
               echo "::add-mask::${!name}"
             fi
           done
-          test "$missing" -eq 0
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::The synthetic identity must be provisioned as one complete least-privilege credential set; bootstrap/admin fallback is forbidden."
+            exit 1
+          fi
 
       - name: Run production BFF authentication journey
         shell: bash
         env:
           PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
-          AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID || secrets.BOOTSTRAP_TENANT_ID }}
-          AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL || secrets.CONTROL_PLANE_ADMIN_EMAIL }}
-          AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD || secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+          AUTH_SMOKE_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
+          AUTH_SMOKE_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+          AUTH_SMOKE_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
           AUTH_SYNTHETIC_ITERATIONS: '1'
           AUTH_SYNTHETIC_EVIDENCE_PATH: ${{ runner.temp }}/auth-session-synthetic-evidence.json
         run: |
