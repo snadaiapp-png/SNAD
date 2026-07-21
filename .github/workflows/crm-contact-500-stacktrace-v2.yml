@@ -1,0 +1,192 @@
+name: CRM Contact 500 Stack Trace V2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm-contact-500-stacktrace-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-contact-500-stacktrace-v2
+  cancel-in-progress: false
+
+jobs:
+  reproduce:
+    name: Resolve tenant by credential and capture Contact exception
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: Production
+      url: https://snad-app.vercel.app
+    env:
+      WEB_BASE_URL: https://snad-app.vercel.app
+      PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+      PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+      PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+      CRM_EMAIL: ${{ secrets.CRM_TENANT_A_EMAIL || secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+      CRM_PASSWORD: ${{ secrets.CRM_TENANT_A_PASSWORD || secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: false
+
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Reproduce through Vercel BFF and capture redacted Render logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for value in "$PROD_JDBC_URL" "$PROD_DB_USER" "$PROD_DB_PASSWORD" \
+            "$CRM_EMAIL" "$CRM_PASSWORD" "$RENDER_API_KEY" "$RENDER_SERVICE_ID"; do
+            test -n "$value" || { echo "::error::A required Production secret is missing"; exit 1; }
+            echo "::add-mask::$value"
+          done
+          [[ "$PROD_JDBC_URL" == jdbc:postgresql://* ]]
+          [[ "$RENDER_SERVICE_ID" == srv-* ]]
+
+          EVIDENCE_DIR="$RUNNER_TEMP/crm-contact-500-stacktrace-v2"
+          rm -rf "$EVIDENCE_DIR"
+          mkdir -p "$EVIDENCE_DIR"
+          STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          RELEASE_SHA="$(git rev-parse HEAD)"
+          CORRELATION_ID="$(cat /proc/sys/kernel/random/uuid)"
+          PSQL_URL="${PROD_JDBC_URL#jdbc:}"
+          export PGPASSWORD="$PROD_DB_PASSWORD"
+
+          mapfile -t TENANT_CANDIDATES < <(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -At \
+            -v email="$CRM_EMAIL" <<'SQL'
+          SELECT DISTINCT tenant_id
+            FROM users
+           WHERE lower(email)=lower(:'email') AND status='ACTIVE'
+           ORDER BY tenant_id;
+          SQL
+          )
+          test "${#TENANT_CANDIDATES[@]}" -ge 1
+          test "${#TENANT_CANDIDATES[@]}" -le 4 || {
+            echo "::error::Unexpected number of active tenant candidates"; exit 1;
+          }
+
+          SELECTED_TENANT=""
+          ACCESS_TOKEN=""
+          SUCCESS_COUNT=0
+          printf '{"candidate_count":%s,"attempts":[' "${#TENANT_CANDIDATES[@]}" > "$EVIDENCE_DIR/login-resolution.json"
+          FIRST=1
+          for TENANT_ID in "${TENANT_CANDIDATES[@]}"; do
+            echo "::add-mask::$TENANT_ID"
+            BODY="$(jq -n --arg email "$CRM_EMAIL" --arg password "$CRM_PASSWORD" --arg tenantId "$TENANT_ID" \
+              '{email:$email,password:$password,tenantId:$tenantId}')"
+            STATUS="$(curl --silent --show-error --max-time 45 \
+              -o "$RUNNER_TEMP/login-${SUCCESS_COUNT}.json" -w '%{http_code}' \
+              -H 'Accept: application/json' -H 'Content-Type: application/json' \
+              -H "X-Correlation-ID: ${CORRELATION_ID}-login" \
+              --data "$BODY" "$WEB_BASE_URL/api/platform/api/v1/auth/login")"
+            [ "$FIRST" = 1 ] || printf ',' >> "$EVIDENCE_DIR/login-resolution.json"
+            FIRST=0
+            jq -n --arg status "$STATUS" '{tenant:"REDACTED",http_status:($status|tonumber)}' \
+              >> "$EVIDENCE_DIR/login-resolution.json"
+            if [ "$STATUS" = "200" ]; then
+              SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+              SELECTED_TENANT="$TENANT_ID"
+              ACCESS_TOKEN="$(jq -r '.accessToken // .data.accessToken // empty' "$RUNNER_TEMP/login-$((SUCCESS_COUNT - 1)).json")"
+            elif [ "$STATUS" != "401" ]; then
+              echo "::error::Scoped login returned unexpected HTTP $STATUS"
+              exit 1
+            fi
+          done
+          printf '],"successful_candidates":%s}\n' "$SUCCESS_COUNT" >> "$EVIDENCE_DIR/login-resolution.json"
+          test "$SUCCESS_COUNT" = "1" || {
+            echo "::error::Credential did not identify exactly one tenant"; exit 1;
+          }
+          test -n "$ACCESS_TOKEN"
+          echo "::add-mask::$SELECTED_TENANT"
+          echo "::add-mask::$ACCESS_TOKEN"
+
+          SUFFIX="$(date -u +%Y%m%d%H%M%S)"
+          CONTACT_BODY="$(jq -n --arg given "Diagnostic${SUFFIX}" --arg family "Contact500" \
+            --arg email "crm-contact-diagnostic-${SUFFIX}@example.invalid" \
+            '{givenName:$given,familyName:$family,primaryEmail:$email,preferredLocale:"ar-SA",timeZone:"Asia/Riyadh",consentSummary:"UNKNOWN"}')"
+          printf '%s\n' "$CONTACT_BODY" > "$EVIDENCE_DIR/contact-request-body.json"
+          CONTACT_STATUS="$(curl --silent --show-error --max-time 45 \
+            -D "$EVIDENCE_DIR/contact-response-headers.txt" \
+            -o "$EVIDENCE_DIR/contact-response-body.json" -w '%{http_code}' \
+            -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "X-Correlation-ID: ${CORRELATION_ID}" \
+            --data "$CONTACT_BODY" "$WEB_BASE_URL/api/platform/api/v1/crm/contacts")"
+          jq -n --arg status "$CONTACT_STATUS" --arg correlation "$CORRELATION_ID" \
+            '{http_status:($status|tonumber),correlation_id:$correlation}' > "$EVIDENCE_DIR/contact-result.json"
+
+          if [ "$CONTACT_STATUS" = "201" ]; then
+            CONTACT_ID="$(jq -r '.id // .contactId // .data.id // empty' "$EVIDENCE_DIR/contact-response-body.json")"
+            if [ -n "$CONTACT_ID" ]; then
+              ARCHIVE_STATUS="$(curl --silent --show-error --max-time 45 -X PATCH \
+                -o "$EVIDENCE_DIR/contact-archive-response.json" -w '%{http_code}' \
+                -H 'Accept: application/json' -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+                -H "X-Correlation-ID: ${CORRELATION_ID}-archive" \
+                "$WEB_BASE_URL/api/platform/api/v1/crm/contacts/${CONTACT_ID}/archive")"
+              jq -n --arg status "$ARCHIVE_STATUS" '{http_status:($status|tonumber)}' \
+                > "$EVIDENCE_DIR/contact-archive-result.json"
+            fi
+          fi
+
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" > "$RUNNER_TEMP/render-service.json"
+          OWNER_ID="$(jq -r '(.service // .).ownerId // (.service // .).owner.id // empty' "$RUNNER_TEMP/render-service.json")"
+          test -n "$OWNER_ID"
+          END_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          curl --get --fail-with-body --silent --show-error --max-time 45 \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
+            --data-urlencode "ownerId=${OWNER_ID}" --data-urlencode "resource=${RENDER_SERVICE_ID}" \
+            --data-urlencode "startTime=${STARTED_AT}" --data-urlencode "endTime=${END_TIME}" \
+            --data-urlencode "limit=200" https://api.render.com/v1/logs > "$RUNNER_TEMP/render-logs.json"
+
+          export REDACT_EMAIL="$CRM_EMAIL" REDACT_PASSWORD="$CRM_PASSWORD" REDACT_TOKEN="$ACCESS_TOKEN" \
+            REDACT_TENANT="$SELECTED_TENANT" FILTER_CORRELATION="$CORRELATION_ID"
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          raw = (Path(os.environ['RUNNER_TEMP']) / 'render-logs.json').read_text(encoding='utf-8', errors='replace')
+          for key in ('REDACT_EMAIL','REDACT_PASSWORD','REDACT_TOKEN','REDACT_TENANT'):
+              value = os.environ.get(key, '')
+              if value:
+                  raw = raw.replace(value, '[REDACTED]')
+          raw = re.sub(r'(?i)Bearer\s+[A-Za-z0-9._~+/-]+=*', 'Bearer [REDACTED]', raw)
+          data = json.loads(raw)
+          entries = data if isinstance(data, list) else data.get('logs') or data.get('items') or [data]
+          terms = (os.environ['FILTER_CORRELATION'], '/api/v1/crm/contacts', 'crm_contacts', 'BadSqlGrammarException', 'PSQLException', 'SQLState', 'legal_name')
+          def flatten(v):
+              if isinstance(v, dict): return ' '.join(flatten(x) for x in v.values())
+              if isinstance(v, list): return ' '.join(flatten(x) for x in v)
+              return str(v)
+          matched = [entry for entry in entries if any(term.lower() in flatten(entry).lower() for term in terms)]
+          out = Path(os.environ['RUNNER_TEMP']) / 'crm-contact-500-stacktrace-v2' / 'render-contact-error-redacted.json'
+          out.write_text(json.dumps({'correlation_id':os.environ['FILTER_CORRELATION'],'matched_entries':matched}, ensure_ascii=False, indent=2), encoding='utf-8')
+          PY
+
+          jq -n --arg release "$RELEASE_SHA" --arg started "$STARTED_AT" --arg completed "$END_TIME" \
+            --arg status "$CONTACT_STATUS" --arg correlation "$CORRELATION_ID" \
+            '{release_sha:$release,started_at_utc:$started,completed_at_utc:$completed,contact_create_http:($status|tonumber),correlation_id:$correlation}' \
+            > "$EVIDENCE_DIR/summary.json"
+          find "$EVIDENCE_DIR" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > "$EVIDENCE_DIR/SHA256SUMS.txt"
+          test "$CONTACT_STATUS" = "201" || {
+            echo "::error::Contact Create reproduced HTTP $CONTACT_STATUS; inspect immutable artifact"; exit 1;
+          }
+
+      - name: Upload immutable stack-trace evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-contact-500-stacktrace-v2-${{ github.run_id }}
+          path: ${{ runner.temp }}/crm-contact-500-stacktrace-v2
+          if-no-files-found: error
+          retention-days: 90
