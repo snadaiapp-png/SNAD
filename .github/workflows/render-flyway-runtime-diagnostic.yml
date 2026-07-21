@@ -1,0 +1,157 @@
+name: Render Flyway Runtime Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/render-flyway-runtime-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-flyway-runtime-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    name: Prove Render Flyway overrides and startup execution
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: Production
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+      PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+      PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+      TARGET_DEPLOYMENT_ID: dep-d9fk4g37uimc73ers2j0
+      START_TIME: 2026-07-21T09:55:30Z
+      END_TIME: 2026-07-21T09:59:30Z
+      EXPECTED_LOCATIONS: classpath:db/migration,classpath:db/vendor/{vendor}
+
+    steps:
+      - name: Checkout exact current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Inspect effective direct environment and startup logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for value in "$RENDER_API_KEY" "$RENDER_SERVICE_ID" "$PROD_JDBC_URL" "$PROD_DB_USER" "$PROD_DB_PASSWORD"; do
+            test -n "$value" || { echo "::error::A required Production secret is missing"; exit 1; }
+            echo "::add-mask::$value"
+          done
+          [[ "$RENDER_SERVICE_ID" == srv-* ]]
+
+          EVIDENCE_DIR="$RUNNER_TEMP/render-flyway-runtime-diagnostic"
+          rm -rf "$EVIDENCE_DIR"
+          mkdir -p "$EVIDENCE_DIR"
+          echo "EVIDENCE_DIR=$EVIDENCE_DIR" >> "$GITHUB_ENV"
+
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" > "$RUNNER_TEMP/service.json"
+          OWNER_ID="$(jq -r '(.service // .).ownerId // (.service // .).owner.id // empty' "$RUNNER_TEMP/service.json")"
+          test -n "$OWNER_ID"
+
+          inspect_var() {
+            local key="$1" expected="$2" output="$3"
+            local status value present=false matches=false
+            status="$(curl --silent --show-error --max-time 45 \
+              -o "$RUNNER_TEMP/env-${key}.json" -w '%{http_code}' \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/${key}")"
+            if [ "$status" = "200" ]; then
+              present=true
+              value="$(jq -r '(.envVar // .).value // empty' "$RUNNER_TEMP/env-${key}.json")"
+              if [ "$value" = "$expected" ]; then matches=true; fi
+            elif [ "$status" != "404" ]; then
+              echo "::error::Render env-var lookup for ${key} returned HTTP ${status}"
+              exit 1
+            fi
+            jq -n --arg key "$key" --argjson present "$present" --argjson matches "$matches" \
+              --arg status "$status" '{key:$key,direct_service_variable_present:$present,value_matches_expected:$matches,http_status:($status|tonumber)}' > "$output"
+          }
+
+          inspect_var FLYWAY_ENABLED true "$EVIDENCE_DIR/flyway-enabled.json"
+          inspect_var FLYWAY_LOCATIONS "$EXPECTED_LOCATIONS" "$EVIDENCE_DIR/flyway-locations.json"
+          inspect_var SPRING_PROFILES_ACTIVE prod "$EVIDENCE_DIR/spring-profile.json"
+
+          curl --get --fail-with-body --silent --show-error --max-time 45 \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
+            --data-urlencode "ownerId=${OWNER_ID}" \
+            --data-urlencode "resource=${RENDER_SERVICE_ID}" \
+            --data-urlencode "startTime=${START_TIME}" \
+            --data-urlencode "endTime=${END_TIME}" \
+            --data-urlencode "direction=forward" \
+            --data-urlencode "type=app" \
+            --data-urlencode "text=Flyway|flyway|20260721|schema version|migration" \
+            --data-urlencode "limit=100" \
+            https://api.render.com/v1/logs > "$RUNNER_TEMP/flyway-logs.json"
+
+          export EVIDENCE_DIR RENDER_SERVICE_ID TARGET_DEPLOYMENT_ID PROD_JDBC_URL PROD_DB_USER PROD_DB_PASSWORD
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+
+          source = Path(os.environ['RUNNER_TEMP']) / 'flyway-logs.json'
+          target = Path(os.environ['EVIDENCE_DIR']) / 'flyway-startup-logs-redacted.json'
+          raw = source.read_text(encoding='utf-8', errors='replace')
+          for value in (
+              os.environ.get('RENDER_SERVICE_ID',''),
+              os.environ.get('TARGET_DEPLOYMENT_ID',''),
+              os.environ.get('PROD_JDBC_URL',''),
+              os.environ.get('PROD_DB_USER',''),
+              os.environ.get('PROD_DB_PASSWORD',''),
+          ):
+              if value:
+                  raw = raw.replace(value, '[REDACTED]')
+          raw = re.sub(r'jdbc:postgresql://[^\s"}]+', 'jdbc:postgresql://[REDACTED]', raw)
+          raw = re.sub(r'postgres(?:ql)?://[^\s"}]+', 'postgresql://[REDACTED]', raw)
+          raw = re.sub(r'(?i)(password|token|authorization)[=: ]+[^\s,"}]+', r'\1=[REDACTED]', raw)
+          data = json.loads(raw)
+          logs = data.get('logs', []) if isinstance(data, dict) else data if isinstance(data, list) else []
+          target.write_text(json.dumps({'matched_log_count': len(logs), 'logs': logs}, ensure_ascii=False, indent=2), encoding='utf-8')
+          PY
+
+          jq -n \
+            --slurpfile enabled "$EVIDENCE_DIR/flyway-enabled.json" \
+            --slurpfile locations "$EVIDENCE_DIR/flyway-locations.json" \
+            --slurpfile profile "$EVIDENCE_DIR/spring-profile.json" \
+            --slurpfile logs "$EVIDENCE_DIR/flyway-startup-logs-redacted.json" \
+            '{flyway_enabled:$enabled[0],flyway_locations:$locations[0],spring_profile:$profile[0],startup_log_count:$logs[0].matched_log_count}' \
+            > "$EVIDENCE_DIR/diagnostic-summary.json"
+
+          find "$EVIDENCE_DIR" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > "$EVIDENCE_DIR/SHA256SUMS.txt"
+
+          ENABLED_PRESENT="$(jq -r '.direct_service_variable_present' "$EVIDENCE_DIR/flyway-enabled.json")"
+          ENABLED_MATCH="$(jq -r '.value_matches_expected' "$EVIDENCE_DIR/flyway-enabled.json")"
+          LOCATIONS_PRESENT="$(jq -r '.direct_service_variable_present' "$EVIDENCE_DIR/flyway-locations.json")"
+          LOCATIONS_MATCH="$(jq -r '.value_matches_expected' "$EVIDENCE_DIR/flyway-locations.json")"
+          PROFILE_PRESENT="$(jq -r '.direct_service_variable_present' "$EVIDENCE_DIR/spring-profile.json")"
+          PROFILE_MATCH="$(jq -r '.value_matches_expected' "$EVIDENCE_DIR/spring-profile.json")"
+
+          test "$PROFILE_PRESENT" = "true" && test "$PROFILE_MATCH" = "true" || {
+            echo "::error::SPRING_PROFILES_ACTIVE is not directly configured as prod"
+            exit 1
+          }
+          if [ "$ENABLED_PRESENT" = "true" ]; then
+            test "$ENABLED_MATCH" = "true" || { echo "::error::Direct FLYWAY_ENABLED override is not true"; exit 1; }
+          fi
+          if [ "$LOCATIONS_PRESENT" = "true" ]; then
+            test "$LOCATIONS_MATCH" = "true" || { echo "::error::Direct FLYWAY_LOCATIONS override differs from the required vendor-aware value"; exit 1; }
+          fi
+
+      - name: Upload immutable diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-flyway-runtime-diagnostic-${{ github.run_id }}
+          path: ${{ runner.temp }}/render-flyway-runtime-diagnostic
+          if-no-files-found: error
+          retention-days: 90
