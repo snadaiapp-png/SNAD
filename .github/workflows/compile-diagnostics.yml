@@ -33,14 +33,16 @@ jobs:
             crm-idempotency-production-reconciliation.yml \
             crm-g1-production-closure.yml \
             crm-007-final-production-closure.yml; do
+            raw="$RUNNER_TEMP/${workflow%.yml}-raw.json"
             output="$evidence/${workflow%.yml}.json"
             gh api \
               -H 'Accept: application/vnd.github+json' \
               -H 'X-GitHub-Api-Version: 2022-11-28' \
               "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?per_page=30" \
-              --jq --arg sha "$RELEASE_SHA" \
-              '{workflow:"'"$workflow"'",observed_at:(now|todate),exact_sha:$sha,runs:[.workflow_runs[]|select(.head_sha==$sha)|{id,name,event,status,conclusion,head_sha,head_branch,run_number,run_attempt,created_at,updated_at,html_url}]}' \
-              > "$output"
+              > "$raw"
+            jq --arg workflow "$workflow" --arg sha "$RELEASE_SHA" \
+              '{workflow:$workflow,observed_at:(now|todate),exact_sha:$sha,runs:[.workflow_runs[]|select(.head_sha==$sha)|{id,name,event,status,conclusion,head_sha,head_branch,run_number,run_attempt,created_at,updated_at,html_url}]}' \
+              "$raw" > "$output"
             cat "$output"
           done
           find "$evidence" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > "$evidence/SHA256SUMS.txt"
