@@ -7,6 +7,7 @@ on:
       - '.github/workflows/crm-007-final-production-closure.yml'
       - 'scripts/crm/crm007-final-production-closure.sh'
       - '.github/workflows/crm007-current-main-closure-trigger.yml'
+      - 'apps/web/CRM007_RELEASE_MARKER.md'
   workflow_dispatch:
 
 permissions:
