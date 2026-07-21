@@ -1,0 +1,287 @@
+name: CRM Idempotency Production Reconciliation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm-idempotency-production-reconciliation.yml'
+      - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260721_2__reconcile_crm_idempotency_records_after_baseline_gap.sql'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmIdempotencyBaselineGapReconciliationPostgresTest.java'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+concurrency:
+  group: crm-idempotency-production-reconciliation
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: Deploy forward migration and rerun exact CRM closure chain
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment:
+      name: Production
+      url: https://snad-app.vercel.app
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+      PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+      PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+      RENDER_BASE_URL: https://sanad-backend-mcrj.onrender.com
+      IMAGE_REF: ghcr.io/${{ github.repository_owner }}/snad-backend:${{ github.sha }}
+
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Validate protected configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for value in "$RENDER_API_KEY" "$RENDER_SERVICE_ID" "$PROD_JDBC_URL" "$PROD_DB_USER" "$PROD_DB_PASSWORD"; do
+            test -n "$value" || { echo "::error::A required Production secret is missing"; exit 1; }
+            echo "::add-mask::$value"
+          done
+          [[ "$RENDER_SERVICE_ID" == srv-* ]]
+          [[ "$PROD_JDBC_URL" == jdbc:postgresql://* ]]
+
+      - name: Enforce vendor-aware Flyway runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          set_render_var() {
+            local key="$1" value="$2"
+            jq -n --arg value "$value" '{value:$value}' > "$RUNNER_TEMP/render-env-${key}.json"
+            curl --fail-with-body --silent --show-error --max-time 45 \
+              -X PUT \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H 'Accept: application/json' \
+              -H 'Content-Type: application/json' \
+              --data @"$RUNNER_TEMP/render-env-${key}.json" \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/${key}" \
+              > "$RUNNER_TEMP/render-env-${key}-updated.json"
+            curl --fail-with-body --silent --show-error --max-time 45 \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H 'Accept: application/json' \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/${key}" \
+              > "$RUNNER_TEMP/render-env-${key}-verified.json"
+            test "$(jq -r '(.envVar // .).value // empty' "$RUNNER_TEMP/render-env-${key}-verified.json")" = "$value"
+          }
+          set_render_var SPRING_PROFILES_ACTIVE prod
+          set_render_var FLYWAY_ENABLED true
+          set_render_var FLYWAY_LOCATIONS 'classpath:db/migration,classpath:db/vendor/{vendor}'
+
+      - name: Wait for exact immutable image publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PUBLISHED=false
+          for attempt in $(seq 1 180); do
+            curl --fail-with-body --silent --show-error --max-time 30 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/publish-render-image.yml/runs?head_sha=${GITHUB_SHA}&event=push&per_page=20" \
+              > "$RUNNER_TEMP/publish-runs.json"
+            if jq -e --arg sha "$GITHUB_SHA" '.workflow_runs[] | select(.head_sha == $sha and .status == "completed" and .conclusion == "success")' "$RUNNER_TEMP/publish-runs.json" >/dev/null; then
+              PUBLISHED=true
+              break
+            fi
+            if jq -e --arg sha "$GITHUB_SHA" '.workflow_runs[] | select(.head_sha == $sha and .status == "completed" and (.conclusion != "success"))' "$RUNNER_TEMP/publish-runs.json" >/dev/null; then
+              echo "::error::Exact-SHA backend image publication failed"
+              exit 1
+            fi
+            sleep 10
+          done
+          test "$PUBLISHED" = "true" || { echo "::error::Exact-SHA image was not published"; exit 1; }
+
+      - name: Redeploy exact image
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -n --arg image "$IMAGE_REF" '{imageUrl:$image}' > "$RUNNER_TEMP/render-deploy-request.json"
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            -X POST \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H 'Accept: application/json' \
+            -H 'Content-Type: application/json' \
+            --data @"$RUNNER_TEMP/render-deploy-request.json" \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            > "$RUNNER_TEMP/render-deploy-created.json"
+          DEPLOY_ID="$(jq -r '(.deploy // .).id // empty' "$RUNNER_TEMP/render-deploy-created.json")"
+          test -n "$DEPLOY_ID"
+          echo "deployment_id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
+
+          STATUS=""
+          for attempt in $(seq 1 180); do
+            curl --fail-with-body --silent --show-error --max-time 30 \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H 'Accept: application/json' \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}" \
+              > "$RUNNER_TEMP/render-deploy-state.json"
+            STATUS="$(jq -r '(.deploy // .).status // empty' "$RUNNER_TEMP/render-deploy-state.json")"
+            case "$STATUS" in
+              live) break ;;
+              build_failed|update_failed|canceled|deactivated)
+                echo "::error::Render deployment failed: ${STATUS}"
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
+          test "$STATUS" = "live" || { echo "::error::Render deployment did not become live"; exit 1; }
+          test "$(jq -r '(.deploy // .).image.ref // .imageRef // empty' "$RUNNER_TEMP/render-deploy-state.json")" = "$IMAGE_REF"
+
+      - name: Verify migration and idempotency schema read-only
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in /actuator/health /actuator/health/liveness /actuator/health/readiness; do
+            CODE="$(curl --silent --show-error --max-time 45 -o "$RUNNER_TEMP/health.json" -w '%{http_code}' "${RENDER_BASE_URL}${path}")"
+            test "$CODE" = "200"
+            jq -e '.status == "UP"' "$RUNNER_TEMP/health.json" >/dev/null
+          done
+
+          PSQL_URL="${PROD_JDBC_URL#jdbc:}"
+          export PGPASSWORD="$PROD_DB_PASSWORD"
+          export PGOPTIONS='-c default_transaction_read_only=on'
+          MIGRATION_COUNT="$(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM flyway_schema_history WHERE version='20260721.2' AND type='SQL' AND success=true")"
+          FAILED_COUNT="$(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM flyway_schema_history WHERE success=false")"
+          TABLE_COUNT="$(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='crm_idempotency_records'")"
+          COLUMN_COUNT="$(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='crm_idempotency_records' AND column_name IN ('id','tenant_id','principal_id','endpoint','idempotency_key','request_fingerprint_sha256','response_status','response_body_json','response_headers_json','content_type','created_at','expires_at')")"
+          CONSTRAINT_COUNT="$(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM pg_constraint WHERE conrelid='crm_idempotency_records'::regclass AND conname='crm_idempotency_records_unique'")"
+          INDEX_COUNT="$(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND tablename='crm_idempotency_records' AND indexname IN ('idx_crm_idempotency_records_tenant','idx_crm_idempotency_records_expires')")"
+
+          test "$MIGRATION_COUNT" = "1" || { echo "::error::Flyway 20260721.2 is not SQL / true"; exit 1; }
+          test "$FAILED_COUNT" = "0" || { echo "::error::Failed Flyway history rows exist"; exit 1; }
+          test "$TABLE_COUNT" = "1" || { echo "::error::crm_idempotency_records is missing"; exit 1; }
+          test "$COLUMN_COUNT" = "12" || { echo "::error::crm_idempotency_records columns are incomplete"; exit 1; }
+          test "$CONSTRAINT_COUNT" = "1" || { echo "::error::Idempotency uniqueness constraint is missing"; exit 1; }
+          test "$INDEX_COUNT" = "2" || { echo "::error::Idempotency indexes are incomplete"; exit 1; }
+
+          EVIDENCE_DIR="$RUNNER_TEMP/crm-idempotency-reconciliation"
+          mkdir -p "$EVIDENCE_DIR"
+          jq -n \
+            --arg source_sha "$GITHUB_SHA" \
+            --arg image_ref "$IMAGE_REF" \
+            --arg deployment_id "${{ steps.deploy.outputs.deployment_id }}" \
+            '{result:"PASS",source_sha:$source_sha,image_ref:$image_ref,render_deployment_id:$deployment_id,flyway_20260721_2:{type:"SQL",success:true},crm_idempotency_records:{table:true,columns:12,unique_constraint:true,indexes:2},database_mode:"READ_ONLY",flyway_repair:"NONE",history_edit:"NONE",manual_sql:"NONE"}' \
+            > "$EVIDENCE_DIR/execution-summary.json"
+          sha256sum "$EVIDENCE_DIR/execution-summary.json" > "$EVIDENCE_DIR/SHA256SUMS.txt"
+
+      - name: Upload immutable reconciliation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-idempotency-production-reconciliation-${{ github.run_id }}
+          path: ${{ runner.temp }}/crm-idempotency-reconciliation
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Dispatch CRM-G1 final closure
+        id: dispatch_g1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DISPATCHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          jq -n --arg ref main '{ref:$ref}' > "$RUNNER_TEMP/g1-dispatch.json"
+          CODE="$(curl --silent --show-error --max-time 45 -o "$RUNNER_TEMP/g1-dispatch-response.txt" -w '%{http_code}' \
+            -X POST -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' -H 'Content-Type: application/json' \
+            --data @"$RUNNER_TEMP/g1-dispatch.json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/crm-g1-production-closure.yml/dispatches")"
+          test "$CODE" = "204"
+          echo "dispatched_at=$DISPATCHED_AT" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for exact CRM-G1 success
+        id: g1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISPATCHED_AT: ${{ steps.dispatch_g1.outputs.dispatched_at }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          G1_RUN_ID=""
+          for attempt in $(seq 1 180); do
+            curl --fail-with-body --silent --show-error --max-time 30 \
+              -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/crm-g1-production-closure.yml/runs?event=workflow_dispatch&branch=main&per_page=20" \
+              > "$RUNNER_TEMP/g1-runs.json"
+            jq --arg sha "$GITHUB_SHA" --arg started "$DISPATCHED_AT" \
+              '[.workflow_runs[] | select(.head_sha == $sha and .created_at >= $started)] | sort_by(.created_at) | first // empty' \
+              "$RUNNER_TEMP/g1-runs.json" > "$RUNNER_TEMP/g1-run.json"
+            G1_RUN_ID="$(jq -r '.id // empty' "$RUNNER_TEMP/g1-run.json")"
+            G1_STATUS="$(jq -r '.status // empty' "$RUNNER_TEMP/g1-run.json")"
+            G1_CONCLUSION="$(jq -r '.conclusion // empty' "$RUNNER_TEMP/g1-run.json")"
+            if [ -n "$G1_RUN_ID" ] && [ "$G1_STATUS" = "completed" ]; then
+              test "$G1_CONCLUSION" = "success" || { echo "::error::CRM-G1 failed: ${G1_CONCLUSION}"; exit 1; }
+              break
+            fi
+            sleep 10
+          done
+          test -n "$G1_RUN_ID"
+          test "$(jq -r '.status // empty' "$RUNNER_TEMP/g1-run.json")" = "completed"
+          test "$(jq -r '.conclusion // empty' "$RUNNER_TEMP/g1-run.json")" = "success"
+          echo "run_id=$G1_RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch CRM-007 final closure
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -n --arg ref main '{ref:$ref}' > "$RUNNER_TEMP/crm007-dispatch.json"
+          CODE="$(curl --silent --show-error --max-time 45 -o "$RUNNER_TEMP/crm007-dispatch-response.txt" -w '%{http_code}' \
+            -X POST -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' -H 'Content-Type: application/json' \
+            --data @"$RUNNER_TEMP/crm007-dispatch.json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/crm-007-final-production-closure.yml/dispatches")"
+          test "$CODE" = "204"
+
+      - name: Record reconciliation success
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          G1_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${{ steps.g1.outputs.run_id }}"
+          BODY="CRM idempotency baseline reconciliation PASS. Exact SHA: ${GITHUB_SHA}. Flyway 20260721.2 = SQL / true. crm_idempotency_records = present with 12 columns, uniqueness constraint and 2 indexes. Verification was read-only; no repair, history edit or manual SQL. CRM-G1 succeeded at ${G1_URL}; CRM-007 was explicitly dispatched. Evidence: ${RUN_URL}."
+          gh issue comment 563 --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          gh issue comment 571 --repo "$GITHUB_REPOSITORY" --body "$BODY"
+
+      - name: Record reconciliation failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          BODY="CRM idempotency baseline reconciliation FAILED closed. No Flyway repair, history edit or manual Production SQL was performed. Evidence: ${RUN_URL}. CRM-G1 and CRM-007 remain open."
+          gh issue comment 563 --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          gh issue comment 571 --repo "$GITHUB_REPOSITORY" --body "$BODY"
