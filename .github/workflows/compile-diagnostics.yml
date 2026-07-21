@@ -30,19 +30,27 @@ jobs:
           python scripts/ci/apply_crm007_nullable_exclusion_final.py
           test ! -e scripts/ci/apply_crm007_nullable_exclusion_final.py
           git diff --check
-          mkdir -p "$RUNNER_TEMP/crm007-patched"
-          cp --parents \
-            apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationRepository.java \
-            apps/sanad-platform/src/test/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationNullableFilterPostgresTest.java \
-            .github/workflows/crm-idempotency-production-reconciliation.yml \
-            .github/workflows/crm-007-final-production-closure.yml \
-            "$RUNNER_TEMP/crm007-patched/"
-          find "$RUNNER_TEMP/crm007-patched" -type f -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/crm007-patched/SHA256SUMS.txt"
+          export_dir="$RUNNER_TEMP/crm007-patched"
+          rm -rf "$export_dir"
+          mkdir -p "$export_dir/source" "$export_dir/workflows"
+          cp apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationRepository.java \
+            "$export_dir/source/JdbcAddressCommunicationRepository.java"
+          cp apps/sanad-platform/src/test/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationNullableFilterPostgresTest.java \
+            "$export_dir/source/JdbcAddressCommunicationNullableFilterPostgresTest.java"
+          cp .github/workflows/crm-idempotency-production-reconciliation.yml \
+            "$export_dir/workflows/crm-idempotency-production-reconciliation.yml"
+          cp .github/workflows/crm-007-final-production-closure.yml \
+            "$export_dir/workflows/crm-007-final-production-closure.yml"
+          (
+            cd "$export_dir"
+            find source workflows -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+          )
       - name: Upload exact patched files
         uses: actions/upload-artifact@v4
         with:
           name: crm007-final-patched-files-${{ github.run_id }}
           path: ${{ runner.temp }}/crm007-patched
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 1
 
