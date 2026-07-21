@@ -12,6 +12,7 @@ const REFRESH_PATH = "/api/v1/auth/refresh";
 const LOGOUT_PATH = "/api/v1/auth/logout";
 const CHANGE_CREDENTIAL_PATH = "/api/v1/auth/change-credential";
 const COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+const PRODUCTION_BACKEND_HOST = "sanad-backend-mcrj.onrender.com";
 
 // BACKEND_REQUEST_TIMEOUT_MS is an end-to-end BFF budget, not a per-attempt timeout.
 // It bounds retries inside the serverless execution window and preserves deterministic failures.
@@ -79,6 +80,7 @@ function backendBaseUrl(): string | null {
     const isLocal = ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname);
     if (parsed.protocol !== "https:" && !(isLocal && parsed.protocol === "http:")) return null;
     if (parsed.username || parsed.password) return null;
+    if (process.env.NODE_ENV === "production" && parsed.hostname !== PRODUCTION_BACKEND_HOST) return null;
     parsed.pathname = parsed.pathname.replace(/\/+$/, "");
     parsed.search = "";
     parsed.hash = "";
@@ -125,16 +127,13 @@ function hasValidOrigin(request: NextRequest): boolean {
   return !origin || origin === request.nextUrl.origin;
 }
 
-function requestHeaders(request: NextRequest, path: string, baseUrl: string, id: string): Headers {
+function requestHeaders(request: NextRequest, path: string, id: string): Headers {
   const headers = new Headers();
   for (const name of FORWARDED_REQUEST_HEADERS) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
   headers.set("x-request-id", id);
-  if (baseUrl.includes("ngrok")) {
-    headers.set("ngrok-skip-browser-warning", "any-value");
-  }
   if (path === REFRESH_PATH) {
     const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
     if (refreshToken) headers.set(REFRESH_HEADER, refreshToken);
@@ -290,7 +289,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
 
   const baseUrl = backendBaseUrl();
   if (!baseUrl) {
-    console.error("Platform BFF backend URL is not configured", { path, requestId: id });
+    console.error("Platform BFF backend URL is not configured or violates the production Render policy", { path, requestId: id });
     const response = jsonError("Service unavailable", 503, id);
     if (path === LOGOUT_PATH) {
       clearRefreshCookie(response);
@@ -300,7 +299,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
   }
 
   const target = `${baseUrl}${path}${request.nextUrl.search}`;
-  const headers = requestHeaders(request, path, baseUrl, id);
+  const headers = requestHeaders(request, path, id);
 
   try {
     const supportsBody = !["GET", "HEAD"].includes(request.method);
