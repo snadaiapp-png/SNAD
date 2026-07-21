@@ -1,0 +1,488 @@
+{
+  "all": [
+    {
+      "id": "b57b4997-4428-4a07-a1d8-0e70561a8232",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "error"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "2026-07-21 10:50:29.536 ERROR [http-nio-8080-exec-10] c.s.p.crm.error.CrmExceptionHandler - [CRM] requestId=3d571826-674c-46dc-981d-fb327f3b5824 INTERNAL_ERROR: org.springframework.jdbc.BadSqlGrammarException: PreparedStatementCallback; bad SQL grammar [SELECT id, tenant_id, principal_id, endpoint, idempotency_key, request_fingerprint_sha256,        response_status, response_body_json, response_headers_json, content_type, created_at, expires_at FROM crm_idempotency_records WHERE tenant_id = ? AND principal_id = ?   AND endpoint = ? AND idempotency_key = ?]",
+      "timestamp": "2026-07-21T10:50:29.627124371Z"
+    },
+    {
+      "id": "2cd880a6-acb2-47c6-9049-672e778fbd96",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "org.springframework.jdbc.BadSqlGrammarException: PreparedStatementCallback; bad SQL grammar [SELECT id, tenant_id, principal_id, endpoint, idempotency_key, request_fingerprint_sha256,        response_status, response_body_json, response_headers_json, content_type, created_at, expires_at FROM crm_idempotency_records WHERE tenant_id = ? AND principal_id = ?   AND endpoint = ? AND idempotency_key = ?]",
+      "timestamp": "2026-07-21T10:50:29.627174534Z"
+    },
+    {
+      "id": "f21be0de-f215-4ae9-a6bc-2e71ae7e5caf",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat org.springframework.jdbc.support.SQLStateSQLExceptionTranslator.doTranslate(SQLStateSQLExceptionTranslator.java:114)",
+      "timestamp": "2026-07-21T10:50:29.627181835Z"
+    },
+    {
+      "id": "399cdd86-7e86-4981-ad86-fd16d02e0be9",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat org.springframework.jdbc.support.AbstractFallbackSQLExceptionTranslator.translate(AbstractFallbackSQLExceptionTranslator.java:107)",
+      "timestamp": "2026-07-21T10:50:29.627187605Z"
+    },
+    {
+      "id": "7874e087-60a3-47fd-90d7-5d6c6bb2c985",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat org.springframework.jdbc.support.AbstractFallbackSQLExceptionTranslator.translate(AbstractFallbackSQLExceptionTranslator.java:116)",
+      "timestamp": "2026-07-21T10:50:29.627192345Z"
+    },
+    {
+      "id": "ef804aea-31a2-4474-9980-97e5d8e324a5",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat org.springframework.jdbc.core.JdbcTemplate.translateException(JdbcTemplate.java:1556)",
+      "timestamp": "2026-07-21T10:50:29.627197285Z"
+    },
+    {
+      "id": "544cb2e5-c002-4f5a-b624-ddd3fdbfd2cc",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat com.sanad.platform.crm.web.CrmAddressCommunicationController.createAddress(CrmAddressCommunicationController.java:343)",
+      "timestamp": "2026-07-21T10:50:29.627222247Z"
+    },
+    {
+      "id": "aac42153-0a5b-4ef4-a7cc-ed710244ac7c",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat com.sanad.platform.crm.web.CrmAddressCommunicationController.createAccountAddress(CrmAddressCommunicationController.java:110)",
+      "timestamp": "2026-07-21T10:50:29.627224597Z"
+    },
+    {
+      "id": "f3bac926-b93c-4ae1-b0e5-c45c042d953d",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat com.sanad.platform.crm.web.CrmAddressCommunicationController$$SpringCGLIB$$0.createAccountAddress(<generated>)",
+      "timestamp": "2026-07-21T10:50:29.62726874Z"
+    },
+    {
+      "id": "d8d5d9e8-b0b2-4918-b89b-a9b5bc29a86e",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat org.springframework.security.web.access.ExceptionTranslationFilter.doFilter(ExceptionTranslationFilter.java:125)",
+      "timestamp": "2026-07-21T10:50:29.627392168Z"
+    },
+    {
+      "id": "6c0aa902-9941-461c-8f2f-234548d20025",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat org.springframework.security.web.access.ExceptionTranslationFilter.doFilter(ExceptionTranslationFilter.java:119)",
+      "timestamp": "2026-07-21T10:50:29.627394528Z"
+    },
+    {
+      "id": "a246b500-a303-447a-b00c-fbfa52dbb517",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat org.springframework.security.web.authentication.logout.LogoutFilter.doFilter(LogoutFilter.java:107)",
+      "timestamp": "2026-07-21T10:50:29.627501604Z"
+    },
+    {
+      "id": "25e77752-666d-4620-a80a-94c130d2c9a0",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:93)",
+      "timestamp": "2026-07-21T10:50:29.627707927Z"
+    },
+    {
+      "id": "2d310852-e9f7-43b0-8d0f-43fad1d4eb4a",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "error"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "Caused by: org.postgresql.util.PSQLException: ERROR: relation \"crm_idempotency_records\" does not exist",
+      "timestamp": "2026-07-21T10:50:29.627742859Z"
+    },
+    {
+      "id": "326dc116-c7e0-437b-a79e-7e2bef17b770",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat org.postgresql.core.v3.QueryExecutorImpl.receiveErrorResponse(QueryExecutorImpl.java:2736)",
+      "timestamp": "2026-07-21T10:50:29.627756Z"
+    },
+    {
+      "id": "7e70ee58-f899-4ff1-97e9-8e2cc667e524",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat org.postgresql.core.v3.QueryExecutorImpl.processResults(QueryExecutorImpl.java:2423)",
+      "timestamp": "2026-07-21T10:50:29.62775815Z"
+    },
+    {
+      "id": "9d9d1d26-16f4-4f54-a220-b46c205c3365",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat org.postgresql.core.v3.QueryExecutorImpl.execute(QueryExecutorImpl.java:374)",
+      "timestamp": "2026-07-21T10:50:29.62776016Z"
+    },
+    {
+      "id": "99eed3c0-a57d-4452-8a11-2e752cc0fef5",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat org.postgresql.jdbc.PgStatement.executeInternal(PgStatement.java:518)",
+      "timestamp": "2026-07-21T10:50:29.627762021Z"
+    },
+    {
+      "id": "667b7e0b-720e-4ce3-9628-d1911b0c54f7",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat org.postgresql.jdbc.PgStatement.execute(PgStatement.java:435)",
+      "timestamp": "2026-07-21T10:50:29.627763911Z"
+    },
+    {
+      "id": "df74084d-43f9-4dbb-8626-9898229c4692",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat org.postgresql.jdbc.PgPreparedStatement.executeWithFlags(PgPreparedStatement.java:196)",
+      "timestamp": "2026-07-21T10:50:29.627765901Z"
+    },
+    {
+      "id": "32a49891-6d8d-4d90-a3f1-ba73c66d5d97",
+      "labels": [
+        {
+          "name": "resource",
+          "value": "srv-d8ragqkm0tmc73bviqq0"
+        },
+        {
+          "name": "instance",
+          "value": "srv-d8ragqkm0tmc73bviqq0-k8dzg"
+        },
+        {
+          "name": "level",
+          "value": "info"
+        },
+        {
+          "name": "type",
+          "value": "app"
+        }
+      ],
+      "message": "\tat org.postgresql.jdbc.PgPreparedStatement.executeQuery(PgPreparedStatement.java:139)",
+      "timestamp": "2026-07-21T10:50:29.627767811Z"
+    }
+  ],
+  "requests": []
+}
