@@ -1,0 +1,458 @@
+2026-07-21T11:00:38.3062233Z   CRM_IMPORT_READER_EMAIL: tenant-a-import-reader@snad-crm-acceptance.example
+2026-07-21T11:00:38.3063382Z   SANAD_CONTROL_PLANE_TENANT_ID: 27bad79e-ceb2-40b9-a934-04f8300a81ab
+2026-07-21T11:00:38.3063759Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.11-10/x64
+2026-07-21T11:00:38.3064274Z   JAVA_HOME_21_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.11-10/x64
+2026-07-21T11:00:38.3064623Z   BACKEND_API_BASE_URL: http://127.0.0.1:8080
+2026-07-21T11:00:38.3064996Z ##[endgroup]
+2026-07-21T11:00:40.3501044Z ##[group]Run npx playwright test --config=playwright.crm-acceptance.config.ts --reporter=html,list
+2026-07-21T11:00:40.3501692Z [36;1mnpx playwright test --config=playwright.crm-acceptance.config.ts --reporter=html,list[0m
+2026-07-21T11:00:40.3537632Z shell: /usr/bin/bash -e {0}
+2026-07-21T11:00:40.3537910Z env:
+2026-07-21T11:00:40.3538190Z   DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
+2026-07-21T11:00:40.3538505Z   DATABASE_USERNAME: sanad_test
+2026-07-21T11:00:40.3539008Z   DATABASE_NAME: sanad_test
+2026-07-21T11:00:40.3539304Z   SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
+2026-07-21T11:00:40.3539638Z   SPRING_DATASOURCE_USERNAME: sanad_test
+2026-07-21T11:00:40.3540172Z   SPRING_PROFILES_ACTIVE: crm-acceptance
+2026-07-21T11:00:40.3540430Z   SPRING_FLYWAY_OUT_OF_ORDER: true
+2026-07-21T11:00:40.3540704Z   FLYWAY_ENABLED: true
+2026-07-21T11:00:40.3540917Z   FLYWAY_BASELINE_ON_MIGRATE: true
+2026-07-21T11:00:40.3541149Z   FLYWAY_VALIDATE_ON_MIGRATE: true
+2026-07-21T11:00:40.3541380Z   JPA_DDL_AUTO: validate
+2026-07-21T11:00:40.3541767Z   SERVER_PORT: 8080
+2026-07-21T11:00:40.3541986Z   JWT_ISSUER: sanad-platform-ci
+2026-07-21T11:00:40.3542217Z   JWT_ACCESS_TOKEN_TTL: 60m
+2026-07-21T11:00:40.3542443Z   REFRESH_TOKEN_TTL: 720h
+2026-07-21T11:00:40.3542654Z   COOKIE_SECURE: false
+2026-07-21T11:00:40.3542858Z   COOKIE_SAME_SITE: lax
+2026-07-21T11:00:40.3543071Z   BOOTSTRAP_ENABLED: false
+2026-07-21T11:00:40.3543331Z   SANAD_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3001
+2026-07-21T11:00:40.3543611Z   SANAD_CRM_IMPORT_WORKER_ENABLED: true
+2026-07-21T11:00:40.3543875Z   SANAD_CRM_IMPORT_WORKER_INITIAL_DELAY_MS: 2000
+2026-07-21T11:00:40.3544148Z   SANAD_CRM_IMPORT_WORKER_DELAY_MS: 2000
+2026-07-21T11:00:40.3544496Z   CRM_CUSTOM_FIELD_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+2026-07-21T11:00:40.3545111Z   SECURITY_NOTIFICATION_PROVIDER: disabled
+2026-07-21T11:00:40.3545409Z   PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
+2026-07-21T11:00:40.3545730Z   CRM_TENANT_A_EMAIL: tenant-a-admin@snad-crm-acceptance.example
+2026-07-21T11:00:40.3546354Z   CRM_TENANT_B_EMAIL: tenant-b-admin@snad-crm-acceptance.example
+2026-07-21T11:00:40.3546984Z   CRM_READONLY_EMAIL: tenant-a-readonly@snad-crm-acceptance.example
+2026-07-21T11:00:40.3547626Z   CRM_LEAD_WRITER_EMAIL: tenant-a-lead-writer@snad-crm-acceptance.example
+2026-07-21T11:00:40.3548294Z   CRM_IMPORT_READER_EMAIL: tenant-a-import-reader@snad-crm-acceptance.example
+2026-07-21T11:00:40.3549417Z   SANAD_CONTROL_PLANE_TENANT_ID: 27bad79e-ceb2-40b9-a934-04f8300a81ab
+2026-07-21T11:00:40.3549801Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.11-10/x64
+2026-07-21T11:00:40.3550188Z   JAVA_HOME_21_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.11-10/x64
+2026-07-21T11:00:40.3550523Z   SANAD_BACKEND_BASE_URL: http://127.0.0.1:8080
+2026-07-21T11:00:40.3550771Z ##[endgroup]
+2026-07-21T11:00:41.8244598Z 
+2026-07-21T11:00:41.8245436Z Running 68 tests using 1 worker
+2026-07-21T11:00:41.8257471Z 
+2026-07-21T11:00:48.1077306Z   ✓   1 [crm-acceptance] › e2e/crm-accessibility.spec.ts:64:9 › CRM Accessibility — Axe automated checks › /crm/overview has 0 critical and 0 serious Axe violations (3.5s)
+2026-07-21T11:00:51.4060303Z   ✓   2 [crm-acceptance] › e2e/crm-accessibility.spec.ts:64:9 › CRM Accessibility — Axe automated checks › /crm/accounts has 0 critical and 0 serious Axe violations (3.3s)
+2026-07-21T11:00:54.6747814Z   ✓   3 [crm-acceptance] › e2e/crm-accessibility.spec.ts:64:9 › CRM Accessibility — Axe automated checks › /crm/contacts has 0 critical and 0 serious Axe violations (3.3s)
+2026-07-21T11:00:57.9377249Z   ✓   4 [crm-acceptance] › e2e/crm-accessibility.spec.ts:64:9 › CRM Accessibility — Axe automated checks › /crm/leads has 0 critical and 0 serious Axe violations (3.3s)
+2026-07-21T11:01:01.3037248Z   ✓   5 [crm-acceptance] › e2e/crm-accessibility.spec.ts:64:9 › CRM Accessibility — Axe automated checks › /crm/opportunities has 0 critical and 0 serious Axe violations (3.4s)
+2026-07-21T11:01:04.4874417Z   ✓   6 [crm-acceptance] › e2e/crm-accessibility.spec.ts:64:9 › CRM Accessibility — Axe automated checks › /crm/imports has 0 critical and 0 serious Axe violations (3.2s)
+2026-07-21T11:01:07.7391297Z   ✓   7 [crm-acceptance] › e2e/crm-accessibility.spec.ts:64:9 › CRM Accessibility — Axe automated checks › /crm/settings/custom-fields has 0 critical and 0 serious Axe violations (3.2s)
+2026-07-21T11:01:16.7067490Z   ✓   8 [crm-acceptance] › e2e/crm-accessibility.spec.ts:95:7 › CRM Accessibility — Axe automated checks › all CRM routes render the main content slot (smoke) (9.0s)
+2026-07-21T11:01:18.6533198Z   ✓   9 [crm-acceptance] › e2e/crm-authenticated-acceptance.spec.ts:77:7 › CRM Authenticated Acceptance — Tenant A admin happy path › login as Tenant A admin and store auth state (1.9s)
+2026-07-21T11:01:21.3443032Z   ✓  10 [crm-acceptance] › e2e/crm-authenticated-acceptance.spec.ts:92:7 › CRM Authenticated Acceptance — Tenant A admin happy path › dashboard renders KPIs (2.7s)
+2026-07-21T11:01:24.4736555Z   ✓  11 [crm-acceptance] › e2e/crm-authenticated-acceptance.spec.ts:104:7 › CRM Authenticated Acceptance — Tenant A admin happy path › create an account via UI and open its detail page (3.1s)
+2026-07-21T11:01:27.4545806Z   ✓  12 [crm-acceptance] › e2e/crm-authenticated-acceptance.spec.ts:124:7 › CRM Authenticated Acceptance — Tenant A admin happy path › create a contact via UI and open its detail page (3.0s)
+2026-07-21T11:01:30.5913638Z   ✓  13 [crm-acceptance] › e2e/crm-authenticated-acceptance.spec.ts:152:7 › CRM Authenticated Acceptance — Tenant A admin happy path › create a lead, change status, and convert it (3.1s)
+2026-07-21T11:01:33.5702072Z   ✓  14 [crm-acceptance] › e2e/crm-authenticated-acceptance.spec.ts:178:7 › CRM Authenticated Acceptance — Tenant A admin happy path › create a pipeline via UI (3.0s)
+2026-07-21T11:01:37.0017877Z   ✓  15 [crm-acceptance] › e2e/crm-authenticated-acceptance.spec.ts:189:7 › CRM Authenticated Acceptance — Tenant A admin happy path › create an opportunity via UI and move its stage (3.4s)
+2026-07-21T11:01:40.7798866Z   ✓  16 [crm-acceptance] › e2e/crm-authenticated-acceptance.spec.ts:260:7 › CRM Authenticated Acceptance — Tenant A admin happy path › open opportunity detail page (3.8s)
+2026-07-21T11:01:43.6845433Z   ✓  17 [crm-acceptance] › e2e/crm-authenticated-acceptance.spec.ts:276:7 › CRM Authenticated Acceptance — Tenant A admin happy path › create an activity and complete it via UI (2.9s)
+2026-07-21T11:01:46.5890849Z   ✓  18 [crm-acceptance] › e2e/crm-authenticated-acceptance.spec.ts:303:7 › CRM Authenticated Acceptance — Tenant A admin happy path › timeline renders events on an account detail page (2.9s)
+2026-07-21T11:01:49.3943416Z   ✓  19 [crm-acceptance] › e2e/crm-authenticated-acceptance.spec.ts:319:7 › CRM Authenticated Acceptance — Tenant A admin happy path › deep link to account detail works (direct URL) (2.8s)
+2026-07-21T11:01:52.9094031Z   ✓  20 [crm-acceptance] › e2e/crm-authenticated-acceptance.spec.ts:334:7 › CRM Authenticated Acceptance — Tenant A admin happy path › refresh preserves route and auth state (3.5s)
+2026-07-21T11:01:58.1179256Z   ✓  21 [crm-acceptance] › e2e/crm-authenticated-acceptance.spec.ts:344:7 › CRM Authenticated Acceptance — Tenant A admin happy path › back/forward navigation preserves route and auth (5.2s)
+2026-07-21T11:02:02.4547297Z   ✓  22 [crm-acceptance] › e2e/crm-authenticated-acceptance.spec.ts:356:7 › CRM Authenticated Acceptance — Tenant A admin happy path › no console errors during navigation (4.3s)
+2026-07-21T11:02:04.0107383Z   ✓  23 [crm-acceptance] › e2e/crm-rbac-acceptance.spec.ts:87:9 › CRM RBAC Acceptance — capability enforcement › CRM_READONLY — read-only user › login as read-only user (1.5s)
+2026-07-21T11:02:06.6557042Z   ✓  24 [crm-acceptance] › e2e/crm-rbac-acceptance.spec.ts:91:9 › CRM RBAC Acceptance — capability enforcement › CRM_READONLY — read-only user › create-account form is hidden or disabled on /crm/accounts (2.6s)
+2026-07-21T11:02:08.5546556Z   ✓  25 [crm-acceptance] › e2e/crm-rbac-acceptance.spec.ts:107:9 › CRM RBAC Acceptance — capability enforcement › CRM_READONLY — read-only user › POST /api/v1/crm/accounts returns 403 for read-only user (1.9s)
+2026-07-21T11:02:10.3564003Z   ✓  26 [crm-acceptance] › e2e/crm-rbac-acceptance.spec.ts:122:9 › CRM RBAC Acceptance — capability enforcement › CRM_READONLY — read-only user › GET /api/v1/crm/accounts succeeds for read-only user (1.8s)
+2026-07-21T11:02:11.9351449Z   ✓  27 [crm-acceptance] › e2e/crm-rbac-acceptance.spec.ts:129:9 › CRM RBAC Acceptance — capability enforcement › CRM_READONLY — read-only user › teardown: clear read-only session (1.6s)
+2026-07-21T11:02:13.5173162Z   ✓  28 [crm-acceptance] › e2e/crm-rbac-acceptance.spec.ts:145:9 › CRM RBAC Acceptance — capability enforcement › CRM_LEAD_WRITER — lead edit works, convert blocked › login as lead-writer user (1.6s)
+2026-07-21T11:02:15.1141484Z   ✓  29 [crm-acceptance] › e2e/crm-rbac-acceptance.spec.ts:149:9 › CRM RBAC Acceptance — capability enforcement › CRM_LEAD_WRITER — lead edit works, convert blocked › can read leads (1.6s)
+2026-07-21T11:02:16.6800933Z   ✓  30 [crm-acceptance] › e2e/crm-rbac-acceptance.spec.ts:161:9 › CRM RBAC Acceptance — capability enforcement › CRM_LEAD_WRITER — lead edit works, convert blocked › can change lead status (PATCH /leads/{id}/status → 200) (1.6s)
+2026-07-21T11:02:18.2855617Z   ✓  31 [crm-acceptance] › e2e/crm-rbac-acceptance.spec.ts:172:9 › CRM RBAC Acceptance — capability enforcement › CRM_LEAD_WRITER — lead edit works, convert blocked › cannot convert lead (POST /leads/{id}/convert → 403) (1.6s)
+2026-07-21T11:02:19.8729645Z   ✓  32 [crm-acceptance] › e2e/crm-rbac-acceptance.spec.ts:183:9 › CRM RBAC Acceptance — capability enforcement › CRM_LEAD_WRITER — lead edit works, convert blocked › cannot read accounts (GET /accounts → 403) (1.6s)
+2026-07-21T11:02:21.5499171Z   ✓  33 [crm-acceptance] › e2e/crm-rbac-acceptance.spec.ts:190:9 › CRM RBAC Acceptance — capability enforcement › CRM_LEAD_WRITER — lead edit works, convert blocked › teardown: clear lead-writer session (1.7s)
+2026-07-21T11:02:23.1198613Z   ✓  34 [crm-acceptance] › e2e/crm-rbac-acceptance.spec.ts:205:9 › CRM RBAC Acceptance — capability enforcement › CRM_IMPORT_READER — upload button hidden, upload API 403 › login as import-reader user (1.6s)
+2026-07-21T11:02:24.7007048Z   ✓  35 [crm-acceptance] › e2e/crm-rbac-acceptance.spec.ts:209:9 › CRM RBAC Acceptance — capability enforcement › CRM_IMPORT_READER — upload button hidden, upload API 403 › can read import jobs (GET /imports → 200) (1.6s)
+2026-07-21T11:02:27.3349352Z   ✓  36 [crm-acceptance] › e2e/crm-rbac-acceptance.spec.ts:216:9 › CRM RBAC Acceptance — capability enforcement › CRM_IMPORT_READER — upload button hidden, upload API 403 › upload button is hidden or disabled on /crm/imports (2.6s)
+2026-07-21T11:02:28.9390989Z   ✓  37 [crm-acceptance] › e2e/crm-rbac-acceptance.spec.ts:229:9 › CRM RBAC Acceptance — capability enforcement › CRM_IMPORT_READER — upload button hidden, upload API 403 › POST /api/v1/crm/imports/upload returns 403 for import-reader (1.6s)
+2026-07-21T11:02:30.5347293Z   ✓  38 [crm-acceptance] › e2e/crm-rbac-acceptance.spec.ts:252:9 › CRM RBAC Acceptance — capability enforcement › CRM_IMPORT_READER — upload button hidden, upload API 403 › teardown: clear import-reader session (1.6s)
+2026-07-21T11:02:33.1579641Z   ✓  39 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:108:7 › CRM Route Smoke — strict assertions (authenticated) › no hydration errors on /crm/overview (2.6s)
+2026-07-21T11:03:05.5571781Z   ✘  40 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:121:7 › CRM Route Smoke — strict assertions (authenticated) › /crm redirects exactly to /crm/overview (31.9s)
+2026-07-21T11:03:05.5573694Z   -  41 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:134:9 › CRM Route Smoke — strict assertions (authenticated) › /crm/overview renders meaningful content (body height > 80)
+2026-07-21T11:03:05.5575480Z   -  42 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:134:9 › CRM Route Smoke — strict assertions (authenticated) › /crm/accounts renders meaningful content (body height > 80)
+2026-07-21T11:03:05.5576839Z   -  43 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:134:9 › CRM Route Smoke — strict assertions (authenticated) › /crm/contacts renders meaningful content (body height > 80)
+2026-07-21T11:03:05.5578229Z   -  44 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:134:9 › CRM Route Smoke — strict assertions (authenticated) › /crm/leads renders meaningful content (body height > 80)
+2026-07-21T11:03:05.5579559Z   -  45 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:134:9 › CRM Route Smoke — strict assertions (authenticated) › /crm/pipelines renders meaningful content (body height > 80)
+2026-07-21T11:03:05.5580977Z   -  46 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:134:9 › CRM Route Smoke — strict assertions (authenticated) › /crm/opportunities renders meaningful content (body height > 80)
+2026-07-21T11:03:05.5582723Z   -  47 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:134:9 › CRM Route Smoke — strict assertions (authenticated) › /crm/activities renders meaningful content (body height > 80)
+2026-07-21T11:03:05.5584179Z   -  48 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:134:9 › CRM Route Smoke — strict assertions (authenticated) › /crm/imports renders meaningful content (body height > 80)
+2026-07-21T11:03:05.5586057Z   -  49 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:134:9 › CRM Route Smoke — strict assertions (authenticated) › /crm/settings/custom-fields renders meaningful content (body height > 80)
+2026-07-21T11:03:05.5587720Z   -  50 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:134:9 › CRM Route Smoke — strict assertions (authenticated) › /crm/command-center renders meaningful content (body height > 80)
+2026-07-21T11:03:05.5589204Z   -  51 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:160:7 › CRM Route Smoke — strict assertions (authenticated) › back/forward preserves exact URLs
+2026-07-21T11:03:05.5590738Z   -  52 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:184:7 › CRM Route Smoke — strict assertions (authenticated) › refresh preserves exact route on /crm/contacts
+2026-07-21T11:03:05.5591689Z   -  53 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:195:7 › CRM Route Smoke — strict assertions (authenticated) › refresh preserves exact route on /crm/leads
+2026-07-21T11:03:05.5592576Z   -  54 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:209:7 › CRM Route Smoke — strict assertions (authenticated) › detail routes render without 5xx
+2026-07-21T11:03:05.5593500Z   -  55 [crm-acceptance] › e2e/crm-route-smoke.spec.ts:233:7 › CRM Route Smoke — strict assertions (authenticated) › no console errors during full CRM navigation sweep
+2026-07-21T11:03:08.3233783Z   ✓  56 [crm-acceptance] › e2e/crm-tenant-isolation.spec.ts:71:7 › CRM Tenant Isolation — Tenant B cannot see Tenant A data › Tenant B cannot fetch Tenant A's account via API (2.1s)
+2026-07-21T11:03:09.9477353Z   ✓  57 [crm-acceptance] › e2e/crm-tenant-isolation.spec.ts:80:7 › CRM Tenant Isolation — Tenant B cannot see Tenant A data › Tenant B cannot fetch Tenant A's contact via API (1.6s)
+2026-07-21T11:03:11.5409092Z   ✓  58 [crm-acceptance] › e2e/crm-tenant-isolation.spec.ts:89:7 › CRM Tenant Isolation — Tenant B cannot see Tenant A data › Tenant B cannot fetch Tenant A's lead via API (1.6s)
+2026-07-21T11:03:13.1308493Z   ✓  59 [crm-acceptance] › e2e/crm-tenant-isolation.spec.ts:98:7 › CRM Tenant Isolation — Tenant B cannot see Tenant A data › Tenant B cannot fetch Tenant A's opportunity via API (1.6s)
+2026-07-21T11:03:14.9491712Z   ✓  60 [crm-acceptance] › e2e/crm-tenant-isolation.spec.ts:107:7 › CRM Tenant Isolation — Tenant B cannot see Tenant A data › Tenant B cannot open Tenant A's account detail page in the SPA (1.8s)
+2026-07-21T11:03:16.6968333Z   ✓  61 [crm-acceptance] › e2e/crm-tenant-isolation.spec.ts:123:7 › CRM Tenant Isolation — Tenant B cannot see Tenant A data › Tenant B cannot open Tenant A's contact detail page in the SPA (1.7s)
+2026-07-21T11:03:18.4646904Z   ✓  62 [crm-acceptance] › e2e/crm-tenant-isolation.spec.ts:132:7 › CRM Tenant Isolation — Tenant B cannot see Tenant A data › Tenant B cannot open Tenant A's lead detail page in the SPA (1.8s)
+2026-07-21T11:03:20.1955985Z   ✓  63 [crm-acceptance] › e2e/crm-tenant-isolation.spec.ts:141:7 › CRM Tenant Isolation — Tenant B cannot see Tenant A data › Tenant B cannot open Tenant A's opportunity detail page in the SPA (1.7s)
+2026-07-21T11:03:22.8240746Z   ✓  64 [crm-acceptance] › e2e/crm-tenant-isolation.spec.ts:150:7 › CRM Tenant Isolation — Tenant B cannot see Tenant A data › Tenant B accounts list contains no Tenant A data (2.6s)
+2026-07-21T11:03:25.4555390Z   ✓  65 [crm-acceptance] › e2e/crm-tenant-isolation.spec.ts:157:7 › CRM Tenant Isolation — Tenant B cannot see Tenant A data › Tenant B contacts list contains no Tenant A data (2.6s)
+2026-07-21T11:03:28.0855005Z   ✓  66 [crm-acceptance] › e2e/crm-tenant-isolation.spec.ts:163:7 › CRM Tenant Isolation — Tenant B cannot see Tenant A data › Tenant B leads list contains no Tenant A data (2.6s)
+2026-07-21T11:03:30.7309310Z   ✓  67 [crm-acceptance] › e2e/crm-tenant-isolation.spec.ts:169:7 › CRM Tenant Isolation — Tenant B cannot see Tenant A data › Tenant B opportunities list contains no Tenant A data (2.6s)
+2026-07-21T11:03:33.3709495Z   ✓  68 [crm-acceptance] › e2e/crm-tenant-isolation.spec.ts:175:7 › CRM Tenant Isolation — Tenant B cannot see Tenant A data › Tenant B dashboard KPIs reflect only Tenant B data (2.6s)
+2026-07-21T11:03:33.5653597Z 
+2026-07-21T11:03:33.5664948Z 
+2026-07-21T11:03:33.5666649Z   1) [crm-acceptance] › e2e/crm-route-smoke.spec.ts:121:7 › CRM Route Smoke — strict assertions (authenticated) › /crm redirects exactly to /crm/overview 
+2026-07-21T11:03:33.5667179Z 
+2026-07-21T11:03:33.5667397Z     TimeoutError: page.waitForSelector: Timeout 30000ms exceeded.
+2026-07-21T11:03:33.5667783Z     Call log:
+2026-07-21T11:03:33.5668118Z       - waiting for locator('#crm-operational-content') to be visible
+2026-07-21T11:03:33.5668357Z 
+2026-07-21T11:03:33.5668363Z 
+2026-07-21T11:03:33.5668504Z       92 |     ? "#crm-command-center-content"
+2026-07-21T11:03:33.5668803Z       93 |     : "#crm-operational-content";
+2026-07-21T11:03:33.5669166Z     > 94 |   await page.waitForSelector(contentSelector, { timeout: 30_000 });
+2026-07-21T11:03:33.5669492Z          |              ^
+2026-07-21T11:03:33.5669765Z       95 |   await page.waitForLoadState("networkidle");
+2026-07-21T11:03:33.5670027Z       96 | }
+2026-07-21T11:03:33.5670217Z       97 |
+2026-07-21T11:03:33.5670585Z         at waitForCrmShell (/home/runner/work/SNAD/SNAD/apps/web/e2e/crm-route-smoke.spec.ts:94:14)
+2026-07-21T11:03:33.5671097Z         at /home/runner/work/SNAD/SNAD/apps/web/e2e/crm-route-smoke.spec.ts:124:11
+2026-07-21T11:03:33.5671338Z 
+2026-07-21T11:03:33.5671684Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-07-21T11:03:33.5672363Z     test-results/crm-route-smoke-CRM-Route--54acc-cts-exactly-to-crm-overview-crm-acceptance/test-failed-1.png
+2026-07-21T11:03:33.5673079Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-07-21T11:03:33.5673325Z 
+2026-07-21T11:03:33.5673746Z     Error Context: test-results/crm-route-smoke-CRM-Route--54acc-cts-exactly-to-crm-overview-crm-acceptance/error-context.md
+2026-07-21T11:03:33.5674194Z 
+2026-07-21T11:03:33.5674542Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-07-21T11:03:33.5675464Z     test-results/crm-route-smoke-CRM-Route--54acc-cts-exactly-to-crm-overview-crm-acceptance/trace.zip
+2026-07-21T11:03:33.5675943Z     Usage:
+2026-07-21T11:03:33.5676048Z 
+2026-07-21T11:03:33.5676483Z         npx playwright show-trace test-results/crm-route-smoke-CRM-Route--54acc-cts-exactly-to-crm-overview-crm-acceptance/trace.zip
+2026-07-21T11:03:33.5677056Z 
+2026-07-21T11:03:33.5677391Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-07-21T11:03:33.5677624Z 
+2026-07-21T11:03:33.5677713Z   1 failed
+2026-07-21T11:03:33.5678370Z     [crm-acceptance] › e2e/crm-route-smoke.spec.ts:121:7 › CRM Route Smoke — strict assertions (authenticated) › /crm redirects exactly to /crm/overview 
+2026-07-21T11:03:33.5678903Z   15 did not run
+2026-07-21T11:03:33.5679113Z   52 passed (2.9m)
+2026-07-21T11:03:33.5860071Z ##[error]Process completed with exit code 1.
+2026-07-21T11:03:33.5918903Z ##[group]Run kill 3870 2>/dev/null || true
+2026-07-21T11:03:33.5919276Z [36;1mkill 3870 2>/dev/null || true[0m
+2026-07-21T11:03:33.5919613Z [36;1mkill 3345 2>/dev/null || true[0m
+2026-07-21T11:03:33.5952287Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-07-21T11:03:33.5952661Z env:
+2026-07-21T11:03:33.5953051Z   DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
+2026-07-21T11:03:33.5953468Z   DATABASE_USERNAME: sanad_test
+2026-07-21T11:03:33.5954096Z   DATABASE_NAME: sanad_test
+2026-07-21T11:03:33.5954489Z   SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
+2026-07-21T11:03:33.5955173Z   SPRING_DATASOURCE_USERNAME: sanad_test
+2026-07-21T11:03:33.5955919Z   SPRING_PROFILES_ACTIVE: crm-acceptance
+2026-07-21T11:03:33.5956249Z   SPRING_FLYWAY_OUT_OF_ORDER: true
+2026-07-21T11:03:33.5956650Z   FLYWAY_ENABLED: true
+2026-07-21T11:03:33.5956952Z   FLYWAY_BASELINE_ON_MIGRATE: true
+2026-07-21T11:03:33.5957254Z   FLYWAY_VALIDATE_ON_MIGRATE: true
+2026-07-21T11:03:33.5957598Z   JPA_DDL_AUTO: validate
+2026-07-21T11:03:33.5957875Z   SERVER_PORT: 8080
+2026-07-21T11:03:33.5958206Z   JWT_ISSUER: sanad-platform-ci
+2026-07-21T11:03:33.5958502Z   JWT_ACCESS_TOKEN_TTL: 60m
+2026-07-21T11:03:33.5958777Z   REFRESH_TOKEN_TTL: 720h
+2026-07-21T11:03:33.5959079Z   COOKIE_SECURE: false
+2026-07-21T11:03:33.5959379Z   COOKIE_SAME_SITE: lax
+2026-07-21T11:03:33.5959685Z   BOOTSTRAP_ENABLED: false
+2026-07-21T11:03:33.5960000Z   SANAD_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3001
+2026-07-21T11:03:33.5960371Z   SANAD_CRM_IMPORT_WORKER_ENABLED: true
+2026-07-21T11:03:33.5960710Z   SANAD_CRM_IMPORT_WORKER_INITIAL_DELAY_MS: 2000
+2026-07-21T11:03:33.5961072Z   SANAD_CRM_IMPORT_WORKER_DELAY_MS: 2000
+2026-07-21T11:03:33.5961560Z   CRM_CUSTOM_FIELD_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+2026-07-21T11:03:33.5962033Z   SECURITY_NOTIFICATION_PROVIDER: disabled
+2026-07-21T11:03:33.5962382Z   PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
+2026-07-21T11:03:33.5962827Z   CRM_TENANT_A_EMAIL: tenant-a-admin@snad-crm-acceptance.example
+2026-07-21T11:03:33.5963636Z   CRM_TENANT_B_EMAIL: tenant-b-admin@snad-crm-acceptance.example
+2026-07-21T11:03:33.5964479Z   CRM_READONLY_EMAIL: tenant-a-readonly@snad-crm-acceptance.example
+2026-07-21T11:03:33.5965460Z   CRM_LEAD_WRITER_EMAIL: tenant-a-lead-writer@snad-crm-acceptance.example
+2026-07-21T11:03:33.5966322Z   CRM_IMPORT_READER_EMAIL: tenant-a-import-reader@snad-crm-acceptance.example
+2026-07-21T11:03:33.5967716Z   SANAD_CONTROL_PLANE_TENANT_ID: 27bad79e-ceb2-40b9-a934-04f8300a81ab
+2026-07-21T11:03:33.5968170Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.11-10/x64
+2026-07-21T11:03:33.5968657Z   JAVA_HOME_21_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.11-10/x64
+2026-07-21T11:03:33.5969062Z ##[endgroup]
+2026-07-21T11:03:33.6082357Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-21T11:03:33.6083932Z ##[group]Run actions/upload-artifact@v4
+2026-07-21T11:03:33.6084434Z with:
+2026-07-21T11:03:33.6084997Z   name: crm-playwright-report-29824290485
+2026-07-21T11:03:33.6085492Z   path: apps/web/crm-playwright-report/
+2026-07-21T11:03:33.6085995Z   if-no-files-found: warn
+2026-07-21T11:03:33.6086360Z   retention-days: 30
+2026-07-21T11:03:33.6086734Z   compression-level: 6
+2026-07-21T11:03:33.6087110Z   overwrite: false
+2026-07-21T11:03:33.6087507Z   include-hidden-files: false
+2026-07-21T11:03:33.6087950Z env:
+2026-07-21T11:03:33.6088367Z   DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
+2026-07-21T11:03:33.6088978Z   DATABASE_USERNAME: sanad_test
+2026-07-21T11:03:33.6089867Z   DATABASE_NAME: sanad_test
+2026-07-21T11:03:33.6090364Z   SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
+2026-07-21T11:03:33.6090981Z   SPRING_DATASOURCE_USERNAME: sanad_test
+2026-07-21T11:03:33.6091915Z   SPRING_PROFILES_ACTIVE: crm-acceptance
+2026-07-21T11:03:33.6092550Z   SPRING_FLYWAY_OUT_OF_ORDER: true
+2026-07-21T11:03:33.6092956Z   FLYWAY_ENABLED: true
+2026-07-21T11:03:33.6093329Z   FLYWAY_BASELINE_ON_MIGRATE: true
+2026-07-21T11:03:33.6093749Z   FLYWAY_VALIDATE_ON_MIGRATE: true
+2026-07-21T11:03:33.6094159Z   JPA_DDL_AUTO: validate
+2026-07-21T11:03:33.6094583Z   SERVER_PORT: 8080
+2026-07-21T11:03:33.6095094Z   JWT_ISSUER: sanad-platform-ci
+2026-07-21T11:03:33.6095623Z   JWT_ACCESS_TOKEN_TTL: 60m
+2026-07-21T11:03:33.6096036Z   REFRESH_TOKEN_TTL: 720h
+2026-07-21T11:03:33.6096536Z   COOKIE_SECURE: false
+2026-07-21T11:03:33.6096913Z   COOKIE_SAME_SITE: lax
+2026-07-21T11:03:33.6097195Z   BOOTSTRAP_ENABLED: false
+2026-07-21T11:03:33.6097533Z   SANAD_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3001
+2026-07-21T11:03:33.6097878Z   SANAD_CRM_IMPORT_WORKER_ENABLED: true
+2026-07-21T11:03:33.6098405Z   SANAD_CRM_IMPORT_WORKER_INITIAL_DELAY_MS: 2000
+2026-07-21T11:03:33.6098860Z   SANAD_CRM_IMPORT_WORKER_DELAY_MS: 2000
+2026-07-21T11:03:33.6099443Z   CRM_CUSTOM_FIELD_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+2026-07-21T11:03:33.6100122Z   SECURITY_NOTIFICATION_PROVIDER: disabled
+2026-07-21T11:03:33.6100575Z   PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
+2026-07-21T11:03:33.6101147Z   CRM_TENANT_A_EMAIL: tenant-a-admin@snad-crm-acceptance.example
+2026-07-21T11:03:33.6107061Z   CRM_TENANT_B_EMAIL: tenant-b-admin@snad-crm-acceptance.example
+2026-07-21T11:03:33.6107947Z   CRM_READONLY_EMAIL: tenant-a-readonly@snad-crm-acceptance.example
+2026-07-21T11:03:33.6108780Z   CRM_LEAD_WRITER_EMAIL: tenant-a-lead-writer@snad-crm-acceptance.example
+2026-07-21T11:03:33.6109663Z   CRM_IMPORT_READER_EMAIL: tenant-a-import-reader@snad-crm-acceptance.example
+2026-07-21T11:03:33.6111137Z   SANAD_CONTROL_PLANE_TENANT_ID: 27bad79e-ceb2-40b9-a934-04f8300a81ab
+2026-07-21T11:03:33.6111600Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.11-10/x64
+2026-07-21T11:03:33.6112118Z   JAVA_HOME_21_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.11-10/x64
+2026-07-21T11:03:33.6112513Z ##[endgroup]
+2026-07-21T11:03:33.7575952Z (node:6646) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-07-21T11:03:33.7576778Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-07-21T11:03:33.7603848Z ##[warning]No files were found with the provided path: apps/web/crm-playwright-report/. No artifacts will be uploaded.
+2026-07-21T11:03:33.7694310Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-21T11:03:33.7695587Z ##[group]Run actions/upload-artifact@v4
+2026-07-21T11:03:33.7695946Z with:
+2026-07-21T11:03:33.7696272Z   name: crm-playwright-results-29824290485
+2026-07-21T11:03:33.7696615Z   path: apps/web/test-results/
+2026-07-21T11:03:33.7696996Z   if-no-files-found: warn
+2026-07-21T11:03:33.7697291Z   retention-days: 30
+2026-07-21T11:03:33.7697561Z   compression-level: 6
+2026-07-21T11:03:33.7697878Z   overwrite: false
+2026-07-21T11:03:33.7698183Z   include-hidden-files: false
+2026-07-21T11:03:33.7698509Z env:
+2026-07-21T11:03:33.7698826Z   DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
+2026-07-21T11:03:33.7699289Z   DATABASE_USERNAME: sanad_test
+2026-07-21T11:03:33.7699972Z   DATABASE_NAME: sanad_test
+2026-07-21T11:03:33.7700358Z   SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
+2026-07-21T11:03:33.7700784Z   SPRING_DATASOURCE_USERNAME: sanad_test
+2026-07-21T11:03:33.7701475Z   SPRING_PROFILES_ACTIVE: crm-acceptance
+2026-07-21T11:03:33.7701857Z   SPRING_FLYWAY_OUT_OF_ORDER: true
+2026-07-21T11:03:33.7702156Z   FLYWAY_ENABLED: true
+2026-07-21T11:03:33.7702421Z   FLYWAY_BASELINE_ON_MIGRATE: true
+2026-07-21T11:03:33.7702744Z   FLYWAY_VALIDATE_ON_MIGRATE: true
+2026-07-21T11:03:33.7703101Z   JPA_DDL_AUTO: validate
+2026-07-21T11:03:33.7703466Z   SERVER_PORT: 8080
+2026-07-21T11:03:33.7703737Z   JWT_ISSUER: sanad-platform-ci
+2026-07-21T11:03:33.7704062Z   JWT_ACCESS_TOKEN_TTL: 60m
+2026-07-21T11:03:33.7704349Z   REFRESH_TOKEN_TTL: 720h
+2026-07-21T11:03:33.7704645Z   COOKIE_SECURE: false
+2026-07-21T11:03:33.7705243Z   COOKIE_SAME_SITE: lax
+2026-07-21T11:03:33.7705560Z   BOOTSTRAP_ENABLED: false
+2026-07-21T11:03:33.7705881Z   SANAD_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3001
+2026-07-21T11:03:33.7706236Z   SANAD_CRM_IMPORT_WORKER_ENABLED: true
+2026-07-21T11:03:33.7706607Z   SANAD_CRM_IMPORT_WORKER_INITIAL_DELAY_MS: 2000
+2026-07-21T11:03:33.7706965Z   SANAD_CRM_IMPORT_WORKER_DELAY_MS: 2000
+2026-07-21T11:03:33.7707389Z   CRM_CUSTOM_FIELD_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+2026-07-21T11:03:33.7707868Z   SECURITY_NOTIFICATION_PROVIDER: disabled
+2026-07-21T11:03:33.7708196Z   PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
+2026-07-21T11:03:33.7708587Z   CRM_TENANT_A_EMAIL: tenant-a-admin@snad-crm-acceptance.example
+2026-07-21T11:03:33.7709392Z   CRM_TENANT_B_EMAIL: tenant-b-admin@snad-crm-acceptance.example
+2026-07-21T11:03:33.7710195Z   CRM_READONLY_EMAIL: tenant-a-readonly@snad-crm-acceptance.example
+2026-07-21T11:03:33.7710968Z   CRM_LEAD_WRITER_EMAIL: tenant-a-lead-writer@snad-crm-acceptance.example
+2026-07-21T11:03:33.7711797Z   CRM_IMPORT_READER_EMAIL: tenant-a-import-reader@snad-crm-acceptance.example
+2026-07-21T11:03:33.7713160Z   SANAD_CONTROL_PLANE_TENANT_ID: 27bad79e-ceb2-40b9-a934-04f8300a81ab
+2026-07-21T11:03:33.7713594Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.11-10/x64
+2026-07-21T11:03:33.7714277Z   JAVA_HOME_21_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.11-10/x64
+2026-07-21T11:03:33.7714660Z ##[endgroup]
+2026-07-21T11:03:33.9184645Z (node:6659) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-07-21T11:03:33.9186315Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-07-21T11:03:33.9277110Z With the provided path, there will be 3 files uploaded
+2026-07-21T11:03:33.9282385Z Artifact name is valid!
+2026-07-21T11:03:33.9283273Z Root directory input is valid!
+2026-07-21T11:03:34.2427570Z Beginning upload of artifact content to blob storage
+2026-07-21T11:03:34.3858020Z (node:6659) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-07-21T11:03:35.0753658Z Uploaded bytes 4461969
+2026-07-21T11:03:35.1405880Z Finished uploading artifact content to blob storage!
+2026-07-21T11:03:35.1407124Z SHA256 digest of uploaded artifact zip is 9e74fa4453d17b651ad7e2153b9f13617b632bd6e5c3fc162521fe06a51cd0b5
+2026-07-21T11:03:35.1407919Z Finalizing artifact upload
+2026-07-21T11:03:35.3484632Z Artifact crm-playwright-results-29824290485.zip successfully finalized. Artifact ID 8492758854
+2026-07-21T11:03:35.3486129Z Artifact crm-playwright-results-29824290485 has been successfully uploaded! Final size is 4461969 bytes. Artifact ID is 8492758854
+2026-07-21T11:03:35.3491473Z Artifact download URL: https://github.com/snadaiapp-png/SNAD/actions/runs/29824290485/artifacts/8492758854
+2026-07-21T11:03:35.3614986Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-21T11:03:35.3616764Z ##[group]Run actions/upload-artifact@v4
+2026-07-21T11:03:35.3617243Z with:
+2026-07-21T11:03:35.3617631Z   name: crm-service-logs-29824290485
+2026-07-21T11:03:35.3618254Z   path: /home/runner/work/_temp/crm-acceptance/*.log
+2026-07-21T11:03:35.3618768Z   if-no-files-found: warn
+2026-07-21T11:03:35.3619249Z   retention-days: 14
+2026-07-21T11:03:35.3619649Z   compression-level: 6
+2026-07-21T11:03:35.3620058Z   overwrite: false
+2026-07-21T11:03:35.3620465Z   include-hidden-files: false
+2026-07-21T11:03:35.3620895Z env:
+2026-07-21T11:03:35.3621440Z   DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
+2026-07-21T11:03:35.3622143Z   DATABASE_USERNAME: sanad_test
+2026-07-21T11:03:35.3623217Z   DATABASE_NAME: sanad_test
+2026-07-21T11:03:35.3623856Z   SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
+2026-07-21T11:03:35.3624547Z   SPRING_DATASOURCE_USERNAME: sanad_test
+2026-07-21T11:03:35.3625893Z   SPRING_PROFILES_ACTIVE: crm-acceptance
+2026-07-21T11:03:35.3626525Z   SPRING_FLYWAY_OUT_OF_ORDER: true
+2026-07-21T11:03:35.3627138Z   FLYWAY_ENABLED: true
+2026-07-21T11:03:35.3627541Z   FLYWAY_BASELINE_ON_MIGRATE: true
+2026-07-21T11:03:35.3628056Z   FLYWAY_VALIDATE_ON_MIGRATE: true
+2026-07-21T11:03:35.3628509Z   JPA_DDL_AUTO: validate
+2026-07-21T11:03:35.3628903Z   SERVER_PORT: 8080
+2026-07-21T11:03:35.3629342Z   JWT_ISSUER: sanad-platform-ci
+2026-07-21T11:03:35.3629785Z   JWT_ACCESS_TOKEN_TTL: 60m
+2026-07-21T11:03:35.3630271Z   REFRESH_TOKEN_TTL: 720h
+2026-07-21T11:03:35.3630696Z   COOKIE_SECURE: false
+2026-07-21T11:03:35.3631145Z   COOKIE_SAME_SITE: lax
+2026-07-21T11:03:35.3631526Z   BOOTSTRAP_ENABLED: false
+2026-07-21T11:03:35.3632104Z   SANAD_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3001
+2026-07-21T11:03:35.3632593Z   SANAD_CRM_IMPORT_WORKER_ENABLED: true
+2026-07-21T11:03:35.3633090Z   SANAD_CRM_IMPORT_WORKER_INITIAL_DELAY_MS: 2000
+2026-07-21T11:03:35.3633938Z   SANAD_CRM_IMPORT_WORKER_DELAY_MS: 2000
+2026-07-21T11:03:35.3634644Z   CRM_CUSTOM_FIELD_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+2026-07-21T11:03:35.3635579Z   SECURITY_NOTIFICATION_PROVIDER: disabled
+2026-07-21T11:03:35.3636087Z   PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
+2026-07-21T11:03:35.3636756Z   CRM_TENANT_A_EMAIL: tenant-a-admin@snad-crm-acceptance.example
+2026-07-21T11:03:35.3638037Z   CRM_TENANT_B_EMAIL: tenant-b-admin@snad-crm-acceptance.example
+2026-07-21T11:03:35.3639269Z   CRM_READONLY_EMAIL: tenant-a-readonly@snad-crm-acceptance.example
+2026-07-21T11:03:35.3640637Z   CRM_LEAD_WRITER_EMAIL: tenant-a-lead-writer@snad-crm-acceptance.example
+2026-07-21T11:03:35.3641992Z   CRM_IMPORT_READER_EMAIL: tenant-a-import-reader@snad-crm-acceptance.example
+2026-07-21T11:03:35.3644387Z   SANAD_CONTROL_PLANE_TENANT_ID: 27bad79e-ceb2-40b9-a934-04f8300a81ab
+2026-07-21T11:03:35.3645451Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.11-10/x64
+2026-07-21T11:03:35.3646308Z   JAVA_HOME_21_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.11-10/x64
+2026-07-21T11:03:35.3646989Z ##[endgroup]
+2026-07-21T11:03:35.5008374Z (node:6671) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-07-21T11:03:35.5009171Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-07-21T11:03:35.5066110Z With the provided path, there will be 2 files uploaded
+2026-07-21T11:03:35.5071017Z Artifact name is valid!
+2026-07-21T11:03:35.5072080Z Root directory input is valid!
+2026-07-21T11:03:35.7784628Z Beginning upload of artifact content to blob storage
+2026-07-21T11:03:35.7966998Z (node:6671) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-07-21T11:03:36.0458092Z Uploaded bytes 10545
+2026-07-21T11:03:36.1103539Z Finished uploading artifact content to blob storage!
+2026-07-21T11:03:36.1104625Z SHA256 digest of uploaded artifact zip is 83e9a957e926652ef780e8437a9008255db6e63f24fd783fe6f92196925edca7
+2026-07-21T11:03:36.1105839Z Finalizing artifact upload
+2026-07-21T11:03:36.3190128Z Artifact crm-service-logs-29824290485.zip successfully finalized. Artifact ID 8492759263
+2026-07-21T11:03:36.3192111Z Artifact crm-service-logs-29824290485 has been successfully uploaded! Final size is 10545 bytes. Artifact ID is 8492759263
+2026-07-21T11:03:36.3196806Z Artifact download URL: https://github.com/snadaiapp-png/SNAD/actions/runs/29824290485/artifacts/8492759263
+2026-07-21T11:03:36.3337575Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-21T11:03:36.3338619Z Post job cleanup.
+2026-07-21T11:03:36.4427704Z (node:6683) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-07-21T11:03:36.4428966Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-07-21T11:03:36.4582427Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-21T11:03:36.4584366Z Post job cleanup.
+2026-07-21T11:03:36.5395430Z [command]/usr/bin/git version
+2026-07-21T11:03:36.5413419Z git version 2.54.0
+2026-07-21T11:03:36.5447830Z Temporarily overriding HOME='/home/runner/work/_temp/be2e8f1d-7c4c-4ebf-91a4-a62b8ce567d1' before making global git config changes
+2026-07-21T11:03:36.5449014Z Adding repository directory to the temporary git global config as a safe directory
+2026-07-21T11:03:36.5455422Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/SNAD/SNAD
+2026-07-21T11:03:36.5488633Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-07-21T11:03:36.5519042Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-07-21T11:03:36.5710699Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-07-21T11:03:36.5732491Z http.https://github.com/.extraheader
+2026-07-21T11:03:36.5747454Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-07-21T11:03:36.5773418Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-07-21T11:03:36.5958817Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-07-21T11:03:36.5986489Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-07-21T11:03:36.6262886Z Print service container logs: b4c3cd15b7cb4c6db5c56dc40b8f7b19_postgres16alpine_c530ce
+2026-07-21T11:03:36.6267348Z ##[command]/usr/bin/docker logs --details 8f3081084847529f375409b88bb3b520c947f0eab6c5328fc8cd057bd2da329e
+2026-07-21T11:03:36.6467191Z  The files belonging to this database system will be owned by user "postgres".
+2026-07-21T11:03:36.6468027Z  This user must also own the server process.
+2026-07-21T11:03:36.6469781Z  sh: locale: not found
+2026-07-21T11:03:36.6470109Z  
+2026-07-21T11:03:36.6470546Z  The database cluster will be initialized with locale "en_US.utf8".
+2026-07-21T11:03:36.6471131Z  The default database encoding has accordingly been set to "UTF8".
+2026-07-21T11:03:36.6471741Z  The default text search configuration will be set to "english".
+2026-07-21T11:03:36.6472210Z  
+2026-07-21T11:03:36.6472533Z  Data page checksums are disabled.
+2026-07-21T11:03:36.6472883Z  
+2026-07-21T11:03:36.6473350Z  2026-07-21 10:58:50.417 UTC [37] WARNING:  no usable system locales were found
+2026-07-21T11:03:36.6473888Z  initdb: warning: enabling "trust" authentication for local connections
+2026-07-21T11:03:36.6474495Z  initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+2026-07-21T11:03:36.6475384Z  2026-07-21 10:58:51.941 UTC [1] LOG:  starting PostgreSQL 16.14 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2026-07-21T11:03:36.6475905Z  2026-07-21 10:58:51.942 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-07-21T11:03:36.6476297Z  2026-07-21 10:58:51.942 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2026-07-21T11:03:36.6476727Z  2026-07-21 10:58:51.943 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-07-21T11:03:36.6477192Z  2026-07-21 10:58:51.945 UTC [59] LOG:  database system was shut down at 2026-07-21 10:58:51 UTC
+2026-07-21T11:03:36.6477615Z  2026-07-21 10:58:51.948 UTC [1] LOG:  database system is ready to accept connections
+2026-07-21T11:03:36.6478022Z  2026-07-21 11:01:24.339 UTC [143] ERROR:  could not determine data type of parameter $4
+2026-07-21T11:03:36.6479585Z  2026-07-21 11:01:24.339 UTC [143] STATEMENT:  SELECT id,version,owner_type,owner_id,address_type,label,raw_formatted_address,line1,line2,line3,district,city,state_region,postal_code,country_code,country_extension_json,latitude,longitude,primary_address,verified,verification_source,status,valid_from,valid_to,created_at,updated_at,archived_at FROM crm_party_addresses WHERE tenant_id=$1 AND owner_type=$2 AND owner_id=$3 AND status<>'ARCHIVED' AND ($4 IS NULL OR updated_at<$5 OR (updated_at=$6 AND ($7 IS NULL OR id<$8))) ORDER BY updated_at DESC,id DESC LIMIT $9
+2026-07-21T11:03:36.6481355Z  2026-07-21 11:01:24.343 UTC [291] ERROR:  could not determine data type of parameter $4
+2026-07-21T11:03:36.6482988Z  2026-07-21 11:01:24.343 UTC [291] STATEMENT:  SELECT id,version,owner_type,owner_id,method_type,raw_value,normalized_value,display_value,label,preferred,verified,verification_status,verified_at,privacy_classification,consent_state_reference,usage_purpose,status,valid_from,valid_to,created_at,updated_at,archived_at FROM crm_communication_methods WHERE tenant_id=$1 AND owner_type=$2 AND owner_id=$3 AND status<>'ARCHIVED' AND ($4 IS NULL OR method_type=$5) AND ($6 IS NULL OR verification_status=$7) AND ($8 IS NULL OR updated_at<$9 OR (updated_at=$10 AND ($11 IS NULL OR id<$12))) ORDER BY updated_at DESC,id DESC LIMIT $13
+2026-07-21T11:03:36.6484637Z  2026-07-21 11:01:46.429 UTC [143] ERROR:  could not determine data type of parameter $4
+2026-07-21T11:03:36.6486855Z  2026-07-21 11:01:46.429 UTC [143] STATEMENT:  SELECT id,version,owner_type,owner_id,method_type,raw_value,normalized_value,display_value,label,preferred,verified,verification_status,verified_at,privacy_classification,consent_state_reference,usage_purpose,status,valid_from,valid_to,created_at,updated_at,archived_at FROM crm_communication_methods WHERE tenant_id=$1 AND owner_type=$2 AND owner_id=$3 AND status<>'ARCHIVED' AND ($4 IS NULL OR method_type=$5) AND ($6 IS NULL OR verification_status=$7) AND ($8 IS NULL OR updated_at<$9 OR (updated_at=$10 AND ($11 IS NULL OR id<$12))) ORDER BY updated_at DESC,id DESC LIMIT $13
+2026-07-21T11:03:36.6488586Z  2026-07-21 11:01:46.444 UTC [253] ERROR:  could not determine data type of parameter $4
+2026-07-21T11:03:36.6490194Z  2026-07-21 11:01:46.444 UTC [253] STATEMENT:  SELECT id,version,owner_type,owner_id,address_type,label,raw_formatted_address,line1,line2,line3,district,city,state_region,postal_code,country_code,country_extension_json,latitude,longitude,primary_address,verified,verification_source,status,valid_from,valid_to,created_at,updated_at,archived_at FROM crm_party_addresses WHERE tenant_id=$1 AND owner_type=$2 AND owner_id=$3 AND status<>'ARCHIVED' AND ($4 IS NULL OR updated_at<$5 OR (updated_at=$6 AND ($7 IS NULL OR id<$8))) ORDER BY updated_at DESC,id DESC LIMIT $9
+2026-07-21T11:03:36.6491808Z  2026-07-21 11:01:48.921 UTC [143] ERROR:  could not determine data type of parameter $4
+2026-07-21T11:03:36.6493516Z  2026-07-21 11:01:48.921 UTC [143] STATEMENT:  SELECT id,version,owner_type,owner_id,method_type,raw_value,normalized_value,display_value,label,preferred,verified,verification_status,verified_at,privacy_classification,consent_state_reference,usage_purpose,status,valid_from,valid_to,created_at,updated_at,archived_at FROM crm_communication_methods WHERE tenant_id=$1 AND owner_type=$2 AND owner_id=$3 AND status<>'ARCHIVED' AND ($4 IS NULL OR method_type=$5) AND ($6 IS NULL OR verification_status=$7) AND ($8 IS NULL OR updated_at<$9 OR (updated_at=$10 AND ($11 IS NULL OR id<$12))) ORDER BY updated_at DESC,id DESC LIMIT $13
+2026-07-21T11:03:36.6500638Z  2026-07-21 11:01:48.923 UTC [144] ERROR:  could not determine data type of parameter $4
+2026-07-21T11:03:36.6502171Z  2026-07-21 11:01:48.923 UTC [144] STATEMENT:  SELECT id,version,owner_type,owner_id,address_type,label,raw_formatted_address,line1,line2,line3,district,city,state_region,postal_code,country_code,country_extension_json,latitude,longitude,primary_address,verified,verification_source,status,valid_from,valid_to,created_at,updated_at,archived_at FROM crm_party_addresses WHERE tenant_id=$1 AND owner_type=$2 AND owner_id=$3 AND status<>'ARCHIVED' AND ($4 IS NULL OR updated_at<$5 OR (updated_at=$6 AND ($7 IS NULL OR id<$8))) ORDER BY updated_at DESC,id DESC LIMIT $9
+2026-07-21T11:03:36.6503799Z  fixing permissions on existing directory /var/lib/postgresql/data ... ok
+2026-07-21T11:03:36.6504166Z  creating subdirectories ... ok
+2026-07-21T11:03:36.6504466Z  selecting dynamic shared memory implementation ... posix
+2026-07-21T11:03:36.6504898Z  selecting default max_connections ... 100
+2026-07-21T11:03:36.6505273Z  selecting default shared_buffers ... 128MB
+2026-07-21T11:03:36.6505549Z  selecting default time zone ... UTC
+2026-07-21T11:03:36.6505801Z  creating configuration files ... ok
+2026-07-21T11:03:36.6506056Z  running bootstrap script ... ok
+2026-07-21T11:03:36.6506341Z  performing post-bootstrap initialization ... ok
+2026-07-21T11:03:36.6506629Z  syncing data to disk ... ok
+2026-07-21T11:03:36.6506877Z  
+2026-07-21T11:03:36.6507047Z  
+2026-07-21T11:03:36.6507273Z  Success. You can now start the database server using:
+2026-07-21T11:03:36.6507545Z  
+2026-07-21T11:03:36.6507775Z      pg_ctl -D /var/lib/postgresql/data -l logfile start
+2026-07-21T11:03:36.6508043Z  
+2026-07-21T11:03:36.6508494Z  waiting for server to start....2026-07-21 10:58:51.362 UTC [43] LOG:  starting PostgreSQL 16.14 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2026-07-21T11:03:36.6509113Z  2026-07-21 10:58:51.488 UTC [43] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-07-21T11:03:36.6509570Z  2026-07-21 10:58:51.537 UTC [46] LOG:  database system was shut down at 2026-07-21 10:58:50 UTC
+2026-07-21T11:03:36.6509981Z  2026-07-21 10:58:51.540 UTC [43] LOG:  database system is ready to accept connections
+2026-07-21T11:03:36.6510301Z   done
+2026-07-21T11:03:36.6510560Z  server started
+2026-07-21T11:03:36.6510762Z  CREATE DATABASE
+2026-07-21T11:03:36.6510956Z  
+2026-07-21T11:03:36.6511123Z  
+2026-07-21T11:03:36.6511417Z  /usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*
+2026-07-21T11:03:36.6511755Z  
+2026-07-21T11:03:36.6512065Z  waiting for server to shut down....2026-07-21 10:58:51.589 UTC [43] LOG:  received fast shutdown request
+2026-07-21T11:03:36.6512502Z  2026-07-21 10:58:51.590 UTC [43] LOG:  aborting any active transactions
+2026-07-21T11:03:36.6512971Z  2026-07-21 10:58:51.593 UTC [43] LOG:  background worker "logical replication launcher" (PID 49) exited with exit code 1
+2026-07-21T11:03:36.6513404Z  2026-07-21 10:58:51.593 UTC [44] LOG:  shutting down
+2026-07-21T11:03:36.6513742Z  2026-07-21 10:58:51.593 UTC [44] LOG:  checkpoint starting: shutdown immediate
+2026-07-21T11:03:36.6514573Z  2026-07-21 10:58:51.878 UTC [44] LOG:  checkpoint complete: wrote 926 buffers (5.7%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.076 s, sync=0.207 s, total=0.285 s; sync files=301, longest=0.169 s, average=0.001 s; distance=4283 kB, estimate=4283 kB; lsn=0/1925D68, redo lsn=0/1925D68
+2026-07-21T11:03:36.6515513Z  2026-07-21 10:58:51.882 UTC [43] LOG:  database system is shut down
+2026-07-21T11:03:36.6515805Z   done
+2026-07-21T11:03:36.6516002Z  server stopped
+2026-07-21T11:03:36.6516190Z  
+2026-07-21T11:03:36.6516420Z  PostgreSQL init process complete; ready for start up.
+2026-07-21T11:03:36.6516691Z  
+2026-07-21T11:03:36.6521297Z Stop and remove container: b4c3cd15b7cb4c6db5c56dc40b8f7b19_postgres16alpine_c530ce
+2026-07-21T11:03:36.6525473Z ##[command]/usr/bin/docker rm --force 8f3081084847529f375409b88bb3b520c947f0eab6c5328fc8cd057bd2da329e
+2026-07-21T11:03:36.8200804Z 8f3081084847529f375409b88bb3b520c947f0eab6c5328fc8cd057bd2da329e
+2026-07-21T11:03:36.8218821Z Remove container network: github_network_5071e82408da48a88b823d412d23cfb5
+2026-07-21T11:03:36.8222111Z ##[command]/usr/bin/docker network rm github_network_5071e82408da48a88b823d412d23cfb5
+2026-07-21T11:03:36.9270444Z github_network_5071e82408da48a88b823d412d23cfb5
+2026-07-21T11:03:36.9330631Z Cleaning up orphan processes
+2026-07-21T11:03:36.9557752Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-java@v4, actions/setup-node@v4, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
