@@ -14,7 +14,7 @@ export const revalidate = 0;
  *
  * The public response is intentionally minimal and carries NO information
  * about the backend's identity, hostname, tunnel, or URL. Previously this
- * route returned `targetHost`, which leaked the public ngrok / Render host
+ * route returned `targetHost`, which leaked the private backend host
  * to any anonymous visitor and turned the health endpoint into a discovery
  * tool for the platform's internal topology. Operational details (host,
  * error, raw upstream body) remain in server logs and in the underlying

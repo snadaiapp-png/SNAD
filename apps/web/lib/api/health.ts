@@ -5,7 +5,7 @@ import type { HealthCheckResult } from "./types";
 
 interface ActuatorHealthResponse { status: string; }
 
-// Tunneled local backends can take longer than a same-region hosted service.
+// Hosted backends are probed within the bounded BFF timeout contract.
 // Keep the probe bounded by the same server-side timeout contract as the BFF.
 const DEFAULT_HEALTH_TIMEOUT_MS = 15_000;
 const MIN_HEALTH_TIMEOUT_MS = 1_000;

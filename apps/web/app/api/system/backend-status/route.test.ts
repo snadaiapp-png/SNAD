@@ -126,7 +126,7 @@ describe("GET /api/system/backend-status", () => {
       configured: true,
       reachable: true,
       statusCode: 200,
-      targetHost: "streak-train-empower.ngrok-free.dev",
+      targetHost: "sanad-backend-mcrj.onrender.com",
       checkedAt: "2026-06-21T11:23:26.000Z",
       error: null,
     });
