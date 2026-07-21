@@ -1,9 +1,6 @@
 name: CRM-007 Final Production Closure
 
 on:
-  workflow_run:
-    workflows: ["CRM G1 Production Closure"]
-    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -18,7 +15,6 @@ concurrency:
 
 jobs:
   verify:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     name: CRM-007 chained final production closure
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -41,8 +37,7 @@ jobs:
       CRM_TENANT_B_PASSWORD: ${{ secrets.CRM_TENANT_B_PASSWORD || secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
       CRM_TENANT_A_FINGERPRINT: 6a86207bfa8aa7320ce9ddeaf26e8524a6df9a33f88ce42c197b451709377e8c
       CRM_TENANT_B_FINGERPRINT: e38f1f2b98f0106c2a7efb833dd356c7c86be85f7b7190e79beae749df714b47
-      UPSTREAM_G1_SHA: ${{ github.event.workflow_run.head_sha }}
-      UPSTREAM_G1_RUN_ID: ${{ github.event.workflow_run.id }}
+      GH_TOKEN: ${{ github.token }}
 
     steps:
       - name: Checkout exact current main
@@ -51,6 +46,18 @@ jobs:
           ref: main
           fetch-depth: 0
           submodules: false
+
+      - name: Initialize immutable evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          EVIDENCE_DIR="$RUNNER_TEMP/crm-007-final-evidence"
+          rm -rf "$EVIDENCE_DIR"
+          mkdir -p "$EVIDENCE_DIR"
+          echo "EVIDENCE_DIR=$EVIDENCE_DIR" >> "$GITHUB_ENV"
+          jq -n --arg run "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '{schema:"snad.crm007.production-closure.v3",result:"IN_PROGRESS",workflow_run:$run}' \
+            > "$EVIDENCE_DIR/run-context.json"
 
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
@@ -62,139 +69,9 @@ jobs:
       - name: Install PostgreSQL client
         run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
-      - name: Verify release, Render, Flyway and schema read-only
+      - name: Verify exact release and Production preconditions
         id: preflight
-        shell: bash
-        run: |
-          set -euo pipefail
-          for value in \
-            "$PROD_JDBC_URL" "$PROD_DB_USER" "$PROD_DB_PASSWORD" \
-            "$VERCEL_TOKEN" "$VERCEL_TEAM_ID" "$RENDER_API_KEY" "$RENDER_SERVICE_ID" \
-            "$CRM_TENANT_A_EMAIL" "$CRM_TENANT_A_PASSWORD" \
-            "$CRM_TENANT_B_EMAIL" "$CRM_TENANT_B_PASSWORD"; do
-            test -n "$value" || { echo "::error::A required Production secret is missing"; exit 1; }
-            echo "::add-mask::$value"
-          done
-          [[ "$PROD_JDBC_URL" == jdbc:postgresql://* ]]
-          [[ "$RENDER_SERVICE_ID" == srv-* ]]
-          test "${CRM_TENANT_A_EMAIL,,}" != "${CRM_TENANT_B_EMAIL,,}"
-
-          RELEASE_SHA="$(git rev-parse HEAD)"
-          REMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
-          test "$RELEASE_SHA" = "$REMOTE_MAIN_SHA" || { echo "::error::Checkout is not current main"; exit 1; }
-          if [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
-            test "$UPSTREAM_G1_SHA" = "$RELEASE_SHA" || { echo "::error::CRM-G1 success is not for current main"; exit 1; }
-            test -n "$UPSTREAM_G1_RUN_ID"
-          fi
-
-          EVIDENCE_DIR="$RUNNER_TEMP/crm-007-final-evidence"
-          rm -rf "$EVIDENCE_DIR"
-          mkdir -p "$EVIDENCE_DIR"
-          STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          echo "EVIDENCE_DIR=$EVIDENCE_DIR" >> "$GITHUB_ENV"
-          echo "CRM007_STARTED_AT=$STARTED_AT" >> "$GITHUB_ENV"
-          echo "CRM007_RUN_URL=$RUN_URL" >> "$GITHUB_ENV"
-          echo "CRM_TESTED_SHA=$RELEASE_SHA" >> "$GITHUB_ENV"
-          echo "PLAYWRIGHT_BASE_URL=$WEB_BASE_URL" >> "$GITHUB_ENV"
-          echo "CRM007_EVIDENCE_FILE=$EVIDENCE_DIR/crm007-production-smoke.json" >> "$GITHUB_ENV"
-
-          jq -n --arg release "$RELEASE_SHA" --arg started "$STARTED_AT" --arg run "$RUN_URL" --arg upstream "${UPSTREAM_G1_RUN_ID:-manual}" \
-            '{schema:"snad.crm007.production-closure.v2",result:"IN_PROGRESS",release_sha:$release,started_at_utc:$started,workflow_run:$run,upstream_crm_g1_run:$upstream,database_mode:"READ_ONLY",migration_action:"NONE"}' \
-            > "$EVIDENCE_DIR/run-context.json"
-
-          HOST="${WEB_BASE_URL#https://}"
-          VERCEL_READY=false
-          for attempt in $(seq 1 120); do
-            curl --fail-with-body --silent --show-error --max-time 45 \
-              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-              "https://api.vercel.com/v13/deployments/${HOST}?teamId=${VERCEL_TEAM_ID}" > "$RUNNER_TEMP/vercel.json"
-            LIVE_SHA="$(jq -r '.meta.githubCommitSha // empty' "$RUNNER_TEMP/vercel.json")"
-            STATE="$(jq -r '.readyState // .state // empty' "$RUNNER_TEMP/vercel.json")"
-            TARGET="$(jq -r '.target // empty' "$RUNNER_TEMP/vercel.json")"
-            if [ "$LIVE_SHA" = "$RELEASE_SHA" ] && [ "$STATE" = "READY" ] && [ "$TARGET" = "production" ]; then VERCEL_READY=true; break; fi
-            sleep 10
-          done
-          test "$VERCEL_READY" = "true" || { echo "::error::Vercel did not reach exact current main"; exit 1; }
-          jq '{deployment_id:(.id // .uid),url:.url,state:(.readyState // .state),target:.target,git_sha:.meta.githubCommitSha}' "$RUNNER_TEMP/vercel.json" > "$EVIDENCE_DIR/vercel-deployment.json"
-          VERCEL_DEPLOYMENT_ID="$(jq -r '.deployment_id' "$EVIDENCE_DIR/vercel-deployment.json")"
-
-          curl --fail-with-body --silent --show-error --max-time 45 -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
-            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" > "$RUNNER_TEMP/render-service.json"
-          RENDER_OWNER_ID="$(jq -r '(.service // .).ownerId // (.service // .).owner.id // empty' "$RUNNER_TEMP/render-service.json")"
-          test -n "$RENDER_OWNER_ID"
-          curl --fail-with-body --silent --show-error --max-time 45 -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
-            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys?limit=50" > "$RUNNER_TEMP/render-deploys.json"
-          jq --arg expected "ghcr.io/snadaiapp-png/snad-backend:${RELEASE_SHA}" \
-            '[if type == "array" then .[] else (.deploys // .items // [])[] end | (.deploy // .) | select(.status == "live" and (.image.ref // .imageRef) == $expected)] | sort_by(.finishedAt // .updatedAt // .createdAt) | reverse | first // empty' \
-            "$RUNNER_TEMP/render-deploys.json" > "$RUNNER_TEMP/render-live.json"
-          RENDER_DEPLOYMENT_ID="$(jq -r '.id // empty' "$RUNNER_TEMP/render-live.json")"
-          test -n "$RENDER_DEPLOYMENT_ID" || { echo "::error::Render is not serving the exact current main image"; exit 1; }
-          jq --arg source "$RELEASE_SHA" '{deployment_id:.id,status:.status,image_ref:(.image.ref // .imageRef),image_digest:(.image.digest // null),source_sha:$source,created_at:.createdAt,finished_at:.finishedAt}' \
-            "$RUNNER_TEMP/render-live.json" > "$EVIDENCE_DIR/render-deployment.json"
-          RENDER_IMAGE_DIGEST="$(jq -r '.image_digest // empty' "$EVIDENCE_DIR/render-deployment.json")"
-
-          for path in /actuator/health /actuator/health/liveness /actuator/health/readiness; do
-            CODE="$(curl --silent --show-error --max-time 45 -o "$RUNNER_TEMP/health.json" -w '%{http_code}' "${RENDER_BASE_URL}${path}")"
-            test "$CODE" = "200"
-            jq -e '.status == "UP"' "$RUNNER_TEMP/health.json" >/dev/null
-          done
-
-          PSQL_URL="${PROD_JDBC_URL#jdbc:}"
-          export PGPASSWORD="$PROD_DB_PASSWORD"
-          export PGOPTIONS='-c default_transaction_read_only=on'
-          psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -P pager=off -Atc \
-            "SELECT version || '|' || type || '|' || success || '|' || installed_on
-               FROM flyway_schema_history
-              WHERE version IN ('20260717.100','20260717.101','20260718.1','20260721.1')
-              ORDER BY installed_rank" > "$EVIDENCE_DIR/flyway-crm007.txt"
-          test "$(wc -l < "$EVIDENCE_DIR/flyway-crm007.txt" | tr -d ' ')" = "4"
-          test "$(grep -Ec '^(20260717\.100|20260717\.101|20260718\.1|20260721\.1)\|SQL\|t(rue)?\|' "$EVIDENCE_DIR/flyway-crm007.txt")" = "4"
-          test "$(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM flyway_schema_history WHERE success=false")" = "0"
-          psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -P pager=off -f scripts/crm/verify-g1-tenant-isolation.sql > "$EVIDENCE_DIR/crm-g1-isolation.txt"
-
-          COUNTS="$(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -Atc \
-            "SELECT
-               (SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('crm_party_addresses','crm_party_address_history','crm_communication_policies','crm_communication_methods','crm_communication_method_history')) || '|' ||
-               (SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('crm_tasks','crm_notes','crm_assignments','crm_transfers','crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index')) || '|' ||
-               (SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND tablename IN ('crm_tasks','crm_notes','crm_assignments','crm_transfers','crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index') AND indexname LIKE 'idx_crm_%') || '|' ||
-               (SELECT count(*) FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid WHERE c.contype='f' AND c.confrelid='tenants'::regclass AND t.relname IN ('crm_tasks','crm_notes','crm_assignments','crm_transfers','crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index')) || '|' ||
-               (SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='crm_contacts' AND column_name IN ('legal_name','preferred_name','middle_name','pronouns','source')) || '|' ||
-               (SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('crm_contact_relationship_roles','crm_contact_account_relationships','crm_contact_relationship_history','crm_contact_ownership_history'))")"
-          test "$COUNTS" = "5|8|26|8|5|4"
-          jq -n --arg counts "$COUNTS" '{result:"PASS",counts:$counts,expected:"5|8|26|8|5|4"}' > "$EVIDENCE_DIR/schema-postconditions.json"
-
-          mapfile -t A_CANDIDATES < <(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -At -v email="$CRM_TENANT_A_EMAIL" <<'SQLA'
-          SELECT DISTINCT tenant_id FROM users WHERE lower(email)=lower(:'email') AND status='ACTIVE' ORDER BY tenant_id;
-          SQLA
-          )
-          mapfile -t B_CANDIDATES < <(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -At -v email="$CRM_TENANT_B_EMAIL" <<'SQLB'
-          SELECT DISTINCT tenant_id FROM users WHERE lower(email)=lower(:'email') AND status='ACTIVE' ORDER BY tenant_id;
-          SQLB
-          )
-          TENANT_A_ID=""; TENANT_B_ID=""; A_MATCHES=0; B_MATCHES=0
-          for candidate in "${A_CANDIDATES[@]}"; do
-            echo "::add-mask::$candidate"
-            if [ "$(printf '%s' "$candidate" | sha256sum | awk '{print $1}')" = "$CRM_TENANT_A_FINGERPRINT" ]; then TENANT_A_ID="$candidate"; A_MATCHES=$((A_MATCHES+1)); fi
-          done
-          for candidate in "${B_CANDIDATES[@]}"; do
-            echo "::add-mask::$candidate"
-            if [ "$(printf '%s' "$candidate" | sha256sum | awk '{print $1}')" = "$CRM_TENANT_B_FINGERPRINT" ]; then TENANT_B_ID="$candidate"; B_MATCHES=$((B_MATCHES+1)); fi
-          done
-          test "$A_MATCHES" = "1" && test "$B_MATCHES" = "1" && test "$TENANT_A_ID" != "$TENANT_B_ID"
-          echo "::add-mask::$TENANT_A_ID"
-          echo "::add-mask::$TENANT_B_ID"
-          echo "CRM_TENANT_A_ID=$TENANT_A_ID" >> "$GITHUB_ENV"
-          echo "CRM_TENANT_B_ID=$TENANT_B_ID" >> "$GITHUB_ENV"
-          echo "RENDER_OWNER_ID=$RENDER_OWNER_ID" >> "$GITHUB_ENV"
-          echo "VERCEL_DEPLOYMENT_ID=$VERCEL_DEPLOYMENT_ID" >> "$GITHUB_ENV"
-          echo "RENDER_DEPLOYMENT_ID=$RENDER_DEPLOYMENT_ID" >> "$GITHUB_ENV"
-          echo "RENDER_IMAGE_DIGEST=$RENDER_IMAGE_DIGEST" >> "$GITHUB_ENV"
-          echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
-          echo "vercel_deployment_id=$VERCEL_DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
-          echo "render_deployment_id=$RENDER_DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
-          echo "render_image_digest=$RENDER_IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
-          echo "run_url=$RUN_URL" >> "$GITHUB_OUTPUT"
+        run: scripts/crm/crm007-final-production-closure.sh preflight
 
       - name: Install frontend dependencies and Chrome
         working-directory: apps/web
@@ -204,41 +81,20 @@ jobs:
           npx playwright install --with-deps chrome
 
       - name: Run CRM-007 authenticated production acceptance
+        id: acceptance
         working-directory: apps/web
         run: npx playwright test --config=playwright.crm007-production.config.ts
 
-      - name: Collect CRM-007 report and inspect Render errors
-        id: collect
-        shell: bash
+      - name: Collect lifecycle and error evidence
+        if: always() && steps.preflight.outcome == 'success'
+        run: scripts/crm/crm007-final-production-closure.sh collect "${{ steps.acceptance.outcome }}"
+
+      - name: Finalize immutable hashes
+        if: always()
         run: |
           set -euo pipefail
-          test -f "$CRM007_EVIDENCE_FILE"
-          if [ -d apps/web/crm007-production-report ]; then cp -R apps/web/crm007-production-report "$EVIDENCE_DIR/"; fi
-
-          END_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          curl --get --fail-with-body --silent --show-error --max-time 45 \
-            -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
-            --data-urlencode "ownerId=${RENDER_OWNER_ID}" --data-urlencode "resource=${RENDER_SERVICE_ID}" \
-            --data-urlencode "startTime=${CRM007_STARTED_AT}" --data-urlencode "endTime=${END_TIME}" \
-            --data-urlencode "type=request" --data-urlencode "statusCode=500" --data-urlencode "limit=100" \
-            https://api.render.com/v1/logs > "$EVIDENCE_DIR/render-500-logs.json"
-          CRM_500_COUNT="$(jq '[if type=="array" then .[] else (.logs // .items // [])[] end | tostring | select(test("/api/v(1|2)/crm"))] | length' "$EVIDENCE_DIR/render-500-logs.json")"
-          test "$CRM_500_COUNT" = "0" || { echo "::error::CRM HTTP 500 logs found during final closure"; exit 1; }
-
-          FRONT_CODE="$(curl --silent --show-error --max-time 45 -o /dev/null -w '%{http_code}' "$WEB_BASE_URL")"
-          STATUS_CODE="$(curl --silent --show-error --max-time 45 -o "$EVIDENCE_DIR/backend-status.json" -w '%{http_code}' "${WEB_BASE_URL}/api/system/backend-status")"
-          AUTH_CODE="$(curl --silent --show-error --max-time 45 -o /dev/null -w '%{http_code}' "${WEB_BASE_URL}/api/platform/api/v1/auth/me")"
-          V2_CODE="$(curl --silent --show-error --max-time 45 -o /dev/null -w '%{http_code}' "${WEB_BASE_URL}/api/platform/api/v2/crm/addresses/search")"
-          test "$FRONT_CODE" = "200"
-          test "$STATUS_CODE" = "200"
-          jq -e '.configured == true and .reachable == true and .statusCode == 200' "$EVIDENCE_DIR/backend-status.json" >/dev/null
-          test "$AUTH_CODE" = "401" && test "$V2_CODE" = "401"
-
-          jq -n --arg release "$CRM_TESTED_SHA" --arg started "$CRM007_STARTED_AT" --arg completed "$END_TIME" --arg run "$CRM007_RUN_URL" \
-            --arg upstream "${UPSTREAM_G1_RUN_ID:-manual}" --arg vercel "$VERCEL_DEPLOYMENT_ID" --arg render "$RENDER_DEPLOYMENT_ID" --arg digest "$RENDER_IMAGE_DIGEST" \
-            '{schema:"snad.crm007.production-closure.v2",result:"PASS",release_sha:$release,started_at_utc:$started,completed_at_utc:$completed,workflow_run:$run,upstream_crm_g1_run:$upstream,vercel_deployment_id:$vercel,render_deployment_id:$render,render_image_digest:($digest|if length>0 then . else null end),flyway:["20260717.100 SQL true","20260717.101 SQL true","20260718.1 SQL true","20260721.1 SQL true"],authenticated_lifecycle:"PASS",two_tenant_isolation:"PASS",crm_500_count:0,database_mode:"READ_ONLY",migration_action:"NONE"}' \
-            > "$EVIDENCE_DIR/execution-summary.json"
-          find "$EVIDENCE_DIR" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > "$EVIDENCE_DIR/SHA256SUMS.txt"
+          mkdir -p "$EVIDENCE_DIR"
+          find "$EVIDENCE_DIR" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 -r sha256sum > "$EVIDENCE_DIR/SHA256SUMS.txt"
 
       - name: Upload immutable CRM-007 evidence
         id: upload
@@ -254,7 +110,6 @@ jobs:
         id: evidence
         if: success()
         env:
-          GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ steps.preflight.outputs.release_sha }}
           VERCEL_DEPLOYMENT_ID: ${{ steps.preflight.outputs.vercel_deployment_id }}
           RENDER_DEPLOYMENT_ID: ${{ steps.preflight.outputs.render_deployment_id }}
@@ -266,14 +121,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p docs/crm/evidence
-          cat > docs/crm/evidence/CRM-007-FINAL-PRODUCTION-CLOSURE.md <<EOF
+          cat > docs/crm/evidence/CRM-007-FINAL-PRODUCTION-CLOSURE.md <<EOF_DOC
           # CRM-007 Final Production Closure
 
           | Field | Evidence |
           |---|---|
           | Result | PASS |
           | Release SHA | ${RELEASE_SHA} |
-          | Flyway | 20260717.100, 20260717.101, 20260718.1, 20260721.1 = SQL / true |
+          | Upstream CRM-G1 run | ${UPSTREAM_G1_RUN_ID} |
+          | Flyway | 20260717.100, 20260717.101, 20260718.1, 20260721.1, 20260721.2 = SQL / true |
           | Database execution | Read-only; no migrate, repair, history edit, or manual SQL |
           | Authenticated lifecycle | PASS |
           | Two-tenant isolation | PASS |
@@ -284,7 +140,7 @@ jobs:
           | Workflow | ${RUN_URL} |
           | Artifact | ${ARTIFACT_URL} |
           | Artifact digest | ${ARTIFACT_DIGEST} |
-          EOF
+          EOF_DOC
           branch="evidence/crm-007-final-${GITHUB_RUN_ID}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -292,11 +148,11 @@ jobs:
           git add docs/crm/evidence/CRM-007-FINAL-PRODUCTION-CLOSURE.md
           git commit -m "docs(crm): record CRM-007 final production closure"
           git push --set-upstream origin "$branch"
-          PR_URL="$(gh pr create --base main --head "$branch" --title "CRM-007: final production closure evidence (${GITHUB_RUN_ID})" --body "CRM-007 passed the chained final Production closure gate after CRM-G1 success. Merge this evidence PR before closing #563 and #571.")"
+          PR_URL="$(gh pr create --base main --head "$branch" --title "CRM-007: final production closure evidence (${GITHUB_RUN_ID})" --body "CRM-007 passed the exact-SHA Production gate after CRM-G1 success. Merge this evidence before closing #563 and #571.")"
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
-          gh pr comment 567 --repo "$GITHUB_REPOSITORY" --body "Superseded by the current-SHA CRM-007 final evidence PR: ${PR_URL}. The obsolete draft must not be merged."
-          gh issue comment 563 --repo "$GITHUB_REPOSITORY" --body "CRM-007 SUCCESS. Run: ${RUN_URL}. Release: ${RELEASE_SHA}. Evidence PR: ${PR_URL}. Artifact: ${ARTIFACT_URL}. Issue remains open until the evidence PRs are merged."
-          gh issue comment 571 --repo "$GITHUB_REPOSITORY" --body "CRM-007 SUCCESS after CRM-G1. Run: ${RUN_URL}. Release: ${RELEASE_SHA}. Evidence PR: ${PR_URL}. Artifact: ${ARTIFACT_URL}. Issues remain open until evidence PR merge."
+          gh pr comment 567 --repo "$GITHUB_REPOSITORY" --body "Superseded by current-SHA CRM-007 evidence: ${PR_URL}. Do not merge the obsolete draft."
+          gh issue comment 563 --repo "$GITHUB_REPOSITORY" --body "CRM-007 SUCCESS. Run: ${RUN_URL}. Release: ${RELEASE_SHA}. Evidence PR: ${PR_URL}. Artifact: ${ARTIFACT_URL}. Issue remains open until both evidence PRs are merged."
+          gh issue comment 571 --repo "$GITHUB_REPOSITORY" --body "CRM-007 SUCCESS after exact CRM-G1 run ${UPSTREAM_G1_RUN_ID}. Run: ${RUN_URL}. Release: ${RELEASE_SHA}. Evidence PR: ${PR_URL}. Artifact: ${ARTIFACT_URL}. Issues remain open until both evidence PRs are merged."
 
       - name: Publish result
         if: always()
