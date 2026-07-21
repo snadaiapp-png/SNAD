@@ -10,8 +10,96 @@ permissions:
   actions: write
 
 jobs:
+  deploy_vercel:
+    name: Deploy exact SHA to Vercel Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: Production
+      url: https://snad-app.vercel.app
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      VERCEL_PROJECT_ID: prj_WM5fbCPCycdogZQaWFnLKDgb5bA9
+      TARGET_SHA: 39d0163189ff3301e8565f7f004839a618f8a021
+    steps:
+      - name: Validate protected configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN" || { echo "::error::VERCEL_TOKEN is missing"; exit 1; }
+          test -n "$VERCEL_TEAM_ID" || { echo "::error::VERCEL_TEAM_ID is missing"; exit 1; }
+          echo "::add-mask::$VERCEL_TOKEN"
+
+      - name: Checkout exact final merge SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Link immutable Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          mkdir -p apps/web/.vercel
+          jq -n --arg orgId "$VERCEL_TEAM_ID" --arg projectId "$VERCEL_PROJECT_ID" \
+            '{orgId:$orgId,projectId:$projectId}' > apps/web/.vercel/project.json
+
+      - name: Deploy exact source to Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEPLOYMENT_URL="$(npx --yes vercel@latest deploy \
+            --cwd apps/web \
+            --prod \
+            --yes \
+            --token "$VERCEL_TOKEN" \
+            --scope "$VERCEL_TEAM_ID" \
+            --meta "githubCommitSha=$TARGET_SHA" \
+            --meta 'githubCommitRef=main' \
+            --meta 'githubOrg=snadaiapp-png' \
+            --meta 'githubRepo=SNAD')"
+          test -n "$DEPLOYMENT_URL" || { echo "::error::Vercel CLI returned no deployment URL"; exit 1; }
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          echo "Deployment created: $DEPLOYMENT_URL"
+
+      - name: Verify Production alias and exact metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          HOST='snad-app.vercel.app'
+          READY=false
+          for attempt in $(seq 1 120); do
+            curl --fail-with-body --silent --show-error --max-time 45 \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+              "https://api.vercel.com/v13/deployments/${HOST}?teamId=${VERCEL_TEAM_ID}" \
+              > "$RUNNER_TEMP/vercel-production.json"
+            LIVE_SHA="$(jq -r '.meta.githubCommitSha // empty' "$RUNNER_TEMP/vercel-production.json")"
+            STATE="$(jq -r '.readyState // .state // empty' "$RUNNER_TEMP/vercel-production.json")"
+            TARGET="$(jq -r '.target // empty' "$RUNNER_TEMP/vercel-production.json")"
+            if [ "$LIVE_SHA" = "$TARGET_SHA" ] && [ "$STATE" = "READY" ] && [ "$TARGET" = "production" ]; then
+              READY=true
+              break
+            fi
+            if [ "$STATE" = "ERROR" ] || [ "$STATE" = "CANCELED" ]; then
+              echo "::error::Vercel deployment reached ${STATE}"
+              exit 1
+            fi
+            sleep 10
+          done
+          test "$READY" = "true" || { echo "::error::Vercel Production did not reach exact SHA"; exit 1; }
+          jq '{id:(.id // .uid),url,state:(.readyState // .state),target,git_sha:.meta.githubCommitSha,git_ref:.meta.githubCommitRef}' "$RUNNER_TEMP/vercel-production.json"
+
   observe:
     name: Dispatch once and read exact-SHA closure
+    needs: deploy_vercel
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -42,9 +130,6 @@ jobs:
               --data @"$RUNNER_TEMP/dispatch.json" \
               "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/${TARGET_WORKFLOW}/dispatches")"
             test "$CODE" = "204" || { echo "::error::Reconciliation dispatch returned ${CODE}"; exit 1; }
-            echo "Dispatched exact current main."
-          else
-            echo "Exact-SHA reconciliation already exists."
           fi
 
       - name: Read exact-SHA production workflows
