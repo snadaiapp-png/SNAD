@@ -1,0 +1,362 @@
+2026-07-21T10:49:25.8387013Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-07-21T10:49:26.0707693Z Download action repository 'actions/setup-node@v4' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+2026-07-21T10:49:26.1662492Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-07-21T10:49:26.3650439Z Complete job name: CRM-007 chained final production closure
+2026-07-21T10:49:26.4349317Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-21T10:49:26.4357728Z ##[group]Run actions/checkout@v4
+2026-07-21T10:49:26.4358759Z with:
+2026-07-21T10:49:26.4359267Z   ref: main
+2026-07-21T10:49:28.6683458Z  * [new branch]        diag/crm-contact-500-stacktrace-v3 -> origin/diag/crm-contact-500-stacktrace-v3
+2026-07-21T10:49:28.6684692Z  * [new branch]        diag/crm007-run-observer    -> origin/diag/crm007-run-observer
+2026-07-21T10:49:28.6685791Z  * [new branch]        diag/crm007-run-status      -> origin/diag/crm007-run-status
+2026-07-21T10:49:28.6687061Z  * [new branch]        docs/crm-007-closure-evidence-20260718 -> origin/docs/crm-007-closure-evidence-20260718
+2026-07-21T10:49:28.6688366Z  * [new branch]        docs/evidence-update        -> origin/docs/evidence-update
+2026-07-21T10:49:28.6689881Z  * [new branch]        docs/stage-30-final-closure-record -> origin/docs/stage-30-final-closure-record
+2026-07-21T10:49:28.6691375Z  * [new branch]        evidence/control-plane-auth-smoke-status -> origin/evidence/control-plane-auth-smoke-status
+2026-07-21T10:49:28.6692810Z  * [new branch]        evidence/crm-g1-final-29821809275 -> origin/evidence/crm-g1-final-29821809275
+2026-07-21T10:49:28.6697660Z  * [new branch]        feat/crm-000-platform-foundation -> origin/feat/crm-000-platform-foundation
+2026-07-21T10:49:28.6699147Z  * [new branch]        feat/crm-runtime-environment -> origin/feat/crm-runtime-environment
+2026-07-21T10:49:28.6700643Z  * [new branch]        feat/mobile-environment-foundation -> origin/feat/mobile-environment-foundation
+2026-07-21T10:49:28.6702046Z  * [new branch]        feat/p0-playwright-and-workspace -> origin/feat/p0-playwright-and-workspace
+2026-07-21T10:49:28.6704526Z  * [new branch]        feat/setup-identity-b       -> origin/feat/setup-identity-b
+2026-07-21T10:49:28.6705865Z  * [new branch]        feat/stage06-workshop-execution-platform -> origin/feat/stage06-workshop-execution-platform
+2026-07-21T10:49:28.6707294Z  * [new branch]        feat/system-runtime-environment -> origin/feat/system-runtime-environment
+2026-07-21T10:49:28.6720389Z  * [new branch]        fix/commercial-go-live-fail-closed-20260704 -> origin/fix/commercial-go-live-fail-closed-20260704
+2026-07-21T10:49:28.6722033Z  * [new branch]        fix/control-plane-smoke-membership-evidence -> origin/fix/control-plane-smoke-membership-evidence
+2026-07-21T10:49:28.6723943Z  * [new branch]        fix/control-plane-smoke-membership-evidence-2 -> origin/fix/control-plane-smoke-membership-evidence-2
+2026-07-21T10:49:28.6725459Z  * [new branch]        fix/control-plane-syntax-errors -> origin/fix/control-plane-syntax-errors
+2026-07-21T10:49:28.6726815Z  * [new branch]        fix/crm-007-final-closure-r2-20260720 -> origin/fix/crm-007-final-closure-r2-20260720
+2026-07-21T10:49:28.6728225Z  * [new branch]        fix/crm-acceptance-contact-refresh -> origin/fix/crm-acceptance-contact-refresh
+2026-07-21T10:49:28.6729836Z  * [new branch]        fix/docker-aggressive-memory -> origin/fix/docker-aggressive-memory
+2026-07-21T10:49:28.6731270Z  * [new branch]        fix/flyway-forward-migrations-20260703 -> origin/fix/flyway-forward-migrations-20260703
+2026-07-21T10:49:28.6732587Z  * [new branch]        fix/foundation-trap-exit    -> origin/fix/foundation-trap-exit
+2026-07-21T10:49:28.6752749Z  * [new branch]        hotfix/fix-instant-timestamp-6ae8b69 -> origin/hotfix/fix-instant-timestamp-6ae8b69
+2026-07-21T10:49:28.6754191Z  * [new branch]        hotfix/health-verification-hardening -> origin/hotfix/health-verification-hardening
+2026-07-21T10:49:28.6755547Z  * [new branch]        infra/02c-remote-ci-validation -> origin/infra/02c-remote-ci-validation
+2026-07-21T10:49:28.6756971Z  * [new branch]        infra/03-api-contracts-error-pagination -> origin/infra/03-api-contracts-error-pagination
+2026-07-21T10:49:28.6758411Z  * [new branch]        infra/03a-api-contract-enforcement -> origin/infra/03a-api-contract-enforcement
+2026-07-21T10:49:28.6760131Z  * [new branch]        infra/04-tenant-isolation-hardening -> origin/infra/04-tenant-isolation-hardening
+2026-07-21T10:49:28.6761573Z  * [new branch]        infra/04a-runtime-tenant-enforcement -> origin/infra/04a-runtime-tenant-enforcement
+2026-07-21T10:49:28.6763022Z  * [new branch]        infra/04a1-rls-proof-and-runtime-role -> origin/infra/04a1-rls-proof-and-runtime-role
+2026-07-21T10:49:28.6811969Z  * [new branch]        ops-render-status-probe     -> origin/ops-render-status-probe
+2026-07-21T10:49:28.6813126Z  * [new branch]        ops-render-status-probe-3   -> origin/ops-render-status-probe-3
+2026-07-21T10:49:28.6814277Z  * [new branch]        ops-render-status-probe-4   -> origin/ops-render-status-probe-4
+2026-07-21T10:49:28.6815452Z  * [new branch]        ops/crm-007-final-production -> origin/ops/crm-007-final-production
+2026-07-21T10:49:28.6816806Z  * [new branch]        ops/crm-007-production-closure-20260718 -> origin/ops/crm-007-production-closure-20260718
+2026-07-21T10:49:28.6818182Z  * [new branch]        ops/crm-007-production-rollout -> origin/ops/crm-007-production-rollout
+2026-07-21T10:49:28.6819742Z  * [new branch]        ops/crm-007-secure-render-handoff-20260720 -> origin/ops/crm-007-secure-render-handoff-20260720
+2026-07-21T10:49:28.6821254Z  * [new branch]        ops/crm-contact-production-reconcile -> origin/ops/crm-contact-production-reconcile
+2026-07-21T10:49:28.6822607Z  * [new branch]        ops/crm-g1-production-closure -> origin/ops/crm-g1-production-closure
+2026-07-21T10:49:28.6823972Z  * [new branch]        ops/crm-g1-production-closure-workflow -> origin/ops/crm-g1-production-closure-workflow
+2026-07-21T10:49:28.6825559Z  * [new branch]        ops/crm-g1-production-closure-workflow-actual -> origin/ops/crm-g1-production-closure-workflow-actual
+2026-07-21T10:49:31.0727863Z [command]/opt/hostedtoolcache/node/24.18.0/x64/bin/npm config get cache
+2026-07-21T10:49:31.1920397Z /home/runner/.npm
+2026-07-21T10:49:31.3293104Z Cache hit for: node-cache-Linux-x64-npm-9ac9692554e4f75784144d10a21bf5df074a06fcfeacbb48fc97c5087398be6b
+2026-07-21T10:49:31.3401076Z (node:2167) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-07-21T10:49:32.0763629Z Received 134116946 of 134116946 (100.0%), 183.5 MBs/sec
+2026-07-21T10:49:32.0765402Z Cache Size: ~128 MB (134116946 B)
+2026-07-21T10:49:32.0813396Z [command]/usr/bin/tar -xf /home/runner/work/_temp/743db581-3635-4251-a261-ebc6a5b56224/cache.tzst -P -C /home/runner/work/SNAD/SNAD --use-compress-program unzstd
+2026-07-21T10:49:32.3535392Z Cache restored successfully
+2026-07-21T10:49:41.3450979Z [36;1m  "$VERCEL_TOKEN" "$VERCEL_TEAM_ID" "$RENDER_API_KEY" "$RENDER_SERVICE_ID" \[0m
+2026-07-21T10:49:41.3452405Z [36;1m  test -n "$value" || { echo "::error::A required Production secret is missing"; exit 1; }[0m
+2026-07-21T10:49:41.3453070Z [36;1m  echo "MASKED:$value"[0m
+2026-07-21T10:49:41.3453350Z [36;1mdone[0m
+2026-07-21T10:49:41.3453646Z [36;1m[[ "$PROD_JDBC_URL" == jdbc:postgresql://* ]][0m
+2026-07-21T10:49:41.3454016Z [36;1m[[ "$RENDER_SERVICE_ID" == srv-* ]][0m
+2026-07-21T10:49:41.3454807Z [36;1m[0m
+2026-07-21T10:49:41.3455046Z [36;1mRELEASE_SHA="$(git rev-parse HEAD)"[0m
+2026-07-21T10:49:41.3455634Z [36;1mREMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"[0m
+2026-07-21T10:49:41.3456395Z [36;1mtest "$RELEASE_SHA" = "$REMOTE_MAIN_SHA" || { echo "::error::Checkout is not current main"; exit 1; }[0m
+2026-07-21T10:49:41.3456942Z [36;1mif [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then[0m
+2026-07-21T10:49:41.3457512Z [36;1m  test "$UPSTREAM_G1_SHA" = "$RELEASE_SHA" || { echo "::error::CRM-G1 success is not for current main"; exit 1; }[0m
+2026-07-21T10:49:41.3458061Z [36;1m  test -n "$UPSTREAM_G1_RUN_ID"[0m
+2026-07-21T10:49:41.3458350Z [36;1mfi[0m
+2026-07-21T10:49:41.3458930Z [36;1m[0m
+2026-07-21T10:49:41.3459225Z [36;1mEVIDENCE_DIR="$RUNNER_TEMP/crm-007-final-evidence"[0m
+2026-07-21T10:49:41.3459590Z [36;1mrm -rf "$EVIDENCE_DIR"[0m
+2026-07-21T10:49:41.3459880Z [36;1mmkdir -p "$EVIDENCE_DIR"[0m
+2026-07-21T10:49:41.3460203Z [36;1mSTARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"[0m
+2026-07-21T10:49:41.3460674Z [36;1mRUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"[0m
+2026-07-21T10:49:41.3461583Z [36;1mecho "CRM007_STARTED_AT=$STARTED_AT" >> "$GITHUB_ENV"[0m
+2026-07-21T10:49:41.3461982Z [36;1mecho "CRM007_RUN_URL=$RUN_URL" >> "$GITHUB_ENV"[0m
+2026-07-21T10:49:41.3462378Z [36;1mecho "CRM_TESTED_SHA=$RELEASE_SHA" >> "$GITHUB_ENV"[0m
+2026-07-21T10:49:41.3462812Z [36;1mecho "PLAYWRIGHT_BASE_URL=$WEB_BASE_URL" >> "$GITHUB_ENV"[0m
+2026-07-21T10:49:41.3463367Z [36;1mecho "CRM007_EVIDENCE_FILE=$EVIDENCE_DIR/crm007-production-smoke.json" >> "$GITHUB_ENV"[0m
+2026-07-21T10:49:41.3463837Z [36;1m[0m
+2026-07-21T10:49:41.3464369Z [36;1mjq -n --arg release "$RELEASE_SHA" --arg started "$STARTED_AT" --arg run "$RUN_URL" --arg upstream "${UPSTREAM_G1_RUN_ID:-manual}" \[0m
+2026-07-21T10:49:41.3465578Z [36;1m  '{schema:"snad.crm007.production-closure.v2",result:"IN_PROGRESS",release_sha:$release,started_at_utc:$started,workflow_run:$run,upstream_crm_g1_run:$upstream,database_mode:"READ_ONLY",migration_action:"NONE"}' \[0m
+2026-07-21T10:49:41.3467042Z [36;1mHOST="${WEB_BASE_URL#https://}"[0m
+2026-07-21T10:49:41.3467350Z [36;1mVERCEL_READY=false[0m
+2026-07-21T10:49:41.3467624Z [36;1mfor attempt in $(seq 1 120); do[0m
+2026-07-21T10:49:41.3468013Z [36;1m  curl --fail-with-body --silent --show-error --max-time 45 \[0m
+2026-07-21T10:49:41.3469377Z [36;1m    "https://api.vercel.com/v13/deployments/${HOST}?teamId=${VERCEL_TEAM_ID}" > "$RUNNER_TEMP/vercel.json"[0m
+2026-07-21T10:49:41.3470273Z [36;1m  LIVE_SHA="$(jq -r '.meta.githubCommitSha // empty' "$RUNNER_TEMP/vercel.json")"[0m
+2026-07-21T10:49:41.3470859Z [36;1m  STATE="$(jq -r '.readyState // .state // empty' "$RUNNER_TEMP/vercel.json")"[0m
+2026-07-21T10:49:41.3472001Z [36;1m  if [ "$LIVE_SHA" = "$RELEASE_SHA" ] && [ "$STATE" = "READY" ] && [ "$TARGET" = "production" ]; then VERCEL_READY=true; break; fi[0m
+2026-07-21T10:49:41.3472547Z [36;1m  sleep 10[0m
+2026-07-21T10:49:41.3472785Z [36;1mdone[0m
+2026-07-21T10:49:41.3473211Z [36;1mtest "$VERCEL_READY" = "true" || { echo "::error::Vercel did not reach exact current main"; exit 1; }[0m
+2026-07-21T10:49:41.3474312Z [36;1mjq '{deployment_id:(.id // .uid),url:.url,state:(.readyState // .state),target:.target,git_sha:.meta.githubCommitSha}' "$RUNNER_TEMP/vercel.json" > "$EVIDENCE_DIR/vercel-deployment.json"[0m
+2026-07-21T10:49:41.3475270Z [36;1mVERCEL_DEPLOYMENT_ID="$(jq -r '.deployment_id' "$EVIDENCE_DIR/vercel-deployment.json")"[0m
+2026-07-21T10:49:41.3475730Z [36;1m[0m
+2026-07-21T10:49:41.3477115Z [36;1m  "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" > "$RUNNER_TEMP/render-service.json"[0m
+2026-07-21T10:49:41.3477886Z [36;1mRENDER_OWNER_ID="$(jq -r '(.service // .).ownerId // (.service // .).owner.id // empty' "$RUNNER_TEMP/render-service.json")"[0m
+2026-07-21T10:49:41.3478453Z [36;1mtest -n "$RENDER_OWNER_ID"[0m
+2026-07-21T10:49:41.3480212Z [36;1m  "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys?limit=50" > "$RUNNER_TEMP/render-deploys.json"[0m
+2026-07-21T10:49:41.3480892Z [36;1mjq --arg expected "ghcr.io/snadaiapp-png/snad-backend:${RELEASE_SHA}" \[0m
+2026-07-21T10:49:41.3481896Z [36;1m  '[if type == "array" then .[] else (.deploys // .items // [])[] end | (.deploy // .) | select(.status == "live" and (.image.ref // .imageRef) == $expected)] | sort_by(.finishedAt // .updatedAt // .createdAt) | reverse | first // empty' \[0m
+2026-07-21T10:49:41.3482897Z [36;1m  "$RUNNER_TEMP/render-deploys.json" > "$RUNNER_TEMP/render-live.json"[0m
+2026-07-21T10:49:41.3483452Z [36;1mRENDER_DEPLOYMENT_ID="$(jq -r '.id // empty' "$RUNNER_TEMP/render-live.json")"[0m
+2026-07-21T10:49:41.3484126Z [36;1mtest -n "$RENDER_DEPLOYMENT_ID" || { echo "::error::Render is not serving the exact current main image"; exit 1; }[0m
+2026-07-21T10:49:41.3485236Z [36;1mjq --arg source "$RELEASE_SHA" '{deployment_id:.id,status:.status,image_ref:(.image.ref // .imageRef),image_digest:(.image.digest // null),source_sha:$source,created_at:.createdAt,finished_at:.finishedAt}' \[0m
+2026-07-21T10:49:41.3486248Z [36;1m  "$RUNNER_TEMP/render-live.json" > "$EVIDENCE_DIR/render-deployment.json"[0m
+2026-07-21T10:49:41.3486889Z [36;1mRENDER_IMAGE_DIGEST="$(jq -r '.image_digest // empty' "$EVIDENCE_DIR/render-deployment.json")"[0m
+2026-07-21T10:49:41.3487367Z [36;1m[0m
+2026-07-21T10:49:41.3487762Z [36;1mfor path in /actuator/health /actuator/health/liveness /actuator/health/readiness; do[0m
+2026-07-21T10:49:41.3488745Z [36;1m  CODE="$(curl --silent --show-error --max-time 45 -o "$RUNNER_TEMP/health.json" -w '%{http_code}' "${RENDER_BASE_URL}${path}")"[0m
+2026-07-21T10:49:41.3489342Z [36;1m  test "$CODE" = "200"[0m
+2026-07-21T10:49:41.3489697Z [36;1m  jq -e '.status == "UP"' "$RUNNER_TEMP/health.json" >/dev/null[0m
+2026-07-21T10:49:41.3490060Z [36;1mdone[0m
+2026-07-21T10:49:41.3490280Z [36;1m[0m
+2026-07-21T10:49:41.3490520Z [36;1mPSQL_URL="${PROD_JDBC_URL#jdbc:}"[0m
+2026-07-21T10:49:41.3491267Z [36;1mexport PGOPTIONS='-c default_transaction_read_only=on'[0m
+2026-07-21T10:49:41.3491911Z [36;1mpsql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -P pager=off -Atc \[0m
+2026-07-21T10:49:41.3492448Z [36;1m  "SELECT version || '|' || type || '|' || success || '|' || installed_on[0m
+2026-07-21T10:49:41.3492859Z [36;1m     FROM flyway_schema_history[0m
+2026-07-21T10:49:41.3493263Z [36;1m    WHERE version IN ('20260717.100','20260717.101','20260718.1','20260721.1')[0m
+2026-07-21T10:49:41.3493760Z [36;1m    ORDER BY installed_rank" > "$EVIDENCE_DIR/flyway-crm007.txt"[0m
+2026-07-21T10:49:41.3494250Z [36;1mtest "$(wc -l < "$EVIDENCE_DIR/flyway-crm007.txt" | tr -d ' ')" = "4"[0m
+2026-07-21T10:49:41.3494919Z [36;1mtest "$(grep -Ec '^(20260717\.100|20260717\.101|20260718\.1|20260721\.1)\|SQL\|t(rue)?\|' "$EVIDENCE_DIR/flyway-crm007.txt")" = "4"[0m
+2026-07-21T10:49:41.3495931Z [36;1mtest "$(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM flyway_schema_history WHERE success=false")" = "0"[0m
+2026-07-21T10:49:41.3496983Z [36;1mpsql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -P pager=off -f scripts/crm/verify-g1-tenant-isolation.sql > "$EVIDENCE_DIR/crm-g1-isolation.txt"[0m
+2026-07-21T10:49:41.3497668Z [36;1m[0m
+2026-07-21T10:49:41.3498007Z [36;1mCOUNTS="$(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -Atc \[0m
+2026-07-21T10:49:41.3498419Z [36;1m  "SELECT[0m
+2026-07-21T10:49:41.3499557Z [36;1m     (SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('crm_party_addresses','crm_party_address_history','crm_communication_policies','crm_communication_methods','crm_communication_method_history')) || '|' ||[0m
+2026-07-21T10:49:41.3501228Z [36;1m     (SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('crm_tasks','crm_notes','crm_assignments','crm_transfers','crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index')) || '|' ||[0m
+2026-07-21T10:49:41.3502873Z [36;1m     (SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND tablename IN ('crm_tasks','crm_notes','crm_assignments','crm_transfers','crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index') AND indexname LIKE 'idx_crm_%') || '|' ||[0m
+2026-07-21T10:49:41.3509079Z [36;1mtest "$COUNTS" = "5|8|26|8|5|4"[0m
+2026-07-21T10:49:41.3509692Z [36;1mjq -n --arg counts "$COUNTS" '{result:"PASS",counts:$counts,expected:"5|8|26|8|5|4"}' > "$EVIDENCE_DIR/schema-postconditions.json"[0m
+2026-07-21T10:49:41.3510278Z [36;1m[0m
+2026-07-21T10:49:41.3510784Z [36;1mmapfile -t A_CANDIDATES < <(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -At -v email="$CRM_TENANT_A_EMAIL" <<'SQLA'[0m
+2026-07-21T10:49:41.3511617Z [36;1mSELECT DISTINCT tenant_id FROM users WHERE lower(email)=lower(:'email') AND status='ACTIVE' ORDER BY tenant_id;[0m
+2026-07-21T10:49:41.3512154Z [36;1mSQLA[0m
+2026-07-21T10:49:41.3512378Z [36;1m)[0m
+2026-07-21T10:49:41.3512874Z [36;1mmapfile -t B_CANDIDATES < <(psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -At -v email="$CRM_TENANT_B_EMAIL" <<'SQLB'[0m
+2026-07-21T10:49:41.3513693Z [36;1mSELECT DISTINCT tenant_id FROM users WHERE lower(email)=lower(:'email') AND status='ACTIVE' ORDER BY tenant_id;[0m
+2026-07-21T10:49:41.3514353Z [36;1mSQLB[0m
+2026-07-21T10:49:41.3514562Z [36;1m)[0m
+2026-07-21T10:49:41.3514860Z [36;1mTENANT_A_ID=""; TENANT_B_ID=""; A_MATCHES=0; B_MATCHES=0[0m
+2026-07-21T10:49:48.1771050Z ##[group]Run set -euo pipefail
+2026-07-21T10:49:48.1771412Z [36;1mset -euo pipefail[0m
+2026-07-21T10:49:48.1771725Z [36;1mnpm ci --no-audit --no-fund[0m
+2026-07-21T10:49:48.1772085Z [36;1mnpx playwright install --with-deps chrome[0m
+2026-07-21T10:49:48.1829883Z shell: /usr/bin/bash -e {0}
+2026-07-21T10:49:48.1830172Z env:
+2026-07-21T10:49:48.1830445Z   WEB_BASE_URL: https://snad-app.vercel.app
+2026-07-21T10:49:48.1830869Z   RENDER_BASE_URL: https://sanad-backend-mcrj.onrender.com
+2026-07-21T10:49:48.1836315Z   CRM_TENANT_B_FINGERPRINT: e38f1f2b98f0106c2a7efb833dd356c7c86be85f7b7190e79beae749df714b47
+2026-07-21T10:49:48.1836809Z   UPSTREAM_G1_SHA: 
+2026-07-21T10:49:48.1837066Z   UPSTREAM_G1_RUN_ID: 
+2026-07-21T10:49:48.1837404Z   EVIDENCE_DIR: /home/runner/work/_temp/crm-007-final-evidence
+2026-07-21T10:49:48.1837801Z   CRM007_STARTED_AT: 2026-07-21T10:49:41Z
+2026-07-21T10:49:48.1838244Z   CRM007_RUN_URL: https://github.com/snadaiapp-png/SNAD/actions/runs/29823696713
+2026-07-21T10:49:48.1839002Z   CRM_TESTED_SHA: 0928d840c75eecaabe79d785d81f7a39ffbf54b3
+2026-07-21T10:49:48.1839423Z   PLAYWRIGHT_BASE_URL: https://snad-app.vercel.app
+2026-07-21T10:49:48.1839984Z   CRM007_EVIDENCE_FILE: /home/runner/work/_temp/crm-007-final-evidence/crm007-production-smoke.json
+2026-07-21T10:49:48.1840574Z   CRM_TENANT_A_ID: ***
+2026-07-21T10:49:48.1840884Z   CRM_TENANT_B_ID: ***
+2026-07-21T10:49:48.1841164Z   RENDER_OWNER_ID: tea-d8r7tc1o3t8c73cs3org
+2026-07-21T10:49:48.1841557Z   VERCEL_DEPLOYMENT_ID: dpl_HEyDxebZitVsPRVTUggs6VszeYbf
+2026-07-21T10:50:15.5806217Z + rm -rf ./google-chrome-stable_current_amd64.deb
+2026-07-21T10:50:15.6010121Z + cd -
+2026-07-21T10:50:15.6010611Z + google-chrome --version
+2026-07-21T10:50:15.6011524Z /home/runner/work/SNAD/SNAD/apps/web/node_modules/playwright-core/bin
+2026-07-21T10:50:15.8840782Z Google Chrome 150.0.7871.128 
+2026-07-21T10:50:15.9108102Z Downloading FFmpeg (playwright ffmpeg v1011) from https://cdn.playwright.dev/dbazure/download/playwright/builds/ffmpeg/1011/ffmpeg-linux.zip
+2026-07-21T10:50:16.9812705Z |                                                                                |   0% of 2.3 MiB
+2026-07-21T10:50:16.9951236Z |■■■■■■■■                                                                        |  10% of 2.3 MiB
+2026-07-21T10:50:17.0053254Z |■■■■■■■■■■■■■■■■                                                                |  20% of 2.3 MiB
+2026-07-21T10:50:17.0170207Z |■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  30% of 2.3 MiB
+2026-07-21T10:50:17.0501599Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                |  80% of 2.3 MiB
+2026-07-21T10:50:17.0520949Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        |  90% of 2.3 MiB
+2026-07-21T10:50:17.0542914Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 2.3 MiB
+2026-07-21T10:50:17.1160719Z FFmpeg (playwright ffmpeg v1011) downloaded to /home/runner/.cache/ms-playwright/ffmpeg-1011
+2026-07-21T10:50:17.1461273Z ##[group]Run npx playwright test --config=playwright.crm007-production.config.ts
+2026-07-21T10:50:17.1461951Z [36;1mnpx playwright test --config=playwright.crm007-production.config.ts[0m
+2026-07-21T10:50:17.1520568Z shell: /usr/bin/bash -e {0}
+2026-07-21T10:50:17.1520858Z env:
+2026-07-21T10:50:17.1521139Z   WEB_BASE_URL: https://snad-app.vercel.app
+2026-07-21T10:50:17.1521572Z   RENDER_BASE_URL: https://sanad-backend-mcrj.onrender.com
+2026-07-21T10:50:17.1526523Z   CRM_TENANT_B_FINGERPRINT: e38f1f2b98f0106c2a7efb833dd356c7c86be85f7b7190e79beae749df714b47
+2026-07-21T10:50:17.1527001Z   UPSTREAM_G1_SHA: 
+2026-07-21T10:50:17.1527250Z   UPSTREAM_G1_RUN_ID: 
+2026-07-21T10:50:17.1527581Z   EVIDENCE_DIR: /home/runner/work/_temp/crm-007-final-evidence
+2026-07-21T10:50:17.1527969Z   CRM007_STARTED_AT: 2026-07-21T10:49:41Z
+2026-07-21T10:50:17.1528404Z   CRM007_RUN_URL: https://github.com/snadaiapp-png/SNAD/actions/runs/29823696713
+2026-07-21T10:50:17.1529285Z   CRM_TESTED_SHA: 0928d840c75eecaabe79d785d81f7a39ffbf54b3
+2026-07-21T10:50:17.1529713Z   PLAYWRIGHT_BASE_URL: https://snad-app.vercel.app
+2026-07-21T10:50:17.1530459Z   CRM007_EVIDENCE_FILE: /home/runner/work/_temp/crm-007-final-evidence/crm007-production-smoke.json
+2026-07-21T10:50:17.1531039Z   CRM_TENANT_A_ID: ***
+2026-07-21T10:50:17.1531387Z   CRM_TENANT_B_ID: ***
+2026-07-21T10:50:17.1531669Z   RENDER_OWNER_ID: tea-d8r7tc1o3t8c73cs3org
+2026-07-21T10:50:17.1532057Z   VERCEL_DEPLOYMENT_ID: dpl_HEyDxebZitVsPRVTUggs6VszeYbf
+2026-07-21T10:50:18.1217649Z 
+2026-07-21T10:50:18.1218300Z Running 1 test using 1 worker
+2026-07-21T10:50:18.1235340Z 
+2026-07-21T10:50:30.3919149Z   ✘  1 e2e/crm-007-production-closure.spec.ts:13:5 › CRM-007 authenticated lifecycle, conflict, refresh and two-tenant isolation (10.2s)
+2026-07-21T10:50:30.4430907Z 
+2026-07-21T10:50:30.4445703Z 
+2026-07-21T10:50:30.4447488Z   1) e2e/crm-007-production-closure.spec.ts:13:5 › CRM-007 authenticated lifecycle, conflict, refresh and two-tenant isolation 
+2026-07-21T10:50:30.4448488Z 
+2026-07-21T10:50:30.4449226Z     Error: expect(received).toBe(expected) // Object.is equality
+2026-07-21T10:50:30.4449794Z 
+2026-07-21T10:50:30.4450060Z     Expected: 201
+2026-07-21T10:50:30.4450548Z     Received: 500
+2026-07-21T10:50:30.4450829Z 
+2026-07-21T10:50:30.4451023Z       64 |       },
+2026-07-21T10:50:30.4451499Z       65 |     );
+2026-07-21T10:50:30.4452176Z     > 66 |     expect(addressResponse.status()).toBe(201);
+2026-07-21T10:50:30.4452967Z          |                                      ^
+2026-07-21T10:50:30.4453785Z       67 |     const addressBody = await addressResponse.json();
+2026-07-21T10:50:30.4454637Z       68 |     const addressId = addressBody.data?.id;
+2026-07-21T10:50:30.4455492Z       69 |     const addressEtag = addressResponse.headers().etag;
+2026-07-21T10:50:30.4456513Z         at /home/runner/work/SNAD/SNAD/apps/web/e2e/crm-007-production-closure.spec.ts:66:38
+2026-07-21T10:50:30.4457211Z 
+2026-07-21T10:50:30.4458235Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-07-21T10:50:30.4459732Z     test-results/crm-007-production-closure-3f319-sh-and-two-tenant-isolation/test-failed-1.png
+2026-07-21T10:50:30.4460619Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-07-21T10:50:30.4460943Z 
+2026-07-21T10:50:30.4461375Z     attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-07-21T10:50:30.4462127Z     test-results/crm-007-production-closure-3f319-sh-and-two-tenant-isolation/test-failed-2.png
+2026-07-21T10:50:30.4462924Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-07-21T10:50:30.4463227Z 
+2026-07-21T10:50:30.4463680Z     Error Context: test-results/crm-007-production-closure-3f319-sh-and-two-tenant-isolation/error-context.md
+2026-07-21T10:50:30.4464198Z 
+2026-07-21T10:50:30.4464616Z     attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-07-21T10:50:30.4465517Z     test-results/crm-007-production-closure-3f319-sh-and-two-tenant-isolation/trace.zip
+2026-07-21T10:50:30.4466047Z     Usage:
+2026-07-21T10:50:30.4466184Z 
+2026-07-21T10:50:30.4466682Z         npx playwright show-trace test-results/crm-007-production-closure-3f319-sh-and-two-tenant-isolation/trace.zip
+2026-07-21T10:50:30.4467186Z 
+2026-07-21T10:50:30.4467560Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-07-21T10:50:30.4467861Z 
+2026-07-21T10:50:30.4467959Z   1 failed
+2026-07-21T10:50:30.4468892Z     e2e/crm-007-production-closure.spec.ts:13:5 › CRM-007 authenticated lifecycle, conflict, refresh and two-tenant isolation 
+2026-07-21T10:50:30.4720587Z ##[error]Process completed with exit code 1.
+2026-07-21T10:50:30.4823022Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-21T10:50:30.4824375Z ##[group]Run actions/upload-artifact@v4
+2026-07-21T10:50:30.4824683Z with:
+2026-07-21T10:50:30.4824979Z   name: crm-007-final-production-closure-29823696713
+2026-07-21T10:50:30.4825389Z   path: /home/runner/work/_temp/crm-007-final-evidence
+2026-07-21T10:50:30.4825741Z   if-no-files-found: error
+2026-07-21T10:50:30.4826010Z   retention-days: 90
+2026-07-21T10:50:30.4826263Z   compression-level: 6
+2026-07-21T10:50:30.4826510Z   overwrite: false
+2026-07-21T10:50:30.4826766Z   include-hidden-files: false
+2026-07-21T10:50:30.4832869Z   CRM_TENANT_B_FINGERPRINT: e38f1f2b98f0106c2a7efb833dd356c7c86be85f7b7190e79beae749df714b47
+2026-07-21T10:50:30.4833363Z   UPSTREAM_G1_SHA: 
+2026-07-21T10:50:30.4833616Z   UPSTREAM_G1_RUN_ID: 
+2026-07-21T10:50:30.4833949Z   EVIDENCE_DIR: /home/runner/work/_temp/crm-007-final-evidence
+2026-07-21T10:50:30.4834338Z   CRM007_STARTED_AT: 2026-07-21T10:49:41Z
+2026-07-21T10:50:30.4834788Z   CRM007_RUN_URL: https://github.com/snadaiapp-png/SNAD/actions/runs/29823696713
+2026-07-21T10:50:30.4835284Z   CRM_TESTED_SHA: 0928d840c75eecaabe79d785d81f7a39ffbf54b3
+2026-07-21T10:50:30.4835692Z   PLAYWRIGHT_BASE_URL: https://snad-app.vercel.app
+2026-07-21T10:50:30.4836240Z   CRM007_EVIDENCE_FILE: /home/runner/work/_temp/crm-007-final-evidence/crm007-production-smoke.json
+2026-07-21T10:50:30.4836806Z   CRM_TENANT_A_ID: ***
+2026-07-21T10:50:30.4837111Z   CRM_TENANT_B_ID: ***
+2026-07-21T10:50:30.4837384Z   RENDER_OWNER_ID: tea-d8r7tc1o3t8c73cs3org
+2026-07-21T10:50:30.4837766Z   VERCEL_DEPLOYMENT_ID: dpl_HEyDxebZitVsPRVTUggs6VszeYbf
+2026-07-21T10:50:30.6480775Z Artifact name is valid!
+2026-07-21T10:50:30.6481403Z Root directory input is valid!
+2026-07-21T10:50:30.7735517Z Beginning upload of artifact content to blob storage
+2026-07-21T10:50:30.8003325Z (node:4358) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-07-21T10:50:30.8483700Z Uploaded bytes 1957
+2026-07-21T10:50:30.8659362Z Finished uploading artifact content to blob storage!
+2026-07-21T10:50:30.8660556Z SHA256 digest of uploaded artifact zip is d71ade8a9531c0fe8b30a221873cd1ad6219a756b4db931b22f9290b7374cf93
+2026-07-21T10:50:30.8662585Z Finalizing artifact upload
+2026-07-21T10:50:31.0345245Z Artifact crm-007-final-production-closure-29823696713.zip successfully finalized. Artifact ID 8492426291
+2026-07-21T10:50:31.0347399Z Artifact crm-007-final-production-closure-29823696713 has been successfully uploaded! Final size is 1957 bytes. Artifact ID is 8492426291
+2026-07-21T10:50:31.0348981Z Artifact download URL: https://github.com/snadaiapp-png/SNAD/actions/runs/29823696713/artifacts/8492426291
+2026-07-21T10:50:31.0495373Z ##[group]Run {
+2026-07-21T10:50:31.0495672Z [36;1m{[0m
+2026-07-21T10:50:31.0495983Z [36;1m  echo "## CRM-007 Final Production Closure"[0m
+2026-07-21T10:50:31.0496352Z [36;1m  echo "- Status: ${STATUS}"[0m
+2026-07-21T10:50:31.0496743Z [36;1m  echo "- Evidence artifact: ${ARTIFACT_URL:-not-created}"[0m
+2026-07-21T10:50:31.0497188Z [36;1m  echo "- Evidence PR: ${PR_URL:-not-created}"[0m
+2026-07-21T10:50:31.0497552Z [36;1m} >> "$GITHUB_STEP_SUMMARY"[0m
+2026-07-21T10:50:31.0561239Z   CRM_TENANT_B_FINGERPRINT: e38f1f2b98f0106c2a7efb833dd356c7c86be85f7b7190e79beae749df714b47
+2026-07-21T10:50:31.0561742Z   UPSTREAM_G1_SHA: 
+2026-07-21T10:50:31.0562001Z   UPSTREAM_G1_RUN_ID: 
+2026-07-21T10:50:31.0562346Z   EVIDENCE_DIR: /home/runner/work/_temp/crm-007-final-evidence
+2026-07-21T10:50:31.0562754Z   CRM007_STARTED_AT: 2026-07-21T10:49:41Z
+2026-07-21T10:50:31.0563234Z   CRM007_RUN_URL: https://github.com/snadaiapp-png/SNAD/actions/runs/29823696713
+2026-07-21T10:50:31.0563763Z   CRM_TESTED_SHA: 0928d840c75eecaabe79d785d81f7a39ffbf54b3
+2026-07-21T10:50:31.0564198Z   PLAYWRIGHT_BASE_URL: https://snad-app.vercel.app
+2026-07-21T10:50:31.0564762Z   CRM007_EVIDENCE_FILE: /home/runner/work/_temp/crm-007-final-evidence/crm007-production-smoke.json
+2026-07-21T10:50:31.0565343Z   CRM_TENANT_A_ID: ***
+2026-07-21T10:50:31.0565667Z   CRM_TENANT_B_ID: ***
+2026-07-21T10:50:31.0565956Z   RENDER_OWNER_ID: tea-d8r7tc1o3t8c73cs3org
+2026-07-21T10:50:31.0566352Z   VERCEL_DEPLOYMENT_ID: dpl_HEyDxebZitVsPRVTUggs6VszeYbf
+2026-07-21T10:50:31.0566762Z   RENDER_DEPLOYMENT_ID: dep-d9fkrlrtqb8s73dal3c0
+2026-07-21T10:50:31.0567105Z   RENDER_IMAGE_DIGEST: 
+2026-07-21T10:50:31.0567362Z   STATUS: failure
+2026-07-21T10:50:31.0567613Z   PR_URL: 
+2026-07-21T10:50:31.0568249Z   ARTIFACT_URL: https://github.com/snadaiapp-png/SNAD/actions/runs/29823696713/artifacts/8492426291
+2026-07-21T10:50:31.0569280Z ##[endgroup]
+2026-07-21T10:50:31.0748388Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-21T10:50:17.1524506Z   CRM_TENANT_A_EMAIL: ***
+2026-07-21T10:50:17.1525089Z   CRM_TENANT_B_EMAIL: ***
+2026-07-21T10:50:17.1525858Z   CRM_TENANT_A_FINGERPRINT: 6a86207bfa8aa7320ce9ddeaf26e8524a6df9a33f88ce42c197b451709377e8c
+2026-07-21T10:50:17.1532458Z   RENDER_DEPLOYMENT_ID: dep-d9fkrlrtqb8s73dal3c0
+2026-07-21T10:50:17.1532794Z   RENDER_IMAGE_DIGEST: 
+2026-07-21T10:50:17.1533049Z ##[endgroup]
+2026-07-21T10:50:30.4827032Z env:
+2026-07-21T10:50:30.4827297Z   WEB_BASE_URL: https://snad-app.vercel.app
+2026-07-21T10:50:30.4827727Z   RENDER_BASE_URL: https://sanad-backend-mcrj.onrender.com
+2026-07-21T10:50:30.4828417Z   PROD_JDBC_URL: ***
+2026-07-21T10:50:30.4828919Z   PROD_DB_USER: ***
+2026-07-21T10:50:30.4829639Z   VERCEL_TOKEN: ***
+2026-07-21T10:50:30.4829934Z   VERCEL_TEAM_ID: ***
+2026-07-21T10:50:30.4830239Z   RENDER_API_KEY: ***
+2026-07-21T10:50:30.4830526Z   RENDER_SERVICE_ID: ***
+2026-07-21T10:50:30.4830834Z   CRM_TENANT_A_EMAIL: ***
+2026-07-21T10:50:30.4831430Z   CRM_TENANT_B_EMAIL: ***
+2026-07-21T10:50:30.4832171Z   CRM_TENANT_A_FINGERPRINT: 6a86207bfa8aa7320ce9ddeaf26e8524a6df9a33f88ce42c197b451709377e8c
+2026-07-21T10:50:30.4838169Z   RENDER_DEPLOYMENT_ID: dep-d9fkrlrtqb8s73dal3c0
+2026-07-21T10:50:30.4838501Z   RENDER_IMAGE_DIGEST: 
+2026-07-21T10:50:30.4838889Z ##[endgroup]
+2026-07-21T10:50:30.6413710Z (node:4358) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-07-21T10:50:30.6414763Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-07-21T10:50:30.6479366Z With the provided path, there will be 6 files uploaded
+2026-07-21T10:50:31.0554455Z shell: /usr/bin/bash -e {0}
+2026-07-21T10:50:31.0554762Z env:
+2026-07-21T10:50:31.0555053Z   WEB_BASE_URL: https://snad-app.vercel.app
+2026-07-21T10:50:31.0555495Z   RENDER_BASE_URL: https://sanad-backend-mcrj.onrender.com
+2026-07-21T10:50:31.0556200Z   PROD_JDBC_URL: ***
+2026-07-21T10:50:31.0556538Z   PROD_DB_USER: ***
+2026-07-21T10:50:31.0557253Z   VERCEL_TOKEN: ***
+2026-07-21T10:50:31.0557554Z   VERCEL_TEAM_ID: ***
+2026-07-21T10:50:31.0557899Z   RENDER_API_KEY: ***
+2026-07-21T10:50:31.0558195Z   RENDER_SERVICE_ID: ***
+2026-07-21T10:50:31.0558780Z   CRM_TENANT_A_EMAIL: ***
+2026-07-21T10:50:31.0559733Z   CRM_TENANT_B_EMAIL: ***
+2026-07-21T10:50:31.0560529Z   CRM_TENANT_A_FINGERPRINT: 6a86207bfa8aa7320ce9ddeaf26e8524a6df9a33f88ce42c197b451709377e8c
+2026-07-21T10:50:31.0749921Z Post job cleanup.
+2026-07-21T10:50:31.1573669Z [command]/usr/bin/git version
+2026-07-21T10:50:31.1617499Z git version 2.54.0
+2026-07-21T10:50:31.1689434Z Temporarily overriding HOME='/home/runner/work/_temp/98d287fa-6935-42ec-bc98-abd7f9f8b600' before making global git config changes
+2026-07-21T10:50:31.1691508Z Adding repository directory to the temporary git global config as a safe directory
+2026-07-21T10:50:31.1696286Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/SNAD/SNAD
+2026-07-21T10:50:31.1733920Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-07-21T10:50:31.1775048Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-07-21T10:50:31.2021044Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-07-21T10:50:31.2053209Z http.https://github.com/.extraheader
+2026-07-21T10:50:31.2065522Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-07-21T10:50:31.2100624Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-07-21T10:50:31.2359476Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-07-21T10:50:31.2405655Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-07-21T10:50:31.2783637Z Evaluate and set environment url
+2026-07-21T10:50:31.2786329Z Evaluated environment url: https://snad-app.vercel.app
+2026-07-21T10:50:31.2787274Z Cleaning up orphan processes
+2026-07-21T10:50:31.3192527Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
