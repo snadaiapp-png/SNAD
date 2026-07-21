@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: read
-  actions: read
+  actions: write
 
 jobs:
   observe:
@@ -17,11 +17,48 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       TARGET_SHA: 098a6124c4274a8de65188d1622b336e9d3a2fb4
+      TARGET_WORKFLOW: crm-idempotency-production-reconciliation.yml
     steps:
+      - name: Validate main and workflow state
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAIN_SHA="$(gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          test "$MAIN_SHA" = "$TARGET_SHA" || { echo "::error::main moved from the authorized merge SHA"; exit 1; }
+          gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/${TARGET_WORKFLOW}" > "$RUNNER_TEMP/workflow.json"
+          test "$(jq -r '.state' "$RUNNER_TEMP/workflow.json")" = "active" || { echo "::error::Target reconciliation workflow is not active"; exit 1; }
+          jq '{id,name,path,state}' "$RUNNER_TEMP/workflow.json"
+
+      - name: Dispatch reconciliation only when absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/${TARGET_WORKFLOW}/runs?head_sha=${TARGET_SHA}&per_page=20" \
+            > "$RUNNER_TEMP/reconciliation-runs.json"
+          EXISTING="$(jq '[.workflow_runs[] | select(.head_sha == env.TARGET_SHA)] | length' "$RUNNER_TEMP/reconciliation-runs.json")"
+          if [ "$EXISTING" = "0" ]; then
+            jq -n --arg ref main '{ref:$ref}' > "$RUNNER_TEMP/dispatch.json"
+            CODE="$(curl --silent --show-error --max-time 45 -o "$RUNNER_TEMP/dispatch-response.txt" -w '%{http_code}' \
+              -X POST \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              -H 'Content-Type: application/json' \
+              --data @"$RUNNER_TEMP/dispatch.json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/${TARGET_WORKFLOW}/dispatches")"
+            test "$CODE" = "204" || { echo "::error::Reconciliation dispatch returned ${CODE}"; exit 1; }
+            echo "Reconciliation dispatched on main at exact SHA ${TARGET_SHA}."
+          else
+            echo "Exact-SHA reconciliation already exists; no duplicate dispatch."
+          fi
+
       - name: Read relevant workflow runs
         shell: bash
         run: |
           set -euo pipefail
+          sleep 3
           gh api \
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2022-11-28' \
@@ -57,6 +94,7 @@ jobs:
         with:
           name: crm-closure-observation-${{ github.run_attempt }}
           path: |
+            ${{ runner.temp }}/workflow.json
             ${{ runner.temp }}/closure-runs.json
             ${{ runner.temp }}/failed-steps.json
           if-no-files-found: error
