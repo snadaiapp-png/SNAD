@@ -1,6 +1,18 @@
 {
-  "captured_at": "2026-07-21T10:48:05Z",
+  "captured_at": "2026-07-21T10:50:22Z",
   "runs": [
+    {
+      "id": 29823696713,
+      "status": "in_progress",
+      "conclusion": null,
+      "event": "workflow_dispatch",
+      "head_sha": "0928d840c75eecaabe79d785d81f7a39ffbf54b3",
+      "head_branch": "main",
+      "run_number": 5,
+      "created_at": "2026-07-21T10:49:19Z",
+      "updated_at": "2026-07-21T10:49:25Z",
+      "html_url": "https://github.com/snadaiapp-png/SNAD/actions/runs/29823696713"
+    },
     {
       "id": 29820414961,
       "status": "completed",
