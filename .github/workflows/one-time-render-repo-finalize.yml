@@ -1,0 +1,117 @@
+name: One-Time Render Repository Finalize
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-render-repo-finalize.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    name: Persist Render-only topology on a mergeable branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply Render-only repository policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          render_host = "sanad-backend-mcrj.onrender.com"
+          old_host = "streak-train-empower.ngrok-free.dev"
+
+          replacements = {
+              Path('.github/workflows/production-smoke.yml'): [
+                  (old_host, render_host),
+              ],
+              Path('.github/workflows/crm-g1-production-closure.yml'): [
+                  (f'https://{old_host}/actuator/health', f'https://{render_host}/actuator/health'),
+              ],
+              Path('apps/web/app/api/system/backend-status/route.test.ts'): [
+                  (old_host, render_host),
+              ],
+              Path('apps/web/app/api/platform/[...path]/route.ts'): [
+                  ('  if (baseUrl.includes("ngrok")) {\n    headers.set("ngrok-skip-browser-warning", "any-value");\n  }\n', ''),
+              ],
+              Path('scripts/ci/check-production-readiness.py'): [
+                  ('    hostname = urllib.parse.urlparse(url).hostname or ""\n    if "ngrok" in hostname.lower():\n        headers["ngrok-skip-browser-warning"] = "true"\n\n', ''),
+              ],
+              Path('apps/web/lib/api/health.ts'): [
+                  ('// Tunneled local backends can take longer than a same-region hosted service.\n', '// Hosted backends are probed within the bounded BFF timeout contract.\n'),
+              ],
+              Path('apps/web/app/api/system/backend-status/route.ts'): [
+                  ('the public ngrok / Render host', 'the private backend host'),
+              ],
+          }
+
+          for path, pairs in replacements.items():
+              text = path.read_text(encoding='utf-8')
+              for old, new in pairs:
+                  if old not in text:
+                      raise SystemExit(f'Expected text not found in {path}: {old!r}')
+                  text = text.replace(old, new)
+              path.write_text(text, encoding='utf-8')
+
+          Path('scripts/windows/connect-local-backend.ps1').write_text(
+              "$ErrorActionPreference = 'Stop'\n"
+              "throw 'Retired: SNAD production backend is hosted exclusively on Render. Local tunnel connection is disabled.'\n",
+              encoding='utf-8',
+          )
+
+          src = Path('.github/workflows/self-hosted-deploy.yml')
+          dst = Path('.github/workflows/self-hosted-deploy.yml.disabled')
+          if not src.exists():
+              raise SystemExit('Expected active self-hosted deployment workflow was not found')
+          if dst.exists():
+              dst.unlink()
+          src.rename(dst)
+
+          Path('docs/operations/RENDER-PRODUCTION-CUTOVER.md').write_text(
+              "# Render Production Cutover\n\n"
+              "- Production frontend: `https://snad-app.vercel.app`\n"
+              "- Production backend: `https://sanad-backend-mcrj.onrender.com`\n"
+              "- Vercel BFF upstream: Render only\n"
+              "- Self-hosted automatic deployment: disabled\n"
+              "- Local/ngrok production tunnel: retired\n"
+              "- Health contract: `/actuator/health` must return HTTP 200 and `status=UP`\n"
+              "- BFF unauthenticated boundary: `/api/platform/api/v1/auth/me` must return HTTP 401\n",
+              encoding='utf-8',
+          )
+
+          for temporary in (
+              Path('.github/workflows/one-time-render-production-cutover.yml'),
+              Path('.github/workflows/one-time-render-repo-finalize.yml'),
+          ):
+              if temporary.exists():
+                  temporary.unlink()
+          PY
+
+          git diff --check
+          ! grep -R --line-number --fixed-strings 'streak-train-empower.ngrok-free.dev' \
+            .github/workflows apps/web scripts/ci scripts/windows
+          test ! -f .github/workflows/self-hosted-deploy.yml
+          test -f .github/workflows/self-hosted-deploy.yml.disabled
+
+      - name: Push mergeable finalization branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -B ops/render-only-finalize
+          git add -A
+          git diff --cached --check
+          git commit -m 'ops: make Render the exclusive production backend'
+          git push --force-with-lease origin HEAD:refs/heads/ops/render-only-finalize
