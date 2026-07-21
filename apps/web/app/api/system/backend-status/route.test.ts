@@ -24,7 +24,6 @@ describe("GET /api/system/backend-status", () => {
       statusCode: 200,
       checkedAt: "2026-06-21T11:23:26.000Z",
     });
-    // Critical: targetHost must NOT be present in the public response.
     expect(body).not.toHaveProperty("targetHost");
   });
 
@@ -54,7 +53,7 @@ describe("GET /api/system/backend-status", () => {
       configured: true,
       reachable: false,
       statusCode: 503,
-      targetHost: "sanad-backend.onrender.com",
+      targetHost: "sanad-backend-mcrj.onrender.com",
       checkedAt: "2026-06-21T11:23:26.000Z",
       error: "Service Suspended",
     });
@@ -70,7 +69,7 @@ describe("GET /api/system/backend-status", () => {
       configured: true,
       reachable: false,
       statusCode: null,
-      targetHost: "api.example.com",
+      targetHost: "sanad-backend-mcrj.onrender.com",
       checkedAt: "2026-06-21T11:23:26.000Z",
       error: "connection refused — sensitive detail",
     });
@@ -84,7 +83,7 @@ describe("GET /api/system/backend-status", () => {
     expect(body).not.toHaveProperty("error");
     expect(body).not.toHaveProperty("targetHost");
     expect(JSON.stringify(body)).not.toContain("sensitive detail");
-    expect(JSON.stringify(body)).not.toContain("api.example.com");
+    expect(JSON.stringify(body)).not.toContain("sanad-backend-mcrj.onrender.com");
   });
 
   it("sets Cache-Control: no-store on the response", async () => {
@@ -92,7 +91,7 @@ describe("GET /api/system/backend-status", () => {
       configured: true,
       reachable: true,
       statusCode: 200,
-      targetHost: "api.example.com",
+      targetHost: "sanad-backend-mcrj.onrender.com",
       checkedAt: "2026-06-21T11:23:26.000Z",
       error: null,
     });
@@ -107,42 +106,34 @@ describe("GET /api/system/backend-status", () => {
       configured: true,
       reachable: true,
       statusCode: 200,
-      targetHost: "api.example.com",
+      targetHost: "sanad-backend-mcrj.onrender.com",
       checkedAt: before,
       error: null,
     });
     const body = await (await GET()).json();
-    // checkedAt must be a valid ISO date string
     const parsed = new Date(body.checkedAt);
     expect(parsed.toString()).not.toBe("Invalid Date");
-    // Must be close to "now" (within 5 seconds of the mocked value)
     const after = new Date().toISOString();
     expect(body.checkedAt >= before).toBe(true);
     expect(body.checkedAt <= after).toBe(true);
   });
 
-  it("does not leak any host, tunnel, ngrok, or backend URL hint", async () => {
+  it("does not leak the approved backend host or URL hints", async () => {
     vi.mocked(checkBackendIntegration).mockResolvedValue({
       configured: true,
       reachable: true,
       statusCode: 200,
-      targetHost: "streak-train-empower.ngrok-free.dev",
+      targetHost: "sanad-backend-mcrj.onrender.com",
       checkedAt: "2026-06-21T11:23:26.000Z",
       error: null,
     });
     const body = await (await GET()).json();
     const serialized = JSON.stringify(body);
-    // The body must not contain the backend host, tunnel provider, or any URL
-    // indicator. Note: we check against the actual targetHost value, not the
-    // generic ":" character (which appears in every JSON serialization).
-    expect(serialized).not.toContain("ngrok");
-    expect(serialized).not.toContain("streak-train");
     expect(serialized).not.toContain("onrender");
-    expect(serialized).not.toContain("empower");
-    expect(serialized).not.toContain(".dev");
+    expect(serialized).not.toContain("sanad-backend");
+    expect(serialized).not.toContain(".com");
     expect(serialized).not.toMatch(/password|secret|token/i);
     expect(serialized).not.toMatch(/host|tunnel/i);
-    // The response must not carry a targetHost field at all.
     expect(body).not.toHaveProperty("targetHost");
   });
 });
