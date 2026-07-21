@@ -18,7 +18,7 @@ jobs:
       RELEASE_SHA: 30a7644a72f6164fd3cb8d33082917b389c06106
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Query exact-SHA workflow runs
+      - name: Query exact-SHA workflow runs and redacted failure
         shell: bash
         run: |
           set -euo pipefail
@@ -43,7 +43,18 @@ jobs:
               "$OUT/${workflow}.all.json" > "$OUT/${workflow}.json"
             rm "$OUT/${workflow}.all.json"
           done
-          jq -n --arg release "$RELEASE_SHA" '{release_sha:$release,mode:"READ_ONLY"}' > "$OUT/context.json"
+          curl --location --fail-with-body --silent --show-error --max-time 60 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/jobs/88655813010/logs" \
+            > "$RUNNER_TEMP/orchestrator-job.log"
+          grep -Ei 'Vercel Git Integration did not produce|Await exact-SHA Vercel Git deployment|error:' \
+            "$RUNNER_TEMP/orchestrator-job.log" | tail -n 80 > "$OUT/orchestrator-failure-redacted.log" || true
+          rm -f "$RUNNER_TEMP/orchestrator-job.log"
+          jq -n --arg release "$RELEASE_SHA" --arg run_id "29836998358" --arg job_id "88655813010" \
+            '{release_sha:$release,orchestrator_run_id:($run_id|tonumber),orchestrator_job_id:($job_id|tonumber),mode:"READ_ONLY_REDACTED"}' \
+            > "$OUT/context.json"
           {
             echo '## Exact-SHA Production Workflow States'
             echo "- Release SHA: \`$RELEASE_SHA\`"
