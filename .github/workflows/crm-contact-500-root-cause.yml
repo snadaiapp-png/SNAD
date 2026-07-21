@@ -1,0 +1,287 @@
+name: CRM Contact 500 Root Cause Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm-contact-500-root-cause.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-contact-500-root-cause
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    name: Prove Contact create runtime and schema failure
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: Production
+      url: https://snad-app.vercel.app
+    env:
+      WEB_BASE_URL: https://snad-app.vercel.app
+      RENDER_BASE_URL: https://sanad-backend-mcrj.onrender.com
+      PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+      PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+      PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+      CRM_TENANT_A_EMAIL: ${{ secrets.CRM_TENANT_A_EMAIL || secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+      CRM_TENANT_A_PASSWORD: ${{ secrets.CRM_TENANT_A_PASSWORD || secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+
+    steps:
+      - name: Checkout exact current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: false
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Capture redacted runtime, schema, request, response, and logs
+        id: diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for value in \
+            "$PROD_JDBC_URL" "$PROD_DB_USER" "$PROD_DB_PASSWORD" \
+            "$CRM_TENANT_A_EMAIL" "$CRM_TENANT_A_PASSWORD" \
+            "$VERCEL_TOKEN" "$VERCEL_TEAM_ID" \
+            "$RENDER_API_KEY" "$RENDER_SERVICE_ID"; do
+            test -n "$value" || { echo "::error::A required Production secret is missing"; exit 1; }
+            echo "::add-mask::$value"
+          done
+          [[ "$PROD_JDBC_URL" == jdbc:postgresql://* ]]
+          [[ "$RENDER_SERVICE_ID" == srv-* ]]
+
+          EVIDENCE_DIR="$RUNNER_TEMP/crm-contact-500-root-cause"
+          rm -rf "$EVIDENCE_DIR"
+          mkdir -p "$EVIDENCE_DIR"
+          STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          RELEASE_SHA="$(git rev-parse HEAD)"
+          CORRELATION_ID="$(cat /proc/sys/kernel/random/uuid)"
+          echo "correlation_id=$CORRELATION_ID" >> "$GITHUB_OUTPUT"
+          echo "evidence_dir=$EVIDENCE_DIR" >> "$GITHUB_OUTPUT"
+
+          jq -n \
+            --arg release "$RELEASE_SHA" \
+            --arg started "$STARTED_AT" \
+            --arg correlation "$CORRELATION_ID" \
+            '{release_sha:$release,started_at_utc:$started,correlation_id:$correlation,operation:"POST /api/platform/api/v1/crm/contacts"}' \
+            > "$EVIDENCE_DIR/run-context.json"
+
+          PSQL_URL="${PROD_JDBC_URL#jdbc:}"
+          export PGPASSWORD="$PROD_DB_PASSWORD"
+
+          psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -P pager=off -Atc \
+            "SELECT version || '|' || type || '|' || success || '|' || installed_on
+               FROM flyway_schema_history
+              WHERE version IN ('20260717.1','20260717.6','20260717.100','20260717.101','20260718.1')
+              ORDER BY installed_rank" \
+            > "$EVIDENCE_DIR/flyway-relevant-rows.txt"
+
+          psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -P pager=off -Atc \
+            "SELECT column_name || '|' || data_type || '|' || is_nullable
+               FROM information_schema.columns
+              WHERE table_schema='public'
+                AND table_name='crm_contacts'
+                AND column_name IN (
+                  'id','tenant_id','account_id','legal_name','preferred_name','middle_name','pronouns','source',
+                  'given_name','family_name','display_name','normalized_name','primary_email','normalized_email',
+                  'primary_phone','preferred_locale','time_zone','lifecycle_status','owner_user_id','consent_summary',
+                  'created_by','updated_by','created_at','updated_at'
+                )
+              ORDER BY ordinal_position" \
+            > "$EVIDENCE_DIR/crm-contacts-columns.txt"
+
+          psql "$PSQL_URL" -U "$PROD_DB_USER" -X -v ON_ERROR_STOP=1 -P pager=off -Atc \
+            "SELECT table_name
+               FROM information_schema.tables
+              WHERE table_schema='public'
+                AND table_name IN (
+                  'crm_contact_relationship_roles','crm_contact_account_relationships',
+                  'crm_contact_relationship_history','crm_contact_ownership_history'
+                )
+              ORDER BY table_name" \
+            > "$EVIDENCE_DIR/crm-contact-relationship-tables.txt"
+
+          EXPECTED_COLUMNS=24
+          OBSERVED_COLUMNS="$(wc -l < "$EVIDENCE_DIR/crm-contacts-columns.txt" | tr -d ' ')"
+          EXPECTED_RELATIONSHIP_TABLES=4
+          OBSERVED_RELATIONSHIP_TABLES="$(wc -l < "$EVIDENCE_DIR/crm-contact-relationship-tables.txt" | tr -d ' ')"
+          jq -n \
+            --argjson expectedColumns "$EXPECTED_COLUMNS" \
+            --argjson observedColumns "$OBSERVED_COLUMNS" \
+            --argjson expectedTables "$EXPECTED_RELATIONSHIP_TABLES" \
+            --argjson observedTables "$OBSERVED_RELATIONSHIP_TABLES" \
+            '{expected_contact_columns:$expectedColumns,observed_contact_columns:$observedColumns,expected_relationship_tables:$expectedTables,observed_relationship_tables:$observedTables}' \
+            > "$EVIDENCE_DIR/schema-counts.json"
+
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            "$WEB_BASE_URL/api/system/backend-status" \
+            > "$EVIDENCE_DIR/backend-status.json"
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            "$RENDER_BASE_URL/actuator/health" \
+            > "$EVIDENCE_DIR/render-health.json"
+
+          WEB_HOST="${WEB_BASE_URL#https://}"
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            "https://api.vercel.com/v13/deployments/${WEB_HOST}?teamId=${VERCEL_TEAM_ID}" \
+            > "$EVIDENCE_DIR/vercel-deployment.json"
+
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" \
+            > "$EVIDENCE_DIR/render-service.json"
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys?limit=20" \
+            > "$EVIDENCE_DIR/render-deploys.json"
+
+          LOGIN_BODY="$(jq -n --arg email "$CRM_TENANT_A_EMAIL" --arg password "$CRM_TENANT_A_PASSWORD" '{email:$email,password:$password}')"
+          LOGIN_STATUS="$(curl --silent --show-error --max-time 45 \
+            -o "$RUNNER_TEMP/login-response.json" -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -H "X-Correlation-ID: ${CORRELATION_ID}-login" \
+            --data "$LOGIN_BODY" \
+            "$WEB_BASE_URL/api/platform/api/v1/auth/login")"
+          jq -n --arg status "$LOGIN_STATUS" '{http_status:($status|tonumber)}' \
+            > "$EVIDENCE_DIR/login-result.json"
+          test "$LOGIN_STATUS" = "200" || {
+            echo "::error::Production diagnostic login failed with HTTP $LOGIN_STATUS"
+            exit 1
+          }
+          ACCESS_TOKEN="$(jq -r '.accessToken // .data.accessToken // empty' "$RUNNER_TEMP/login-response.json")"
+          test -n "$ACCESS_TOKEN" || { echo "::error::Login response did not contain an access token"; exit 1; }
+          echo "::add-mask::$ACCESS_TOKEN"
+
+          SUFFIX="$(date -u +%Y%m%d%H%M%S)"
+          CONTACT_BODY="$(jq -n --arg given "Diagnostic${SUFFIX}" --arg family "Contact500" --arg email "crm-contact-diagnostic-${SUFFIX}@example.invalid" \
+            '{givenName:$given,familyName:$family,primaryEmail:$email,preferredLocale:"ar-SA",timeZone:"Asia/Riyadh",consentSummary:"UNKNOWN"}')"
+          printf '%s\n' "$CONTACT_BODY" > "$EVIDENCE_DIR/contact-request-body.json"
+
+          CONTACT_STATUS="$(curl --silent --show-error --max-time 45 \
+            -D "$EVIDENCE_DIR/contact-response-headers.txt" \
+            -o "$EVIDENCE_DIR/contact-response-body.json" -w '%{http_code}' \
+            -H 'Accept: application/json' \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "X-Correlation-ID: ${CORRELATION_ID}" \
+            --data "$CONTACT_BODY" \
+            "$WEB_BASE_URL/api/platform/api/v1/crm/contacts")"
+          jq -n --arg status "$CONTACT_STATUS" --arg correlation "$CORRELATION_ID" \
+            '{http_status:($status|tonumber),correlation_id:$correlation}' \
+            > "$EVIDENCE_DIR/contact-result.json"
+
+          CONTACT_ID=""
+          if [ "$CONTACT_STATUS" = "201" ]; then
+            CONTACT_ID="$(jq -r '.id // .contactId // .data.id // empty' "$EVIDENCE_DIR/contact-response-body.json")"
+            if [ -n "$CONTACT_ID" ]; then
+              ARCHIVE_STATUS="$(curl --silent --show-error --max-time 45 \
+                -o "$EVIDENCE_DIR/contact-archive-response.json" -w '%{http_code}' \
+                -X PATCH -H 'Accept: application/json' \
+                -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+                -H "X-Correlation-ID: ${CORRELATION_ID}-archive" \
+                "$WEB_BASE_URL/api/platform/api/v1/crm/contacts/${CONTACT_ID}/archive")"
+              jq -n --arg status "$ARCHIVE_STATUS" '{http_status:($status|tonumber)}' \
+                > "$EVIDENCE_DIR/contact-archive-result.json"
+            fi
+          fi
+
+          END_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          RENDER_OWNER_ID="$(jq -r '(.service // .).ownerId // (.service // .).owner.id // empty' "$EVIDENCE_DIR/render-service.json")"
+          if [ -n "$RENDER_OWNER_ID" ]; then
+            curl --get --silent --show-error --max-time 45 \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
+              --data-urlencode "ownerId=${RENDER_OWNER_ID}" \
+              --data-urlencode "resource=${RENDER_SERVICE_ID}" \
+              --data-urlencode "startTime=${STARTED_AT}" \
+              --data-urlencode "endTime=${END_TIME}" \
+              --data-urlencode "limit=200" \
+              https://api.render.com/v1/logs \
+              > "$RUNNER_TEMP/render-logs-raw.json" || printf '{"log_fetch_failed":true}\n' > "$RUNNER_TEMP/render-logs-raw.json"
+          else
+            printf '{"owner_id_unavailable":true}\n' > "$RUNNER_TEMP/render-logs-raw.json"
+          fi
+
+          export REDACT_EMAIL="$CRM_TENANT_A_EMAIL"
+          export REDACT_PASSWORD="$CRM_TENANT_A_PASSWORD"
+          export REDACT_TOKEN="$ACCESS_TOKEN"
+          export FILTER_CORRELATION="$CORRELATION_ID"
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+
+          src = Path(os.environ['RUNNER_TEMP']) / 'render-logs-raw.json'
+          dst = Path(os.environ['RUNNER_TEMP']) / 'crm-contact-500-root-cause' / 'render-logs-redacted.json'
+          raw = src.read_text(encoding='utf-8', errors='replace')
+          replacements = [
+              os.environ.get('REDACT_EMAIL',''),
+              os.environ.get('REDACT_PASSWORD',''),
+              os.environ.get('REDACT_TOKEN',''),
+          ]
+          for value in replacements:
+              if value:
+                  raw = raw.replace(value, '[REDACTED]')
+          raw = re.sub(r'(?i)Bearer\s+[A-Za-z0-9._~+/-]+=*', 'Bearer [REDACTED]', raw)
+          try:
+              data = json.loads(raw)
+          except json.JSONDecodeError:
+              dst.write_text(json.dumps({'parse_failed': True, 'redacted_excerpt': raw[:12000]}, ensure_ascii=False, indent=2), encoding='utf-8')
+              raise SystemExit(0)
+
+          correlation = os.environ.get('FILTER_CORRELATION','')
+          terms = [correlation, '/api/v1/crm/contacts', 'crm_contacts', 'Contact', 'Exception', 'SQLState', 'constraint']
+          def flatten(obj):
+              if isinstance(obj, dict):
+                  return ' '.join(flatten(v) for v in obj.values())
+              if isinstance(obj, list):
+                  return ' '.join(flatten(v) for v in obj)
+              return str(obj)
+          if isinstance(data, list):
+              entries = data
+          elif isinstance(data, dict):
+              entries = data.get('logs') or data.get('items') or [data]
+          else:
+              entries = [data]
+          filtered = [entry for entry in entries if any(term and term.lower() in flatten(entry).lower() for term in terms)]
+          dst.write_text(json.dumps({'correlation_id': correlation, 'matched_entries': filtered}, ensure_ascii=False, indent=2), encoding='utf-8')
+          PY
+
+          jq -n \
+            --arg release "$RELEASE_SHA" \
+            --arg started "$STARTED_AT" \
+            --arg completed "$END_TIME" \
+            --arg contactStatus "$CONTACT_STATUS" \
+            --arg correlation "$CORRELATION_ID" \
+            --argjson observedColumns "$OBSERVED_COLUMNS" \
+            --argjson observedTables "$OBSERVED_RELATIONSHIP_TABLES" \
+            '{release_sha:$release,started_at_utc:$started,completed_at_utc:$completed,contact_create_http:($contactStatus|tonumber),correlation_id:$correlation,observed_contact_columns:$observedColumns,observed_relationship_tables:$observedTables}' \
+            > "$EVIDENCE_DIR/diagnostic-summary.json"
+
+          find "$EVIDENCE_DIR" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum \
+            > "$EVIDENCE_DIR/SHA256SUMS.txt"
+
+          test "$CONTACT_STATUS" = "201" || {
+            echo "::error::Contact Create reproduced HTTP $CONTACT_STATUS; inspect immutable diagnostic artifact"
+            exit 1
+          }
+
+      - name: Upload immutable diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-contact-500-root-cause-${{ github.run_id }}
+          path: ${{ runner.temp }}/crm-contact-500-root-cause
+          if-no-files-found: error
+          retention-days: 90
