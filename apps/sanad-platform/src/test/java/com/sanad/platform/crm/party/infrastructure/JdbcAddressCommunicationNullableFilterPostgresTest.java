@@ -35,7 +35,7 @@ class JdbcAddressCommunicationNullableFilterPostgresTest {
             dockerAvailable = false;
         }
         Assumptions.assumeTrue(dockerAvailable,
-                "Docker is required to verify nullable CRM list filters against PostgreSQL.");
+                "Docker is required to verify nullable CRM SQL parameters against PostgreSQL.");
 
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
