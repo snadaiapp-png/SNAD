@@ -1,0 +1,61 @@
+name: Diagnose B213 Production Closure
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/diag-b213-production-closure.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect:
+    name: Read exact-SHA workflow states
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RELEASE_SHA: b2134acd676f224935d36e0cf5f44bb94077ffcd
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Query exact-SHA workflow runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/b213-production-status"
+          mkdir -p "$OUT"
+          workflows=(
+            crm-exact-sha-production-orchestrator.yml
+            publish-render-image.yml
+            crm-idempotency-production-reconciliation.yml
+            crm-g1-production-closure.yml
+            crm-007-final-production-closure.yml
+          )
+          for workflow in "${workflows[@]}"; do
+            curl --fail-with-body --silent --show-error --max-time 45 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?branch=main&per_page=50" \
+              > "$OUT/${workflow}.all.json"
+            jq --arg sha "$RELEASE_SHA" \
+              '[.workflow_runs[] | select(.head_sha == $sha) | {id,name,event,status,conclusion,head_sha,created_at,updated_at,html_url,run_attempt}] | sort_by(.created_at)' \
+              "$OUT/${workflow}.all.json" > "$OUT/${workflow}.json"
+            rm "$OUT/${workflow}.all.json"
+          done
+          jq -n --arg release "$RELEASE_SHA" '{release_sha:$release,mode:"READ_ONLY"}' > "$OUT/context.json"
+          {
+            echo '## Exact-SHA Production Workflow States'
+            echo "- Release SHA: \`$RELEASE_SHA\`"
+            for workflow in "${workflows[@]}"; do
+              echo "- ${workflow}: \`$(jq -c . "$OUT/${workflow}.json")\`"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload read-only diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: b213-production-workflow-status
+          path: ${{ runner.temp }}/b213-production-status
+          if-no-files-found: error
+          retention-days: 7
