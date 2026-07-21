@@ -385,9 +385,9 @@ public class JdbcAddressCommunicationRepository implements AddressCommunicationR
                         "updated_by=:actorId,updated_at=:now,version=version+1 " +
                         "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
                         "AND address_type=:addressType AND primary_address=TRUE " +
-                        "AND (:exceptId IS NULL OR id<>:exceptId)",
+                        "AND (CAST(:exceptId AS UUID) IS NULL OR id<>:exceptId)",
                 p().addValue("tenantId", tenantId).addValue("ownerType", ownerType).addValue("ownerId", ownerId)
-                        .addValue("addressType", addressType).addValue("exceptId", exceptId)
+                        .addValue("addressType", addressType).addValue("exceptId", exceptId, Types.OTHER)
                         .addValue("actorId", actorId).addValue("now", timestamp(now)));
     }
 
@@ -397,9 +397,9 @@ public class JdbcAddressCommunicationRepository implements AddressCommunicationR
         jdbc.update("UPDATE crm_communication_methods SET preferred=FALSE,preferred_slot=NULL," +
                         "updated_by=:actorId,updated_at=:now,version=version+1 " +
                         "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
-                        "AND method_type=:methodType AND preferred=TRUE AND (:exceptId IS NULL OR id<>:exceptId)",
+                        "AND method_type=:methodType AND preferred=TRUE AND (CAST(:exceptId AS UUID) IS NULL OR id<>:exceptId)",
                 p().addValue("tenantId", tenantId).addValue("ownerType", ownerType).addValue("ownerId", ownerId)
-                        .addValue("methodType", methodType).addValue("exceptId", exceptId)
+                        .addValue("methodType", methodType).addValue("exceptId", exceptId, Types.OTHER)
                         .addValue("actorId", actorId).addValue("now", timestamp(now)));
     }
 
@@ -413,10 +413,10 @@ public class JdbcAddressCommunicationRepository implements AddressCommunicationR
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM crm_communication_methods " +
                         "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
                         "AND method_type=:methodType AND normalized_value=:normalizedValue AND status<>'ARCHIVED' " +
-                        "AND (:exceptId IS NULL OR id<>:exceptId)",
+                        "AND (CAST(:exceptId AS UUID) IS NULL OR id<>:exceptId)",
                 p().addValue("tenantId", tenantId).addValue("ownerType", ownerType).addValue("ownerId", ownerId)
                         .addValue("methodType", methodType).addValue("normalizedValue", normalizedValue)
-                        .addValue("exceptId", exceptId), Long.class);
+                        .addValue("exceptId", exceptId, Types.OTHER), Long.class);
         if (count != null && count > 0) {
             throw new CrmContractException(CrmErrorCode.CONFLICT,
                     "The normalized communication value already exists for this owner and type.");
