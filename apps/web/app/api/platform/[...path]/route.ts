@@ -30,6 +30,7 @@ const FORWARDED_REQUEST_HEADERS = [
   "authorization",
   "content-type",
   "idempotency-key",
+  "if-match",
   "x-correlation-id",
   "x-request-id",
 ] as const;
@@ -149,7 +150,7 @@ function responseHeaders(upstream: Response, id: string, attempts: number): Head
     "x-request-id": upstream.headers.get("x-request-id") || upstream.headers.get("x-correlation-id") || id,
     "x-sanad-bff-attempts": String(attempts),
   });
-  for (const name of ["content-type", "x-correlation-id"]) {
+  for (const name of ["content-type", "x-correlation-id", "etag"]) {
     const value = upstream.headers.get(name);
     if (value) headers.set(name, value);
   }
