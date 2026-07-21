@@ -132,9 +132,6 @@ function requestHeaders(request: NextRequest, path: string, baseUrl: string, id:
     if (value) headers.set(name, value);
   }
   headers.set("x-request-id", id);
-  if (baseUrl.includes("ngrok")) {
-    headers.set("ngrok-skip-browser-warning", "any-value");
-  }
   if (path === REFRESH_PATH) {
     const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
     if (refreshToken) headers.set(REFRESH_HEADER, refreshToken);
