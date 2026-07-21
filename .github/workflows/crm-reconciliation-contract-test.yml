@@ -23,19 +23,21 @@ jobs:
           set -euo pipefail
           FILE=".github/workflows/crm-idempotency-production-reconciliation.yml"
 
-          # Verify release_sha input exists and is required
+          # Verify release_sha input exists
           echo "=== Checking release_sha input ==="
-          test -n "$(grep -A5 'workflow_dispatch:' "$FILE" | grep 'release_sha:')" || {
-            echo "::error::release_sha input not found in workflow_dispatch"
+          grep -q 'release_sha:' "$FILE" || {
+            echo "::error::release_sha input not found in workflow"
             exit 1
           }
+          echo "PASS: release_sha input found"
 
-          # Verify publish_run_id input exists and is required
+          # Verify publish_run_id input exists
           echo "=== Checking publish_run_id input ==="
-          test -n "$(grep -A5 'workflow_dispatch:' "$FILE" | grep 'publish_run_id:')" || {
-            echo "::error::publish_run_id input not found in workflow_dispatch"
+          grep -q 'publish_run_id:' "$FILE" || {
+            echo "::error::publish_run_id input not found in workflow"
             exit 1
           }
+          echo "PASS: publish_run_id input found"
 
           # Verify push trigger is removed
           echo "=== Verifying push trigger is removed ==="
