@@ -59,13 +59,17 @@ jobs:
         run: |
           set -euo pipefail
           sleep 3
-          gh api \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2022-11-28' \
+          gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
             "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TARGET_SHA}&per_page=100" \
             > "$RUNNER_TEMP/all-runs.json"
-          jq '{target_sha:env.TARGET_SHA,runs:[.workflow_runs[] | select(.name | test("Publish Render Backend Image|CRM Idempotency Production Reconciliation|CRM-G1|CRM-007"; "i")) | {id,name,event,status,conclusion,head_sha,created_at,updated_at,html_url}]}' \
-            "$RUNNER_TEMP/all-runs.json" | tee "$RUNNER_TEMP/closure-runs.json"
+          gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/${TARGET_WORKFLOW}/runs?head_sha=${TARGET_SHA}&per_page=20" \
+            > "$RUNNER_TEMP/reconciliation-runs.json"
+          jq -n \
+            --slurpfile all "$RUNNER_TEMP/all-runs.json" \
+            --slurpfile reconciliation "$RUNNER_TEMP/reconciliation-runs.json" \
+            '{target_sha:env.TARGET_SHA,runs:(([$all[0].workflow_runs[] | select(.name | test("Publish Render Backend Image|CRM-G1|CRM-007"; "i"))] + [$reconciliation[0].workflow_runs[] | select(.head_sha == env.TARGET_SHA)]) | unique_by(.id) | sort_by(.created_at) | map({id,name,path,event,status,conclusion,head_sha,created_at,updated_at,html_url}))}' \
+            | tee "$RUNNER_TEMP/closure-runs.json"
 
       - name: Read failed steps when present
         shell: bash
@@ -76,9 +80,7 @@ jobs:
           FIRST=true
           while IFS= read -r run_id; do
             [ -n "$run_id" ] || continue
-            gh api \
-              -H 'Accept: application/vnd.github+json' \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
+            gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
               "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" \
               > "$RUNNER_TEMP/jobs-${run_id}.json"
             if [ "$FIRST" = false ]; then printf ',' >> "$RUNNER_TEMP/failed-steps.json"; fi
