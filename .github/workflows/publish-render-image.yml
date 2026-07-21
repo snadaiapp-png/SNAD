@@ -69,9 +69,9 @@ jobs:
         run: |
           {
             echo "## Render backend image"
-            echo "- Image: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}`"
-            echo "- Digest: `${{ steps.build.outputs.digest }}`"
-            echo "- Source: `${{ github.sha }}`"
+            echo "- Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+            echo "- Digest: ${{ steps.build.outputs.digest }}"
+            echo "- Source: ${{ github.sha }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Validate optional protected Render configuration
@@ -145,8 +145,8 @@ jobs:
           done
           {
             echo ''
-            echo "- Render deployment: `${{ steps.render.outputs.deployment_id }}`"
-            echo '- Health/liveness/readiness: **UP**'
+            echo "- Render deployment: ${{ steps.render.outputs.deployment_id }}"
+            echo '- Health/liveness/readiness: UP'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create immutable deployment evidence
@@ -191,4 +191,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh issue comment 571 --repo "$GITHUB_REPOSITORY" --body "Render immutable deployment proof:\n\n- Workflow run: $GITHUB_RUN_ID\n- Source SHA: $GITHUB_SHA\n- Image: ${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}\n- Build digest: ${{ steps.build.outputs.digest }}\n- Render deployment ID: ${{ steps.render.outputs.deployment_id }}\n- Health/liveness/readiness: UP\n- Evidence artifact: render-publish-evidence-${GITHUB_RUN_ID}\n\nCRM-007 remains open until CRM-G1 and CRM-007 closure gates succeed."
+          cat > "$RUNNER_TEMP/render-proof-comment.md" <<EOF
+          Render immutable deployment proof:
+
+          - Workflow run: $GITHUB_RUN_ID
+          - Source SHA: $GITHUB_SHA
+          - Image: ${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}
+          - Build digest: ${{ steps.build.outputs.digest }}
+          - Render deployment ID: ${{ steps.render.outputs.deployment_id }}
+          - Health/liveness/readiness: UP
+          - Evidence artifact: render-publish-evidence-${GITHUB_RUN_ID}
+
+          CRM-007 remains open until CRM-G1 and CRM-007 closure gates succeed.
+          EOF
+          gh issue comment 571 --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/render-proof-comment.md"
