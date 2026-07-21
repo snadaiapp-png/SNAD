@@ -1,6 +1,18 @@
 {
-  "captured_at": "2026-07-21T10:44:45Z",
+  "captured_at": "2026-07-21T10:48:05Z",
   "runs": [
+    {
+      "id": 29823500408,
+      "status": "completed",
+      "conclusion": "failure",
+      "event": "push",
+      "head_sha": "c84015d63e7f77d71f348447b22dd648d6965d33",
+      "head_branch": "diag/crm007-run-status",
+      "run_number": 2,
+      "created_at": "2026-07-21T10:46:12Z",
+      "updated_at": "2026-07-21T10:46:25Z",
+      "html_url": "https://github.com/snadaiapp-png/SNAD/actions/runs/29823500408"
+    },
     {
       "id": 29823276314,
       "status": "completed",
