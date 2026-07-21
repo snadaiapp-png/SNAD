@@ -12,6 +12,7 @@ const REFRESH_PATH = "/api/v1/auth/refresh";
 const LOGOUT_PATH = "/api/v1/auth/logout";
 const CHANGE_CREDENTIAL_PATH = "/api/v1/auth/change-credential";
 const COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+const PRODUCTION_BACKEND_HOST = "sanad-backend-mcrj.onrender.com";
 
 // BACKEND_REQUEST_TIMEOUT_MS is an end-to-end BFF budget, not a per-attempt timeout.
 // It bounds retries inside the serverless execution window and preserves deterministic failures.
@@ -79,6 +80,7 @@ function backendBaseUrl(): string | null {
     const isLocal = ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname);
     if (parsed.protocol !== "https:" && !(isLocal && parsed.protocol === "http:")) return null;
     if (parsed.username || parsed.password) return null;
+    if (process.env.VERCEL_ENV === "production" && parsed.hostname !== PRODUCTION_BACKEND_HOST) return null;
     parsed.pathname = parsed.pathname.replace(/\/+$/, "");
     parsed.search = "";
     parsed.hash = "";
@@ -287,7 +289,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
 
   const baseUrl = backendBaseUrl();
   if (!baseUrl) {
-    console.error("Platform BFF backend URL is not configured", { path, requestId: id });
+    console.error("Platform BFF backend URL is not configured or violates the production Render policy", { path, requestId: id });
     const response = jsonError("Service unavailable", 503, id);
     if (path === LOGOUT_PATH) {
       clearRefreshCookie(response);
