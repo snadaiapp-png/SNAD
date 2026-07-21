@@ -1,4 +1,4 @@
-name: Diagnose Vercel CLI Failure
+name: Diagnose Final Closure Failures
 
 on:
   pull_request:
@@ -11,14 +11,15 @@ permissions:
 
 jobs:
   diagnose:
-    name: Read failed Vercel CLI log tail
+    name: Isolate Vercel and G1 failure lines
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
-      FAILED_JOB_ID: '88640172175'
+      VERCEL_JOB_ID: '88640172175'
+      TARGET_SHA: 39d0163189ff3301e8565f7f004839a618f8a021
     steps:
-      - name: Download failed job log
+      - name: Print exact Vercel failure tail
         shell: bash
         run: |
           set -euo pipefail
@@ -26,16 +27,18 @@ jobs:
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2022-11-28' \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/jobs/${FAILED_JOB_ID}/logs" \
-            > "$RUNNER_TEMP/job.log"
-          test -s "$RUNNER_TEMP/job.log"
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/jobs/${VERCEL_JOB_ID}/logs" \
+            > "$RUNNER_TEMP/vercel.log"
+          sed -E 's/\x1B\[[0-9;]*[mK]//g' "$RUNNER_TEMP/vercel.log" | tail -n 55
 
-      - name: Print sanitized failure context
+      - name: Locate exact G1 run and failed step
         shell: bash
         run: |
           set -euo pipefail
-          sed -E 's/\x1B\[[0-9;]*[mK]//g' "$RUNNER_TEMP/job.log" > "$RUNNER_TEMP/job-clean.log"
-          echo '--- Vercel CLI relevant lines ---'
-          grep -Ei 'vercel|error|failed|invalid|scope|project|build|npm|command|exit code' "$RUNNER_TEMP/job-clean.log" | tail -n 160 || true
-          echo '--- Final 120 lines ---'
-          tail -n 120 "$RUNNER_TEMP/job-clean.log"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/crm-g1-production-closure.yml/runs?event=workflow_dispatch&branch=main&per_page=30" > "$RUNNER_TEMP/g1-runs.json"
+          jq --arg sha "$TARGET_SHA" '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.created_at) | reverse | first' "$RUNNER_TEMP/g1-runs.json" > "$RUNNER_TEMP/g1-run.json"
+          RUN_ID="$(jq -r '.id // empty' "$RUNNER_TEMP/g1-run.json")"
+          test -n "$RUN_ID" || { echo '::error::Exact-SHA G1 run not found'; exit 1; }
+          jq '{id,name,status,conclusion,head_sha,created_at,updated_at,html_url}' "$RUNNER_TEMP/g1-run.json"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" > "$RUNNER_TEMP/g1-jobs.json"
+          jq '{jobs:[.jobs[] | {id,name,status,conclusion,failed_steps:[.steps[] | select(.conclusion == "failure") | {number,name,status,conclusion}]}]}' "$RUNNER_TEMP/g1-jobs.json"
