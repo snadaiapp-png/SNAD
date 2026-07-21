@@ -16,10 +16,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  orchestrate:
-    name: Deploy Vercel, publish Render image, and execute CRM closure
+  deploy_release:
+    name: Deploy exact Vercel release and publish backend image
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 45
     environment:
       name: Production
       url: https://snad-app.vercel.app
@@ -30,6 +30,10 @@ jobs:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_TEAM_SLUG: snad-team
       WEB_BASE_URL: https://snad-app.vercel.app
+
+    outputs:
+      vercel_deployment_url: ${{ steps.vercel.outputs.deployment_url }}
+      image_run_id: ${{ steps.image.outputs.run_id }}
 
     steps:
       - name: Checkout exact source
@@ -43,11 +47,11 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Initialize immutable orchestration evidence
+      - name: Initialize immutable deployment evidence
         shell: bash
         run: |
           set -euo pipefail
-          EVIDENCE_DIR="$RUNNER_TEMP/crm-exact-sha-orchestration"
+          EVIDENCE_DIR="$RUNNER_TEMP/crm-exact-sha-deployment"
           mkdir -p "$EVIDENCE_DIR"
           echo "EVIDENCE_DIR=$EVIDENCE_DIR" >> "$GITHUB_ENV"
           jq -n \
@@ -72,16 +76,36 @@ jobs:
           REMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
           test "$REMOTE_MAIN_SHA" = "$GITHUB_SHA" || { echo "::error::Workflow is not executing current main"; exit 1; }
 
-      - name: Deploy exact SHA to Vercel Production
+      - name: Resolve or deploy exact SHA to Vercel Production
         id: vercel
         shell: bash
         run: |
           set -euo pipefail
+          HOST="${WEB_BASE_URL#https://}"
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            "https://api.vercel.com/v13/deployments/${HOST}?teamId=${VERCEL_TEAM_ID}" \
+            > "$RUNNER_TEMP/vercel-before.json"
+
+          LIVE_SHA="$(jq -r '.meta.githubCommitSha // empty' "$RUNNER_TEMP/vercel-before.json")"
+          STATE="$(jq -r '.readyState // .state // empty' "$RUNNER_TEMP/vercel-before.json")"
+          TARGET="$(jq -r '.target // empty' "$RUNNER_TEMP/vercel-before.json")"
+          if [ "$LIVE_SHA" = "$GITHUB_SHA" ] && [ "$STATE" = "READY" ] && [ "$TARGET" = "production" ]; then
+            DEPLOYMENT_URL="https://${HOST}"
+            echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+            jq '{result:"PASS",action:"REUSE_EXACT_PRODUCTION",deployment_id:(.id // .uid),url:.url,state:(.readyState // .state),target:.target,source_sha:.meta.githubCommitSha}' \
+              "$RUNNER_TEMP/vercel-before.json" > "$EVIDENCE_DIR/vercel-deploy-action.json"
+            exit 0
+          fi
+
+          mkdir -p .vercel
+          jq -n --arg orgId "$VERCEL_ORG_ID" --arg projectId "$VERCEL_PROJECT_ID" \
+            '{orgId:$orgId,projectId:$projectId}' > .vercel/project.json
+
           DEPLOY_LOG="$RUNNER_TEMP/vercel-deploy.log"
+          set +e
           npx --yes vercel@56.4.1 deploy \
-            --cwd apps/web \
             --prod \
-            --force \
             --yes \
             --token "$VERCEL_TOKEN" \
             --scope "$VERCEL_TEAM_SLUG" \
@@ -90,9 +114,24 @@ jobs:
             --meta "githubOrg=${GITHUB_REPOSITORY_OWNER}" \
             --meta "githubRepo=${GITHUB_REPOSITORY#*/}" \
             2>&1 | tee "$DEPLOY_LOG"
+          DEPLOY_EXIT="${PIPESTATUS[0]}"
+          set -e
+          cp "$DEPLOY_LOG" "$EVIDENCE_DIR/vercel-deploy.log"
+          if [ "$DEPLOY_EXIT" != "0" ]; then
+            if grep -q 'api-deployments-free-per-day' "$DEPLOY_LOG"; then
+              echo "::error::Vercel daily deployment quota is exhausted"
+            else
+              echo "::error::Vercel CLI deployment failed"
+            fi
+            exit "$DEPLOY_EXIT"
+          fi
+
           DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$DEPLOY_LOG" | tail -n 1)"
           test -n "$DEPLOYMENT_URL" || { echo "::error::Vercel CLI returned no deployment URL"; exit 1; }
           echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          jq -n --arg url "$DEPLOYMENT_URL" --arg source_sha "$GITHUB_SHA" \
+            '{result:"PASS",action:"CREATE_EXACT_PRODUCTION",deployment_url:$url,source_sha:$source_sha,repository_cwd:"ROOT",project_root_managed_by_vercel:true}' \
+            > "$EVIDENCE_DIR/vercel-deploy-action.json"
 
       - name: Verify Vercel Production alias and exact SHA
         shell: bash
@@ -100,7 +139,7 @@ jobs:
           set -euo pipefail
           HOST="${WEB_BASE_URL#https://}"
           MATCHED=false
-          for attempt in $(seq 1 120); do
+          for attempt in $(seq 1 60); do
             curl --fail-with-body --silent --show-error --max-time 45 \
               -H "Authorization: Bearer ${VERCEL_TOKEN}" \
               "https://api.vercel.com/v13/deployments/${HOST}?teamId=${VERCEL_TEAM_ID}" \
@@ -150,7 +189,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 180); do
+          for attempt in $(seq 1 120); do
             curl --fail-with-body --silent --show-error --max-time 30 \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H 'Accept: application/vnd.github+json' \
@@ -173,6 +212,73 @@ jobs:
           done
           echo "::error::Exact-SHA backend image workflow did not complete"
           exit 1
+
+      - name: Finalize immutable deployment evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          jq -n \
+            --arg source_sha "$GITHUB_SHA" \
+            --arg job_status "${{ job.status }}" \
+            --arg vercel_url "${{ steps.vercel.outputs.deployment_url }}" \
+            --arg image_run_id "${{ steps.image.outputs.run_id }}" \
+            --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{source_sha:$source_sha,result:$job_status,vercel_deployment_url:$vercel_url,backend_image_workflow_run:$image_run_id,completed_at_utc:$completed_at}' \
+            > "$EVIDENCE_DIR/deployment-summary.json"
+          find "$EVIDENCE_DIR" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 -r sha256sum > "$EVIDENCE_DIR/SHA256SUMS.txt"
+
+      - name: Upload immutable deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-exact-sha-deployment-${{ github.run_id }}
+          path: ${{ runner.temp }}/crm-exact-sha-deployment
+          if-no-files-found: error
+          retention-days: 90
+
+  execute_closure:
+    name: Execute Render, Flyway, CRM-G1 and CRM-007 closure
+    needs: deploy_release
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment:
+      name: Production
+      url: https://snad-app.vercel.app
+    env:
+      WEB_BASE_URL: https://snad-app.vercel.app
+
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Initialize immutable closure evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          EVIDENCE_DIR="$RUNNER_TEMP/crm-exact-sha-closure"
+          mkdir -p "$EVIDENCE_DIR"
+          echo "EVIDENCE_DIR=$EVIDENCE_DIR" >> "$GITHUB_ENV"
+          jq -n \
+            --arg source_sha "$GITHUB_SHA" \
+            --arg workflow_run_id "$GITHUB_RUN_ID" \
+            --arg vercel_url "${{ needs.deploy_release.outputs.vercel_deployment_url }}" \
+            --arg image_run_id "${{ needs.deploy_release.outputs.image_run_id }}" \
+            --arg started_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{result:"IN_PROGRESS",source_sha:$source_sha,workflow_run_id:($workflow_run_id|tonumber),vercel_deployment_url:$vercel_url,backend_image_workflow_run:$image_run_id,started_at_utc:$started_at}' \
+            > "$EVIDENCE_DIR/run-context.json"
+
+      - name: Validate exact current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          REMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test "$REMOTE_MAIN_SHA" = "$GITHUB_SHA" || { echo "::error::Current main changed during Production orchestration"; exit 1; }
 
       - name: Dispatch protected CRM reconciliation chain
         id: dispatch_reconciliation
@@ -202,7 +308,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 450); do
+          for attempt in $(seq 1 420); do
             curl --fail-with-body --silent --show-error --max-time 30 \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H 'Accept: application/vnd.github+json' \
@@ -226,7 +332,7 @@ jobs:
           echo "::error::Exact-SHA CRM reconciliation did not complete"
           exit 1
 
-      - name: Finalize immutable orchestration evidence
+      - name: Finalize immutable closure evidence
         if: always()
         shell: bash
         run: |
@@ -235,20 +341,18 @@ jobs:
           jq -n \
             --arg source_sha "$GITHUB_SHA" \
             --arg job_status "${{ job.status }}" \
-            --arg vercel_url "${{ steps.vercel.outputs.deployment_url }}" \
-            --arg image_run_id "${{ steps.image.outputs.run_id }}" \
             --arg reconciliation_run_id "${{ steps.reconciliation.outputs.run_id }}" \
             --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{source_sha:$source_sha,result:$job_status,vercel_deployment_url:$vercel_url,backend_image_workflow_run:$image_run_id,crm_reconciliation_workflow_run:$reconciliation_run_id,completed_at_utc:$completed_at}' \
-            > "$EVIDENCE_DIR/orchestration-summary.json"
+            '{source_sha:$source_sha,result:$job_status,crm_reconciliation_workflow_run:$reconciliation_run_id,completed_at_utc:$completed_at}' \
+            > "$EVIDENCE_DIR/closure-summary.json"
           find "$EVIDENCE_DIR" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 -r sha256sum > "$EVIDENCE_DIR/SHA256SUMS.txt"
 
-      - name: Upload immutable orchestration evidence
+      - name: Upload immutable closure evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: crm-exact-sha-production-orchestration-${{ github.run_id }}
-          path: ${{ runner.temp }}/crm-exact-sha-orchestration
+          name: crm-exact-sha-closure-${{ github.run_id }}
+          path: ${{ runner.temp }}/crm-exact-sha-closure
           if-no-files-found: error
           retention-days: 90
 
@@ -259,8 +363,9 @@ jobs:
           {
             echo '## CRM Exact-SHA Production Orchestration'
             echo "- Source SHA: \`${GITHUB_SHA}\`"
-            echo "- Status: **${{ job.status }}**"
-            echo "- Vercel deployment: \`${{ steps.vercel.outputs.deployment_url || 'not-created' }}\`"
-            echo "- Backend image workflow run: \`${{ steps.image.outputs.run_id || 'not-completed' }}\`"
+            echo "- Deployment stage: **${{ needs.deploy_release.result }}**"
+            echo "- Closure stage: **${{ job.status }}**"
+            echo "- Vercel deployment: \`${{ needs.deploy_release.outputs.vercel_deployment_url || 'not-created' }}\`"
+            echo "- Backend image workflow run: \`${{ needs.deploy_release.outputs.image_run_id || 'not-completed' }}\`"
             echo "- CRM reconciliation workflow run: \`${{ steps.reconciliation.outputs.run_id || 'not-completed' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
