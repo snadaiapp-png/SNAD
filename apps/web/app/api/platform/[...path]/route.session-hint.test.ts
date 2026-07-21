@@ -21,7 +21,7 @@ function request(path: string, body?: object, cookie?: string): NextRequest {
 describe("platform BFF session hint policy", () => {
   beforeEach(() => {
     vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("BACKEND_API_BASE_URL", "https://sanad-backend.example.com");
+    vi.stubEnv("BACKEND_API_BASE_URL", "https://sanad-backend-mcrj.onrender.com");
     vi.stubGlobal("fetch", vi.fn());
   });
 
