@@ -188,6 +188,45 @@ case "$phase" in
       --data-urlencode "type=request" --data-urlencode "statusCode=500" --data-urlencode "limit=100" \
       https://api.render.com/v1/logs > "$EVIDENCE_DIR/render-500-logs.json"
     CRM_500_COUNT="$(jq '[if type=="array" then .[] else (.logs // .items // [])[] end | tostring | select(test("/api/v(1|2)/crm"))] | length' "$EVIDENCE_DIR/render-500-logs.json")"
+    # Capture application logs (type=app) for exception class, SQLSTATE, and redacted stack traces
+    curl --get --fail-with-body --silent --show-error --max-time 45 \
+      -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
+      --data-urlencode "ownerId=${RENDER_OWNER_ID}" --data-urlencode "resource=${RENDER_SERVICE_ID}" \
+      --data-urlencode "startTime=${CRM007_STARTED_AT}" --data-urlencode "endTime=${END_TIME}" \
+      --data-urlencode "type=app" --data-urlencode "level=error" --data-urlencode "limit=200" \
+      https://api.render.com/v1/logs > "$EVIDENCE_DIR/render-app-error-logs.json"
+    # Extract exception details from application error logs
+    python3 -c "
+import json, sys, re
+from pathlib import Path
+evidence = Path(sys.argv[1])
+raw = (evidence / 'render-app-error-logs.json').read_text(encoding='utf-8', errors='replace')
+data = json.loads(raw)
+entries = data if isinstance(data, list) else data.get('logs') or data.get('items') or []
+crm_entries = [e for e in entries if 'crm' in json.dumps(e, ensure_ascii=False).lower()]
+exceptions = []
+for e in crm_entries:
+    msg = e.get('message', '')
+    exc_match = re.search(r'([\w.]+Exception)', msg)
+    sqlstate_match = re.search(r'SQLSTATE[:\s]+([\w]+)', msg) or re.search(r'PSQLException.*?ERROR:\s+([^\n]+)', msg)
+    frames = re.findall(r'at\s+(com\.sanad\.platform\.[^\s(]+)', msg)
+    exceptions.append({
+        'exception_class': exc_match.group(1) if exc_match else None,
+        'cause': sqlstate_match.group(1) if sqlstate_match else None,
+        'application_frames': frames[:5],
+        'timestamp': e.get('timestamp'),
+        'log_id': e.get('id')
+    })
+(evidence / 'crm-500-exception-evidence.json').write_text(
+    json.dumps({'count': len(exceptions), 'exceptions': exceptions}, ensure_ascii=False, indent=2),
+    encoding='utf-8')
+print(f'Application error entries: {len(crm_entries)}, Exception details: {len(exceptions)}')
+" "$EVIDENCE_DIR"
+    # Fail closed: if CRM 500s exist but no application log evidence was captured, fail
+    if [ "$CRM_500_COUNT" -gt 0 ]; then
+      APP_LOG_SIZE="$(wc -c < "$EVIDENCE_DIR/render-app-error-logs.json" | tr -d ' ')"
+      test "$APP_LOG_SIZE" -gt 10 || { echo "::error::CRM HTTP 500 detected but no application-log evidence captured"; exit 1; }
+    fi
     FRONT_CODE="$(curl --silent --show-error --max-time 45 -o /dev/null -w '%{http_code}' "$WEB_BASE_URL")"
     STATUS_CODE="$(curl --silent --show-error --max-time 45 -o "$EVIDENCE_DIR/backend-status.json" -w '%{http_code}' "${WEB_BASE_URL}/api/system/backend-status")"
     AUTH_CODE="$(curl --silent --show-error --max-time 45 -o /dev/null -w '%{http_code}' "${WEB_BASE_URL}/api/platform/api/v1/auth/me")"
