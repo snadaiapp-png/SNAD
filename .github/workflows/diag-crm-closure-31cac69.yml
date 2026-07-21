@@ -1,4 +1,4 @@
-name: Observe CRM Closure 31cac69
+name: Extract CRM-007 Code Fix
 
 on:
   pull_request:
@@ -6,56 +6,66 @@ on:
       - '.github/workflows/diag-crm-closure-31cac69.yml'
 
 permissions:
-  contents: read
-  actions: read
+  contents: write
 
 jobs:
-  observe:
-    name: Read exact-SHA closure runs
+  extract:
+    name: Copy reviewed Java and PostgreSQL test only
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
-      TARGET_SHA: 31cac69fc1a336ffa29288929be7d086fc76a121
-      TARGET_WORKFLOW: crm-idempotency-production-reconciliation.yml
+      AUTHORIZED_MAIN_SHA: 31cac69fc1a336ffa29288929be7d086fc76a121
+      SOURCE_REF: fix/crm007-nullable-exclusion-final
+      SOURCE_SHA: 2afd685dba4951d3508d2fc6108c39ff1a2c8987
+      TARGET_REF: fix/crm007-nullable-exclusion-clean
     steps:
-      - name: Read exact-SHA closure runs
+      - name: Validate immutable source and target
         shell: bash
         run: |
           set -euo pipefail
           MAIN_SHA="$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
-          test "$MAIN_SHA" = "$TARGET_SHA" || { echo "::error::main moved from target SHA"; exit 1; }
-          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TARGET_SHA}&per_page=100" > "$RUNNER_TEMP/all-runs.json"
-          gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/${TARGET_WORKFLOW}/runs?head_sha=${TARGET_SHA}&per_page=20" > "$RUNNER_TEMP/reconciliation-runs.json"
-          jq -n \
-            --slurpfile all "$RUNNER_TEMP/all-runs.json" \
-            --slurpfile reconciliation "$RUNNER_TEMP/reconciliation-runs.json" \
-            '{target_sha:env.TARGET_SHA,runs:(([$all[0].workflow_runs[] | select(.name | test("Publish Render Backend Image|CRM-G1|CRM-007"; "i"))] + [$reconciliation[0].workflow_runs[] | select(.head_sha == env.TARGET_SHA)]) | unique_by(.id) | sort_by(.created_at) | map({id,name,path,event,status,conclusion,head_sha,created_at,updated_at,html_url}))}' \
-            | tee "$RUNNER_TEMP/closure-runs.json"
+          SOURCE_HEAD="$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${SOURCE_REF}" --jq '.object.sha')"
+          TARGET_HEAD="$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${TARGET_REF}" --jq '.object.sha')"
+          test "$MAIN_SHA" = "$AUTHORIZED_MAIN_SHA" || { echo "::error::main moved"; exit 1; }
+          test "$SOURCE_HEAD" = "$SOURCE_SHA" || { echo "::error::source branch moved"; exit 1; }
+          test "$TARGET_HEAD" = "$AUTHORIZED_MAIN_SHA" || { echo "::error::target branch is not clean current main"; exit 1; }
 
-      - name: Read current jobs and failed steps
+      - name: Copy only approved source files
         shell: bash
         run: |
           set -euo pipefail
-          printf '{"runs":[' > "$RUNNER_TEMP/jobs.json"
-          FIRST=true
-          while IFS= read -r run_id; do
-            [ -n "$run_id" ] || continue
-            gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" > "$RUNNER_TEMP/jobs-${run_id}.json"
-            if [ "$FIRST" = false ]; then printf ',' >> "$RUNNER_TEMP/jobs.json"; fi
-            FIRST=false
-            jq -c --arg run_id "$run_id" '{run_id:($run_id|tonumber),jobs:[.jobs[] | {id,name,status,conclusion,steps:[.steps[] | {number,name,status,conclusion}]}]}' \
-              "$RUNNER_TEMP/jobs-${run_id}.json" >> "$RUNNER_TEMP/jobs.json"
-          done < <(jq -r '.runs[].id' "$RUNNER_TEMP/closure-runs.json")
-          printf ']}' >> "$RUNNER_TEMP/jobs.json"
-          cat "$RUNNER_TEMP/jobs.json"
+          files=(
+            'apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationRepository.java'
+            'apps/sanad-platform/src/test/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationNullableFilterPostgresTest.java'
+          )
+          for path in "${files[@]}"; do
+            gh api "/repos/${GITHUB_REPOSITORY}/contents/${path}?ref=${SOURCE_REF}" > "$RUNNER_TEMP/source.json"
+            gh api "/repos/${GITHUB_REPOSITORY}/contents/${path}?ref=${TARGET_REF}" > "$RUNNER_TEMP/target.json"
+            SOURCE_CONTENT="$(jq -r '.content' "$RUNNER_TEMP/source.json" | tr -d '\n')"
+            TARGET_SHA="$(jq -r '.sha' "$RUNNER_TEMP/target.json")"
+            jq -n \
+              --arg message 'fix(crm): type nullable mutation exclusions as PostgreSQL UUID' \
+              --arg content "$SOURCE_CONTENT" \
+              --arg branch "$TARGET_REF" \
+              --arg sha "$TARGET_SHA" \
+              '{message:$message,content:$content,branch:$branch,sha:$sha}' \
+              > "$RUNNER_TEMP/update.json"
+            gh api --method PUT "/repos/${GITHUB_REPOSITORY}/contents/${path}" --input "$RUNNER_TEMP/update.json" > "$RUNNER_TEMP/update-response.json"
+            test -n "$(jq -r '.commit.sha // empty' "$RUNNER_TEMP/update-response.json")"
+          done
 
-      - name: Upload sanitized observation
-        uses: actions/upload-artifact@v4
-        with:
-          name: crm-closure-31cac69-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/closure-runs.json
-            ${{ runner.temp }}/jobs.json
-          if-no-files-found: error
-          retention-days: 1
+      - name: Verify exact content and scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            'apps/sanad-platform/src/main/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationRepository.java'
+            'apps/sanad-platform/src/test/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationNullableFilterPostgresTest.java'
+          )
+          for path in "${files[@]}"; do
+            SOURCE_BLOB="$(gh api "/repos/${GITHUB_REPOSITORY}/contents/${path}?ref=${SOURCE_REF}" --jq '.sha')"
+            TARGET_BLOB="$(gh api "/repos/${GITHUB_REPOSITORY}/contents/${path}?ref=${TARGET_REF}" --jq '.sha')"
+            test "$SOURCE_BLOB" = "$TARGET_BLOB" || { echo "::error::content mismatch: ${path}"; exit 1; }
+          done
+          echo 'Exact Java and PostgreSQL regression test copied; no workflow file copied.'
