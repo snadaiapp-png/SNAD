@@ -1,0 +1,89 @@
+name: Recreate Vercel Render Backend Variables
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/recreate-vercel-render-backend-vars.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: recreate-vercel-render-backend-vars
+  cancel-in-progress: true
+
+jobs:
+  recreate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: Production
+    env:
+      RENDER_URL: https://sanad-backend-mcrj.onrender.com
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      GH_TOKEN: ${{ github.token }}
+      CI: '1'
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Mark pending
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state=pending -f context=vercel/render-vars \
+            -f description='Recreating Vercel backend variables as Render-only values'
+
+      - name: Validate inputs and link project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN"
+          test -n "$VERCEL_PROJECT_ID"
+          test -n "$VERCEL_ORG_ID"
+          npx --yes vercel@latest pull --yes --environment=production --token "$VERCEL_TOKEN"
+
+      - name: Recreate backend variables and remove public override
+        shell: bash
+        run: |
+          set -euo pipefail
+          for environment in production preview; do
+            npx --yes vercel@latest env rm BACKEND_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
+            printf '%s\n' "$RENDER_URL" | npx --yes vercel@latest env add BACKEND_API_BASE_URL "$environment" --token "$VERCEL_TOKEN"
+          done
+          for environment in production preview development; do
+            npx --yes vercel@latest env rm NEXT_PUBLIC_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
+          done
+
+      - name: Redeploy Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          deployment_url="$(npx --yes vercel@latest deploy --prod --force --yes --token "$VERCEL_TOKEN" | tail -n 1)"
+          [[ "$deployment_url" == https://*.vercel.app ]]
+
+      - name: Verify live route
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(curl -sS --max-time 30 -o /tmp/status.json -w '%{http_code}' https://snad-app.vercel.app/api/system/backend-status)" = 200
+          jq -e '.configured == true and .reachable == true and .statusCode == 200 and has("targetHost") == false' /tmp/status.json >/dev/null
+          test "$(curl -sS --max-time 30 -o /tmp/auth.json -w '%{http_code}' https://snad-app.vercel.app/api/platform/api/v1/auth/me)" = 401
+          ! grep -Eqi 'ngrok|localhost|127\.0\.0\.1' /tmp/status.json /tmp/auth.json
+
+      - name: Mark success
+        if: success()
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state=success -f context=vercel/render-vars \
+            -f description='Production and Preview backend variables recreated as Render-only values'
+
+      - name: Mark failure
+        if: failure()
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state=failure -f context=vercel/render-vars \
+            -f description='Vercel backend variable recreation or live verification failed'
