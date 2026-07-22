@@ -1,0 +1,110 @@
+name: Restore Vercel Exact-Main Production Alias
+
+on:
+  push:
+    branches:
+      - ops/crm-007-final-exact-sha-closure-20260722
+    paths:
+      - .github/workflows/restore-vercel-exact-main-alias.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: restore-vercel-exact-main-alias
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: Production
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      PRODUCTION_ALIAS: snad-app.vercel.app
+      RENDER_URL: https://sanad-backend-mcrj.onrender.com
+
+    steps:
+      - name: Resolve authoritative main and exact deployment
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          for value in "$VERCEL_TOKEN" "$VERCEL_TEAM_ID" "$VERCEL_PROJECT_ID"; do
+            test -n "$value"
+            echo "::add-mask::$value"
+          done
+
+          MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test -n "$MAIN_SHA"
+
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            "https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_TEAM_ID}&target=production&limit=100" \
+            > "$RUNNER_TEMP/deployments.json"
+
+          jq --arg sha "$MAIN_SHA" \
+            '[.deployments[] | select((.meta.githubCommitSha // "") == $sha and (.readyState // .state // "") == "READY")]
+             | sort_by(.createdAt) | reverse | first // empty' \
+            "$RUNNER_TEMP/deployments.json" > "$RUNNER_TEMP/exact-deployment.json"
+
+          DEPLOYMENT_ID="$(jq -r '.uid // .id // empty' "$RUNNER_TEMP/exact-deployment.json")"
+          DEPLOYMENT_HOST="$(jq -r '.url // empty' "$RUNNER_TEMP/exact-deployment.json")"
+          test -n "$DEPLOYMENT_ID" || { echo "::error::No READY Vercel deployment exists for current main ${MAIN_SHA}"; exit 1; }
+          test -n "$DEPLOYMENT_HOST"
+
+          echo "main_sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"
+          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+          echo "deployment_url=https://${DEPLOYMENT_HOST#https://}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore all Production aliases to exact main deployment
+        shell: bash
+        env:
+          DEPLOYMENT_URL: ${{ steps.resolve.outputs.deployment_url }}
+        run: |
+          set -euo pipefail
+          for alias in \
+            snad-app.vercel.app \
+            snad-app-snad-team.vercel.app \
+            snad-app-abdulrhmanahmeedsenen-snad-team.vercel.app; do
+            npx --yes vercel@latest alias set "$DEPLOYMENT_URL" "$alias" \
+              --token "$VERCEL_TOKEN" --scope snad-team
+          done
+
+      - name: Verify exact alias identity and live Render routing
+        shell: bash
+        env:
+          MAIN_SHA: ${{ steps.resolve.outputs.main_sha }}
+        run: |
+          set -euo pipefail
+
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            "https://api.vercel.com/v13/deployments/${PRODUCTION_ALIAS}?teamId=${VERCEL_TEAM_ID}" \
+            > "$RUNNER_TEMP/alias.json"
+
+          test "$(jq -r '.meta.githubCommitSha // empty' "$RUNNER_TEMP/alias.json")" = "$MAIN_SHA"
+          test "$(jq -r '.readyState // .state // empty' "$RUNNER_TEMP/alias.json")" = "READY"
+          test "$(jq -r '.target // empty' "$RUNNER_TEMP/alias.json")" = "production"
+          test "$(jq -r '.meta.gitDirty // "0"' "$RUNNER_TEMP/alias.json")" != "1"
+
+          render_code='000'
+          for attempt in $(seq 1 24); do
+            render_code="$(curl -sS --max-time 30 -o "$RUNNER_TEMP/render.json" -w '%{http_code}' "$RENDER_URL/actuator/health" || true)"
+            if [ "$render_code" = '200' ] && jq -e '.status == "UP"' "$RUNNER_TEMP/render.json" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+          test "$render_code" = '200'
+          jq -e '.status == "UP"' "$RUNNER_TEMP/render.json" >/dev/null
+
+          status_code="$(curl -sS --max-time 45 -o "$RUNNER_TEMP/status.json" -w '%{http_code}' "https://${PRODUCTION_ALIAS}/api/system/backend-status")"
+          auth_code="$(curl -sS --max-time 45 -o "$RUNNER_TEMP/auth.json" -w '%{http_code}' "https://${PRODUCTION_ALIAS}/api/platform/api/v1/auth/me")"
+          test "$status_code" = '200'
+          test "$auth_code" = '401'
+          jq -e '.configured == true and .reachable == true and .statusCode == 200 and has("targetHost") == false' "$RUNNER_TEMP/status.json" >/dev/null
+          ! grep -Eqi 'ngrok|localhost|127\.0\.0\.1' "$RUNNER_TEMP/status.json" "$RUNNER_TEMP/auth.json"
