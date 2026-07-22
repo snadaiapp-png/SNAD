@@ -2,7 +2,7 @@
 
 This tracked marker forces the Vercel project rooted at `apps/web` to build the same merge SHA that publishes and deploys the corrected backend image.
 
-Release generation: `crm-current-main-exact-sha-closure-v7`.
+Release generation: `crm-current-main-exact-sha-closure-v8`.
 
 Authoritative correction:
 
@@ -10,8 +10,12 @@ Authoritative correction:
 - PR #657 serialized CRM-007 behind exact-SHA CRM-G1 success.
 - PR #659 corrected the duplicated Vercel Root Directory.
 - PR #661 removed the duplicate API deployment and now consumes the canonical Vercel Git Integration deployment.
-- Corrective PR fixes reconciliation workflow correlation: orchestrator now passes `publish_run_id` and `release_sha` as explicit inputs, replacing ambiguous `event=push` filtering with direct run identity verification.
-- Corrective PR fixes `resolve_tenant` psql interpolation: replaces `-c` with stdin-driven `-f -` heredoc to prevent PostgreSQL receiving uninterpolated `:'email'` expressions.
+- PR #667 fixed reconciliation workflow correlation by passing `publish_run_id` and `release_sha` explicitly.
+- PR #670 fixed `resolve_tenant` PostgreSQL interpolation with stdin-driven `psql -f -`.
+- PR #675 introduced the Vercel-safe `X-SNAD-If-Match` transport while preserving backend `If-Match` semantics.
+- PR #679 fixed PostgreSQL archive status writes by explicitly casting the `archived_at` CASE parameter.
+- PR #680 and PR #681 removed tunnel routing and made Render the immutable Vercel Production upstream.
+- Current-main closure must execute only after Vercel Production reports the exact merge SHA as `READY`.
 
 Exact-SHA closure requirements:
 
@@ -21,5 +25,6 @@ Exact-SHA closure requirements:
 - CRM-G1 and CRM-007 must pass on the same SHA.
 - Contact, Address and Communication lifecycle operations must complete without unexplained 5xx responses.
 - Tenant isolation must remain fail-closed.
+- Immutable CRM-G1 and CRM-007 evidence must be generated, reviewed and merged before final closure is asserted.
 
 This marker contains no runtime application logic. Its only purpose is to make an exact current-main web deployment observable when the control-plane correction itself is outside the Vercel Root Directory.

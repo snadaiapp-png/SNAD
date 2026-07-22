@@ -58,12 +58,61 @@ jobs:
             npx --yes vercel@latest env rm NEXT_PUBLIC_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
           done
 
-      - name: Redeploy Production
+      - name: Await clean exact-SHA deployment and restore Production aliases
+        id: exact
         shell: bash
         run: |
           set -euo pipefail
-          deployment_url="$(npx --yes vercel@latest deploy --prod --force --yes --token "$VERCEL_TOKEN" | tail -n 1)"
-          [[ "$deployment_url" == https://*.vercel.app ]]
+          MATCHED=false
+          DEPLOYMENT_URL=''
+
+          for attempt in $(seq 1 120); do
+            curl --fail-with-body --silent --show-error --max-time 45 \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+              "https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&target=production&limit=100" \
+              > "$RUNNER_TEMP/deployments.json"
+
+            jq --arg sha "$GITHUB_SHA" \
+              '[.deployments[] | select((.meta.githubCommitSha // "") == $sha
+                and (.readyState // .state // "") == "READY"
+                and (.meta.gitDirty // "0") != "1")]
+               | sort_by(.createdAt) | reverse | first // empty' \
+              "$RUNNER_TEMP/deployments.json" > "$RUNNER_TEMP/exact-deployment.json"
+
+            DEPLOYMENT_HOST="$(jq -r '.url // empty' "$RUNNER_TEMP/exact-deployment.json")"
+            if [ -n "$DEPLOYMENT_HOST" ]; then
+              DEPLOYMENT_URL="https://${DEPLOYMENT_HOST#https://}"
+              MATCHED=true
+              break
+            fi
+            sleep 5
+          done
+
+          test "$MATCHED" = true || { echo "::error::No clean READY Vercel deployment exists for exact current SHA ${GITHUB_SHA}"; exit 1; }
+
+          for alias in \
+            snad-app.vercel.app \
+            snad-app-snad-team.vercel.app \
+            snad-app-abdulrhmanahmeedsenen-snad-team.vercel.app; do
+            npx --yes vercel@latest alias set "$DEPLOYMENT_URL" "$alias" \
+              --token "$VERCEL_TOKEN" --scope snad-team
+          done
+
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Verify exact alias identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            "https://api.vercel.com/v13/deployments/snad-app.vercel.app?teamId=${VERCEL_ORG_ID}" \
+            > "$RUNNER_TEMP/alias.json"
+
+          test "$(jq -r '.meta.githubCommitSha // empty' "$RUNNER_TEMP/alias.json")" = "$GITHUB_SHA"
+          test "$(jq -r '.readyState // .state // empty' "$RUNNER_TEMP/alias.json")" = READY
+          test "$(jq -r '.target // empty' "$RUNNER_TEMP/alias.json")" = production
+          test "$(jq -r '.meta.gitDirty // "0"' "$RUNNER_TEMP/alias.json")" != 1
 
       - name: Wake and verify Render
         shell: bash
@@ -105,11 +154,11 @@ jobs:
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
             -f state=success -f context=vercel/render-vars \
-            -f description='Production and Preview backend variables recreated as Render-only values'
+            -f description='Exact-SHA Vercel aliases and Render-only routing verified'
 
       - name: Mark failure
         if: failure()
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
             -f state=failure -f context=vercel/render-vars \
-            -f description='Vercel backend variable recreation or live verification failed'
+            -f description='Vercel exact-SHA alias or Render routing verification failed'
