@@ -41,7 +41,7 @@ class CrmPostgresMigrationTest {
     private static final String BUSINESS_PROCESS_RBAC_VERSION = "20260717.5";
     private static final String CRM_G1_EXTENSION_VERSION = "20260717.6";
     private static final String CRM_ADDRESS_COMMUNICATION_VERSION = "20260717.100";
-    private static final String CRM_ADDRESS_COMMUNICATION_RBAC_VERSION = "20260717.101";
+    private static final String CRM_ADDRESS_COMMUNICATION_RBAC_VERSION = "20260722.9";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
