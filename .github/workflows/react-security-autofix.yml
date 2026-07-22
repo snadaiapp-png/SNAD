@@ -1,0 +1,52 @@
+name: One-shot React Security Autofix
+
+on:
+  push:
+    branches:
+      - fix/render-only-production-routing
+    paths:
+      - .github/workflows/react-security-autofix.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: react-security-autofix
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout remediation branch
+        uses: actions/checkout@v6
+        with:
+          ref: fix/render-only-production-routing
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Upgrade React security patch and verify production audit
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --save-exact react@19.2.7 react-dom@19.2.7
+          npm audit --omit=dev --audit-level=high
+
+      - name: Remove one-shot workflow and commit generated lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/react-security-autofix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/web/package.json apps/web/package-lock.json .github/workflows/react-security-autofix.yml
+          git commit -m 'fix(web): upgrade React security patch'
+          git push origin HEAD:fix/render-only-production-routing
