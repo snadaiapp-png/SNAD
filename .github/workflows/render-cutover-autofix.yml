@@ -1,0 +1,79 @@
+name: One-shot Render Cutover Cleanup
+
+on:
+  push:
+    branches:
+      - fix/render-only-production-routing
+    paths:
+      - .github/workflows/render-cutover-autofix.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: render-cutover-autofix
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout cutover branch
+        uses: actions/checkout@v6
+        with:
+          ref: fix/render-only-production-routing
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Remove legacy production routing from active workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          workflows = Path('.github/workflows')
+          legacy_expression = '$' + '{{ vars.PRODUCTION_BASE_URL }}'
+          render_literal = "'https://sanad-backend-mcrj.onrender.com'"
+
+          for path in sorted(workflows.glob('*.yml')):
+              if path.name == 'render-cutover-autofix.yml':
+                  continue
+              text = path.read_text(encoding='utf-8')
+              text = text.replace(legacy_expression, render_literal)
+              lines = [
+                  line for line in text.splitlines()
+                  if 'ngrok-skip-browser-warning' not in line
+              ]
+              text = '\n'.join(lines) + '\n'
+              text = text.replace('local backend tunnel', 'Render backend')
+              text = text.replace('local-backend tunnel', 'Render backend')
+              text = text.replace('public HTTPS tunnel', 'production Render service')
+              text = text.replace('active tunnel URL', 'production Render URL')
+              path.write_text(text, encoding='utf-8')
+
+          remaining = []
+          for path in sorted(workflows.glob('*.yml')):
+              if path.name == 'render-cutover-autofix.yml':
+                  continue
+              text = path.read_text(encoding='utf-8').lower()
+              if 'vars.production_base_url' in text or 'ngrok' in text:
+                  remaining.append(str(path))
+          if remaining:
+              raise SystemExit('Legacy routing remains in active workflows: ' + ', '.join(remaining))
+          PY
+
+      - name: Remove one-shot workflow and commit cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/render-cutover-autofix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows
+          if git diff --cached --quiet; then
+            echo 'No additional cleanup was required.'
+            exit 0
+          fi
+          git commit -m 'fix(ci): remove legacy production tunnel references'
+          git push origin HEAD:fix/render-only-production-routing
