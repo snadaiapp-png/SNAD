@@ -29,8 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      FRONTEND_URL: ${{ github.event.inputs.frontend_url || vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
-      BACKEND_URL: ${{ github.event.inputs.backend_url || vars.PRODUCTION_BACKEND_BASE_URL || 'https://sanad-backend-mcrj.onrender.com' }}
+      FRONTEND_URL: ${{ github.event.inputs.frontend_url || 'https://snad-app.vercel.app' }}
+      BACKEND_URL: ${{ github.event.inputs.backend_url || 'https://sanad-backend-mcrj.onrender.com' }}
       ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
       ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
 
