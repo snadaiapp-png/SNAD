@@ -8,6 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: read
   statuses: write
 
@@ -22,6 +23,7 @@ jobs:
     environment: Production
     env:
       RENDER_URL: https://sanad-backend-mcrj.onrender.com
+      WEB_URL: https://snad-app.vercel.app
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_TEAM_ID }}
@@ -46,6 +48,40 @@ jobs:
           test -n "$VERCEL_ORG_ID"
           npx --yes vercel@latest pull --yes --environment=production --token "$VERCEL_TOKEN"
 
+      - name: Purge legacy GitHub production URL variables
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          set_repo_variable() {
+            gh variable set "$1" --body "$2"
+          }
+
+          set_environment_variable() {
+            local scope="$1"
+            local name="$2"
+            local value="$3"
+            gh variable set "$name" --env "$scope" --body "$value"
+          }
+
+          for name in PRODUCTION_BASE_URL PRODUCTION_BACKEND_BASE_URL BACKEND_PRODUCTION_URL; do
+            set_repo_variable "$name" "$RENDER_URL"
+          done
+          for name in WEB_PRODUCTION_BASE_URL FRONTEND_PRODUCTION_URL; do
+            set_repo_variable "$name" "$WEB_URL"
+          done
+
+          for scope in Production production; do
+            if gh variable list --env "$scope" >/dev/null 2>&1; then
+              for name in PRODUCTION_BASE_URL PRODUCTION_BACKEND_BASE_URL BACKEND_PRODUCTION_URL; do
+                set_environment_variable "$scope" "$name" "$RENDER_URL"
+              done
+              for name in WEB_PRODUCTION_BASE_URL FRONTEND_PRODUCTION_URL; do
+                set_environment_variable "$scope" "$name" "$WEB_URL"
+              done
+            fi
+          done
+
       - name: Recreate backend variables and remove public override
         shell: bash
         run: |
@@ -56,6 +92,19 @@ jobs:
           done
           for environment in production preview development; do
             npx --yes vercel@latest env rm NEXT_PUBLIC_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
+          done
+
+      - name: Verify persisted Vercel environments are Render-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          for environment in production preview; do
+            env_file="$RUNNER_TEMP/vercel-${environment}.env"
+            npx --yes vercel@latest env pull "$env_file" --yes --environment="$environment" --token "$VERCEL_TOKEN"
+            grep -Eq '^BACKEND_API_BASE_URL="?https://sanad-backend-mcrj\.onrender\.com"?$' "$env_file"
+            ! grep -Eq '^NEXT_PUBLIC_API_BASE_URL=' "$env_file"
+            ! grep -Eqi 'ngrok|localhost|127\.0\.0\.1' "$env_file"
+            rm -f "$env_file"
           done
 
       - name: Await clean exact-SHA deployment and restore Production aliases
