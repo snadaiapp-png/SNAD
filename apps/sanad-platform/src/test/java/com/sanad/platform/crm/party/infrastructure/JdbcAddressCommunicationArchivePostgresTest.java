@@ -88,7 +88,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
         jdbc.update("""
                 INSERT INTO crm_accounts (id, tenant_id, version, display_name, normalized_name,
                     account_type, lifecycle_status, created_by, updated_by, created_at, updated_at)
-                VALUES (:id, :tenantId, 0, :name, :normalized, 'ACCOUNT', 'ACTIVE',
+                VALUES (:id, :tenantId, 0, :name, :normalized, 'BUSINESS', 'ACTIVE',
                     :actorId, :actorId, :now, :now)
                 """, new MapSqlParameterSource()
                 .addValue("id", accountId).addValue("tenantId", tenantId)
