@@ -79,3 +79,4 @@ mvn test
 ```
 
 Do not commit provider credentials, database passwords, JWT secrets, mailbox credentials or application passwords.
+
