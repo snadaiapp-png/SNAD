@@ -11,10 +11,11 @@ on:
 permissions:
   contents: read
   actions: write
+  statuses: write
 
 concurrency:
   group: migrate-vercel-backend-to-render
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   migrate:
@@ -38,6 +39,14 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
+
+      - name: Mark purge verification pending
+        shell: bash
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state='pending' \
+            -f context='vercel/ngrok-purge' \
+            -f description='Purging Vercel tunnel variables and verifying Render routing'
 
       - name: Validate protected configuration
         shell: bash
@@ -81,7 +90,6 @@ jobs:
               npx --yes vercel@latest env update BACKEND_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN"
           done
 
-          # Browser-visible backend overrides are forbidden in every Vercel scope.
           for environment in production preview development; do
             npx --yes vercel@latest env rm NEXT_PUBLIC_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
           done
@@ -157,3 +165,21 @@ jobs:
             echo '- Render health: **UP**'
             echo '- Vercel BFF routing: **PASS**'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Mark purge verification successful
+        if: success()
+        shell: bash
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state='success' \
+            -f context='vercel/ngrok-purge' \
+            -f description='Vercel Production and Preview are Render-only; tunnel variables removed'
+
+      - name: Mark purge verification failed
+        if: failure()
+        shell: bash
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state='failure' \
+            -f context='vercel/ngrok-purge' \
+            -f description='Vercel tunnel purge or Render routing verification failed'
