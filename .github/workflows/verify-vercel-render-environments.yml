@@ -1,0 +1,165 @@
+name: Verify Vercel Render Environments
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/verify-vercel-render-environments.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: verify-vercel-render-environments
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Purge, prove, deploy, and probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: Production
+    env:
+      APPROVED_BACKEND_URL: https://sanad-backend-mcrj.onrender.com
+      PRODUCTION_WEB_URL: https://snad-app.vercel.app
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      GH_TOKEN: ${{ github.token }}
+      CI: '1'
+
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Mark proof pending
+        shell: bash
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state='pending' \
+            -f context='vercel/render-env-proof' \
+            -f description='Verifying persisted Vercel environments and Render routing'
+
+      - name: Validate protected inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in VERCEL_TOKEN VERCEL_PROJECT_ID VERCEL_ORG_ID GH_TOKEN; do
+            test -n "${!name:-}" || { echo "::error::Missing protected input: $name"; exit 1; }
+            echo "::add-mask::${!name}"
+          done
+          test "$APPROVED_BACKEND_URL" = 'https://sanad-backend-mcrj.onrender.com'
+
+      - name: Link exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@latest pull --yes --environment=production --token "$VERCEL_TOKEN"
+
+      - name: Enforce Render-only variables
+        shell: bash
+        run: |
+          set -euo pipefail
+          for environment in production preview; do
+            printf '%s\n' "$APPROVED_BACKEND_URL" | \
+              npx --yes vercel@latest env update BACKEND_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN"
+          done
+          for environment in production preview development; do
+            npx --yes vercel@latest env rm NEXT_PUBLIC_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
+          done
+
+      - name: Prove persisted Production and Preview values
+        shell: bash
+        run: |
+          set -euo pipefail
+          for environment in production preview; do
+            env_file="$RUNNER_TEMP/vercel-${environment}.env"
+            npx --yes vercel@latest env pull "$env_file" --yes --environment="$environment" --token "$VERCEL_TOKEN"
+            python3 - "$env_file" "$APPROVED_BACKEND_URL" <<'PY'
+          import ast
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          expected = sys.argv[2]
+          values: dict[str, str] = {}
+
+          for raw_line in path.read_text(encoding="utf-8").splitlines():
+              line = raw_line.strip()
+              if not line or line.startswith("#") or "=" not in line:
+                  continue
+              key, raw_value = line.split("=", 1)
+              value = raw_value.strip()
+              if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                  try:
+                      value = ast.literal_eval(value)
+                  except (SyntaxError, ValueError):
+                      value = value[1:-1]
+              values[key.strip()] = value
+
+          actual = values.get("BACKEND_API_BASE_URL", "").strip()
+          if actual != expected:
+              raise SystemExit("BACKEND_API_BASE_URL is not the approved Render origin")
+          if "NEXT_PUBLIC_API_BASE_URL" in values:
+              raise SystemExit("NEXT_PUBLIC_API_BASE_URL still exists")
+          if "ngrok" in actual.lower():
+              raise SystemExit("Tunnel origin still present")
+          PY
+            rm -f "$env_file"
+          done
+
+      - name: Force clean Production deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          deployment_url="$(npx --yes vercel@latest deploy --prod --force --yes --token "$VERCEL_TOKEN" | tail -n 1)"
+          [[ "$deployment_url" == https://*.vercel.app ]]
+
+      - name: Verify live Render and BFF path
+        shell: bash
+        run: |
+          set -euo pipefail
+          render_code="$(curl --silent --show-error --max-time 30 -o "$RUNNER_TEMP/render.json" -w '%{http_code}' "$APPROVED_BACKEND_URL/actuator/health")"
+          test "$render_code" = '200'
+          jq -e '.status == "UP"' "$RUNNER_TEMP/render.json" >/dev/null
+
+          status_code='000'
+          auth_code='000'
+          for attempt in $(seq 1 36); do
+            status_code="$(curl --silent --show-error --max-time 30 -o "$RUNNER_TEMP/status.json" -w '%{http_code}' "$PRODUCTION_WEB_URL/api/system/backend-status" || true)"
+            auth_code="$(curl --silent --show-error --max-time 30 -o "$RUNNER_TEMP/auth.json" -w '%{http_code}' "$PRODUCTION_WEB_URL/api/platform/api/v1/auth/me" || true)"
+            if [ "$status_code" = '200' ] && [ "$auth_code" = '401' ] && \
+               jq -e '.configured == true and .reachable == true and .statusCode == 200 and has("targetHost") == false' "$RUNNER_TEMP/status.json" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+
+          test "$status_code" = '200'
+          test "$auth_code" = '401'
+          jq -e '.configured == true and .reachable == true and .statusCode == 200 and has("targetHost") == false' "$RUNNER_TEMP/status.json" >/dev/null
+          ! grep -Eqi 'ngrok|localhost|127\.0\.0\.1' "$RUNNER_TEMP/status.json" "$RUNNER_TEMP/auth.json"
+
+      - name: Mark proof successful
+        if: success()
+        shell: bash
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state='success' \
+            -f context='vercel/render-env-proof' \
+            -f description='Production and Preview persisted as Render-only; public override absent'
+
+      - name: Mark proof failed
+        if: failure()
+        shell: bash
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state='failure' \
+            -f context='vercel/render-env-proof' \
+            -f description='Persisted Vercel environment or live Render verification failed'
