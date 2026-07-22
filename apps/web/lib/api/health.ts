@@ -12,6 +12,7 @@ const MIN_HEALTH_TIMEOUT_MS = 1_000;
 const MAX_HEALTH_TIMEOUT_MS = 25_000;
 const SERVER_HEALTH_MAX_ATTEMPTS = 2;
 const SERVER_HEALTH_RETRY_DELAY_MS = 250;
+const PRODUCTION_BACKEND_URL = "https://sanad-backend-mcrj.onrender.com";
 
 function healthTimeoutMs(): number {
   const raw = process.env.BACKEND_REQUEST_TIMEOUT_MS || "";
@@ -41,6 +42,9 @@ function extractTargetHost(baseUrl: string): string | null {
 }
 
 function readServerBackendBaseUrl(): string {
+  // Production routing is immutable and must not depend on stale Vercel variables.
+  if (process.env.VERCEL_ENV === "production") return PRODUCTION_BACKEND_URL;
+
   // Try BACKEND_API_BASE_URL first (server-side env var), then fall back to
   // NEXT_PUBLIC_API_BASE_URL (which may also be set on Vercel to the backend URL).
   const raw = (process.env.BACKEND_API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "").trim();
