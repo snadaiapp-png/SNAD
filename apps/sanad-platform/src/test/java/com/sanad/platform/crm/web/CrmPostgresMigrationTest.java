@@ -85,6 +85,15 @@ class CrmPostgresMigrationTest {
             "crm_communication_policies", "crm_communication_methods",
             "crm_communication_method_history");
 
+    private static final List<String> CRM_008B_NEW_TABLES = List.of(
+            "crm_sales_teams", "crm_team_memberships",
+            "crm_queues", "crm_queue_memberships",
+            "crm_territories", "crm_territory_closure", "crm_territory_assignments",
+            "crm_assignment_rules", "crm_assignment_rule_versions",
+            "crm_ownership_history",
+            "crm_transfer_requests", "crm_transfer_steps",
+            "crm_assignment_rule_counters");
+
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
@@ -246,6 +255,34 @@ class CrmPostgresMigrationTest {
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 
+        // CRM-008B table scope assertions
+        // 13 new tables created + 1 existing table upgraded (crm_assignments) = 14 total scope
+        for (String table : CRM_008B_NEW_TABLES) {
+            assertThat(existingTables(jdbc)).contains(table);
+            assertThat(columnExists(jdbc, table, "tenant_id")).as(table + " tenant_id").isTrue();
+        }
+        // crm_assignments is an existing G1 table that was upgraded, not newly created
+        assertThat(existingTables(jdbc)).contains("crm_assignments");
+        // Verify owner columns were added to crm_assignments by V20260722_5
+        assertThat(columnExists(jdbc, "crm_assignments", "owner_type")).isTrue();
+        assertThat(columnExists(jdbc, "crm_assignments", "owner_user_id")).isTrue();
+        assertThat(columnExists(jdbc, "crm_assignments", "owner_team_id")).isTrue();
+        assertThat(columnExists(jdbc, "crm_assignments", "owner_queue_id")).isTrue();
+        assertThat(columnExists(jdbc, "crm_assignments", "record_type")).isTrue();
+        assertThat(columnExists(jdbc, "crm_assignments", "record_id")).isTrue();
+        // Verify owner columns were added to 6 CRM tables by V20260722_7
+        for (String table : List.of("crm_accounts", "crm_contacts", "crm_leads", "crm_opportunities", "crm_activities", "crm_tasks")) {
+            assertThat(columnExists(jdbc, table, "owner_team_id")).as(table + " owner_team_id").isTrue();
+            assertThat(columnExists(jdbc, table, "owner_queue_id")).as(table + " owner_queue_id").isTrue();
+        }
+        // Verify 17 CRM-008B capabilities were seeded
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.ASSIGNMENT.%' " +
+                "OR code LIKE 'CRM.TRANSFER.%' OR code LIKE 'CRM.TEAM.%' OR code LIKE 'CRM.QUEUE.%' " +
+                "OR code LIKE 'CRM.TERRITORY.%' OR code LIKE 'CRM.ASSIGNMENT_RULE.%' " +
+                "OR code = 'CRM.OWNERSHIP_HISTORY.READ'",
+                Long.class)).isEqualTo(17L);
+
         assertThat(constraintExists(jdbc, "fk_crm_contacts_account_same_tenant")).isTrue();
         assertThat(constraintExists(jdbc, "fk_crm_import_files_job_same_tenant")).isTrue();
         assertThat(constraintExists(jdbc, "fk_crm_import_errors_job_same_tenant")).isTrue();
@@ -303,7 +340,8 @@ class CrmPostgresMigrationTest {
                         CRM_TAGS_TABLES,
                         CRM_CUSTOMER_MASTER_TABLES,
                         CRM_CONTACT_RELATIONSHIP_TABLES,
-                        CRM_ADDRESS_COMMUNICATION_TABLES)
+                        CRM_ADDRESS_COMMUNICATION_TABLES,
+                        CRM_008B_NEW_TABLES)
                 .flatMap(List::stream)
                 .sorted()
                 .toList();
