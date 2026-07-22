@@ -53,6 +53,7 @@ Temporary `SANAD_SECURITY_BOOTSTRAP_*` and `CONTROL_PLANE_BOOTSTRAP_ENABLED` var
 4. The optional CI deployment stage runs only when `RENDER_AUTODEPLOY_ENABLED=true` and the protected `RENDER_API_KEY` is current.
 5. Every deployment must reach `live` and pass health, liveness, and readiness.
 6. `.github/workflows/migrate-vercel-backend-to-render.yml` sets Vercel Production `BACKEND_API_BASE_URL`, removes `NEXT_PUBLIC_API_BASE_URL`, forces a production deployment, and verifies the Vercel BFF route.
+7. Production web dependencies must pass the locked `npm audit --omit=dev --audit-level=high` gate and the complete Web CI build before release.
 
 This avoids dependence on local infrastructure and keeps GitHub, Render, and Vercel as the production release authorities. Rotate exposed Render or Vercel tokens before storing replacements in protected environments.
 
@@ -80,6 +81,8 @@ VERCEL_BACKEND_STATUS_STATUS_CODE_200: PASS
 VERCEL_BACKEND_STATUS_NO_TARGET_HOST: PASS
 VERCEL_BFF_AUTH_ME_UNAUTHENTICATED_HTTP_401: PASS
 VERCEL_PUBLIC_BACKEND_OVERRIDE_ABSENT: PASS
+WEB_PRODUCTION_DEPENDENCY_AUDIT: PASS
+WEB_CI_BUILD: PASS
 DATABASE_MIGRATIONS_VALID: PASS
 BOOTSTRAP_DISABLED: PASS
 ```
