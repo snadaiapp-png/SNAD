@@ -51,6 +51,29 @@ describe("checkBackendIntegration", () => {
     });
   });
 
+  it("ignores stale Production variables and probes the immutable Render origin", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("BACKEND_API_BASE_URL", "https://legacy-tunnel.example");
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      json: vi.fn().mockResolvedValue({ status: "UP" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await checkBackendIntegration(new ApiClient({ baseUrl: "/api/platform" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://sanad-backend-mcrj.onrender.com/actuator/health",
+      expect.objectContaining({ method: "GET", cache: "no-store" }),
+    );
+    expect(result).toMatchObject({
+      configured: true,
+      reachable: true,
+      statusCode: 200,
+      targetHost: "sanad-backend-mcrj.onrender.com",
+    });
+  });
+
   it("uses the private server backend URL when the production client uses the same-origin BFF", async () => {
     vi.stubEnv("BACKEND_API_BASE_URL", "https://sanad-backend-mcrj.onrender.com/");
     const fetchMock = vi.fn().mockResolvedValue({

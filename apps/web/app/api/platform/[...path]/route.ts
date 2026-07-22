@@ -12,7 +12,8 @@ const REFRESH_PATH = "/api/v1/auth/refresh";
 const LOGOUT_PATH = "/api/v1/auth/logout";
 const CHANGE_CREDENTIAL_PATH = "/api/v1/auth/change-credential";
 const COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
-const PRODUCTION_BACKEND_HOST = "sanad-backend-mcrj.onrender.com";
+const PRODUCTION_BACKEND_URL = "https://sanad-backend-mcrj.onrender.com";
+const PRODUCTION_BACKEND_HOST = new URL(PRODUCTION_BACKEND_URL).hostname;
 
 // BACKEND_REQUEST_TIMEOUT_MS is an end-to-end BFF budget, not a per-attempt timeout.
 // It bounds retries inside the serverless execution window and preserves deterministic failures.
@@ -73,6 +74,9 @@ function jsonError(
 }
 
 function backendBaseUrl(): string | null {
+  // Production routing is immutable: stale dashboard variables cannot re-enable a tunnel.
+  if (process.env.VERCEL_ENV === "production") return PRODUCTION_BACKEND_URL;
+
   const raw = process.env.BACKEND_API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "";
   if (!raw || raw.startsWith("/")) return null;
   try {

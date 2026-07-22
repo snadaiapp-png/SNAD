@@ -23,14 +23,17 @@ describe("Render-only Vercel production policy", () => {
     vi.restoreAllMocks();
   });
 
-  it("rejects a non-Render backend before any upstream request", async () => {
+  it("ignores a stale non-Render variable and uses the immutable Render origin", async () => {
     vi.stubEnv("BACKEND_API_BASE_URL", "https://legacy-tunnel.example");
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 401 }));
 
     const response = await GET(request(), context("api", "v1", "auth", "me"));
 
-    expect(response.status).toBe(503);
-    expect(fetch).not.toHaveBeenCalled();
+    expect(response.status).toBe(401);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
+      "https://sanad-backend-mcrj.onrender.com/api/v1/auth/me",
+    );
   });
 
   it("allows the approved Render backend", async () => {
