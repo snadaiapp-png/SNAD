@@ -65,13 +65,39 @@ jobs:
           deployment_url="$(npx --yes vercel@latest deploy --prod --force --yes --token "$VERCEL_TOKEN" | tail -n 1)"
           [[ "$deployment_url" == https://*.vercel.app ]]
 
-      - name: Verify live route
+      - name: Wake and verify Render
         shell: bash
         run: |
           set -euo pipefail
-          test "$(curl -sS --max-time 30 -o /tmp/status.json -w '%{http_code}' https://snad-app.vercel.app/api/system/backend-status)" = 200
+          render_code='000'
+          for attempt in $(seq 1 24); do
+            render_code="$(curl -sS --max-time 30 -o /tmp/render.json -w '%{http_code}' "$RENDER_URL/actuator/health" || true)"
+            if [ "$render_code" = '200' ] && jq -e '.status == "UP"' /tmp/render.json >/dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+          test "$render_code" = '200'
+          jq -e '.status == "UP"' /tmp/render.json >/dev/null
+
+      - name: Verify live Vercel BFF route
+        shell: bash
+        run: |
+          set -euo pipefail
+          status_code='000'
+          auth_code='000'
+          for attempt in $(seq 1 24); do
+            status_code="$(curl -sS --max-time 30 -o /tmp/status.json -w '%{http_code}' https://snad-app.vercel.app/api/system/backend-status || true)"
+            auth_code="$(curl -sS --max-time 30 -o /tmp/auth.json -w '%{http_code}' https://snad-app.vercel.app/api/platform/api/v1/auth/me || true)"
+            if [ "$status_code" = '200' ] && [ "$auth_code" = '401' ] && \
+               jq -e '.configured == true and .reachable == true and .statusCode == 200 and has("targetHost") == false' /tmp/status.json >/dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+          test "$status_code" = '200'
+          test "$auth_code" = '401'
           jq -e '.configured == true and .reachable == true and .statusCode == 200 and has("targetHost") == false' /tmp/status.json >/dev/null
-          test "$(curl -sS --max-time 30 -o /tmp/auth.json -w '%{http_code}' https://snad-app.vercel.app/api/platform/api/v1/auth/me)" = 401
           ! grep -Eqi 'ngrok|localhost|127\.0\.0\.1' /tmp/status.json /tmp/auth.json
 
       - name: Mark success
