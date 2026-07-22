@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       frontend_url:
-        description: 'Frontend URL (optional; repository variable is used by default)'
+        description: 'Frontend URL (optional; production Vercel URL is used by default)'
         required: false
         default: ''
         type: string
       backend_url:
-        description: 'Public HTTPS URL for the local backend tunnel'
+        description: 'Render backend URL override (optional)'
         required: false
         default: ''
         type: string
@@ -25,12 +25,12 @@ concurrency:
 
 jobs:
   smoke-test:
-    name: Frontend, BFF, and Backend Health Check
+    name: Vercel Frontend, BFF, and Render Backend Health Check
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       FRONTEND_URL: ${{ github.event.inputs.frontend_url || vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
-      BACKEND_URL: ${{ github.event.inputs.backend_url || vars.PRODUCTION_BASE_URL }}
+      BACKEND_URL: ${{ github.event.inputs.backend_url || vars.PRODUCTION_BACKEND_BASE_URL || 'https://sanad-backend-mcrj.onrender.com' }}
       ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
       ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
 
@@ -39,19 +39,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import os
-          from urllib.parse import urlparse
-
-          for name in ("FRONTEND_URL", "BACKEND_URL"):
-              value = os.environ.get(name, "").rstrip("/")
-              parsed = urlparse(value)
-              if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
-                  raise SystemExit(
-                      f"{name} must be a credential-free HTTPS origin. "
-                      "Set PRODUCTION_BASE_URL to the active local-backend tunnel URL."
-                  )
-          PY
+          test "${FRONTEND_URL%/}" = 'https://snad-app.vercel.app' || {
+            echo '::error::Frontend target must be the production Vercel origin.'
+            exit 1
+          }
+          test "${BACKEND_URL%/}" = 'https://sanad-backend-mcrj.onrender.com' || {
+            echo '::error::Backend target must be the production Render origin.'
+            exit 1
+          }
 
       - name: Run deployment smoke checks
         shell: bash
@@ -72,7 +67,6 @@ jobs:
             actual=$(curl --silent --show-error --location \
               --connect-timeout 10 --max-time 30 \
               --output /dev/null --write-out '%{http_code}' \
-              --header 'ngrok-skip-browser-warning: any-value' \
               --request "$method" "$url" "$@" || true)
             actual="${actual:-000}"
             if [ "$actual" = "$expected" ]; then
@@ -84,7 +78,7 @@ jobs:
             fi
           }
 
-          echo "=== SNAD Frontend/Local-Backend Smoke Test ==="
+          echo "=== SNAD Vercel/Render Smoke Test ==="
           check_code "Frontend root" "200" "GET" "$FRONTEND_URL/"
           check_code "Control Plane page" "200" "GET" "$FRONTEND_URL/control-plane"
           check_code "Backend health" "200" "GET" "$BACKEND_URL/actuator/health"
@@ -106,7 +100,13 @@ jobs:
               data = json.loads(os.environ.get("STATUS_JSON", ""))
           except json.JSONDecodeError:
               sys.exit(1)
-          sys.exit(0 if data.get("configured") is True and data.get("reachable") is True else 1)
+          valid = (
+              data.get("configured") is True
+              and data.get("reachable") is True
+              and data.get("statusCode") == 200
+              and "targetHost" not in data
+          )
+          sys.exit(0 if valid else 1)
           PY
           then
             echo "Frontend backend-status: PASS"
