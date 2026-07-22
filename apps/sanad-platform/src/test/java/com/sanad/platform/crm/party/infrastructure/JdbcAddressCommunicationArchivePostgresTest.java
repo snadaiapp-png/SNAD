@@ -97,12 +97,13 @@ class JdbcAddressCommunicationArchivePostgresTest {
 
         // Create contact
         jdbc.update("""
-                INSERT INTO crm_contacts (id, tenant_id, version, display_name, normalized_name,
+                INSERT INTO crm_contacts (id, tenant_id, version, given_name, display_name, normalized_name,
                     lifecycle_status, created_by, updated_by, created_at, updated_at)
-                VALUES (:id, :tenantId, 0, :name, :normalized, 'ACTIVE',
+                VALUES (:id, :tenantId, 0, :givenName, :name, :normalized, 'ACTIVE',
                     :actorId, :actorId, :now, :now)
                 """, new MapSqlParameterSource()
                 .addValue("id", contactId).addValue("tenantId", tenantId)
+                .addValue("givenName", "CRM-007")
                 .addValue("name", "CRM-007 R7 Contact").addValue("normalized", "crm-007-r7-contact")
                 .addValue("actorId", actorId).addValue("now", ts));
 
