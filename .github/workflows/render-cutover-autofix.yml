@@ -1,9 +1,9 @@
 name: One-shot Render Cutover Cleanup
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/render-only-production-routing
+      - main
     paths:
       - .github/workflows/render-cutover-autofix.yml
 
@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   cleanup:
+    if: github.head_ref == 'fix/render-only-production-routing'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout cutover branch
@@ -41,10 +42,7 @@ jobs:
                   continue
               text = path.read_text(encoding='utf-8')
               text = text.replace(legacy_expression, render_literal)
-              lines = [
-                  line for line in text.splitlines()
-                  if 'ngrok-skip-browser-warning' not in line
-              ]
+              lines = [line for line in text.splitlines() if 'ngrok-skip-browser-warning' not in line]
               text = '\n'.join(lines) + '\n'
               text = text.replace('local backend tunnel', 'Render backend')
               text = text.replace('local-backend tunnel', 'Render backend')
@@ -71,9 +69,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add .github/workflows
-          if git diff --cached --quiet; then
-            echo 'No additional cleanup was required.'
-            exit 0
-          fi
           git commit -m 'fix(ci): remove legacy production tunnel references'
           git push origin HEAD:fix/render-only-production-routing
