@@ -11,9 +11,10 @@
 | Tenant B isolation | HTTP 404 |
 | Vercel deployment | dpl_FtG7Pj4MUBNjEFjahPopscqKn7b9 |
 | Render deployment | dep-d9gartok1i2s7388lprg |
-| Render image digest | not-returned-by-api |
+| Render image | ghcr.io/snadaiapp-png/snad-backend:4cedf631a3e61f39039615d93cd03c3111213eb9 |
+| Render image digest | not returned by the CRM-G1 API snapshot |
 | Workflow | https://github.com/snadaiapp-png/SNAD/actions/runs/29917230857 |
 | Artifact | https://github.com/snadaiapp-png/SNAD/actions/runs/29917230857/artifacts/8528404489 |
 | Artifact digest | 7c714b35ed8d64824dec15561615dc5176d4688f67df03a6ca51612098baaedb |
 
-CRM-007 remains open until its final workflow and evidence PR both succeed.
+CRM-007 passed subsequently in workflow run 29917314330 on the same release SHA; its evidence is tracked separately.
