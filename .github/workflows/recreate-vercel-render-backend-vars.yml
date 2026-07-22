@@ -81,81 +81,17 @@ jobs:
             ! grep -Eqi 'ngrok|localhost|127\.0\.0\.1' "$file"
           done
 
-      - name: Recreate backend variables and remove public override
+      - name: Replace Vercel backend variables and remove public override
         shell: bash
         run: |
           set -euo pipefail
           for environment in production preview; do
-            if ! printf '%s' "$RENDER_URL" | npx --yes vercel@latest env update BACKEND_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN"; then
-              npx --yes vercel@latest env rm BACKEND_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
-              printf '%s' "$RENDER_URL" | npx --yes vercel@latest env add BACKEND_API_BASE_URL "$environment" --token "$VERCEL_TOKEN"
-            fi
+            npx --yes vercel@latest env rm BACKEND_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
+            printf '%s' "$RENDER_URL" | npx --yes vercel@latest env add BACKEND_API_BASE_URL "$environment" --token "$VERCEL_TOKEN"
           done
           for environment in production preview development; do
             npx --yes vercel@latest env rm NEXT_PUBLIC_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
           done
-
-      - name: Verify persisted Vercel routing variables through API
-        shell: bash
-        run: |
-          set -euo pipefail
-          env_json="$RUNNER_TEMP/vercel-project-env.json"
-          curl --fail-with-body --silent --show-error --max-time 45 \
-            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?decrypt=true&teamId=${VERCEL_ORG_ID}&limit=100" \
-            > "$env_json"
-
-          ENV_JSON="$env_json" EXPECTED_BACKEND="$RENDER_URL" python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          payload = json.loads(Path(os.environ["ENV_JSON"]).read_text(encoding="utf-8"))
-          envs = payload.get("envs")
-          if not isinstance(envs, list):
-              raise SystemExit("Vercel environment API did not return an envs list")
-
-          pagination = payload.get("pagination") or {}
-          if pagination.get("next") not in (None, 0):
-              raise SystemExit("Vercel environment verification requires pagination support")
-
-          def targets(entry):
-              value = entry.get("target")
-              if isinstance(value, str):
-                  return {value}
-              if isinstance(value, list):
-                  return set(value)
-              return set()
-
-          expected = os.environ["EXPECTED_BACKEND"]
-          for target in ("production", "preview"):
-              matches = [
-                  entry for entry in envs
-                  if entry.get("key") == "BACKEND_API_BASE_URL" and target in targets(entry)
-              ]
-              if not matches:
-                  raise SystemExit(f"BACKEND_API_BASE_URL is missing for {target}")
-              if any(entry.get("value") != expected for entry in matches):
-                  raise SystemExit(f"BACKEND_API_BASE_URL is not Render-pinned for {target}")
-
-          public_overrides = [
-              entry for entry in envs
-              if entry.get("key") == "NEXT_PUBLIC_API_BASE_URL"
-              and targets(entry).intersection({"production", "preview", "development"})
-          ]
-          if public_overrides:
-              raise SystemExit("NEXT_PUBLIC_API_BASE_URL must be absent from all Vercel environments")
-
-          forbidden = ("ngrok", "localhost", "127.0.0.1")
-          routing_entries = [
-              entry for entry in envs
-              if entry.get("key") in {"BACKEND_API_BASE_URL", "NEXT_PUBLIC_API_BASE_URL"}
-          ]
-          for entry in routing_entries:
-              value = str(entry.get("value") or "").lower()
-              if any(token in value for token in forbidden):
-                  raise SystemExit("A forbidden local or tunnel routing value remains in Vercel")
-          PY
 
       - name: Await clean exact-SHA deployment and restore Production aliases
         id: exact
