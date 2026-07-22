@@ -18,13 +18,13 @@ No local server, tunnel, alternate public origin, or direct-browser backend path
 
 | Variable | Required | Purpose |
 |---|---:|---|
-| `BACKEND_API_BASE_URL` | Yes | Server-only Render origin used by the Next.js BFF; must equal the approved Render URL |
+| `BACKEND_API_BASE_URL` | Managed compatibility value | Must equal the approved Render URL; Production application policy still resolves Render directly so a stale dashboard value cannot restore a tunnel |
 | `BACKEND_REQUEST_TIMEOUT_MS` | No | Bounded upstream timeout; default `15000` |
 | `NEXT_PUBLIC_API_BASE_URL` | Forbidden in Production | Local development override only; must be absent from Vercel Production |
 
 Production frontend: `https://snad-app.vercel.app`
 
-Browser API requests use `/api/platform/api/v1/**`. Refresh tokens remain in Secure HttpOnly first-party cookies managed by the Vercel BFF.
+Browser API requests use `/api/platform/api/v1/**`. Refresh tokens remain in Secure HttpOnly first-party cookies managed by the Vercel BFF. In Vercel Production, both the BFF proxy and integration health probe resolve the immutable approved Render origin before reading environment overrides.
 
 ## 3. Backend — Render
 
@@ -81,6 +81,7 @@ VERCEL_BACKEND_STATUS_STATUS_CODE_200: PASS
 VERCEL_BACKEND_STATUS_NO_TARGET_HOST: PASS
 VERCEL_BFF_AUTH_ME_UNAUTHENTICATED_HTTP_401: PASS
 VERCEL_PUBLIC_BACKEND_OVERRIDE_ABSENT: PASS
+VERCEL_STALE_BACKEND_VARIABLE_CANNOT_OVERRIDE_RENDER: PASS
 WEB_PRODUCTION_DEPENDENCY_AUDIT: PASS
 WEB_CI_BUILD: PASS
 DATABASE_MIGRATIONS_VALID: PASS
