@@ -41,7 +41,10 @@ class CrmPostgresMigrationTest {
     private static final String BUSINESS_PROCESS_RBAC_VERSION = "20260717.5";
     private static final String CRM_G1_EXTENSION_VERSION = "20260717.6";
     private static final String CRM_ADDRESS_COMMUNICATION_VERSION = "20260717.100";
-    private static final String CRM_ADDRESS_COMMUNICATION_RBAC_VERSION = "20260722.9";
+    private static final String CRM_ADDRESS_COMMUNICATION_RBAC_VERSION = "20260717.101";
+    private static final String VENDOR_RECONCILE_G1_VERSION = "20260718.1";
+    private static final String VENDOR_RECONCILE_CONTACT_REL_VERSION = "20260721.1";
+    private static final String VENDOR_RECONCILE_IDEMPOTENCY_VERSION = "20260721.2";
     private static final String CRM_008B_SALES_TEAMS_VERSION = "20260722.1";
     private static final String CRM_008B_QUEUES_VERSION = "20260722.2";
     private static final String CRM_008B_TERRITORIES_VERSION = "20260722.3";
@@ -130,6 +133,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_G1_EXTENSION_VERSION),
                         MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_VERSION),
                         MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_RBAC_VERSION),
+                        MigrationVersion.fromVersion(VENDOR_RECONCILE_G1_VERSION),
+                        MigrationVersion.fromVersion(VENDOR_RECONCILE_CONTACT_REL_VERSION),
+                        MigrationVersion.fromVersion(VENDOR_RECONCILE_IDEMPOTENCY_VERSION),
                         MigrationVersion.fromVersion(CRM_008B_SALES_TEAMS_VERSION),
                         MigrationVersion.fromVersion(CRM_008B_QUEUES_VERSION),
                         MigrationVersion.fromVersion(CRM_008B_TERRITORIES_VERSION),
@@ -176,6 +182,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_G1_EXTENSION_VERSION),
                         MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_VERSION),
                         MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_RBAC_VERSION),
+                        MigrationVersion.fromVersion(VENDOR_RECONCILE_G1_VERSION),
+                        MigrationVersion.fromVersion(VENDOR_RECONCILE_CONTACT_REL_VERSION),
+                        MigrationVersion.fromVersion(VENDOR_RECONCILE_IDEMPOTENCY_VERSION),
                         MigrationVersion.fromVersion(CRM_008B_SALES_TEAMS_VERSION),
                         MigrationVersion.fromVersion(CRM_008B_QUEUES_VERSION),
                         MigrationVersion.fromVersion(CRM_008B_TERRITORIES_VERSION),
@@ -220,6 +229,9 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_G1_EXTENSION_VERSION, "SQL", "create crm g1 extension tables");
         assertMigration(jdbc, CRM_ADDRESS_COMMUNICATION_VERSION, "SQL", "crm addresses communication methods");
         assertMigration(jdbc, CRM_ADDRESS_COMMUNICATION_RBAC_VERSION, "SQL", "crm addresses communication capabilities");
+        assertMigration(jdbc, VENDOR_RECONCILE_G1_VERSION, "SQL", "reconcile crm g1 after baseline gap");
+        assertMigration(jdbc, VENDOR_RECONCILE_CONTACT_REL_VERSION, "SQL", "reconcile crm contact relationship model after baseline gap");
+        assertMigration(jdbc, VENDOR_RECONCILE_IDEMPOTENCY_VERSION, "SQL", "reconcile crm idempotency records after baseline gap");
         assertMigration(jdbc, CRM_008B_SALES_TEAMS_VERSION, "SQL", "create crm sales teams");
         assertMigration(jdbc, CRM_008B_QUEUES_VERSION, "SQL", "create crm queues");
         assertMigration(jdbc, CRM_008B_TERRITORIES_VERSION, "SQL", "create crm territories");
@@ -300,7 +312,7 @@ class CrmPostgresMigrationTest {
     private Flyway flyway(MigrationVersion target) {
         var configuration = Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-                .locations("classpath:db/migration")
+                .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true);
