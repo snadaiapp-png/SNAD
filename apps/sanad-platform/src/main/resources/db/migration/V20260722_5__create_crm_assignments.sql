@@ -49,19 +49,19 @@ ALTER TABLE crm_assignments ADD CONSTRAINT fk_assignments_rules
     REFERENCES crm_assignment_rules(tenant_id, id) ON DELETE SET NULL;
 
 -- Index for the new ownership model queries
-CREATE INDEX idx_assignments_tenant_record_new
+CREATE INDEX idx_owr_assignments_record
     ON crm_assignments (tenant_id, record_type, record_id, status, effective_from DESC);
 
-CREATE INDEX idx_assignments_tenant_owner_user_new
+CREATE INDEX idx_owr_assignments_owner_user
     ON crm_assignments (tenant_id, owner_user_id, status);
 
-CREATE INDEX idx_assignments_tenant_owner_team_new
+CREATE INDEX idx_owr_assignments_owner_team
     ON crm_assignments (tenant_id, owner_team_id, status);
 
-CREATE INDEX idx_assignments_tenant_owner_queue_new
+CREATE INDEX idx_owr_assignments_owner_queue
     ON crm_assignments (tenant_id, owner_queue_id, status);
 
-CREATE INDEX idx_assignments_tenant_correlation_new
+CREATE INDEX idx_owr_assignments_correlation
     ON crm_assignments (tenant_id, correlation_id);
 
 -- -----------------------------------------------------------------------
