@@ -6,21 +6,21 @@
 Browser → Vercel Next.js BFF → Render sanad-backend → Supabase PostgreSQL
 ```
 
-The production backend is hosted on Render at:
+The production backend is hosted exclusively on Render at:
 
 ```text
 https://sanad-backend-mcrj.onrender.com
 ```
 
-The local Windows server and ngrok are development-only and are not part of the production request path.
+No local server, tunnel, alternate public origin, or direct-browser backend path is permitted in production.
 
 ## 2. Frontend — Vercel
 
 | Variable | Required | Purpose |
 |---|---:|---|
-| `BACKEND_API_BASE_URL` | Yes | Server-only Render origin used by the Next.js BFF |
+| `BACKEND_API_BASE_URL` | Yes | Server-only Render origin used by the Next.js BFF; must equal the approved Render URL |
 | `BACKEND_REQUEST_TIMEOUT_MS` | No | Bounded upstream timeout; default `15000` |
-| `NEXT_PUBLIC_API_BASE_URL` | No | Direct-browser development override; normally unset in production |
+| `NEXT_PUBLIC_API_BASE_URL` | Forbidden in Production | Local development override only; must be absent from Vercel Production |
 
 Production frontend: `https://snad-app.vercel.app`
 
@@ -52,8 +52,9 @@ Temporary `SANAD_SECURITY_BOOTSTRAP_*` and `CONTROL_PLANE_BOOTSTRAP_ENABLED` var
 3. Render deploys an immutable commit tag through its API; Render never builds the repository.
 4. The optional CI deployment stage runs only when `RENDER_AUTODEPLOY_ENABLED=true` and the protected `RENDER_API_KEY` is current.
 5. Every deployment must reach `live` and pass health, liveness, and readiness.
+6. `.github/workflows/migrate-vercel-backend-to-render.yml` sets Vercel Production `BACKEND_API_BASE_URL`, removes `NEXT_PUBLIC_API_BASE_URL`, forces a production deployment, and verifies the Vercel BFF route.
 
-This avoids dependence on Render build-pipeline minutes and keeps GitHub as the release authority. Rotate exposed Render tokens before storing a replacement in the GitHub `Production` environment.
+This avoids dependence on local infrastructure and keeps GitHub, Render, and Vercel as the production release authorities. Rotate exposed Render or Vercel tokens before storing replacements in protected environments.
 
 ## 5. Local development
 
@@ -64,7 +65,7 @@ BACKEND_API_BASE_URL=http://127.0.0.1:8080
 BACKEND_REQUEST_TIMEOUT_MS=15000
 ```
 
-Local development may use localhost or a temporary tunnel, but those values must not be copied into Vercel Production.
+Local development uses direct localhost access only. Local values must never be copied into Vercel Production.
 
 ## 6. Production verification gate
 
@@ -75,7 +76,10 @@ RENDER_READINESS_HTTP_200_UP: PASS
 VERCEL_FRONTEND_HTTP_200: PASS
 VERCEL_BACKEND_STATUS_CONFIGURED_TRUE: PASS
 VERCEL_BACKEND_STATUS_REACHABLE_TRUE: PASS
+VERCEL_BACKEND_STATUS_STATUS_CODE_200: PASS
+VERCEL_BACKEND_STATUS_NO_TARGET_HOST: PASS
 VERCEL_BFF_AUTH_ME_UNAUTHENTICATED_HTTP_401: PASS
+VERCEL_PUBLIC_BACKEND_OVERRIDE_ABSENT: PASS
 DATABASE_MIGRATIONS_VALID: PASS
 BOOTSTRAP_DISABLED: PASS
 ```
@@ -87,4 +91,4 @@ An unauthenticated `401` from `/api/v1/auth/me` is expected and proves the authe
 - Keep Render, Vercel, database, JWT, and notification credentials out of Git.
 - Rotate any token disclosed in chat, logs, screenshots, or shell history.
 - Do not print authentication tokens in CI or application logs.
-- Keep `BACKEND_API_BASE_URL` credential-free and HTTPS-only in production.
+- Keep `BACKEND_API_BASE_URL` credential-free, HTTPS-only, and pinned to the approved Render origin in production.
