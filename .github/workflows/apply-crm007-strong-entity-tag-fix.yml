@@ -1,0 +1,126 @@
+name: Apply CRM-007 Strong Entity Tag Fix
+
+on:
+  push:
+    branches:
+      - fix/crm007-strong-entity-tag-transport
+    paths:
+      - .github/workflows/apply-crm007-strong-entity-tag-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/crm007-strong-entity-tag-transport
+          fetch-depth: 0
+
+      - name: Apply focused transport correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_one(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          route = "apps/web/app/api/platform/[...path]/route.ts"
+          replace_one(
+              route,
+              'const REFRESH_HEADER = "x-sanad-refresh-token";\n',
+              'const REFRESH_HEADER = "x-sanad-refresh-token";\nconst ENTITY_TAG_HEADER = "x-snad-entity-tag";\n',
+          )
+          replace_one(
+              route,
+              '''  for (const name of ["content-type", "x-correlation-id", "etag"]) {\n    const value = upstream.headers.get(name);\n    if (value) headers.set(name, value);\n  }\n  return headers;\n''',
+              '''  for (const name of ["content-type", "x-correlation-id"]) {\n    const value = upstream.headers.get(name);\n    if (value) headers.set(name, value);\n  }\n  const upstreamEtag = upstream.headers.get("etag");\n  if (upstreamEtag) {\n    // Keep the standard representation ETag for HTTP clients, and expose the\n    // backend's byte-exact domain validator through a non-transforming header.\n    // CDNs may weaken ETag after compression (for example Brotli), but must not\n    // alter X-SNAD-Entity-Tag, which pairs with X-SNAD-If-Match.\n    headers.set("etag", upstreamEtag);\n    headers.set(ENTITY_TAG_HEADER, upstreamEtag);\n  }\n  return headers;\n''',
+          )
+
+          tests = "apps/web/app/api/platform/[...path]/route.header-contract.test.ts"
+          replacements = [
+              (
+                  '      expect(response.headers.get("etag")).toBe(\'"account-addr-1-v1-a1b2c3d4"\');\n',
+                  '      expect(response.headers.get("etag")).toBe(\'"account-addr-1-v1-a1b2c3d4"\');\n      expect(response.headers.get("x-snad-entity-tag")).toBe(\'"account-addr-1-v1-a1b2c3d4"\');\n',
+              ),
+              (
+                  '      expect(response.headers.get("etag")).toBe(\'"account-addr-1-v2-e5f6g7h8"\');\n',
+                  '      expect(response.headers.get("etag")).toBe(\'"account-addr-1-v2-e5f6g7h8"\');\n      expect(response.headers.get("x-snad-entity-tag")).toBe(\'"account-addr-1-v2-e5f6g7h8"\');\n',
+              ),
+              (
+                  '      expect(response.headers.get("etag")).toBe(\'W/"12"\');\n',
+                  '      expect(response.headers.get("etag")).toBe(\'W/"12"\');\n      expect(response.headers.get("x-snad-entity-tag")).toBe(\'W/"12"\');\n',
+              ),
+              (
+                  '      expect(response.headers.get("etag")).toBeNull();\n',
+                  '      expect(response.headers.get("etag")).toBeNull();\n      expect(response.headers.get("x-snad-entity-tag")).toBeNull();\n',
+              ),
+              (
+                  '      expect(response.headers.get("etag")).toBe(\'"addr-1-v1-abc12345"\');\n      expect(response.headers.get("x-correlation-id")).toBe("trace-xyz");\n',
+                  '      expect(response.headers.get("etag")).toBe(\'"addr-1-v1-abc12345"\');\n      expect(response.headers.get("x-snad-entity-tag")).toBe(\'"addr-1-v1-abc12345"\');\n      expect(response.headers.get("x-correlation-id")).toBe("trace-xyz");\n',
+              ),
+          ]
+          for old, new in replacements:
+              replace_one(tests, old, new)
+
+          e2e = "apps/web/e2e/crm-007-production-closure.spec.ts"
+          replace_one(
+              e2e,
+              '''    const addressId = addressBody.data?.id;\n    const addressEtag = addressResponse.headers().etag;\n    expect(addressId).toBeTruthy();\n    expect(addressEtag).toBeTruthy();\n''',
+              '''    const addressId = addressBody.data?.id;\n    const addressHeaders = addressResponse.headers();\n    const addressRepresentationEtag = addressHeaders.etag;\n    const addressEtag = addressHeaders["x-snad-entity-tag"];\n    expect(addressId).toBeTruthy();\n    expect(addressRepresentationEtag).toBeTruthy();\n    expect(addressEtag).toBeTruthy();\n    expect(addressEtag?.startsWith("W/")).toBe(false);\n''',
+          )
+          replace_one(
+              e2e,
+              '''    expect(replayResponse.status()).toBe(201);\n    expect((await replayResponse.json()).data?.id).toBe(addressId);\n''',
+              '''    expect(replayResponse.status()).toBe(201);\n    expect((await replayResponse.json()).data?.id).toBe(addressId);\n    expect(replayResponse.headers()["x-snad-entity-tag"]).toBe(addressEtag);\n''',
+          )
+          replace_one(
+              e2e,
+              '''    const updatedAddressEtag = updateResponse.headers().etag;\n    expect(updatedAddressEtag).toBeTruthy();\n''',
+              '''    const updatedAddressHeaders = updateResponse.headers();\n    const updatedAddressRepresentationEtag = updatedAddressHeaders.etag;\n    const updatedAddressEtag = updatedAddressHeaders["x-snad-entity-tag"];\n    expect(updatedAddressRepresentationEtag).toBeTruthy();\n    expect(updatedAddressEtag).toBeTruthy();\n    expect(updatedAddressEtag?.startsWith("W/")).toBe(false);\n''',
+          )
+          replace_one(
+              e2e,
+              '''    const communicationMethodId = communicationBody.data?.id;\n    const communicationEtag = communicationResponse.headers().etag;\n    expect(communicationMethodId).toBeTruthy();\n    expect(communicationEtag).toBeTruthy();\n''',
+              '''    const communicationMethodId = communicationBody.data?.id;\n    const communicationHeaders = communicationResponse.headers();\n    const communicationRepresentationEtag = communicationHeaders.etag;\n    const communicationEtag = communicationHeaders["x-snad-entity-tag"];\n    expect(communicationMethodId).toBeTruthy();\n    expect(communicationRepresentationEtag).toBeTruthy();\n    expect(communicationEtag).toBeTruthy();\n    expect(communicationEtag?.startsWith("W/")).toBe(false);\n''',
+          )
+
+          marker = "apps/web/CRM007_RELEASE_MARKER.md"
+          replace_one(
+              marker,
+              'Release generation: `crm-current-main-exact-sha-closure-v8`.\n',
+              'Release generation: `crm-current-main-exact-sha-closure-v9`.\n',
+          )
+          replace_one(
+              marker,
+              '- PR #680 and PR #681 removed tunnel routing and made Render the immutable Vercel Production upstream.\n',
+              '- PR #680 and PR #681 removed tunnel routing and made Render the immutable Vercel Production upstream.\n- The BFF now carries the backend domain validator in `X-SNAD-Entity-Tag`, paired with `X-SNAD-If-Match`, so CDN compression cannot weaken optimistic-concurrency identity.\n',
+          )
+          PY
+
+          git diff --check
+          git status --short
+
+      - name: Commit focused correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            'apps/web/app/api/platform/[...path]/route.ts' \
+            'apps/web/app/api/platform/[...path]/route.header-contract.test.ts' \
+            'apps/web/e2e/crm-007-production-closure.spec.ts' \
+            'apps/web/CRM007_RELEASE_MARKER.md'
+          git commit -m 'fix(bff): preserve strong CRM entity tag across CDN transforms'
+          git push origin HEAD:fix/crm007-strong-entity-tag-transport
