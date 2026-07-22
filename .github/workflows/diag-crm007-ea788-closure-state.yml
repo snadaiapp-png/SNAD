@@ -26,12 +26,14 @@ jobs:
           query_workflow() {
             local workflow="$1"
             local output="$2"
-            gh api --paginate \
+            local raw="$RUNNER_TEMP/crm007-diag/${workflow}.raw.json"
+            gh api \
               -H 'Accept: application/vnd.github+json' \
-              "/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?branch=main&per_page=50" \
-              --jq --arg sha "$RELEASE_SHA" \
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?branch=main&per_page=100" \
+              > "$raw"
+            jq --arg sha "$RELEASE_SHA" \
               '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.created_at) | reverse' \
-              > "$output"
+              "$raw" > "$output"
           }
 
           query_workflow crm007-current-main-closure-trigger.yml "$RUNNER_TEMP/crm007-diag/trigger.json"
