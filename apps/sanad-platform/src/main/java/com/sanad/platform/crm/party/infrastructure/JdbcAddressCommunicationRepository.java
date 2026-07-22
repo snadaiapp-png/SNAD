@@ -165,7 +165,7 @@ public class JdbcAddressCommunicationRepository implements AddressCommunicationR
         int updated = jdbc.update("UPDATE crm_party_addresses SET status=:status," +
                         "primary_address=CASE WHEN :status='ARCHIVED' THEN FALSE ELSE primary_address END," +
                         "primary_slot=CASE WHEN :status='ARCHIVED' THEN NULL ELSE primary_slot END," +
-                        "archived_at=CASE WHEN :status='ARCHIVED' THEN :now ELSE NULL END," +
+                        "archived_at=CASE WHEN :status='ARCHIVED' THEN CAST(:now AS TIMESTAMP) ELSE NULL END," +
                         "updated_by=:actorId,updated_at=:now,version=version+1 " +
                         "WHERE tenant_id=:tenantId AND id=:id AND version=:expectedVersion",
                 p().addValue("tenantId", tenantId).addValue("id", addressId)
@@ -330,7 +330,7 @@ public class JdbcAddressCommunicationRepository implements AddressCommunicationR
         int updated = jdbc.update("UPDATE crm_communication_methods SET status=:status," +
                         "preferred=CASE WHEN :status='ARCHIVED' THEN FALSE ELSE preferred END," +
                         "preferred_slot=CASE WHEN :status='ARCHIVED' THEN NULL ELSE preferred_slot END," +
-                        "archived_at=CASE WHEN :status='ARCHIVED' THEN :now ELSE NULL END," +
+                        "archived_at=CASE WHEN :status='ARCHIVED' THEN CAST(:now AS TIMESTAMP) ELSE NULL END," +
                         "updated_by=:actorId,updated_at=:now,version=version+1 " +
                         "WHERE tenant_id=:tenantId AND id=:id AND version=:expectedVersion",
                 p().addValue("tenantId", tenantId).addValue("id", communicationMethodId)
