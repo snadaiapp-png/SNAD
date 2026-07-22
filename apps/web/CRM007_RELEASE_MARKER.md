@@ -2,7 +2,7 @@
 
 This tracked marker forces the Vercel project rooted at `apps/web` to build the same merge SHA that publishes and deploys the corrected backend image.
 
-Release generation: `crm-current-main-exact-sha-closure-v8`.
+Release generation: `crm-current-main-exact-sha-closure-v9`.
 
 Authoritative correction:
 
@@ -15,6 +15,7 @@ Authoritative correction:
 - PR #675 introduced the Vercel-safe `X-SNAD-If-Match` transport while preserving backend `If-Match` semantics.
 - PR #679 fixed PostgreSQL archive status writes by explicitly casting the `archived_at` CASE parameter.
 - PR #680 and PR #681 removed tunnel routing and made Render the immutable Vercel Production upstream.
+- The BFF now carries the backend domain validator in `X-SNAD-Entity-Tag`, paired with `X-SNAD-If-Match`, so CDN compression cannot weaken optimistic-concurrency identity.
 - Current-main closure must execute only after Vercel Production reports the exact merge SHA as `READY`.
 
 Exact-SHA closure requirements:
