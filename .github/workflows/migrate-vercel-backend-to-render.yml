@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: migrate-vercel-backend-to-render
@@ -28,6 +29,7 @@ jobs:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      GH_TOKEN: ${{ github.token }}
       CI: '1'
 
     steps:
@@ -41,12 +43,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for name in VERCEL_TOKEN VERCEL_PROJECT_ID VERCEL_TEAM_ID; do
-            test -n "${!name:-}" || { echo "::error::Missing Production secret: $name"; exit 1; }
+          for name in VERCEL_TOKEN VERCEL_PROJECT_ID VERCEL_TEAM_ID GH_TOKEN; do
+            test -n "${!name:-}" || { echo "::error::Missing Production secret or token: $name"; exit 1; }
             echo "::add-mask::${!name}"
           done
           test "$PRODUCTION_WEB_BASE_URL" = 'https://snad-app.vercel.app'
           test "$PRODUCTION_BACKEND_BASE_URL" = 'https://sanad-backend-mcrj.onrender.com'
+
+      - name: Eliminate legacy GitHub backend variables
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Keep legacy variable names safe for older/manual workflows: every
+          # production backend variable resolves to the same approved Render origin.
+          gh variable set PRODUCTION_BASE_URL --body "$PRODUCTION_BACKEND_BASE_URL"
+          gh variable set PRODUCTION_BACKEND_BASE_URL --body "$PRODUCTION_BACKEND_BASE_URL"
+
+          for scope in Production production; do
+            if gh variable list --env "$scope" >/dev/null 2>&1; then
+              gh variable set PRODUCTION_BASE_URL --env "$scope" --body "$PRODUCTION_BACKEND_BASE_URL"
+              gh variable set PRODUCTION_BACKEND_BASE_URL --env "$scope" --body "$PRODUCTION_BACKEND_BASE_URL"
+            fi
+          done
 
       - name: Link exact Vercel project
         shell: bash
@@ -116,6 +135,7 @@ jobs:
             echo "- Release SHA: \`${GITHUB_SHA}\`"
             echo "- Deployment ID: \`${{ steps.deploy.outputs.deployment_id }}\`"
             echo "- Deployment URL: \`${{ steps.deploy.outputs.deployment_url }}\`"
+            echo '- Legacy GitHub backend variables: **Render-pinned**'
             echo '- Backend origin: **Render only**'
             echo '- Public browser override: **removed**'
             echo '- Render health: **UP**'
