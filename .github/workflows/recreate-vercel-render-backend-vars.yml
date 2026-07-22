@@ -58,6 +58,19 @@ jobs:
             npx --yes vercel@latest env rm NEXT_PUBLIC_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
           done
 
+      - name: Verify persisted Vercel environments are Render-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          for environment in production preview; do
+            env_file="$RUNNER_TEMP/vercel-${environment}.env"
+            npx --yes vercel@latest env pull "$env_file" --yes --environment="$environment" --token "$VERCEL_TOKEN"
+            grep -Eq '^BACKEND_API_BASE_URL="?https://sanad-backend-mcrj\.onrender\.com"?$' "$env_file"
+            ! grep -Eq '^NEXT_PUBLIC_API_BASE_URL=' "$env_file"
+            ! grep -Eqi 'ngrok|localhost|127\.0\.0\.1' "$env_file"
+            rm -f "$env_file"
+          done
+
       - name: Await clean exact-SHA deployment and restore Production aliases
         id: exact
         shell: bash
