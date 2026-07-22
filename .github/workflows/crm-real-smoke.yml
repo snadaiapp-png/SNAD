@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      CRM_BASE_URL: ${{ inputs.base_url || vars.PRODUCTION_BACKEND_BASE_URL || 'https://sanad-backend-mcrj.onrender.com' }}
+      CRM_BASE_URL: ${{ inputs.base_url || 'https://sanad-backend-mcrj.onrender.com' }}
 
     steps:
       - name: Checkout repository

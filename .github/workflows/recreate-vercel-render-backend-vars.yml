@@ -22,6 +22,7 @@ jobs:
     environment: Production
     env:
       RENDER_URL: https://sanad-backend-mcrj.onrender.com
+      WEB_URL: https://snad-app.vercel.app
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_TEAM_ID }}
@@ -35,6 +36,7 @@ jobs:
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
             -f state=pending -f context=vercel/render-vars \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             -f description='Recreating Vercel backend variables as Render-only values'
 
       - name: Validate inputs and link project
@@ -46,13 +48,46 @@ jobs:
           test -n "$VERCEL_ORG_ID"
           npx --yes vercel@latest pull --yes --environment=production --token "$VERCEL_TOKEN"
 
-      - name: Recreate backend variables and remove public override
+      - name: Pre-warm and verify Render before cutover operations
+        shell: bash
+        run: |
+          set -euo pipefail
+          render_code='000'
+          for attempt in $(seq 1 24); do
+            render_code="$(curl -sS --max-time 30 -o "$RUNNER_TEMP/render-prewarm.json" -w '%{http_code}' "$RENDER_URL/actuator/health" || true)"
+            if [ "$render_code" = '200' ] && jq -e '.status == "UP"' "$RUNNER_TEMP/render-prewarm.json" >/dev/null 2>&1; then
+              echo "Render is UP before environment and alias changes."
+              exit 0
+            fi
+            [ "$attempt" = '24' ] || sleep 5
+          done
+          echo "::error::Render did not become UP before cutover operations; last HTTP ${render_code}."
+          exit 1
+
+      - name: Verify active production monitors are Render-pinned
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            .github/workflows/uptime-monitor.yml
+            .github/workflows/pilot-synthetic-monitoring.yml
+            .github/workflows/metrics-collector-v2.yml
+            .github/workflows/smoke-test.yml
+            .github/workflows/crm-real-smoke.yml
+          )
+          for file in "${files[@]}"; do
+            grep -q 'https://sanad-backend-mcrj.onrender.com' "$file"
+            ! grep -Eq 'vars\.(PRODUCTION_BASE_URL|PRODUCTION_BACKEND_BASE_URL|BACKEND_PRODUCTION_URL)' "$file"
+            ! grep -Eqi 'ngrok|localhost|127\.0\.0\.1' "$file"
+          done
+
+      - name: Replace Vercel backend variables and remove public override
         shell: bash
         run: |
           set -euo pipefail
           for environment in production preview; do
             npx --yes vercel@latest env rm BACKEND_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
-            printf '%s\n' "$RENDER_URL" | npx --yes vercel@latest env add BACKEND_API_BASE_URL "$environment" --token "$VERCEL_TOKEN"
+            printf '%s' "$RENDER_URL" | npx --yes vercel@latest env add BACKEND_API_BASE_URL "$environment" --token "$VERCEL_TOKEN"
           done
           for environment in production preview development; do
             npx --yes vercel@latest env rm NEXT_PUBLIC_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
@@ -154,6 +189,7 @@ jobs:
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
             -f state=success -f context=vercel/render-vars \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             -f description='Exact-SHA Vercel aliases and Render-only routing verified'
 
       - name: Mark failure
@@ -161,4 +197,5 @@ jobs:
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
             -f state=failure -f context=vercel/render-vars \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             -f description='Vercel exact-SHA alias or Render routing verification failed'

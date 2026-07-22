@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BACKEND_URL: ${{ vars.PRODUCTION_BACKEND_BASE_URL || 'https://sanad-backend-mcrj.onrender.com' }}
-  FRONTEND_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
+  BACKEND_URL: https://sanad-backend-mcrj.onrender.com
+  FRONTEND_URL: https://snad-app.vercel.app
 
 jobs:
   health-check:
