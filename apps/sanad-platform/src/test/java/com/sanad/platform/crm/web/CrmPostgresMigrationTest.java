@@ -42,6 +42,15 @@ class CrmPostgresMigrationTest {
     private static final String CRM_G1_EXTENSION_VERSION = "20260717.6";
     private static final String CRM_ADDRESS_COMMUNICATION_VERSION = "20260717.100";
     private static final String CRM_ADDRESS_COMMUNICATION_RBAC_VERSION = "20260722.9";
+    private static final String CRM_008B_SALES_TEAMS_VERSION = "20260722.1";
+    private static final String CRM_008B_QUEUES_VERSION = "20260722.2";
+    private static final String CRM_008B_TERRITORIES_VERSION = "20260722.3";
+    private static final String CRM_008B_ASSIGNMENT_RULES_VERSION = "20260722.4";
+    private static final String CRM_008B_ASSIGNMENTS_VERSION = "20260722.5";
+    private static final String CRM_008B_TRANSFER_REQUESTS_VERSION = "20260722.6";
+    private static final String CRM_008B_OWNER_COLUMNS_VERSION = "20260722.7";
+    private static final String CRM_008B_CAPABILITIES_VERSION = "20260722.8";
+    private static final String CRM_008B_COUNTERS_VERSION = "20260722.9";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -120,7 +129,16 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(BUSINESS_PROCESS_RBAC_VERSION),
                         MigrationVersion.fromVersion(CRM_G1_EXTENSION_VERSION),
                         MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_VERSION),
-                        MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_RBAC_VERSION));
+                        MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_RBAC_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_SALES_TEAMS_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_QUEUES_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_TERRITORIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_ASSIGNMENT_RULES_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_ASSIGNMENTS_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_TRANSFER_REQUESTS_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_OWNER_COLUMNS_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_COUNTERS_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -157,7 +175,16 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(BUSINESS_PROCESS_RBAC_VERSION),
                         MigrationVersion.fromVersion(CRM_G1_EXTENSION_VERSION),
                         MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_VERSION),
-                        MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_RBAC_VERSION));
+                        MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_RBAC_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_SALES_TEAMS_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_QUEUES_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_TERRITORIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_ASSIGNMENT_RULES_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_ASSIGNMENTS_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_TRANSFER_REQUESTS_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_OWNER_COLUMNS_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_COUNTERS_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -193,8 +220,17 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_G1_EXTENSION_VERSION, "SQL", "create crm g1 extension tables");
         assertMigration(jdbc, CRM_ADDRESS_COMMUNICATION_VERSION, "SQL", "crm addresses communication methods");
         assertMigration(jdbc, CRM_ADDRESS_COMMUNICATION_RBAC_VERSION, "SQL", "crm addresses communication capabilities");
+        assertMigration(jdbc, CRM_008B_SALES_TEAMS_VERSION, "SQL", "create crm sales teams");
+        assertMigration(jdbc, CRM_008B_QUEUES_VERSION, "SQL", "create crm queues");
+        assertMigration(jdbc, CRM_008B_TERRITORIES_VERSION, "SQL", "create crm territories");
+        assertMigration(jdbc, CRM_008B_ASSIGNMENT_RULES_VERSION, "SQL", "create crm assignment rules");
+        assertMigration(jdbc, CRM_008B_ASSIGNMENTS_VERSION, "SQL", "create crm assignments");
+        assertMigration(jdbc, CRM_008B_TRANSFER_REQUESTS_VERSION, "SQL", "create crm transfer requests");
+        assertMigration(jdbc, CRM_008B_OWNER_COLUMNS_VERSION, "SQL", "add owner team queue columns");
+        assertMigration(jdbc, CRM_008B_CAPABILITIES_VERSION, "SQL", "seed crm ownership capabilities");
+        assertMigration(jdbc, CRM_008B_COUNTERS_VERSION, "SQL", "create crm assignment rule counters");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(CRM_ADDRESS_COMMUNICATION_RBAC_VERSION);
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_008B_COUNTERS_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 
