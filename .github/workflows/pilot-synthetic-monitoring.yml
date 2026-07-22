@@ -13,12 +13,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BACKEND_URL: ${{ vars.PRODUCTION_BASE_URL }}
+  BACKEND_URL: ${{ vars.PRODUCTION_BACKEND_BASE_URL || 'https://sanad-backend-mcrj.onrender.com' }}
   FRONTEND_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
 
 jobs:
   synthetic-check:
-    name: Backend and Frontend Integration Check
+    name: Render Backend and Vercel Frontend Integration Check
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -27,11 +27,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${BACKEND_URL:-}" || {
-            echo '::error::Set repository variable PRODUCTION_BASE_URL to the public HTTPS tunnel for the local backend.'
+          test "${BACKEND_URL%/}" = 'https://sanad-backend-mcrj.onrender.com' || {
+            echo '::error::PRODUCTION_BACKEND_BASE_URL must be the production Render origin.'
             exit 1
           }
-          case "$BACKEND_URL" in https://*) ;; *) echo '::error::PRODUCTION_BASE_URL must use HTTPS.'; exit 1 ;; esac
+          test "${FRONTEND_URL%/}" = 'https://snad-app.vercel.app' || {
+            echo '::error::WEB_PRODUCTION_BASE_URL must be the production Vercel origin.'
+            exit 1
+          }
 
       - name: Check backend health
         id: backend
@@ -46,7 +49,6 @@ jobs:
           for attempt in $(seq 1 4); do
             result=$(curl --silent --show-error --location \
               --connect-timeout 10 --max-time 30 \
-              --header 'ngrok-skip-browser-warning: any-value' \
               --write-out '\n%{http_code}' "$url" || true)
             response=$(printf '%s' "$result" | sed '$d')
             code=$(printf '%s' "$result" | tail -n 1)
@@ -81,9 +83,16 @@ jobs:
           elapsed=$(($(date +%s)-start))
 
           test "$code" = '200'
-          printf '%s' "$response" | grep -q '"configured":true'
-          printf '%s' "$response" | grep -q '"reachable":true'
-          printf '%s' "$response" | grep -q '"statusCode":200'
+          STATUS_JSON="$response" python3 - <<'PY'
+          import json
+          import os
+
+          data = json.loads(os.environ['STATUS_JSON'])
+          assert data.get('configured') is True
+          assert data.get('reachable') is True
+          assert data.get('statusCode') == 200
+          assert 'targetHost' not in data
+          PY
 
           echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
           echo "Frontend integration passed in ${elapsed}s"
@@ -93,10 +102,10 @@ jobs:
         shell: bash
         run: |
           {
-            echo '## SANAD Local Backend Integration Monitoring'
+            echo '## SANAD Render Integration Monitoring'
             echo ''
             echo "- Checked at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
             echo "- Backend health duration: ${{ steps.backend.outputs.elapsed_seconds || 'failed' }} seconds"
             echo "- Frontend integration duration: ${{ steps.frontend.outputs.elapsed_seconds || 'failed' }} seconds"
-            echo '- Backend source: configured public HTTPS tunnel to the local server'
+            echo '- Backend source: production Render service'
           } >> "$GITHUB_STEP_SUMMARY"
