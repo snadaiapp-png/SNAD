@@ -63,7 +63,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           gh variable set PRODUCTION_BASE_URL --body "$PRODUCTION_BACKEND_BASE_URL"
           gh variable set PRODUCTION_BACKEND_BASE_URL --body "$PRODUCTION_BACKEND_BASE_URL"
 
@@ -94,6 +93,11 @@ jobs:
             npx --yes vercel@latest env rm NEXT_PUBLIC_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
           done
 
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state='success' \
+            -f context='vercel/ngrok-purge/config' \
+            -f description='Vercel variables updated and public backend override removed'
+
       - name: Verify persisted Vercel environment values
         shell: bash
         run: |
@@ -109,6 +113,11 @@ jobs:
             rm -f "$env_file"
           done
 
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state='success' \
+            -f context='vercel/ngrok-purge/persisted' \
+            -f description='Persisted Production and Preview values are Render-only'
+
       - name: Force a fresh Vercel Production deployment
         id: deploy
         shell: bash
@@ -121,6 +130,11 @@ jobs:
           }
           echo "deployment_id=vercel-cli" >> "$GITHUB_OUTPUT"
           echo "deployment_url=${DEPLOYMENT_URL#https://}" >> "$GITHUB_OUTPUT"
+
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state='success' \
+            -f context='vercel/ngrok-purge/deploy' \
+            -f description='Fresh Vercel Production deployment created after variable purge'
 
       - name: Verify Render and the Vercel BFF route
         shell: bash
@@ -147,6 +161,11 @@ jobs:
           jq -e '.configured == true and .reachable == true and .statusCode == 200 and has("targetHost") == false' "$RUNNER_TEMP/backend-status.json" >/dev/null
           test "$BFF_CODE" = "401"
           ! grep -Eqi 'ngrok|localhost|127\.0\.0\.1' "$RUNNER_TEMP/backend-status.json" "$RUNNER_TEMP/auth-me.json"
+
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state='success' \
+            -f context='vercel/ngrok-purge/runtime' \
+            -f description='Production Vercel BFF reaches Render with expected health and auth boundary'
 
       - name: Publish migration summary
         if: success()
