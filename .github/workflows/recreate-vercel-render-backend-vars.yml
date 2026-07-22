@@ -37,6 +37,7 @@ jobs:
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
             -f state=pending -f context=vercel/render-vars \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             -f description='Recreating Vercel backend variables as Render-only values'
 
       - name: Validate inputs and link project
@@ -47,6 +48,22 @@ jobs:
           test -n "$VERCEL_PROJECT_ID"
           test -n "$VERCEL_ORG_ID"
           npx --yes vercel@latest pull --yes --environment=production --token "$VERCEL_TOKEN"
+
+      - name: Pre-warm and verify Render before cutover operations
+        shell: bash
+        run: |
+          set -euo pipefail
+          render_code='000'
+          for attempt in $(seq 1 24); do
+            render_code="$(curl -sS --max-time 30 -o "$RUNNER_TEMP/render-prewarm.json" -w '%{http_code}' "$RENDER_URL/actuator/health" || true)"
+            if [ "$render_code" = '200' ] && jq -e '.status == "UP"' "$RUNNER_TEMP/render-prewarm.json" >/dev/null 2>&1; then
+              echo "Render is UP before environment and alias changes."
+              exit 0
+            fi
+            [ "$attempt" = '24' ] || sleep 5
+          done
+          echo "::error::Render did not become UP before cutover operations; last HTTP ${render_code}."
+          exit 1
 
       - name: Purge legacy GitHub production URL variables
         shell: bash
@@ -87,8 +104,10 @@ jobs:
         run: |
           set -euo pipefail
           for environment in production preview; do
-            npx --yes vercel@latest env rm BACKEND_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
-            printf '%s\n' "$RENDER_URL" | npx --yes vercel@latest env add BACKEND_API_BASE_URL "$environment" --token "$VERCEL_TOKEN"
+            if ! printf '%s\n' "$RENDER_URL" | npx --yes vercel@latest env update BACKEND_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN"; then
+              npx --yes vercel@latest env rm BACKEND_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
+              printf '%s\n' "$RENDER_URL" | npx --yes vercel@latest env add BACKEND_API_BASE_URL "$environment" --token "$VERCEL_TOKEN"
+            fi
           done
           for environment in production preview development; do
             npx --yes vercel@latest env rm NEXT_PUBLIC_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
@@ -203,6 +222,7 @@ jobs:
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
             -f state=success -f context=vercel/render-vars \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             -f description='Exact-SHA Vercel aliases and Render-only routing verified'
 
       - name: Mark failure
@@ -210,4 +230,5 @@ jobs:
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
             -f state=failure -f context=vercel/render-vars \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             -f description='Vercel exact-SHA alias or Render routing verification failed'
