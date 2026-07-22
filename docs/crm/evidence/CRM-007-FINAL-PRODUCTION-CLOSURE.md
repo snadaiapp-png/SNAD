@@ -12,7 +12,8 @@
 | CRM HTTP 500 during gate | 0 |
 | Vercel deployment | dpl_FtG7Pj4MUBNjEFjahPopscqKn7b9 |
 | Render deployment | dep-d9gartok1i2s7388lprg |
-| Render image digest | not-returned-by-api |
+| Render image | ghcr.io/snadaiapp-png/snad-backend:4cedf631a3e61f39039615d93cd03c3111213eb9 |
+| Render image digest | sha256:810e69e1c05668ebd9540b71554e13190c837d38004aa3a37dacbde7521cb2cd |
 | Workflow | https://github.com/snadaiapp-png/SNAD/actions/runs/29917314330 |
 | Artifact | https://github.com/snadaiapp-png/SNAD/actions/runs/29917314330/artifacts/8528450065 |
 | Artifact digest | c5f246f077df0df05d4946bd238eee2b50ad3e6621f176da59448ca3a6976fed |
