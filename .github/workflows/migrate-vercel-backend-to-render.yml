@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   migrate:
-    name: Update Vercel BFF upstream, redeploy, and verify
+    name: Purge tunnel variables, redeploy, and verify
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: Production
@@ -55,8 +55,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Keep legacy variable names safe for older/manual workflows: every
-          # production backend variable resolves to the same approved Render origin.
           gh variable set PRODUCTION_BASE_URL --body "$PRODUCTION_BACKEND_BASE_URL"
           gh variable set PRODUCTION_BACKEND_BASE_URL --body "$PRODUCTION_BACKEND_BASE_URL"
 
@@ -73,15 +71,35 @@ jobs:
           set -euo pipefail
           npx --yes vercel@latest pull --yes --environment=production --token "$VERCEL_TOKEN"
 
-      - name: Point Vercel Production BFF at Render only
+      - name: Purge ngrok-compatible Vercel configuration
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s\n' "$PRODUCTION_BACKEND_BASE_URL" | \
-            npx --yes vercel@latest env update BACKEND_API_BASE_URL production --yes --token "$VERCEL_TOKEN"
 
-          # Production must not have a public/direct-browser backend override.
-          npx --yes vercel@latest env rm NEXT_PUBLIC_API_BASE_URL production --yes --token "$VERCEL_TOKEN" || true
+          for environment in production preview; do
+            printf '%s\n' "$PRODUCTION_BACKEND_BASE_URL" | \
+              npx --yes vercel@latest env update BACKEND_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN"
+          done
+
+          # Browser-visible backend overrides are forbidden in every Vercel scope.
+          for environment in production preview development; do
+            npx --yes vercel@latest env rm NEXT_PUBLIC_API_BASE_URL "$environment" --yes --token "$VERCEL_TOKEN" || true
+          done
+
+      - name: Verify persisted Vercel environment values
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for environment in production preview; do
+            env_file="$RUNNER_TEMP/vercel-${environment}.env"
+            npx --yes vercel@latest env pull "$env_file" --yes --environment="$environment" --token "$VERCEL_TOKEN"
+
+            grep -Eq '^BACKEND_API_BASE_URL="?https://sanad-backend-mcrj\.onrender\.com"?$' "$env_file"
+            ! grep -Eq '^NEXT_PUBLIC_API_BASE_URL=' "$env_file"
+            ! grep -Eqi 'ngrok|localhost|127\.0\.0\.1' "$env_file"
+            rm -f "$env_file"
+          done
 
       - name: Force a fresh Vercel Production deployment
         id: deploy
@@ -121,23 +139,21 @@ jobs:
           jq -e '.configured == true and .reachable == true and .statusCode == 200 and has("targetHost") == false' "$RUNNER_TEMP/backend-status.json" >/dev/null
           test "$BFF_CODE" = "401"
           ! grep -Eqi 'ngrok|localhost|127\.0\.0\.1' "$RUNNER_TEMP/backend-status.json" "$RUNNER_TEMP/auth-me.json"
-          echo "Render health: UP"
-          echo "Vercel backend status: configured/reachable/200 without topology leakage"
-          echo "Unauthenticated BFF auth boundary: 401 (expected)"
 
       - name: Publish migration summary
         if: success()
         shell: bash
         run: |
           {
-            echo '## Vercel backend migration completed'
+            echo '## Vercel tunnel configuration eliminated'
             echo ''
             echo "- Release SHA: \`${GITHUB_SHA}\`"
             echo "- Deployment ID: \`${{ steps.deploy.outputs.deployment_id }}\`"
             echo "- Deployment URL: \`${{ steps.deploy.outputs.deployment_url }}\`"
-            echo '- Legacy GitHub backend variables: **Render-pinned**'
-            echo '- Backend origin: **Render only**'
-            echo '- Public browser override: **removed**'
+            echo '- Production BACKEND_API_BASE_URL: **Render-pinned**'
+            echo '- Preview BACKEND_API_BASE_URL: **Render-pinned**'
+            echo '- NEXT_PUBLIC_API_BASE_URL: **removed from Production, Preview, and Development**'
+            echo '- Persisted Vercel environment verification: **PASS**'
             echo '- Render health: **UP**'
             echo '- Vercel BFF routing: **PASS**'
           } >> "$GITHUB_STEP_SUMMARY"
