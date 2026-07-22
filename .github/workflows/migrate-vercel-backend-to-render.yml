@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: migrate-vercel-backend-to-render
@@ -23,11 +24,12 @@ jobs:
     environment: Production
     env:
       PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
-      PRODUCTION_BACKEND_BASE_URL: ${{ vars.PRODUCTION_BACKEND_BASE_URL || 'https://sanad-backend-mcrj.onrender.com' }}
+      PRODUCTION_BACKEND_BASE_URL: https://sanad-backend-mcrj.onrender.com
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      GH_TOKEN: ${{ github.token }}
       CI: '1'
 
     steps:
@@ -41,22 +43,45 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for name in VERCEL_TOKEN VERCEL_PROJECT_ID VERCEL_TEAM_ID; do
-            test -n "${!name:-}" || { echo "::error::Missing Production secret: $name"; exit 1; }
+          for name in VERCEL_TOKEN VERCEL_PROJECT_ID VERCEL_TEAM_ID GH_TOKEN; do
+            test -n "${!name:-}" || { echo "::error::Missing Production secret or token: $name"; exit 1; }
             echo "::add-mask::${!name}"
           done
-          [[ "$PRODUCTION_WEB_BASE_URL" == https://* ]] || { echo "::error::Production web URL must use HTTPS"; exit 1; }
-          case "$PRODUCTION_BACKEND_BASE_URL" in
-            https://*.onrender.com) ;;
-            *) echo "::error::Backend target must be an HTTPS onrender.com service"; exit 1 ;;
-          esac
+          test "$PRODUCTION_WEB_BASE_URL" = 'https://snad-app.vercel.app'
+          test "$PRODUCTION_BACKEND_BASE_URL" = 'https://sanad-backend-mcrj.onrender.com'
 
-      - name: Point Vercel Production BFF at Render
+      - name: Eliminate legacy GitHub backend variables
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Keep legacy variable names safe for older/manual workflows: every
+          # production backend variable resolves to the same approved Render origin.
+          gh variable set PRODUCTION_BASE_URL --body "$PRODUCTION_BACKEND_BASE_URL"
+          gh variable set PRODUCTION_BACKEND_BASE_URL --body "$PRODUCTION_BACKEND_BASE_URL"
+
+          for scope in Production production; do
+            if gh variable list --env "$scope" >/dev/null 2>&1; then
+              gh variable set PRODUCTION_BASE_URL --env "$scope" --body "$PRODUCTION_BACKEND_BASE_URL"
+              gh variable set PRODUCTION_BACKEND_BASE_URL --env "$scope" --body "$PRODUCTION_BACKEND_BASE_URL"
+            fi
+          done
+
+      - name: Link exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@latest pull --yes --environment=production --token "$VERCEL_TOKEN"
+
+      - name: Point Vercel Production BFF at Render only
         shell: bash
         run: |
           set -euo pipefail
           printf '%s\n' "$PRODUCTION_BACKEND_BASE_URL" | \
             npx --yes vercel@latest env update BACKEND_API_BASE_URL production --yes --token "$VERCEL_TOKEN"
+
+          # Production must not have a public/direct-browser backend override.
+          npx --yes vercel@latest env rm NEXT_PUBLIC_API_BASE_URL production --yes --token "$VERCEL_TOKEN" || true
 
       - name: Force a fresh Vercel Production deployment
         id: deploy
@@ -86,17 +111,18 @@ jobs:
             STATUS_CODE="$(curl --silent --show-error --max-time 30 -o "$RUNNER_TEMP/backend-status.json" -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL}/api/system/backend-status" || true)"
             BFF_CODE="$(curl --silent --show-error --max-time 30 -o "$RUNNER_TEMP/auth-me.json" -w '%{http_code}' "${PRODUCTION_WEB_BASE_URL}/api/platform/api/v1/auth/me" || true)"
             if [ "$STATUS_CODE" = "200" ] && [ "$BFF_CODE" = "401" ] && \
-               jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null 2>&1; then
+               jq -e '.configured == true and .reachable == true and .statusCode == 200 and has("targetHost") == false' "$RUNNER_TEMP/backend-status.json" >/dev/null 2>&1; then
               break
             fi
             sleep 5
           done
 
           test "$STATUS_CODE" = "200"
-          jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null
+          jq -e '.configured == true and .reachable == true and .statusCode == 200 and has("targetHost") == false' "$RUNNER_TEMP/backend-status.json" >/dev/null
           test "$BFF_CODE" = "401"
+          ! grep -Eqi 'ngrok|localhost|127\.0\.0\.1' "$RUNNER_TEMP/backend-status.json" "$RUNNER_TEMP/auth-me.json"
           echo "Render health: UP"
-          echo "Vercel backend status: configured/reachable/200"
+          echo "Vercel backend status: configured/reachable/200 without topology leakage"
           echo "Unauthenticated BFF auth boundary: 401 (expected)"
 
       - name: Publish migration summary
@@ -109,8 +135,9 @@ jobs:
             echo "- Release SHA: \`${GITHUB_SHA}\`"
             echo "- Deployment ID: \`${{ steps.deploy.outputs.deployment_id }}\`"
             echo "- Deployment URL: \`${{ steps.deploy.outputs.deployment_url }}\`"
+            echo '- Legacy GitHub backend variables: **Render-pinned**'
+            echo '- Backend origin: **Render only**'
+            echo '- Public browser override: **removed**'
             echo '- Render health: **UP**'
             echo '- Vercel BFF routing: **PASS**'
           } >> "$GITHUB_STEP_SUMMARY"
-
-# Production redeploy trigger for CRM-008A closure baseline — 2026-07-20.

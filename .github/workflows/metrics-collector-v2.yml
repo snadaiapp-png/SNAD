@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BACKEND_URL: ${{ vars.PRODUCTION_BASE_URL }}
+  BACKEND_URL: ${{ vars.PRODUCTION_BACKEND_BASE_URL || 'https://sanad-backend-mcrj.onrender.com' }}
   FRONTEND_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
 
 jobs:
@@ -28,19 +28,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import os
-          from urllib.parse import urlparse
-
-          for name in ("BACKEND_URL", "FRONTEND_URL"):
-              value = os.environ.get(name, "").rstrip("/")
-              parsed = urlparse(value)
-              if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
-                  raise SystemExit(
-                      f"{name} must be a credential-free HTTPS origin. "
-                      "Configure PRODUCTION_BASE_URL with the active tunnel URL."
-                  )
-          PY
+          test "${BACKEND_URL%/}" = 'https://sanad-backend-mcrj.onrender.com' || {
+            echo '::error::BACKEND_URL must be the production Render origin.'
+            exit 1
+          }
+          test "${FRONTEND_URL%/}" = 'https://snad-app.vercel.app' || {
+            echo '::error::FRONTEND_URL must be the production Vercel origin.'
+            exit 1
+          }
 
       - name: Check platform endpoints
         id: probes
@@ -74,7 +69,6 @@ jobs:
                 status_code=$(curl --silent --show-error --location \
                   --request POST \
                   --header 'Content-Type: application/json' \
-                  --header 'ngrok-skip-browser-warning: any-value' \
                   --data "$body" \
                   --connect-timeout 10 --max-time 30 \
                   --output "$response_file" --write-out '%{http_code}' \
@@ -82,7 +76,6 @@ jobs:
               else
                 status_code=$(curl --silent --show-error --location \
                   --request GET \
-                  --header 'ngrok-skip-browser-warning: any-value' \
                   --connect-timeout 10 --max-time 30 \
                   --output "$response_file" --write-out '%{http_code}' \
                   "$url" || true)
@@ -178,7 +171,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo '## SANAD Frontend/Local-Backend Metrics'
+            echo '## SANAD Vercel/Render Metrics'
             echo ''
             echo '| Probe | HTTP | Response Time | Available |'
             echo '|---|---:|---:|---|'

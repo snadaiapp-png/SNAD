@@ -24,7 +24,7 @@ describe("Render-only Vercel production policy", () => {
   });
 
   it("rejects a non-Render backend before any upstream request", async () => {
-    vi.stubEnv("BACKEND_API_BASE_URL", "https://streak-train-empower.ngrok-free.dev");
+    vi.stubEnv("BACKEND_API_BASE_URL", "https://legacy-tunnel.example");
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     const response = await GET(request(), context("api", "v1", "auth", "me"));

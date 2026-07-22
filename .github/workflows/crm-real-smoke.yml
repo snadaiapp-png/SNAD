@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       base_url:
-        description: 'Public HTTPS URL for the local backend tunnel (optional; PRODUCTION_BASE_URL is the default)'
+        description: 'Render backend URL override (optional; production Render URL is the default)'
         required: false
         default: ''
       expected_sha:
@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      CRM_BASE_URL: ${{ inputs.base_url || vars.PRODUCTION_BASE_URL }}
+      CRM_BASE_URL: ${{ inputs.base_url || vars.PRODUCTION_BACKEND_BASE_URL || 'https://sanad-backend-mcrj.onrender.com' }}
 
     steps:
       - name: Checkout repository
@@ -33,7 +33,10 @@ jobs:
           CRM_SECOND_TENANT_BEARER_TOKEN: ${{ secrets.CRM_SMOKE_SECOND_TENANT_BEARER_TOKEN }}
         run: |
           set -euo pipefail
-          case "${CRM_BASE_URL:-}" in https://*) ;; *) echo '::error::Configure PRODUCTION_BASE_URL with the active local-backend tunnel URL.'; exit 1 ;; esac
+          test "${CRM_BASE_URL%/}" = 'https://sanad-backend-mcrj.onrender.com' || {
+            echo '::error::CRM smoke is restricted to the production Render backend.'
+            exit 1
+          }
           test -n "${CRM_BEARER_TOKEN:-}"
           test -n "${CRM_SECOND_TENANT_BEARER_TOKEN:-}"
           test "$CRM_BEARER_TOKEN" != "$CRM_SECOND_TENANT_BEARER_TOKEN"
@@ -44,7 +47,6 @@ jobs:
           set -euo pipefail
           test -n "${{ inputs.expected_sha }}"
           curl --fail --silent --show-error --location --max-time 30 \
-            --header 'ngrok-skip-browser-warning: any-value' \
             "${CRM_BASE_URL%/}/actuator/health" >/dev/null
 
       - name: Run real CRM smoke
