@@ -68,11 +68,11 @@ test("CRM-007 authenticated lifecycle, conflict, refresh and two-tenant isolatio
     const addressId = addressBody.data?.id;
     const addressHeaders = addressResponse.headers();
     const addressRepresentationEtag = addressHeaders.etag;
-    const addressEtag = addressHeaders["x-snad-entity-tag"];
+    const addressEtag = addressHeaders["x-snad-entity-tag"] ?? "";
     expect(addressId).toBeTruthy();
     expect(addressRepresentationEtag).toBeTruthy();
     expect(addressEtag).toBeTruthy();
-    expect(addressEtag?.startsWith("W/")).toBe(false);
+    expect(addressEtag.startsWith("W/")).toBe(false);
 
     const replayResponse = await pageA.request.post(
       `/api/platform/api/v2/crm/accounts/${accountId}/addresses`,
@@ -102,10 +102,10 @@ test("CRM-007 authenticated lifecycle, conflict, refresh and two-tenant isolatio
     expect((await updateResponse.json()).data?.city).toBe("Jeddah");
     const updatedAddressHeaders = updateResponse.headers();
     const updatedAddressRepresentationEtag = updatedAddressHeaders.etag;
-    const updatedAddressEtag = updatedAddressHeaders["x-snad-entity-tag"];
+    const updatedAddressEtag = updatedAddressHeaders["x-snad-entity-tag"] ?? "";
     expect(updatedAddressRepresentationEtag).toBeTruthy();
     expect(updatedAddressEtag).toBeTruthy();
-    expect(updatedAddressEtag?.startsWith("W/")).toBe(false);
+    expect(updatedAddressEtag.startsWith("W/")).toBe(false);
 
     const staleUpdateResponse = await pageA.request.patch(
       `/api/platform/api/v2/crm/addresses/${addressId}`,
@@ -136,11 +136,11 @@ test("CRM-007 authenticated lifecycle, conflict, refresh and two-tenant isolatio
     const communicationMethodId = communicationBody.data?.id;
     const communicationHeaders = communicationResponse.headers();
     const communicationRepresentationEtag = communicationHeaders.etag;
-    const communicationEtag = communicationHeaders["x-snad-entity-tag"];
+    const communicationEtag = communicationHeaders["x-snad-entity-tag"] ?? "";
     expect(communicationMethodId).toBeTruthy();
     expect(communicationRepresentationEtag).toBeTruthy();
     expect(communicationEtag).toBeTruthy();
-    expect(communicationEtag?.startsWith("W/")).toBe(false);
+    expect(communicationEtag.startsWith("W/")).toBe(false);
 
     const duplicateResponse = await pageA.request.post(
       `/api/platform/api/v2/crm/accounts/${accountId}/communication-methods`,
