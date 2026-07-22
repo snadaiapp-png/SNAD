@@ -245,7 +245,7 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_008B_QUEUES_VERSION, "SQL", "create crm queues");
         assertMigration(jdbc, CRM_008B_TERRITORIES_VERSION, "SQL", "create crm territories");
         assertMigration(jdbc, CRM_008B_ASSIGNMENT_RULES_VERSION, "SQL", "create crm assignment rules");
-        assertMigration(jdbc, CRM_008B_ASSIGNMENTS_VERSION, "SQL", "create crm assignments");
+        assertMigration(jdbc, CRM_008B_ASSIGNMENTS_VERSION, "SQL", "upgrade crm assignments and create ownership history");
         assertMigration(jdbc, CRM_008B_TRANSFER_REQUESTS_VERSION, "SQL", "create crm transfer requests");
         assertMigration(jdbc, CRM_008B_OWNER_COLUMNS_VERSION, "SQL", "add owner team queue columns");
         assertMigration(jdbc, CRM_008B_CAPABILITIES_VERSION, "SQL", "seed crm ownership capabilities");
@@ -282,6 +282,71 @@ class CrmPostgresMigrationTest {
                 "OR code LIKE 'CRM.TERRITORY.%' OR code LIKE 'CRM.ASSIGNMENT_RULE.%' " +
                 "OR code = 'CRM.OWNERSHIP_HISTORY.READ'",
                 Long.class)).isEqualTo(17L);
+
+        // CRM-008B JSONB column assertions (PostgreSQL-native invariants)
+        assertThat(jsonbColumnExists(jdbc, "crm_team_memberships", "metadata")).isTrue();
+        assertThat(jsonbColumnExists(jdbc, "crm_territories", "rule_definition")).isTrue();
+        assertThat(jsonbColumnExists(jdbc, "crm_assignment_rule_versions", "match_conditions")).isTrue();
+        assertThat(jsonbColumnExists(jdbc, "crm_transfer_requests", "record_ids")).isTrue();
+        assertThat(jsonbColumnExists(jdbc, "crm_assignments", "workflow_result")).isTrue();
+
+        // CRM-008B partial unique index assertions (predicates verified via pg_indexes)
+        assertThat(partialIndexPredicateMatches(jdbc, "crm_team_memberships",
+                "uk_team_memberships_active", "status = 'ACTIVE'")).isTrue();
+        assertThat(partialIndexPredicateMatches(jdbc, "crm_team_memberships",
+                "uk_team_memberships_primary", "status = 'ACTIVE'")).isTrue();
+        assertThat(partialIndexPredicateMatches(jdbc, "crm_team_memberships",
+                "uk_team_memberships_primary", "is_primary = true")).isTrue();
+        assertThat(partialIndexPredicateMatches(jdbc, "crm_queue_memberships",
+                "uk_queue_memberships_active", "status = 'ACTIVE'")).isTrue();
+        assertThat(partialIndexPredicateMatches(jdbc, "crm_territory_assignments",
+                "uk_territory_assignments_active", "status = 'ACTIVE'")).isTrue();
+        assertThat(partialIndexPredicateMatches(jdbc, "crm_territory_assignments",
+                "uk_territory_assignments_active", "role = 'PRIMARY'")).isTrue();
+        assertThat(partialIndexPredicateMatches(jdbc, "crm_assignment_rule_versions",
+                "uk_rule_versions_active", "status = 'ACTIVE'")).isTrue();
+        assertThat(partialIndexPredicateMatches(jdbc, "crm_assignments",
+                "uk_assignments_active_per_record", "status = 'ACTIVE'")).isTrue();
+
+        // CRM-008B SALES_MANAGER and SALES_REPRESENTATIVE roles must exist
+        // (defined in V20260722_8 for every active tenant)
+        Long activeTenantCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM tenants WHERE status = 'ACTIVE'", Long.class);
+        if (activeTenantCount != null && activeTenantCount > 0) {
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(DISTINCT tenant_id) FROM roles WHERE code = 'SALES_MANAGER' AND status = 'ACTIVE'",
+                    Long.class)).isEqualTo(activeTenantCount);
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(DISTINCT tenant_id) FROM roles WHERE code = 'SALES_REPRESENTATIVE' AND status = 'ACTIVE'",
+                    Long.class)).isEqualTo(activeTenantCount);
+
+            // Verify SALES_MANAGER has 11 capabilities, SALES_REPRESENTATIVE has 8
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM role_capabilities rc " +
+                    "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id " +
+                    "JOIN access_capabilities c ON c.id = rc.capability_id " +
+                    "WHERE r.code = 'SALES_MANAGER' AND r.status = 'ACTIVE' " +
+                    "AND c.code IN (" +
+                    "  'CRM.ASSIGNMENT.READ','CRM.ASSIGNMENT.WRITE'," +
+                    "  'CRM.TRANSFER.READ','CRM.TRANSFER.REQUEST','CRM.TRANSFER.APPROVE'," +
+                    "  'CRM.TEAM.READ','CRM.QUEUE.READ','CRM.QUEUE.CLAIM'," +
+                    "  'CRM.TERRITORY.READ','CRM.ASSIGNMENT_RULE.READ'," +
+                    "  'CRM.OWNERSHIP_HISTORY.READ')", Long.class))
+                    .as("SALES_MANAGER must have 11 CRM-008B capabilities per tenant")
+                    .isEqualTo(activeTenantCount * 11L);
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM role_capabilities rc " +
+                    "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id " +
+                    "JOIN access_capabilities c ON c.id = rc.capability_id " +
+                    "WHERE r.code = 'SALES_REPRESENTATIVE' AND r.status = 'ACTIVE' " +
+                    "AND c.code IN (" +
+                    "  'CRM.ASSIGNMENT.READ'," +
+                    "  'CRM.TRANSFER.READ','CRM.TRANSFER.REQUEST'," +
+                    "  'CRM.TEAM.READ','CRM.QUEUE.READ','CRM.QUEUE.CLAIM'," +
+                    "  'CRM.TERRITORY.READ','CRM.OWNERSHIP_HISTORY.READ')", Long.class))
+                    .as("SALES_REPRESENTATIVE must have 8 CRM-008B capabilities per tenant")
+                    .isEqualTo(activeTenantCount * 8L);
+        }
 
         assertThat(constraintExists(jdbc, "fk_crm_contacts_account_same_tenant")).isTrue();
         assertThat(constraintExists(jdbc, "fk_crm_import_files_job_same_tenant")).isTrue();
@@ -436,5 +501,21 @@ class CrmPostgresMigrationTest {
                         "AND table_name=? AND column_name=?",
                 Long.class, table, column);
         return count != null && count == 1L;
+    }
+
+    private boolean jsonbColumnExists(JdbcTemplate jdbc, String table, String column) {
+        Long count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
+                        "AND table_name=? AND column_name=? AND udt_name='jsonb'",
+                Long.class, table, column);
+        return count != null && count == 1L;
+    }
+
+    private boolean partialIndexPredicateMatches(JdbcTemplate jdbc, String table, String indexName, String predicateFragment) {
+        String indexdef = jdbc.queryForObject(
+                "SELECT indexdef FROM pg_indexes WHERE schemaname='public' " +
+                        "AND tablename=? AND indexname=?",
+                String.class, table, indexName);
+        return indexdef != null && indexdef.contains(predicateFragment);
     }
 }
