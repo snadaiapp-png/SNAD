@@ -143,7 +143,9 @@ DO $postcondition$
 DECLARE
     rules_table_exists       INTEGER;
     versions_table_exists    INTEGER;
-    match_conditions_type    TEXT;
+    match_conditions_data_type TEXT;
+    match_conditions_udt_name  TEXT;
+    match_conditions_nullable  TEXT;
     active_index_predicate   TEXT;
     expected_indexes         INTEGER;
 BEGIN
@@ -161,28 +163,49 @@ BEGIN
         RAISE EXCEPTION 'V20260722.4 postcondition failed: crm_assignment_rule_versions not created';
     END IF;
 
-    -- match_conditions must be JSONB NOT NULL
-    PERFORM 1
+    -- match_conditions must be JSONB NOT NULL.
+    -- PostgreSQL catalog records JSONB columns as data_type='jsonb' AND udt_name='jsonb'.
+    SELECT data_type, udt_name, is_nullable
+      INTO match_conditions_data_type, match_conditions_udt_name, match_conditions_nullable
       FROM information_schema.columns
      WHERE table_schema = 'public'
        AND table_name = 'crm_assignment_rule_versions'
-       AND column_name = 'match_conditions'
-       AND udt_name = 'jsonb'
-       AND is_nullable = 'NO';
-    IF NOT FOUND THEN
+       AND column_name = 'match_conditions';
+
+    IF match_conditions_data_type IS DISTINCT FROM 'jsonb'
+       OR match_conditions_udt_name IS DISTINCT FROM 'jsonb' THEN
         RAISE EXCEPTION
-            'V20260722.4 postcondition failed: crm_assignment_rule_versions.match_conditions is not JSONB NOT NULL';
+            'V20260722.4 postcondition failed: crm_assignment_rule_versions.match_conditions data_type=% udt_name=% (expected jsonb/jsonb)',
+            match_conditions_data_type,
+            match_conditions_udt_name;
     END IF;
 
-    SELECT indexdef INTO active_index_predicate
-      FROM pg_indexes
-     WHERE schemaname = 'public'
-       AND tablename = 'crm_assignment_rule_versions'
-       AND indexname = 'uk_rule_versions_active';
-    IF active_index_predicate IS NULL
-       OR active_index_predicate NOT LIKE '%WHERE (status = ''ACTIVE''::character varying)%' THEN
+    IF match_conditions_nullable IS DISTINCT FROM 'NO' THEN
+        RAISE EXCEPTION
+            'V20260722.4 postcondition failed: crm_assignment_rule_versions.match_conditions is_nullable=% (expected NO)',
+            match_conditions_nullable;
+    END IF;
+
+    -- Verify uk_rule_versions_active partial index predicate.
+    -- Use pg_get_expr(pg_index.indpred, pg_index.indrelid) for stable semantic check.
+    SELECT pg_get_expr(i.indpred, i.indrelid)
+      INTO active_index_predicate
+      FROM pg_index i
+      JOIN pg_class c ON c.oid = i.indrelid
+      JOIN pg_class ci ON ci.oid = i.indexrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = 'crm_assignment_rule_versions'
+       AND ci.relname = 'uk_rule_versions_active';
+    IF active_index_predicate IS NULL THEN
         RAISE EXCEPTION
             'V20260722.4 postcondition failed: uk_rule_versions_active predicate missing or wrong: %',
+            active_index_predicate;
+    END IF;
+    IF position('status' in active_index_predicate) = 0
+       OR position('ACTIVE' in active_index_predicate) = 0 THEN
+        RAISE EXCEPTION
+            'V20260722.4 postcondition failed: uk_rule_versions_active predicate does not reference status/ACTIVE: %',
             active_index_predicate;
     END IF;
 

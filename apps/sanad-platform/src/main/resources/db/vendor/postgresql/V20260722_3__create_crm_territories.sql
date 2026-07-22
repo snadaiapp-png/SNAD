@@ -181,7 +181,9 @@ DECLARE
     territory_table_exists  INTEGER;
     closure_table_exists    INTEGER;
     assign_table_exists     INTEGER;
-    rule_def_type           TEXT;
+    rule_def_data_type      TEXT;
+    rule_def_udt_name       TEXT;
+    rule_def_nullable       TEXT;
     active_index_predicate  TEXT;
     expected_indexes        INTEGER;
 BEGIN
@@ -206,29 +208,51 @@ BEGIN
         RAISE EXCEPTION 'V20260722.3 postcondition failed: crm_territory_assignments not created';
     END IF;
 
-    -- rule_definition must be JSONB NOT NULL
-    PERFORM 1
+    -- rule_definition must be JSONB NOT NULL.
+    -- PostgreSQL catalog records JSONB columns as data_type='jsonb' AND udt_name='jsonb'.
+    SELECT data_type, udt_name, is_nullable
+      INTO rule_def_data_type, rule_def_udt_name, rule_def_nullable
       FROM information_schema.columns
      WHERE table_schema = 'public'
        AND table_name = 'crm_territories'
-       AND column_name = 'rule_definition'
-       AND udt_name = 'jsonb'
-       AND is_nullable = 'NO';
-    IF NOT FOUND THEN
+       AND column_name = 'rule_definition';
+
+    IF rule_def_data_type IS DISTINCT FROM 'jsonb'
+       OR rule_def_udt_name IS DISTINCT FROM 'jsonb' THEN
         RAISE EXCEPTION
-            'V20260722.3 postcondition failed: crm_territories.rule_definition is not JSONB NOT NULL';
+            'V20260722.3 postcondition failed: crm_territories.rule_definition data_type=% udt_name=% (expected jsonb/jsonb)',
+            rule_def_data_type,
+            rule_def_udt_name;
     END IF;
 
-    SELECT indexdef INTO active_index_predicate
-      FROM pg_indexes
-     WHERE schemaname = 'public'
-       AND tablename = 'crm_territory_assignments'
-       AND indexname = 'uk_territory_assignments_active';
-    IF active_index_predicate IS NULL
-       OR active_index_predicate NOT LIKE '%status = ''ACTIVE''%'
-       OR active_index_predicate NOT LIKE '%role = ''PRIMARY''%' THEN
+    IF rule_def_nullable IS DISTINCT FROM 'NO' THEN
+        RAISE EXCEPTION
+            'V20260722.3 postcondition failed: crm_territories.rule_definition is_nullable=% (expected NO)',
+            rule_def_nullable;
+    END IF;
+
+    -- Verify uk_territory_assignments_active partial index predicate.
+    -- Use pg_get_expr(pg_index.indpred, pg_index.indrelid) for stable semantic check.
+    SELECT pg_get_expr(i.indpred, i.indrelid)
+      INTO active_index_predicate
+      FROM pg_index i
+      JOIN pg_class c ON c.oid = i.indrelid
+      JOIN pg_class ci ON ci.oid = i.indexrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = 'crm_territory_assignments'
+       AND ci.relname = 'uk_territory_assignments_active';
+    IF active_index_predicate IS NULL THEN
         RAISE EXCEPTION
             'V20260722.3 postcondition failed: uk_territory_assignments_active predicate missing or wrong: %',
+            active_index_predicate;
+    END IF;
+    IF position('status' in active_index_predicate) = 0
+       OR position('ACTIVE' in active_index_predicate) = 0
+       OR position('role' in active_index_predicate) = 0
+       OR position('PRIMARY' in active_index_predicate) = 0 THEN
+        RAISE EXCEPTION
+            'V20260722.3 postcondition failed: uk_territory_assignments_active predicate does not reference status=ACTIVE AND role=PRIMARY: %',
             active_index_predicate;
     END IF;
 

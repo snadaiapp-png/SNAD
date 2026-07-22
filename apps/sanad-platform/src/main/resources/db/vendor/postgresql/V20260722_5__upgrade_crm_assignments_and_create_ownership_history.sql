@@ -301,13 +301,15 @@ $backfill$;
 -- ============================================================
 DO $postcondition$
 DECLARE
-    expected_columns     INTEGER;
-    actual_columns       INTEGER;
-    workflow_result_type TEXT;
-    unmappable_rows      INTEGER;
-    expected_indexes     INTEGER;
-    history_table_count  INTEGER;
-    history_columns      INTEGER;
+    expected_columns            INTEGER;
+    actual_columns              INTEGER;
+    workflow_result_data_type   TEXT;
+    workflow_result_udt_name    TEXT;
+    workflow_result_nullable    TEXT;
+    unmappable_rows             INTEGER;
+    expected_indexes            INTEGER;
+    history_table_count         INTEGER;
+    history_columns             INTEGER;
 BEGIN
     -- All 13 new columns must exist on crm_assignments
     SELECT COUNT(*) INTO actual_columns
@@ -325,17 +327,25 @@ BEGIN
             actual_columns;
     END IF;
 
-    -- workflow_result must be JSONB (nullable)
-    SELECT udt_name INTO workflow_result_type
+    -- workflow_result must be JSONB (nullable).
+    -- PostgreSQL catalog records JSONB columns as data_type='jsonb' AND udt_name='jsonb'.
+    SELECT data_type, udt_name, is_nullable
+      INTO workflow_result_data_type, workflow_result_udt_name, workflow_result_nullable
       FROM information_schema.columns
      WHERE table_schema = 'public'
        AND table_name = 'crm_assignments'
        AND column_name = 'workflow_result';
-    IF workflow_result_type IS NULL OR workflow_result_type <> 'jsonb' THEN
+
+    IF workflow_result_data_type IS DISTINCT FROM 'jsonb'
+       OR workflow_result_udt_name IS DISTINCT FROM 'jsonb' THEN
         RAISE EXCEPTION
-            'V20260722.5 postcondition failed: crm_assignments.workflow_result udt=% (expected jsonb)',
-            workflow_result_type;
+            'V20260722.5 postcondition failed: crm_assignments.workflow_result data_type=% udt_name=% (expected jsonb/jsonb)',
+            workflow_result_data_type,
+            workflow_result_udt_name;
     END IF;
+
+    -- workflow_result is intentionally nullable (NULL means "no workflow result yet").
+    -- No is_nullable assertion here — only the type is the contract.
 
     -- G1 columns must still be present (preserved, not dropped)
     PERFORM 1

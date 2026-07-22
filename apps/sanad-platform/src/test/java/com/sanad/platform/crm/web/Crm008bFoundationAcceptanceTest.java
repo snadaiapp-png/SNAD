@@ -415,6 +415,8 @@ class Crm008bFoundationAcceptanceTest {
 
     /**
      * AC-JSONB-01: All structured-data columns are JSONB (not TEXT).
+     * Also enforces the catalog-reading regression guard: on PostgreSQL 16,
+     * JSONB columns have data_type='jsonb' AND udt_name='jsonb' (NOT 'USER-DEFINED').
      */
     @Test
     void jsonbColumnsArePostgresNativeJsonb() {
@@ -423,11 +425,34 @@ class Crm008bFoundationAcceptanceTest {
         flyway.migrate();
 
         JdbcTemplate jdbc = jdbc();
+        // Use the helper that asserts BOTH data_type='jsonb' AND udt_name='jsonb'
         assertThat(jsonbColumnExists(jdbc, "crm_team_memberships", "metadata")).isTrue();
         assertThat(jsonbColumnExists(jdbc, "crm_territories", "rule_definition")).isTrue();
         assertThat(jsonbColumnExists(jdbc, "crm_assignment_rule_versions", "match_conditions")).isTrue();
         assertThat(jsonbColumnExists(jdbc, "crm_transfer_requests", "record_ids")).isTrue();
         assertThat(jsonbColumnExists(jdbc, "crm_assignments", "workflow_result")).isTrue();
+
+        // Explicit regression assertions on data_type (the field that was
+        // previously mis-asserted as 'USER-DEFINED' in V20260722_1 postcondition).
+        String[][] jsonbColumns = {
+                {"crm_team_memberships",          "metadata"},
+                {"crm_territories",               "rule_definition"},
+                {"crm_assignment_rule_versions",  "match_conditions"},
+                {"crm_transfer_requests",         "record_ids"},
+                {"crm_assignments",               "workflow_result"},
+        };
+        for (String[] entry : jsonbColumns) {
+            String table = entry[0];
+            String column = entry[1];
+            Long dataTypeJsonbCount = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
+                            "AND table_name=? AND column_name=? AND data_type='jsonb'",
+                    Long.class, table, column);
+            assertThat(dataTypeJsonbCount)
+                    .as("%s.%s data_type must be 'jsonb' (regression: was wrongly asserted as 'USER-DEFINED' before)",
+                            table, column)
+                    .isEqualTo(1L);
+        }
     }
 
     /**
@@ -651,9 +676,15 @@ class Crm008bFoundationAcceptanceTest {
     }
 
     private boolean jsonbColumnExists(JdbcTemplate jdbc, String table, String column) {
+        // PostgreSQL catalog records JSONB columns as:
+        //   information_schema.columns.data_type = 'jsonb'
+        //   information_schema.columns.udt_name  = 'jsonb'
+        // (NOT 'USER-DEFINED' — that is the old value for some other types).
+        // Assert BOTH fields to prevent regression of the catalog-reading bug.
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
-                        "AND table_name=? AND column_name=? AND udt_name='jsonb'",
+                        "AND table_name=? AND column_name=? " +
+                        "AND data_type='jsonb' AND udt_name='jsonb'",
                 Long.class, table, column);
         return count != null && count == 1L;
     }

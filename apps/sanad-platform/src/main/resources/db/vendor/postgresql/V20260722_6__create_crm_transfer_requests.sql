@@ -170,10 +170,12 @@ CREATE INDEX idx_transfer_steps_approver
 -- ============================================================
 DO $postcondition$
 DECLARE
-    requests_table_exists   INTEGER;
-    steps_table_exists      INTEGER;
-    record_ids_type         TEXT;
-    expected_indexes        INTEGER;
+    requests_table_exists       INTEGER;
+    steps_table_exists          INTEGER;
+    record_ids_data_type        TEXT;
+    record_ids_udt_name         TEXT;
+    record_ids_nullable         TEXT;
+    expected_indexes            INTEGER;
 BEGIN
     SELECT COUNT(*) INTO requests_table_exists
       FROM information_schema.tables
@@ -189,17 +191,27 @@ BEGIN
         RAISE EXCEPTION 'V20260722.6 postcondition failed: crm_transfer_steps not created';
     END IF;
 
-    -- record_ids must be JSONB NOT NULL
-    PERFORM 1
+    -- record_ids must be JSONB NOT NULL.
+    -- PostgreSQL catalog records JSONB columns as data_type='jsonb' AND udt_name='jsonb'.
+    SELECT data_type, udt_name, is_nullable
+      INTO record_ids_data_type, record_ids_udt_name, record_ids_nullable
       FROM information_schema.columns
      WHERE table_schema = 'public'
        AND table_name = 'crm_transfer_requests'
-       AND column_name = 'record_ids'
-       AND udt_name = 'jsonb'
-       AND is_nullable = 'NO';
-    IF NOT FOUND THEN
+       AND column_name = 'record_ids';
+
+    IF record_ids_data_type IS DISTINCT FROM 'jsonb'
+       OR record_ids_udt_name IS DISTINCT FROM 'jsonb' THEN
         RAISE EXCEPTION
-            'V20260722.6 postcondition failed: crm_transfer_requests.record_ids is not JSONB NOT NULL';
+            'V20260722.6 postcondition failed: crm_transfer_requests.record_ids data_type=% udt_name=% (expected jsonb/jsonb)',
+            record_ids_data_type,
+            record_ids_udt_name;
+    END IF;
+
+    IF record_ids_nullable IS DISTINCT FROM 'NO' THEN
+        RAISE EXCEPTION
+            'V20260722.6 postcondition failed: crm_transfer_requests.record_ids is_nullable=% (expected NO)',
+            record_ids_nullable;
     END IF;
 
     SELECT COUNT(*) INTO expected_indexes

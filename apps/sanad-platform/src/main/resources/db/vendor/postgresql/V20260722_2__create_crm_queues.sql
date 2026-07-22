@@ -156,15 +156,26 @@ BEGIN
         RAISE EXCEPTION 'V20260722.2 postcondition failed: crm_queue_memberships not created';
     END IF;
 
-    SELECT indexdef INTO active_index_predicate
-      FROM pg_indexes
-     WHERE schemaname = 'public'
-       AND tablename = 'crm_queue_memberships'
-       AND indexname = 'uk_queue_memberships_active';
-    IF active_index_predicate IS NULL
-       OR active_index_predicate NOT LIKE '%WHERE (status = ''ACTIVE''::character varying)%' THEN
+    -- Verify uk_queue_memberships_active partial index predicate.
+    -- Use pg_get_expr(pg_index.indpred, pg_index.indrelid) for stable semantic check.
+    SELECT pg_get_expr(i.indpred, i.indrelid)
+      INTO active_index_predicate
+      FROM pg_index i
+      JOIN pg_class c ON c.oid = i.indrelid
+      JOIN pg_class ci ON ci.oid = i.indexrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = 'crm_queue_memberships'
+       AND ci.relname = 'uk_queue_memberships_active';
+    IF active_index_predicate IS NULL THEN
         RAISE EXCEPTION
             'V20260722.2 postcondition failed: uk_queue_memberships_active predicate missing or wrong: %',
+            active_index_predicate;
+    END IF;
+    IF position('status' in active_index_predicate) = 0
+       OR position('ACTIVE' in active_index_predicate) = 0 THEN
+        RAISE EXCEPTION
+            'V20260722.2 postcondition failed: uk_queue_memberships_active predicate does not reference status/ACTIVE: %',
             active_index_predicate;
     END IF;
 

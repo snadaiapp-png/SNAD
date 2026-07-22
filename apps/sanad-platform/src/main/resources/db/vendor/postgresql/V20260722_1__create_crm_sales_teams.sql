@@ -159,7 +159,8 @@ DO $postcondition$
 DECLARE
     team_table_exists        INTEGER;
     membership_table_exists  INTEGER;
-    metadata_type            TEXT;
+    metadata_data_type       TEXT;
+    metadata_udt_name        TEXT;
     metadata_nullable        TEXT;
     active_index_predicate   TEXT;
     primary_index_predicate  TEXT;
@@ -179,57 +180,80 @@ BEGIN
         RAISE EXCEPTION 'V20260722.1 postcondition failed: crm_team_memberships not created';
     END IF;
 
-    -- metadata column must be JSONB NOT NULL
-    SELECT data_type, is_nullable INTO metadata_type, metadata_nullable
+    -- metadata column must be JSONB NOT NULL.
+    -- PostgreSQL catalog records JSONB columns as:
+    --   information_schema.columns.data_type = 'jsonb'
+    --   information_schema.columns.udt_name  = 'jsonb'
+    -- (NOT 'USER-DEFINED' — that is the old value for some other types).
+    -- This assertion is fail-closed: any deviation raises immediately.
+    SELECT data_type, udt_name, is_nullable
+      INTO metadata_data_type, metadata_udt_name, metadata_nullable
       FROM information_schema.columns
      WHERE table_schema = 'public'
        AND table_name = 'crm_team_memberships'
        AND column_name = 'metadata';
-    IF metadata_type IS NULL OR metadata_type <> 'USER-DEFINED' THEN
+
+    IF metadata_data_type IS DISTINCT FROM 'jsonb'
+       OR metadata_udt_name IS DISTINCT FROM 'jsonb' THEN
         RAISE EXCEPTION
-            'V20260722.1 postcondition failed: crm_team_memberships.metadata data_type=% (expected USER-DEFINED/jsonb)',
-            metadata_type;
+            'V20260722.1 postcondition failed: crm_team_memberships.metadata data_type=% udt_name=% (expected jsonb/jsonb)',
+            metadata_data_type,
+            metadata_udt_name;
     END IF;
-    IF metadata_nullable <> 'NO' THEN
+
+    IF metadata_nullable IS DISTINCT FROM 'NO' THEN
         RAISE EXCEPTION
             'V20260722.1 postcondition failed: crm_team_memberships.metadata is_nullable=% (expected NO)',
             metadata_nullable;
     END IF;
 
-    -- Verify udt_name = jsonb
-    PERFORM 1
-      FROM information_schema.columns
-     WHERE table_schema = 'public'
-       AND table_name = 'crm_team_memberships'
-       AND column_name = 'metadata'
-       AND udt_name = 'jsonb';
-    IF NOT FOUND THEN
-        RAISE EXCEPTION
-            'V20260722.1 postcondition failed: crm_team_memberships.metadata udt_name is not jsonb';
-    END IF;
-
-    -- Verify partial unique index predicates
-    SELECT indexdef INTO active_index_predicate
-      FROM pg_indexes
-     WHERE schemaname = 'public'
-       AND tablename = 'crm_team_memberships'
-       AND indexname = 'uk_team_memberships_active';
-    IF active_index_predicate IS NULL
-       OR active_index_predicate NOT LIKE '%WHERE (status = ''ACTIVE''::character varying)%' THEN
+    -- Verify partial unique index predicates.
+    -- Use pg_get_expr(pg_index.indpred, pg_index.indrelid) instead of
+    -- pg_indexes.indexdef to avoid depending on the textual representation
+    -- of casts (e.g. 'ACTIVE'::character varying vs 'ACTIVE'::text).
+    -- pg_get_expr returns the canonical predicate expression.
+    SELECT pg_get_expr(i.indpred, i.indrelid)
+      INTO active_index_predicate
+      FROM pg_index i
+      JOIN pg_class c ON c.oid = i.indrelid
+      JOIN pg_class ci ON ci.oid = i.indexrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = 'crm_team_memberships'
+       AND ci.relname = 'uk_team_memberships_active';
+    IF active_index_predicate IS NULL THEN
         RAISE EXCEPTION
             'V20260722.1 postcondition failed: uk_team_memberships_active predicate missing or wrong: %',
             active_index_predicate;
     END IF;
-
-    SELECT indexdef INTO primary_index_predicate
-      FROM pg_indexes
-     WHERE schemaname = 'public'
-       AND tablename = 'crm_team_memberships'
-       AND indexname = 'uk_team_memberships_primary';
-    IF primary_index_predicate IS NULL
-       OR primary_index_predicate NOT LIKE '%status = ''ACTIVE''%is_primary = true%' THEN
+    -- Belt-and-suspenders: assert both 'status' and 'ACTIVE' appear in the predicate.
+    IF position('status' in active_index_predicate) = 0
+       OR position('ACTIVE' in active_index_predicate) = 0 THEN
         RAISE EXCEPTION
-            'V20260722.1 postcondition failed: uk_team_memberships_primary predicate missing or wrong: %',
+            'V20260722.1 postcondition failed: uk_team_memberships_active predicate does not reference status/ACTIVE: %',
+            active_index_predicate;
+    END IF;
+
+    SELECT pg_get_expr(i.indpred, i.indrelid)
+      INTO primary_index_predicate
+      FROM pg_index i
+      JOIN pg_class c ON c.oid = i.indrelid
+      JOIN pg_class ci ON ci.oid = i.indexrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = 'crm_team_memberships'
+       AND ci.relname = 'uk_team_memberships_primary';
+    IF primary_index_predicate IS NULL THEN
+        RAISE EXCEPTION
+            'V20260722.1 postcondition failed: uk_team_memberships_primary predicate missing';
+    END IF;
+    -- Assert the predicate references status='ACTIVE' AND is_primary=true (semantic, not textual).
+    IF position('status' in primary_index_predicate) = 0
+       OR position('ACTIVE' in primary_index_predicate) = 0
+       OR position('is_primary' in primary_index_predicate) = 0
+       OR position('true' in primary_index_predicate) = 0 THEN
+        RAISE EXCEPTION
+            'V20260722.1 postcondition failed: uk_team_memberships_primary predicate does not reference status=ACTIVE AND is_primary=true: %',
             primary_index_predicate;
     END IF;
 

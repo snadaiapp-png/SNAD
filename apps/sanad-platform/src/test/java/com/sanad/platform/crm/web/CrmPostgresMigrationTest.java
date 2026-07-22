@@ -217,6 +217,69 @@ class CrmPostgresMigrationTest {
         assertCompletedSchema(jdbc());
     }
 
+    /**
+     * Regression test for the PostgreSQL catalog-reading bug where
+     * information_schema.columns.data_type for a JSONB column was wrongly
+     * asserted to be 'USER-DEFINED'. On PostgreSQL 16, the correct values
+     * for a JSONB column are:
+     *   data_type = 'jsonb'
+     *   udt_name  = 'jsonb'
+     * This test asserts BOTH fields for all 5 JSONB columns created by
+     * V20260722_1..6, and is the canonical guard against future regressions.
+     */
+    @Test
+    void jsonbColumnsHaveExactPostgresCatalogValues() {
+        Flyway flyway = flyway(null);
+        flyway.clean();
+        flyway.migrate();
+        flyway.validate();
+        JdbcTemplate jdbc = jdbc();
+
+        // The 5 JSONB columns created by V20260722_* migrations.
+        // Each row: {table, column, expectedNullable}
+        String[][] jsonbColumns = {
+                {"crm_team_memberships",          "metadata",          "NO"},   // V20260722_1
+                {"crm_territories",               "rule_definition",   "NO"},   // V20260722_3
+                {"crm_assignment_rule_versions",  "match_conditions",  "NO"},   // V20260722_4
+                {"crm_assignments",               "workflow_result",   "YES"},  // V20260722_5 (nullable)
+                {"crm_transfer_requests",         "record_ids",        "NO"},   // V20260722_6
+        };
+
+        for (String[] entry : jsonbColumns) {
+            String table = entry[0];
+            String column = entry[1];
+            String expectedNullable = entry[2];
+
+            // Verify data_type = 'jsonb' (the field that was previously mis-asserted as 'USER-DEFINED')
+            Long dataTypeCount = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
+                            "AND table_name=? AND column_name=? AND data_type='jsonb'",
+                    Long.class, table, column);
+            assertThat(dataTypeCount)
+                    .as("%s.%s data_type must be 'jsonb' (regression: was wrongly asserted as 'USER-DEFINED' before)",
+                            table, column)
+                    .isEqualTo(1L);
+
+            // Verify udt_name = 'jsonb'
+            Long udtNameCount = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
+                            "AND table_name=? AND column_name=? AND udt_name='jsonb'",
+                    Long.class, table, column);
+            assertThat(udtNameCount)
+                    .as("%s.%s udt_name must be 'jsonb'", table, column)
+                    .isEqualTo(1L);
+
+            // Verify is_nullable matches expected
+            Long nullableCount = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
+                            "AND table_name=? AND column_name=? AND is_nullable=?",
+                    Long.class, table, column, expectedNullable);
+            assertThat(nullableCount)
+                    .as("%s.%s is_nullable must be %s", table, column, expectedNullable)
+                    .isEqualTo(1L);
+        }
+    }
+
     private void assertCompletedSchema(JdbcTemplate jdbc) {
         assertMigration(jdbc, "15", "JDBC", "seed rbac roles and capabilities");
         assertMigration(jdbc, CRM_CORE_VERSION, "SQL", "create unified crm core");
@@ -504,9 +567,15 @@ class CrmPostgresMigrationTest {
     }
 
     private boolean jsonbColumnExists(JdbcTemplate jdbc, String table, String column) {
+        // PostgreSQL catalog records JSONB columns as:
+        //   information_schema.columns.data_type = 'jsonb'
+        //   information_schema.columns.udt_name  = 'jsonb'
+        // (NOT 'USER-DEFINED' — that is the old value for some other types).
+        // Assert BOTH fields to prevent regression of the catalog-reading bug.
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
-                        "AND table_name=? AND column_name=? AND udt_name='jsonb'",
+                        "AND table_name=? AND column_name=? " +
+                        "AND data_type='jsonb' AND udt_name='jsonb'",
                 Long.class, table, column);
         return count != null && count == 1L;
     }
