@@ -66,6 +66,7 @@ describe("BFF header contract", () => {
 
       expect(response.status).toBe(201);
       expect(response.headers.get("etag")).toBe('"account-addr-1-v1-a1b2c3d4"');
+      expect(response.headers.get("x-snad-entity-tag")).toBe('"account-addr-1-v1-a1b2c3d4"');
     });
 
     it("forwards upstream ETag unchanged on HTTP 200", async () => {
@@ -93,6 +94,7 @@ describe("BFF header contract", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("etag")).toBe('"account-addr-1-v2-e5f6g7h8"');
+      expect(response.headers.get("x-snad-entity-tag")).toBe('"account-addr-1-v2-e5f6g7h8"');
     });
 
     it("preserves weak ETag validators from upstream", async () => {
@@ -115,6 +117,7 @@ describe("BFF header contract", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("etag")).toBe('W/"12"');
+      expect(response.headers.get("x-snad-entity-tag")).toBe('W/"12"');
     });
 
     it("does not create an empty ETag header when upstream omits it", async () => {
@@ -134,6 +137,7 @@ describe("BFF header contract", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("etag")).toBeNull();
+      expect(response.headers.get("x-snad-entity-tag")).toBeNull();
     });
 
     it("retains existing cache-control and correlation headers alongside ETag", async () => {
@@ -156,6 +160,7 @@ describe("BFF header contract", () => {
       );
 
       expect(response.headers.get("etag")).toBe('"addr-1-v1-abc12345"');
+      expect(response.headers.get("x-snad-entity-tag")).toBe('"addr-1-v1-abc12345"');
       expect(response.headers.get("x-correlation-id")).toBe("trace-xyz");
       expect(response.headers.get("cache-control")).toBe("no-store");
     });

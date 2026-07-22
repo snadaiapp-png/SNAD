@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 const REFRESH_COOKIE = "sanad_refresh";
 const SESSION_HINT_COOKIE = "sanad_session_hint";
 const REFRESH_HEADER = "x-sanad-refresh-token";
+const ENTITY_TAG_HEADER = "x-snad-entity-tag";
 const AUTH_PATH_PREFIX = "/api/v1/auth";
 const LOGIN_PATH = "/api/v1/auth/login";
 const REFRESH_PATH = "/api/v1/auth/refresh";
@@ -166,9 +167,18 @@ function responseHeaders(upstream: Response, id: string, attempts: number): Head
     "x-request-id": upstream.headers.get("x-request-id") || upstream.headers.get("x-correlation-id") || id,
     "x-sanad-bff-attempts": String(attempts),
   });
-  for (const name of ["content-type", "x-correlation-id", "etag"]) {
+  for (const name of ["content-type", "x-correlation-id"]) {
     const value = upstream.headers.get(name);
     if (value) headers.set(name, value);
+  }
+  const upstreamEtag = upstream.headers.get("etag");
+  if (upstreamEtag) {
+    // Keep the standard representation ETag for HTTP clients, and expose the
+    // backend's byte-exact domain validator through a non-transforming header.
+    // CDNs may weaken ETag after compression (for example Brotli), but must not
+    // alter X-SNAD-Entity-Tag, which pairs with X-SNAD-If-Match.
+    headers.set("etag", upstreamEtag);
+    headers.set(ENTITY_TAG_HEADER, upstreamEtag);
   }
   return headers;
 }
