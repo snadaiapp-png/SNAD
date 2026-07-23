@@ -61,26 +61,13 @@ public class TransferUseCases {
         validateCreate(tenantId, requesterUserId, command);
         UUID currentOwner = currentCommonOwner(tenantId, command.recordType(), command.recordIds());
         TransferRequest created = transfers.save(new TransferRequest(
-                null,
-                tenantId,
-                command.recordType(),
-                command.recordIds(),
-                requesterUserId,
+                null, tenantId, command.recordType(), command.recordIds(), requesterUserId,
                 currentOwner,
                 command.proposedOwnerType() == OwnerType.USER ? command.proposedOwnerId() : null,
                 command.proposedOwnerType() == OwnerType.TEAM ? command.proposedOwnerId() : null,
-                command.transferType(),
-                command.temporaryEndDate(),
-                reason(command.reason()),
-                command.policy(),
-                TransferState.DRAFT,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null));
+                command.transferType(), command.temporaryEndDate(), reason(command.reason()),
+                command.policy(), TransferState.DRAFT, null, null, null, null, null,
+                null, null));
         mutation(tenantId, requesterUserId, "CREATE", created.id(), null, snapshot(created),
                 "crm.transfer.created", "Transfer request created");
         return created;
@@ -224,20 +211,14 @@ public class TransferUseCases {
             throw new TransferStateConflictException(
                     tenantId, transferId, approved.state(), TransferState.COMPLETED);
         }
+        assertSourceOwnershipUnchanged(approved);
         OwnerType ownerType = approved.proposedOwnerUserId() != null
                 ? OwnerType.USER : OwnerType.TEAM;
         UUID ownerId = approved.proposedOwnerUserId() != null
                 ? approved.proposedOwnerUserId() : approved.proposedOwnerTeamId();
         ownershipCommands.transfer(new OwnershipCommandUseCases.TransferAssignmentCommand(
-                tenantId,
-                approved.recordType(),
-                approved.recordIds(),
-                ownerType,
-                ownerId,
-                actorId,
-                approved.id(),
-                UUID.randomUUID(),
-                approved.reason(),
+                tenantId, approved.recordType(), approved.recordIds(), ownerType, ownerId,
+                actorId, approved.id(), UUID.randomUUID(), approved.reason(),
                 approved.transferType() == TransferType.TEMPORARY
                         ? approved.temporaryEndDate() : null));
         transfers.updateState(tenantId, transferId, TransferState.COMPLETED, actorId, null);
@@ -246,6 +227,20 @@ public class TransferUseCases {
                 snapshot(approved), snapshot(completed),
                 "crm.transfer.completed", "Transfer completed");
         return completed;
+    }
+
+    private void assertSourceOwnershipUnchanged(TransferRequest request) {
+        for (UUID recordId : request.recordIds()) {
+            Assignment current = assignments.findActive(
+                            request.tenantId(), request.recordType(), recordId)
+                    .orElseThrow(() -> new AssignmentNotFoundException(
+                            request.tenantId(), request.recordType(), recordId));
+            if (current.ownerType() != OwnerType.USER
+                    || !request.currentOwnerUserId().equals(current.ownerUserId())) {
+                throw new ConcurrentClaimConflictException(
+                        request.tenantId(), request.recordType(), recordId);
+            }
+        }
     }
 
     private void validateCreate(UUID tenantId,
