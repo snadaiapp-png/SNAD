@@ -71,4 +71,24 @@ public class OwnershipModuleConfiguration {
                 queueRepository, assignmentRepository, territoryUseCases, userValidationPort,
                 auditPort, timelineEventPort, objectMapper);
     }
+
+    @Bean
+    public OwnershipCommandUseCases ownershipCommandUseCases(
+            AssignmentRepository assignmentRepository,
+            OwnershipRecordPort ownershipRecordPort,
+            OwnershipUserValidationPort userValidationPort,
+            SalesTeamRepository salesTeamRepository,
+            QueueRepository queueRepository,
+            AuditPort auditPort,
+            TimelineEventPort timelineEventPort,
+            ObjectMapper objectMapper) {
+        return new OwnershipCommandUseCases(
+                assignmentRepository, ownershipRecordPort, userValidationPort,
+                salesTeamRepository, queueRepository, auditPort, timelineEventPort, objectMapper);
+    }
+
+    @Bean
+    public OwnershipQueryUseCases ownershipQueryUseCases(OwnershipReadPort ownershipReadPort) {
+        return new OwnershipQueryUseCases(ownershipReadPort);
+    }
 }
