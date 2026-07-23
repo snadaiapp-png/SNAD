@@ -53,4 +53,22 @@ public class OwnershipModuleConfiguration {
                 territoryRepository, assignmentRepository, salesTeamRepository,
                 userValidationPort, auditPort, timelineEventPort, objectMapper);
     }
+
+    @Bean
+    public AssignmentRuleUseCases assignmentRuleUseCases(
+            AssignmentRuleRepository assignmentRuleRepository,
+            SalesTeamRepository salesTeamRepository,
+            TeamMembershipRepository teamMembershipRepository,
+            QueueRepository queueRepository,
+            AssignmentRepository assignmentRepository,
+            TerritoryUseCases territoryUseCases,
+            OwnershipUserValidationPort userValidationPort,
+            AuditPort auditPort,
+            TimelineEventPort timelineEventPort,
+            ObjectMapper objectMapper) {
+        return new AssignmentRuleUseCases(
+                assignmentRuleRepository, salesTeamRepository, teamMembershipRepository,
+                queueRepository, assignmentRepository, territoryUseCases, userValidationPort,
+                auditPort, timelineEventPort, objectMapper);
+    }
 }
