@@ -364,12 +364,12 @@ class Crm008bFoundationAcceptanceTest {
                 Long.class, tenantId);
         assertThat(roleCount).as("SALES_MANAGER role count after idempotent migration").isEqualTo(1L);
 
-        // Verify SALES_MANAGER has 11 CRM-008B capabilities
+        // Verify SALES_MANAGER has 11 CRM-008B capabilities for this tenant
         Long capCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM role_capabilities rc " +
                 "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id " +
                 "JOIN access_capabilities c ON c.id = rc.capability_id " +
-                "WHERE r.code = 'SALES_MANAGER' AND r.status = 'ACTIVE' " +
+                "WHERE r.tenant_id = ? AND r.code = 'SALES_MANAGER' AND r.status = 'ACTIVE' " +
                 "AND c.code IN (" +
                 "  'CRM.ASSIGNMENT.READ','CRM.ASSIGNMENT.WRITE'," +
                 "  'CRM.TRANSFER.READ','CRM.TRANSFER.REQUEST','CRM.TRANSFER.APPROVE'," +
