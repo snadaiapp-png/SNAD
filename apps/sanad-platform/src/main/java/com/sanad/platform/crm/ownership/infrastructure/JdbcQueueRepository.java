@@ -61,6 +61,12 @@ public class JdbcQueueRepository implements QueueRepository {
         Queue current = findById(queue.tenantId(), queue.id())
                 .orElseThrow(() -> new QueueNotFoundException(queue.tenantId(), queue.id()));
         validateStatusTransition(current.status(), queue.status());
+        if (current.recordType() != queue.recordType()) {
+            throw new OwnershipDomainException("Queue recordType is immutable: " + queue.id());
+        }
+        if (!current.code().equals(queue.code())) {
+            throw new OwnershipDomainException("Queue code is immutable: " + queue.id());
+        }
 
         int rows = jdbc.update("""
                 UPDATE crm_queues
@@ -75,9 +81,11 @@ public class JdbcQueueRepository implements QueueRepository {
                        updated_by=:updatedBy
                  WHERE tenant_id=:tenantId
                    AND id=:id
-                """, parameters(queue.id(), queue));
+                   AND status=:currentStatus
+                """, parameters(queue.id(), queue)
+                .addValue("currentStatus", current.status().name()));
         if (rows != 1) {
-            throw new QueueNotFoundException(queue.tenantId(), queue.id());
+            throw new OwnershipDomainException("Concurrent queue update: " + queue.id());
         }
         return findById(queue.tenantId(), queue.id()).orElseThrow();
     }
@@ -165,6 +173,16 @@ public class JdbcQueueRepository implements QueueRepository {
         } catch (EmptyResultDataAccessException missing) {
             return Optional.empty();
         }
+    }
+
+    @Override
+    public List<Queue> findAllByTenant(UUID tenantId) {
+        return jdbc.query("""
+                SELECT *
+                  FROM crm_queues
+                 WHERE tenant_id=:tenantId
+                 ORDER BY display_name, id
+                """, new MapSqlParameterSource("tenantId", tenantId), queueMapper());
     }
 
     @Override
