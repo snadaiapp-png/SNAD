@@ -140,10 +140,23 @@ describe("AuthProvider bootstrap", () => {
       .mockRejectedValueOnce(new Error("temporary network failure"))
       .mockResolvedValueOnce(bootstrap);
     renderProvider();
-    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent("ERROR"));
-    expect(screen.getByTestId("retry")).toHaveTextContent("true");
+    // Wait for BOTH state=ERROR AND retry=true in a single waitFor to ensure
+    // the auth context (including the retrySessionRestore closure with
+    // canRetrySessionRestore=true) has been fully propagated to the Probe
+    // component's useEffect ref. Checking them separately creates a race:
+    // the DOM may show "ERROR" before the ref is updated with the new closure.
+    await waitFor(() => {
+      expect(screen.getByTestId("state")).toHaveTextContent("ERROR");
+      expect(screen.getByTestId("retry")).toHaveTextContent("true");
+    });
+    // Flush any pending React effects to guarantee authContainer.current
+    // holds the latest retrySessionRestore closure before we invoke it.
+    await act(async () => {});
+    expect(authContainer.current).not.toBeNull();
     await act(async () => { await authContainer.current!.retrySessionRestore(); });
-    expect(screen.getByTestId("state")).toHaveTextContent("AUTHENTICATED");
+    // Use waitFor for the final state to handle async state updates from
+    // the retry path (restoreSession → runRefresh → applyAuthResponse).
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent("AUTHENTICATED"));
   });
 
   it("re-establishes a fresh bootstrap after mandatory credential rotation without /me", async () => {
