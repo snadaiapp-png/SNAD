@@ -201,7 +201,8 @@ public class CrmOwnershipProblemHandler extends ResponseEntityExceptionHandler {
         UUID requestId = explicitRequestId != null
                 ? explicitRequestId : headerUuid(request, "X-Request-ID");
         UUID correlationId = headerUuid(request, "X-Correlation-ID");
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatusCode.valueOf(status), detail);
         problem.setType(URI.create("urn:snad:crm:problem:" + code.toLowerCase()));
         problem.setTitle(title(status));
         if (request != null && request.getRequestURI() != null) {
