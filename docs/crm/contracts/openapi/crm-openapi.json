@@ -11324,6 +11324,26 @@
           "idempotencyKey": {
             "type": "string"
           },
+          "sourceEntityType": {
+            "type": "string"
+          },
+          "sourceEntityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceEntityVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "requiredCapability": {
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/JsonNode"
+          },
+          "resultPayload": {
+            "$ref": "#/components/schemas/JsonNode"
+          },
           "requestedAt": {
             "type": "string",
             "format": "date-time"
