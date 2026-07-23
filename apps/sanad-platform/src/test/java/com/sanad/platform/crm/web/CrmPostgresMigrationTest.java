@@ -95,6 +95,9 @@ class CrmPostgresMigrationTest {
             "crm_transfer_requests", "crm_transfer_steps",
             "crm_assignment_rule_counters");
 
+    private static final List<String> CRM_009_NEW_TABLES = List.of(
+            "crm_integration_requests");
+
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
@@ -473,7 +476,8 @@ class CrmPostgresMigrationTest {
                         CRM_CUSTOMER_MASTER_TABLES,
                         CRM_CONTACT_RELATIONSHIP_TABLES,
                         CRM_ADDRESS_COMMUNICATION_TABLES,
-                        CRM_008B_NEW_TABLES)
+                        CRM_008B_NEW_TABLES,
+                        CRM_009_NEW_TABLES)
                 .flatMap(List::stream)
                 .sorted()
                 .toList();
