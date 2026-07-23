@@ -6,9 +6,11 @@ import com.sanad.platform.crm.ownership.domain.AssignmentRuleCounter;
 import com.sanad.platform.crm.ownership.domain.AssignmentRuleNotFoundException;
 import com.sanad.platform.crm.ownership.domain.AssignmentRuleRepository;
 import com.sanad.platform.crm.ownership.domain.AssignmentRuleVersion;
+import com.sanad.platform.crm.ownership.domain.ConcurrentRuleActivationConflictException;
 import com.sanad.platform.crm.ownership.domain.RuleStatus;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -190,12 +192,14 @@ public class JdbcAssignmentRuleRepository implements AssignmentRuleRepository {
                       FROM crm_assignment_rules
                      WHERE tenant_id=:tenantId
                        AND id=:ruleId
-                     FOR UPDATE
+                     FOR UPDATE NOWAIT
                     """, new MapSqlParameterSource()
                     .addValue("tenantId", tenantId)
                     .addValue("ruleId", ruleId), Integer.class);
         } catch (EmptyResultDataAccessException missing) {
             throw new AssignmentRuleNotFoundException(tenantId, ruleId);
+        } catch (PessimisticLockingFailureException concurrent) {
+            throw new ConcurrentRuleActivationConflictException(tenantId, ruleId);
         }
 
         Integer targetExists = jdbc.queryForObject("""
