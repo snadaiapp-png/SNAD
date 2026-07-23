@@ -81,10 +81,8 @@ public class JdbcTransferRequestRepository implements TransferRequestRepository 
     public Optional<TransferRequest> findById(UUID tenantId, UUID transferId) {
         try {
             return Optional.ofNullable(jdbc.queryForObject("""
-                    SELECT *
-                      FROM crm_transfer_requests
-                     WHERE tenant_id=:tenantId
-                       AND id=:id
+                    SELECT * FROM crm_transfer_requests
+                     WHERE tenant_id=:tenantId AND id=:id
                     """, new MapSqlParameterSource()
                     .addValue("tenantId", tenantId)
                     .addValue("id", transferId), transferRequestMapper()));
@@ -96,10 +94,8 @@ public class JdbcTransferRequestRepository implements TransferRequestRepository 
     @Override
     public List<TransferRequest> findByRequester(UUID tenantId, UUID requesterUserId) {
         return jdbc.query("""
-                SELECT *
-                  FROM crm_transfer_requests
-                 WHERE tenant_id=:tenantId
-                   AND requester_user_id=:userId
+                SELECT * FROM crm_transfer_requests
+                 WHERE tenant_id=:tenantId AND requester_user_id=:userId
                  ORDER BY created_at DESC, id
                 """, new MapSqlParameterSource()
                 .addValue("tenantId", tenantId)
@@ -109,10 +105,8 @@ public class JdbcTransferRequestRepository implements TransferRequestRepository 
     @Override
     public List<TransferRequest> findByState(UUID tenantId, TransferState state) {
         return jdbc.query("""
-                SELECT *
-                  FROM crm_transfer_requests
-                 WHERE tenant_id=:tenantId
-                   AND state=:state
+                SELECT * FROM crm_transfer_requests
+                 WHERE tenant_id=:tenantId AND state=:state
                  ORDER BY updated_at DESC, id
                 """, new MapSqlParameterSource()
                 .addValue("tenantId", tenantId)
@@ -122,8 +116,7 @@ public class JdbcTransferRequestRepository implements TransferRequestRepository 
     @Override
     public List<TransferRequest> findByProposedOwner(UUID tenantId, UUID proposedOwnerUserId) {
         return jdbc.query("""
-                SELECT *
-                  FROM crm_transfer_requests
+                SELECT * FROM crm_transfer_requests
                  WHERE tenant_id=:tenantId
                    AND proposed_owner_user_id=:userId
                    AND state IN ('SUBMITTED','UNDER_REVIEW')
@@ -144,15 +137,13 @@ public class JdbcTransferRequestRepository implements TransferRequestRepository 
             throw new UnauthorizedTransferApproverException(
                     tenantId, transferRequestId, approverUserId);
         }
-
         UUID id = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO crm_transfer_steps
                   (id, tenant_id, transfer_request_id, step_number,
                    approver_user_id, created_at)
-                VALUES
-                  (:id, :tenantId, :transferRequestId, :stepNumber,
-                   :approverUserId, CURRENT_TIMESTAMP)
+                VALUES (:id, :tenantId, :transferRequestId, :stepNumber,
+                        :approverUserId, CURRENT_TIMESTAMP)
                 """, new MapSqlParameterSource()
                 .addValue("id", id)
                 .addValue("tenantId", tenantId)
@@ -168,8 +159,7 @@ public class JdbcTransferRequestRepository implements TransferRequestRepository 
                                            int stepNumber) {
         try {
             return Optional.ofNullable(jdbc.queryForObject("""
-                    SELECT *
-                      FROM crm_transfer_steps
+                    SELECT * FROM crm_transfer_steps
                      WHERE tenant_id=:tenantId
                        AND transfer_request_id=:transferId
                        AND step_number=:stepNumber
@@ -185,10 +175,8 @@ public class JdbcTransferRequestRepository implements TransferRequestRepository 
     @Override
     public List<TransferStep> findSteps(UUID tenantId, UUID transferRequestId) {
         return jdbc.query("""
-                SELECT *
-                  FROM crm_transfer_steps
-                 WHERE tenant_id=:tenantId
-                   AND transfer_request_id=:transferId
+                SELECT * FROM crm_transfer_steps
+                 WHERE tenant_id=:tenantId AND transfer_request_id=:transferId
                  ORDER BY step_number, id
                 """, new MapSqlParameterSource()
                 .addValue("tenantId", tenantId)
@@ -208,7 +196,6 @@ public class JdbcTransferRequestRepository implements TransferRequestRepository 
             throw new UnauthorizedTransferApproverException(
                     tenantId, transferRequestId, approverUserId);
         }
-
         int rows = jdbc.update("""
                 UPDATE crm_transfer_steps
                    SET decision=:decision,
@@ -234,6 +221,33 @@ public class JdbcTransferRequestRepository implements TransferRequestRepository 
 
     @Override
     @Transactional
+    public void setWorkflowReference(UUID tenantId,
+                                     UUID transferRequestId,
+                                     UUID workflowRunId,
+                                     int currentApprovalStep) {
+        int rows = jdbc.update("""
+                UPDATE crm_transfer_requests
+                   SET workflow_run_id=:workflowRunId,
+                       current_approval_step=:currentStep,
+                       updated_at=CURRENT_TIMESTAMP
+                 WHERE tenant_id=:tenantId
+                   AND id=:id
+                   AND workflow_run_id IS NULL
+                   AND state IN ('DRAFT','SUBMITTED','UNDER_REVIEW')
+                """, new MapSqlParameterSource()
+                .addValue("workflowRunId", workflowRunId)
+                .addValue("currentStep", currentApprovalStep)
+                .addValue("tenantId", tenantId)
+                .addValue("id", transferRequestId));
+        if (rows != 1) {
+            throw new OwnershipDomainException(
+                    "Transfer workflow reference already set or transfer is not reviewable: "
+                            + transferRequestId);
+        }
+    }
+
+    @Override
+    @Transactional
     public void updateState(UUID tenantId,
                             UUID transferRequestId,
                             TransferState newState,
@@ -242,11 +256,8 @@ public class JdbcTransferRequestRepository implements TransferRequestRepository 
         TransferState currentState;
         try {
             String stored = jdbc.queryForObject("""
-                    SELECT state
-                      FROM crm_transfer_requests
-                     WHERE tenant_id=:tenantId
-                       AND id=:id
-                     FOR UPDATE
+                    SELECT state FROM crm_transfer_requests
+                     WHERE tenant_id=:tenantId AND id=:id FOR UPDATE
                     """, new MapSqlParameterSource()
                     .addValue("tenantId", tenantId)
                     .addValue("id", transferRequestId), String.class);
@@ -259,26 +270,18 @@ public class JdbcTransferRequestRepository implements TransferRequestRepository 
             throw new TransferStateConflictException(
                     tenantId, transferRequestId, currentState, newState);
         }
-
         int rows = jdbc.update("""
                 UPDATE crm_transfer_requests
                    SET state=:state,
                        executed_at=CASE
                            WHEN :state IN ('COMPLETED','FAILED') THEN CURRENT_TIMESTAMP
-                           ELSE executed_at
-                       END,
+                           ELSE executed_at END,
                        executed_by_user_id=CASE
                            WHEN :state IN ('COMPLETED','FAILED') THEN :executedBy
-                           ELSE executed_by_user_id
-                       END,
-                       failure_reason=CASE
-                           WHEN :state='FAILED' THEN :failureReason
-                           ELSE NULL
-                       END,
+                           ELSE executed_by_user_id END,
+                       failure_reason=CASE WHEN :state='FAILED' THEN :failureReason ELSE NULL END,
                        updated_at=CURRENT_TIMESTAMP
-                 WHERE tenant_id=:tenantId
-                   AND id=:id
-                   AND state=:currentState
+                 WHERE tenant_id=:tenantId AND id=:id AND state=:currentState
                 """, new MapSqlParameterSource()
                 .addValue("state", newState.name())
                 .addValue("currentState", currentState.name())
@@ -295,11 +298,8 @@ public class JdbcTransferRequestRepository implements TransferRequestRepository 
     private UUID lockAndReadRequester(UUID tenantId, UUID transferRequestId) {
         try {
             return jdbc.queryForObject("""
-                    SELECT requester_user_id
-                      FROM crm_transfer_requests
-                     WHERE tenant_id=:tenantId
-                       AND id=:id
-                     FOR UPDATE
+                    SELECT requester_user_id FROM crm_transfer_requests
+                     WHERE tenant_id=:tenantId AND id=:id FOR UPDATE
                     """, new MapSqlParameterSource()
                     .addValue("tenantId", tenantId)
                     .addValue("id", transferRequestId), UUID.class);
@@ -309,24 +309,17 @@ public class JdbcTransferRequestRepository implements TransferRequestRepository 
     }
 
     private boolean isAllowedTransition(TransferState current, TransferState target) {
-        if (current == target) {
-            return true;
-        }
+        if (current == target) return true;
         return switch (current) {
-            case DRAFT -> EnumSet.of(TransferState.SUBMITTED, TransferState.CANCELLED)
-                    .contains(target);
+            case DRAFT -> EnumSet.of(TransferState.SUBMITTED, TransferState.CANCELLED).contains(target);
             case SUBMITTED -> EnumSet.of(
-                    TransferState.UNDER_REVIEW,
-                    TransferState.APPROVED,
-                    TransferState.REJECTED,
-                    TransferState.CANCELLED).contains(target);
+                    TransferState.UNDER_REVIEW, TransferState.APPROVED,
+                    TransferState.REJECTED, TransferState.CANCELLED).contains(target);
             case UNDER_REVIEW -> EnumSet.of(
-                    TransferState.APPROVED,
-                    TransferState.REJECTED,
+                    TransferState.APPROVED, TransferState.REJECTED,
                     TransferState.CANCELLED).contains(target);
             case APPROVED -> EnumSet.of(
-                    TransferState.COMPLETED,
-                    TransferState.FAILED,
+                    TransferState.COMPLETED, TransferState.FAILED,
                     TransferState.CANCELLED).contains(target);
             case REJECTED, CANCELLED, COMPLETED, FAILED -> false;
         };
