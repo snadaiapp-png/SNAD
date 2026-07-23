@@ -180,7 +180,7 @@ class TransferUseCasesPostgresTest {
     @Test
     void noApprovalTemporaryTeamTransferCompletesWithEndDate() {
         UUID leadId = createOwnedLead(currentOwner);
-        Instant end = Instant.now().plus(3, ChronoUnit.DAYS);
+        Instant end = Instant.now().truncatedTo(ChronoUnit.MICROS).plus(3, ChronoUnit.DAYS);
         TransferRequest draft = tx(() -> transfers.createDraft(
                 tenantId, currentOwner,
                 command(List.of(leadId), OwnerType.TEAM, targetTeam.id(),
