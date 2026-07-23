@@ -18,6 +18,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -157,11 +158,17 @@ public class JdbcAssignmentRepository implements AssignmentRepository {
                                          String reason,
                                          ChangeType changeType,
                                          TriggerSource triggerSource,
-                                         UUID triggerReferenceId) {
+                                         UUID triggerReferenceId,
+                                         OwnerType expectedOwnerType,
+                                         UUID expectedOwnerId) {
         Optional<Assignment> current = findActiveForUpdate(tenantId, recordType, recordId);
+        validateExpectedOwner(tenantId, recordType, recordId, current, expectedOwnerType, expectedOwnerId);
+
+        ChangeType requestedChange = changeType != null ? changeType : ChangeType.REASSIGN;
+        TriggerSource requestedSource = triggerSource != null ? triggerSource : TriggerSource.MANUAL;
         ChangeType effectiveChangeType = current.isPresent()
-                ? changeType
-                : (changeType == ChangeType.REASSIGN ? ChangeType.INITIAL : changeType);
+                ? requestedChange
+                : (requestedChange == ChangeType.REASSIGN ? ChangeType.INITIAL : requestedChange);
 
         if (current.isPresent()) {
             Assignment previous = current.get();
@@ -189,7 +196,7 @@ public class JdbcAssignmentRepository implements AssignmentRepository {
                     previous.ownerType(), previous.ownerUserId(), previous.ownerTeamId(), previous.ownerQueueId(),
                     newAssignment.ownerType(), newAssignment.ownerUserId(),
                     newAssignment.ownerTeamId(), newAssignment.ownerQueueId(),
-                    effectiveChangeType, triggerSource, triggerReferenceId,
+                    effectiveChangeType, requestedSource, triggerReferenceId,
                     actorUserId, normalizeReason(reason), newAssignment.correlationId(),
                     Instant.now(), Instant.now()));
         } else {
@@ -198,12 +205,34 @@ public class JdbcAssignmentRepository implements AssignmentRepository {
                     null, null, null, null,
                     newAssignment.ownerType(), newAssignment.ownerUserId(),
                     newAssignment.ownerTeamId(), newAssignment.ownerQueueId(),
-                    effectiveChangeType, triggerSource, triggerReferenceId,
+                    effectiveChangeType, requestedSource, triggerReferenceId,
                     actorUserId, normalizeReason(reason), newAssignment.correlationId(),
                     Instant.now(), Instant.now()));
         }
 
         return save(newAssignment);
+    }
+
+    private void validateExpectedOwner(UUID tenantId,
+                                       AssignmentRecordType recordType,
+                                       UUID recordId,
+                                       Optional<Assignment> current,
+                                       OwnerType expectedOwnerType,
+                                       UUID expectedOwnerId) {
+        if (expectedOwnerType == null) {
+            return;
+        }
+        if (current.isEmpty() || current.get().ownerType() != expectedOwnerType) {
+            throw new ConcurrentClaimConflictException(tenantId, recordType, recordId);
+        }
+        UUID actualOwnerId = switch (expectedOwnerType) {
+            case USER -> current.get().ownerUserId();
+            case TEAM -> current.get().ownerTeamId();
+            case QUEUE -> current.get().ownerQueueId();
+        };
+        if (!Objects.equals(actualOwnerId, expectedOwnerId)) {
+            throw new ConcurrentClaimConflictException(tenantId, recordType, recordId);
+        }
     }
 
     private String normalizeReason(String reason) {
