@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Repository for assignment rules and their versions (tenant-scoped). */
+/** Repository for assignment rules and their immutable versions (tenant-scoped). */
 public interface AssignmentRuleRepository {
 
     AssignmentRule save(AssignmentRule rule);
@@ -21,9 +21,14 @@ public interface AssignmentRuleRepository {
 
     Optional<AssignmentRuleVersion> findActiveVersion(UUID tenantId, UUID ruleId);
 
+    List<AssignmentRuleVersion> findActiveVersionsByRecordType(
+            UUID tenantId, AssignmentRecordType recordType);
+
     List<AssignmentRuleVersion> findAllVersions(UUID tenantId, UUID ruleId);
 
     void activateVersion(UUID tenantId, UUID ruleId, int version, UUID updatedBy);
+
+    Optional<AssignmentRuleCounter> findCounter(UUID tenantId, UUID ruleId);
 
     AssignmentRuleCounter getOrCreateCounter(UUID tenantId, UUID ruleId);
 
