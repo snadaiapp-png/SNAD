@@ -29,9 +29,11 @@ public record Queue(
         if (status == null) status = QueueStatus.ACTIVE;
         if (maxItemsPerUser < 1) maxItemsPerUser = 10;
         if (escalationTargetQueueId != null && escalationTargetQueueId.equals(id)) {
-            throw new IllegalArgumentException("Queue cannot escalate to itself");
+            throw new OwnershipDomainException("Queue cannot escalate to itself: " + id);
         }
     }
 
-    public boolean isClaimable() { return status == QueueStatus.ACTIVE; }
+    public boolean isClaimable() {
+        return status == QueueStatus.ACTIVE;
+    }
 }
