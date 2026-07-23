@@ -9,7 +9,7 @@ public record QueueMembership(
         UUID tenantId,
         UUID queueId,
         UUID userId,
-        MembershipStatus status,
+        QueueMembershipStatus status,
         Instant addedAt,
         Instant removedAt,
         String removedReason,
@@ -22,8 +22,10 @@ public record QueueMembership(
         if (tenantId == null) throw new IllegalArgumentException("tenantId required");
         if (queueId == null) throw new IllegalArgumentException("queueId required");
         if (userId == null) throw new IllegalArgumentException("userId required");
-        if (status == null) status = MembershipStatus.ACTIVE;
+        if (status == null) status = QueueMembershipStatus.ACTIVE;
     }
 
-    public boolean isActive() { return status == MembershipStatus.ACTIVE; }
+    public boolean isActive() {
+        return status == QueueMembershipStatus.ACTIVE;
+    }
 }
