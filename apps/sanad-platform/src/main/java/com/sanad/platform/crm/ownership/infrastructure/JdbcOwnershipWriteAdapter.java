@@ -77,9 +77,10 @@ public class JdbcOwnershipWriteAdapter implements OwnershipWritePort {
         }
         if (command.ownerType() == OwnerType.QUEUE) {
             Queue queue = requireQueue(command.tenantId(), command.ownerQueueId());
-            if (!queue.recordType().name().equals(command.recordType().name())) {
-                throw new OwnershipDomainException("Queue does not accept record type " + command.recordType());
+            if (!queue.acceptsNewItems()) {
+                throw new OwnershipDomainException("Queue does not accept new items: " + queue.id());
             }
+            ensureQueueAccepts(queue, command.recordType().name());
             return queue.defaultOwnerId() != null ? queue.defaultOwnerId() : command.actorUserId();
         }
         return command.actorUserId();
@@ -136,11 +137,16 @@ public class JdbcOwnershipWriteAdapter implements OwnershipWritePort {
     @Transactional
     public Assignment claimQueueItem(QueueClaimCommand command) {
         Queue queue = requireQueue(command.tenantId(), command.queueId());
+        if (!queue.allowsClaims()) {
+            throw new OwnershipDomainException("Queue does not allow claims: " + queue.id());
+        }
         ensureQueueAccepts(queue, command.recordType().name());
-        ensureActiveQueueMembership(command.tenantId(), command.queueId(), command.userId());
 
-        long activeWorkload = assignmentRepo.countActiveByUser(command.tenantId(), command.userId());
-        if (activeWorkload >= queue.maxItemsPerUser()) {
+        // Serializes capacity checks and claims for this (tenant, queue, user).
+        queueMembershipRepo.lockActive(command.tenantId(), command.queueId(), command.userId());
+        long activeClaims = assignmentRepo.countActiveQueueClaims(
+                command.tenantId(), command.queueId(), command.userId());
+        if (activeClaims >= queue.maxItemsPerUser()) {
             throw new QueueCapacityExceededException(
                     command.tenantId(), command.queueId(), command.userId(), queue.maxItemsPerUser());
         }
@@ -176,8 +182,11 @@ public class JdbcOwnershipWriteAdapter implements OwnershipWritePort {
     @Transactional
     public void releaseQueueItem(QueueReleaseCommand command) {
         Queue queue = requireQueue(command.tenantId(), command.queueId());
+        if (!queue.allowsClaims()) {
+            throw new OwnershipDomainException("Queue does not allow releases: " + queue.id());
+        }
         ensureQueueAccepts(queue, command.recordType().name());
-        ensureActiveQueueMembership(command.tenantId(), command.queueId(), command.userId());
+        queueMembershipRepo.lockActive(command.tenantId(), command.queueId(), command.userId());
 
         Assignment current = assignmentRepo.findActive(
                         command.tenantId(), command.recordType(), command.recordId())
@@ -213,12 +222,8 @@ public class JdbcOwnershipWriteAdapter implements OwnershipWritePort {
         if (queueId == null) {
             throw new QueueNotFoundException(tenantId, null);
         }
-        Queue queue = queueRepo.findById(tenantId, queueId)
+        return queueRepo.findById(tenantId, queueId)
                 .orElseThrow(() -> new QueueNotFoundException(tenantId, queueId));
-        if (!queue.isClaimable()) {
-            throw new OwnershipDomainException("Queue is not active: " + queueId);
-        }
-        return queue;
     }
 
     private void ensureQueueAccepts(Queue queue, String recordType) {
@@ -226,12 +231,6 @@ public class JdbcOwnershipWriteAdapter implements OwnershipWritePort {
             throw new OwnershipDomainException(
                     "Queue " + queue.id() + " does not accept record type " + recordType);
         }
-    }
-
-    private void ensureActiveQueueMembership(UUID tenantId, UUID queueId, UUID userId) {
-        queueMembershipRepo.findActive(tenantId, queueId, userId)
-                .orElseThrow(() -> new OwnershipDomainException(
-                        "Active queue membership required: queue=" + queueId + " user=" + userId));
     }
 
     private String normalizeReason(String reason) {
