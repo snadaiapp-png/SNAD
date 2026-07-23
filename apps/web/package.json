@@ -15,7 +15,7 @@
     "crm:generate-api-types": "bash ../../scripts/crm/generate-crm-api-types.sh"
   },
   "dependencies": {
-    "next": "16.2.9",
+    "next": "^16.2.11",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },
