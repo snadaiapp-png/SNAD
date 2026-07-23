@@ -9,4 +9,10 @@ import java.util.UUID;
 public interface OwnershipUserValidationPort {
 
     boolean isActiveUser(UUID tenantId, UUID userId);
+
+    /**
+     * Locks the ACTIVE tenant user for the current transaction.
+     * Returns false when the user is absent, inactive, or belongs to another tenant.
+     */
+    boolean lockActiveUser(UUID tenantId, UUID userId);
 }
