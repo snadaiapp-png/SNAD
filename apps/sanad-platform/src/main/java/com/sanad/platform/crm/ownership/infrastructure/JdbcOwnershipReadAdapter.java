@@ -7,6 +7,8 @@ import com.sanad.platform.crm.ownership.domain.OwnershipDomainException;
 import com.sanad.platform.crm.ownership.domain.OwnershipHistory;
 import com.sanad.platform.crm.ownership.domain.OwnershipHistoryPage;
 import com.sanad.platform.crm.ownership.domain.OwnershipReadPort;
+import com.sanad.platform.crm.ownership.domain.QueueItemPage;
+import com.sanad.platform.crm.ownership.domain.QueueItemSummary;
 import com.sanad.platform.crm.ownership.domain.WorkloadSummary;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -123,8 +125,92 @@ public class JdbcOwnershipReadAdapter implements OwnershipReadPort {
         }
     }
 
+    @Override
+    public QueueItemPage findQueueItems(UUID tenantId,
+                                        UUID queueId,
+                                        UUID cursor,
+                                        int pageSize) {
+        int limit = Math.max(1, Math.min(pageSize, 100));
+        StringBuilder sql = new StringBuilder("""
+                SELECT assignment.id,
+                       assignment.tenant_id,
+                       assignment.owner_queue_id,
+                       assignment.record_type,
+                       assignment.record_id,
+                       assignment.effective_from,
+                       assignment.reason,
+                       assignment.correlation_id
+                  FROM crm_assignments assignment
+                 WHERE assignment.tenant_id=:tenantId
+                   AND assignment.owner_type='QUEUE'
+                   AND assignment.owner_queue_id=:queueId
+                   AND assignment.status='ACTIVE'
+                """);
+        MapSqlParameterSource parameters = new MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("queueId", queueId)
+                .addValue("limit", limit + 1);
+
+        if (cursor != null) {
+            Instant cursorTime = findQueueCursorTime(tenantId, queueId, cursor);
+            sql.append("""
+                     AND (assignment.effective_from, assignment.id)
+                         > (:cursorTime, :cursorId)
+                    """);
+            parameters
+                    .addValue("cursorTime", Timestamp.from(cursorTime))
+                    .addValue("cursorId", cursor);
+        }
+
+        sql.append(" ORDER BY assignment.effective_from ASC, assignment.id ASC LIMIT :limit");
+        List<QueueItemSummary> items = jdbc.query(sql.toString(), parameters, (rs, rowNum) ->
+                new QueueItemSummary(
+                        rs.getObject("id", UUID.class),
+                        rs.getObject("tenant_id", UUID.class),
+                        rs.getObject("owner_queue_id", UUID.class),
+                        AssignmentRecordType.valueOf(rs.getString("record_type")),
+                        rs.getObject("record_id", UUID.class),
+                        rs.getTimestamp("effective_from").toInstant(),
+                        rs.getString("reason"),
+                        rs.getObject("correlation_id", UUID.class)));
+        boolean hasMore = items.size() > limit;
+        if (hasMore) {
+            items = List.copyOf(items.subList(0, limit));
+        }
+        UUID nextCursor = hasMore && !items.isEmpty()
+                ? items.get(items.size() - 1).assignmentId() : null;
+        return new QueueItemPage(items, nextCursor, hasMore);
+    }
+
+    private Instant findQueueCursorTime(UUID tenantId, UUID queueId, UUID cursor) {
+        try {
+            Timestamp timestamp = jdbc.queryForObject("""
+                    SELECT effective_from
+                      FROM crm_assignments
+                     WHERE tenant_id=:tenantId
+                       AND owner_type='QUEUE'
+                       AND owner_queue_id=:queueId
+                       AND status='ACTIVE'
+                       AND id=:cursor
+                    """, new MapSqlParameterSource()
+                    .addValue("tenantId", tenantId)
+                    .addValue("queueId", queueId)
+                    .addValue("cursor", cursor), Timestamp.class);
+            if (timestamp == null) {
+                throw invalidQueueCursor(cursor);
+            }
+            return timestamp.toInstant();
+        } catch (EmptyResultDataAccessException missing) {
+            throw invalidQueueCursor(cursor);
+        }
+    }
+
     private OwnershipDomainException invalidCursor(UUID cursor) {
         return new OwnershipDomainException("Invalid ownership-history cursor: " + cursor);
+    }
+
+    private OwnershipDomainException invalidQueueCursor(UUID cursor) {
+        return new OwnershipDomainException("Invalid queue-item cursor: " + cursor);
     }
 
     @Override
