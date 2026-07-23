@@ -66,4 +66,7 @@ public interface AssignmentRepository {
 
     /** Count currently active assignments claimed from one specific queue by one user. */
     long countActiveQueueClaims(UUID tenantId, UUID queueId, UUID userId);
+
+    /** Count all currently active assignments claimed from one specific queue. */
+    long countActiveQueueClaims(UUID tenantId, UUID queueId);
 }
