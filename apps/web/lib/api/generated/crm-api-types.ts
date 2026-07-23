@@ -4295,8 +4295,8 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description OK */
-            readonly 200: {
+            /** @description Created */
+            readonly 201: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
@@ -4371,8 +4371,8 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description OK */
-            readonly 200: {
+            /** @description Created */
+            readonly 201: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
@@ -6232,8 +6232,8 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description OK */
-            readonly 200: {
+            /** @description Created */
+            readonly 201: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
@@ -6482,8 +6482,8 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description OK */
-            readonly 200: {
+            /** @description Created */
+            readonly 201: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
@@ -6582,8 +6582,8 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description OK */
-            readonly 200: {
+            /** @description Created */
+            readonly 201: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
@@ -6687,8 +6687,8 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description OK */
-            readonly 200: {
+            /** @description Created */
+            readonly 201: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
@@ -6765,8 +6765,8 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description OK */
-            readonly 200: {
+            /** @description Created */
+            readonly 201: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
@@ -6868,8 +6868,8 @@ export interface operations {
             };
         };
         readonly responses: {
-            /** @description OK */
-            readonly 200: {
+            /** @description Created */
+            readonly 201: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
