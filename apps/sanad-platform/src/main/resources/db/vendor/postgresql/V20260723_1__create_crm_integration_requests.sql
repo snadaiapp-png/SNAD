@@ -152,6 +152,13 @@ VALUES ('a0000009-0000-0000-0000-000000000902', 'CRM.AI.READ',
         'Read CRM AI Insights', 'Request governed advisory CRM AI outputs',
         'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 
+
+-- CRM.AI.CONFIRM capability (for human confirmation of AI recommendations)
+INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at)
+VALUES ('a0000009-0000-0000-0000-000000000903', 'CRM.AI.CONFIRM',
+        'Confirm CRM AI Recommendations', 'Accept or reject AI-generated recommendations with human confirmation',
+        'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
 -- ============================================================
 -- POSTCONDITIONS — verify exact schema, types, capabilities
 -- ============================================================
@@ -225,8 +232,3 @@ BEGIN
 END
 $postcondition$;
 
--- CRM.AI.CONFIRM capability (for human confirmation of AI recommendations)
-INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at)
-VALUES ('a0000009-0000-0000-0000-000000000903', 'CRM.AI.CONFIRM',
-        'Confirm CRM AI Recommendations', 'Accept or reject AI-generated recommendations with human confirmation',
-        'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);

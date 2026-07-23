@@ -1134,6 +1134,38 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/integrations/{requestId}/confirm": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["confirm"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/integrations/{requestId}/reject": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["reject"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/leads": {
         readonly parameters: {
             readonly query?: never;
@@ -1646,46 +1678,6 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
-    readonly "/integrations/{requestId}/confirm": {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        readonly get?: never;
-        readonly put?: never;
-        /**
-         * Confirm AI recommendation
-         * @description Human confirmation of an AI recommendation. Requires CRM.AI.CONFIRM capability. Idempotent via Idempotency-Key. Accepts If-Match for optimistic concurrency.
-         */
-        readonly post: operations["confirmCrmAiRecommendation"];
-        readonly delete?: never;
-        readonly options?: never;
-        readonly head?: never;
-        readonly patch?: never;
-        readonly trace?: never;
-    };
-    readonly "/integrations/{requestId}/reject": {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        readonly get?: never;
-        readonly put?: never;
-        /**
-         * Reject AI recommendation
-         * @description Human rejection of an AI recommendation. Requires CRM.AI.CONFIRM capability. Idempotent via Idempotency-Key.
-         */
-        readonly post: operations["rejectCrmAiRecommendation"];
-        readonly delete?: never;
-        readonly options?: never;
-        readonly head?: never;
-        readonly patch?: never;
-        readonly trace?: never;
-    };
 };
 export type webhooks = Record<string, never>;
 export type components = {
@@ -1856,8 +1848,7 @@ export type components = {
             readonly sourceEntityId: string;
             /** Format: int64 */
             readonly sourceEntityVersion?: number;
-            readonly dataClassification: string;
-            readonly payload: components["schemas"]["JsonNode"];
+            readonly userIntent?: string;
         };
         readonly ArchiveAccountResponse: {
             /** Format: uuid */
@@ -2121,6 +2112,10 @@ export type components = {
         };
         readonly CompleteActivityRequest: {
             readonly result?: string;
+        };
+        readonly ConfirmRequest: {
+            /** Format: int64 */
+            readonly expectedEntityVersion?: number;
         };
         readonly ContactProfileResponse: {
             /** Format: uuid */
@@ -3062,6 +3057,9 @@ export type components = {
             readonly expectedAssignmentId?: string;
             /** Format: uuid */
             readonly assignedByRuleId?: string;
+        };
+        readonly RejectRequest: {
+            readonly reason?: string;
         };
         readonly RelationshipCommandRequest: {
             /** Format: int64 */
@@ -5966,6 +5964,63 @@ export interface operations {
             };
         };
     };
+    readonly confirm: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "Idempotency-Key": string;
+                readonly "If-Match": string;
+            };
+            readonly path: {
+                readonly requestId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["ConfirmRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["StoredRequest"];
+                };
+            };
+        };
+    };
+    readonly reject: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "Idempotency-Key": string;
+            };
+            readonly path: {
+                readonly requestId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["RejectRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["StoredRequest"];
+                };
+            };
+        };
+    };
     readonly listLeads: {
         readonly parameters: {
             readonly query?: {
@@ -7111,126 +7166,6 @@ export interface operations {
                 content: {
                     readonly "application/json": components["schemas"]["OwnershipResponseTransferRequest"];
                 };
-            };
-        };
-    };
-    readonly confirmCrmAiRecommendation: {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header: {
-                readonly "Idempotency-Key": string;
-                readonly "If-Match"?: string;
-            };
-            readonly path: {
-                readonly requestId: string;
-            };
-            readonly cookie?: never;
-        };
-        readonly requestBody: {
-            readonly content: {
-                readonly "application/json": {
-                    readonly expectedEntityVersion: number;
-                };
-            };
-        };
-        readonly responses: {
-            /** @description Recommendation confirmed */
-            readonly 200: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthenticated */
-            readonly 401: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized — missing CRM.AI.CONFIRM capability */
-            readonly 403: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Integration request not found */
-            readonly 404: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Request is already in terminal state */
-            readonly 409: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Recommendation has expired */
-            readonly 410: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    readonly rejectCrmAiRecommendation: {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header: {
-                readonly "Idempotency-Key": string;
-            };
-            readonly path: {
-                readonly requestId: string;
-            };
-            readonly cookie?: never;
-        };
-        readonly requestBody: {
-            readonly content: {
-                readonly "application/json": {
-                    readonly reason?: string;
-                };
-            };
-        };
-        readonly responses: {
-            /** @description Recommendation rejected */
-            readonly 200: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthenticated */
-            readonly 401: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized — missing CRM.AI.CONFIRM capability */
-            readonly 403: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Integration request not found */
-            readonly 404: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Request is already in terminal state */
-            readonly 409: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };

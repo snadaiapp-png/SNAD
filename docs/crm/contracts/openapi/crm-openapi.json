@@ -4511,6 +4511,122 @@
         ]
       }
     },
+    "/integrations/{requestId}/confirm": {
+      "post": {
+        "tags": [
+          "crm-integration-controller"
+        ],
+        "operationId": "confirm",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredRequest"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/integrations/{requestId}/reject": {
+      "post": {
+        "tags": [
+          "crm-integration-controller"
+        ],
+        "operationId": "reject",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredRequest"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/leads": {
       "get": {
         "tags": [
@@ -6771,156 +6887,6 @@
           }
         ]
       }
-    },
-    "/integrations/{requestId}/confirm": {
-      "post": {
-        "tags": [
-          "CRM Integrations"
-        ],
-        "summary": "Confirm AI recommendation",
-        "description": "Human confirmation of an AI recommendation. Requires CRM.AI.CONFIRM capability. Idempotent via Idempotency-Key. Accepts If-Match for optimistic concurrency.",
-        "operationId": "confirmCrmAiRecommendation",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "requestId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "If-Match",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "expectedEntityVersion": {
-                    "type": "integer",
-                    "minimum": 0
-                  }
-                },
-                "required": [
-                  "expectedEntityVersion"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Recommendation confirmed"
-          },
-          "401": {
-            "description": "Unauthenticated"
-          },
-          "403": {
-            "description": "Unauthorized — missing CRM.AI.CONFIRM capability"
-          },
-          "404": {
-            "description": "Integration request not found"
-          },
-          "409": {
-            "description": "Request is already in terminal state"
-          },
-          "410": {
-            "description": "Recommendation has expired"
-          }
-        }
-      }
-    },
-    "/integrations/{requestId}/reject": {
-      "post": {
-        "tags": [
-          "CRM Integrations"
-        ],
-        "summary": "Reject AI recommendation",
-        "description": "Human rejection of an AI recommendation. Requires CRM.AI.CONFIRM capability. Idempotent via Idempotency-Key.",
-        "operationId": "rejectCrmAiRecommendation",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "requestId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "reason": {
-                    "type": "string",
-                    "maxLength": 500
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Recommendation rejected"
-          },
-          "401": {
-            "description": "Unauthenticated"
-          },
-          "403": {
-            "description": "Unauthorized — missing CRM.AI.CONFIRM capability"
-          },
-          "404": {
-            "description": "Integration request not found"
-          },
-          "409": {
-            "description": "Request is already in terminal state"
-          }
-        }
-      }
     }
   },
   "components": {
@@ -7352,18 +7318,12 @@
             "type": "integer",
             "format": "int64"
           },
-          "dataClassification": {
-            "type": "string",
-            "minLength": 1
-          },
-          "payload": {
-            "$ref": "#/components/schemas/JsonNode"
+          "userIntent": {
+            "type": "string"
           }
         },
         "required": [
           "capability",
-          "dataClassification",
-          "payload",
           "sourceEntityId",
           "sourceEntityType"
         ]
@@ -8086,6 +8046,15 @@
             "type": "string",
             "maxLength": 4000,
             "minLength": 0
+          }
+        }
+      },
+      "ConfirmRequest": {
+        "type": "object",
+        "properties": {
+          "expectedEntityVersion": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -10818,6 +10787,14 @@
           "recordId",
           "recordType"
         ]
+      },
+      "RejectRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
       },
       "RelationshipCommandRequest": {
         "type": "object",
