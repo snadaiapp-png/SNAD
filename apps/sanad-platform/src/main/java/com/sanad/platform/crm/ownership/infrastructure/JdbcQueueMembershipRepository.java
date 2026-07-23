@@ -57,8 +57,23 @@ public class JdbcQueueMembershipRepository implements QueueMembershipRepository 
             throw new ActiveMembershipExistsException(
                     membership.tenantId(), membership.queueId(), membership.userId());
         }
-        return findActive(membership.tenantId(), membership.queueId(), membership.userId())
-                .orElseThrow();
+        return findById(membership.tenantId(), id).orElseThrow();
+    }
+
+    @Override
+    public Optional<QueueMembership> findById(UUID tenantId, UUID membershipId) {
+        try {
+            return Optional.ofNullable(jdbc.queryForObject("""
+                    SELECT *
+                      FROM crm_queue_memberships
+                     WHERE tenant_id=:tenantId
+                       AND id=:membershipId
+                    """, new MapSqlParameterSource()
+                    .addValue("tenantId", tenantId)
+                    .addValue("membershipId", membershipId), queueMembershipMapper()));
+        } catch (EmptyResultDataAccessException missing) {
+            return Optional.empty();
+        }
     }
 
     @Override
