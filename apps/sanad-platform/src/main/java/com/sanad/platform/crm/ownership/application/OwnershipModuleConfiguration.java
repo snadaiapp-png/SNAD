@@ -91,4 +91,23 @@ public class OwnershipModuleConfiguration {
     public OwnershipQueryUseCases ownershipQueryUseCases(OwnershipReadPort ownershipReadPort) {
         return new OwnershipQueryUseCases(ownershipReadPort);
     }
+
+    @Bean
+    public TransferUseCases transferUseCases(
+            TransferRequestRepository transferRequestRepository,
+            AssignmentRepository assignmentRepository,
+            OwnershipRecordPort ownershipRecordPort,
+            OwnershipCommandUseCases ownershipCommandUseCases,
+            OwnershipUserValidationPort userValidationPort,
+            SalesTeamRepository salesTeamRepository,
+            WorkflowPort workflowPort,
+            HrmPort hrmPort,
+            AuditPort auditPort,
+            TimelineEventPort timelineEventPort,
+            ObjectMapper objectMapper) {
+        return new TransferUseCases(
+                transferRequestRepository, assignmentRepository, ownershipRecordPort,
+                ownershipCommandUseCases, userValidationPort, salesTeamRepository,
+                workflowPort, hrmPort, auditPort, timelineEventPort, objectMapper);
+    }
 }
