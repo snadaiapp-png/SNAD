@@ -9,6 +9,8 @@ public interface QueueMembershipRepository {
 
     QueueMembership save(QueueMembership membership);
 
+    Optional<QueueMembership> findById(UUID tenantId, UUID membershipId);
+
     Optional<QueueMembership> findActive(UUID tenantId, UUID queueId, UUID userId);
 
     List<QueueMembership> findActiveByQueue(UUID tenantId, UUID queueId);
