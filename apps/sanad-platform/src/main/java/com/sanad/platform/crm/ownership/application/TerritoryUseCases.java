@@ -76,6 +76,12 @@ public class TerritoryUseCases {
         return territories.findChildren(tenantId, territoryId);
     }
 
+    /** Tenant-scoped active assignments for territory detail and authorization-safe reads. */
+    public List<TerritoryAssignment> activeAssignments(UUID tenantId, UUID territoryId) {
+        requireTerritory(tenantId, territoryId);
+        return List.copyOf(assignments.findActiveByTerritory(tenantId, territoryId));
+    }
+
     @Transactional
     public Territory update(UUID tenantId, UUID actorId, UUID territoryId, UpdateCommand command) {
         requireTenantActor(tenantId, actorId);
@@ -272,12 +278,14 @@ public class TerritoryUseCases {
     }
 
     private String code(String value) { return text(value, "code", 64).toUpperCase(Locale.ROOT); }
+
     private String text(String value, String field, int max) {
         if (value == null || value.isBlank()) throw new OwnershipDomainException(field + " required");
         String normalized = value.trim();
         if (normalized.length() > max) throw new OwnershipDomainException(field + " exceeds " + max);
         return normalized;
     }
+
     private String optional(String value, int max) {
         if (value == null) return null;
         String normalized = value.trim();
@@ -286,11 +294,13 @@ public class TerritoryUseCases {
     }
 
     public record CreateCommand(String code, String displayName, UUID parentId, String description,
-                                TerritoryRuleType ruleType, String ruleDefinition, int priority) {}
+                                TerritoryRuleType ruleType, String ruleDefinition, int priority) { }
+
     public record UpdateCommand(String displayName, boolean parentIdSet, UUID parentId,
                                 boolean descriptionSet, String description, TerritoryRuleType ruleType,
-                                boolean ruleDefinitionSet, String ruleDefinition, Integer priority) {}
+                                boolean ruleDefinitionSet, String ruleDefinition, Integer priority) { }
+
     public record AssignCommand(AssigneeType assigneeType, UUID assigneeId,
                                 TerritoryAssignmentRole role, int priority,
-                                Instant effectiveFrom, Instant effectiveTo) {}
+                                Instant effectiveFrom, Instant effectiveTo) { }
 }
