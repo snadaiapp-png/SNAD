@@ -17,6 +17,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
@@ -73,8 +74,8 @@ public class JdbcAssignmentRepository implements AssignmentRepository {
                 .addValue("assignedUserId", assignment.assignedUserId())
                 .addValue("assignmentRole", assignment.assignmentRole())
                 .addValue("status", assignment.status().name())
-                .addValue("startsAt", assignment.startsAt())
-                .addValue("endsAt", assignment.endsAt())
+                .addValue("startsAt", timestamp(assignment.startsAt()))
+                .addValue("endsAt", timestamp(assignment.endsAt()))
                 .addValue("reason", assignment.reason())
                 .addValue("ownerType", assignment.ownerType() != null ? assignment.ownerType().name() : null)
                 .addValue("ownerUserId", assignment.ownerUserId())
@@ -86,10 +87,14 @@ public class JdbcAssignmentRepository implements AssignmentRepository {
                 .addValue("assignedByUserId", assignment.assignedByUserId())
                 .addValue("correlationId", assignment.correlationId())
                 .addValue("workflowResult", assignment.workflowResult())
-                .addValue("effectiveFrom", assignment.effectiveFrom())
-                .addValue("effectiveTo", assignment.effectiveTo())
+                .addValue("effectiveFrom", timestamp(assignment.effectiveFrom()))
+                .addValue("effectiveTo", timestamp(assignment.effectiveTo()))
                 .addValue("createdBy", assignment.createdBy())
                 .addValue("updatedBy", assignment.updatedBy()));
+    }
+
+    private Timestamp timestamp(Instant instant) {
+        return instant != null ? Timestamp.from(instant) : null;
     }
 
     @Override
