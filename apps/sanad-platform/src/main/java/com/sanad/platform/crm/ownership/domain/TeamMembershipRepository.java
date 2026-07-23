@@ -9,6 +9,14 @@ public interface TeamMembershipRepository {
 
     TeamMembership save(TeamMembership membership);
 
+    TeamMembership updateActive(UUID tenantId,
+                                UUID membershipId,
+                                MembershipRole role,
+                                boolean primary,
+                                int capacityMax,
+                                String metadata,
+                                UUID updatedBy);
+
     Optional<TeamMembership> findById(UUID tenantId, UUID membershipId);
 
     Optional<TeamMembership> findActive(UUID tenantId, UUID teamId, UUID userId);
