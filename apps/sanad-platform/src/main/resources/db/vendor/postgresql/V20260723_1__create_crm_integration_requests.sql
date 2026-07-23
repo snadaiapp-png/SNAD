@@ -35,7 +35,8 @@ BEGIN
      WHERE schemaname = 'public'
        AND indexname IN (
            'crm_integration_tenant_status_idx',
-           'crm_integration_correlation_idx'
+           'crm_integration_correlation_idx',
+           'crm_integration_tenant_entity_idx'
        );
     IF conflicting_index <> 0 THEN
         RAISE EXCEPTION
@@ -221,7 +222,24 @@ BEGIN
             expected_indexes;
     END IF;
 
-    -- 2 CRM-009 capabilities must be seeded
+    -- version column must be BIGINT NOT NULL DEFAULT 0
+    DECLARE
+        version_type TEXT;
+        version_nullable TEXT;
+    BEGIN
+        SELECT data_type, is_nullable INTO version_type, version_nullable
+          FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'crm_integration_requests'
+           AND column_name = 'version';
+        IF version_type IS DISTINCT FROM 'bigint' OR version_nullable IS DISTINCT FROM 'NO' THEN
+            RAISE EXCEPTION
+                'V20260723.1 postcondition failed: version data_type=% is_nullable=% (expected bigint/NO)',
+                version_type, version_nullable;
+        END IF;
+    END;
+
+    -- 3 CRM-009 capabilities must be seeded
     SELECT COUNT(*) INTO cap_count
       FROM access_capabilities
      WHERE code IN ('CRM.WORKFLOW.EXECUTE', 'CRM.AI.READ', 'CRM.AI.CONFIRM')

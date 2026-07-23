@@ -9,32 +9,38 @@ import org.springframework.stereotype.Component;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
  * Tenant-scoped durable request/result store with database-enforced idempotency.
  *
- * <p>Uses {@link CreateResult} with explicit {@link CreationDisposition} so callers
- * can distinguish CREATED_NEW from RETURNED_EXISTING and avoid redispatching.</p>
+ * <p>All state transitions use {@link #transition} which enforces
+ * optimistic locking and allowed-current-status checks atomically.
+ * There is no public unconditional {@code complete()} method.</p>
  */
 @Component
 public class CrmIntegrationStore {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
 
+    /** Terminal states where completed_at is set. */
+    private static final Set<String> TERMINAL_STATES = Set.of(
+            "COMPLETED", "EXECUTED", "REJECTED", "POLICY_DENIED", "UNSAFE_OUTPUT",
+            "TIMED_OUT", "UNAVAILABLE", "CANCELLED", "EXPIRED", "EXECUTION_REJECTED");
+
     public CrmIntegrationStore(JdbcTemplate jdbc, ObjectMapper mapper) {
         this.jdbc = jdbc;
         this.mapper = mapper;
     }
 
-    /** Result of create() — tells caller whether to dispatch or skip. */
     public record CreateResult(StoredRequest request, CreationDisposition disposition) {}
-
     public enum CreationDisposition { CREATED_NEW, RETURNED_EXISTING }
+
+    public record TransitionResult(boolean success, StoredRequest request) {}
 
     /**
      * Create a new integration request or return existing if idempotency key matches.
-     * The caller MUST check disposition before dispatching to external services.
      */
     public CreateResult create(IntegrationEnvelope envelope, String integrationType, JsonNode payload) {
         UUID id = UUID.randomUUID();
@@ -60,81 +66,99 @@ public class CrmIntegrationStore {
     }
 
     /**
-     * Conditional update with optimistic locking. Fails if version mismatch or
-     * current status not in expectedStatuses.
+     * Atomic conditional state transition with optimistic locking.
+     * Fails (returns success=false) if version mismatch or current status not allowed.
+     * Sets completed_at only for terminal states.
      */
-    public boolean conditionalUpdate(UUID tenantId, UUID requestId, long expectedVersion,
-                                      String newStatus, UUID externalReference,
-                                      JsonNode result, String errorCode,
-                                      String... allowedCurrentStatuses) {
+    public TransitionResult transition(UUID tenantId, UUID requestId, long expectedVersion,
+                                        Set<String> allowedFrom, String targetStatus,
+                                        UUID externalReference, JsonNode result,
+                                        String errorCode) {
         StringBuilder sql = new StringBuilder(
                 "UPDATE crm_integration_requests SET status=?, external_reference=?, " +
-                "result_payload=CAST(? AS jsonb), error_code=?, completed_at=CASE WHEN ? IN " +
-                "('COMPLETED','REJECTED','CONFIRMED','EXECUTED','CANCELLED','EXPIRED','TIMED_OUT','UNAVAILABLE','POLICY_DENIED','UNSAFE_OUTPUT') " +
-                "THEN CURRENT_TIMESTAMP ELSE completed_at END, " +
+                "result_payload=CAST(? AS jsonb), error_code=?, " +
+                "completed_at=CASE WHEN ? IN (");
+        for (String s : TERMINAL_STATES) {
+            sql.append("?");
+        }
+        sql.deleteCharAt(sql.length() - 1); // remove last comma
+        sql.append(") THEN CURRENT_TIMESTAMP ELSE completed_at END, " +
                 "updated_at=CURRENT_TIMESTAMP, version=version+1 " +
                 "WHERE tenant_id=? AND id=? AND version=?");
+
         var params = new java.util.ArrayList<Object>();
-        params.add(newStatus);
+        params.add(targetStatus);
         params.add(externalReference);
         params.add(json(result));
         params.add(errorCode);
-        params.add(newStatus);
+        params.add(targetStatus);
+        for (String s : TERMINAL_STATES) params.add(s);
         params.add(tenantId);
         params.add(requestId);
         params.add(expectedVersion);
 
-        if (allowedCurrentStatuses != null && allowedCurrentStatuses.length > 0) {
+        if (allowedFrom != null && !allowedFrom.isEmpty()) {
             sql.append(" AND status IN (");
-            for (int i = 0; i < allowedCurrentStatuses.length; i++) {
+            for (int i = 0; i < allowedFrom.size(); i++) {
                 if (i > 0) sql.append(",");
                 sql.append("?");
-                params.add(allowedCurrentStatuses[i]);
             }
             sql.append(")");
+            params.addAll(allowedFrom);
         }
 
         int updated = jdbc.update(sql.toString(), params.toArray());
-        return updated == 1;
-    }
-
-    /**
-     * Legacy complete() — use conditionalUpdate() for atomic state transitions.
-     */
-    public void complete(UUID tenantId, UUID requestId, String status, UUID externalReference,
-                         JsonNode result, String errorCode) {
-        int updated = jdbc.update("UPDATE crm_integration_requests SET status=?, external_reference=?, " +
-                        "result_payload=CAST(? AS jsonb), error_code=?, completed_at=?, updated_at=?, version=version+1 " +
-                        "WHERE tenant_id=? AND id=?",
-                status, externalReference, json(result), errorCode, Timestamp.from(Instant.now()),
-                Timestamp.from(Instant.now()), tenantId, requestId);
-        if (updated != 1) throw new IllegalArgumentException("Unknown tenant-scoped integration request");
+        if (updated != 1) return new TransitionResult(false, null);
+        return new TransitionResult(true, find(tenantId, requestId).orElse(null));
     }
 
     public Optional<StoredRequest> find(UUID tenantId, UUID id) {
         return jdbc.query("SELECT id, tenant_id, integration_type, status, external_reference, " +
-                        "correlation_id, idempotency_key, requested_at, expires_at, error_code, version " +
+                        "correlation_id, idempotency_key, source_entity_type, source_entity_id, " +
+                        "source_entity_version, required_capability, " +
+                        "payload, result_payload, " +
+                        "requested_at, expires_at, error_code, version " +
                         "FROM crm_integration_requests WHERE tenant_id=? AND id=?",
-                (rs, row) -> new StoredRequest((UUID) rs.getObject("id"), (UUID) rs.getObject("tenant_id"),
-                        rs.getString("integration_type"), rs.getString("status"),
-                        (UUID) rs.getObject("external_reference"), rs.getString("correlation_id"),
-                        rs.getString("idempotency_key"), rs.getTimestamp("requested_at").toInstant(),
-                        rs.getTimestamp("expires_at").toInstant(), rs.getString("error_code"),
-                        rs.getLong("version")),
+                (rs, row) -> mapRow(rs),
                 tenantId, id).stream().findFirst();
     }
 
     public Optional<StoredRequest> findByIdempotency(UUID tenantId, String type, String key) {
         return jdbc.query("SELECT id, tenant_id, integration_type, status, external_reference, " +
-                        "correlation_id, idempotency_key, requested_at, expires_at, error_code, version " +
+                        "correlation_id, idempotency_key, source_entity_type, source_entity_id, " +
+                        "source_entity_version, required_capability, " +
+                        "payload, result_payload, " +
+                        "requested_at, expires_at, error_code, version " +
                         "FROM crm_integration_requests WHERE tenant_id=? AND integration_type=? AND idempotency_key=?",
-                (rs, row) -> new StoredRequest((UUID) rs.getObject("id"), (UUID) rs.getObject("tenant_id"),
-                        rs.getString("integration_type"), rs.getString("status"),
-                        (UUID) rs.getObject("external_reference"), rs.getString("correlation_id"),
-                        rs.getString("idempotency_key"), rs.getTimestamp("requested_at").toInstant(),
-                        rs.getTimestamp("expires_at").toInstant(), rs.getString("error_code"),
-                        rs.getLong("version")),
+                (rs, row) -> mapRow(rs),
                 tenantId, type, key).stream().findFirst();
+    }
+
+    private StoredRequest mapRow(java.sql.ResultSet rs) throws java.sql.SQLException {
+        return new StoredRequest(
+                (UUID) rs.getObject("id"),
+                (UUID) rs.getObject("tenant_id"),
+                rs.getString("integration_type"),
+                rs.getString("status"),
+                (UUID) rs.getObject("external_reference"),
+                rs.getString("correlation_id"),
+                rs.getString("idempotency_key"),
+                rs.getString("source_entity_type"),
+                (UUID) rs.getObject("source_entity_id"),
+                rs.getLong("source_entity_version"),
+                rs.getString("required_capability"),
+                readJson(rs.getString("payload")),
+                readJson(rs.getString("result_payload")),
+                rs.getTimestamp("requested_at").toInstant(),
+                rs.getTimestamp("expires_at").toInstant(),
+                rs.getString("error_code"),
+                rs.getLong("version"));
+    }
+
+    private JsonNode readJson(String value) {
+        if (value == null || value.isBlank()) return null;
+        try { return mapper.readTree(value); }
+        catch (Exception e) { return null; }
     }
 
     private String json(JsonNode value) {
@@ -142,8 +166,12 @@ public class CrmIntegrationStore {
         catch (Exception error) { throw new IllegalArgumentException("Invalid integration payload", error); }
     }
 
-    public record StoredRequest(UUID id, UUID tenantId, String integrationType, String status,
-                                UUID externalReference, String correlationId, String idempotencyKey,
-                                Instant requestedAt, Instant expiresAt, String errorCode,
-                                long version) {}
+    public record StoredRequest(
+            UUID id, UUID tenantId, String integrationType, String status,
+            UUID externalReference, String correlationId, String idempotencyKey,
+            String sourceEntityType, UUID sourceEntityId, long sourceEntityVersion,
+            String requiredCapability,
+            JsonNode payload, JsonNode resultPayload,
+            Instant requestedAt, Instant expiresAt, String errorCode,
+            long version) {}
 }
