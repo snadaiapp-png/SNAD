@@ -52,10 +52,6 @@ public class CrmOwnershipAssignmentController {
         this.http = http;
     }
 
-    // ---------------------------------------------------------------------
-    // Assignment rules — 6 operations. Rule detail includes all versions.
-    // ---------------------------------------------------------------------
-
     @RequireCapability("CRM.ASSIGNMENT_RULE.READ")
     @GetMapping("/assignment-rules")
     public ResponseEntity<CrmOwnershipHttpSupport.OwnershipListResponse<AssignmentRule>> listRules(
@@ -125,7 +121,7 @@ public class CrmOwnershipAssignmentController {
             return http.complete(
                     guard, created, AssignmentRuleVersion.class, HttpStatus.CREATED,
                     "assignment-rule-version", created.id(),
-                    http.timestampVersion(created.updatedAt()));
+                    http.timestampVersion(created.createdAt()));
         } catch (RuntimeException error) {
             http.fail(guard);
             throw error;
@@ -150,7 +146,7 @@ public class CrmOwnershipAssignmentController {
         return http.single(
                 activated, http.trace(request), HttpStatus.OK,
                 "assignment-rule-version", activated.id(),
-                http.timestampVersion(activated.updatedAt()));
+                http.timestampVersion(activated.createdAt()));
     }
 
     @RequireCapability("CRM.ASSIGNMENT_RULE.ADMIN")
@@ -161,7 +157,7 @@ public class CrmOwnershipAssignmentController {
             @Valid @RequestBody SimulateRuleRequest body,
             HttpServletRequest request) {
         var context = http.context(authentication);
-        AssignmentRule rule = rules.getRule(context.tenantId(), ruleId);
+        rules.getRule(context.tenantId(), ruleId);
         AssignmentDecision decision = rules.simulate(
                 context.tenantId(),
                 new AssignmentRuleUseCases.EvaluationInput(
@@ -170,14 +166,8 @@ public class CrmOwnershipAssignmentController {
             throw new OwnershipDomainException(
                     "Simulation matched another higher-priority rule; invoke the collection simulation endpoint instead");
         }
-        return http.single(
-                decision, http.trace(request), HttpStatus.OK,
-                null, null, 0L);
+        return http.single(decision, http.trace(request), HttpStatus.OK, null, null, 0L);
     }
-
-    // ---------------------------------------------------------------------
-    // Assignments — 4 operations
-    // ---------------------------------------------------------------------
 
     @RequireCapability("CRM.ASSIGNMENT.READ")
     @GetMapping("/assignments/{recordType}/{recordId}")
@@ -264,10 +254,6 @@ public class CrmOwnershipAssignmentController {
                 page.entries(), page.nextCursor() == null ? null : page.nextCursor().toString(),
                 page.hasMore(), pageSize, http.trace(request));
     }
-
-    // ---------------------------------------------------------------------
-    // My Work — 1 operation
-    // ---------------------------------------------------------------------
 
     @RequireCapability("CRM.ASSIGNMENT.READ")
     @GetMapping("/my-work")
