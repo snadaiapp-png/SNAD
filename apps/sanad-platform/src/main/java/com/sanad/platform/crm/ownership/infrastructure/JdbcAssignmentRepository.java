@@ -154,8 +154,14 @@ public class JdbcAssignmentRepository implements AssignmentRepository {
                                          UUID recordId,
                                          Assignment newAssignment,
                                          UUID actorUserId,
-                                         String reason) {
+                                         String reason,
+                                         ChangeType changeType,
+                                         TriggerSource triggerSource,
+                                         UUID triggerReferenceId) {
         Optional<Assignment> current = findActiveForUpdate(tenantId, recordType, recordId);
+        ChangeType effectiveChangeType = current.isPresent()
+                ? changeType
+                : (changeType == ChangeType.REASSIGN ? ChangeType.INITIAL : changeType);
 
         if (current.isPresent()) {
             Assignment previous = current.get();
@@ -183,7 +189,7 @@ public class JdbcAssignmentRepository implements AssignmentRepository {
                     previous.ownerType(), previous.ownerUserId(), previous.ownerTeamId(), previous.ownerQueueId(),
                     newAssignment.ownerType(), newAssignment.ownerUserId(),
                     newAssignment.ownerTeamId(), newAssignment.ownerQueueId(),
-                    ChangeType.REASSIGN, TriggerSource.MANUAL, null,
+                    effectiveChangeType, triggerSource, triggerReferenceId,
                     actorUserId, normalizeReason(reason), newAssignment.correlationId(),
                     Instant.now(), Instant.now()));
         } else {
@@ -192,16 +198,12 @@ public class JdbcAssignmentRepository implements AssignmentRepository {
                     null, null, null, null,
                     newAssignment.ownerType(), newAssignment.ownerUserId(),
                     newAssignment.ownerTeamId(), newAssignment.ownerQueueId(),
-                    ChangeType.INITIAL, TriggerSource.MANUAL, null,
+                    effectiveChangeType, triggerSource, triggerReferenceId,
                     actorUserId, normalizeReason(reason), newAssignment.correlationId(),
                     Instant.now(), Instant.now()));
         }
 
-        try {
-            return save(newAssignment);
-        } catch (DataIntegrityViolationException conflict) {
-            throw new ConcurrentClaimConflictException(tenantId, recordType, recordId);
-        }
+        return save(newAssignment);
     }
 
     private String normalizeReason(String reason) {
