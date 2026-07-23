@@ -341,11 +341,9 @@ class Crm008bFoundationAcceptanceTest {
         upTo7.migrate();
 
         JdbcTemplate jdbc = jdbc();
-        // Find any active tenant (V15 seeds one)
-        List<Map<String, Object>> tenants = jdbc.queryForList(
-                "SELECT id FROM tenants WHERE status = 'ACTIVE' LIMIT 1");
-        assertThat(tenants).isNotEmpty();
-        UUID tenantId = UUID.fromString(tenants.get(0).get("id").toString());
+        // Seed a tenant (V15 may not have one in a clean test DB without bootstrap)
+        seedTenant(jdbc);
+        UUID tenantId = TENANT_ID;
 
         // Pre-seed a SALES_MANAGER role (simulating a prior run or manual setup)
         jdbc.update(
