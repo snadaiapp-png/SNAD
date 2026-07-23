@@ -402,11 +402,15 @@ class Crm008bFoundationAcceptanceTest {
                 "WHERE version = ? AND success = TRUE", Long.class, CRM_008B_OWNER_COLUMNS_VERSION);
         assertThat(successCount).as("successful V20260722.7 history rows after failure").isZero();
 
-        // None of the V20260722.7 indexes should exist
+        // None of the V20260722.7 indexes should exist on the 6 CRM record tables.
+        // V20260722.5 indexes on crm_assignments (idx_owr_assignments_owner_*) are
+        // expected to remain — they were created by the successful V20260722.5 migration.
         Long indexCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' " +
-                "AND indexname LIKE 'idx_owr_%_owner_%'", Long.class);
-        assertThat(indexCount).as("no V20260722.7 indexes should exist after failed migration").isZero();
+                        "AND tablename IN ('crm_accounts','crm_contacts','crm_leads'," +
+                        "'crm_opportunities','crm_activities','crm_tasks') " +
+                        "AND indexname LIKE 'idx_owr_%_owner_%'", Long.class);
+        assertThat(indexCount).as("no V20260722.7 indexes on 6 CRM record tables after failed migration").isZero();
     }
 
     // ============================================================
@@ -627,10 +631,12 @@ class Crm008bFoundationAcceptanceTest {
         Long exists = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM tenants WHERE id = ?", Long.class, TENANT_ID);
         if (exists != null && exists > 0) return;
+        // tenants schema (V1): id, name, subdomain (NOT NULL), status, created_at, updated_at.
+        // No 'code' column — matches FlywayV15ProductionUpgradeTest pattern.
         jdbc.update(
-                "INSERT INTO tenants (id, code, name, status, created_at, updated_at) " +
+                "INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) " +
                 "VALUES (?, ?, ?, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                TENANT_ID, "TEST_TENANT", "Test Tenant");
+                TENANT_ID, "Test Tenant", "test-tenant-crm008b");
     }
 
     private void seedG1AssignmentRows(JdbcTemplate jdbc) {
