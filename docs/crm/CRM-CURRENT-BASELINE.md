@@ -126,6 +126,15 @@ listed where the CRM runtime depends on them.
 | `20260717.6` | `V20260717_6__create_crm_g1_extension_tables.sql` | Complete the six missing G1 extension tables and the eight-table/26-index isolation contract | `MERGED_AND_CI_VERIFIED` (`#552`) |
 | `20260717.100` | `V20260717_100__crm_addresses_communication_methods.sql` | Canonical tenant-scoped addresses, communication methods, history, policies, and compatibility backfill | `IN_PROGRESS` (`#546`) |
 | `20260717.101` | `V20260717_101__crm_addresses_communication_capabilities.sql` | Address, communication, sensitive-read, administration, and export capabilities | `IN_PROGRESS` (`#546`) |
+| `20260722.1` | `V20260722_1__create_crm_sales_teams.sql` | CRM-008B: Sales teams and team memberships (PostgreSQL-native: JSONB metadata, partial unique indexes, fail-closed guards) | `IN_PROGRESS` (`#691`) |
+| `20260722.2` | `V20260722_2__create_crm_queues.sql` | CRM-008B: Queues and queue memberships (PostgreSQL-native: partial unique index for single-active) | `IN_PROGRESS` (`#691`) |
+| `20260722.3` | `V20260722_3__create_crm_territories.sql` | CRM-008B: Territories, closure table, and territory assignments (PostgreSQL-native: JSONB rule_definition, partial unique index for single-primary) | `IN_PROGRESS` (`#691`) |
+| `20260722.4` | `V20260722_4__create_crm_assignment_rules.sql` | CRM-008B: Assignment rules and rule versions (PostgreSQL-native: JSONB match_conditions, partial unique index for single-active-version) | `IN_PROGRESS` (`#691`) |
+| `20260722.5` | `V20260722_5__upgrade_crm_assignments_and_create_ownership_history.sql` | CRM-008B: Extend crm_assignments + create ownership history (PostgreSQL-native: JSONB workflow_result, G1 backfill subject_type→record_type/subject_id→record_id/assigned_user_id→owner_user_id, fail-closed on unmappable rows) | `IN_PROGRESS` (`#691`) |
+| `20260722.6` | `V20260722_6__create_crm_transfer_requests.sql` | CRM-008B: Transfer requests and transfer steps (PostgreSQL-native: JSONB record_ids, SoD checks) | `IN_PROGRESS` (`#691`) |
+| `20260722.7` | `V20260722_7__add_owner_team_queue_columns.sql` | CRM-008B: Add owner_team_id, owner_queue_id to 6 CRM tables (PostgreSQL-native: fail-closed on partial column state) | `IN_PROGRESS` (`#691`) |
+| `20260722.8` | `V20260722_8__seed_crm_ownership_capabilities.sql` | CRM-008B: Seed 17 capabilities + define SALES_MANAGER and SALES_REPRESENTATIVE roles + assign per-role capability subsets (PostgreSQL-native: fail-closed on conflicting capability name/description, no ON CONFLICT DO NOTHING) | `IN_PROGRESS` (`#691`) |
+| `20260722.9` | `V20260722_9__create_crm_assignment_rule_counters.sql` | CRM-008B: Round-robin counter table (PostgreSQL-native: BIGINT counter, unique per tenant+rule) | `IN_PROGRESS` (`#691`) |
 
 The CRM-006 migration set passed clean PostgreSQL installation and supported
 upgrade verification while retaining contacts and legacy account associations,

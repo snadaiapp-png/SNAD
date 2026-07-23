@@ -2,26 +2,30 @@ package com.sanad.platform.security.authorization;
 
 import com.sanad.platform.access.AccessDecisionResponse;
 import com.sanad.platform.access.evaluation.CapabilityEvaluationService;
+import com.sanad.platform.admin.service.PlatformAuditWriter;
+import com.sanad.platform.crm.integration.domain.CorrelationContextPort;
 import jakarta.servlet.http.HttpServletRequest;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * AOP aspect that enforces RBAC authorization on endpoints annotated
- * with {@link RequireCapability}.
- */
+/** Enforces tenant-scoped, deny-by-default capability authorization. */
 @Aspect
 @Component
 public class CapabilityAuthorizationAspect {
@@ -29,93 +33,159 @@ public class CapabilityAuthorizationAspect {
     private static final Logger log = LoggerFactory.getLogger(CapabilityAuthorizationAspect.class);
 
     private final CapabilityEvaluationService evaluationService;
+    private final PlatformAuditWriter auditWriter;
+    private final CorrelationContextPort correlationContext;
+    private CapabilityAuthorizationBypass bypass;
 
-    public CapabilityAuthorizationAspect(CapabilityEvaluationService evaluationService) {
+    public CapabilityAuthorizationAspect(
+            CapabilityEvaluationService evaluationService,
+            PlatformAuditWriter auditWriter,
+            CorrelationContextPort correlationContext) {
         this.evaluationService = evaluationService;
+        this.auditWriter = auditWriter;
+        this.correlationContext = correlationContext;
     }
 
-    /**
-     * Intercepts an annotated controller method and stops execution when the
-     * requested capability is denied. Throwing AccessDeniedException is
-     * intentional: writing a 403 response without throwing would allow the
-     * target method to continue and could execute a protected mutation.
-     */
+    /** Optional only because the sole implementation lives in test sources. */
+    @Autowired(required = false)
+    void setBypass(CapabilityAuthorizationBypass bypass) {
+        this.bypass = bypass;
+    }
+
     @Before("@annotation(requireCapability)")
     public void checkCapability(JoinPoint joinPoint, RequireCapability requireCapability) {
-        String capabilityCode = requireCapability.value();
-
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated()) {
+        if (bypass != null && bypass.isEnabled()
+                && (authentication == null || authentication instanceof AnonymousAuthenticationToken)) {
+            log.debug("Capability enforcement bypassed for an anonymous request by explicit test-only configuration");
             return;
         }
 
-        if (!(authentication.getDetails() instanceof Map<?, ?>)) {
-            return;
+        String capabilityCode = requireCapability == null ? null : requireCapability.value();
+        if (capabilityCode == null || capabilityCode.isBlank()) {
+            auditFailure(null, null, "INVALID_CAPABILITY", "Capability annotation is empty");
+            throw new AccessDeniedException("Invalid capability policy");
         }
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> details = (Map<String, Object>) authentication.getDetails();
-        Object tenantIdObj = details.get("tenant_id");
-        Object userIdObj = details.get("user_id");
-        if (tenantIdObj == null || userIdObj == null) {
-            return;
+        if (authentication == null || !authentication.isAuthenticated()
+                || authentication instanceof AnonymousAuthenticationToken) {
+            auditFailure(null, null, capabilityCode, "Unauthenticated request");
+            throw new AuthenticationCredentialsNotFoundException("Authentication required");
         }
 
-        UUID tenantId;
-        UUID userId;
-        try {
-            tenantId = UUID.fromString(tenantIdObj.toString());
-            userId = UUID.fromString(userIdObj.toString());
-        } catch (IllegalArgumentException exception) {
-            throw new AccessDeniedException("Invalid authenticated authorization context", exception);
+        if (!(authentication.getDetails() instanceof Map<?, ?> details)) {
+            auditFailure(null, null, capabilityCode, "Missing authenticated tenant context");
+            throw new AccessDeniedException("Invalid authenticated authorization context");
         }
 
+        UUID tenantId = contextUuid(details, "tenant_id", capabilityCode);
+        UUID userId = contextUuid(details, "user_id", capabilityCode);
         UUID organizationId = resolveOrganizationId();
+
         AccessDecisionResponse decision = evaluationService.evaluate(
                 tenantId, userId, capabilityCode, organizationId);
-
-        if (!decision.allowed()) {
+        if (decision == null || !decision.allowed()) {
+            String reason = decision == null ? "No authorization decision" : decision.reason();
+            auditFailure(tenantId, userId, capabilityCode, reason);
             log.warn("RBAC DENY: userId={} tenantId={} capability={} reason={} path={}",
-                    userId, tenantId, capabilityCode, decision.reason(), getRequestPath());
+                    userId, tenantId, capabilityCode, reason, requestPath());
             throw new AccessDeniedException("غير مصرح بهذه العملية");
         }
 
+        if (isWriteRequest()) {
+            auditSuccess(tenantId, userId, capabilityCode, decision.matchedRoleCode());
+        }
         log.debug("RBAC ALLOW: userId={} tenantId={} capability={} role={}",
                 userId, tenantId, capabilityCode, decision.matchedRoleCode());
     }
 
-    private UUID resolveOrganizationId() {
-        ServletRequestAttributes attrs =
-                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-        if (attrs == null) {
-            return null;
+    private UUID contextUuid(Map<?, ?> details, String key, String capabilityCode) {
+        Object raw = details.get(key);
+        if (raw == null) {
+            auditFailure(null, null, capabilityCode, "Missing authenticated " + key);
+            throw new AccessDeniedException("Invalid authenticated authorization context");
         }
+        try {
+            return UUID.fromString(raw.toString());
+        } catch (IllegalArgumentException exception) {
+            auditFailure(null, null, capabilityCode, "Invalid authenticated " + key);
+            throw new AccessDeniedException("Invalid authenticated authorization context", exception);
+        }
+    }
 
-        HttpServletRequest request = attrs.getRequest();
+    private void auditFailure(UUID tenantId, UUID userId, String capabilityCode, String reason) {
+        try {
+            auditWriter.writeFailure(
+                    tenantId, userId, tenantId,
+                    capabilityCode, "AUTHORIZATION", requestPath(), reason,
+                    requestDetails(), correlationContext.currentCorrelationId(), Instant.now());
+        } catch (RuntimeException auditError) {
+            log.error("Unable to persist failed authorization audit: capability={} path={}",
+                    capabilityCode, requestPath(), auditError);
+        }
+    }
+
+    private void auditSuccess(UUID tenantId, UUID userId, String capabilityCode, String roleCode) {
+        auditWriter.writeSuccess(
+                tenantId, userId, tenantId,
+                capabilityCode, "AUTHORIZATION", requestPath(), "ALLOW",
+                null, Map.of("role", roleCode == null ? "" : roleCode),
+                correlationContext.currentCorrelationId(), Instant.now());
+    }
+
+    private Map<String, Object> requestDetails() {
+        HttpServletRequest request = request();
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("method", request == null ? "UNKNOWN" : request.getMethod());
+        details.put("path", requestPath());
+        details.put("ipAddress", request == null ? "UNKNOWN" : String.valueOf(request.getRemoteAddr()));
+        details.put("userAgent", request == null || request.getHeader("User-Agent") == null
+                ? "UNKNOWN" : request.getHeader("User-Agent"));
+        return details;
+    }
+
+    private boolean isWriteRequest() {
+        HttpServletRequest request = request();
+        if (request == null || request.getMethod() == null) return false;
+        return switch (request.getMethod()) {
+            case "POST", "PUT", "PATCH", "DELETE" -> true;
+            default -> false;
+        };
+    }
+
+    private UUID resolveOrganizationId() {
+        HttpServletRequest request = request();
+        if (request == null) return null;
         String orgIdParam = request.getParameter("organizationId");
         if (orgIdParam != null && !orgIdParam.isBlank()) {
             try {
                 return UUID.fromString(orgIdParam);
             } catch (IllegalArgumentException ignored) {
-                // Invalid organization identifiers are validated by the endpoint.
+                return null;
             }
         }
-
         java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(
-                "/organizations/([0-9a-f-]{36})").matcher(request.getRequestURI());
+                "/organizations/([0-9a-fA-F-]{36})").matcher(request.getRequestURI());
         if (matcher.find()) {
             try {
                 return UUID.fromString(matcher.group(1));
             } catch (IllegalArgumentException ignored) {
-                // Invalid path identifiers are validated by the endpoint.
+                return null;
             }
         }
         return null;
     }
 
-    private String getRequestPath() {
-        ServletRequestAttributes attrs =
-                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-        return attrs == null ? "unknown" : attrs.getRequest().getRequestURI();
+    private String requestPath() {
+        HttpServletRequest request = request();
+        return request == null || request.getRequestURI() == null
+                ? "unknown" : request.getRequestURI();
+    }
+
+    private HttpServletRequest request() {
+        if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attrs) {
+            return attrs.getRequest();
+        }
+        return null;
     }
 }

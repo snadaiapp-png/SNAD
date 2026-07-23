@@ -17,8 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** CRM API contract test for the committed, runtime-filtered OpenAPI artifact. */
 class CrmOpenApiContractTest {
 
-    private static final int EXPECTED_PATHS = 72;
-    private static final int EXPECTED_OPERATIONS = 95;
+    private static final int EXPECTED_PATHS = 100;
+    private static final int EXPECTED_OPERATIONS = 133;
     private static final Set<String> HTTP_METHODS = Set.of(
             "get", "post", "put", "patch", "delete", "head", "options", "trace");
     private static final Path OPENAPI_PATH =
@@ -56,7 +56,9 @@ class CrmOpenApiContractTest {
         String[] domainPrefixes = {
                 "/accounts", "/contacts", "/leads", "/opportunities",
                 "/activities", "/pipelines", "/imports", "/custom-fields",
-                "/timeline", "/addresses", "/communication-methods"
+                "/timeline", "/addresses", "/communication-methods",
+                "/teams", "/queues", "/territories", "/assignment-rules",
+                "/assignments", "/ownership-history", "/transfers", "/my-work"
         };
         for (String prefix : domainPrefixes) {
             boolean found = false;
@@ -162,7 +164,8 @@ class CrmOpenApiContractTest {
         for (String path : new String[]{
                 "/accounts", "/accounts/{accountId}/addresses", "/contacts/{contactId}/addresses",
                 "/accounts/{accountId}/communication-methods", "/contacts/{contactId}/communication-methods",
-                "/addresses/import", "/communication-methods/import"}) {
+                "/addresses/import", "/communication-methods/import",
+                "/teams", "/queues", "/territories", "/assignment-rules", "/transfers"}) {
             JsonNode responses = paths.path(path).path("post").path("responses");
             assertNotNull(responses.get("201"), "POST " + path + " must declare 201 Created");
             assertTrue(responses.get("200") == null,
@@ -206,12 +209,14 @@ class CrmOpenApiContractTest {
                 }
             }
         }
-        assertTrue(protectedOperations >= 12,
+        assertTrue(protectedOperations >= 20,
                 "Expected idempotency protection on CRM create/action operations");
         for (String path : new String[]{
                 "/accounts/{accountId}/addresses", "/contacts/{contactId}/addresses",
                 "/accounts/{accountId}/communication-methods", "/contacts/{contactId}/communication-methods",
-                "/addresses/import", "/communication-methods/import"}) {
+                "/addresses/import", "/communication-methods/import",
+                "/teams", "/queues", "/territories", "/assignment-rules", "/transfers",
+                "/assignments/reassign", "/assignments/bulk-reassign"}) {
             assertRequiredHeader(paths.path(path).path("post"), "Idempotency-Key", path);
         }
     }

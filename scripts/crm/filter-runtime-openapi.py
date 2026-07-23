@@ -172,6 +172,13 @@ def main() -> int:
     path_count = len(filtered["paths"])
     operation_count = count_operations(filtered)
 
+    # Preserve the exact runtime evidence even when count validation fails.
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(
+        json.dumps(filtered, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
     if args.expected_paths is not None and path_count != args.expected_paths:
         raise SystemExit(f"Expected {args.expected_paths} CRM paths, got {path_count}")
     if args.expected_operations is not None and operation_count != args.expected_operations:
@@ -179,11 +186,6 @@ def main() -> int:
             f"Expected {args.expected_operations} CRM operations, got {operation_count}"
         )
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
-        json.dumps(filtered, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
     print(
         f"CRM OpenAPI generated: {path_count} paths, {operation_count} operations, "
         f"{sum(len(values) for values in filtered.get('components', {}).values())} components"
