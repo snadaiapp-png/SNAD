@@ -13,6 +13,8 @@ public interface QueueRepository {
 
     Optional<Queue> findByCode(UUID tenantId, String code);
 
+    List<Queue> findAllByTenant(UUID tenantId);
+
     List<Queue> findByTenant(UUID tenantId, QueueStatus status);
 
     List<Queue> findByRecordType(UUID tenantId, QueueRecordType recordType);
