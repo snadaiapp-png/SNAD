@@ -33,7 +33,7 @@ public class CrmIntegrationUseCases {
 
     private static final Set<String> TERMINAL_STATES = Set.of(
             "COMPLETED", "EXECUTED", "REJECTED", "POLICY_DENIED", "UNSAFE_OUTPUT",
-            "TIMED_OUT", "UNAVAILABLE", "CANCELLED", "EXPIRED", "EXECUTION_REJECTED", "CONFIRMED");
+            "TIMED_OUT", "UNAVAILABLE", "CANCELLED", "EXPIRED", "EXECUTION_REJECTED");
 
     public CrmIntegrationUseCases(CrmIntegrationStore store, AiGatewayPort ai, ObjectMapper mapper) {
         this.store = store;

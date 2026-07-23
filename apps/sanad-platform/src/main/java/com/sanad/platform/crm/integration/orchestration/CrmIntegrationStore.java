@@ -8,9 +8,8 @@ import org.springframework.stereotype.Component;
 
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Tenant-scoped durable request/result store with database-enforced idempotency.
@@ -24,10 +23,16 @@ public class CrmIntegrationStore {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
 
-    /** Terminal states where completed_at is set. */
-    private static final Set<String> TERMINAL_STATES = Set.of(
-            "COMPLETED", "EXECUTED", "REJECTED", "POLICY_DENIED", "UNSAFE_OUTPUT",
-            "TIMED_OUT", "UNAVAILABLE", "CANCELLED", "EXPIRED", "EXECUTION_REJECTED");
+    /** Terminal states where completed_at is set. CONFIRMED is NOT terminal. */
+    public static final Set<String> TERMINAL_STATES = Set.of(
+            "COMPLETED", "EXECUTED", "EXECUTION_REJECTED", "REJECTED",
+            "POLICY_DENIED", "UNSAFE_OUTPUT", "TIMED_OUT",
+            "UNAVAILABLE", "CANCELLED", "EXPIRED");
+
+    /** Intermediate (non-terminal) states where completed_at stays NULL. */
+    public static final Set<String> INTERMEDIATE_STATES = Set.of(
+            "PENDING", "DISPATCHED", "ACCEPTED", "RUNNING",
+            "RECOMMENDATION_AVAILABLE", "CONFIRMED", "EXECUTING");
 
     public CrmIntegrationStore(JdbcTemplate jdbc, ObjectMapper mapper) {
         this.jdbc = jdbc;
@@ -68,43 +73,44 @@ public class CrmIntegrationStore {
     /**
      * Atomic conditional state transition with optimistic locking.
      * Fails (returns success=false) if version mismatch or current status not allowed.
-     * Sets completed_at only for terminal states.
+     * Sets completed_at only for terminal states (NOT for CONFIRMED, EXECUTING, etc.).
      */
     public TransitionResult transition(UUID tenantId, UUID requestId, long expectedVersion,
                                         Set<String> allowedFrom, String targetStatus,
                                         UUID externalReference, JsonNode result,
                                         String errorCode) {
+        // Build terminal-state placeholders deterministically
+        List<String> terminalList = new ArrayList<>(TERMINAL_STATES);
+        String terminalPlaceholders = terminalList.stream()
+                .map(s -> "?")
+                .collect(Collectors.joining(","));
+
         StringBuilder sql = new StringBuilder(
                 "UPDATE crm_integration_requests SET status=?, external_reference=?, " +
                 "result_payload=CAST(? AS jsonb), error_code=?, " +
-                "completed_at=CASE WHEN ? IN (");
-        for (String s : TERMINAL_STATES) {
-            sql.append("?");
-        }
-        sql.deleteCharAt(sql.length() - 1); // remove last comma
-        sql.append(") THEN CURRENT_TIMESTAMP ELSE completed_at END, " +
+                "completed_at=CASE WHEN ? IN (" + terminalPlaceholders + ") " +
+                "THEN CURRENT_TIMESTAMP ELSE completed_at END, " +
                 "updated_at=CURRENT_TIMESTAMP, version=version+1 " +
                 "WHERE tenant_id=? AND id=? AND version=?");
 
-        var params = new java.util.ArrayList<Object>();
+        var params = new ArrayList<Object>();
         params.add(targetStatus);
         params.add(externalReference);
         params.add(json(result));
         params.add(errorCode);
         params.add(targetStatus);
-        for (String s : TERMINAL_STATES) params.add(s);
+        params.addAll(terminalList);
         params.add(tenantId);
         params.add(requestId);
         params.add(expectedVersion);
 
         if (allowedFrom != null && !allowedFrom.isEmpty()) {
-            sql.append(" AND status IN (");
-            for (int i = 0; i < allowedFrom.size(); i++) {
-                if (i > 0) sql.append(",");
-                sql.append("?");
-            }
-            sql.append(")");
-            params.addAll(allowedFrom);
+            List<String> allowedList = new ArrayList<>(allowedFrom);
+            String allowedPlaceholders = allowedList.stream()
+                    .map(s -> "?")
+                    .collect(Collectors.joining(","));
+            sql.append(" AND status IN (").append(allowedPlaceholders).append(")");
+            params.addAll(allowedList);
         }
 
         int updated = jdbc.update(sql.toString(), params.toArray());

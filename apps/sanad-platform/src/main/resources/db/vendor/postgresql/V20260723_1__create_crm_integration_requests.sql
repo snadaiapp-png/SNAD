@@ -104,9 +104,9 @@ CREATE TABLE crm_integration_requests (
     CONSTRAINT crm_integration_expiry_ck CHECK (expires_at > requested_at),
     CONSTRAINT crm_integration_status_ck CHECK (
         status IN ('PENDING','DISPATCHED','ACCEPTED','RUNNING','COMPLETED',
-                   'RECOMMENDATION_AVAILABLE','CONFIRMED','REJECTED','EXECUTED',
-                   'POLICY_DENIED','UNSAFE_OUTPUT','TIMED_OUT',
-                   'UNAVAILABLE','CANCELLED','EXPIRED')
+                   'RECOMMENDATION_AVAILABLE','CONFIRMED','EXECUTING','EXECUTED',
+                   'EXECUTION_REJECTED','REJECTED','POLICY_DENIED','UNSAFE_OUTPUT',
+                   'TIMED_OUT','UNAVAILABLE','CANCELLED','EXPIRED')
     ),
     CONSTRAINT crm_integration_type_ck CHECK (
         integration_type IN ('WORKFLOW','AI')
@@ -114,14 +114,18 @@ CREATE TABLE crm_integration_requests (
     CONSTRAINT crm_integration_classification_ck CHECK (
         data_classification IN ('PUBLIC','INTERNAL','CONFIDENTIAL','RESTRICTED')
     ),
+    -- Terminal states (completed_at must be NOT NULL)
+    -- CONFIRMED and EXECUTING are intermediate — completed_at stays NULL
     CONSTRAINT crm_integration_terminal_ck CHECK (
-        (status NOT IN ('COMPLETED','REJECTED','CONFIRMED','EXECUTED','POLICY_DENIED','UNSAFE_OUTPUT',
-                        'TIMED_OUT','UNAVAILABLE','CANCELLED','EXPIRED'))
+        (status NOT IN ('COMPLETED','EXECUTED','EXECUTION_REJECTED','REJECTED',
+                        'POLICY_DENIED','UNSAFE_OUTPUT','TIMED_OUT',
+                        'UNAVAILABLE','CANCELLED','EXPIRED'))
         OR (completed_at IS NOT NULL)
     ),
     CONSTRAINT crm_integration_non_terminal_ck CHECK (
-        (status IN ('COMPLETED','REJECTED','CONFIRMED','EXECUTED','POLICY_DENIED','UNSAFE_OUTPUT',
-                    'TIMED_OUT','UNAVAILABLE','CANCELLED','EXPIRED'))
+        (status IN ('COMPLETED','EXECUTED','EXECUTION_REJECTED','REJECTED',
+                    'POLICY_DENIED','UNSAFE_OUTPUT','TIMED_OUT',
+                    'UNAVAILABLE','CANCELLED','EXPIRED'))
         OR (completed_at IS NULL)
     ),
     CONSTRAINT crm_integration_payload_ck CHECK (jsonb_typeof(payload) = 'object'),
