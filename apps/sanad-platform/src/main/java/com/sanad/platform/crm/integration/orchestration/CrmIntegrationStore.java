@@ -59,7 +59,7 @@ public class CrmIntegrationStore {
                 tenantId, id).stream().findFirst();
     }
 
-    private Optional<StoredRequest> findByIdempotency(UUID tenantId, String type, String key) {
+    public Optional<StoredRequest> findByIdempotency(UUID tenantId, String type, String key) {
         return jdbc.query("SELECT id, tenant_id, integration_type, status, external_reference, correlation_id, idempotency_key, requested_at, expires_at, error_code FROM crm_integration_requests WHERE tenant_id=? AND integration_type=? AND idempotency_key=?",
                 (rs, row) -> new StoredRequest((UUID) rs.getObject("id"), (UUID) rs.getObject("tenant_id"),
                         rs.getString("integration_type"), rs.getString("status"),

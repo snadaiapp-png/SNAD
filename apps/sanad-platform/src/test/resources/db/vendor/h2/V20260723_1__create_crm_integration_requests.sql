@@ -1,3 +1,4 @@
+-- H2 compatibility stub for CRM-009 V20260723.1
 CREATE TABLE IF NOT EXISTS crm_integration_requests (
     id UUID PRIMARY KEY,
     tenant_id UUID NOT NULL,
@@ -28,3 +29,5 @@ CREATE TABLE IF NOT EXISTS crm_integration_requests (
 );
 CREATE INDEX IF NOT EXISTS crm_integration_tenant_status_idx ON crm_integration_requests (tenant_id, status, created_at);
 CREATE INDEX IF NOT EXISTS crm_integration_correlation_idx ON crm_integration_requests (tenant_id, correlation_id);
+CREATE INDEX IF NOT EXISTS crm_integration_tenant_entity_idx ON crm_integration_requests (tenant_id, source_entity_type, source_entity_id, created_at);
+SELECT 1;

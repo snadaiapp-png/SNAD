@@ -47,10 +47,10 @@ BEGIN
     SELECT COUNT(*)
       INTO conflicting_capability
       FROM access_capabilities
-     WHERE code IN ('CRM.WORKFLOW.EXECUTE', 'CRM.AI.READ')
+     WHERE code IN ('CRM.WORKFLOW.EXECUTE', 'CRM.AI.READ', 'CRM.AI.CONFIRM')
        AND (id NOT IN ('a0000009-0000-0000-0000-000000000901',
                        'a0000009-0000-0000-0000-000000000902')
-            OR name NOT IN ('Execute CRM Workflows', 'Read CRM AI Insights'));
+            OR name NOT IN ('Execute CRM Workflows', 'Read CRM AI Insights', 'Confirm CRM AI Recommendations'));
     IF conflicting_capability > 0 THEN
         RAISE EXCEPTION
             'V20260723.1 precondition failed: % capabilities with conflicting data already exist',
@@ -215,12 +215,18 @@ BEGIN
     -- 2 CRM-009 capabilities must be seeded
     SELECT COUNT(*) INTO cap_count
       FROM access_capabilities
-     WHERE code IN ('CRM.WORKFLOW.EXECUTE', 'CRM.AI.READ')
+     WHERE code IN ('CRM.WORKFLOW.EXECUTE', 'CRM.AI.READ', 'CRM.AI.CONFIRM')
        AND status = 'ACTIVE';
-    IF cap_count <> 2 THEN
+    IF cap_count <> 3 THEN
         RAISE EXCEPTION
-            'V20260723.1 postcondition failed: expected 2 CRM-009 capabilities, found %',
+            'V20260723.1 postcondition failed: expected 3 CRM-009 capabilities, found %',
             cap_count;
     END IF;
 END
 $postcondition$;
+
+-- CRM.AI.CONFIRM capability (for human confirmation of AI recommendations)
+INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at)
+VALUES ('a0000009-0000-0000-0000-000000000903', 'CRM.AI.CONFIRM',
+        'Confirm CRM AI Recommendations', 'Accept or reject AI-generated recommendations with human confirmation',
+        'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);

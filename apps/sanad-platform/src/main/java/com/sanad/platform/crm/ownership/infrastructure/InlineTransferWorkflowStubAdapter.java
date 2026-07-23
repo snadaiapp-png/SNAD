@@ -10,6 +10,7 @@ import java.util.UUID;
 
 /** Explicit temporary adapter: supports exactly one synchronous approver. */
 @Component
+@org.springframework.context.annotation.Profile({"!prod"})
 public class InlineTransferWorkflowStubAdapter implements WorkflowPort {
 
     @Override
