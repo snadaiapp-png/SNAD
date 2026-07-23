@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark light" />
+  <title>SANAD System Health</title>
+  <style>
+    :root {
+      font-family: Inter, "Noto Sans Arabic", system-ui, sans-serif;
+      color: #e8eef9;
+      background: #07111f;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, #10263f, #07111f 55%); }
+    header, main { width: min(1120px, calc(100% - 32px)); margin-inline: auto; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 28px 18px; }
+    h1, h2, p { margin: 0; }
+    h1 { font-size: clamp(1.4rem, 4vw, 2rem); }
+    .subtitle { margin-top: 8px; color: #a9b8cc; }
+    .badge { border: 1px solid #29435e; background: #0d1d30; border-radius: 999px; padding: 8px 12px; font-size: .85rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+    .card { border: 1px solid #20374f; background: rgba(9, 24, 41, .86); border-radius: 16px; padding: 18px; box-shadow: 0 18px 50px rgba(0, 0, 0, .2); }
+    .label { color: #91a5bb; font-size: .82rem; }
+    .value { margin-top: 9px; font-size: 1.35rem; font-weight: 750; overflow-wrap: anywhere; }
+    .healthy { color: #53e09d; }
+    .unknown { color: #f4c56c; }
+    .section { margin-top: 18px; }
+    .section h2 { margin-bottom: 12px; font-size: 1.05rem; }
+    .component { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding: 14px 0; border-top: 1px solid #1d3349; }
+    .component:first-of-type { border-top: 0; }
+    .component p { color: #a9b8cc; margin-top: 5px; line-height: 1.55; }
+    .actions { display: flex; gap: 10px; align-items: center; }
+    button { min-height: 42px; border: 1px solid #335878; border-radius: 10px; color: inherit; background: #102942; padding: 0 14px; cursor: pointer; }
+    button:focus-visible { outline: 3px solid #70b7ff; outline-offset: 2px; }
+    footer { color: #8194aa; padding-block: 22px 36px; font-size: .8rem; }
+    code { direction: ltr; unicode-bidi: isolate; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>صحة النظام والتصحيح الذاتي</h1>
+      <p class="subtitle">تطبيق تشغيلي مستقل — غير تابع لتطبيق الإدارة العليا</p>
+    </div>
+    <div class="actions">
+      <span class="badge" id="maturity">FOUNDATION</span>
+      <button type="button" id="refresh">تحديث</button>
+    </div>
+  </header>
+
+  <main aria-live="polite">
+    <section class="grid" aria-label="ملخص صحة التطبيق">
+      <article class="card">
+        <div class="label">الحالة</div>
+        <div class="value unknown" id="status">جارٍ الفحص…</div>
+      </article>
+      <article class="card">
+        <div class="label">التطبيق</div>
+        <div class="value" id="application">—</div>
+      </article>
+      <article class="card">
+        <div class="label">الإصدار</div>
+        <div class="value" id="version">—</div>
+      </article>
+      <article class="card">
+        <div class="label">آخر رصد</div>
+        <div class="value" id="observedAt">—</div>
+      </article>
+    </section>
+
+    <section class="card section" aria-labelledby="components-title">
+      <h2 id="components-title">مكونات التطبيق</h2>
+      <div id="components"><p class="subtitle">لم تُحمّل البيانات بعد.</p></div>
+    </section>
+
+    <section class="card section" aria-labelledby="runtime-title">
+      <h2 id="runtime-title">Runtime</h2>
+      <div class="grid">
+        <div><div class="label">مدة التشغيل</div><div class="value" id="uptime">—</div></div>
+        <div><div class="label">المعالجات المتاحة</div><div class="value" id="processors">—</div></div>
+        <div><div class="label">الذاكرة الحرة</div><div class="value" id="memory">—</div></div>
+      </div>
+    </section>
+
+    <footer>
+      هذه واجهة Foundation مستقلة. إدارة الحوادث والتشخيص والتصحيح الآلي ستضاف عبر حزم عمل محكومة منفصلة.
+    </footer>
+  </main>
+
+  <script>
+    const endpoint = '/api/v1/system-health';
+
+    const formatBytes = (bytes) => {
+      if (!Number.isFinite(bytes)) return '—';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let value = bytes;
+      let unit = 0;
+      while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit += 1;
+      }
+      return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+    };
+
+    const formatDuration = (milliseconds) => {
+      if (!Number.isFinite(milliseconds)) return '—';
+      const seconds = Math.floor(milliseconds / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const hours = Math.floor(minutes / 60);
+      return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+    };
+
+    async function loadHealth() {
+      const status = document.getElementById('status');
+      status.textContent = 'جارٍ الفحص…';
+      status.className = 'value unknown';
+
+      try {
+        const response = await fetch(endpoint, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const snapshot = await response.json();
+
+        status.textContent = snapshot.status;
+        status.className = snapshot.status === 'HEALTHY' ? 'value healthy' : 'value unknown';
+        document.getElementById('application').textContent = snapshot.application;
+        document.getElementById('version').textContent = snapshot.version;
+        document.getElementById('maturity').textContent = snapshot.maturity;
+        document.getElementById('observedAt').textContent = new Date(snapshot.observedAt).toLocaleString('ar-SA');
+        document.getElementById('uptime').textContent = formatDuration(snapshot.runtime?.uptimeMilliseconds);
+        document.getElementById('processors').textContent = snapshot.runtime?.availableProcessors ?? '—';
+        document.getElementById('memory').textContent = formatBytes(snapshot.runtime?.freeMemoryBytes);
+
+        const components = document.getElementById('components');
+        components.replaceChildren(...(snapshot.components ?? []).map((component) => {
+          const row = document.createElement('div');
+          row.className = 'component';
+          const copy = document.createElement('div');
+          const title = document.createElement('strong');
+          title.textContent = component.id;
+          const message = document.createElement('p');
+          message.textContent = component.message;
+          copy.append(title, message);
+          const componentStatus = document.createElement('span');
+          componentStatus.className = 'badge';
+          componentStatus.textContent = component.status;
+          row.append(copy, componentStatus);
+          return row;
+        }));
+      } catch (error) {
+        status.textContent = 'UNREACHABLE';
+        status.className = 'value unknown';
+        document.getElementById('components').textContent = `تعذر الوصول إلى عقد الصحة: ${error.message}`;
+      }
+    }
+
+    document.getElementById('refresh').addEventListener('click', loadHealth);
+    loadHealth();
+    window.setInterval(loadHealth, 15000);
+  </script>
+</body>
+</html>
