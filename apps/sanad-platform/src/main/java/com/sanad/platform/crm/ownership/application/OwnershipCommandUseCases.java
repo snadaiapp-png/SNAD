@@ -51,8 +51,9 @@ public class OwnershipCommandUseCases {
         validateOwner(command.tenantId(), command.recordType(), command.ownerType(), command.ownerId());
         Assignment current = assignments.findActive(
                 command.tenantId(), command.recordType(), command.recordId()).orElse(null);
-        validateExpected(command.expectedAssignmentId(), current);
-        Assignment created = transition(command, current, command.assignedByRuleId(),
+        validateExpected(command, current);
+        Assignment created = transition(
+                command, current, command.assignedByRuleId(),
                 command.assignedByRuleId() != null ? TriggerSource.RULE : TriggerSource.MANUAL);
         project(command, created);
         mutation(command, current, created);
@@ -116,10 +117,11 @@ public class OwnershipCommandUseCases {
                 now, now, command.actorId(), command.actorId());
         OwnerType expectedType = current != null ? current.ownerType() : null;
         UUID expectedOwner = current != null ? ownerId(current) : null;
-        return assignments.supersedeAndInsert(
+        return assignments.supersedeAndInsertExpected(
                 command.tenantId(), command.recordType(), command.recordId(), next,
                 command.actorId(), reason(command.reason()), ChangeType.REASSIGN,
-                source, command.requestId(), expectedType, expectedOwner);
+                source, command.requestId(), command.expectedAssignmentId(),
+                expectedType, expectedOwner);
     }
 
     private void project(ReassignCommand command, Assignment assignment) {
@@ -152,7 +154,9 @@ public class OwnershipCommandUseCases {
                         .filter(SalesTeam::isActive)
                         .orElseThrow(() -> new OwnershipDomainException(
                                 "Owner team must be ACTIVE in same tenant"));
-                if (team.isArchived()) throw new OwnershipDomainException("Owner team is archived");
+                if (team.isArchived()) {
+                    throw new OwnershipDomainException("Owner team is archived");
+                }
             }
             case QUEUE -> {
                 Queue queue = queues.findById(tenantId, ownerId)
@@ -166,13 +170,12 @@ public class OwnershipCommandUseCases {
         }
     }
 
-    private void validateExpected(UUID expectedAssignmentId, Assignment current) {
-        if (expectedAssignmentId == null) return;
-        if (current == null || !expectedAssignmentId.equals(current.id())) {
+    /** Fast rejection only; the repository repeats this check under the row lock. */
+    private void validateExpected(ReassignCommand command, Assignment current) {
+        if (command.expectedAssignmentId() == null) return;
+        if (current == null || !command.expectedAssignmentId().equals(current.id())) {
             throw new ConcurrentClaimConflictException(
-                    current != null ? current.tenantId() : null,
-                    current != null ? current.recordType() : null,
-                    current != null ? current.recordId() : null);
+                    command.tenantId(), command.recordType(), command.recordId());
         }
     }
 
@@ -200,7 +203,9 @@ public class OwnershipCommandUseCases {
     private String reason(String value) {
         if (value == null || value.isBlank()) return "MANUAL_REASSIGNMENT";
         String normalized = value.trim();
-        if (normalized.length() > 1000) throw new OwnershipDomainException("reason exceeds 1000 characters");
+        if (normalized.length() > 1000) {
+            throw new OwnershipDomainException("reason exceeds 1000 characters");
+        }
         return normalized;
     }
 
