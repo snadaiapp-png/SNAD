@@ -39,10 +39,11 @@ export async function requestCrmAiInsight(
   client: ApiClient = apiClient,
 ): Promise<CrmIntegrationRequestStatus> {
   if (!idempotencyKey.trim()) throw new Error("idempotencyKey is required");
-  return client.post<CrmIntegrationRequestStatus>("/api/v2/crm/integrations/ai", request, {
-    headers: { "Idempotency-Key": idempotencyKey },
-    cache: "no-store",
-  });
+  return client.post<CrmIntegrationRequestStatus, CrmAiInsightRequest>(
+    "/api/v2/crm/integrations/ai",
+    request,
+    { context: { headers: { "Idempotency-Key": idempotencyKey } }, cache: "no-store" },
+  );
 }
 
 export async function getCrmIntegrationStatus(
@@ -50,7 +51,8 @@ export async function getCrmIntegrationStatus(
   client: ApiClient = apiClient,
 ): Promise<CrmIntegrationRequestStatus> {
   if (!requestId.trim()) throw new Error("requestId is required");
-  return client.get<CrmIntegrationRequestStatus>(`/api/v2/crm/integrations/${encodeURIComponent(requestId)}`, {
-    cache: "no-store",
-  });
+  return client.get<CrmIntegrationRequestStatus>(
+    `/api/v2/crm/integrations/${encodeURIComponent(requestId)}`,
+    { cache: "no-store" },
+  );
 }
