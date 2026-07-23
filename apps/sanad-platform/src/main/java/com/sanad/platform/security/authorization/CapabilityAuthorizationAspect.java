@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -53,8 +54,10 @@ public class CapabilityAuthorizationAspect {
 
     @Before("@annotation(requireCapability)")
     public void checkCapability(JoinPoint joinPoint, RequireCapability requireCapability) {
-        if (bypass != null && bypass.isEnabled()) {
-            log.debug("Capability enforcement bypassed by explicit test-only configuration");
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (bypass != null && bypass.isEnabled()
+                && (authentication == null || authentication instanceof AnonymousAuthenticationToken)) {
+            log.debug("Capability enforcement bypassed for an anonymous request by explicit test-only configuration");
             return;
         }
 
@@ -64,8 +67,8 @@ public class CapabilityAuthorizationAspect {
             throw new AccessDeniedException("Invalid capability policy");
         }
 
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated()) {
+        if (authentication == null || !authentication.isAuthenticated()
+                || authentication instanceof AnonymousAuthenticationToken) {
             auditFailure(null, null, capabilityCode, "Unauthenticated request");
             throw new AuthenticationCredentialsNotFoundException("Authentication required");
         }
