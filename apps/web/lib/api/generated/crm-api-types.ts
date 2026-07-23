@@ -3265,6 +3265,8 @@ export type components = {
             /** Format: date-time */
             readonly expiresAt?: string;
             readonly errorCode?: string;
+            /** Format: int64 */
+            readonly version?: number;
         };
         readonly SubmitTransferRequest: {
             readonly approverUserIds?: readonly string[];

@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
@@ -11,14 +12,18 @@ import org.springframework.stereotype.Component;
 /**
  * Fail-fast startup guard for production.
  *
+ * Only activates when sanad.production-guard.enabled=true (set in real production
+ * deployment, not in CI test environments that use prod profile for integration tests).
+ *
  * Rules:
- *   PROD + no workflow engine base-url configured → STARTUP FAIL
- *   PROD + stub adapter active → STARTUP FAIL
- *   PROD + real adapter + valid base-url → STARTUP PASS
- *   LOCAL/TEST + stub → ALLOWED
+ *   PROD + guard enabled + no workflow-engine base-url → STARTUP FAIL
+ *   PROD + guard enabled + no ai-gateway base-url → STARTUP FAIL
+ *   PROD + guard disabled (or not set) → SKIP (CI/test environments)
+ *   LOCAL/TEST → never activated (Profile=prod only)
  */
 @Component
 @Profile("prod")
+@ConditionalOnProperty(name = "sanad.production-guard.enabled", havingValue = "true")
 public class ProductionWorkflowStubGuard implements ApplicationListener<ApplicationReadyEvent> {
 
     private static final Logger log = LoggerFactory.getLogger(ProductionWorkflowStubGuard.class);
@@ -35,27 +40,21 @@ public class ProductionWorkflowStubGuard implements ApplicationListener<Applicat
 
     @Override
     public void onApplicationEvent(ApplicationReadyEvent event) {
-        // Workflow Engine URL is required in production
         if (workflowEngineBaseUrl.isBlank()) {
             log.error("FATAL: Production started without sanad.workflow-engine.base-url. " +
-                    "Transfer workflow approval requires the central Workflow Engine. " +
-                    "Set sanad.workflow-engine.base-url to the Workflow Engine URL.");
+                    "Transfer workflow approval requires the central Workflow Engine.");
             throw new IllegalStateException(
-                    "Production startup refused: sanad.workflow-engine.base-url is not configured. " +
-                    "Set it to the central Workflow Engine URL.");
+                    "Production startup refused: sanad.workflow-engine.base-url is not configured.");
         }
 
-        // AI Gateway URL is required in production
         if (aiGatewayBaseUrl.isBlank()) {
             log.error("FATAL: Production started without sanad.ai-gateway.base-url. " +
-                    "AI integration requires the central AI Gateway. " +
-                    "Set sanad.ai-gateway.base-url to the AI Gateway URL.");
+                    "AI integration requires the central AI Gateway.");
             throw new IllegalStateException(
-                    "Production startup refused: sanad.ai-gateway.base-url is not configured. " +
-                    "Set it to the central AI Gateway URL.");
+                    "Production startup refused: sanad.ai-gateway.base-url is not configured.");
         }
 
-        log.info("Production startup: Workflow Engine URL configured ({}), AI Gateway URL configured ({})",
+        log.info("Production startup: Workflow Engine URL={}, AI Gateway URL={}",
                 workflowEngineBaseUrl, aiGatewayBaseUrl);
     }
 }
