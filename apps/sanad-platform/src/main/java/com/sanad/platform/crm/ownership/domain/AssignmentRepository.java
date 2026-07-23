@@ -24,10 +24,28 @@ public interface AssignmentRepository {
                                           String reason) {
         return supersedeAndInsert(
                 tenantId, recordType, recordId, newAssignment, actorUserId, reason,
-                ChangeType.REASSIGN, TriggerSource.MANUAL, null);
+                ChangeType.REASSIGN, TriggerSource.MANUAL, null, null, null);
     }
 
     /** Atomic ownership transition with an explicit, auditable classification. */
+    default Assignment supersedeAndInsert(UUID tenantId,
+                                          AssignmentRecordType recordType,
+                                          UUID recordId,
+                                          Assignment newAssignment,
+                                          UUID actorUserId,
+                                          String reason,
+                                          ChangeType changeType,
+                                          TriggerSource triggerSource,
+                                          UUID triggerReferenceId) {
+        return supersedeAndInsert(
+                tenantId, recordType, recordId, newAssignment, actorUserId, reason,
+                changeType, triggerSource, triggerReferenceId, null, null);
+    }
+
+    /**
+     * Conditional atomic transition. The expected owner is checked after the active
+     * assignment row has been locked, preventing stale claim/release checks.
+     */
     Assignment supersedeAndInsert(UUID tenantId,
                                   AssignmentRecordType recordType,
                                   UUID recordId,
@@ -36,7 +54,9 @@ public interface AssignmentRepository {
                                   String reason,
                                   ChangeType changeType,
                                   TriggerSource triggerSource,
-                                  UUID triggerReferenceId);
+                                  UUID triggerReferenceId,
+                                  OwnerType expectedOwnerType,
+                                  UUID expectedOwnerId);
 
     void endAssignment(UUID tenantId, UUID assignmentId, UUID updatedBy, String reason);
 
