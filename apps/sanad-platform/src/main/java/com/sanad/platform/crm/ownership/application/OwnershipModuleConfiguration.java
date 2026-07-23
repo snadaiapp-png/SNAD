@@ -3,16 +3,7 @@ package com.sanad.platform.crm.ownership.application;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.crm.integration.domain.AuditPort;
 import com.sanad.platform.crm.integration.domain.TimelineEventPort;
-import com.sanad.platform.crm.ownership.domain.AssignmentRepository;
-import com.sanad.platform.crm.ownership.domain.OwnershipReadPort;
-import com.sanad.platform.crm.ownership.domain.OwnershipUserValidationPort;
-import com.sanad.platform.crm.ownership.domain.OwnershipWritePort;
-import com.sanad.platform.crm.ownership.domain.QueueClaimIdempotencyPort;
-import com.sanad.platform.crm.ownership.domain.QueueMembershipRepository;
-import com.sanad.platform.crm.ownership.domain.QueueRepository;
-import com.sanad.platform.crm.ownership.domain.SalesTeamRepository;
-import com.sanad.platform.crm.ownership.domain.TeamMembershipRepository;
-import com.sanad.platform.crm.ownership.domain.TerritoryRepository;
+import com.sanad.platform.crm.ownership.domain.*;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -29,14 +20,8 @@ public class OwnershipModuleConfiguration {
                                                TimelineEventPort timelineEventPort,
                                                ObjectMapper objectMapper) {
         return new SalesTeamUseCases(
-                salesTeamRepository,
-                teamMembershipRepository,
-                userValidationPort,
-                queueRepository,
-                territoryRepository,
-                auditPort,
-                timelineEventPort,
-                objectMapper);
+                salesTeamRepository, teamMembershipRepository, userValidationPort,
+                queueRepository, territoryRepository, auditPort, timelineEventPort, objectMapper);
     }
 
     @Bean
@@ -51,15 +36,21 @@ public class OwnershipModuleConfiguration {
                                        TimelineEventPort timelineEventPort,
                                        ObjectMapper objectMapper) {
         return new QueueUseCases(
-                queueRepository,
-                queueMembershipRepository,
-                assignmentRepository,
-                ownershipReadPort,
-                ownershipWritePort,
-                idempotencyPort,
-                userValidationPort,
-                auditPort,
-                timelineEventPort,
-                objectMapper);
+                queueRepository, queueMembershipRepository, assignmentRepository,
+                ownershipReadPort, ownershipWritePort, idempotencyPort, userValidationPort,
+                auditPort, timelineEventPort, objectMapper);
+    }
+
+    @Bean
+    public TerritoryUseCases territoryUseCases(TerritoryRepository territoryRepository,
+                                                TerritoryAssignmentRepository assignmentRepository,
+                                                SalesTeamRepository salesTeamRepository,
+                                                OwnershipUserValidationPort userValidationPort,
+                                                AuditPort auditPort,
+                                                TimelineEventPort timelineEventPort,
+                                                ObjectMapper objectMapper) {
+        return new TerritoryUseCases(
+                territoryRepository, assignmentRepository, salesTeamRepository,
+                userValidationPort, auditPort, timelineEventPort, objectMapper);
     }
 }
