@@ -1,5 +1,6 @@
 package com.sanad.platform.security;
 
+import com.sanad.platform.security.authorization.CapabilityAuthorizationBypass;
 import com.sanad.platform.security.service.JwtTokenProvider;
 import org.mockito.Mockito;
 import org.springframework.beans.BeansException;
@@ -39,6 +40,12 @@ public class SecurityPermitAllTestConfig {
     @Primary
     public JwtTokenProvider testJwtTokenProvider() {
         return Mockito.mock(JwtTokenProvider.class);
+    }
+
+    /** Exists only in test sources; no production bean can silently enable it. */
+    @Bean
+    public CapabilityAuthorizationBypass capabilityAuthorizationBypass() {
+        return () -> true;
     }
 
     @Bean
