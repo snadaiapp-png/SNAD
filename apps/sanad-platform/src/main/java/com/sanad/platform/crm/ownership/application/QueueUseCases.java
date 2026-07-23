@@ -80,6 +80,12 @@ public class QueueUseCases {
         return status == null ? queues.findAllByTenant(tenantId) : queues.findByTenant(tenantId, status);
     }
 
+    /** Number of records currently waiting under queue ownership. */
+    public long waitingCount(UUID tenantId, UUID queueId) {
+        requireQueue(tenantId, queueId);
+        return assignments.countActiveByOwner(tenantId, OwnerType.QUEUE, queueId);
+    }
+
     @Transactional
     public Queue updateQueue(UUID tenantId, UUID actorId, UUID queueId, UpdateQueueCommand command) {
         requireTenantActor(tenantId, actorId);
@@ -292,8 +298,8 @@ public class QueueUseCases {
         if (value instanceof Assignment assignment) {
             put(node, "id", assignment.id());
             put(node, "tenantId", assignment.tenantId());
-            node.put("recordType", assignment.recordType().name());
             put(node, "recordId", assignment.recordId());
+            node.put("recordType", assignment.recordType().name());
             node.put("ownerType", assignment.ownerType().name());
             put(node, "ownerUserId", assignment.ownerUserId());
             put(node, "ownerTeamId", assignment.ownerTeamId());
@@ -364,7 +370,7 @@ public class QueueUseCases {
             Integer slaMinutes,
             UUID escalationTargetQueueId,
             UUID defaultOwnerId
-    ) {}
+    ) { }
 
     public record UpdateQueueCommand(
             String displayName,
@@ -378,21 +384,21 @@ public class QueueUseCases {
             UUID escalationTargetQueueId,
             boolean defaultOwnerIdSet,
             UUID defaultOwnerId
-    ) {}
+    ) { }
 
     public record ClaimCommand(
             AssignmentRecordType recordType,
             UUID recordId,
             UUID idempotencyKey,
             UUID correlationId
-    ) {}
+    ) { }
 
     public record ReleaseCommand(
             AssignmentRecordType recordType,
             UUID recordId,
             String reason,
             UUID correlationId
-    ) {}
+    ) { }
 
-    public record ClaimResult(Assignment assignment, boolean replayed) {}
+    public record ClaimResult(Assignment assignment, boolean replayed) { }
 }
