@@ -79,16 +79,16 @@ public class CrmIntegrationStore {
                                         Set<String> allowedFrom, String targetStatus,
                                         UUID externalReference, JsonNode result,
                                         String errorCode) {
-        // Build terminal-state placeholders deterministically
+        // Build terminal-state parameter markers deterministically
         List<String> terminalList = new ArrayList<>(TERMINAL_STATES);
-        String terminalPlaceholders = terminalList.stream()
+        String terminalMarkers = terminalList.stream()
                 .map(s -> "?")
                 .collect(Collectors.joining(","));
 
         StringBuilder sql = new StringBuilder(
                 "UPDATE crm_integration_requests SET status=?, external_reference=?, " +
                 "result_payload=CAST(? AS jsonb), error_code=?, " +
-                "completed_at=CASE WHEN ? IN (" + terminalPlaceholders + ") " +
+                "completed_at=CASE WHEN ? IN (" + terminalMarkers + ") " +
                 "THEN CURRENT_TIMESTAMP ELSE completed_at END, " +
                 "updated_at=CURRENT_TIMESTAMP, version=version+1 " +
                 "WHERE tenant_id=? AND id=? AND version=?");
@@ -106,10 +106,10 @@ public class CrmIntegrationStore {
 
         if (allowedFrom != null && !allowedFrom.isEmpty()) {
             List<String> allowedList = new ArrayList<>(allowedFrom);
-            String allowedPlaceholders = allowedList.stream()
+            String allowedMarkers = allowedList.stream()
                     .map(s -> "?")
                     .collect(Collectors.joining(","));
-            sql.append(" AND status IN (").append(allowedPlaceholders).append(")");
+            sql.append(" AND status IN (").append(allowedMarkers).append(")");
             params.addAll(allowedList);
         }
 
