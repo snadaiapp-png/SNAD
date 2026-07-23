@@ -1380,6 +1380,432 @@
         ]
       }
     },
+    "/assignment-rules": {
+      "get": {
+        "tags": [
+          "crm-ownership-assignment-controller"
+        ],
+        "operationId": "listRules",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "INACTIVE",
+                "DEPRECATED"
+              ]
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipListResponseAssignmentRule"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "crm-ownership-assignment-controller"
+        ],
+        "operationId": "createRule",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseAssignmentRule"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/assignment-rules/{ruleId}": {
+      "get": {
+        "tags": [
+          "crm-ownership-assignment-controller"
+        ],
+        "operationId": "getRule",
+        "parameters": [
+          {
+            "name": "ruleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseRuleDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/assignment-rules/{ruleId}/simulate": {
+      "post": {
+        "tags": [
+          "crm-ownership-assignment-controller"
+        ],
+        "operationId": "simulateRule",
+        "parameters": [
+          {
+            "name": "ruleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulateRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseAssignmentDecision"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/assignment-rules/{ruleId}/versions": {
+      "post": {
+        "tags": [
+          "crm-ownership-assignment-controller"
+        ],
+        "operationId": "createRuleVersion",
+        "parameters": [
+          {
+            "name": "ruleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionDefinitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseAssignmentRuleVersion"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/assignment-rules/{ruleId}/versions/{version}/activate": {
+      "patch": {
+        "tags": [
+          "crm-ownership-assignment-controller"
+        ],
+        "operationId": "activateRuleVersion",
+        "parameters": [
+          {
+            "name": "ruleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseAssignmentRuleVersion"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/assignments/bulk-reassign": {
+      "post": {
+        "tags": [
+          "crm-ownership-assignment-controller"
+        ],
+        "operationId": "bulkReassign",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkReassignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseBulkAssignmentResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/assignments/reassign": {
+      "post": {
+        "tags": [
+          "crm-ownership-assignment-controller"
+        ],
+        "operationId": "reassign",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReassignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseAssignment"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/assignments/{recordType}/{recordId}": {
+      "get": {
+        "tags": [
+          "crm-ownership-assignment-controller"
+        ],
+        "operationId": "getCurrentAssignment",
+        "parameters": [
+          {
+            "name": "recordType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACCOUNT",
+                "CONTACT",
+                "LEAD",
+                "OPPORTUNITY",
+                "ACTIVITY",
+                "TASK"
+              ]
+            }
+          },
+          {
+            "name": "recordId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseAssignment"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/communication-methods/export": {
       "get": {
         "tags": [
@@ -4262,6 +4688,31 @@
         ]
       }
     },
+    "/my-work": {
+      "get": {
+        "tags": [
+          "crm-ownership-assignment-controller"
+        ],
+        "operationId": "myWork",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseMyWorkResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/opportunities": {
       "get": {
         "tags": [
@@ -4519,6 +4970,79 @@
         ]
       }
     },
+    "/ownership-history/{recordType}/{recordId}": {
+      "get": {
+        "tags": [
+          "crm-ownership-assignment-controller"
+        ],
+        "operationId": "history",
+        "parameters": [
+          {
+            "name": "recordType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACCOUNT",
+                "CONTACT",
+                "LEAD",
+                "OPPORTUNITY",
+                "ACTIVITY",
+                "TASK"
+              ]
+            }
+          },
+          {
+            "name": "recordId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipListResponseOwnershipHistory"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/pipelines": {
       "get": {
         "tags": [
@@ -4634,6 +5158,408 @@
         ]
       }
     },
+    "/queues": {
+      "get": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "listQueues",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "DRAINING",
+                "ARCHIVED"
+              ]
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipListResponseQueue"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "createQueue",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateQueueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseQueue"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/queues/{queueId}": {
+      "get": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "getQueue",
+        "parameters": [
+          {
+            "name": "queueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseQueueDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "updateQueue",
+        "parameters": [
+          {
+            "name": "queueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateQueueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseQueue"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/queues/{queueId}/items": {
+      "get": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "listQueueItems",
+        "parameters": [
+          {
+            "name": "queueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipListResponseQueueItemSummary"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/queues/{queueId}/items/{itemId}/claim": {
+      "post": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "claimQueueItem",
+        "parameters": [
+          {
+            "name": "queueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimQueueItemRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseClaimResult"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/queues/{queueId}/items/{itemId}/release": {
+      "post": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "releaseQueueItem",
+        "parameters": [
+          {
+            "name": "queueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseQueueItemRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseAssignment"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/queues/{queueId}/memberships": {
+      "get": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "listQueueMemberships",
+        "parameters": [
+          {
+            "name": "queueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipListResponseQueueMembership"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/relationship-roles": {
       "get": {
         "tags": [
@@ -4691,6 +5617,689 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseRelationshipRoleResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/teams": {
+      "get": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "listTeams",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "SUSPENDED",
+                "ARCHIVED"
+              ]
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipListResponseSalesTeam"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "createTeam",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTeamRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseSalesTeam"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/teams/{teamId}": {
+      "get": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "getTeam",
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseTeamDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "updateTeam",
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTeamRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseSalesTeam"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/teams/{teamId}/memberships": {
+      "get": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "listTeamMemberships",
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipListResponseTeamMembership"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "addTeamMembership",
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTeamMembershipRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseTeamMembership"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/teams/{teamId}/memberships/{membershipId}": {
+      "delete": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "endTeamMembership",
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "membershipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "reason",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseTeamMembership"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "updateTeamMembership",
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "membershipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTeamMembershipRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseTeamMembership"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/territories": {
+      "get": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "listTerritories",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "ARCHIVED"
+              ]
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipListResponseTerritory"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "createTerritory",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTerritoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseTerritory"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/territories/{territoryId}": {
+      "get": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "getTerritory",
+        "parameters": [
+          {
+            "name": "territoryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseTerritoryDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "updateTerritory",
+        "parameters": [
+          {
+            "name": "territoryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTerritoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseTerritory"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/territories/{territoryId}/assignments": {
+      "post": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "assignTerritory",
+        "parameters": [
+          {
+            "name": "territoryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignTerritoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseTerritoryAssignment"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/territories/{territoryId}/assignments/{assignmentId}": {
+      "delete": {
+        "tags": [
+          "crm-ownership-resource-controller"
+        ],
+        "operationId": "removeTerritoryAssignment",
+        "parameters": [
+          {
+            "name": "territoryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "assignmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseTerritoryAssignment"
                 }
               }
             }
@@ -4771,6 +6380,305 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListResponseTimelineEventResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/transfers": {
+      "get": {
+        "tags": [
+          "crm-ownership-transfer-controller"
+        ],
+        "operationId": "listTransfers",
+        "parameters": [
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "INCOMING",
+                "OUTGOING",
+                "ALL"
+              ]
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DRAFT",
+                "SUBMITTED",
+                "UNDER_REVIEW",
+                "APPROVED",
+                "REJECTED",
+                "CANCELLED",
+                "COMPLETED",
+                "FAILED"
+              ]
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipListResponseTransferRequest"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "crm-ownership-transfer-controller"
+        ],
+        "operationId": "createTransfer",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTransferRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseTransferRequest"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/transfers/{transferId}/approve": {
+      "post": {
+        "tags": [
+          "crm-ownership-transfer-controller"
+        ],
+        "operationId": "decideTransfer",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideTransferRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseTransferRequest"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/transfers/{transferId}/cancel": {
+      "post": {
+        "tags": [
+          "crm-ownership-transfer-controller"
+        ],
+        "operationId": "cancelTransfer",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelTransferRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseTransferRequest"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/transfers/{transferId}/submit": {
+      "post": {
+        "tags": [
+          "crm-ownership-transfer-controller"
+        ],
+        "operationId": "submitTransfer",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitTransferRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipResponseTransferRequest"
                 }
               }
             }
@@ -4923,6 +6831,42 @@
             "format": "date-time"
           }
         }
+      },
+      "AddTeamMembershipRequest": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "SALES_MANAGER",
+              "ACCOUNT_MANAGER",
+              "SALES_REPRESENTATIVE",
+              "LEAD_QUALIFIER",
+              "OPPORTUNITY_SPECIALIST",
+              "READONLY_CONTRIBUTOR"
+            ]
+          },
+          "primary": {
+            "type": "boolean"
+          },
+          "capacityMax": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 1000,
+            "minimum": 0
+          },
+          "metadata": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "userId"
+        ]
       },
       "AddressHistoryResponse": {
         "type": "object",
@@ -5171,6 +7115,476 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "AssignTerritoryRequest": {
+        "type": "object",
+        "properties": {
+          "assigneeType": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "TEAM"
+            ]
+          },
+          "assigneeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "PRIMARY",
+              "BACKUP",
+              "OBSERVER"
+            ]
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "effectiveTo": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "assigneeId",
+          "assigneeType"
+        ]
+      },
+      "Assignment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "subjectType": {
+            "type": "string"
+          },
+          "subjectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assignedUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assignmentRole": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "ENDED",
+              "CANCELLED"
+            ]
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "ownerType": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "TEAM",
+              "QUEUE"
+            ]
+          },
+          "ownerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerTeamId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerQueueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recordType": {
+            "type": "string",
+            "enum": [
+              "ACCOUNT",
+              "CONTACT",
+              "LEAD",
+              "OPPORTUNITY",
+              "ACTIVITY",
+              "TASK"
+            ]
+          },
+          "recordId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assignedByRuleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assignedByUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "correlationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workflowResult": {
+            "type": "string"
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "effectiveTo": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updatedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AssignmentDecision": {
+        "type": "object",
+        "properties": {
+          "matched": {
+            "type": "boolean"
+          },
+          "ruleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ruleVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "distributionMethod": {
+            "type": "string",
+            "enum": [
+              "DIRECT_OWNER",
+              "TEAM_ASSIGNMENT",
+              "QUEUE_ASSIGNMENT",
+              "ROUND_ROBIN",
+              "LEAST_LOADED",
+              "WEIGHTED",
+              "TERRITORY_BASED",
+              "SKILL_BASED",
+              "RULE_CHAIN"
+            ]
+          },
+          "ownerType": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "TEAM",
+              "QUEUE"
+            ]
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fallbackUsed": {
+            "type": "boolean"
+          },
+          "trace": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AssignmentRule": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string"
+          },
+          "currentVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "INACTIVE",
+              "DEPRECATED"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updatedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AssignmentRuleVersion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ruleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "recordType": {
+            "type": "string",
+            "enum": [
+              "ACCOUNT",
+              "CONTACT",
+              "LEAD",
+              "OPPORTUNITY",
+              "ACTIVITY",
+              "TASK"
+            ]
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "matchConditions": {
+            "type": "string"
+          },
+          "distributionMethod": {
+            "type": "string",
+            "enum": [
+              "DIRECT_OWNER",
+              "TEAM_ASSIGNMENT",
+              "QUEUE_ASSIGNMENT",
+              "ROUND_ROBIN",
+              "LEAST_LOADED",
+              "WEIGHTED",
+              "TERRITORY_BASED",
+              "SKILL_BASED",
+              "RULE_CHAIN"
+            ]
+          },
+          "targetOwnerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetTeamId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetQueueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fallbackOwnerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "effectiveTo": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "INACTIVE",
+              "DEPRECATED"
+            ]
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BulkAssignmentResponse": {
+        "type": "object",
+        "properties": {
+          "assignments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Assignment"
+            }
+          }
+        }
+      },
+      "BulkReassignRequest": {
+        "type": "object",
+        "properties": {
+          "recordType": {
+            "type": "string",
+            "enum": [
+              "ACCOUNT",
+              "CONTACT",
+              "LEAD",
+              "OPPORTUNITY",
+              "ACTIVITY",
+              "TASK"
+            ]
+          },
+          "recordIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "maxItems": 100,
+            "minItems": 0
+          },
+          "ownerType": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "TEAM",
+              "QUEUE"
+            ]
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "ownerId",
+          "ownerType",
+          "reason",
+          "recordIds",
+          "recordType"
+        ]
+      },
+      "CancelTransferRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "ClaimQueueItemRequest": {
+        "type": "object",
+        "properties": {
+          "recordType": {
+            "type": "string",
+            "enum": [
+              "ACCOUNT",
+              "CONTACT",
+              "LEAD",
+              "OPPORTUNITY",
+              "ACTIVITY",
+              "TASK"
+            ]
+          }
+        },
+        "required": [
+          "recordType"
+        ]
+      },
+      "ClaimResult": {
+        "type": "object",
+        "properties": {
+          "assignment": {
+            "$ref": "#/components/schemas/Assignment"
+          },
+          "replayed": {
+            "type": "boolean"
           }
         }
       },
@@ -6169,6 +8583,56 @@
           "stageId"
         ]
       },
+      "CreateQueueRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "recordType": {
+            "type": "string",
+            "enum": [
+              "LEAD",
+              "OPPORTUNITY",
+              "TASK",
+              "ACTIVITY",
+              "ACCOUNT"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "maxItemsPerUser": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 1000,
+            "minimum": 1
+          },
+          "slaMinutes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1
+          },
+          "escalationTargetQueueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "defaultOwnerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "code",
+          "displayName",
+          "recordType"
+        ]
+      },
       "CreateRelationshipRoleRequest": {
         "type": "object",
         "properties": {
@@ -6182,6 +8646,165 @@
             "type": "string"
           }
         }
+      },
+      "CreateRuleRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "definition": {
+            "$ref": "#/components/schemas/VersionDefinitionRequest"
+          }
+        },
+        "required": [
+          "code",
+          "definition"
+        ]
+      },
+      "CreateTeamRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string"
+          },
+          "managerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "defaultQueueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "defaultTerritoryId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "code",
+          "displayName"
+        ]
+      },
+      "CreateTerritoryRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "parentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": {
+            "type": "string"
+          },
+          "ruleType": {
+            "type": "string",
+            "enum": [
+              "GEOGRAPHIC",
+              "SEGMENT",
+              "CHANNEL",
+              "ACCOUNT_LIST"
+            ]
+          },
+          "ruleDefinition": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "code",
+          "displayName",
+          "ruleType"
+        ]
+      },
+      "CreateTransferRequest": {
+        "type": "object",
+        "properties": {
+          "recordType": {
+            "type": "string",
+            "enum": [
+              "ACCOUNT",
+              "CONTACT",
+              "LEAD",
+              "OPPORTUNITY",
+              "ACTIVITY",
+              "TASK"
+            ]
+          },
+          "recordIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "maxItems": 100,
+            "minItems": 0
+          },
+          "proposedOwnerType": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "TEAM",
+              "QUEUE"
+            ]
+          },
+          "proposedOwnerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "transferType": {
+            "type": "string",
+            "enum": [
+              "PERMANENT",
+              "TEMPORARY"
+            ]
+          },
+          "temporaryEndDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 0
+          },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "SINGLE_APPROVER",
+              "MULTI_APPROVER",
+              "NO_APPROVAL_REQUIRED"
+            ]
+          }
+        },
+        "required": [
+          "policy",
+          "proposedOwnerId",
+          "proposedOwnerType",
+          "reason",
+          "recordIds",
+          "recordType",
+          "transferType"
+        ]
       },
       "CustomFieldResponse": {
         "type": "object",
@@ -6282,6 +8905,28 @@
             "additionalProperties": {}
           }
         }
+      },
+      "DecideTransferRequest": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "APPROVED",
+              "REJECTED",
+              "EXPIRED",
+              "CANCELLED"
+            ]
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "decision"
+        ]
       },
       "ImportErrorResponse": {
         "type": "object",
@@ -6984,6 +9629,18 @@
           "stageId"
         ]
       },
+      "MyWorkResponse": {
+        "type": "object",
+        "properties": {
+          "workload": {
+            "$ref": "#/components/schemas/WorkloadSummary"
+          },
+          "activeQueueClaims": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "OpportunityResponse": {
         "type": "object",
         "properties": {
@@ -7076,6 +9733,120 @@
           }
         }
       },
+      "OwnershipHistory": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recordType": {
+            "type": "string",
+            "enum": [
+              "ACCOUNT",
+              "CONTACT",
+              "LEAD",
+              "OPPORTUNITY",
+              "ACTIVITY",
+              "TASK"
+            ]
+          },
+          "recordId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fromOwnerType": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "TEAM",
+              "QUEUE"
+            ]
+          },
+          "fromOwnerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fromOwnerTeamId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fromOwnerQueueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "toOwnerType": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "TEAM",
+              "QUEUE"
+            ]
+          },
+          "toOwnerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "toOwnerTeamId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "toOwnerQueueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "changeType": {
+            "type": "string",
+            "enum": [
+              "INITIAL",
+              "REASSIGN",
+              "TRANSFER",
+              "QUEUE_CLAIM",
+              "QUEUE_RELEASE",
+              "TEMPORARY",
+              "RESTORE",
+              "BULK"
+            ]
+          },
+          "triggerSource": {
+            "type": "string",
+            "enum": [
+              "MANUAL",
+              "RULE",
+              "TRANSFER_REQUEST",
+              "WORKFLOW",
+              "ABSENCE_POLICY"
+            ]
+          },
+          "triggerReferenceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "actorUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "correlationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "effectiveAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recordedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "OwnershipHistoryResponse": {
         "type": "object",
         "properties": {
@@ -7105,6 +9876,378 @@
           },
           "reason": {
             "type": "string"
+          }
+        }
+      },
+      "OwnershipListResponseAssignmentRule": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssignmentRule"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/OwnershipPage"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipListResponseOwnershipHistory": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OwnershipHistory"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/OwnershipPage"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipListResponseQueue": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Queue"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/OwnershipPage"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipListResponseQueueItemSummary": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueueItemSummary"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/OwnershipPage"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipListResponseQueueMembership": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueueMembership"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/OwnershipPage"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipListResponseSalesTeam": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SalesTeam"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/OwnershipPage"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipListResponseTeamMembership": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamMembership"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/OwnershipPage"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipListResponseTerritory": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Territory"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/OwnershipPage"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipListResponseTransferRequest": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TransferRequest"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/OwnershipPage"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipMeta": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "correlationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OwnershipPage": {
+        "type": "object",
+        "properties": {
+          "nextCursor": {
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "OwnershipResponseAssignment": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Assignment"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipResponseAssignmentDecision": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AssignmentDecision"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipResponseAssignmentRule": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AssignmentRule"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipResponseAssignmentRuleVersion": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AssignmentRuleVersion"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipResponseBulkAssignmentResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/BulkAssignmentResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipResponseClaimResult": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ClaimResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipResponseMyWorkResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/MyWorkResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipResponseQueue": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Queue"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipResponseQueueDetail": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/QueueDetail"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipResponseRuleDetail": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RuleDetail"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipResponseSalesTeam": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SalesTeam"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipResponseTeamDetail": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TeamDetail"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipResponseTeamMembership": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TeamMembership"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipResponseTerritory": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Territory"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipResponseTerritoryAssignment": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TerritoryAssignment"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipResponseTerritoryDetail": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TerritoryDetail"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
+          }
+        }
+      },
+      "OwnershipResponseTransferRequest": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TransferRequest"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OwnershipMeta"
           }
         }
       },
@@ -7158,6 +10301,253 @@
             "format": "date-time"
           }
         }
+      },
+      "Queue": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "recordType": {
+            "type": "string",
+            "enum": [
+              "LEAD",
+              "OPPORTUNITY",
+              "TASK",
+              "ACTIVITY",
+              "ACCOUNT"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "DRAINING",
+              "ARCHIVED"
+            ]
+          },
+          "maxItemsPerUser": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "slaMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "escalationTargetQueueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "defaultOwnerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updatedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "claimable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "QueueDetail": {
+        "type": "object",
+        "properties": {
+          "queue": {
+            "$ref": "#/components/schemas/Queue"
+          },
+          "waitingCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "memberships": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueueMembership"
+            }
+          }
+        }
+      },
+      "QueueItemSummary": {
+        "type": "object",
+        "properties": {
+          "assignmentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "queueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recordType": {
+            "type": "string",
+            "enum": [
+              "ACCOUNT",
+              "CONTACT",
+              "LEAD",
+              "OPPORTUNITY",
+              "ACTIVITY",
+              "TASK"
+            ]
+          },
+          "recordId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "queuedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "correlationId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "QueueMembership": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "queueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "ENDED",
+              "REMOVED"
+            ]
+          },
+          "addedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "removedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "removedReason": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updatedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ReassignRequest": {
+        "type": "object",
+        "properties": {
+          "recordType": {
+            "type": "string",
+            "enum": [
+              "ACCOUNT",
+              "CONTACT",
+              "LEAD",
+              "OPPORTUNITY",
+              "ACTIVITY",
+              "TASK"
+            ]
+          },
+          "recordId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerType": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "TEAM",
+              "QUEUE"
+            ]
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 0
+          },
+          "expectedAssignmentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assignedByRuleId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "ownerId",
+          "ownerType",
+          "reason",
+          "recordId",
+          "recordType"
+        ]
       },
       "RelationshipCommandRequest": {
         "type": "object",
@@ -7250,6 +10640,30 @@
           }
         }
       },
+      "ReleaseQueueItemRequest": {
+        "type": "object",
+        "properties": {
+          "recordType": {
+            "type": "string",
+            "enum": [
+              "ACCOUNT",
+              "CONTACT",
+              "LEAD",
+              "OPPORTUNITY",
+              "ACTIVITY",
+              "TASK"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "reason",
+          "recordType"
+        ]
+      },
       "RowResult": {
         "type": "object",
         "properties": {
@@ -7278,6 +10692,114 @@
             "type": "string"
           }
         }
+      },
+      "RuleDetail": {
+        "type": "object",
+        "properties": {
+          "rule": {
+            "$ref": "#/components/schemas/AssignmentRule"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssignmentRuleVersion"
+            }
+          }
+        }
+      },
+      "SalesTeam": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "SUSPENDED",
+              "ARCHIVED"
+            ]
+          },
+          "managerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "defaultQueueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "defaultTerritoryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updatedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SimulateRuleRequest": {
+        "type": "object",
+        "properties": {
+          "recordType": {
+            "type": "string",
+            "enum": [
+              "ACCOUNT",
+              "CONTACT",
+              "LEAD",
+              "OPPORTUNITY",
+              "ACTIVITY",
+              "TASK"
+            ]
+          },
+          "facts": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "territoryIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "recordType"
+        ]
       },
       "SingleResponseAccountResponse": {
         "type": "object",
@@ -7528,6 +11050,280 @@
           }
         }
       },
+      "SubmitTransferRequest": {
+        "type": "object",
+        "properties": {
+          "approverUserIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "TeamDetail": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/components/schemas/SalesTeam"
+          },
+          "memberships": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamMembership"
+            }
+          }
+        }
+      },
+      "TeamMembership": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "teamId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "SALES_MANAGER",
+              "ACCOUNT_MANAGER",
+              "SALES_REPRESENTATIVE",
+              "LEAD_QUALIFIER",
+              "OPPORTUNITY_SPECIALIST",
+              "READONLY_CONTRIBUTOR"
+            ]
+          },
+          "isPrimary": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "ENDED",
+              "REMOVED"
+            ]
+          },
+          "joinedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "leftAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "leftReason": {
+            "type": "string"
+          },
+          "capacityMax": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "metadata": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updatedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Territory": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "ARCHIVED"
+            ]
+          },
+          "ruleType": {
+            "type": "string",
+            "enum": [
+              "GEOGRAPHIC",
+              "SEGMENT",
+              "CHANNEL",
+              "ACCOUNT_LIST"
+            ]
+          },
+          "ruleDefinition": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updatedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "root": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TerritoryAssignment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "territoryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assigneeType": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "TEAM"
+            ]
+          },
+          "assigneeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "PRIMARY",
+              "BACKUP",
+              "OBSERVER"
+            ]
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "INACTIVE"
+            ]
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "effectiveTo": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updatedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "primary": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TerritoryDetail": {
+        "type": "object",
+        "properties": {
+          "territory": {
+            "$ref": "#/components/schemas/Territory"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Territory"
+            }
+          },
+          "assignments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TerritoryAssignment"
+            }
+          }
+        }
+      },
       "TimelineEventResponse": {
         "type": "object",
         "properties": {
@@ -7562,6 +11358,118 @@
           "createdBy": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "TransferRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recordType": {
+            "type": "string",
+            "enum": [
+              "ACCOUNT",
+              "CONTACT",
+              "LEAD",
+              "OPPORTUNITY",
+              "ACTIVITY",
+              "TASK"
+            ]
+          },
+          "recordIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "requesterUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "currentOwnerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "proposedOwnerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "proposedOwnerTeamId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "transferType": {
+            "type": "string",
+            "enum": [
+              "PERMANENT",
+              "TEMPORARY"
+            ]
+          },
+          "temporaryEndDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "SINGLE_APPROVER",
+              "MULTI_APPROVER",
+              "NO_APPROVAL_REQUIRED"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "SUBMITTED",
+              "UNDER_REVIEW",
+              "APPROVED",
+              "REJECTED",
+              "CANCELLED",
+              "COMPLETED",
+              "FAILED"
+            ]
+          },
+          "currentApprovalStep": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "workflowRunId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "executedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "executedByUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "failureReason": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "terminal": {
+            "type": "boolean"
           }
         }
       },
@@ -7980,6 +11888,163 @@
           }
         }
       },
+      "UpdateQueueRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "descriptionSet": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "DRAINING",
+              "ARCHIVED"
+            ]
+          },
+          "maxItemsPerUser": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 1000,
+            "minimum": 1
+          },
+          "slaMinutesSet": {
+            "type": "boolean"
+          },
+          "slaMinutes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1
+          },
+          "escalationTargetQueueIdSet": {
+            "type": "boolean"
+          },
+          "escalationTargetQueueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "defaultOwnerIdSet": {
+            "type": "boolean"
+          },
+          "defaultOwnerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "UpdateTeamMembershipRequest": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "SALES_MANAGER",
+              "ACCOUNT_MANAGER",
+              "SALES_REPRESENTATIVE",
+              "LEAD_QUALIFIER",
+              "OPPORTUNITY_SPECIALIST",
+              "READONLY_CONTRIBUTOR"
+            ]
+          },
+          "primary": {
+            "type": "boolean"
+          },
+          "capacityMax": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 1000,
+            "minimum": 0
+          },
+          "metadata": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "UpdateTeamRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "SUSPENDED",
+              "ARCHIVED"
+            ]
+          },
+          "managerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "defaultQueueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "defaultTerritoryId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "displayName",
+          "status"
+        ]
+      },
+      "UpdateTerritoryRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "parentIdSet": {
+            "type": "boolean"
+          },
+          "parentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "descriptionSet": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "ruleType": {
+            "type": "string",
+            "enum": [
+              "GEOGRAPHIC",
+              "SEGMENT",
+              "CHANNEL",
+              "ACCOUNT_LIST"
+            ]
+          },
+          "ruleDefinitionSet": {
+            "type": "boolean"
+          },
+          "ruleDefinition": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "VerificationRequest": {
         "type": "object",
         "properties": {
@@ -7991,6 +12056,79 @@
         },
         "required": [
           "verificationStatus"
+        ]
+      },
+      "VersionDefinitionRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string"
+          },
+          "recordType": {
+            "type": "string",
+            "enum": [
+              "ACCOUNT",
+              "CONTACT",
+              "LEAD",
+              "OPPORTUNITY",
+              "ACTIVITY",
+              "TASK"
+            ]
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "matchConditions": {
+            "type": "string"
+          },
+          "distributionMethod": {
+            "type": "string",
+            "enum": [
+              "DIRECT_OWNER",
+              "TEAM_ASSIGNMENT",
+              "QUEUE_ASSIGNMENT",
+              "ROUND_ROBIN",
+              "LEAST_LOADED",
+              "WEIGHTED",
+              "TERRITORY_BASED",
+              "SKILL_BASED",
+              "RULE_CHAIN"
+            ]
+          },
+          "targetOwnerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetTeamId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetQueueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fallbackOwnerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "effectiveTo": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "displayName",
+          "distributionMethod",
+          "recordType"
         ]
       },
       "VersionedContactProfileRequest": {
@@ -8076,6 +12214,43 @@
           "ownerUserId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "WorkloadSummary": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerType": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "TEAM",
+              "QUEUE"
+            ]
+          },
+          "activeAssignments": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "activeQueueItems": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "activeTeamMemberships": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "overdueTasks": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       }
