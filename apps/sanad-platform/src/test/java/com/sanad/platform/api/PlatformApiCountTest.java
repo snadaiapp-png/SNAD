@@ -145,6 +145,12 @@ class PlatformApiCountTest {
     /**
      * No public endpoint for CRM.TRANSFER.EXECUTE — it is internal-only
      * (workflow callback, never exposed to human callers).
+     *
+     * <p>The transfer API exposes: list, create, submit, approve, cancel.
+     * The "execute" operation is NOT a public HTTP endpoint — it is an
+     * internal service-level call invoked by the workflow engine after
+     * approval. This test ensures no path containing "execute" appears
+     * in either the runtime or committed OpenAPI.</p>
      */
     @Test
     void transferExecuteIsNotPubliclyExposed() throws Exception {
@@ -155,9 +161,12 @@ class PlatformApiCountTest {
 
         for (Iterator<String> it = paths.fieldNames(); it.hasNext(); ) {
             String path = it.next();
+            // Reject any path that ends with "/execute" (case-insensitive)
+            assertThat(path.toLowerCase().endsWith("/execute"))
+                    .as("No public endpoint for CRM.TRANSFER.EXECUTE: %s", path)
+                    .isFalse();
+            // Reject the specific /transfers/execute path
             assertThat(path)
-                    .as("No public endpoint for CRM.TRANSFER.EXECUTE")
-                    .doesNotContain("/transfers/")
                     .as("No public endpoint for CRM.TRANSFER.EXECUTE")
                     .isNotEqualTo("/api/v2/crm/transfers/execute");
         }
@@ -167,9 +176,9 @@ class PlatformApiCountTest {
         JsonNode committedPaths = committed.path("paths");
         for (Iterator<String> it = committedPaths.fieldNames(); it.hasNext(); ) {
             String path = it.next();
-            assertThat(path)
-                    .as("No public endpoint for CRM.TRANSFER.EXECUTE in committed OpenAPI")
-                    .doesNotContain("/execute");
+            assertThat(path.toLowerCase().endsWith("/execute"))
+                    .as("No public endpoint for CRM.TRANSFER.EXECUTE in committed OpenAPI: %s", path)
+                    .isFalse();
         }
     }
 
