@@ -168,7 +168,8 @@ public class JdbcOwnershipWriteAdapter implements OwnershipWritePort {
         return assignmentRepo.supersedeAndInsert(
                 command.tenantId(), command.recordType(), command.recordId(),
                 claimed, command.userId(), "Queue claim",
-                ChangeType.QUEUE_CLAIM, TriggerSource.MANUAL, command.queueId());
+                ChangeType.QUEUE_CLAIM, TriggerSource.MANUAL, command.queueId(),
+                OwnerType.QUEUE, command.queueId());
     }
 
     @Override
@@ -204,7 +205,8 @@ public class JdbcOwnershipWriteAdapter implements OwnershipWritePort {
         assignmentRepo.supersedeAndInsert(
                 command.tenantId(), command.recordType(), command.recordId(),
                 released, command.userId(), normalizeReason(command.reason()),
-                ChangeType.QUEUE_RELEASE, TriggerSource.MANUAL, command.queueId());
+                ChangeType.QUEUE_RELEASE, TriggerSource.MANUAL, command.queueId(),
+                OwnerType.USER, command.userId());
     }
 
     private Queue requireQueue(UUID tenantId, UUID queueId) {
