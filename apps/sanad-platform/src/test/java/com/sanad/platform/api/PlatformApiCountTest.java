@@ -44,8 +44,8 @@ class PlatformApiCountTest {
 
     /** Expected counts. */
     private static final long EXPECTED_CRM_V1_OPS = 84;
-    private static final long EXPECTED_CRM_V2_OPS = 133;  // 95 baseline + 38 ownership
-    private static final long EXPECTED_TOTAL_OPS = 308;   // 270 baseline + 38 ownership
+    private static final long EXPECTED_CRM_V2_OPS = 135;  // 95 baseline + 38 ownership + 2 CRM-009 integration
+    private static final long EXPECTED_TOTAL_OPS = 310;   // 270 baseline + 38 ownership + 2 CRM-009 integration
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
 
@@ -211,7 +211,7 @@ class PlatformApiCountTest {
                     .isTrue();
         }
 
-        // Committed CRM totals: 100 paths, 133 operations
+        // Committed CRM totals: 102 paths, 135 operations (CRM-009 added 2 integration paths)
         int committedPathCount = 0;
         int committedOpCount = 0;
         for (Iterator<Map.Entry<String, JsonNode>> it = committedPaths.fields(); it.hasNext(); ) {
@@ -224,10 +224,10 @@ class PlatformApiCountTest {
         }
         assertThat(committedPathCount)
                 .as("Committed CRM OpenAPI path count")
-                .isEqualTo(100);
+                .isEqualTo(102);
         assertThat(committedOpCount)
                 .as("Committed CRM OpenAPI operation count")
-                .isEqualTo(133);
+                .isEqualTo(135);
     }
 
     // ============================================================
