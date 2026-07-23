@@ -149,8 +149,13 @@ class PlatformApiCountTest {
      * <p>The transfer API exposes: list, create, submit, approve, cancel.
      * The "execute" operation is NOT a public HTTP endpoint — it is an
      * internal service-level call invoked by the workflow engine after
-     * approval. This test ensures no path containing "execute" appears
-     * in either the runtime or committed OpenAPI.</p>
+     * approval. This test ensures no CRM transfer path containing
+     * "execute" appears in either the runtime or committed OpenAPI.</p>
+     *
+     * <p>Note: the business-process E2E endpoint
+     * {@code /api/v1/business-process-e2e/{processCode}/execute} is a
+     * legitimate endpoint and is NOT a CRM.TRANSFER.EXECUTE endpoint.
+     * This test only checks CRM transfer paths.</p>
      */
     @Test
     void transferExecuteIsNotPubliclyExposed() throws Exception {
@@ -161,23 +166,23 @@ class PlatformApiCountTest {
 
         for (Iterator<String> it = paths.fieldNames(); it.hasNext(); ) {
             String path = it.next();
-            // Reject any path that ends with "/execute" (case-insensitive)
+            // Only check CRM transfer paths — the business-process E2E
+            // execute endpoint is legitimate and out of scope.
+            if (!path.startsWith("/api/v2/crm/transfers")) continue;
             assertThat(path.toLowerCase().endsWith("/execute"))
-                    .as("No public endpoint for CRM.TRANSFER.EXECUTE: %s", path)
+                    .as("No public CRM.TRANSFER.EXECUTE endpoint: %s", path)
                     .isFalse();
-            // Reject the specific /transfers/execute path
-            assertThat(path)
-                    .as("No public endpoint for CRM.TRANSFER.EXECUTE")
-                    .isNotEqualTo("/api/v2/crm/transfers/execute");
         }
 
-        // Also check the committed OpenAPI
+        // Also check the committed OpenAPI (CRM transfer paths only)
         JsonNode committed = objectMapper.readTree(Files.readAllBytes(COMMITTED_OPENAPI));
         JsonNode committedPaths = committed.path("paths");
         for (Iterator<String> it = committedPaths.fieldNames(); it.hasNext(); ) {
             String path = it.next();
+            // Committed OpenAPI uses relative paths under /api/v2/crm server
+            if (!path.startsWith("/transfers")) continue;
             assertThat(path.toLowerCase().endsWith("/execute"))
-                    .as("No public endpoint for CRM.TRANSFER.EXECUTE in committed OpenAPI: %s", path)
+                    .as("No public CRM.TRANSFER.EXECUTE endpoint in committed OpenAPI: %s", path)
                     .isFalse();
         }
     }
