@@ -27,13 +27,29 @@ public record Queue(
         if (displayName == null || displayName.isBlank()) throw new IllegalArgumentException("displayName required");
         if (recordType == null) throw new IllegalArgumentException("recordType required");
         if (status == null) status = QueueStatus.ACTIVE;
-        if (maxItemsPerUser < 1) maxItemsPerUser = 10;
+        if (maxItemsPerUser < 1 || maxItemsPerUser > 1000) {
+            throw new OwnershipDomainException("maxItemsPerUser must be between 1 and 1000");
+        }
+        if (slaMinutes != null && slaMinutes < 1) {
+            throw new OwnershipDomainException("slaMinutes must be positive when provided");
+        }
         if (escalationTargetQueueId != null && escalationTargetQueueId.equals(id)) {
             throw new OwnershipDomainException("Queue cannot escalate to itself: " + id);
         }
     }
 
-    public boolean isClaimable() {
+    /** Only ACTIVE queues accept newly queued records. */
+    public boolean acceptsNewItems() {
         return status == QueueStatus.ACTIVE;
+    }
+
+    /** ACTIVE and DRAINING queues allow claims/releases for existing items. */
+    public boolean allowsClaims() {
+        return status == QueueStatus.ACTIVE || status == QueueStatus.DRAINING;
+    }
+
+    /** Compatibility alias retained for existing callers. */
+    public boolean isClaimable() {
+        return allowsClaims();
     }
 }
