@@ -166,8 +166,30 @@ public class JdbcAssignmentRepository implements AssignmentRepository {
                                          UUID triggerReferenceId,
                                          OwnerType expectedOwnerType,
                                          UUID expectedOwnerId) {
+        return supersedeAndInsertExpected(
+                tenantId, recordType, recordId, newAssignment, actorUserId,
+                reason, changeType, triggerSource, triggerReferenceId,
+                null, expectedOwnerType, expectedOwnerId);
+    }
+
+    @Override
+    @Transactional
+    public Assignment supersedeAndInsertExpected(UUID tenantId,
+                                                 AssignmentRecordType recordType,
+                                                 UUID recordId,
+                                                 Assignment newAssignment,
+                                                 UUID actorUserId,
+                                                 String reason,
+                                                 ChangeType changeType,
+                                                 TriggerSource triggerSource,
+                                                 UUID triggerReferenceId,
+                                                 UUID expectedAssignmentId,
+                                                 OwnerType expectedOwnerType,
+                                                 UUID expectedOwnerId) {
         Optional<Assignment> current = findActiveForUpdate(tenantId, recordType, recordId);
-        validateExpectedOwner(tenantId, recordType, recordId, current, expectedOwnerType, expectedOwnerId);
+        validateExpectedState(
+                tenantId, recordType, recordId, current,
+                expectedAssignmentId, expectedOwnerType, expectedOwnerId);
 
         ChangeType requestedChange = changeType != null ? changeType : ChangeType.REASSIGN;
         TriggerSource requestedSource = triggerSource != null ? triggerSource : TriggerSource.MANUAL;
@@ -193,7 +215,7 @@ public class JdbcAssignmentRepository implements AssignmentRepository {
                     .addValue("id", previous.id())
                     .addValue("updatedBy", actorUserId));
             if (ended != 1) {
-                throw new ConcurrentClaimConflictException(tenantId, recordType, recordId);
+                throw conflict(tenantId, recordType, recordId);
             }
 
             historyRepo.append(new OwnershipHistory(
@@ -218,17 +240,22 @@ public class JdbcAssignmentRepository implements AssignmentRepository {
         return save(newAssignment);
     }
 
-    private void validateExpectedOwner(UUID tenantId,
+    private void validateExpectedState(UUID tenantId,
                                        AssignmentRecordType recordType,
                                        UUID recordId,
                                        Optional<Assignment> current,
+                                       UUID expectedAssignmentId,
                                        OwnerType expectedOwnerType,
                                        UUID expectedOwnerId) {
+        if (expectedAssignmentId != null
+                && (current.isEmpty() || !expectedAssignmentId.equals(current.get().id()))) {
+            throw conflict(tenantId, recordType, recordId);
+        }
         if (expectedOwnerType == null) {
             return;
         }
         if (current.isEmpty() || current.get().ownerType() != expectedOwnerType) {
-            throw new ConcurrentClaimConflictException(tenantId, recordType, recordId);
+            throw conflict(tenantId, recordType, recordId);
         }
         UUID actualOwnerId = switch (expectedOwnerType) {
             case USER -> current.get().ownerUserId();
@@ -236,8 +263,14 @@ public class JdbcAssignmentRepository implements AssignmentRepository {
             case QUEUE -> current.get().ownerQueueId();
         };
         if (!Objects.equals(actualOwnerId, expectedOwnerId)) {
-            throw new ConcurrentClaimConflictException(tenantId, recordType, recordId);
+            throw conflict(tenantId, recordType, recordId);
         }
+    }
+
+    private ConcurrentClaimConflictException conflict(UUID tenantId,
+                                                       AssignmentRecordType recordType,
+                                                       UUID recordId) {
+        return new ConcurrentClaimConflictException(tenantId, recordType, recordId);
     }
 
     private String normalizeReason(String reason) {
