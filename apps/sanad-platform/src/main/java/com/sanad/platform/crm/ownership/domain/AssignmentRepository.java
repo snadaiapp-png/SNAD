@@ -63,4 +63,7 @@ public interface AssignmentRepository {
     long countActiveByOwner(UUID tenantId, OwnerType ownerType, UUID ownerId);
 
     long countActiveByUser(UUID tenantId, UUID userId);
+
+    /** Count currently active assignments claimed from one specific queue by one user. */
+    long countActiveQueueClaims(UUID tenantId, UUID queueId, UUID userId);
 }
