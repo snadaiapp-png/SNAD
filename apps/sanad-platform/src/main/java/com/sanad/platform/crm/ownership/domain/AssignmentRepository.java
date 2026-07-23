@@ -14,10 +14,29 @@ public interface AssignmentRepository {
 
     /**
      * Atomically supersede the current active assignment and insert a new one.
-     * Both operations run in the same transaction.
+     * Both operations and the immutable history append run in the same transaction.
      */
-    Assignment supersedeAndInsert(UUID tenantId, AssignmentRecordType recordType, UUID recordId,
-                                   Assignment newAssignment, UUID actorUserId, String reason);
+    default Assignment supersedeAndInsert(UUID tenantId,
+                                          AssignmentRecordType recordType,
+                                          UUID recordId,
+                                          Assignment newAssignment,
+                                          UUID actorUserId,
+                                          String reason) {
+        return supersedeAndInsert(
+                tenantId, recordType, recordId, newAssignment, actorUserId, reason,
+                ChangeType.REASSIGN, TriggerSource.MANUAL, null);
+    }
+
+    /** Atomic ownership transition with an explicit, auditable classification. */
+    Assignment supersedeAndInsert(UUID tenantId,
+                                  AssignmentRecordType recordType,
+                                  UUID recordId,
+                                  Assignment newAssignment,
+                                  UUID actorUserId,
+                                  String reason,
+                                  ChangeType changeType,
+                                  TriggerSource triggerSource,
+                                  UUID triggerReferenceId);
 
     void endAssignment(UUID tenantId, UUID assignmentId, UUID updatedBy, String reason);
 
