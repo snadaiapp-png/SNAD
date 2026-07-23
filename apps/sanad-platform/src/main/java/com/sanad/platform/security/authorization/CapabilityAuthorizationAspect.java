@@ -10,6 +10,7 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.core.Authentication;
@@ -33,6 +34,7 @@ public class CapabilityAuthorizationAspect {
     private final CapabilityEvaluationService evaluationService;
     private final PlatformAuditWriter auditWriter;
     private final CorrelationContextPort correlationContext;
+    private CapabilityAuthorizationBypass bypass;
 
     public CapabilityAuthorizationAspect(
             CapabilityEvaluationService evaluationService,
@@ -43,8 +45,19 @@ public class CapabilityAuthorizationAspect {
         this.correlationContext = correlationContext;
     }
 
+    /** Optional only because the sole implementation lives in test sources. */
+    @Autowired(required = false)
+    void setBypass(CapabilityAuthorizationBypass bypass) {
+        this.bypass = bypass;
+    }
+
     @Before("@annotation(requireCapability)")
     public void checkCapability(JoinPoint joinPoint, RequireCapability requireCapability) {
+        if (bypass != null && bypass.isEnabled()) {
+            log.debug("Capability enforcement bypassed by explicit test-only configuration");
+            return;
+        }
+
         String capabilityCode = requireCapability == null ? null : requireCapability.value();
         if (capabilityCode == null || capabilityCode.isBlank()) {
             auditFailure(null, null, "INVALID_CAPABILITY", "Capability annotation is empty");
