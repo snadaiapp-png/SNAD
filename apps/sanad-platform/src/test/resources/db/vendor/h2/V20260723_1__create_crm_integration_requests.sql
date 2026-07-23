@@ -1,0 +1,30 @@
+CREATE TABLE IF NOT EXISTS crm_integration_requests (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL,
+    actor_id UUID NOT NULL,
+    integration_type VARCHAR(80) NOT NULL,
+    contract_name VARCHAR(120) NOT NULL,
+    contract_version VARCHAR(40) NOT NULL,
+    correlation_id VARCHAR(160) NOT NULL,
+    causation_id VARCHAR(160) NOT NULL,
+    idempotency_key VARCHAR(200) NOT NULL,
+    source_entity_type VARCHAR(80) NOT NULL,
+    source_entity_id UUID NOT NULL,
+    source_entity_version BIGINT NOT NULL CHECK (source_entity_version >= 0),
+    required_capability VARCHAR(160) NOT NULL,
+    data_classification VARCHAR(80) NOT NULL,
+    payload JSON NOT NULL DEFAULT '{}',
+    result_payload JSON,
+    status VARCHAR(40) NOT NULL,
+    external_reference UUID,
+    error_code VARCHAR(120),
+    requested_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT crm_integration_expiry_ck CHECK (expires_at > requested_at),
+    CONSTRAINT crm_integration_tenant_idempotency_uq UNIQUE (tenant_id, integration_type, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS crm_integration_tenant_status_idx ON crm_integration_requests (tenant_id, status, created_at);
+CREATE INDEX IF NOT EXISTS crm_integration_correlation_idx ON crm_integration_requests (tenant_id, correlation_id);
