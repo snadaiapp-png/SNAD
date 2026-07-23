@@ -303,4 +303,34 @@ public class JdbcAssignmentRepository implements AssignmentRepository {
                 .addValue("userId", userId), Long.class);
         return count != null ? count : 0L;
     }
+
+    @Override
+    public long countActiveQueueClaims(UUID tenantId, UUID queueId, UUID userId) {
+        Long count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                  FROM crm_assignments assignment
+                  JOIN LATERAL (
+                      SELECT history.change_type,
+                             history.trigger_reference_id,
+                             history.to_owner_user_id
+                        FROM crm_ownership_history history
+                       WHERE history.tenant_id=assignment.tenant_id
+                         AND history.record_type=assignment.record_type
+                         AND history.record_id=assignment.record_id
+                       ORDER BY history.recorded_at DESC, history.id DESC
+                       LIMIT 1
+                  ) latest_history ON TRUE
+                 WHERE assignment.tenant_id=:tenantId
+                   AND assignment.owner_type='USER'
+                   AND assignment.owner_user_id=:userId
+                   AND assignment.status='ACTIVE'
+                   AND latest_history.change_type='QUEUE_CLAIM'
+                   AND latest_history.trigger_reference_id=:queueId
+                   AND latest_history.to_owner_user_id=:userId
+                """, new MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("queueId", queueId)
+                .addValue("userId", userId), Long.class);
+        return count != null ? count : 0L;
+    }
 }
