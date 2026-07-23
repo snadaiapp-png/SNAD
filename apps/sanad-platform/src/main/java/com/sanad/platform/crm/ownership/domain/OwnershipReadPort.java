@@ -17,6 +17,9 @@ public interface OwnershipReadPort {
     OwnershipHistoryPage findOwnershipHistory(UUID tenantId, AssignmentRecordType recordType, UUID recordId,
                                                UUID cursor, int pageSize);
 
+    /** Bounded oldest-first page of records currently owned by one queue. */
+    QueueItemPage findQueueItems(UUID tenantId, UUID queueId, UUID cursor, int pageSize);
+
     /** Aggregate workload for a user (active assignments + queue items + team memberships). */
     WorkloadSummary findUserWorkload(UUID tenantId, UUID userId);
 
