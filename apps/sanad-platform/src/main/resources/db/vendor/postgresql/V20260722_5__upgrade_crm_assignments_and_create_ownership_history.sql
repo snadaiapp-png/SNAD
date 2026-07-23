@@ -76,7 +76,11 @@ BEGIN
             assigned_user_id_type;
     END IF;
 
-    -- All target columns for this migration MUST be absent (no partial state)
+    -- All target columns for this migration MUST be absent (no partial state).
+    -- NOTE: 'reason' is intentionally excluded — it already exists on
+    -- crm_assignments from the CRM-G1 baseline (V20260718_1 / V20260717_6)
+    -- as TEXT. This migration reuses the G1 column and only adds the 12
+    -- CRM-008B-specific columns below.
     SELECT COUNT(*) INTO target_columns_count
       FROM information_schema.columns
      WHERE table_schema = 'public'
@@ -84,12 +88,12 @@ BEGIN
        AND column_name IN (
            'owner_type','owner_user_id','owner_team_id','owner_queue_id',
            'record_type','record_id','assigned_by_rule_id','assigned_by_user_id',
-           'reason','correlation_id','workflow_result','effective_from','effective_to'
+           'correlation_id','workflow_result','effective_from','effective_to'
        );
 
     IF target_columns_count <> 0 THEN
         RAISE EXCEPTION
-            'V20260722.5 precondition failed: % of 13 target columns already exist (expected 0) — partial state',
+            'V20260722.5 precondition failed: % of 12 target columns already exist (expected 0) — partial state',
             target_columns_count;
     END IF;
 
@@ -144,7 +148,10 @@ ALTER TABLE crm_assignments ADD COLUMN record_type VARCHAR(20);
 ALTER TABLE crm_assignments ADD COLUMN record_id UUID;
 ALTER TABLE crm_assignments ADD COLUMN assigned_by_rule_id UUID;
 ALTER TABLE crm_assignments ADD COLUMN assigned_by_user_id UUID;
-ALTER TABLE crm_assignments ADD COLUMN reason VARCHAR(100);
+-- NOTE: 'reason' column already exists on crm_assignments from CRM-G1 baseline
+-- (V20260718_1 / V20260717_6) as TEXT (broader than VARCHAR(100)). We preserve
+-- the G1 column and do NOT re-add it. The G1 reason TEXT column serves the same
+-- purpose (free-text rationale for the assignment).
 ALTER TABLE crm_assignments ADD COLUMN correlation_id UUID;
 ALTER TABLE crm_assignments ADD COLUMN workflow_result JSONB;
 ALTER TABLE crm_assignments ADD COLUMN effective_from TIMESTAMP WITH TIME ZONE;
@@ -311,7 +318,9 @@ DECLARE
     history_table_count         INTEGER;
     history_columns             INTEGER;
 BEGIN
-    -- All 13 new columns must exist on crm_assignments
+    -- All 12 new CRM-008B columns must exist on crm_assignments.
+    -- NOTE: 'reason' is excluded — it already existed from CRM-G1 baseline
+    -- (as TEXT) and is reused, not re-added, by this migration.
     SELECT COUNT(*) INTO actual_columns
       FROM information_schema.columns
      WHERE table_schema = 'public'
@@ -319,12 +328,25 @@ BEGIN
        AND column_name IN (
            'owner_type','owner_user_id','owner_team_id','owner_queue_id',
            'record_type','record_id','assigned_by_rule_id','assigned_by_user_id',
-           'reason','correlation_id','workflow_result','effective_from','effective_to'
+           'correlation_id','workflow_result','effective_from','effective_to'
        );
-    IF actual_columns <> 13 THEN
+    IF actual_columns <> 12 THEN
         RAISE EXCEPTION
-            'V20260722.5 postcondition failed: % of 13 new columns exist on crm_assignments',
+            'V20260722.5 postcondition failed: % of 12 new columns exist on crm_assignments',
             actual_columns;
+    END IF;
+
+    -- Additionally verify that the G1 'reason' column (TEXT) is still present
+    -- (preserved, not dropped). This guards against accidental schema drift.
+    PERFORM 1
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'crm_assignments'
+       AND column_name = 'reason'
+       AND data_type = 'text';
+    IF NOT FOUND THEN
+        RAISE EXCEPTION
+            'V20260722.5 postcondition failed: crm_assignments.reason (TEXT, from G1 baseline) is missing';
     END IF;
 
     -- workflow_result must be JSONB (nullable).
