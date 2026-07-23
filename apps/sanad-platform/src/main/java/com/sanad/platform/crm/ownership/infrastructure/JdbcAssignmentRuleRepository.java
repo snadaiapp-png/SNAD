@@ -14,6 +14,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Timestamp;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -119,8 +120,10 @@ public class JdbcAssignmentRuleRepository implements AssignmentRuleRepository {
                     .addValue("targetTeamId", version.targetTeamId())
                     .addValue("targetQueueId", version.targetQueueId())
                     .addValue("fallbackOwnerId", version.fallbackOwnerId())
-                    .addValue("effectiveFrom", version.effectiveFrom())
-                    .addValue("effectiveTo", version.effectiveTo())
+                    .addValue("effectiveFrom", version.effectiveFrom() != null
+                            ? Timestamp.from(version.effectiveFrom()) : null)
+                    .addValue("effectiveTo", version.effectiveTo() != null
+                            ? Timestamp.from(version.effectiveTo()) : null)
                     .addValue("status", version.status().name())
                     .addValue("createdBy", version.createdBy()));
         } catch (DataIntegrityViolationException conflict) {
