@@ -38,15 +38,6 @@ GENERATED_TS="${REPO_ROOT}/apps/web/lib/api/generated/crm-api-types.ts"
 VIOLATIONS=()
 add_violation() { VIOLATIONS+=("$1"); }
 
-# Extraction-only bridge: the committed artifact is still the 72/95 contract.
-# The runtime filter writes the expanded artifact before failing its old count,
-# allowing the exact generated 100/133 candidate to be captured and committed.
-# This block MUST be removed in the same change that updates the canonical JSON.
-if [[ -n "${GITHUB_ENV:-}" ]]; then
-  echo 'EXPECTED_CRM_PATHS=72' >> "$GITHUB_ENV"
-  echo 'EXPECTED_CRM_OPERATIONS=95' >> "$GITHUB_ENV"
-fi
-
 # ──────────────────────────────────────────────────────────────────────
 # 1. No Map<String, Object> in CRM controllers (v2 contract)
 # ──────────────────────────────────────────────────────────────────────
