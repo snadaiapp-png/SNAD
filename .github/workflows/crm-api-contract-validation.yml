@@ -10,6 +10,7 @@ on:
       - 'apps/sanad-platform/pom.xml'
       - 'apps/web/lib/api/**'
       - 'docs/crm/contracts/**'
+      - 'docs/crm/crm-008/contracts/**'
       - 'scripts/crm/**'
       - '.github/workflows/crm-api-contract-validation.yml'
   push:
@@ -18,6 +19,7 @@ on:
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/**'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/**'
       - 'docs/crm/contracts/**'
+      - 'docs/crm/crm-008/contracts/**'
       - 'scripts/crm/**'
       - '.github/workflows/crm-api-contract-validation.yml'
   workflow_dispatch:
@@ -31,8 +33,8 @@ concurrency:
 
 env:
   JWT_SECRET: ci-only-non-production-validation-key-1234567890
-  EXPECTED_CRM_PATHS: '72'
-  EXPECTED_CRM_OPERATIONS: '95'
+  EXPECTED_CRM_PATHS: '100'
+  EXPECTED_CRM_OPERATIONS: '133'
 
 jobs:
   contract-validation:
@@ -142,6 +144,21 @@ jobs:
           exit 1
       - name: Generate filtered runtime CRM contract
         run: python3 scripts/crm/filter-runtime-openapi.py --input /tmp/platform-openapi.json --output /tmp/crm-openapi.runtime.json --prefix /api/v2/crm --expected-paths "$EXPECTED_CRM_PATHS" --expected-operations "$EXPECTED_CRM_OPERATIONS"
+      - name: Preserve runtime CRM OpenAPI evidence
+        if: always()
+        run: |
+          mkdir -p artifacts/crm-openapi
+          cp /tmp/crm-openapi.runtime.json artifacts/crm-openapi/crm-openapi.runtime.json 2>/dev/null || true
+          cp /tmp/platform-openapi.json artifacts/crm-openapi/platform-openapi.runtime.json 2>/dev/null || true
+          cp /tmp/crm-openapi-backend.log artifacts/crm-openapi/backend.log 2>/dev/null || true
+      - name: Upload runtime CRM OpenAPI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-runtime-openapi-${{ github.sha }}
+          path: artifacts/crm-openapi/
+          if-no-files-found: warn
+          retention-days: 14
       - name: OpenAPI semantic drift check
         run: |
           set -euo pipefail
@@ -163,7 +180,32 @@ jobs:
             ('/accounts/{accountId}/communication-methods','post','Idempotency-Key'),
             ('/contacts/{contactId}/communication-methods','post','Idempotency-Key'),
             ('/addresses/import','post','Idempotency-Key'),
-            ('/communication-methods/import','post','Idempotency-Key')
+            ('/communication-methods/import','post','Idempotency-Key'),
+            ('/teams','post','Idempotency-Key'),
+            ('/teams/{teamId}','patch','If-Match'),
+            ('/teams/{teamId}/memberships','post','Idempotency-Key'),
+            ('/teams/{teamId}/memberships/{membershipId}','patch','If-Match'),
+            ('/teams/{teamId}/memberships/{membershipId}','delete','If-Match'),
+            ('/queues','post','Idempotency-Key'),
+            ('/queues/{queueId}','patch','If-Match'),
+            ('/queues/{queueId}/items/{itemId}/claim','post','Idempotency-Key'),
+            ('/queues/{queueId}/items/{itemId}/release','post','Idempotency-Key'),
+            ('/territories','post','Idempotency-Key'),
+            ('/territories/{territoryId}','patch','If-Match'),
+            ('/territories/{territoryId}/assignments','post','Idempotency-Key'),
+            ('/territories/{territoryId}/assignments/{assignmentId}','delete','If-Match'),
+            ('/assignment-rules','post','Idempotency-Key'),
+            ('/assignment-rules/{ruleId}/versions','post','Idempotency-Key'),
+            ('/assignment-rules/{ruleId}/versions/{version}/activate','patch','If-Match'),
+            ('/assignments/reassign','post','Idempotency-Key'),
+            ('/assignments/bulk-reassign','post','Idempotency-Key'),
+            ('/transfers','post','Idempotency-Key'),
+            ('/transfers/{transferId}/submit','post','Idempotency-Key'),
+            ('/transfers/{transferId}/submit','post','If-Match'),
+            ('/transfers/{transferId}/approve','post','Idempotency-Key'),
+            ('/transfers/{transferId}/approve','post','If-Match'),
+            ('/transfers/{transferId}/cancel','post','Idempotency-Key'),
+            ('/transfers/{transferId}/cancel','post','If-Match')
           }
           params=committed.get('components',{}).get('parameters',{})
           for path,method,header in required_headers:
@@ -187,6 +229,14 @@ jobs:
           cp lib/api/generated/crm-api-types.ts /tmp/crm-api-types.before.ts
           npm run crm:generate-api-types
           diff -u /tmp/crm-api-types.before.ts lib/api/generated/crm-api-types.ts
+      - name: Upload generated TypeScript evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-generated-types-${{ github.sha }}
+          path: apps/web/lib/api/generated/crm-api-types.ts
+          if-no-files-found: warn
+          retention-days: 14
       - name: TypeScript typecheck
         working-directory: apps/web
         run: npx tsc --noEmit --skipLibCheck lib/api/generated/crm-api-types.ts
