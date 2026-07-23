@@ -98,11 +98,13 @@ CREATE TABLE crm_integration_requests (
     completed_at            TIMESTAMPTZ,
     created_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    version                 BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT pk_crm_integration_requests PRIMARY KEY (id),
     CONSTRAINT crm_integration_expiry_ck CHECK (expires_at > requested_at),
     CONSTRAINT crm_integration_status_ck CHECK (
         status IN ('PENDING','DISPATCHED','ACCEPTED','RUNNING','COMPLETED',
-                   'REJECTED','POLICY_DENIED','UNSAFE_OUTPUT','TIMED_OUT',
+                   'RECOMMENDATION_AVAILABLE','CONFIRMED','REJECTED','EXECUTED',
+                   'POLICY_DENIED','UNSAFE_OUTPUT','TIMED_OUT',
                    'UNAVAILABLE','CANCELLED','EXPIRED')
     ),
     CONSTRAINT crm_integration_type_ck CHECK (
@@ -112,12 +114,12 @@ CREATE TABLE crm_integration_requests (
         data_classification IN ('PUBLIC','INTERNAL','CONFIDENTIAL','RESTRICTED')
     ),
     CONSTRAINT crm_integration_terminal_ck CHECK (
-        (status NOT IN ('COMPLETED','REJECTED','POLICY_DENIED','UNSAFE_OUTPUT',
+        (status NOT IN ('COMPLETED','REJECTED','CONFIRMED','EXECUTED','POLICY_DENIED','UNSAFE_OUTPUT',
                         'TIMED_OUT','UNAVAILABLE','CANCELLED','EXPIRED'))
         OR (completed_at IS NOT NULL)
     ),
     CONSTRAINT crm_integration_non_terminal_ck CHECK (
-        (status IN ('COMPLETED','REJECTED','POLICY_DENIED','UNSAFE_OUTPUT',
+        (status IN ('COMPLETED','REJECTED','CONFIRMED','EXECUTED','POLICY_DENIED','UNSAFE_OUTPUT',
                     'TIMED_OUT','UNAVAILABLE','CANCELLED','EXPIRED'))
         OR (completed_at IS NULL)
     ),

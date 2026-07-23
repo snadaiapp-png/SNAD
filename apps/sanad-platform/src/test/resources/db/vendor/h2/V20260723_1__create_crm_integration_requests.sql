@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS crm_integration_requests (
     completed_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    version BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT crm_integration_expiry_ck CHECK (expires_at > requested_at),
     CONSTRAINT crm_integration_tenant_idempotency_uq UNIQUE (tenant_id, integration_type, idempotency_key)
 );

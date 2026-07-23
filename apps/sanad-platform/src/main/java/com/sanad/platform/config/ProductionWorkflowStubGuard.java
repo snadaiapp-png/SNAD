@@ -1,19 +1,21 @@
 package com.sanad.platform.config;
 
-import com.sanad.platform.crm.ownership.domain.WorkflowPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
-import java.util.Optional;
-
 /**
- * Fail-fast startup guard: if the active WorkflowPort is a stub, the application
- * MUST NOT start in production. If no WorkflowPort bean is available (because the
- * stub is excluded from prod), that's acceptable — the guard skips.
+ * Fail-fast startup guard for production.
+ *
+ * Rules:
+ *   PROD + no workflow engine base-url configured → STARTUP FAIL
+ *   PROD + stub adapter active → STARTUP FAIL
+ *   PROD + real adapter + valid base-url → STARTUP PASS
+ *   LOCAL/TEST + stub → ALLOWED
  */
 @Component
 @Profile("prod")
@@ -21,28 +23,39 @@ public class ProductionWorkflowStubGuard implements ApplicationListener<Applicat
 
     private static final Logger log = LoggerFactory.getLogger(ProductionWorkflowStubGuard.class);
 
-    private final Optional<WorkflowPort> workflowPort;
+    private final String workflowEngineBaseUrl;
+    private final String aiGatewayBaseUrl;
 
-    public ProductionWorkflowStubGuard(Optional<WorkflowPort> workflowPort) {
-        this.workflowPort = workflowPort;
+    public ProductionWorkflowStubGuard(
+            @Value("${sanad.workflow-engine.base-url:}") String workflowEngineBaseUrl,
+            @Value("${sanad.ai-gateway.base-url:}") String aiGatewayBaseUrl) {
+        this.workflowEngineBaseUrl = workflowEngineBaseUrl == null ? "" : workflowEngineBaseUrl.strip();
+        this.aiGatewayBaseUrl = aiGatewayBaseUrl == null ? "" : aiGatewayBaseUrl.strip();
     }
 
     @Override
     public void onApplicationEvent(ApplicationReadyEvent event) {
-        if (workflowPort.isEmpty()) {
-            log.info("Production startup: no WorkflowPort bean loaded (stub excluded from prod). " +
-                    "Transfer workflow approval will use inline single-approver path. " +
-                    "Configure sanad.workflow-engine.base-url for full workflow integration.");
-            return;
-        }
-        if (workflowPort.get().isStub()) {
-            log.error("FATAL: Production started with a WorkflowPort STUB adapter. " +
-                    "InlineTransferWorkflowStubAdapter must not be active in production. " +
-                    "Configure sanad.workflow-engine.base-url and ensure the HTTP adapter is loaded.");
+        // Workflow Engine URL is required in production
+        if (workflowEngineBaseUrl.isBlank()) {
+            log.error("FATAL: Production started without sanad.workflow-engine.base-url. " +
+                    "Transfer workflow approval requires the central Workflow Engine. " +
+                    "Set sanad.workflow-engine.base-url to the Workflow Engine URL.");
             throw new IllegalStateException(
-                    "Production startup refused: WorkflowPort stub is active. " +
-                    "Set sanad.workflow-engine.base-url to the central Workflow Engine URL.");
+                    "Production startup refused: sanad.workflow-engine.base-url is not configured. " +
+                    "Set it to the central Workflow Engine URL.");
         }
-        log.info("Production WorkflowPort verified: non-stub adapter active");
+
+        // AI Gateway URL is required in production
+        if (aiGatewayBaseUrl.isBlank()) {
+            log.error("FATAL: Production started without sanad.ai-gateway.base-url. " +
+                    "AI integration requires the central AI Gateway. " +
+                    "Set sanad.ai-gateway.base-url to the AI Gateway URL.");
+            throw new IllegalStateException(
+                    "Production startup refused: sanad.ai-gateway.base-url is not configured. " +
+                    "Set it to the central AI Gateway URL.");
+        }
+
+        log.info("Production startup: Workflow Engine URL configured ({}), AI Gateway URL configured ({})",
+                workflowEngineBaseUrl, aiGatewayBaseUrl);
     }
 }

@@ -14,14 +14,13 @@ import java.util.UUID;
 
 /**
  * Application service for CRM integration requests.
- * Extracts orchestration from CrmIntegrationController — controller is now HTTP boundary only.
  *
  * Enforces:
- * - tenant/actor from session context (never from client payload)
- * - idempotency: RETURNED_EXISTING does not redispatch
- * - state machine: conditional status transitions, terminal-state protection
- * - data minimization: backend builds projection, never trusts client payload
- * - human confirmation: separate confirm/reject lifecycle
+ * - Idempotency: RETURNED_EXISTING never redispatches (uses CreateResult.disposition)
+ * - State machine: RECOMMENDATION_AVAILABLE for actionable AI, COMPLETED for read-only
+ * - Human confirmation: CONFIRMED/REJECTED only from RECOMMENDATION_AVAILABLE
+ * - Optimistic locking: conditionalUpdate with version check
+ * - Data minimization: backend builds projection, never trusts client payload
  */
 @Service
 public class CrmIntegrationUseCases {
@@ -36,10 +35,6 @@ public class CrmIntegrationUseCases {
         this.mapper = mapper;
     }
 
-    /**
-     * Request an AI insight. If idempotency key already exists, returns existing without redispatch.
-     * Backend builds minimized payload — client only sends entity reference and capability.
-     */
     @Transactional
     public CrmIntegrationStore.StoredRequest requestAiInsight(
             UUID tenantId, UUID actorId, String correlationId, String causationId,
@@ -55,46 +50,56 @@ public class CrmIntegrationUseCases {
                 now, now.plus(30, ChronoUnit.SECONDS), Locale.ENGLISH,
                 "CRM.AI.READ", "INTERNAL");
 
-        // Build minimized projection — never trust client payload
         JsonNode minimizedPayload = buildMinimizedPayload(capability, sourceEntityType, sourceEntityId, userIntent);
 
-        // Create or return existing (idempotency)
-        CrmIntegrationStore.StoredRequest stored = store.create(envelope, "AI", minimizedPayload);
+        // Create with explicit disposition
+        CrmIntegrationStore.CreateResult createResult = store.create(envelope, "AI", minimizedPayload);
 
-        // If RETURNED_EXISTING (duplicate), do NOT redispatch
-        if (!stored.status().equals("PENDING")) {
-            return stored; // Already dispatched/completed — return existing
+        // RETURNED_EXISTING: never redispatch — return immediately
+        if (createResult.disposition() == CrmIntegrationStore.CreationDisposition.RETURNED_EXISTING) {
+            return createResult.request();
         }
 
-        // Dispatch to AI Gateway
+        // CREATED_NEW: dispatch to AI Gateway
         AiGatewayPort.AiResult result = ai.request(envelope, capability, minimizedPayload);
 
-        // Map to state machine status
-        String status = switch (result.status()) {
-            case AVAILABLE, PARTIAL -> "COMPLETED";
-            case TIMED_OUT -> "TIMED_OUT";
-            case POLICY_DENIED -> "POLICY_DENIED";
-            case UNSAFE_OUTPUT -> "UNSAFE_OUTPUT";
-            case UNAVAILABLE -> "UNAVAILABLE";
-        };
+        // Map to state machine:
+        // - Actionable results (humanConfirmationRequired=true) → RECOMMENDATION_AVAILABLE
+        // - Non-actionable results (AVAILABLE/PARTIAL) → COMPLETED (read-only)
+        // - Error results → terminal error states
+        String status;
+        String errorCode = null;
+        if (result.status() == AiGatewayPort.Status.AVAILABLE || result.status() == AiGatewayPort.Status.PARTIAL) {
+            if (result.humanConfirmationRequired()) {
+                status = "RECOMMENDATION_AVAILABLE";
+            } else {
+                status = "COMPLETED";
+            }
+        } else {
+            status = switch (result.status()) {
+                case TIMED_OUT -> "TIMED_OUT";
+                case POLICY_DENIED -> "POLICY_DENIED";
+                case UNSAFE_OUTPUT -> "UNSAFE_OUTPUT";
+                case UNAVAILABLE -> "UNAVAILABLE";
+                default -> "UNAVAILABLE";
+            };
+            errorCode = result.explanation();
+        }
 
         JsonNode resultJson = mapper.valueToTree(result);
-        store.complete(tenantId, stored.id(), status, null, resultJson,
-                status.equals("COMPLETED") ? null : result.explanation());
+        store.complete(tenantId, createResult.request().id(), status, null, resultJson, errorCode);
 
-        return store.find(tenantId, stored.id()).orElseThrow();
+        return store.find(tenantId, createResult.request().id()).orElseThrow();
     }
 
-    /**
-     * Get integration status. Tenant-scoped — cross-tenant returns not found.
-     */
     public CrmIntegrationStore.StoredRequest getStatus(UUID tenantId, UUID requestId) {
         return store.find(tenantId, requestId).orElse(null);
     }
 
     /**
-     * Confirm an AI recommendation. Requires separate capability (CRM.AI.CONFIRM).
-     * Revalidates tenant, entity version, and stale recommendation.
+     * Confirm an AI recommendation.
+     * Only allowed from RECOMMENDATION_AVAILABLE state.
+     * Uses conditionalUpdate for atomic state transition with optimistic locking.
      */
     @Transactional
     public CrmIntegrationStore.StoredRequest confirmRecommendation(
@@ -104,35 +109,46 @@ public class CrmIntegrationUseCases {
         CrmIntegrationStore.StoredRequest existing = store.find(tenantId, requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Integration request not found"));
 
-        // Terminal-state protection
-        if (isTerminal(existing.status())) {
-            throw new IllegalStateException("Cannot confirm a terminal request: " + existing.status());
+        // Must be AI type
+        if (!"AI".equals(existing.integrationType())) {
+            throw new IllegalStateException("Confirm is only available for AI integration requests");
+        }
+
+        // Must be in RECOMMENDATION_AVAILABLE state
+        if (!"RECOMMENDATION_AVAILABLE".equals(existing.status())) {
+            throw new IllegalStateException(
+                    "Cannot confirm: current status is " + existing.status() +
+                    ", expected RECOMMENDATION_AVAILABLE");
         }
 
         // Stale recommendation rejection
         if (Instant.now().isAfter(existing.expiresAt())) {
-            store.complete(tenantId, requestId, "EXPIRED", null, null, "STALE_RECOMMENDATION");
+            store.conditionalUpdate(tenantId, requestId, existing.version(),
+                    "EXPIRED", null, null, "STALE_RECOMMENDATION", "RECOMMENDATION_AVAILABLE");
             throw new IllegalStateException("Recommendation has expired");
         }
 
-        // Idempotent confirmation
-        String confirmKey = "CONFIRM:" + idempotencyKey;
-        CrmIntegrationStore.StoredRequest existingConfirm = store.findByIdempotency(tenantId, "CONFIRM", confirmKey)
-                .orElse(null);
-        if (existingConfirm != null) {
-            return existingConfirm; // Already confirmed — return existing
-        }
+        // Atomic state transition: RECOMMENDATION_AVAILABLE → CONFIRMED
+        // This is optimistic-locking safe — concurrent confirms will fail
+        boolean updated = store.conditionalUpdate(tenantId, requestId, existing.version(),
+                "CONFIRMED", null,
+                mapper.valueToTree(java.util.Map.of(
+                        "confirmedBy", actorId.toString(),
+                        "confirmedAt", Instant.now().toString(),
+                        "expectedEntityVersion", expectedEntityVersion)),
+                null, "RECOMMENDATION_AVAILABLE");
 
-        // Record confirmation
-        store.complete(tenantId, requestId, "COMPLETED", null,
-                mapper.valueToTree(java.util.Map.of("confirmedBy", actorId.toString(), "confirmedAt", Instant.now().toString())),
-                null);
+        if (!updated) {
+            // Another concurrent confirm/reject won — return current state
+            return store.find(tenantId, requestId).orElseThrow();
+        }
 
         return store.find(tenantId, requestId).orElseThrow();
     }
 
     /**
      * Reject an AI recommendation.
+     * Only allowed from RECOMMENDATION_AVAILABLE state.
      */
     @Transactional
     public CrmIntegrationStore.StoredRequest rejectRecommendation(
@@ -142,13 +158,27 @@ public class CrmIntegrationUseCases {
         CrmIntegrationStore.StoredRequest existing = store.find(tenantId, requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Integration request not found"));
 
-        if (isTerminal(existing.status())) {
-            throw new IllegalStateException("Cannot reject a terminal request: " + existing.status());
+        if (!"AI".equals(existing.integrationType())) {
+            throw new IllegalStateException("Reject is only available for AI integration requests");
         }
 
-        store.complete(tenantId, requestId, "REJECTED", null,
-                mapper.valueToTree(java.util.Map.of("rejectedBy", actorId.toString(), "rejectedAt", Instant.now().toString(), "reason", reason != null ? reason : "User rejected")),
-                null);
+        if (!"RECOMMENDATION_AVAILABLE".equals(existing.status())) {
+            throw new IllegalStateException(
+                    "Cannot reject: current status is " + existing.status() +
+                    ", expected RECOMMENDATION_AVAILABLE");
+        }
+
+        boolean updated = store.conditionalUpdate(tenantId, requestId, existing.version(),
+                "REJECTED", null,
+                mapper.valueToTree(java.util.Map.of(
+                        "rejectedBy", actorId.toString(),
+                        "rejectedAt", Instant.now().toString(),
+                        "reason", reason != null ? reason : "User rejected")),
+                null, "RECOMMENDATION_AVAILABLE");
+
+        if (!updated) {
+            return store.find(tenantId, requestId).orElseThrow();
+        }
 
         return store.find(tenantId, requestId).orElseThrow();
     }
@@ -164,20 +194,12 @@ public class CrmIntegrationUseCases {
         payload.put("capability", capability.name());
         payload.put("sourceEntityType", sourceEntityType);
         payload.put("sourceEntityId", sourceEntityId.toString());
-        // Backend determines classification — never trusts client
         payload.put("dataClassification", "INTERNAL");
         if (userIntent != null && !userIntent.isBlank()) {
-            // Sanitize: max 500 chars, no newlines
             String sanitized = userIntent.replaceAll("[\\n\\r]", " ").trim();
             if (sanitized.length() > 500) sanitized = sanitized.substring(0, 500);
             payload.put("userIntent", sanitized);
         }
         return payload;
-    }
-
-    private static boolean isTerminal(String status) {
-        return "COMPLETED".equals(status) || "REJECTED".equals(status) || "CANCELLED".equals(status)
-                || "EXPIRED".equals(status) || "TIMED_OUT".equals(status) || "UNAVAILABLE".equals(status)
-                || "POLICY_DENIED".equals(status) || "UNSAFE_OUTPUT".equals(status);
     }
 }
