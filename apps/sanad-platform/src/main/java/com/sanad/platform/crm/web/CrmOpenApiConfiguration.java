@@ -43,7 +43,15 @@ public class CrmOpenApiConfiguration {
             CRM_PREFIX + "/accounts/{accountId}/communication-methods",
             CRM_PREFIX + "/contacts/{contactId}/communication-methods",
             CRM_PREFIX + "/addresses/import",
-            CRM_PREFIX + "/communication-methods/import");
+            CRM_PREFIX + "/communication-methods/import",
+            CRM_PREFIX + "/teams",
+            CRM_PREFIX + "/teams/{teamId}/memberships",
+            CRM_PREFIX + "/queues",
+            CRM_PREFIX + "/territories",
+            CRM_PREFIX + "/territories/{territoryId}/assignments",
+            CRM_PREFIX + "/assignment-rules",
+            CRM_PREFIX + "/assignment-rules/{ruleId}/versions",
+            CRM_PREFIX + "/transfers");
 
     @Bean
     OpenAPI crmOpenApiComponents() {
