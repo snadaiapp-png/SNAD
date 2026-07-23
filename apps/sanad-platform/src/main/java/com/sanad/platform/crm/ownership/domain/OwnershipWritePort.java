@@ -1,33 +1,68 @@
 package com.sanad.platform.crm.ownership.domain;
 
+import java.util.UUID;
+
 /**
- * Write-side port for ownership mutations (CRM-008A design).
+ * Write-side port for ownership mutations (CRM-008B).
  *
- * <p><b>Design-only marker interface.</b> The full method set will be declared
- * in CRM-008B (Foundation) when the JDBC adapter is implemented.</p>
- *
- * <p>All methods on this port will be transactional and will produce an immutable
- * ownership history row as a side effect. No method will ever delete or update
- * an existing ownership history row.</p>
- *
- * <p><b>Planned methods</b> (to be added in CRM-008B with their value objects):
- * <pre>
- *   Assignment assign(AssignmentCommand command);
- *   TransferExecutionResult executeTransfer(TransferExecutionCommand command);
- *   QueueClaimResult claimQueueItem(QueueClaimCommand command);
- *   void releaseQueueItem(QueueReleaseCommand command);
- * </pre>
- * </p>
- *
- * <p>Exceptions (to be added in CRM-008B):
- * <ul>
- *   <li>{@code TransferExecutionException} — atomic transfer failure</li>
- *   <li>{@code ConcurrentClaimConflictException} — two users claimed the same item</li>
- *   <li>{@code QueueCapacityExceededException} — user reached maxItemsPerUser</li>
- * </ul>
- * </p>
+ * <p>Implemented by JdbcOwnershipWriteAdapter. All methods are transactional
+ * and produce an immutable ownership history row as a side effect.</p>
  */
 public interface OwnershipWritePort {
-    // Marker interface — methods added in CRM-008B.
-    // See Javadoc above for the planned contract.
+
+    /** Assign a CRM record to an owner. Supersedes any prior active assignment. */
+    Assignment assign(AssignmentCommand command);
+
+    /** Execute an approved transfer atomically. */
+    void executeTransfer(TransferExecutionCommand command);
+
+    /** Claim a queue item for a user. Throws ConcurrentClaimConflictException on conflict. */
+    Assignment claimQueueItem(QueueClaimCommand command);
+
+    /** Release a queue item back to the queue. */
+    void releaseQueueItem(QueueReleaseCommand command);
+
+    /** Command for assigning a record. */
+    record AssignmentCommand(
+            UUID tenantId,
+            AssignmentRecordType recordType,
+            UUID recordId,
+            OwnerType ownerType,
+            UUID ownerUserId,
+            UUID ownerTeamId,
+            UUID ownerQueueId,
+            UUID actorUserId,
+            UUID assignedByRuleId,
+            String reason,
+            UUID correlationId,
+            TriggerSource triggerSource
+    ) {}
+
+    /** Command for executing a transfer. */
+    record TransferExecutionCommand(
+            UUID tenantId,
+            UUID transferRequestId,
+            UUID executedByUserId
+    ) {}
+
+    /** Command for claiming a queue item. */
+    record QueueClaimCommand(
+            UUID tenantId,
+            UUID queueId,
+            AssignmentRecordType recordType,
+            UUID recordId,
+            UUID userId,
+            UUID correlationId
+    ) {}
+
+    /** Command for releasing a queue item. */
+    record QueueReleaseCommand(
+            UUID tenantId,
+            UUID queueId,
+            AssignmentRecordType recordType,
+            UUID recordId,
+            UUID userId,
+            String reason,
+            UUID correlationId
+    ) {}
 }
