@@ -80,7 +80,6 @@ public class TransferUseCases {
                 null,
                 null,
                 null,
-                null,
                 null));
         mutation(tenantId, requesterUserId, "CREATE", created.id(), null, snapshot(created),
                 "crm.transfer.created", "Transfer request created");
@@ -206,7 +205,6 @@ public class TransferUseCases {
         return cancelled;
     }
 
-    /** Explicitly disabled until a real HRM adapter is approved. */
     public void requestAbsenceDrivenReassignment(UUID tenantId, UUID absentUserId) {
         if (hrm.isStub()) {
             throw new OwnershipDomainException(
