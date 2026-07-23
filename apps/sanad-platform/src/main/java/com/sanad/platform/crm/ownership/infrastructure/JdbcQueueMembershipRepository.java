@@ -96,6 +96,27 @@ public class JdbcQueueMembershipRepository implements QueueMembershipRepository 
     }
 
     @Override
+    public QueueMembership lockActive(UUID tenantId, UUID queueId, UUID userId) {
+        try {
+            return jdbc.queryForObject("""
+                    SELECT *
+                      FROM crm_queue_memberships
+                     WHERE tenant_id=:tenantId
+                       AND queue_id=:queueId
+                       AND user_id=:userId
+                       AND status='ACTIVE'
+                     FOR UPDATE
+                    """, new MapSqlParameterSource()
+                    .addValue("tenantId", tenantId)
+                    .addValue("queueId", queueId)
+                    .addValue("userId", userId), queueMembershipMapper());
+        } catch (EmptyResultDataAccessException missing) {
+            throw new OwnershipDomainException(
+                    "Active queue membership required: queue=" + queueId + " user=" + userId);
+        }
+    }
+
+    @Override
     public List<QueueMembership> findActiveByQueue(UUID tenantId, UUID queueId) {
         return jdbc.query("""
                 SELECT *
