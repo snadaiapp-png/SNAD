@@ -32,10 +32,14 @@ CREATE INDEX IF NOT EXISTS crm_integration_tenant_status_idx
 CREATE INDEX IF NOT EXISTS crm_integration_correlation_idx
     ON crm_integration_requests (tenant_id, correlation_id);
 
-INSERT INTO capabilities (id, code, name, description, module, created_at)
-SELECT gen_random_uuid(), seed.code, seed.name, seed.description, 'CRM', now()
-FROM (VALUES
-    ('CRM.WORKFLOW.EXECUTE', 'CRM Workflow Execute', 'Dispatch and inspect governed CRM workflow requests'),
-    ('CRM.AI.READ', 'CRM AI Read', 'Request governed advisory CRM AI outputs')
-) AS seed(code, name, description)
-WHERE NOT EXISTS (SELECT 1 FROM capabilities c WHERE c.code = seed.code);
+INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at)
+SELECT 'a0000009-0000-0000-0000-000000000901', 'CRM.WORKFLOW.EXECUTE',
+       'Execute CRM Workflows', 'Dispatch and inspect governed CRM workflow requests',
+       'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM access_capabilities WHERE code = 'CRM.WORKFLOW.EXECUTE');
+
+INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at)
+SELECT 'a0000009-0000-0000-0000-000000000902', 'CRM.AI.READ',
+       'Read CRM AI Insights', 'Request governed advisory CRM AI outputs',
+       'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM access_capabilities WHERE code = 'CRM.AI.READ');
