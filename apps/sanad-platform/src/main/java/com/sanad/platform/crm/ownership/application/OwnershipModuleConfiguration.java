@@ -110,4 +110,10 @@ public class OwnershipModuleConfiguration {
                 ownershipCommandUseCases, userValidationPort, salesTeamRepository,
                 workflowPort, hrmPort, auditPort, timelineEventPort, objectMapper);
     }
+
+    @Bean
+    public TransferQueryUseCases transferQueryUseCases(
+            TransferRequestRepository transferRequestRepository) {
+        return new TransferQueryUseCases(transferRequestRepository);
+    }
 }
