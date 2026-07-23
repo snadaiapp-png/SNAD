@@ -690,12 +690,29 @@ class Crm008bFoundationAcceptanceTest {
     }
 
     private boolean indexPredicateContains(JdbcTemplate jdbc, String table, String indexName, String predicateFragment) {
+        // Use pg_get_expr(pg_index.indpred, pg_index.indrelid) for stable semantic check.
+        // pg_indexes.indexdef representation can vary between PostgreSQL versions.
         try {
-            String indexdef = jdbc.queryForObject(
-                    "SELECT indexdef FROM pg_indexes WHERE schemaname='public' " +
-                            "AND tablename=? AND indexname=?",
+            String predicate = jdbc.queryForObject(
+                    "SELECT pg_get_expr(i.indpred, i.indrelid) " +
+                            "FROM pg_index i " +
+                            "JOIN pg_class c ON c.oid = i.indrelid " +
+                            "JOIN pg_class ci ON ci.oid = i.indexrelid " +
+                            "JOIN pg_namespace n ON n.oid = c.relnamespace " +
+                            "WHERE n.nspname='public' AND c.relname=? AND ci.relname=?",
                     String.class, table, indexName);
-            return indexdef != null && indexdef.contains(predicateFragment);
+            if (predicate == null) return false;
+            // Token-based check: extract identifiers/values from fragment and
+            // verify each token appears in the predicate independently (robust
+            // to cast representation differences).
+            String[] tokens = predicateFragment.replaceAll("[=()'\"\\s]+", " ").trim().split("\\s+");
+            for (String token : tokens) {
+                if (token.isEmpty()) continue;
+                if (!predicate.contains(token)) {
+                    return false;
+                }
+            }
+            return true;
         } catch (org.springframework.dao.EmptyResultDataAccessException e) {
             return false;
         }

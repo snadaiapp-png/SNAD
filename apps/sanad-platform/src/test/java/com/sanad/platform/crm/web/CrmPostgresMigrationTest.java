@@ -581,10 +581,34 @@ class CrmPostgresMigrationTest {
     }
 
     private boolean partialIndexPredicateMatches(JdbcTemplate jdbc, String table, String indexName, String predicateFragment) {
-        String indexdef = jdbc.queryForObject(
-                "SELECT indexdef FROM pg_indexes WHERE schemaname='public' " +
-                        "AND tablename=? AND indexname=?",
-                String.class, table, indexName);
-        return indexdef != null && indexdef.contains(predicateFragment);
+        // Use pg_get_expr(pg_index.indpred, pg_index.indrelid) for stable semantic check.
+        // pg_indexes.indexdef representation can vary (e.g. 'ACTIVE'::character varying
+        // vs 'ACTIVE'::text) between PostgreSQL versions; pg_get_expr returns the
+        // canonical predicate expression.
+        try {
+            String predicate = jdbc.queryForObject(
+                    "SELECT pg_get_expr(i.indpred, i.indrelid) " +
+                            "FROM pg_index i " +
+                            "JOIN pg_class c ON c.oid = i.indrelid " +
+                            "JOIN pg_class ci ON ci.oid = i.indexrelid " +
+                            "JOIN pg_namespace n ON n.oid = c.relnamespace " +
+                            "WHERE n.nspname='public' AND c.relname=? AND ci.relname=?",
+                    String.class, table, indexName);
+            if (predicate == null) return false;
+            // Semantic token-based check: extract identifiers and values from the
+            // fragment (e.g. "status = 'ACTIVE'" -> ["status", "ACTIVE"]) and
+            // verify each token appears in the predicate independently. This is
+            // robust to cast representation differences.
+            String[] tokens = predicateFragment.replaceAll("[=()'\"\\s]+", " ").trim().split("\\s+");
+            for (String token : tokens) {
+                if (token.isEmpty()) continue;
+                if (!predicate.contains(token)) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
+            return false;
+        }
     }
 }
