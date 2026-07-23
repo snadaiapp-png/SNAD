@@ -1,9 +1,10 @@
 package com.sanad.platform.crm.ownership.infrastructure;
 
 import com.sanad.platform.crm.ownership.domain.ActiveMembershipExistsException;
-import com.sanad.platform.crm.ownership.domain.OwnershipDomainException;
+import com.sanad.platform.crm.ownership.domain.MembershipRole;
 import com.sanad.platform.crm.ownership.domain.PrimaryMembershipConflictException;
 import com.sanad.platform.crm.ownership.domain.TeamMembership;
+import com.sanad.platform.crm.ownership.domain.TeamMembershipNotFoundException;
 import com.sanad.platform.crm.ownership.domain.TeamMembershipRepository;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -61,14 +62,53 @@ public class JdbcTeamMembershipRepository implements TeamMembershipRepository {
                     .addValue("createdBy", membership.createdBy())
                     .addValue("updatedBy", membership.updatedBy()));
         } catch (DuplicateKeyException conflict) {
-            if (membership.isPrimary()) {
-                throw new PrimaryMembershipConflictException(
-                        membership.tenantId(), membership.userId());
-            }
-            throw new ActiveMembershipExistsException(
-                    membership.tenantId(), membership.teamId(), membership.userId());
+            throwMembershipConflict(membership, conflict);
         }
         return findById(membership.tenantId(), id).orElseThrow();
+    }
+
+    @Override
+    @Transactional
+    public TeamMembership updateActive(UUID tenantId,
+                                       UUID membershipId,
+                                       MembershipRole role,
+                                       boolean primary,
+                                       int capacityMax,
+                                       String metadata,
+                                       UUID updatedBy) {
+        try {
+            int rows = jdbc.update("""
+                    UPDATE crm_team_memberships
+                       SET role=:role,
+                           is_primary=:isPrimary,
+                           capacity_max=:capacityMax,
+                           metadata=CAST(:metadata AS jsonb),
+                           updated_at=CURRENT_TIMESTAMP,
+                           updated_by=:updatedBy
+                     WHERE tenant_id=:tenantId
+                       AND id=:membershipId
+                       AND status='ACTIVE'
+                    """, new MapSqlParameterSource()
+                    .addValue("tenantId", tenantId)
+                    .addValue("membershipId", membershipId)
+                    .addValue("role", role.name())
+                    .addValue("isPrimary", primary)
+                    .addValue("capacityMax", capacityMax)
+                    .addValue("metadata", metadata != null ? metadata : "{}")
+                    .addValue("updatedBy", updatedBy));
+            if (rows != 1) {
+                throw new TeamMembershipNotFoundException(tenantId, membershipId);
+            }
+        } catch (DuplicateKeyException conflict) {
+            if (primary) {
+                TeamMembership membership = findById(tenantId, membershipId)
+                        .orElseThrow(() -> new TeamMembershipNotFoundException(tenantId, membershipId));
+                throw new PrimaryMembershipConflictException(tenantId, membership.userId());
+            }
+            throw conflict;
+        }
+        return findById(tenantId, membershipId)
+                .orElseThrow(() -> new TeamMembershipNotFoundException(tenantId, membershipId));
     }
 
     @Override
@@ -174,8 +214,7 @@ public class JdbcTeamMembershipRepository implements TeamMembershipRepository {
                 .addValue("reason", leftReason)
                 .addValue("updatedBy", updatedBy));
         if (rows != 1) {
-            throw new OwnershipDomainException(
-                    "Membership not found or already ended: " + membershipId);
+            throw new TeamMembershipNotFoundException(tenantId, membershipId);
         }
     }
 
@@ -191,5 +230,15 @@ public class JdbcTeamMembershipRepository implements TeamMembershipRepository {
                 .addValue("tenantId", tenantId)
                 .addValue("teamId", teamId), Long.class);
         return count != null ? count : 0L;
+    }
+
+    private static void throwMembershipConflict(TeamMembership membership,
+                                                DuplicateKeyException conflict) {
+        if (membership.isPrimary()) {
+            throw new PrimaryMembershipConflictException(
+                    membership.tenantId(), membership.userId());
+        }
+        throw new ActiveMembershipExistsException(
+                membership.tenantId(), membership.teamId(), membership.userId());
     }
 }
