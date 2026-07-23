@@ -290,10 +290,18 @@ public class JdbcTerritoryRepository implements TerritoryRepository {
     }
 
     private void lockTenantHierarchy(UUID tenantId) {
-        jdbc.queryForObject("""
-                SELECT pg_advisory_xact_lock(
-                    hashtextextended(CAST(:tenantId AS text), 0)
+        Long lockKey = jdbc.queryForObject("""
+                WITH acquired AS (
+                    SELECT pg_advisory_xact_lock(
+                        hashtextextended(CAST(:tenantId AS text), 0)
+                    )
                 )
+                SELECT hashtextextended(CAST(:tenantId AS text), 0)
+                  FROM acquired
                 """, new MapSqlParameterSource().addValue("tenantId", tenantId), Long.class);
+        if (lockKey == null) {
+            throw new IllegalStateException(
+                    "Unable to acquire territory hierarchy lock for tenant=" + tenantId);
+        }
     }
 }
