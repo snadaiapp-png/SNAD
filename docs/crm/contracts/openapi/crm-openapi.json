@@ -4430,6 +4430,87 @@
         ]
       }
     },
+    "/integrations/ai": {
+      "post": {
+        "tags": [
+          "crm-integration-controller"
+        ],
+        "operationId": "requestAi",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredRequest"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/integrations/{requestId}": {
+      "get": {
+        "tags": [
+          "crm-integration-controller"
+        ],
+        "operationId": "status",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredRequest"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/leads": {
       "get": {
         "tags": [
@@ -6690,134 +6771,6 @@
           }
         ]
       }
-    },
-    "/integrations": {
-      "post": {
-        "tags": [
-          "CRM Integrations"
-        ],
-        "summary": "Request AI integration",
-        "description": "Dispatch an AI integration request (customer summary, next-best action, scoring, explanation). Idempotent via Idempotency-Key header.",
-        "operationId": "requestAiIntegration",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "description": "Unique idempotency key for this request"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "capability": {
-                    "type": "string",
-                    "enum": [
-                      "CUSTOMER_SUMMARY",
-                      "NEXT_BEST_ACTION",
-                      "SCORING",
-                      "EXPLANATION"
-                    ]
-                  },
-                  "sourceEntityType": {
-                    "type": "string",
-                    "enum": [
-                      "ACCOUNT",
-                      "CONTACT",
-                      "LEAD",
-                      "OPPORTUNITY"
-                    ]
-                  },
-                  "sourceEntityId": {
-                    "type": "string",
-                    "format": "uuid"
-                  },
-                  "userIntent": {
-                    "type": "string",
-                    "maxLength": 500,
-                    "description": "Optional safe user intent text"
-                  }
-                },
-                "required": [
-                  "capability",
-                  "sourceEntityType",
-                  "sourceEntityId"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Integration request created"
-          },
-          "401": {
-            "description": "Unauthenticated"
-          },
-          "403": {
-            "description": "Unauthorized — missing CRM.AI.READ capability"
-          },
-          "409": {
-            "description": "Idempotency conflict — same key with different payload"
-          },
-          "429": {
-            "description": "Rate limited"
-          }
-        }
-      }
-    },
-    "/integrations/{requestId}": {
-      "get": {
-        "tags": [
-          "CRM Integrations"
-        ],
-        "summary": "Get integration request status",
-        "description": "Retrieve the status and result of an AI or Workflow integration request.",
-        "operationId": "getIntegrationStatus",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "requestId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Integration request status"
-          },
-          "401": {
-            "description": "Unauthenticated"
-          },
-          "403": {
-            "description": "Unauthorized — missing CRM.AI.READ capability"
-          },
-          "404": {
-            "description": "Integration request not found (or belongs to another tenant)"
-          }
-        }
-      }
     }
   },
   "components": {
@@ -7225,6 +7178,45 @@
             "format": "date-time"
           }
         }
+      },
+      "AiRequest": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "string",
+            "enum": [
+              "CUSTOMER_SUMMARY",
+              "NEXT_BEST_ACTION",
+              "SCORING"
+            ]
+          },
+          "sourceEntityType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sourceEntityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceEntityVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "dataClassification": {
+            "type": "string",
+            "minLength": 1
+          },
+          "payload": {
+            "$ref": "#/components/schemas/JsonNode"
+          }
+        },
+        "required": [
+          "capability",
+          "dataClassification",
+          "payload",
+          "sourceEntityId",
+          "sourceEntityType"
+        ]
       },
       "ArchiveAccountResponse": {
         "type": "object",
@@ -11175,6 +11167,46 @@
           },
           "active": {
             "type": "boolean"
+          }
+        }
+      },
+      "StoredRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "integrationType": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "externalReference": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "correlationId": {
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          },
+          "requestedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "errorCode": {
+            "type": "string"
           }
         }
       },
