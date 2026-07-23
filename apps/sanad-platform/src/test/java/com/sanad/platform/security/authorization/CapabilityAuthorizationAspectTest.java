@@ -88,7 +88,7 @@ class CapabilityAuthorizationAspectTest {
         when(fixture.evaluation().evaluate(tenantId, userId, "CRM.TEAM.READ", null))
                 .thenReturn(new AccessDecisionResponse(
                         tenantId, userId, null, "CRM.TEAM.READ", true,
-                        "allowed", "SALES_MANAGER", null));
+                        "allowed", null, "SALES_MANAGER"));
         authenticate(tenantId, userId);
 
         assertDoesNotThrow(() -> fixture.aspect().checkCapability(
