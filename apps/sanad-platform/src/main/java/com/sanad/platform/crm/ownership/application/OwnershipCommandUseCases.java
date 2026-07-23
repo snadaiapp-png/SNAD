@@ -14,7 +14,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
 
-/** CRM-008B WP-07 atomic manual, bulk and rule-driven ownership commands. */
+/** Atomic manual, bulk, rule-driven and transfer ownership commands. */
 public class OwnershipCommandUseCases {
 
     private final AssignmentRepository assignments;
@@ -53,24 +53,21 @@ public class OwnershipCommandUseCases {
                 command.tenantId(), command.recordType(), command.recordId()).orElse(null);
         validateExpected(command, current);
         Assignment created = transition(
-                command, current, command.assignedByRuleId(),
-                command.assignedByRuleId() != null ? TriggerSource.RULE : TriggerSource.MANUAL);
-        project(command, created);
-        mutation(command, current, created);
+                command.tenantId(), command.recordType(), command.recordId(),
+                command.ownerType(), command.ownerId(), command.actorId(), command.reason(),
+                command.requestId(), command.correlationId(), command.expectedAssignmentId(),
+                command.assignedByRuleId(), null, ChangeType.REASSIGN,
+                command.assignedByRuleId() != null ? TriggerSource.RULE : TriggerSource.MANUAL,
+                current);
+        project(command.tenantId(), command.recordType(), command.recordId(), created);
+        mutation(command.tenantId(), command.actorId(), command.recordType(), command.recordId(),
+                "REASSIGN", "crm.ownership.reassigned", current, created);
         return created;
     }
 
     @Transactional
     public List<Assignment> bulkReassign(BulkReassignCommand command) {
-        if (command == null || command.recordIds() == null || command.recordIds().isEmpty()) {
-            throw new OwnershipDomainException("Bulk reassignment requires record IDs");
-        }
-        if (command.recordIds().size() > 100) {
-            throw new OwnershipDomainException("Bulk reassignment limit is 100 records");
-        }
-        if (new HashSet<>(command.recordIds()).size() != command.recordIds().size()) {
-            throw new OwnershipDomainException("Bulk reassignment contains duplicate record IDs");
-        }
+        validateRecordIds(command == null ? null : command.recordIds(), "Bulk reassignment");
         validateOwner(command.tenantId(), command.recordType(), command.ownerType(), command.ownerId());
         for (UUID recordId : command.recordIds()) {
             validateRecord(command.tenantId(), command.recordType(), recordId);
@@ -79,6 +76,40 @@ public class OwnershipCommandUseCases {
                 command.tenantId(), command.recordType(), recordId,
                 command.ownerType(), command.ownerId(), command.actorId(), command.reason(),
                 command.requestId(), UUID.randomUUID(), null, null))).toList();
+    }
+
+    /** Atomic multi-record transfer with transfer-specific ledger semantics. */
+    @Transactional
+    public List<Assignment> transfer(TransferAssignmentCommand command) {
+        validateRecordIds(command == null ? null : command.recordIds(), "Transfer");
+        if (command.transferRequestId() == null || command.correlationId() == null
+                || command.actorId() == null || command.recordType() == null
+                || command.tenantId() == null) {
+            throw new OwnershipDomainException("Complete transfer ownership command required");
+        }
+        if (command.effectiveTo() != null && !command.effectiveTo().isAfter(Instant.now())) {
+            throw new OwnershipDomainException("Temporary transfer end must be in the future");
+        }
+        validateOwner(command.tenantId(), command.recordType(), command.ownerType(), command.ownerId());
+        for (UUID recordId : command.recordIds()) {
+            validateRecord(command.tenantId(), command.recordType(), recordId);
+        }
+        return command.recordIds().stream().map(recordId -> {
+            Assignment current = assignments.findActive(
+                            command.tenantId(), command.recordType(), recordId)
+                    .orElseThrow(() -> new AssignmentNotFoundException(
+                            command.tenantId(), command.recordType(), recordId));
+            Assignment created = transition(
+                    command.tenantId(), command.recordType(), recordId,
+                    command.ownerType(), command.ownerId(), command.actorId(), command.reason(),
+                    command.transferRequestId(), command.correlationId(), current.id(),
+                    null, command.effectiveTo(), ChangeType.TRANSFER,
+                    TriggerSource.TRANSFER_REQUEST, current);
+            project(command.tenantId(), command.recordType(), recordId, created);
+            mutation(command.tenantId(), command.actorId(), command.recordType(), recordId,
+                    "TRANSFER", "crm.ownership.transferred", current, created);
+            return created;
+        }).toList();
     }
 
     @Transactional
@@ -99,40 +130,68 @@ public class OwnershipCommandUseCases {
                 actorId, reason, requestId, correlationId, null, decision.ruleId()));
     }
 
-    private Assignment transition(ReassignCommand command,
-                                  Assignment current,
+    private Assignment transition(UUID tenantId,
+                                  AssignmentRecordType recordType,
+                                  UUID recordId,
+                                  OwnerType ownerType,
+                                  UUID ownerId,
+                                  UUID actorId,
+                                  String reason,
+                                  UUID requestId,
+                                  UUID correlationId,
+                                  UUID expectedAssignmentId,
                                   UUID ruleId,
-                                  TriggerSource source) {
+                                  Instant effectiveTo,
+                                  ChangeType changeType,
+                                  TriggerSource source,
+                                  Assignment current) {
         Instant now = Instant.now();
         Assignment next = new Assignment(
-                null, command.tenantId(), 0,
-                command.recordType().name(), command.recordId(), legacyUser(command), "OWNER",
-                AssignmentStatus.ACTIVE, now, null, reason(command.reason()),
-                command.ownerType(),
-                command.ownerType() == OwnerType.USER ? command.ownerId() : null,
-                command.ownerType() == OwnerType.TEAM ? command.ownerId() : null,
-                command.ownerType() == OwnerType.QUEUE ? command.ownerId() : null,
-                command.recordType(), command.recordId(), ruleId, command.actorId(),
-                command.correlationId(), null, now, null,
-                now, now, command.actorId(), command.actorId());
+                null, tenantId, 0,
+                recordType.name(), recordId,
+                ownerType == OwnerType.USER ? ownerId : actorId, "OWNER",
+                AssignmentStatus.ACTIVE, now, effectiveTo, normalizeReason(reason),
+                ownerType,
+                ownerType == OwnerType.USER ? ownerId : null,
+                ownerType == OwnerType.TEAM ? ownerId : null,
+                ownerType == OwnerType.QUEUE ? ownerId : null,
+                recordType, recordId, ruleId, actorId,
+                correlationId, null, now, effectiveTo,
+                now, now, actorId, actorId);
         OwnerType expectedType = current != null ? current.ownerType() : null;
         UUID expectedOwner = current != null ? ownerId(current) : null;
         return assignments.supersedeAndInsertExpected(
-                command.tenantId(), command.recordType(), command.recordId(), next,
-                command.actorId(), reason(command.reason()), ChangeType.REASSIGN,
-                source, command.requestId(), command.expectedAssignmentId(),
-                expectedType, expectedOwner);
+                tenantId, recordType, recordId, next,
+                actorId, normalizeReason(reason), changeType,
+                source, requestId, expectedAssignmentId, expectedType, expectedOwner);
     }
 
-    private void project(ReassignCommand command, Assignment assignment) {
-        records.updateOwner(
-                command.tenantId(), command.recordType(), command.recordId(),
+    private void project(UUID tenantId,
+                         AssignmentRecordType recordType,
+                         UUID recordId,
+                         Assignment assignment) {
+        records.updateOwner(tenantId, recordType, recordId,
                 assignment.ownerType(), ownerId(assignment));
     }
 
     private void validateRecord(UUID tenantId, AssignmentRecordType type, UUID id) {
         if (!records.exists(tenantId, type, id)) {
             throw new OwnershipDomainException("CRM record not found in tenant: " + type + "/" + id);
+        }
+    }
+
+    private void validateRecordIds(List<UUID> recordIds, String operation) {
+        if (recordIds == null || recordIds.isEmpty()) {
+            throw new OwnershipDomainException(operation + " requires record IDs");
+        }
+        if (recordIds.size() > 100) {
+            throw new OwnershipDomainException(operation + " limit is 100 records");
+        }
+        if (recordIds.stream().anyMatch(java.util.Objects::isNull)) {
+            throw new OwnershipDomainException(operation + " contains null record ID");
+        }
+        if (new HashSet<>(recordIds).size() != recordIds.size()) {
+            throw new OwnershipDomainException(operation + " contains duplicate record IDs");
         }
     }
 
@@ -170,17 +229,12 @@ public class OwnershipCommandUseCases {
         }
     }
 
-    /** Fast rejection only; the repository repeats this check under the row lock. */
     private void validateExpected(ReassignCommand command, Assignment current) {
         if (command.expectedAssignmentId() == null) return;
         if (current == null || !command.expectedAssignmentId().equals(current.id())) {
             throw new ConcurrentClaimConflictException(
                     command.tenantId(), command.recordType(), command.recordId());
         }
-    }
-
-    private UUID legacyUser(ReassignCommand command) {
-        return command.ownerType() == OwnerType.USER ? command.ownerId() : command.actorId();
     }
 
     private UUID ownerId(Assignment assignment) {
@@ -200,8 +254,8 @@ public class OwnershipCommandUseCases {
         }
     }
 
-    private String reason(String value) {
-        if (value == null || value.isBlank()) return "MANUAL_REASSIGNMENT";
+    private String normalizeReason(String value) {
+        if (value == null || value.isBlank()) return "OWNERSHIP_CHANGE";
         String normalized = value.trim();
         if (normalized.length() > 1000) {
             throw new OwnershipDomainException("reason exceeds 1000 characters");
@@ -209,13 +263,20 @@ public class OwnershipCommandUseCases {
         return normalized;
     }
 
-    private void mutation(ReassignCommand command, Assignment before, Assignment after) {
+    private void mutation(UUID tenantId,
+                          UUID actorId,
+                          AssignmentRecordType recordType,
+                          UUID recordId,
+                          String action,
+                          String event,
+                          Assignment before,
+                          Assignment after) {
         Instant now = Instant.now();
-        audit.record(command.tenantId(), command.actorId(), "REASSIGN", "CRM_RECORD",
-                command.recordId(), new AuditChange(snapshot(before), snapshot(after)), now);
-        timeline.record(command.tenantId(), command.recordType().name(), command.recordId(),
-                "crm.ownership.reassigned", "CRM record ownership reassigned",
-                "ASSIGNMENT", after.id(), command.actorId(), now);
+        audit.record(tenantId, actorId, action, "CRM_RECORD",
+                recordId, new AuditChange(snapshot(before), snapshot(after)), now);
+        timeline.record(tenantId, recordType.name(), recordId,
+                event, "CRM record ownership changed",
+                "ASSIGNMENT", after.id(), actorId, now);
     }
 
     private JsonNode snapshot(Assignment assignment) {
@@ -228,6 +289,9 @@ public class OwnershipCommandUseCases {
         put(node, "ownerId", ownerId(assignment));
         put(node, "correlationId", assignment.correlationId());
         node.put("status", assignment.status().name());
+        if (assignment.effectiveTo() != null) {
+            node.put("effectiveTo", assignment.effectiveTo().toString());
+        }
         return node;
     }
 
@@ -260,6 +324,23 @@ public class OwnershipCommandUseCases {
             UUID requestId
     ) {
         public BulkReassignCommand {
+            recordIds = recordIds == null ? List.of() : List.copyOf(recordIds);
+        }
+    }
+
+    public record TransferAssignmentCommand(
+            UUID tenantId,
+            AssignmentRecordType recordType,
+            List<UUID> recordIds,
+            OwnerType ownerType,
+            UUID ownerId,
+            UUID actorId,
+            UUID transferRequestId,
+            UUID correlationId,
+            String reason,
+            Instant effectiveTo
+    ) {
+        public TransferAssignmentCommand {
             recordIds = recordIds == null ? List.of() : List.copyOf(recordIds);
         }
     }
