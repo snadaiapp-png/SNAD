@@ -1102,6 +1102,38 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/integrations/ai": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["requestAi"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/integrations/{requestId}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["status"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/leads": {
         readonly parameters: {
             readonly query?: never;
@@ -1775,6 +1807,17 @@ export type components = {
             readonly status?: string;
             /** Format: date-time */
             readonly updatedAt?: string;
+        };
+        readonly AiRequest: {
+            /** @enum {string} */
+            readonly capability: "CUSTOMER_SUMMARY" | "NEXT_BEST_ACTION" | "SCORING";
+            readonly sourceEntityType: string;
+            /** Format: uuid */
+            readonly sourceEntityId: string;
+            /** Format: int64 */
+            readonly sourceEntityVersion?: number;
+            readonly dataClassification: string;
+            readonly payload: components["schemas"]["JsonNode"];
         };
         readonly ArchiveAccountResponse: {
             /** Format: uuid */
@@ -3167,6 +3210,23 @@ export type components = {
             readonly probability?: number;
             readonly terminalState?: string;
             readonly active?: boolean;
+        };
+        readonly StoredRequest: {
+            /** Format: uuid */
+            readonly id?: string;
+            /** Format: uuid */
+            readonly tenantId?: string;
+            readonly integrationType?: string;
+            readonly status?: string;
+            /** Format: uuid */
+            readonly externalReference?: string;
+            readonly correlationId?: string;
+            readonly idempotencyKey?: string;
+            /** Format: date-time */
+            readonly requestedAt?: string;
+            /** Format: date-time */
+            readonly expiresAt?: string;
+            readonly errorCode?: string;
         };
         readonly SubmitTransferRequest: {
             readonly approverUserIds?: readonly string[];
@@ -5814,6 +5874,54 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseImportRunResponse"];
+                };
+            };
+        };
+    };
+    readonly requestAi: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "Idempotency-Key": string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["AiRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["StoredRequest"];
+                };
+            };
+        };
+    };
+    readonly status: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly requestId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["StoredRequest"];
                 };
             };
         };
