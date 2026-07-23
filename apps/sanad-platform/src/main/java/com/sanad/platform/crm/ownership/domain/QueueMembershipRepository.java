@@ -13,6 +13,9 @@ public interface QueueMembershipRepository {
 
     Optional<QueueMembership> findActive(UUID tenantId, UUID queueId, UUID userId);
 
+    /** Lock the active membership row to serialize per-user queue capacity checks. */
+    QueueMembership lockActive(UUID tenantId, UUID queueId, UUID userId);
+
     List<QueueMembership> findActiveByQueue(UUID tenantId, UUID queueId);
 
     List<QueueMembership> findActiveByUser(UUID tenantId, UUID userId);
