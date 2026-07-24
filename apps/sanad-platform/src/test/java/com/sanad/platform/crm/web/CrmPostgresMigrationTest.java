@@ -160,7 +160,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_008B_OWNER_COLUMNS_VERSION),
                         MigrationVersion.fromVersion(CRM_008B_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(CRM_008B_COUNTERS_VERSION),
-                        MigrationVersion.fromVersion(CRM_009_INTEGRATION_VERSION));
+                        MigrationVersion.fromVersion(CRM_009_INTEGRATION_VERSION),
+                        MigrationVersion.fromVersion(CRM_009_COMMAND_EXECUTIONS_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -210,7 +211,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_008B_OWNER_COLUMNS_VERSION),
                         MigrationVersion.fromVersion(CRM_008B_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(CRM_008B_COUNTERS_VERSION),
-                        MigrationVersion.fromVersion(CRM_009_INTEGRATION_VERSION));
+                        MigrationVersion.fromVersion(CRM_009_INTEGRATION_VERSION),
+                        MigrationVersion.fromVersion(CRM_009_COMMAND_EXECUTIONS_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
