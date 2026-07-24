@@ -16,26 +16,18 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
-/**
- * Executes the production fail-closed guard against a real Spring application
- * context rather than merely reflecting annotations.
- */
+/** Executes the production fail-closed guard against a real Spring context. */
 class ProductionCommandAdapterContextTest {
 
     private static final String SECRET = "crm-009-production-context-secret-0123456789";
-    private static final String WORKFLOW_URL = "https://workflow.sanad.example";
-    private static final String AI_URL = "https://ai.sanad.example";
+    private static final String WORKFLOW_URL = "https://workflow.sanad.cloud";
+    private static final String AI_URL = "https://ai.sanad.cloud";
 
     @Test
     void validProductionContextPassesGuard() {
         try (GenericApplicationContext context = emptyContext()) {
-            ProductionWorkflowStubGuard guard = guard(
-                    context,
-                    WORKFLOW_URL,
-                    AI_URL,
-                    SECRET,
+            ProductionWorkflowStubGuard guard = guard(context, WORKFLOW_URL, AI_URL, SECRET,
                     mock(CompositeConfirmedRecommendationCommandAdapter.class));
-
             assertThatCode(() -> guard.onApplicationEvent(mock(ApplicationReadyEvent.class)))
                     .doesNotThrowAnyException();
         }
@@ -44,19 +36,12 @@ class ProductionCommandAdapterContextTest {
     @Test
     void activeStubBeanFailsProductionContext() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
-            context.registerBean(
-                    "stubConfirmedRecommendationCommandAdapter",
+            context.registerBean("stubConfirmedRecommendationCommandAdapter",
                     StubConfirmedRecommendationCommandAdapter.class,
                     StubConfirmedRecommendationCommandAdapter::new);
             context.refresh();
-
-            ProductionWorkflowStubGuard guard = guard(
-                    context,
-                    WORKFLOW_URL,
-                    AI_URL,
-                    SECRET,
+            ProductionWorkflowStubGuard guard = guard(context, WORKFLOW_URL, AI_URL, SECRET,
                     mock(CompositeConfirmedRecommendationCommandAdapter.class));
-
             assertThatThrownBy(() -> guard.onApplicationEvent(mock(ApplicationReadyEvent.class)))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("stub ConfirmedRecommendationCommandAdapter");
@@ -66,13 +51,8 @@ class ProductionCommandAdapterContextTest {
     @Test
     void missingServiceSecretFailsProductionContext() {
         try (GenericApplicationContext context = emptyContext()) {
-            ProductionWorkflowStubGuard guard = guard(
-                    context,
-                    WORKFLOW_URL,
-                    AI_URL,
-                    "",
+            ProductionWorkflowStubGuard guard = guard(context, WORKFLOW_URL, AI_URL, "",
                     mock(CompositeConfirmedRecommendationCommandAdapter.class));
-
             assertThatThrownBy(() -> guard.onApplicationEvent(mock(ApplicationReadyEvent.class)))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("jwt-secret");
@@ -82,13 +62,8 @@ class ProductionCommandAdapterContextTest {
     @Test
     void shortServiceSecretFailsProductionContext() {
         try (GenericApplicationContext context = emptyContext()) {
-            ProductionWorkflowStubGuard guard = guard(
-                    context,
-                    WORKFLOW_URL,
-                    AI_URL,
-                    "too-short",
+            ProductionWorkflowStubGuard guard = guard(context, WORKFLOW_URL, AI_URL, "too-short",
                     mock(CompositeConfirmedRecommendationCommandAdapter.class));
-
             assertThatThrownBy(() -> guard.onApplicationEvent(mock(ApplicationReadyEvent.class)))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("<32 chars");
@@ -98,13 +73,8 @@ class ProductionCommandAdapterContextTest {
     @Test
     void httpServiceUrlFailsProductionContext() {
         try (GenericApplicationContext context = emptyContext()) {
-            ProductionWorkflowStubGuard guard = guard(
-                    context,
-                    "http://workflow.sanad.example",
-                    AI_URL,
-                    SECRET,
+            ProductionWorkflowStubGuard guard = guard(context, "http://workflow.sanad.cloud", AI_URL, SECRET,
                     mock(CompositeConfirmedRecommendationCommandAdapter.class));
-
             assertThatThrownBy(() -> guard.onApplicationEvent(mock(ApplicationReadyEvent.class)))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("must use HTTPS");
@@ -114,13 +84,8 @@ class ProductionCommandAdapterContextTest {
     @Test
     void localServiceUrlFailsProductionContext() {
         try (GenericApplicationContext context = emptyContext()) {
-            ProductionWorkflowStubGuard guard = guard(
-                    context,
-                    "https://localhost",
-                    AI_URL,
-                    SECRET,
+            ProductionWorkflowStubGuard guard = guard(context, "https://localhost", AI_URL, SECRET,
                     mock(CompositeConfirmedRecommendationCommandAdapter.class));
-
             assertThatThrownBy(() -> guard.onApplicationEvent(mock(ApplicationReadyEvent.class)))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("local/test host");
@@ -130,13 +95,8 @@ class ProductionCommandAdapterContextTest {
     @Test
     void nonCompositeCommandPortFailsProductionContext() {
         try (GenericApplicationContext context = emptyContext()) {
-            ProductionWorkflowStubGuard guard = guard(
-                    context,
-                    WORKFLOW_URL,
-                    AI_URL,
-                    SECRET,
+            ProductionWorkflowStubGuard guard = guard(context, WORKFLOW_URL, AI_URL, SECRET,
                     mock(ConfirmedRecommendationCommandPort.class));
-
             assertThatThrownBy(() -> guard.onApplicationEvent(mock(ApplicationReadyEvent.class)))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("real ConfirmedRecommendationCommandPort");
@@ -157,16 +117,9 @@ class ProductionCommandAdapterContextTest {
             ConfirmedRecommendationCommandPort commandPort) {
         ObjectMapper mapper = new ObjectMapper();
         ServiceJwtProvider serviceJwtProvider = new ServiceJwtProvider(
-                SECRET,
-                "sanad-platform",
-                "sanad-crm",
-                60);
+                SECRET, "sanad-platform", "sanad-crm", 60);
         return new ProductionWorkflowStubGuard(
-                workflowUrl,
-                aiUrl,
-                secret,
-                true,
-                commandPort,
+                workflowUrl, aiUrl, secret, true, commandPort,
                 new HttpWorkflowIntegrationAdapter(
                         mapper, serviceJwtProvider, workflowUrl,
                         "sanad-workflow-engine", 1_000),
