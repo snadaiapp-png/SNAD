@@ -110,6 +110,16 @@ class CommandExecutionIdempotencyPostgresTest {
         assertThat(claimed1).isPresent();
         executor.processSingleExecutionEvent(claimed1.get());
 
+        // Debug: print decisionId and request status
+        String reqStatus = jdbc.queryForObject(
+                "SELECT status FROM crm_integration_requests WHERE id=?",
+                String.class, requestId);
+        Integer totalLedgers = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM crm_integration_command_executions",
+                Integer.class);
+        System.out.println("DEBUG: decisionId=" + decisionId + " reqStatus=" + reqStatus
+                + " totalLedgers=" + totalLedgers);
+
         // Verify one ledger row exists
         Integer ledgerCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_integration_command_executions WHERE decision_id=?",
@@ -117,9 +127,6 @@ class CommandExecutionIdempotencyPostgresTest {
         assertThat(ledgerCount).isEqualTo(1);
 
         // Verify request is EXECUTED
-        String reqStatus = jdbc.queryForObject(
-                "SELECT status FROM crm_integration_requests WHERE id=?",
-                String.class, requestId);
         assertThat(reqStatus).isEqualTo("EXECUTED");
 
         // Outbox is now COMPLETED — a second claim should return empty
