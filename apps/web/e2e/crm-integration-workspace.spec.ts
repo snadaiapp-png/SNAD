@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { loginThroughUi, type CrmLoginResponse } from "./crm-auth-session";
+import { SESSION_HINT_COOKIE } from "../lib/auth/session-hint";
 
 const EMAIL = "crm-integration-ui@example.test";
 const PASSWORD = "crm-integration-ui-password";
@@ -162,6 +163,15 @@ async function mockIntegrationApi(page: Page): Promise<{ current: IntegrationSta
 async function openWorkspace(page: Page, locale: "ar" | "en"): Promise<void> {
   await mockAuthApi(page);
   await loginThroughUi(page, EMAIL, PASSWORD);
+
+  const authenticatedOrigin = new URL(page.url()).origin;
+  await page.context().addCookies([{
+    name: SESSION_HINT_COOKIE,
+    value: "1",
+    url: authenticatedOrigin,
+    sameSite: "Lax",
+  }]);
+
   await page.evaluate((nextLocale) => window.localStorage.setItem("snad.locale", nextLocale), locale);
   await page.goto("/crm/integrations");
   await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
