@@ -119,7 +119,7 @@ public class CrmIntegrationOutboxWorker {
             // to prevent further retries.
             txTemplate.execute(status -> {
                 store.completeOutboxEvent(event.tenantId(), event.id(), event.version(),
-                        event.claimToken(), workerId);
+                        event.claimToken(), event.claimedBy());
                 return null;
             });
             return;
@@ -291,7 +291,7 @@ public class CrmIntegrationOutboxWorker {
 
         // Complete outbox event (validates claim_token ownership, clears claim fields)
         store.completeOutboxEvent(event.tenantId(), event.id(), event.version(),
-                event.claimToken(), workerId);
+                event.claimToken(), event.claimedBy());
 
         log.info("Outbox event completed: request={}, status={}",
                 event.integrationRequestId(), result.targetStatus());
@@ -301,7 +301,7 @@ public class CrmIntegrationOutboxWorker {
                                 IntegrationErrorCode errorCode) {
         boolean retryable = errorCode.isRetryable() && event.attemptCount() < event.maxAttempts();
         store.failOutboxEvent(event.tenantId(), event.id(), event.version(),
-                event.claimToken(), workerId,
+                event.claimToken(), event.claimedBy(),
                 errorCode.name(), retryable);
 
         if (!retryable) {

@@ -228,7 +228,7 @@ public class CrmIntegrationStore {
                 "          event.integration_type, event.event_type, event.dispatch_status, " +
                 "          event.attempt_count, event.max_attempts, " +
                 "          event.idempotency_key, event.payload, event.version, " +
-                "          event.claim_token, event.claim_expires_at",
+                "          event.claim_token, event.claim_expires_at, event.claimed_by",
                 (rs, row) -> new OutboxEvent(
                         (UUID) rs.getObject("id"), (UUID) rs.getObject("tenant_id"),
                         (UUID) rs.getObject("integration_request_id"),
@@ -240,7 +240,8 @@ public class CrmIntegrationStore {
                         rs.getLong("version"),
                         (UUID) rs.getObject("claim_token"),
                         rs.getTimestamp("claim_expires_at") != null
-                                ? rs.getTimestamp("claim_expires_at").toInstant() : null),
+                                ? rs.getTimestamp("claim_expires_at").toInstant() : null,
+                        rs.getString("claimed_by")),
                 workerId, claimToken, claimTimeoutSeconds);
         return events.isEmpty() ? Optional.empty() : Optional.of(events.get(0));
     }
@@ -286,7 +287,7 @@ public class CrmIntegrationStore {
                 "          event.integration_type, event.event_type, event.dispatch_status, " +
                 "          event.attempt_count, event.max_attempts, " +
                 "          event.idempotency_key, event.payload, event.version, " +
-                "          event.claim_token, event.claim_expires_at",
+                "          event.claim_token, event.claim_expires_at, event.claimed_by",
                 (rs, row) -> new OutboxEvent(
                         (UUID) rs.getObject("id"), (UUID) rs.getObject("tenant_id"),
                         (UUID) rs.getObject("integration_request_id"),
@@ -298,7 +299,8 @@ public class CrmIntegrationStore {
                         rs.getLong("version"),
                         (UUID) rs.getObject("claim_token"),
                         rs.getTimestamp("claim_expires_at") != null
-                                ? rs.getTimestamp("claim_expires_at").toInstant() : null),
+                                ? rs.getTimestamp("claim_expires_at").toInstant() : null,
+                        rs.getString("claimed_by")),
                 prependArgs(typeList, workerId, claimToken, claimTimeoutSeconds));
         return events.isEmpty() ? Optional.empty() : Optional.of(events.get(0));
     }
@@ -479,6 +481,11 @@ public class CrmIntegrationStore {
      * if a row already exists for the same (tenantId, decisionId), returns
      * the existing row without creating a new one.
      *
+     * <p><strong>Implementation note:</strong> uses {@code INSERT ... ON
+     * CONFLICT DO NOTHING} (PostgreSQL) so a duplicate does not abort the
+     * surrounding transaction. After the upsert, the row is read back
+     * unconditionally.</p>
+     *
      * <p>The ledger row is created in PENDING state before the CRM command
      * is invoked. On crash recovery, the worker reads the ledger to
      * determine whether the command was already executed.</p>
@@ -488,19 +495,18 @@ public class CrmIntegrationStore {
                                                 String actionCode, String idempotencyKey,
                                                 UUID claimToken) {
         UUID id = UUID.randomUUID();
-        try {
-            jdbc.update("INSERT INTO crm_integration_command_executions " +
-                            "(id, tenant_id, decision_id, integration_request_id, action_code, " +
-                            "execution_status, idempotency_key, attempt_count, claim_token, " +
-                            "started_at, created_at, updated_at, version) " +
-                            "VALUES (?, ?, ?, ?, ?, 'PENDING', ?, 0, ?, CURRENT_TIMESTAMP, " +
-                            "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)",
-                    id, tenantId, decisionId, integrationRequestId, actionCode,
-                    idempotencyKey, claimToken);
-            return new LedgerResult(findExecutionLedger(tenantId, decisionId).orElseThrow(), true);
-        } catch (DuplicateKeyException duplicate) {
-            return new LedgerResult(findExecutionLedger(tenantId, decisionId).orElseThrow(), false);
-        }
+        int inserted = jdbc.update(
+                "INSERT INTO crm_integration_command_executions " +
+                        "(id, tenant_id, decision_id, integration_request_id, action_code, " +
+                        "execution_status, idempotency_key, attempt_count, claim_token, " +
+                        "started_at, created_at, updated_at, version) " +
+                        "VALUES (?, ?, ?, ?, ?, 'PENDING', ?, 0, ?, CURRENT_TIMESTAMP, " +
+                        "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0) " +
+                        "ON CONFLICT (tenant_id, decision_id) DO NOTHING",
+                id, tenantId, decisionId, integrationRequestId, actionCode,
+                idempotencyKey, claimToken);
+        boolean created = inserted > 0;
+        return new LedgerResult(findExecutionLedger(tenantId, decisionId).orElseThrow(), created);
     }
 
     public record LedgerResult(CommandExecutionLedger ledger, boolean created) {}
@@ -608,7 +614,7 @@ public class CrmIntegrationStore {
             String integrationType, String eventType, String dispatchStatus,
             int attemptCount, int maxAttempts,
             String idempotencyKey, JsonNode payload, long version,
-            UUID claimToken, Instant claimExpiresAt) {}
+            UUID claimToken, Instant claimExpiresAt, String claimedBy) {}
 
     public record DecisionRecord(
             UUID id, UUID tenantId, UUID integrationRequestId, UUID actorId,

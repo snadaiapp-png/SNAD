@@ -158,7 +158,7 @@ public class ConfirmedRecommendationExecutor {
                     log.warn("Skipping execution for request {} — status is {} (expected CONFIRMED or EXECUTING)",
                             event.integrationRequestId(), request.status());
                     store.completeOutboxEvent(event.tenantId(), event.id(), event.version(),
-                            event.claimToken(), workerId);
+                            event.claimToken(), event.claimedBy());
                     return null;
                 }
 
@@ -307,7 +307,7 @@ public class ConfirmedRecommendationExecutor {
 
                 // Complete outbox event (validates claim ownership, clears claim fields)
                 store.completeOutboxEvent(event.tenantId(), event.id(), event.version(),
-                        event.claimToken(), workerId);
+                        event.claimToken(), event.claimedBy());
                 return null;
             });
 

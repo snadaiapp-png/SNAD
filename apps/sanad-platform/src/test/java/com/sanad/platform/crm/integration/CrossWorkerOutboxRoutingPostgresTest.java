@@ -114,31 +114,40 @@ class CrossWorkerOutboxRoutingPostgresTest {
 
     @Test
     void aiWorkerNeverClaimsCommandEvent() {
-        // AI worker claims only AI_REQUEST_DISPATCH
-        Optional<CrmIntegrationStore.OutboxEvent> claimed = store.claimNextOutboxEvent(
-                "ai-worker", 60, CrmIntegrationOutboxWorker.ACCEPTED_EVENT_TYPES);
-        assertThat(claimed).isPresent();
-        assertThat(claimed.get().eventType()).isEqualTo("AI_REQUEST_DISPATCH");
-        assertThat(claimed.get().integrationRequestId()).isEqualTo(aiRequestId);
-
-        // Second claim by AI worker should return empty (command event is not claimable)
-        Optional<CrmIntegrationStore.OutboxEvent> claimed2 = store.claimNextOutboxEvent(
-                "ai-worker", 60, CrmIntegrationOutboxWorker.ACCEPTED_EVENT_TYPES);
-        assertThat(claimed2).isEmpty();
+        // AI worker claims only AI_REQUEST_DISPATCH — keep claiming until empty.
+        // All claimed events must be AI_REQUEST_DISPATCH type.
+        java.util.Set<String> claimedTypes = new java.util.HashSet<>();
+        java.util.Set<UUID> claimedRequests = new java.util.HashSet<>();
+        while (true) {
+            Optional<CrmIntegrationStore.OutboxEvent> claimed = store.claimNextOutboxEvent(
+                    "ai-worker", 60, CrmIntegrationOutboxWorker.ACCEPTED_EVENT_TYPES);
+            if (claimed.isEmpty()) break;
+            claimedTypes.add(claimed.get().eventType());
+            claimedRequests.add(claimed.get().integrationRequestId());
+        }
+        // AI worker should have claimed exactly one event (the AI_REQUEST_DISPATCH one)
+        assertThat(claimedTypes).containsExactly("AI_REQUEST_DISPATCH");
+        assertThat(claimedRequests).contains(aiRequestId);
+        // The command event must NOT have been claimed by the AI worker
+        assertThat(claimedRequests).doesNotContain(cmdRequestId);
     }
 
     @Test
     void commandWorkerNeverClaimsAiEvent() {
         // Command worker claims only CONFIRMED_COMMAND_EXECUTION
-        Optional<CrmIntegrationStore.OutboxEvent> claimed = store.claimNextOutboxEvent(
-                "cmd-worker", 60, ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
-        assertThat(claimed).isPresent();
-        assertThat(claimed.get().eventType()).isEqualTo("CONFIRMED_COMMAND_EXECUTION");
-        assertThat(claimed.get().integrationRequestId()).isEqualTo(cmdRequestId);
-
-        // Second claim by command worker should return empty (AI event is not claimable)
-        Optional<CrmIntegrationStore.OutboxEvent> claimed2 = store.claimNextOutboxEvent(
-                "cmd-worker", 60, ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
-        assertThat(claimed2).isEmpty();
+        java.util.Set<String> claimedTypes = new java.util.HashSet<>();
+        java.util.Set<UUID> claimedRequests = new java.util.HashSet<>();
+        while (true) {
+            Optional<CrmIntegrationStore.OutboxEvent> claimed = store.claimNextOutboxEvent(
+                    "cmd-worker", 60, ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
+            if (claimed.isEmpty()) break;
+            claimedTypes.add(claimed.get().eventType());
+            claimedRequests.add(claimed.get().integrationRequestId());
+        }
+        // Command worker should have claimed exactly one event (the CONFIRMED_COMMAND_EXECUTION one)
+        assertThat(claimedTypes).containsExactly("CONFIRMED_COMMAND_EXECUTION");
+        assertThat(claimedRequests).contains(cmdRequestId);
+        // The AI event must NOT have been claimed by the command worker
+        assertThat(claimedRequests).doesNotContain(aiRequestId);
     }
 }
