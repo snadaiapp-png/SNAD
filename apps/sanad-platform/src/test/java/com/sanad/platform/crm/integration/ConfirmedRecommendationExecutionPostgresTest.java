@@ -106,13 +106,21 @@ class ConfirmedRecommendationExecutionPostgresTest {
 
     @Test
     void executionWorkerCompletesFullLifecycle() {
-        // Claim the execution event
-        var claimed = store.claimNextOutboxEvent("test-worker", 60,
-                ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
-        assertThat(claimed).isPresent();
+        // Claim events until we find ours (there may be leftover events from other tests)
+        CrmIntegrationStore.OutboxEvent ourEvent = null;
+        while (true) {
+            var claimed = store.claimNextOutboxEvent("test-worker", 60,
+                    ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
+            if (claimed.isEmpty()) break;
+            if (claimed.get().integrationRequestId().equals(requestId)) {
+                ourEvent = claimed.get();
+                break;
+            }
+        }
+        assertThat(ourEvent).as("expected to find our execution event").isNotNull();
 
         // Process it
-        executor.processSingleExecutionEvent(claimed.get());
+        executor.processSingleExecutionEvent(ourEvent);
 
         // Verify request reached EXECUTED
         Map<String, Object> req = jdbc.queryForMap(
@@ -150,10 +158,18 @@ class ConfirmedRecommendationExecutionPostgresTest {
         // atomically in Transaction B, so this should never happen.
         // We verify by checking that after successful execution, the decision
         // is NOT in EXECUTING state.
-        var claimed = store.claimNextOutboxEvent("test-worker", 60,
-                ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
-        assertThat(claimed).isPresent();
-        executor.processSingleExecutionEvent(claimed.get());
+        CrmIntegrationStore.OutboxEvent ourEvent = null;
+        while (true) {
+            var claimed = store.claimNextOutboxEvent("test-worker", 60,
+                    ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
+            if (claimed.isEmpty()) break;
+            if (claimed.get().integrationRequestId().equals(requestId)) {
+                ourEvent = claimed.get();
+                break;
+            }
+        }
+        assertThat(ourEvent).as("expected to find our execution event").isNotNull();
+        executor.processSingleExecutionEvent(ourEvent);
 
         String decisionStatus = jdbc.queryForObject(
                 "SELECT decision_status FROM crm_integration_decisions WHERE id=?",

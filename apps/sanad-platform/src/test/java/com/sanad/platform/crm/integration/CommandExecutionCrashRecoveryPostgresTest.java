@@ -108,22 +108,37 @@ class CommandExecutionCrashRecoveryPostgresTest {
 
     @Test
     void crashBeforeCommandCausesSafeRetry() {
-        // Claim the event but DO NOT process it (simulate crash before command)
-        var claimed1 = store.claimNextOutboxEvent("test-worker-1", 1,
-                ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
-        assertThat(claimed1).isPresent();
+        // Claim OUR event (skip any leftover events from other tests)
+        CrmIntegrationStore.OutboxEvent claimed1 = null;
+        while (true) {
+            var claimed = store.claimNextOutboxEvent("test-worker-1", 1,
+                    ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
+            if (claimed.isEmpty()) break;
+            if (claimed.get().integrationRequestId().equals(requestId)) {
+                claimed1 = claimed.get();
+                break;
+            }
+        }
+        assertThat(claimed1).as("expected to find our execution event").isNotNull();
         // Simulate crash — claim expires
 
         try { Thread.sleep(1500); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
 
         // Second worker claims the same event (recovery)
-        var claimed2 = store.claimNextOutboxEvent("test-worker-2", 60,
-                ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
-        assertThat(claimed2).isPresent();
-        assertThat(claimed2.get().id()).isEqualTo(claimed1.get().id());
+        CrmIntegrationStore.OutboxEvent claimed2 = null;
+        while (true) {
+            var claimed = store.claimNextOutboxEvent("test-worker-2", 60,
+                    ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
+            if (claimed.isEmpty()) break;
+            if (claimed.get().id().equals(claimed1.id())) {
+                claimed2 = claimed.get();
+                break;
+            }
+        }
+        assertThat(claimed2).as("expected to reclaim the same event").isNotNull();
 
         // Process normally — should reach EXECUTED
-        executor.processSingleExecutionEvent(claimed2.get());
+        executor.processSingleExecutionEvent(claimed2);
 
         String reqStatus = jdbc.queryForObject(
                 "SELECT status FROM crm_integration_requests WHERE id=?",
@@ -139,15 +154,20 @@ class CommandExecutionCrashRecoveryPostgresTest {
     @Test
     void executingRecoveryReachesTerminalState() {
         // Simulate crash AFTER command but BEFORE finalize:
-        // 1. Claim the event
+        // 1. Claim OUR event (skip any leftover events from other tests)
         // 2. Manually transition request and decision to EXECUTING + create ledger in EXECUTING
         // 3. Do NOT complete the outbox event (simulate crash)
-        var claimed = store.claimNextOutboxEvent("crash-worker", 60,
-                ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
-        assertThat(claimed).isPresent();
-
-        // Manually simulate Transaction A completing but Transaction B not
-        CrmIntegrationStore.OutboxEvent event = claimed.get();
+        CrmIntegrationStore.OutboxEvent event = null;
+        while (true) {
+            var claimed = store.claimNextOutboxEvent("crash-worker", 60,
+                    ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
+            if (claimed.isEmpty()) break;
+            if (claimed.get().integrationRequestId().equals(requestId)) {
+                event = claimed.get();
+                break;
+            }
+        }
+        assertThat(event).as("expected to find our execution event").isNotNull();
         UUID claimToken = event.claimToken();
 
         // Transition request to EXECUTING
@@ -167,13 +187,20 @@ class CommandExecutionCrashRecoveryPostgresTest {
         jdbc.update("UPDATE crm_integration_outbox SET claim_expires_at = CURRENT_TIMESTAMP - INTERVAL '1 hour' " +
                 "WHERE id = ?", event.id());
 
-        // Second worker claims and processes
-        var claimed2 = store.claimNextOutboxEvent("recovery-worker", 60,
-                ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
-        assertThat(claimed2).isPresent();
-        assertThat(claimed2.get().id()).isEqualTo(event.id());
+        // Second worker claims and processes — find our specific event
+        CrmIntegrationStore.OutboxEvent claimed2 = null;
+        while (true) {
+            var claimed = store.claimNextOutboxEvent("recovery-worker", 60,
+                    ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
+            if (claimed.isEmpty()) break;
+            if (claimed.get().id().equals(event.id())) {
+                claimed2 = claimed.get();
+                break;
+            }
+        }
+        assertThat(claimed2).as("expected to reclaim our event").isNotNull();
 
-        executor.processSingleExecutionEvent(claimed2.get());
+        executor.processSingleExecutionEvent(claimed2);
 
         // Verify recovery reached a terminal state (EXECUTED, not stuck in EXECUTING)
         String reqStatus = jdbc.queryForObject(
