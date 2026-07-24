@@ -1,0 +1,179 @@
+# ============================================================
+# SANAD Platform — CRM-009 PostgreSQL Specialized Acceptance
+# ============================================================
+# Mandatory gate for CRM-009 remediation items 1-15.
+# Runs all 6 PostgreSQL-specialized test files and enforces:
+#   - Docker/PostgreSQL is mandatory (CI fails if unavailable)
+#   - All 19 specialized tests must execute (0 skipped, 0 failed)
+#   - Surefire XML is parsed to verify executed/skipped/failure counts
+# This workflow is a required status check for PR #704 until Item 16
+# is complete and CRM-009 is ready for review.
+# ============================================================
+
+name: CRM-009 PostgreSQL Specialized Acceptance
+
+on:
+  push:
+    branches:
+      - 'feature/crm-009-workflow-ai-implementation-20260723'
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/integration/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmIntegrationController.java'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/config/ProductionWorkflowStubGuard.java'
+      - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260723_1__create_crm_integration_requests.sql'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/integration/**'
+      - 'apps/sanad-platform/src/test/resources/db/vendor/h2/V20260723_1__create_crm_integration_requests.sql'
+      - '.github/workflows/crm-009-postgres-specialized-acceptance.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/integration/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmIntegrationController.java'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/config/ProductionWorkflowStubGuard.java'
+      - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260723_1__create_crm_integration_requests.sql'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/integration/**'
+      - 'apps/sanad-platform/src/test/resources/db/vendor/h2/V20260723_1__create_crm_integration_requests.sql'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-specialized-acceptance:
+    name: PostgreSQL Specialized Acceptance (19 tests, 0 skip, 0 fail)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify Docker availability (mandatory for CRM-009 CI)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Docker version ==="
+          docker --version
+          echo "=== Docker daemon status ==="
+          if ! docker info --format '{{.ServerVersion}}' >/dev/null 2>&1; then
+            echo "::error::Docker daemon not available — CRM-009 PostgreSQL specialized acceptance is MANDATORY in CI"
+            echo "::error::Local development may skip these tests, but CI must execute them"
+            exit 1
+          fi
+          echo "Docker is ready for PostgreSQL Testcontainers"
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Set CI environment flag (enforces no-skip policy)
+        shell: bash
+        run: |
+          echo "CI=true" >> "$GITHUB_ENV"
+          echo "CRM_009_POSTGRES_MANDATORY=true" >> "$GITHUB_ENV"
+
+      - name: Run all CRM-009 PostgreSQL specialized tests
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: 'false'
+          TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
+          CI: 'true'
+          CRM_009_POSTGRES_MANDATORY: 'true'
+        run: |
+          set -euo pipefail
+          mvn -B -ntp test \
+            -Dtest='CrmIntegrationOutboxPostgresTest,CrmIntegrationOutboxWorkerTest,CrmIntegrationOutboxConcurrencyTest,CrmIntegrationOutboxRecoveryTest,CrmIntegrationDecisionPostgresTest,CrmIntegrationResultImmutabilityTest' \
+            -DfailIfNoTests=false \
+            -Dsurefire.useFile=false
+
+      - name: Parse Surefire reports and enforce test count gate
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Parsing Surefire XML reports ==="
+          REPORTS_DIR="target/surefire-reports"
+          if [ ! -d "$REPORTS_DIR" ]; then
+            echo "::error::Surefire reports directory not found: $REPORTS_DIR"
+            exit 1
+          fi
+
+          TOTAL_EXECUTED=0
+          TOTAL_SKIPPED=0
+          TOTAL_FAILURES=0
+          TOTAL_ERRORS=0
+          EXPECTED_TESTS=19
+          EXPECTED_TEST_FILES=6
+          ACTUAL_TEST_FILES=0
+
+          for xml in "$REPORTS_DIR"/TEST-com.sanad.platform.crm.integration.CrmIntegration*.xml; do
+            if [ ! -f "$xml" ]; then
+              continue
+            fi
+            ACTUAL_TEST_FILES=$((ACTUAL_TEST_FILES + 1))
+            # Extract counts from <testsuite tests="X" skipped="Y" failures="Z" errors="W">
+            tests=$(grep -oP 'testsuite[^>]*tests="\K[0-9]+' "$xml" | head -1 || echo 0)
+            skipped=$(grep -oP 'testsuite[^>]*skipped="\K[0-9]+' "$xml" | head -1 || echo 0)
+            failures=$(grep -oP 'testsuite[^>]*failures="\K[0-9]+' "$xml" | head -1 || echo 0)
+            errors=$(grep -oP 'testsuite[^>]*errors="\K[0-9]+' "$xml" | head -1 || echo 0)
+
+            echo "  $(basename "$xml"): tests=$tests skipped=$skipped failures=$failures errors=$errors"
+
+            TOTAL_EXECUTED=$((TOTAL_EXECUTED + tests))
+            TOTAL_SKIPPED=$((TOTAL_SKIPPED + skipped))
+            TOTAL_FAILURES=$((TOTAL_FAILURES + failures))
+            TOTAL_ERRORS=$((TOTAL_ERRORS + errors))
+          done
+
+          echo ""
+          echo "=== Summary ==="
+          echo "POSTGRES_SPECIALIZED_TEST_FILES: $ACTUAL_TEST_FILES (expected: $EXPECTED_TEST_FILES)"
+          echo "POSTGRES_SPECIALIZED_TESTS_EXECUTED: $TOTAL_EXECUTED (expected: $EXPECTED_TESTS)"
+          echo "POSTGRES_SPECIALIZED_TESTS_SKIPPED: $TOTAL_SKIPPED (expected: 0)"
+          echo "POSTGRES_SPECIALIZED_TESTS_FAILED: $TOTAL_FAILURES (expected: 0)"
+          echo "POSTGRES_SPECIALIZED_TESTS_ERRORS: $TOTAL_ERRORS (expected: 0)"
+
+          FAIL=0
+          if [ "$ACTUAL_TEST_FILES" -lt "$EXPECTED_TEST_FILES" ]; then
+            echo "::error::Expected at least $EXPECTED_TEST_FILES PostgreSQL test files, found $ACTUAL_TEST_FILES"
+            FAIL=1
+          fi
+          if [ "$TOTAL_EXECUTED" -lt "$EXPECTED_TESTS" ]; then
+            echo "::error::Expected at least $EXPECTED_TESTS executed tests, found $TOTAL_EXECUTED"
+            FAIL=1
+          fi
+          if [ "$TOTAL_SKIPPED" -gt 0 ]; then
+            echo "::error::PostgreSQL specialized tests must NOT be skipped in CI — $TOTAL_SKIPPED skipped"
+            FAIL=1
+          fi
+          if [ "$TOTAL_FAILURES" -gt 0 ]; then
+            echo "::error::$TOTAL_FAILURES test failures — CRM-009 acceptance failed"
+            FAIL=1
+          fi
+          if [ "$TOTAL_ERRORS" -gt 0 ]; then
+            echo "::error::$TOTAL_ERRORS test errors — CRM-009 acceptance failed"
+            FAIL=1
+          fi
+
+          if [ "$FAIL" -ne 0 ]; then
+            exit 1
+          fi
+
+          echo ""
+          echo "=== ALL CRM-009 PostgreSQL specialized acceptance gates PASSED ==="
+
+      - name: Upload Surefire reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-009-postgres-surefire-reports
+          path: apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: error
+          retention-days: 30

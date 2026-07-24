@@ -10,7 +10,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 
@@ -44,10 +43,8 @@ class CrmIntegrationOutboxRecoveryTest {
 
     @BeforeAll
     static void setup() {
-        boolean docker;
-        try { docker = DockerClientFactory.instance().isDockerAvailable(); }
-        catch (Throwable ignored) { docker = false; }
-        Assumptions.assumeTrue(docker, "Docker required for CRM-009 outbox recovery tests");
+        boolean docker = Crm009TestEnvironment.requireDockerOrSkip("CrmIntegrationOutboxRecoveryTest");
+        Assumptions.assumeTrue(docker, "Docker unavailable in local development — skipping in non-CI environment");
 
         POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
         POSTGRES.start();
