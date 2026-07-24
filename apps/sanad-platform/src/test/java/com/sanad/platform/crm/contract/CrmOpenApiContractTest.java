@@ -17,8 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** CRM API contract test for the committed, runtime-filtered OpenAPI artifact. */
 class CrmOpenApiContractTest {
 
-    private static final int EXPECTED_PATHS = 104;
-    private static final int EXPECTED_OPERATIONS = 137;
+    private static final int EXPECTED_PATHS = 107;
+    private static final int EXPECTED_OPERATIONS = 140;
     private static final Set<String> HTTP_METHODS = Set.of(
             "get", "post", "put", "patch", "delete", "head", "options", "trace");
     private static final Path OPENAPI_PATH =
@@ -58,7 +58,8 @@ class CrmOpenApiContractTest {
                 "/activities", "/pipelines", "/imports", "/custom-fields",
                 "/timeline", "/addresses", "/communication-methods",
                 "/teams", "/queues", "/territories", "/assignment-rules",
-                "/assignments", "/ownership-history", "/transfers", "/my-work"
+                "/assignments", "/ownership-history", "/transfers", "/my-work",
+                "/integrations"
         };
         for (String prefix : domainPrefixes) {
             boolean found = false;
@@ -102,14 +103,19 @@ class CrmOpenApiContractTest {
     }
 
     @Test
-    void specDefinesCoreAndCrm007GeneratedSchemas() throws Exception {
+    void specDefinesCoreCrm007AndIntegrationSchemas() throws Exception {
         JsonNode schemas = loadSpec().path("components").path("schemas");
         for (String name : new String[]{
                 "CreateAccountRequest", "AccountResponse", "SingleResponseAccountResponse",
                 "CreateContactRequest", "ContactResponse", "ListResponseContactResponse",
                 "CreateAddressRequest", "AddressResponse", "SingleResponseAddressResponse",
                 "CreateCommunicationMethodRequest", "CommunicationMethodResponse",
-                "SingleResponseCommunicationMethodResponse"}) {
+                "SingleResponseCommunicationMethodResponse",
+                "CrmIntegrationControllerAiRequest",
+                "CrmIntegrationControllerConfirmRequest",
+                "CrmIntegrationControllerRejectRequest",
+                "CrmWorkflowControllerWorkflowDispatchRequest",
+                "CrmWorkflowControllerWorkflowCancelRequest"}) {
             assertNotNull(schemas.get(name), "OpenAPI spec is missing generated schema: " + name);
         }
     }
@@ -174,9 +180,9 @@ class CrmOpenApiContractTest {
     }
 
     @Test
-    void versionedCrm007MutationsRequireIfMatch() throws Exception {
+    void versionedMutationsRequireIfMatch() throws Exception {
         JsonNode paths = loadSpec().path("paths");
-        String[] mutationPaths = {
+        String[] patchPaths = {
                 "/addresses/{addressId}", "/addresses/{addressId}/primary",
                 "/addresses/{addressId}/archive", "/addresses/{addressId}/reactivate",
                 "/communication-methods/{communicationMethodId}",
@@ -185,13 +191,19 @@ class CrmOpenApiContractTest {
                 "/communication-methods/{communicationMethodId}/archive",
                 "/communication-methods/{communicationMethodId}/reactivate"
         };
-        for (String path : mutationPaths) {
+        for (String path : patchPaths) {
             assertRequiredHeader(paths.path(path).path("patch"), "If-Match", path);
+        }
+        for (String path : new String[]{
+                "/integrations/{requestId}/confirm",
+                "/integrations/{requestId}/reject",
+                "/integrations/workflows/{requestId}/cancel"}) {
+            assertRequiredHeader(paths.path(path).path("post"), "If-Match", path);
         }
     }
 
     @Test
-    void idempotencyKeysAreRequiredOnGovernedCreates() throws Exception {
+    void idempotencyKeysAreRequiredOnGovernedCreatesAndActions() throws Exception {
         JsonNode paths = loadSpec().path("paths");
         int protectedOperations = 0;
         Iterator<JsonNode> pathIterator = paths.elements();
@@ -209,14 +221,17 @@ class CrmOpenApiContractTest {
                 }
             }
         }
-        assertTrue(protectedOperations >= 20,
+        assertTrue(protectedOperations >= 24,
                 "Expected idempotency protection on CRM create/action operations");
         for (String path : new String[]{
                 "/accounts/{accountId}/addresses", "/contacts/{contactId}/addresses",
                 "/accounts/{accountId}/communication-methods", "/contacts/{contactId}/communication-methods",
                 "/addresses/import", "/communication-methods/import",
                 "/teams", "/queues", "/territories", "/assignment-rules", "/transfers",
-                "/assignments/reassign", "/assignments/bulk-reassign"}) {
+                "/assignments/reassign", "/assignments/bulk-reassign",
+                "/integrations/ai", "/integrations/{requestId}/confirm",
+                "/integrations/{requestId}/reject", "/integrations/workflows",
+                "/integrations/workflows/{requestId}/cancel"}) {
             assertRequiredHeader(paths.path(path).path("post"), "Idempotency-Key", path);
         }
     }
