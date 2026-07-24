@@ -1,0 +1,93 @@
+name: System Health Application CI
+
+on:
+  pull_request:
+    paths:
+      - "apps/system-health/**"
+      - "docs/architecture/MODULE-APPLICATION-SEPARATION.md"
+      - "docs/architecture/application-boundaries.json"
+      - ".github/workflows/system-health-ci.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/system-health/**"
+      - "docs/architecture/MODULE-APPLICATION-SEPARATION.md"
+      - "docs/architecture/application-boundaries.json"
+      - ".github/workflows/system-health-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: system-health-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  application-test:
+    name: Build and test independent application
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: apps/system-health/pom.xml
+
+      - name: Verify application
+        run: mvn -B -f apps/system-health/pom.xml verify
+
+      - name: Validate application boundary registry
+        run: python3 -m json.tool docs/architecture/application-boundaries.json >/dev/null
+
+  container-build:
+    name: Build independent container
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: application-test
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+
+      - name: Build container
+        run: docker build --tag sanad-system-health:${GITHUB_SHA} apps/system-health
+
+      - name: Start container
+        run: |
+          docker run --detach --rm \
+            --name sanad-system-health-ci \
+            --publish 18090:8090 \
+            sanad-system-health:${GITHUB_SHA}
+
+      - name: Verify independent runtime contract
+        run: |
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:18090/api/v1/system-health/live >/dev/null; then
+              curl --fail --silent http://127.0.0.1:18090/api/v1/system-health | tee /tmp/system-health.json
+              python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path('/tmp/system-health.json').read_text())
+          assert payload['application'] == 'sanad-system-health'
+          assert payload['status'] == 'HEALTHY'
+          assert payload['maturity'] == 'FOUNDATION'
+          PY
+              exit 0
+            fi
+            sleep 3
+          done
+
+          docker logs sanad-system-health-ci
+          exit 1
+
+      - name: Stop container
+        if: always()
+        run: docker stop sanad-system-health-ci || true

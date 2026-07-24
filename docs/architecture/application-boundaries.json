@@ -1,0 +1,169 @@
+{
+  "schemaVersion": "1.0.0",
+  "program": "APP-SEP-001",
+  "tracker": 701,
+  "updatedAt": "2026-07-23T15:45:00+03:00",
+  "rules": {
+    "databasePerApplication": true,
+    "directCrossApplicationTableAccess": false,
+    "independentBuildRequired": true,
+    "independentDeploymentRequired": true,
+    "versionedContractsRequired": true,
+    "tenantContextRequired": true,
+    "applicationSpecificAuthorizationRequired": true,
+    "exactShaEvidenceRequired": true
+  },
+  "applications": [
+    {
+      "id": "system-health",
+      "name": "System Health & Self-Healing",
+      "classification": "platform-reliability",
+      "status": "FOUNDATION_IN_PROGRESS",
+      "priority": 1,
+      "currentBoundary": "new capability",
+      "targetPath": "apps/system-health",
+      "dataOwnership": "stateless foundation; dedicated store required before incident persistence",
+      "dependsOnApplications": [],
+      "mustNotDependOnApplications": ["executive-management"],
+      "startGate": "AUTHORIZED",
+      "tracker": 701
+    },
+    {
+      "id": "crm",
+      "name": "Customer Relationship Management",
+      "classification": "business",
+      "status": "PLANNED_AFTER_CRM_008",
+      "priority": 2,
+      "currentBoundary": ["apps/web/app/crm", "apps/sanad-platform/src/main/java/com/sanad/platform/crm"],
+      "targetPath": "apps/crm",
+      "dataOwnership": "CRM-owned database",
+      "dependsOnApplications": ["identity-access", "tenant-administration"],
+      "startGate": "CRM-008 closed and PR #691 merged with exact-head evidence"
+    },
+    {
+      "id": "identity-access",
+      "name": "Identity & Access",
+      "classification": "platform-security",
+      "status": "PLANNED",
+      "priority": 3,
+      "currentBoundary": ["security packages", "access packages", "authentication routes"],
+      "targetPath": "apps/identity-access",
+      "dataOwnership": "identity and authorization data",
+      "dependsOnApplications": [],
+      "startGate": "session and compatibility contract approved"
+    },
+    {
+      "id": "tenant-administration",
+      "name": "Tenant Administration",
+      "classification": "platform-control",
+      "status": "PLANNED",
+      "priority": 4,
+      "currentBoundary": ["tenant packages", "control-plane routes"],
+      "targetPath": "apps/tenant-administration",
+      "dataOwnership": "tenant lifecycle and configuration data",
+      "dependsOnApplications": ["identity-access"],
+      "startGate": "identity boundary stable"
+    },
+    {
+      "id": "workflow",
+      "name": "Workflow Runtime",
+      "classification": "platform-runtime",
+      "status": "PLANNED",
+      "priority": 5,
+      "targetPath": "apps/workflow",
+      "dataOwnership": "workflow definitions, instances and execution ledger",
+      "dependsOnApplications": ["identity-access", "tenant-administration"],
+      "startGate": "command and event contracts approved"
+    },
+    {
+      "id": "ai-runtime",
+      "name": "AI Runtime & Governance",
+      "classification": "platform-runtime",
+      "status": "PLANNED",
+      "priority": 6,
+      "targetPath": "apps/ai-runtime",
+      "dataOwnership": "AI execution, policy and provenance data",
+      "dependsOnApplications": ["identity-access", "tenant-administration", "workflow"],
+      "startGate": "workflow and tool contracts approved"
+    },
+    {
+      "id": "erp",
+      "name": "Enterprise Resource Planning",
+      "classification": "business",
+      "status": "PLANNED",
+      "priority": 7,
+      "targetPath": "apps/erp",
+      "dataOwnership": "ERP operational data",
+      "dependsOnApplications": ["identity-access", "tenant-administration", "workflow"],
+      "startGate": "master-data contracts approved"
+    },
+    {
+      "id": "accounting",
+      "name": "Accounting",
+      "classification": "business-record",
+      "status": "PLANNED",
+      "priority": 8,
+      "targetPath": "apps/accounting",
+      "dataOwnership": "financial ledger and accounting records",
+      "dependsOnApplications": ["identity-access", "tenant-administration", "workflow"],
+      "startGate": "posting contracts and financial controls approved"
+    },
+    {
+      "id": "hrm",
+      "name": "Human Resources Management",
+      "classification": "business",
+      "status": "PLANNED",
+      "priority": 9,
+      "targetPath": "apps/hrm",
+      "dataOwnership": "employee and HR operations data",
+      "dependsOnApplications": ["identity-access", "tenant-administration", "workflow"],
+      "startGate": "identity and employee boundary approved"
+    },
+    {
+      "id": "commerce",
+      "name": "Commerce",
+      "classification": "business",
+      "status": "PLANNED",
+      "priority": 10,
+      "targetPath": "apps/commerce",
+      "dataOwnership": "catalog, cart, order and customer-commerce data",
+      "dependsOnApplications": ["identity-access", "tenant-administration", "workflow"],
+      "startGate": "customer and order contracts approved"
+    },
+    {
+      "id": "pos",
+      "name": "Point of Sale",
+      "classification": "business-edge",
+      "status": "PLANNED",
+      "priority": 11,
+      "targetPath": "apps/pos",
+      "dataOwnership": "POS transactions and synchronization ledger",
+      "dependsOnApplications": ["identity-access", "tenant-administration", "commerce"],
+      "startGate": "offline and synchronization contract approved"
+    },
+    {
+      "id": "analytics",
+      "name": "Analytics & Intelligence",
+      "classification": "data-product",
+      "status": "PLANNED",
+      "priority": 12,
+      "targetPath": "apps/analytics",
+      "dataOwnership": "analytics read models and governed data products",
+      "dependsOnApplications": [],
+      "startGate": "source events and data-product contracts approved"
+    },
+    {
+      "id": "executive-management",
+      "name": "Executive Management",
+      "classification": "read-oriented-management",
+      "status": "PLANNED_LAST",
+      "priority": 13,
+      "currentBoundary": ["apps/web/app/workspace", "apps/web/components/shell/ExecutiveShell.tsx"],
+      "targetPath": "apps/executive-management",
+      "dataOwnership": "executive preferences and approved read models only",
+      "dependsOnApplications": ["analytics"],
+      "startGate": "source application summary contracts stable",
+      "prohibitedCapabilities": ["operational remediation", "direct source database access", "ownership of operational applications"]
+    }
+  ]
+}
