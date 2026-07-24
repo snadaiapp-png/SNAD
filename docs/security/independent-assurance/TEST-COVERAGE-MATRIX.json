@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "finding_id": "REM-P0-006",
+  "status": "NOT_STARTED",
+  "cases": [
+    {"id":"PEN-01","workstream":"penetration_testing","objective":"Unauthenticated attack-surface and information-disclosure review","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"PEN-02","workstream":"penetration_testing","objective":"Authenticated web, BFF and API testing","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"PEN-03","workstream":"penetration_testing","objective":"Injection, SSRF, unsafe parsing, import and stored-content testing","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"TEN-01","workstream":"tenant_boundary_and_object_authorization","objective":"Cross-tenant read denial across direct and nested objects","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"TEN-02","workstream":"tenant_boundary_and_object_authorization","objective":"Cross-tenant create, update, delete, import and export denial","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"TEN-03","workstream":"tenant_boundary_and_object_authorization","objective":"Horizontal and vertical privilege escalation denial","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"TEN-04","workstream":"tenant_boundary_and_object_authorization","objective":"Revoked, stale and conflicting role/capability behavior","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"CFG-01","workstream":"production_configuration_and_secrets","objective":"Identity, session, cookie, CORS, CSRF, headers and TLS configuration","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"CFG-02","workstream":"production_configuration_and_secrets","objective":"Secrets in repository history, artifacts, logs, images and client bundles","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"CFG-03","workstream":"production_configuration_and_secrets","objective":"Production IAM, least privilege, break-glass and audit configuration","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"SUP-01","workstream":"dependency_and_supply_chain","objective":"Backend, frontend and container vulnerability review","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"SUP-02","workstream":"dependency_and_supply_chain","objective":"Lockfiles, provenance, build actions and deployment-chain integrity","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"PRI-01","workstream":"privacy_and_threat_model","objective":"Personal-data inventory, purpose, minimization, retention and deletion","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"PRI-02","workstream":"privacy_and_threat_model","objective":"Threat-model challenge and missing-abuse-case identification","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"BUS-01","workstream":"penetration_testing","objective":"Workflow approval, state-transition and direct-API bypass testing","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"BUS-02","workstream":"penetration_testing","objective":"Financial idempotency, replay, concurrency and reconciliation testing","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"AUD-01","workstream":"production_configuration_and_secrets","objective":"Audit completeness, authorization, correlation and tamper resistance","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"RET-01","workstream":"remediation_retest","objective":"Independent retest of every critical/high finding","status":"NOT_STARTED","evidence_ids":[]},
+    {"id":"RET-02","workstream":"remediation_retest","objective":"Regression retest of security invariants on final candidate release","status":"NOT_STARTED","evidence_ids":[]}
+  ]
+}

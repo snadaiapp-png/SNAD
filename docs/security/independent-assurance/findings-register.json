@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "finding_id": "REM-P0-006",
+  "assessment_status": "NOT_STARTED",
+  "severity_model": "CVSS-informed business impact with tenant, financial, privacy and availability context",
+  "findings": [],
+  "finding_record_contract": {
+    "required_fields": [
+      "id", "title", "severity", "affected_asset", "workstream", "coverage_case_ids",
+      "description", "reproduction_reference", "business_impact", "owner", "status",
+      "remediation_reference", "retest_status", "retest_evidence_ids"
+    ],
+    "allowed_statuses": ["OPEN", "IN_REMEDIATION", "READY_FOR_RETEST", "CLOSED", "RESIDUAL_RISK_PROPOSED"],
+    "allowed_retest_statuses": ["NOT_STARTED", "FAIL", "PASS"]
+  }
+}
