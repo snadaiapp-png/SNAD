@@ -191,7 +191,7 @@ class RealCommandAdaptersPostgresTest {
                 "SELECT tenant_id, activity_type, related_type, related_id, due_at " +
                         "FROM crm_activities WHERE id = ?", activityId);
         assertThat(activity.get("tenant_id")).isEqualTo(tenantId);
-        assertThat(activity.get("activity_type")).isEqualTo("SCHEDULED_CALL");
+        assertThat(activity.get("activity_type")).isEqualTo("CALL");
         assertThat(activity.get("related_type")).isEqualTo("CONTACT");
         assertThat(activity.get("related_id")).isEqualTo(contactId);
         assertThat(activity.get("due_at")).isNotNull();
@@ -210,7 +210,7 @@ class RealCommandAdaptersPostgresTest {
         assertThat(result2.commandReference()).isEqualTo(result1.commandReference());
 
         Integer activityCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_activities WHERE tenant_id = ? AND activity_type = 'SCHEDULED_CALL' " +
+                "SELECT COUNT(*) FROM crm_activities WHERE tenant_id = ? AND activity_type = 'CALL' " +
                         "AND subject LIKE ?",
                 Integer.class, tenantId, "%" + decisionId + "%");
         assertThat(activityCount).isEqualTo(1);

@@ -83,7 +83,7 @@ public class CreateFollowUpActivityCommandAdapter implements ConfirmedRecommenda
             String relatedType = mapEntityType(recommendation.sourceEntityType());
             OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
             ActivityRepository.CreateActivityCommand cmd = new ActivityRepository.CreateActivityCommand(
-                    "FOLLOW_UP",
+                    "TASK",
                     "AI follow-up — " + decisionId,
                     "Auto-created by confirmed AI recommendation "
                             + recommendation.integrationRequestId()

@@ -74,7 +74,7 @@ public class ScheduleContactCommandAdapter implements ConfirmedRecommendationCom
             // Step 2: Create the scheduled-call activity
             OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
             ActivityRepository.CreateActivityCommand cmd = new ActivityRepository.CreateActivityCommand(
-                    "SCHEDULED_CALL",
+                    "CALL",
                     "Scheduled contact follow-up — " + decisionId,
                     "Auto-scheduled by confirmed AI recommendation "
                             + recommendation.integrationRequestId()
