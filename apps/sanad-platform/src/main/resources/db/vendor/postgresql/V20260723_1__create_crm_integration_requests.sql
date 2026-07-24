@@ -103,6 +103,7 @@ CREATE TABLE crm_integration_requests (
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     version                 BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT pk_crm_integration_requests PRIMARY KEY (id),
+    CONSTRAINT crm_integration_tenant_id_uq UNIQUE (tenant_id, id),
     CONSTRAINT crm_integration_expiry_ck CHECK (expires_at > requested_at),
     CONSTRAINT crm_integration_status_ck CHECK (
         status IN ('PENDING','DISPATCHED','ACCEPTED','RUNNING','COMPLETED',
