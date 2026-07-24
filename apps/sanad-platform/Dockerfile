@@ -29,14 +29,14 @@ WORKDIR /app
 
 COPY --from=builder /workspace/target/sanad-platform-*.jar app.jar
 
-# Aggressive memory optimization for Render 512MB free tier
+# Memory optimization for Render 512MB free tier
 # SerialGC: lowest memory overhead GC
-# 35% heap: ~179MB on 512MB container
-# 80MB metaspace: sufficient for Spring Boot
+# 128MB heap: sufficient for Spring Boot with CRM-009
+# 128MB metaspace: required for CRM-009 class loading (48m was insufficient)
 # 256k thread stack: half the default
 # TieredStopAtLevel=1: skip C2 for faster startup
 # -XX:+ExitOnOutOfMemoryError: crash immediately on OOM (clean exit code)
-ENV JAVA_OPTS="-Xmx128m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC -XX:MaxMetaspaceSize=48m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"
+ENV JAVA_OPTS="-Xmx128m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"
 ENV SPRING_PROFILES_ACTIVE=prod
 
 USER sanad
