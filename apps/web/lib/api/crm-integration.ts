@@ -22,14 +22,21 @@ export type CrmIntegrationStatus =
 export interface CrmIntegrationRequestStatus {
   id: string;
   tenantId: string;
-  integrationType: string;
+  actorId?: string;
+  integrationType: "AI" | "WORKFLOW" | string;
   status: CrmIntegrationStatus;
   externalReference: string | null;
   correlationId: string;
   idempotencyKey: string;
+  sourceEntityType?: string;
+  sourceEntityId?: string;
+  sourceEntityVersion?: number;
+  payload?: Record<string, unknown> | null;
+  resultPayload?: Record<string, unknown> | null;
   requestedAt: string;
   expiresAt: string;
   errorCode: string | null;
+  version: number;
 }
 
 export interface CrmAiInsightRequest {
@@ -40,6 +47,14 @@ export interface CrmAiInsightRequest {
   userIntent?: string;
 }
 
+export interface CrmWorkflowDispatchRequest {
+  workflowType: "ASSIGNMENT" | "OPPORTUNITY_APPROVAL" | "REMINDER" | "ESCALATION";
+  sourceEntityType: string;
+  sourceEntityId: string;
+  sourceEntityVersion: number;
+  payload?: Record<string, unknown>;
+}
+
 export interface CrmConfirmRequest {
   expectedEntityVersion: number;
 }
@@ -48,17 +63,42 @@ export interface CrmRejectRequest {
   reason?: string;
 }
 
-/** Browser → Vercel BFF → Render — never calls Render or AI Gateway directly. */
+export interface CrmWorkflowCancelRequest {
+  reason?: string;
+}
+
+function mutationHeaders(idempotencyKey: string, ifMatch?: string): Record<string, string> {
+  if (!idempotencyKey.trim()) throw new Error("idempotencyKey is required");
+  const headers: Record<string, string> = { "Idempotency-Key": idempotencyKey };
+  if (ifMatch !== undefined) {
+    if (!ifMatch.trim()) throw new Error("If-Match header is required");
+    headers["If-Match"] = ifMatch;
+  }
+  return headers;
+}
+
+/** Browser → same-origin /api/platform BFF → platform backend. */
 export async function requestCrmAiInsight(
   request: CrmAiInsightRequest,
   idempotencyKey: string,
   client: ApiClient = apiClient,
 ): Promise<CrmIntegrationRequestStatus> {
-  if (!idempotencyKey.trim()) throw new Error("idempotencyKey is required");
   return client.post<CrmIntegrationRequestStatus, CrmAiInsightRequest>(
     "/api/v2/crm/integrations/ai",
     request,
-    { context: { headers: { "Idempotency-Key": idempotencyKey } }, cache: "no-store" },
+    { context: { headers: mutationHeaders(idempotencyKey) }, cache: "no-store" },
+  );
+}
+
+export async function dispatchCrmWorkflow(
+  request: CrmWorkflowDispatchRequest,
+  idempotencyKey: string,
+  client: ApiClient = apiClient,
+): Promise<CrmIntegrationRequestStatus> {
+  return client.post<CrmIntegrationRequestStatus, CrmWorkflowDispatchRequest>(
+    "/api/v2/crm/integrations/workflows",
+    request,
+    { context: { headers: mutationHeaders(idempotencyKey) }, cache: "no-store" },
   );
 }
 
@@ -73,7 +113,17 @@ export async function getCrmIntegrationStatus(
   );
 }
 
-/** Confirm requires If-Match (integration request version) and CRM.AI.CONFIRM capability. */
+export async function getCrmWorkflowStatus(
+  requestId: string,
+  client: ApiClient = apiClient,
+): Promise<CrmIntegrationRequestStatus> {
+  if (!requestId.trim()) throw new Error("requestId is required");
+  return client.get<CrmIntegrationRequestStatus>(
+    `/api/v2/crm/integrations/workflows/${encodeURIComponent(requestId)}`,
+    { cache: "no-store" },
+  );
+}
+
 export async function confirmCrmAiRecommendation(
   requestId: string,
   idempotencyKey: string,
@@ -81,25 +131,43 @@ export async function confirmCrmAiRecommendation(
   expectedEntityVersion: number,
   client: ApiClient = apiClient,
 ): Promise<CrmIntegrationRequestStatus> {
-  if (!idempotencyKey.trim()) throw new Error("idempotencyKey is required");
-  if (!ifMatch.trim()) throw new Error("If-Match header is required");
   return client.post<CrmIntegrationRequestStatus, CrmConfirmRequest>(
     `/api/v2/crm/integrations/${encodeURIComponent(requestId)}/confirm`,
     { expectedEntityVersion },
-    { context: { headers: { "Idempotency-Key": idempotencyKey, "If-Match": ifMatch } }, cache: "no-store" },
+    {
+      context: { headers: mutationHeaders(idempotencyKey, ifMatch) },
+      cache: "no-store",
+    },
   );
 }
 
 export async function rejectCrmAiRecommendation(
   requestId: string,
   idempotencyKey: string,
+  ifMatch: string,
   reason?: string,
   client: ApiClient = apiClient,
 ): Promise<CrmIntegrationRequestStatus> {
-  if (!idempotencyKey.trim()) throw new Error("idempotencyKey is required");
   return client.post<CrmIntegrationRequestStatus, CrmRejectRequest>(
     `/api/v2/crm/integrations/${encodeURIComponent(requestId)}/reject`,
     { reason },
-    { context: { headers: { "Idempotency-Key": idempotencyKey } }, cache: "no-store" },
+    {
+      context: { headers: mutationHeaders(idempotencyKey, ifMatch) },
+      cache: "no-store",
+    },
+  );
+}
+
+export async function cancelCrmWorkflow(
+  requestId: string,
+  ifMatch: string,
+  reason?: string,
+  client: ApiClient = apiClient,
+): Promise<CrmIntegrationRequestStatus> {
+  if (!ifMatch.trim()) throw new Error("If-Match header is required");
+  return client.post<CrmIntegrationRequestStatus, CrmWorkflowCancelRequest>(
+    `/api/v2/crm/integrations/workflows/${encodeURIComponent(requestId)}/cancel`,
+    { reason },
+    { context: { headers: { "If-Match": ifMatch } }, cache: "no-store" },
   );
 }
