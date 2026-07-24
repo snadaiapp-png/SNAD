@@ -84,8 +84,12 @@ class CrashAfterCommitRecoveryPostgresTest {
         decisionId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        // Seed the integration request only — no need to seed CRM entities
-        // (activities reference source_entity_id via related_id with no FK)
+        // Seed the tenant + integration request. The adapter creates
+        // an activity that requires the tenant to exist (FK constraint).
+        jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) " +
+                "VALUES (?, 'Test Tenant', ?, 'ACTIVE', ?, ?)",
+                tenantId, "test-" + tenantId.toString().substring(0, 8),
+                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
 
         ObjectNode resultPayload = mapper.createObjectNode();
         resultPayload.put("actionCode", "CREATE_FOLLOW_UP_ACTIVITY");

@@ -98,9 +98,13 @@ class RealCommandAdaptersPostgresTest {
         opportunityId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        // Seed the integration request only — the adapters create activities/tasks
-        // that reference source_entity_id via related_id, but there is no FK
-        // constraint on related_id so we don't need to seed the actual CRM entities.
+        // Seed the tenant + integration request. The adapters create
+        // activities/tasks that require the tenant to exist (FK constraint).
+        jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) " +
+                "VALUES (?, 'Test Tenant', ?, 'ACTIVE', ?, ?)",
+                tenantId, "test-" + tenantId.toString().substring(0, 8),
+                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
+
         jdbc.update("INSERT INTO crm_integration_requests " +
                         "(id, tenant_id, actor_id, integration_type, contract_name, contract_version, " +
                         "correlation_id, causation_id, idempotency_key, source_entity_type, source_entity_id, " +
