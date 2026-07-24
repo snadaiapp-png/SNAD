@@ -144,10 +144,11 @@ class CrmWorkflowIntegrationPostgresTest {
 
         CrmIntegrationStore.StoredRequest cancelled = useCases.cancelWorkflow(
                 tenantId, accepted.id(), accepted.version(),
-                "corr-cancel", "No longer required");
+                "corr-cancel", "cancel-idem-1", "No longer required");
 
         assertThat(cancelled.status()).isEqualTo("CANCELLED");
         assertThat(workflowPort.cancelCalled.get()).isTrue();
+        assertThat(workflowPort.cancelIdempotencyKey).isEqualTo("cancel-idem-1");
     }
 
     @Test
@@ -173,6 +174,7 @@ class CrmWorkflowIntegrationPostgresTest {
     private static final class FakeWorkflowPort implements WorkflowIntegrationPort {
         private UUID runId = UUID.randomUUID();
         private final AtomicBoolean cancelCalled = new AtomicBoolean(false);
+        private String cancelIdempotencyKey;
 
         @Override
         public WorkflowDispatch dispatch(
@@ -187,14 +189,17 @@ class CrmWorkflowIntegrationPostgresTest {
                 UUID tenantId,
                 UUID workflowRunId,
                 String correlationId,
+                String idempotencyKey,
                 String reason) {
             assertThat(workflowRunId).isEqualTo(runId);
+            cancelIdempotencyKey = idempotencyKey;
             cancelCalled.set(true);
         }
 
         private void reset() {
             runId = UUID.randomUUID();
             cancelCalled.set(false);
+            cancelIdempotencyKey = null;
         }
     }
 }
