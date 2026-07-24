@@ -11,7 +11,7 @@ import java.util.UUID;
  * will fail startup if this bean is active in prod.
  */
 @Component
-@Profile({"test", "local"})
+@Profile({"test", "local", "crm-acceptance"})
 public class StubConfirmedRecommendationCommandAdapter implements ConfirmedRecommendationCommandPort {
 
     @Override

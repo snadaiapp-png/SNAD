@@ -8052,23 +8052,11 @@
       "ConfirmRequest": {
         "type": "object",
         "properties": {
-          "sourceEntityType": {
-            "type": "string",
-            "minLength": 1
-          },
-          "sourceEntityId": {
-            "type": "string",
-            "format": "uuid"
-          },
           "expectedEntityVersion": {
             "type": "integer",
             "format": "int64"
           }
-        },
-        "required": [
-          "sourceEntityId",
-          "sourceEntityType"
-        ]
+        }
       },
       "ContactProfileResponse": {
         "type": "object",
@@ -11352,6 +11340,18 @@
             "format": "int64"
           },
           "requiredCapability": {
+            "type": "string"
+          },
+          "contractName": {
+            "type": "string"
+          },
+          "contractVersion": {
+            "type": "string"
+          },
+          "causationId": {
+            "type": "string"
+          },
+          "dataClassification": {
             "type": "string"
           },
           "payload": {

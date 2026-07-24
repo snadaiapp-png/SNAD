@@ -2114,9 +2114,6 @@ export type components = {
             readonly result?: string;
         };
         readonly ConfirmRequest: {
-            readonly sourceEntityType: string;
-            /** Format: uuid */
-            readonly sourceEntityId: string;
             /** Format: int64 */
             readonly expectedEntityVersion?: number;
         };
@@ -3271,6 +3268,10 @@ export type components = {
             /** Format: int64 */
             readonly sourceEntityVersion?: number;
             readonly requiredCapability?: string;
+            readonly contractName?: string;
+            readonly contractVersion?: string;
+            readonly causationId?: string;
+            readonly dataClassification?: string;
             readonly payload?: components["schemas"]["JsonNode"];
             readonly resultPayload?: components["schemas"]["JsonNode"];
             /** Format: date-time */
