@@ -6,6 +6,11 @@ export type CrmIntegrationStatus =
   | "ACCEPTED"
   | "RUNNING"
   | "COMPLETED"
+  | "RECOMMENDATION_AVAILABLE"
+  | "CONFIRMED"
+  | "EXECUTING"
+  | "EXECUTED"
+  | "EXECUTION_REJECTED"
   | "REJECTED"
   | "POLICY_DENIED"
   | "UNSAFE_OUTPUT"
@@ -35,6 +40,16 @@ export interface CrmAiInsightRequest {
   userIntent?: string;
 }
 
+export interface CrmConfirmRequest {
+  sourceEntityType: string;
+  sourceEntityId: string;
+  expectedEntityVersion: number;
+}
+
+export interface CrmRejectRequest {
+  reason?: string;
+}
+
 /** Uses the existing authenticated /api/platform BFF; the browser never calls Render directly. */
 export async function requestCrmAiInsight(
   request: CrmAiInsightRequest,
@@ -60,18 +75,20 @@ export async function getCrmIntegrationStatus(
   );
 }
 
-/** Confirm an AI recommendation with human confirmation. Requires CRM.AI.CONFIRM capability. */
+/** Confirm an AI recommendation. Requires CRM.AI.CONFIRM capability. If-Match is required. */
 export async function confirmCrmAiRecommendation(
   requestId: string,
   idempotencyKey: string,
-  expectedEntityVersion: number,
+  ifMatch: string,
+  body: CrmConfirmRequest,
   client: ApiClient = apiClient,
 ): Promise<CrmIntegrationRequestStatus> {
   if (!idempotencyKey.trim()) throw new Error("idempotencyKey is required");
-  return client.post<CrmIntegrationRequestStatus, { expectedEntityVersion: number }>(
+  if (!ifMatch.trim()) throw new Error("If-Match header is required");
+  return client.post<CrmIntegrationRequestStatus, CrmConfirmRequest>(
     `/api/v2/crm/integrations/${encodeURIComponent(requestId)}/confirm`,
-    { expectedEntityVersion },
-    { context: { headers: { "Idempotency-Key": idempotencyKey } }, cache: "no-store" },
+    body,
+    { context: { headers: { "Idempotency-Key": idempotencyKey, "If-Match": ifMatch } }, cache: "no-store" },
   );
 }
 
@@ -79,13 +96,13 @@ export async function confirmCrmAiRecommendation(
 export async function rejectCrmAiRecommendation(
   requestId: string,
   idempotencyKey: string,
-  reason?: string,
+  body: CrmRejectRequest,
   client: ApiClient = apiClient,
 ): Promise<CrmIntegrationRequestStatus> {
   if (!idempotencyKey.trim()) throw new Error("idempotencyKey is required");
-  return client.post<CrmIntegrationRequestStatus, { reason?: string }>(
+  return client.post<CrmIntegrationRequestStatus, CrmRejectRequest>(
     `/api/v2/crm/integrations/${encodeURIComponent(requestId)}/reject`,
-    { reason },
+    body,
     { context: { headers: { "Idempotency-Key": idempotencyKey } }, cache: "no-store" },
   );
 }

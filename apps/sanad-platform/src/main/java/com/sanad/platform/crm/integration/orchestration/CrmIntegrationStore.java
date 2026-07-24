@@ -95,7 +95,7 @@ public class CrmIntegrationStore {
     }
 
     public Optional<StoredRequest> find(UUID tenantId, UUID id) {
-        return jdbc.query("SELECT id, tenant_id, integration_type, status, external_reference, " +
+        return jdbc.query("SELECT id, tenant_id, actor_id, integration_type, status, external_reference, " +
                         "correlation_id, idempotency_key, source_entity_type, source_entity_id, " +
                         "source_entity_version, required_capability, payload, result_payload, " +
                         "requested_at, expires_at, error_code, version " +
@@ -104,7 +104,7 @@ public class CrmIntegrationStore {
     }
 
     public Optional<StoredRequest> findByIdempotency(UUID tenantId, String type, String key) {
-        return jdbc.query("SELECT id, tenant_id, integration_type, status, external_reference, " +
+        return jdbc.query("SELECT id, tenant_id, actor_id, integration_type, status, external_reference, " +
                         "correlation_id, idempotency_key, source_entity_type, source_entity_id, " +
                         "source_entity_version, required_capability, payload, result_payload, " +
                         "requested_at, expires_at, error_code, version " +
@@ -248,6 +248,7 @@ public class CrmIntegrationStore {
                         "FROM crm_integration_decisions WHERE tenant_id=? AND integration_request_id=? AND idempotency_key=?",
                 (rs, row) -> new DecisionRecord(
                         (UUID) rs.getObject("id"), (UUID) rs.getObject("tenant_id"),
+                (UUID) rs.getObject("actor_id"),
                         (UUID) rs.getObject("integration_request_id"), (UUID) rs.getObject("actor_id"),
                         rs.getString("decision"), rs.getString("idempotency_key"),
                         rs.getString("request_fingerprint"), rs.getLong("expected_entity_version"),
@@ -264,7 +265,7 @@ public class CrmIntegrationStore {
     // ============================================================
 
     public record StoredRequest(
-            UUID id, UUID tenantId, String integrationType, String status,
+            UUID id, UUID tenantId, UUID actorId, String integrationType, String status,
             UUID externalReference, String correlationId, String idempotencyKey,
             String sourceEntityType, UUID sourceEntityId, long sourceEntityVersion,
             String requiredCapability,
@@ -296,6 +297,7 @@ public class CrmIntegrationStore {
     private StoredRequest mapRow(java.sql.ResultSet rs) throws java.sql.SQLException {
         return new StoredRequest(
                 (UUID) rs.getObject("id"), (UUID) rs.getObject("tenant_id"),
+                (UUID) rs.getObject("actor_id"),
                 rs.getString("integration_type"), rs.getString("status"),
                 (UUID) rs.getObject("external_reference"), rs.getString("correlation_id"),
                 rs.getString("idempotency_key"), rs.getString("source_entity_type"),

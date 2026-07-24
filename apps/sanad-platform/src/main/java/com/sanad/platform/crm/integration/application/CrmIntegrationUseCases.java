@@ -19,34 +19,27 @@ import java.util.UUID;
 /**
  * Application service for CRM integration requests.
  *
- * Uses transactional outbox for durable dispatch:
- *   1. Persist request + outbox event in one transaction
+ * Uses transactional outbox pattern:
+ *   1. Persist request + outbox event in one transaction, commit, return HTTP 202
  *   2. Worker claims outbox event, calls external service, stores result
- *   3. Uses original Idempotency-Key for downstream dedup
  *
- * Decision idempotency via crm_integration_decisions table:
- *   - Same key + same fingerprint → return existing
- *   - Same key + different fingerprint → IdempotencyConflictException
+ * NO external service calls happen inside requestAiInsight() transaction.
  */
 @Service
 public class CrmIntegrationUseCases {
 
     private final CrmIntegrationStore store;
-    private final AiGatewayPort ai;
     private final ObjectMapper mapper;
 
-    public CrmIntegrationUseCases(CrmIntegrationStore store, AiGatewayPort ai, ObjectMapper mapper) {
+    public CrmIntegrationUseCases(CrmIntegrationStore store, ObjectMapper mapper) {
         this.store = store;
-        this.ai = ai;
         this.mapper = mapper;
     }
 
     /**
-     * Request an AI insight using durable dispatch:
-     * 1. Persist request + outbox event in one transaction
-     * 2. Dispatch to AI Gateway (synchronously for now — worker pattern for async)
-     * 3. Store result via atomic transition()
-     * 4. Complete outbox event
+     * Request an AI insight. Creates request + outbox event atomically.
+     * Does NOT call AI Gateway — that happens in the outbox worker.
+     * Returns HTTP 202 with status=PENDING.
      */
     @Transactional
     public CrmIntegrationStore.StoredRequest requestAiInsight(
@@ -65,7 +58,7 @@ public class CrmIntegrationUseCases {
 
         JsonNode minimizedPayload = buildMinimizedPayload(capability, sourceEntityType, sourceEntityId, userIntent);
 
-        // Step 1: Persist request
+        // Persist request + outbox event atomically — NO external call here
         CrmIntegrationStore.CreateResult createResult = store.create(envelope, "AI", minimizedPayload);
 
         // RETURNED_EXISTING: never redispatch
@@ -73,47 +66,12 @@ public class CrmIntegrationUseCases {
             return createResult.request();
         }
 
-        // Step 1b: Create outbox event atomically with request
+        // Create outbox event atomically with request
         store.createOutboxEvent(tenantId, createResult.request().id(), "AI",
                 idempotencyKey, minimizedPayload);
 
-        // Step 2: Dispatch to AI Gateway (synchronous — would be async worker in full outbox)
-        AiGatewayPort.AiResult result = ai.request(envelope, capability, minimizedPayload);
-
-        // Step 3: Store result via atomic transition
-        String targetStatus;
-        String safeErrorCode = null;
-        if (result.status() == AiGatewayPort.Status.AVAILABLE
-                || result.status() == AiGatewayPort.Status.PARTIAL) {
-            if (isActionableRecommendation(result)) {
-                targetStatus = "RECOMMENDATION_AVAILABLE";
-            } else {
-                targetStatus = "COMPLETED";
-            }
-        } else {
-            targetStatus = switch (result.status()) {
-                case TIMED_OUT -> "TIMED_OUT";
-                case POLICY_DENIED -> "POLICY_DENIED";
-                case UNSAFE_OUTPUT -> "UNSAFE_OUTPUT";
-                case UNAVAILABLE -> "UNAVAILABLE";
-                default -> "UNAVAILABLE";
-            };
-            safeErrorCode = mapToSafeErrorCode(result);
-        }
-
-        JsonNode resultJson = mapper.valueToTree(result);
-        CrmIntegrationStore.TransitionResult tr = store.transition(
-                tenantId, createResult.request().id(), createResult.request().version(),
-                Set.of("PENDING"), targetStatus, null, resultJson, safeErrorCode);
-
-        // Step 4: Complete outbox event
-        // (In full async mode, this would be done by the worker after external call)
-        // For now, synchronous completion is safe because we're in the same transaction
-
-        if (!tr.success()) {
-            return store.find(tenantId, createResult.request().id()).orElseThrow();
-        }
-        return tr.request();
+        // Return PENDING — worker will dispatch asynchronously
+        return createResult.request();
     }
 
     public CrmIntegrationStore.StoredRequest getStatus(UUID tenantId, UUID requestId) {
@@ -122,7 +80,7 @@ public class CrmIntegrationUseCases {
 
     /**
      * Confirm an AI recommendation with decision idempotency.
-     * Uses crm_integration_decisions table for idempotency key dedup.
+     * AI result_payload is NOT modified — decision stored separately.
      */
     @Transactional
     public CrmIntegrationStore.StoredRequest confirmRecommendation(
@@ -152,8 +110,8 @@ public class CrmIntegrationUseCases {
                     " actual=" + existing.sourceEntityVersion());
         }
 
-        // Create decision record (idempotent)
-        String fingerprint = computeFingerprint(requestId, "CONFIRM", expectedEntityVersion, correlationId);
+        // Create decision record (idempotent) — fingerprint WITHOUT correlationId
+        String fingerprint = computeFingerprint(requestId, "CONFIRM", expectedEntityVersion);
         CrmIntegrationStore.DecisionResult dr = store.createDecision(
                 tenantId, requestId, actorId, "CONFIRM", idempotencyKey,
                 fingerprint, expectedEntityVersion, correlationId);
@@ -172,16 +130,11 @@ public class CrmIntegrationUseCases {
         }
 
         // Atomic transition: RECOMMENDATION_AVAILABLE → CONFIRMED
+        // Uses status-only transition (no result_payload modification)
         CrmIntegrationStore.TransitionResult tr = store.transition(
                 tenantId, requestId, existing.version(),
                 Set.of("RECOMMENDATION_AVAILABLE"), "CONFIRMED",
-                null,
-                mapper.valueToTree(java.util.Map.of(
-                        "confirmedBy", actorId.toString(),
-                        "confirmedAt", Instant.now().toString(),
-                        "expectedEntityVersion", expectedEntityVersion,
-                        "decisionId", dr.record().id().toString())),
-                null);
+                null, null, null);
 
         if (!tr.success()) {
             store.transitionDecision(tenantId, dr.record().id(), dr.record().version(),
@@ -189,7 +142,7 @@ public class CrmIntegrationUseCases {
             throw new IllegalStateException("State transition conflict — concurrent confirm/reject");
         }
 
-        // Mark decision as confirmed
+        // Mark decision as confirmed (non-terminal — completed_at stays NULL)
         store.transitionDecision(tenantId, dr.record().id(), dr.record().version(),
                 Set.of("PENDING"), "CONFIRMED", null, null);
 
@@ -213,7 +166,10 @@ public class CrmIntegrationUseCases {
                     ", expected RECOMMENDATION_AVAILABLE");
         }
 
-        String fingerprint = computeFingerprint(requestId, "REJECT", existing.sourceEntityVersion(), correlationId);
+        // Fingerprint includes normalized reason (NOT correlationId)
+        String normalizedReason = reason != null ? reason.trim() : "User rejected";
+        String fingerprint = computeFingerprint(requestId, "REJECT",
+                existing.sourceEntityVersion(), normalizedReason);
         CrmIntegrationStore.DecisionResult dr = store.createDecision(
                 tenantId, requestId, actorId, "REJECT", idempotencyKey,
                 fingerprint, existing.sourceEntityVersion(), correlationId);
@@ -230,16 +186,11 @@ public class CrmIntegrationUseCases {
             throw new IllegalStateException("Decision already in progress: " + dr.record().decisionStatus());
         }
 
+        // Status-only transition — does NOT modify result_payload
         CrmIntegrationStore.TransitionResult tr = store.transition(
                 tenantId, requestId, existing.version(),
                 Set.of("RECOMMENDATION_AVAILABLE"), "REJECTED",
-                null,
-                mapper.valueToTree(java.util.Map.of(
-                        "rejectedBy", actorId.toString(),
-                        "rejectedAt", Instant.now().toString(),
-                        "reason", reason != null ? reason : "User rejected",
-                        "decisionId", dr.record().id().toString())),
-                null);
+                null, null, null);
 
         if (!tr.success()) {
             store.transitionDecision(tenantId, dr.record().id(), dr.record().version(),
@@ -257,35 +208,24 @@ public class CrmIntegrationUseCases {
     // Helpers
     // ============================================================
 
-    private String computeFingerprint(UUID requestId, String decision, long entityVersion, String correlationId) {
+    /**
+     * Stable fingerprint WITHOUT correlationId (correlationId changes between retries).
+     * For REJECT, includes normalized reason.
+     */
+    private String computeFingerprint(UUID requestId, String decision, long entityVersion) {
+        return computeFingerprint(requestId, decision, entityVersion, null);
+    }
+
+    private String computeFingerprint(UUID requestId, String decision, long entityVersion, String normalizedReason) {
         try {
-            String input = requestId + "|" + decision + "|" + entityVersion + "|" + correlationId;
+            String input = requestId + "|" + decision + "|" + entityVersion;
+            if (normalizedReason != null) input += "|" + normalizedReason;
             MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
             byte[] hash = sha256.digest(input.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(hash);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to compute fingerprint", e);
         }
-    }
-
-    private boolean isActionableRecommendation(AiGatewayPort.AiResult result) {
-        return result.actionable()
-                && result.humanConfirmationRequired()
-                && result.actionCode() != null && !result.actionCode().isBlank()
-                && result.generatedAt() != null
-                && result.expiresAt() != null && result.expiresAt().isAfter(Instant.now())
-                && result.policyVersion() != null
-                && result.modelVersion() != null;
-    }
-
-    private String mapToSafeErrorCode(AiGatewayPort.AiResult result) {
-        return switch (result.status()) {
-            case UNAVAILABLE -> "AI_GATEWAY_UNAVAILABLE";
-            case TIMED_OUT -> "AI_GATEWAY_TIMEOUT";
-            case POLICY_DENIED -> "AI_POLICY_DENIED";
-            case UNSAFE_OUTPUT -> "AI_UNSAFE_OUTPUT";
-            default -> "AI_UNKNOWN_ERROR";
-        };
     }
 
     private JsonNode buildMinimizedPayload(AiGatewayPort.Capability capability,

@@ -1,6 +1,8 @@
 package com.sanad.platform.crm.web;
 
 import com.sanad.platform.crm.integration.application.CrmIntegrationUseCases;
+import com.sanad.platform.crm.integration.application.ConfirmedRecommendationExecutor;
+import com.sanad.platform.crm.integration.application.CrmEntitySnapshotPort;
 import com.sanad.platform.crm.integration.orchestration.AiGatewayPort;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import com.sanad.platform.security.authorization.RequireCapability;
@@ -20,16 +22,26 @@ import java.util.UUID;
 /**
  * Governed CRM boundary to the central Workflow and AI integration layer.
  * Controller is HTTP boundary only — all orchestration is in CrmIntegrationUseCases.
+ *
+ * AI result_payload is immutable — confirm/reject use status-only transitions.
+ * If-Match header is required for confirm/reject and validated against version.
  */
 @RestController
 @RequestMapping("/api/v2/crm/integrations")
 public class CrmIntegrationController {
     private final CrmOwnershipHttpSupport http;
     private final CrmIntegrationUseCases useCases;
+    private final ConfirmedRecommendationExecutor executor;
+    private final CrmEntitySnapshotPort entitySnapshotPort;
 
-    public CrmIntegrationController(CrmOwnershipHttpSupport http, CrmIntegrationUseCases useCases) {
+    public CrmIntegrationController(CrmOwnershipHttpSupport http,
+                                    CrmIntegrationUseCases useCases,
+                                    ConfirmedRecommendationExecutor executor,
+                                    CrmEntitySnapshotPort entitySnapshotPort) {
         this.http = http;
         this.useCases = useCases;
+        this.executor = executor;
+        this.entitySnapshotPort = entitySnapshotPort;
     }
 
     @RequireCapability("CRM.AI.READ")
@@ -75,11 +87,30 @@ public class CrmIntegrationController {
             Authentication authentication,
             @PathVariable UUID requestId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
-            @RequestHeader(value = "If-Match", required = false) String ifMatch,
+            @RequestHeader("If-Match") String ifMatch,
             @Valid @RequestBody ConfirmRequest body,
             HttpServletRequest request) {
         var context = http.context(authentication);
         var trace = http.trace(request);
+
+        // Validate If-Match header — must match integration request version
+        long expectedVersion;
+        try {
+            expectedVersion = Long.parseLong(ifMatch.trim());
+        } catch (NumberFormatException e) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        // Load live entity snapshot for version validation
+        var snapshot = entitySnapshotPort.load(
+                context.tenantId(), body.sourceEntityType(), body.sourceEntityId());
+        if (snapshot == null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        }
+        if (snapshot.currentVersion() != body.expectedEntityVersion()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        }
+
         var result = useCases.confirmRecommendation(
                 context.tenantId(), context.userId(), requestId,
                 trace.correlationId().toString(), idempotencyKey,
@@ -121,6 +152,10 @@ public class CrmIntegrationController {
             @PositiveOrZero long sourceEntityVersion,
             String userIntent) { }
 
-    public record ConfirmRequest(@PositiveOrZero long expectedEntityVersion) { }
+    public record ConfirmRequest(
+            @NotBlank String sourceEntityType,
+            @NotNull UUID sourceEntityId,
+            @PositiveOrZero long expectedEntityVersion) { }
+
     public record RejectRequest(String reason) { }
 }
