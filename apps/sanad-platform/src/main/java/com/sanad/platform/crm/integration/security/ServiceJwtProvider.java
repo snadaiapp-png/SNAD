@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Date;
 import java.util.Objects;
 import java.util.UUID;
@@ -95,8 +96,9 @@ public class ServiceJwtProvider {
                     .parseSignedClaims(token)
                     .getPayload();
 
-            String audience = String.valueOf(claims.get("aud"));
-            if (!required(expectedAudience, "expectedAudience").equals(audience)) {
+            String normalizedExpectedAudience = required(expectedAudience, "expectedAudience");
+            Object audienceClaim = claims.get("aud");
+            if (!containsAudience(audienceClaim, normalizedExpectedAudience)) {
                 throw new ServiceAuthenticationException("SERVICE_TOKEN_AUDIENCE_INVALID");
             }
             String tokenService = claims.get("service_name", String.class);
@@ -111,12 +113,25 @@ public class ServiceJwtProvider {
             Instant expiresAt = claims.getExpiration().toInstant();
             return new ValidatedServiceToken(
                     tokenService, tenantId, correlationId, contractVersion,
-                    audience, jti, issuedAt, expiresAt);
+                    normalizedExpectedAudience, jti, issuedAt, expiresAt);
         } catch (ServiceAuthenticationException error) {
             throw error;
         } catch (JwtException | IllegalArgumentException | NullPointerException error) {
             throw new ServiceAuthenticationException("SERVICE_TOKEN_INVALID", error);
         }
+    }
+
+    private static boolean containsAudience(Object claim, String expectedAudience) {
+        if (claim instanceof Collection<?> values) {
+            return values.stream().anyMatch(value -> expectedAudience.equals(String.valueOf(value)));
+        }
+        if (claim instanceof Object[] values) {
+            for (Object value : values) {
+                if (expectedAudience.equals(String.valueOf(value))) return true;
+            }
+            return false;
+        }
+        return claim != null && expectedAudience.equals(String.valueOf(claim));
     }
 
     public record ValidatedServiceToken(
