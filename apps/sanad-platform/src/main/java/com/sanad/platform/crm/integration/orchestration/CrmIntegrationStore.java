@@ -248,8 +248,8 @@ public class CrmIntegrationStore {
                         "FROM crm_integration_decisions WHERE tenant_id=? AND integration_request_id=? AND idempotency_key=?",
                 (rs, row) -> new DecisionRecord(
                         (UUID) rs.getObject("id"), (UUID) rs.getObject("tenant_id"),
-                (UUID) rs.getObject("actor_id"),
-                        (UUID) rs.getObject("integration_request_id"), (UUID) rs.getObject("actor_id"),
+                        (UUID) rs.getObject("integration_request_id"),
+                        (UUID) rs.getObject("actor_id"),
                         rs.getString("decision"), rs.getString("idempotency_key"),
                         rs.getString("request_fingerprint"), rs.getLong("expected_entity_version"),
                         rs.getString("correlation_id"), rs.getString("decision_status"),
