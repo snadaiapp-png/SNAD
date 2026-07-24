@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS crm_integration_outbox (
     next_attempt_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     claimed_at TIMESTAMP WITH TIME ZONE,
     claimed_by VARCHAR(200),
+    claim_token UUID,
     claim_expires_at TIMESTAMP WITH TIME ZONE,
     last_error_code VARCHAR(120),
     idempotency_key VARCHAR(200) NOT NULL,

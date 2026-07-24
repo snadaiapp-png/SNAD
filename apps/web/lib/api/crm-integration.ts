@@ -41,8 +41,6 @@ export interface CrmAiInsightRequest {
 }
 
 export interface CrmConfirmRequest {
-  sourceEntityType: string;
-  sourceEntityId: string;
   expectedEntityVersion: number;
 }
 
@@ -50,7 +48,7 @@ export interface CrmRejectRequest {
   reason?: string;
 }
 
-/** Uses the existing authenticated /api/platform BFF; the browser never calls Render directly. */
+/** Browser → Vercel BFF → Render — never calls Render or AI Gateway directly. */
 export async function requestCrmAiInsight(
   request: CrmAiInsightRequest,
   idempotencyKey: string,
@@ -75,34 +73,33 @@ export async function getCrmIntegrationStatus(
   );
 }
 
-/** Confirm an AI recommendation. Requires CRM.AI.CONFIRM capability. If-Match is required. */
+/** Confirm requires If-Match (integration request version) and CRM.AI.CONFIRM capability. */
 export async function confirmCrmAiRecommendation(
   requestId: string,
   idempotencyKey: string,
   ifMatch: string,
-  body: CrmConfirmRequest,
+  expectedEntityVersion: number,
   client: ApiClient = apiClient,
 ): Promise<CrmIntegrationRequestStatus> {
   if (!idempotencyKey.trim()) throw new Error("idempotencyKey is required");
   if (!ifMatch.trim()) throw new Error("If-Match header is required");
   return client.post<CrmIntegrationRequestStatus, CrmConfirmRequest>(
     `/api/v2/crm/integrations/${encodeURIComponent(requestId)}/confirm`,
-    body,
+    { expectedEntityVersion },
     { context: { headers: { "Idempotency-Key": idempotencyKey, "If-Match": ifMatch } }, cache: "no-store" },
   );
 }
 
-/** Reject an AI recommendation. Requires CRM.AI.CONFIRM capability. */
 export async function rejectCrmAiRecommendation(
   requestId: string,
   idempotencyKey: string,
-  body: CrmRejectRequest,
+  reason?: string,
   client: ApiClient = apiClient,
 ): Promise<CrmIntegrationRequestStatus> {
   if (!idempotencyKey.trim()) throw new Error("idempotencyKey is required");
   return client.post<CrmIntegrationRequestStatus, CrmRejectRequest>(
     `/api/v2/crm/integrations/${encodeURIComponent(requestId)}/reject`,
-    body,
+    { reason },
     { context: { headers: { "Idempotency-Key": idempotencyKey } }, cache: "no-store" },
   );
 }

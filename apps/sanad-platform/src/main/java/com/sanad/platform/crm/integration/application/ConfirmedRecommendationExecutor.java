@@ -14,27 +14,21 @@ import java.util.UUID;
  * Only allowlisted action codes are permitted.
  *
  * Lifecycle: CONFIRMED → EXECUTING → EXECUTED or EXECUTION_REJECTED
+ * Uses transitionStatus (preserves AI result_payload).
  */
 @Component
 public class ConfirmedRecommendationExecutor {
 
     private final CrmIntegrationStore store;
     private final ConfirmedRecommendationCommandPort commandPort;
-    private final ObjectMapper mapper;
 
     public ConfirmedRecommendationExecutor(
             CrmIntegrationStore store,
-            ConfirmedRecommendationCommandPort commandPort,
-            ObjectMapper mapper) {
+            ConfirmedRecommendationCommandPort commandPort) {
         this.store = store;
         this.commandPort = commandPort;
-        this.mapper = mapper;
     }
 
-    /**
-     * Execute a confirmed recommendation.
-     * Transitions: CONFIRMED → EXECUTING → EXECUTED / EXECUTION_REJECTED
-     */
     @Transactional
     public CrmIntegrationStore.StoredRequest execute(
             UUID tenantId, UUID actorId, UUID requestId, UUID decisionId,
@@ -58,17 +52,17 @@ public class ConfirmedRecommendationExecutor {
             throw new IllegalStateException("Unknown actionCode not in allowlist: " + actionCode);
         }
 
-        // Transition: CONFIRMED → EXECUTING (non-terminal, no completed_at)
-        CrmIntegrationStore.TransitionResult execTransition = store.transition(
+        // Status-only transition: CONFIRMED → EXECUTING (preserves AI result)
+        CrmIntegrationStore.TransitionResult execTransition = store.transitionStatus(
                 tenantId, requestId, request.version(),
-                Set.of("CONFIRMED"), "EXECUTING", null, null, null);
+                Set.of("CONFIRMED"), "EXECUTING");
 
         if (!execTransition.success()) {
             throw new IllegalStateException("State transition conflict: CONFIRMED → EXECUTING");
         }
 
-        // Update decision to EXECUTING
-        CrmIntegrationStore.DecisionRecord decision = store.findDecision(tenantId, requestId, decisionId.toString())
+        // Update decision to EXECUTING (non-terminal, completed_at stays NULL)
+        CrmIntegrationStore.DecisionRecord decision = store.findDecisionById(tenantId, requestId, decisionId)
                 .orElseThrow(() -> new IllegalArgumentException("Decision not found"));
         store.transitionDecision(tenantId, decisionId, decision.version(),
                 Set.of("CONFIRMED"), "EXECUTING", null, null);
@@ -83,18 +77,18 @@ public class ConfirmedRecommendationExecutor {
         ConfirmedRecommendationCommandPort.CommandExecutionResult result =
                 commandPort.execute(recommendation);
 
-        // Transition to final state
+        // Status-only transition to final state (preserves AI result)
         String finalStatus = result.success() ? "EXECUTED" : "EXECUTION_REJECTED";
         String errorCode = result.success() ? null : result.errorCode();
 
-        CrmIntegrationStore.TransitionResult finalTransition = store.transition(
+        CrmIntegrationStore.TransitionResult finalTransition = store.transitionStatus(
                 tenantId, requestId, execTransition.request().version(),
-                Set.of("EXECUTING"), finalStatus, null, null, errorCode);
+                Set.of("EXECUTING"), finalStatus);
 
         // Update decision
         String decisionFinalStatus = result.success() ? "EXECUTED" : "EXECUTION_REJECTED";
         store.transitionDecision(tenantId, decisionId,
-                decision.version() + 1, // version was incremented by EXECUTING transition
+                decision.version() + 1,
                 Set.of("EXECUTING"), decisionFinalStatus,
                 result.commandReference(), errorCode);
 

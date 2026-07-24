@@ -2,7 +2,6 @@ package com.sanad.platform.crm.web;
 
 import com.sanad.platform.crm.integration.application.CrmIntegrationUseCases;
 import com.sanad.platform.crm.integration.application.ConfirmedRecommendationExecutor;
-import com.sanad.platform.crm.integration.application.CrmEntitySnapshotPort;
 import com.sanad.platform.crm.integration.orchestration.AiGatewayPort;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import com.sanad.platform.security.authorization.RequireCapability;
@@ -23,25 +22,19 @@ import java.util.UUID;
  * Governed CRM boundary to the central Workflow and AI integration layer.
  * Controller is HTTP boundary only — all orchestration is in CrmIntegrationUseCases.
  *
- * AI result_payload is immutable — confirm/reject use status-only transitions.
- * If-Match header is required for confirm/reject and validated against version.
+ * Entity identity for confirmation comes from the stored integration request,
+ * NOT from client payload. If-Match is required and validated.
  */
 @RestController
 @RequestMapping("/api/v2/crm/integrations")
 public class CrmIntegrationController {
     private final CrmOwnershipHttpSupport http;
     private final CrmIntegrationUseCases useCases;
-    private final ConfirmedRecommendationExecutor executor;
-    private final CrmEntitySnapshotPort entitySnapshotPort;
 
     public CrmIntegrationController(CrmOwnershipHttpSupport http,
-                                    CrmIntegrationUseCases useCases,
-                                    ConfirmedRecommendationExecutor executor,
-                                    CrmEntitySnapshotPort entitySnapshotPort) {
+                                    CrmIntegrationUseCases useCases) {
         this.http = http;
         this.useCases = useCases;
-        this.executor = executor;
-        this.entitySnapshotPort = entitySnapshotPort;
     }
 
     @RequireCapability("CRM.AI.READ")
@@ -93,22 +86,19 @@ public class CrmIntegrationController {
         var context = http.context(authentication);
         var trace = http.trace(request);
 
-        // Validate If-Match header — must match integration request version
-        long expectedVersion;
+        // Validate If-Match — must match integration request version
+        long ifMatchVersion;
         try {
-            expectedVersion = Long.parseLong(ifMatch.trim());
+            ifMatchVersion = Long.parseLong(ifMatch.trim().replaceAll("\"", ""));
         } catch (NumberFormatException e) {
-            return ResponseEntity.badRequest().build();
+            return ResponseEntity.status(HttpStatus.PRECONDITION_FAILED).build();
         }
 
-        // Load live entity snapshot for version validation
-        var snapshot = entitySnapshotPort.load(
-                context.tenantId(), body.sourceEntityType(), body.sourceEntityId());
-        if (snapshot == null) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).build();
-        }
-        if (snapshot.currentVersion() != body.expectedEntityVersion()) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        // Load request to verify If-Match
+        CrmIntegrationStore.StoredRequest current = useCases.getStatus(context.tenantId(), requestId);
+        if (current == null) return ResponseEntity.notFound().build();
+        if (current.version() != ifMatchVersion) {
+            return ResponseEntity.status(HttpStatus.PRECONDITION_FAILED).build();
         }
 
         var result = useCases.confirmRecommendation(
@@ -118,6 +108,7 @@ public class CrmIntegrationController {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Request-ID", trace.requestId().toString());
         headers.set("X-Correlation-ID", trace.correlationId().toString());
+        headers.set("ETag", String.valueOf(result.version()));
         return ResponseEntity.ok().headers(headers).body(result);
     }
 
@@ -138,11 +129,13 @@ public class CrmIntegrationController {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Request-ID", trace.requestId().toString());
         headers.set("X-Correlation-ID", trace.correlationId().toString());
+        headers.set("ETag", String.valueOf(result.version()));
         return ResponseEntity.ok().headers(headers).body(result);
     }
 
     // ============================================================
     // Request DTOs — client sends only safe, minimal fields
+    // No entity identity in ConfirmRequest — comes from stored request
     // ============================================================
 
     public record AiRequest(
@@ -153,8 +146,6 @@ public class CrmIntegrationController {
             String userIntent) { }
 
     public record ConfirmRequest(
-            @NotBlank String sourceEntityType,
-            @NotNull UUID sourceEntityId,
             @PositiveOrZero long expectedEntityVersion) { }
 
     public record RejectRequest(String reason) { }

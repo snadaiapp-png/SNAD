@@ -162,6 +162,7 @@ CREATE TABLE crm_integration_outbox (
     next_attempt_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     claimed_at              TIMESTAMPTZ,
     claimed_by              VARCHAR(200),
+    claim_token             UUID,
     claim_expires_at        TIMESTAMPTZ,
     last_error_code         VARCHAR(120),
     idempotency_key         VARCHAR(200) NOT NULL,
@@ -180,8 +181,8 @@ CREATE TABLE crm_integration_outbox (
         attempt_count >= 0 AND attempt_count <= max_attempts
     ),
     CONSTRAINT crm_integration_outbox_claim_ck CHECK (
-        (dispatch_status = 'CLAIMED' AND claimed_at IS NOT NULL AND claim_expires_at IS NOT NULL)
-        OR (dispatch_status <> 'CLAIMED' AND claimed_at IS NULL AND claim_expires_at IS NULL)
+        (dispatch_status = 'CLAIMED' AND claimed_at IS NOT NULL AND claim_expires_at IS NOT NULL AND claim_token IS NOT NULL AND claimed_by IS NOT NULL)
+        OR (dispatch_status <> 'CLAIMED' AND claimed_at IS NULL AND claim_expires_at IS NULL AND claim_token IS NULL AND claimed_by IS NULL)
     ),
     CONSTRAINT crm_integration_outbox_terminal_ck CHECK (
         (dispatch_status NOT IN ('COMPLETED','DEAD_LETTER','CANCELLED'))

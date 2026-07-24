@@ -19,28 +19,26 @@ import java.util.UUID;
 /**
  * Application service for CRM integration requests.
  *
- * Uses transactional outbox pattern:
- *   1. Persist request + outbox event in one transaction, commit, return HTTP 202
- *   2. Worker claims outbox event, calls external service, stores result
- *
- * NO external service calls happen inside requestAiInsight() transaction.
+ * Uses transactional outbox: request + outbox created atomically, no external call.
+ * Decision idempotency: checks decision BEFORE validating request state.
+ * AI result immutability: confirm/reject use transitionStatus (no result_payload modification).
+ * Entity validation: moved to application layer, not controller.
  */
 @Service
 public class CrmIntegrationUseCases {
 
     private final CrmIntegrationStore store;
+    private final CrmEntitySnapshotPort entitySnapshotPort;
     private final ObjectMapper mapper;
 
-    public CrmIntegrationUseCases(CrmIntegrationStore store, ObjectMapper mapper) {
+    public CrmIntegrationUseCases(CrmIntegrationStore store,
+                                  CrmEntitySnapshotPort entitySnapshotPort,
+                                  ObjectMapper mapper) {
         this.store = store;
+        this.entitySnapshotPort = entitySnapshotPort;
         this.mapper = mapper;
     }
 
-    /**
-     * Request an AI insight. Creates request + outbox event atomically.
-     * Does NOT call AI Gateway — that happens in the outbox worker.
-     * Returns HTTP 202 with status=PENDING.
-     */
     @Transactional
     public CrmIntegrationStore.StoredRequest requestAiInsight(
             UUID tenantId, UUID actorId, String correlationId, String causationId,
@@ -58,19 +56,15 @@ public class CrmIntegrationUseCases {
 
         JsonNode minimizedPayload = buildMinimizedPayload(capability, sourceEntityType, sourceEntityId, userIntent);
 
-        // Persist request + outbox event atomically — NO external call here
         CrmIntegrationStore.CreateResult createResult = store.create(envelope, "AI", minimizedPayload);
 
-        // RETURNED_EXISTING: never redispatch
         if (createResult.disposition() == CrmIntegrationStore.CreationDisposition.RETURNED_EXISTING) {
             return createResult.request();
         }
 
-        // Create outbox event atomically with request
         store.createOutboxEvent(tenantId, createResult.request().id(), "AI",
                 idempotencyKey, minimizedPayload);
 
-        // Return PENDING — worker will dispatch asynchronously
         return createResult.request();
     }
 
@@ -79,14 +73,27 @@ public class CrmIntegrationUseCases {
     }
 
     /**
-     * Confirm an AI recommendation with decision idempotency.
-     * AI result_payload is NOT modified — decision stored separately.
+     * Confirm recommendation. Decision is checked BEFORE state validation.
+     * Entity validation uses request's stored entity, NOT client-supplied.
+     * Uses transitionStatus (preserves AI result_payload).
      */
     @Transactional
     public CrmIntegrationStore.StoredRequest confirmRecommendation(
             UUID tenantId, UUID actorId, UUID requestId, String correlationId,
             String idempotencyKey, long expectedEntityVersion) {
 
+        // Step 1: Check decision BEFORE validating request state
+        String fingerprint = computeFingerprint(requestId, "CONFIRM", expectedEntityVersion);
+        CrmIntegrationStore.DecisionResult dr = store.createDecision(
+                tenantId, requestId, actorId, "CONFIRM", idempotencyKey,
+                fingerprint, expectedEntityVersion, correlationId);
+
+        if (!dr.created()) {
+            // Existing decision — return based on its status (works after any terminal state)
+            return handleExistingDecision(tenantId, requestId, dr.record());
+        }
+
+        // Step 2: Validate request state (only for new decisions)
         CrmIntegrationStore.StoredRequest existing = store.find(tenantId, requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Integration request not found"));
 
@@ -99,42 +106,18 @@ public class CrmIntegrationUseCases {
                     ", expected RECOMMENDATION_AVAILABLE");
         }
         if (Instant.now().isAfter(existing.expiresAt())) {
-            store.transition(tenantId, requestId, existing.version(),
-                    Set.of("RECOMMENDATION_AVAILABLE"), "EXPIRED",
-                    null, null, "STALE_RECOMMENDATION");
+            store.transitionStatus(tenantId, requestId, existing.version(),
+                    Set.of("RECOMMENDATION_AVAILABLE"), "EXPIRED");
             throw new IllegalStateException("Recommendation has expired");
         }
-        if (existing.sourceEntityVersion() != expectedEntityVersion) {
-            throw new IllegalStateException(
-                    "Entity version mismatch: expected=" + expectedEntityVersion +
-                    " actual=" + existing.sourceEntityVersion());
-        }
 
-        // Create decision record (idempotent) — fingerprint WITHOUT correlationId
-        String fingerprint = computeFingerprint(requestId, "CONFIRM", expectedEntityVersion);
-        CrmIntegrationStore.DecisionResult dr = store.createDecision(
-                tenantId, requestId, actorId, "CONFIRM", idempotencyKey,
-                fingerprint, expectedEntityVersion, correlationId);
+        // Step 3: Live entity validation using REQUEST's stored entity (not client's)
+        validateEntityVersion(tenantId, existing, expectedEntityVersion);
 
-        if (!dr.created()) {
-            // Already exists — return based on existing decision status
-            if ("CONFIRMED".equals(dr.record().decisionStatus())
-                    || "EXECUTING".equals(dr.record().decisionStatus())
-                    || "EXECUTED".equals(dr.record().decisionStatus())) {
-                return store.find(tenantId, requestId).orElseThrow();
-            }
-            if ("REJECTED".equals(dr.record().decisionStatus())) {
-                throw new IllegalStateException("Recommendation was already rejected");
-            }
-            throw new IllegalStateException("Decision already in progress: " + dr.record().decisionStatus());
-        }
-
-        // Atomic transition: RECOMMENDATION_AVAILABLE → CONFIRMED
-        // Uses status-only transition (no result_payload modification)
-        CrmIntegrationStore.TransitionResult tr = store.transition(
+        // Step 4: Status-only transition (preserves AI result_payload)
+        CrmIntegrationStore.TransitionResult tr = store.transitionStatus(
                 tenantId, requestId, existing.version(),
-                Set.of("RECOMMENDATION_AVAILABLE"), "CONFIRMED",
-                null, null, null);
+                Set.of("RECOMMENDATION_AVAILABLE"), "CONFIRMED");
 
         if (!tr.success()) {
             store.transitionDecision(tenantId, dr.record().id(), dr.record().version(),
@@ -142,7 +125,6 @@ public class CrmIntegrationUseCases {
             throw new IllegalStateException("State transition conflict — concurrent confirm/reject");
         }
 
-        // Mark decision as confirmed (non-terminal — completed_at stays NULL)
         store.transitionDecision(tenantId, dr.record().id(), dr.record().version(),
                 Set.of("PENDING"), "CONFIRMED", null, null);
 
@@ -154,43 +136,34 @@ public class CrmIntegrationUseCases {
             UUID tenantId, UUID actorId, UUID requestId, String correlationId,
             String idempotencyKey, String reason) {
 
-        CrmIntegrationStore.StoredRequest existing = store.find(tenantId, requestId)
+        // Step 1: Check decision BEFORE state validation
+        String normalizedReason = reason != null ? reason.trim() : "User rejected";
+        CrmIntegrationStore.StoredRequest request = store.find(tenantId, requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Integration request not found"));
+        String fingerprint = computeFingerprint(requestId, "REJECT",
+                request.sourceEntityVersion(), normalizedReason);
+        CrmIntegrationStore.DecisionResult dr = store.createDecision(
+                tenantId, requestId, actorId, "REJECT", idempotencyKey,
+                fingerprint, request.sourceEntityVersion(), correlationId);
 
-        if (!"AI".equals(existing.integrationType())) {
+        if (!dr.created()) {
+            return handleExistingDecision(tenantId, requestId, dr.record());
+        }
+
+        // Step 2: Validate state
+        if (!"AI".equals(request.integrationType())) {
             throw new IllegalStateException("Reject is only available for AI integration requests");
         }
-        if (!"RECOMMENDATION_AVAILABLE".equals(existing.status())) {
+        if (!"RECOMMENDATION_AVAILABLE".equals(request.status())) {
             throw new IllegalStateException(
-                    "Cannot reject: current status is " + existing.status() +
+                    "Cannot reject: current status is " + request.status() +
                     ", expected RECOMMENDATION_AVAILABLE");
         }
 
-        // Fingerprint includes normalized reason (NOT correlationId)
-        String normalizedReason = reason != null ? reason.trim() : "User rejected";
-        String fingerprint = computeFingerprint(requestId, "REJECT",
-                existing.sourceEntityVersion(), normalizedReason);
-        CrmIntegrationStore.DecisionResult dr = store.createDecision(
-                tenantId, requestId, actorId, "REJECT", idempotencyKey,
-                fingerprint, existing.sourceEntityVersion(), correlationId);
-
-        if (!dr.created()) {
-            if ("REJECTED".equals(dr.record().decisionStatus())) {
-                return store.find(tenantId, requestId).orElseThrow();
-            }
-            if ("CONFIRMED".equals(dr.record().decisionStatus())
-                    || "EXECUTING".equals(dr.record().decisionStatus())
-                    || "EXECUTED".equals(dr.record().decisionStatus())) {
-                throw new IllegalStateException("Recommendation was already confirmed");
-            }
-            throw new IllegalStateException("Decision already in progress: " + dr.record().decisionStatus());
-        }
-
-        // Status-only transition — does NOT modify result_payload
-        CrmIntegrationStore.TransitionResult tr = store.transition(
-                tenantId, requestId, existing.version(),
-                Set.of("RECOMMENDATION_AVAILABLE"), "REJECTED",
-                null, null, null);
+        // Step 3: Status-only transition (preserves AI result_payload)
+        CrmIntegrationStore.TransitionResult tr = store.transitionStatus(
+                tenantId, requestId, request.version(),
+                Set.of("RECOMMENDATION_AVAILABLE"), "REJECTED");
 
         if (!tr.success()) {
             store.transitionDecision(tenantId, dr.record().id(), dr.record().version(),
@@ -208,10 +181,49 @@ public class CrmIntegrationUseCases {
     // Helpers
     // ============================================================
 
-    /**
-     * Stable fingerprint WITHOUT correlationId (correlationId changes between retries).
-     * For REJECT, includes normalized reason.
-     */
+    private CrmIntegrationStore.StoredRequest handleExistingDecision(
+            UUID tenantId, UUID requestId, CrmIntegrationStore.DecisionRecord decision) {
+        String status = decision.decisionStatus();
+        if ("CONFIRMED".equals(status) || "EXECUTING".equals(status)
+                || "EXECUTED".equals(status)) {
+            return store.find(tenantId, requestId).orElseThrow();
+        }
+        if ("REJECTED".equals(status)) {
+            throw new IllegalStateException("Recommendation was already rejected");
+        }
+        if ("EXECUTION_REJECTED".equals(status)) {
+            throw new IllegalStateException("Recommendation execution was rejected");
+        }
+        if ("CONFLICT".equals(status)) {
+            throw new CrmIntegrationStore.IdempotencyConflictException(
+                    "Previous decision ended in CONFLICT state");
+        }
+        throw new IllegalStateException("Decision already in progress: " + status);
+    }
+
+    private void validateEntityVersion(UUID tenantId, CrmIntegrationStore.StoredRequest request,
+                                        long expectedEntityVersion) {
+        CrmEntitySnapshotPort.CrmEntitySnapshot snapshot = entitySnapshotPort.load(
+                tenantId, request.sourceEntityType(), request.sourceEntityId());
+
+        if (snapshot == null) {
+            throw new IllegalStateException("Entity not found: " + request.sourceEntityType()
+                    + "/" + request.sourceEntityId());
+        }
+        if (!snapshot.tenantId().equals(tenantId)) {
+            throw new IllegalStateException("Entity tenant mismatch");
+        }
+        if (snapshot.currentVersion() != request.sourceEntityVersion()) {
+            throw new IllegalStateException("STALE_RECOMMENDATION: entity version changed since recommendation");
+        }
+        if (snapshot.currentVersion() != expectedEntityVersion) {
+            throw new IllegalStateException("STALE_RECOMMENDATION: expected version mismatch");
+        }
+        if (!snapshot.active()) {
+            throw new IllegalStateException("Entity is not active");
+        }
+    }
+
     private String computeFingerprint(UUID requestId, String decision, long entityVersion) {
         return computeFingerprint(requestId, decision, entityVersion, null);
     }
