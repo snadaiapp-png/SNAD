@@ -8,7 +8,13 @@ import java.util.UUID;
 /** Provider-neutral boundary to the central Workflow Engine. */
 public interface WorkflowIntegrationPort {
     WorkflowDispatch dispatch(IntegrationEnvelope envelope, String workflowType, JsonNode minimizedPayload);
-    void cancel(UUID tenantId, UUID workflowRunId, String correlationId, String reason);
+
+    void cancel(
+            UUID tenantId,
+            UUID workflowRunId,
+            String correlationId,
+            String idempotencyKey,
+            String reason);
 
     record WorkflowDispatch(UUID workflowRunId, Status status, Instant acceptedAt, String errorCode) {
         public WorkflowDispatch {
