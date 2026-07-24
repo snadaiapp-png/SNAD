@@ -232,7 +232,12 @@ export default function CrmIntegrationsPage() {
     setBusy(true);
     setError("");
     try {
-      setRequest(await cancelCrmWorkflow(request.id, `"${request.version}"`, "Cancelled from CRM workspace"));
+      setRequest(await cancelCrmWorkflow(
+        request.id,
+        crypto.randomUUID(),
+        `"${request.version}"`,
+        "Cancelled from CRM workspace",
+      ));
     } catch (cause) {
       setError(toUserFacingError(cause).message);
     } finally {
