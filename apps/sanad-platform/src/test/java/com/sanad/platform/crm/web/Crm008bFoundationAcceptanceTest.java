@@ -56,6 +56,7 @@ class Crm008bFoundationAcceptanceTest {
     private static final String CRM_008B_CAPABILITIES_VERSION = "20260722.8";
     private static final String CRM_008B_COUNTERS_VERSION = "20260722.9";
     private static final String CRM_009_INTEGRATION_VERSION = "20260723.1";
+    private static final String CRM_009_COMMAND_EXECUTIONS_VERSION = "20260724.1";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
@@ -504,11 +505,11 @@ class Crm008bFoundationAcceptanceTest {
 
         JdbcTemplate jdbc = jdbc();
 
-        // Latest version is 20260723.1 (CRM-009 added V20260723_1 on top of CRM-008B)
+        // Latest version is 20260724.1 (CRM-009 added V20260724_1 command executions ledger)
         String latest = jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success=TRUE " +
                 "ORDER BY installed_rank DESC LIMIT 1", String.class);
-        assertThat(latest).isEqualTo(CRM_009_INTEGRATION_VERSION);
+        assertThat(latest).isEqualTo(CRM_009_COMMAND_EXECUTIONS_VERSION);
 
         // All 13 new CRM-008B tables exist
         List<String> expectedTables = List.of(

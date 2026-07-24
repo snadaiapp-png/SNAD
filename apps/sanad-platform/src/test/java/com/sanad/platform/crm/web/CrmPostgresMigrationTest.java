@@ -55,6 +55,7 @@ class CrmPostgresMigrationTest {
     private static final String CRM_008B_CAPABILITIES_VERSION = "20260722.8";
     private static final String CRM_008B_COUNTERS_VERSION = "20260722.9";
     private static final String CRM_009_INTEGRATION_VERSION = "20260723.1";
+    private static final String CRM_009_COMMAND_EXECUTIONS_VERSION = "20260724.1";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -96,7 +97,8 @@ class CrmPostgresMigrationTest {
             "crm_assignment_rule_counters");
 
     private static final List<String> CRM_009_NEW_TABLES = List.of(
-            "crm_integration_requests", "crm_integration_outbox", "crm_integration_decisions");
+            "crm_integration_requests", "crm_integration_outbox", "crm_integration_decisions",
+            "crm_integration_command_executions");
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
@@ -320,8 +322,9 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_008B_CAPABILITIES_VERSION, "SQL", "seed crm ownership capabilities");
         assertMigration(jdbc, CRM_008B_COUNTERS_VERSION, "SQL", "create crm assignment rule counters");
         assertMigration(jdbc, CRM_009_INTEGRATION_VERSION, "SQL", "create crm integration requests");
+        assertMigration(jdbc, CRM_009_COMMAND_EXECUTIONS_VERSION, "SQL", "create crm command executions ledger");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(CRM_009_INTEGRATION_VERSION);
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_009_COMMAND_EXECUTIONS_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 
