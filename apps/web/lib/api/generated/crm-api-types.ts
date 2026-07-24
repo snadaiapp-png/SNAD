@@ -6074,6 +6074,7 @@ export interface operations {
         readonly parameters: {
             readonly query?: never;
             readonly header: {
+                readonly "Idempotency-Key": string;
                 readonly "If-Match": string;
             };
             readonly path: {

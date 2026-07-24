@@ -274,12 +274,4 @@ public class JdbcTaskRepository implements TaskRepository {
             throw new IllegalArgumentException("Unsupported CRM task instant value: " + value.getClass(), invalidTemporalValue);
         }
     }
-
-    private static java.time.OffsetDateTime asOffsetDateTime(Object v) {
-        if (v == null) return null;
-        if (v instanceof java.time.OffsetDateTime odt) return odt;
-        if (v instanceof Timestamp t) return t.toInstant().atOffset(java.time.ZoneOffset.UTC);
-        if (v instanceof Instant i) return i.atOffset(java.time.ZoneOffset.UTC);
-        return null;
-    }
 }
