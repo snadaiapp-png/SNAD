@@ -78,18 +78,18 @@ public class CrmIntegrationOutboxWorker {
                 event.attemptCount(), event.maxAttempts());
 
         // Load integration request (no transaction needed for read)
-        CrmIntegrationStore.StoredRequest request = store.find(event.tenantId(), event.integrationRequestId())
+        final CrmIntegrationStore.StoredRequest initialRequest = store.find(event.tenantId(), event.integrationRequestId())
                 .orElseThrow(() -> new IllegalStateException("Integration request not found"));
 
         // Transaction A2: transition to DISPATCHED
         txTemplate.execute(status -> {
             store.transitionStatus(event.tenantId(), event.integrationRequestId(),
-                    request.version(), Set.of("PENDING"), "DISPATCHED");
+                    initialRequest.version(), Set.of("PENDING"), "DISPATCHED");
             return null;
         });
 
         // Reload after transition
-        request = store.find(event.tenantId(), event.integrationRequestId()).orElseThrow();
+        final CrmIntegrationStore.StoredRequest request = store.find(event.tenantId(), event.integrationRequestId()).orElseThrow();
 
         // NO DB TRANSACTION: External HTTP call
         DispatchResult dispatchResult;
