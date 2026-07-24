@@ -84,10 +84,8 @@ class CrashAfterCommitRecoveryPostgresTest {
         decisionId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        // Seed account for the activity to link to
-        jdbc.update("INSERT INTO crm_accounts (id, tenant_id, version, name, status, created_at, updated_at) " +
-                "VALUES (?, ?, 0, 'Test Account', 'ACTIVE', ?, ?)",
-                UUID.randomUUID(), tenantId, java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
+        // Seed the integration request only — no need to seed CRM entities
+        // (activities reference source_entity_id via related_id with no FK)
 
         ObjectNode resultPayload = mapper.createObjectNode();
         resultPayload.put("actionCode", "CREATE_FOLLOW_UP_ACTIVITY");

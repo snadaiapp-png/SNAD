@@ -98,21 +98,9 @@ class RealCommandAdaptersPostgresTest {
         opportunityId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        // Seed tenant + account + contact + opportunity + integration request
-        jdbc.update("INSERT INTO crm_accounts (id, tenant_id, version, name, status, created_at, updated_at) " +
-                "VALUES (?, ?, 0, 'Test Account', 'ACTIVE', ?, ?)",
-                UUID.randomUUID(), tenantId, java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
-        jdbc.update("INSERT INTO crm_contacts (id, tenant_id, version, first_name, last_name, status, created_at, updated_at) " +
-                "VALUES (?, ?, 0, 'Test', 'Contact', 'ACTIVE', ?, ?)",
-                contactId, tenantId, java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
-        jdbc.update("INSERT INTO crm_pipelines (id, tenant_id, version, name, status, created_at, updated_at) " +
-                "VALUES (?, ?, 0, 'Test Pipeline', 'ACTIVE', ?, ?)",
-                UUID.randomUUID(), tenantId, java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
-        jdbc.update("INSERT INTO crm_opportunities (id, tenant_id, version, account_id, pipeline_id, name, status, amount, created_at, updated_at) " +
-                "VALUES (?, ?, 0, ?, ?, 'Test Opp', 'OPEN', 10000, ?, ?)",
-                opportunityId, tenantId, UUID.randomUUID(), UUID.randomUUID(),
-                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
-
+        // Seed the integration request only — the adapters create activities/tasks
+        // that reference source_entity_id via related_id, but there is no FK
+        // constraint on related_id so we don't need to seed the actual CRM entities.
         jdbc.update("INSERT INTO crm_integration_requests " +
                         "(id, tenant_id, actor_id, integration_type, contract_name, contract_version, " +
                         "correlation_id, causation_id, idempotency_key, source_entity_type, source_entity_id, " +
