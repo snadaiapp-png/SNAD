@@ -4,42 +4,46 @@
 **Implementation PR:** #704  
 **Implementation branch:** `feature/crm-009-workflow-ai-implementation-20260723`
 
-## Implemented baseline
+## Implemented scope
 
-- Provider-neutral Workflow Engine contract.
-- Advisory-only AI Gateway contract.
-- Immutable tenant/actor/correlation/idempotency envelope.
-- Tenant-scoped durable integration request store.
-- PostgreSQL and H2 migrations for `crm_integration_requests`.
-- Typed frontend client through the existing authenticated Vercel BFF.
-- Contract tests for expiry, workflow mutation gating, AI output suppression, and human confirmation.
+- Provider-neutral, authenticated Workflow Engine integration.
+- Advisory AI Gateway integration without direct model-provider calls.
+- Immutable tenant, actor, correlation, causation, locale, contract, and idempotency envelope.
+- Tenant-scoped durable request, decision, outbox, command-execution, command-artifact, and callback-replay persistence.
+- Atomic confirmation and durable command enqueue.
+- Event-type ownership across AI, Workflow, and command workers.
+- Human confirmation and rejection with atomic `If-Match` and idempotency enforcement.
+- Real CRM command adapters for follow-up activities, scheduled contact actions, and opportunity review tasks.
+- Crash-after-side-effect recovery with durable artifact lookup and exactly-once enforcement.
+- Signed service JWT and callback signature, timestamp, nonce, body-digest, and replay validation.
+- Fail-closed production guard for real adapters, HTTPS service endpoints, and service-auth configuration.
+- Browser-facing Workflow and AI workspace through the authenticated same-origin `/api/platform` BFF.
+- Arabic RTL, English LTR, keyboard interaction, confirmation dialogs, workflow cancellation, status polling, and evidence panels.
 
-## Migration gate correction
-
-The first CI execution exposed a legitimate regression in `CrmPostgresMigrationTest`: its expected terminal Flyway version remained `20260722.9` and its CRM schema inventory did not include the CRM-009 migration.
-
-The test gate now explicitly includes:
-
-- terminal migration `20260723.1`;
-- `crm_integration_requests`;
-- native PostgreSQL JSONB checks for `payload` and `result_payload`;
-- expiry and tenant-scoped idempotency constraints;
-- tenant/status and correlation indexes;
-- `CRM.WORKFLOW.EXECUTE` and `CRM.AI.READ` capabilities;
-- total active CRM capability count of 57.
-
-Corrective commit: `2ef10215e70c17538de3c52a9a56929af601bec6`.
-
-## Active verification
-
-A full GitHub Actions rerun was triggered from the corrective commit. Merge, Render release, Vercel production promotion, and Issue #692 closure remain blocked until all required checks complete successfully and the concrete central Workflow Engine and AI Gateway runtime contracts are implemented and verified.
+## Contract and acceptance gates
 
 ```text
-CRM_009_IMPLEMENTATION: IN_PROGRESS
-DATABASE_MIGRATION_GATE: CORRECTED
-CI_RERUN: ACTIVE
-PR: DRAFT
-MERGE: BLOCKED_ON_REQUIRED_GATES
-PRODUCTION_DEPLOYMENT: NOT_YET_AUTHORIZED
-ISSUE_CLOSURE: NOT_YET_AUTHORIZED
+CRM_PUBLIC_PATHS: 107
+CRM_PUBLIC_OPERATIONS: 140
+PLATFORM_OPERATIONS: 316
+CRM_009_SPECIALIZED_TEST_FILES: 18
+CRM_009_SPECIALIZED_TESTS_MINIMUM: 63
+SPECIALIZED_SKIPPED_ALLOWED: 0
+SPECIALIZED_FAILURES_ALLOWED: 0
 ```
+
+The committed OpenAPI contract is generated from runtime and the TypeScript contract is generated from the committed OpenAPI artifact. GitHub Actions attached to the current PR head are the authoritative source for final CI status and run IDs.
+
+## Governance state
+
+```text
+CRM_009_IMPLEMENTATION: COMPLETE
+INTERNAL_ACCEPTANCE: REQUIRES_ALL_MANDATORY_CHECKS_ON_ONE_PR_HEAD
+PR: OPEN / DRAFT / UNMERGED
+READY_FOR_REVIEW_ACTION: NOT_EXECUTED
+MERGE: PROHIBITED UNTIL SEPARATE REVIEW AUTHORIZATION
+PRODUCTION_DEPLOYMENT: PROHIBITED UNTIL MERGE AND EXACT-SHA RELEASE AUTHORIZATION
+ISSUE_692: OPEN UNTIL MERGE, DEPLOYMENT, AND FORMAL PRODUCTION CLOSURE
+```
+
+This document records implementation scope and immutable acceptance thresholds. It intentionally does not hard-code a transient PR head or CI run status; those are recorded in PR #704 and its GitHub Actions evidence.
