@@ -3272,6 +3272,7 @@ export type components = {
             readonly contractVersion?: string;
             readonly causationId?: string;
             readonly dataClassification?: string;
+            readonly requestedLocale?: string;
             readonly payload?: components["schemas"]["JsonNode"];
             readonly resultPayload?: components["schemas"]["JsonNode"];
             /** Format: date-time */
@@ -5937,6 +5938,7 @@ export interface operations {
             readonly query?: never;
             readonly header: {
                 readonly "Idempotency-Key": string;
+                readonly "Accept-Language"?: string;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -6014,6 +6016,7 @@ export interface operations {
             readonly query?: never;
             readonly header: {
                 readonly "Idempotency-Key": string;
+                readonly "If-Match": string;
             };
             readonly path: {
                 readonly requestId: string;
