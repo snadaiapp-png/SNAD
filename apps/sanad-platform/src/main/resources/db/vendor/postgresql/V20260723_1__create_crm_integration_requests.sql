@@ -47,19 +47,35 @@ BEGIN
            'crm_integration_tenant_entity_idx',
            'crm_integration_outbox_claimable_idx',
            'crm_integration_outbox_retry_idx',
-           'crm_integration_outbox_tenant_status_idx'
+           'crm_integration_outbox_tenant_status_idx',
+           'crm_integration_outbox_expired_claim_idx',
+           'crm_integration_decisions_tenant_request_idx'
        );
     IF conflicting_index <> 0 THEN
         RAISE EXCEPTION 'V20260723.1 precondition failed: % conflicting indexes already exist', conflicting_index;
     END IF;
 
+    -- Strict capability tuple check: code, exact id, exact name, exact description, ACTIVE
     SELECT COUNT(*) INTO conflicting_capability
       FROM access_capabilities
      WHERE code IN ('CRM.WORKFLOW.EXECUTE', 'CRM.AI.READ', 'CRM.AI.CONFIRM')
-       AND (id NOT IN ('a0000009-0000-0000-0000-000000000901',
-                       'a0000009-0000-0000-0000-000000000902',
-                       'a0000009-0000-0000-0000-000000000903')
-            OR name NOT IN ('Execute CRM Workflows', 'Read CRM AI Insights', 'Confirm CRM AI Recommendations'));
+       AND NOT (
+            (code = 'CRM.WORKFLOW.EXECUTE'
+                AND id   = 'a0000009-0000-0000-0000-000000000901'
+                AND name = 'Execute CRM Workflows'
+                AND description = 'Dispatch and inspect governed CRM workflow requests'
+                AND status = 'ACTIVE')
+            OR (code = 'CRM.AI.READ'
+                AND id   = 'a0000009-0000-0000-0000-000000000902'
+                AND name = 'Read CRM AI Insights'
+                AND description = 'Request governed advisory CRM AI outputs'
+                AND status = 'ACTIVE')
+            OR (code = 'CRM.AI.CONFIRM'
+                AND id   = 'a0000009-0000-0000-0000-000000000903'
+                AND name = 'Confirm CRM AI Recommendations'
+                AND description = 'Accept or reject AI-generated recommendations with human confirmation'
+                AND status = 'ACTIVE')
+       );
     IF conflicting_capability > 0 THEN
         RAISE EXCEPTION 'V20260723.1 precondition failed: % capabilities with conflicting data already exist', conflicting_capability;
     END IF;
@@ -91,6 +107,7 @@ CREATE TABLE crm_integration_requests (
     source_entity_version   BIGINT NOT NULL CHECK (source_entity_version >= 0),
     required_capability     VARCHAR(160) NOT NULL,
     data_classification     VARCHAR(80) NOT NULL,
+    requested_locale        VARCHAR(20) NOT NULL,
     payload                 JSONB NOT NULL DEFAULT '{}'::jsonb,
     result_payload          JSONB,
     status                  VARCHAR(40) NOT NULL,
@@ -156,6 +173,7 @@ CREATE TABLE crm_integration_outbox (
     tenant_id               UUID NOT NULL,
     integration_request_id  UUID NOT NULL,
     integration_type        VARCHAR(80) NOT NULL,
+    event_type              VARCHAR(40) NOT NULL DEFAULT 'AI_REQUEST_DISPATCH',
     dispatch_status         VARCHAR(40) NOT NULL DEFAULT 'PENDING',
     attempt_count           INTEGER NOT NULL DEFAULT 0,
     max_attempts            INTEGER NOT NULL DEFAULT 5,
@@ -177,6 +195,9 @@ CREATE TABLE crm_integration_outbox (
     CONSTRAINT crm_integration_outbox_status_ck CHECK (
         dispatch_status IN ('PENDING','CLAIMED','RETRY_WAIT','COMPLETED','DEAD_LETTER','CANCELLED')
     ),
+    CONSTRAINT crm_integration_outbox_event_type_ck CHECK (
+        event_type IN ('AI_REQUEST_DISPATCH','WORKFLOW_DISPATCH','CONFIRMED_COMMAND_EXECUTION')
+    ),
     CONSTRAINT crm_integration_outbox_attempts_ck CHECK (
         attempt_count >= 0 AND attempt_count <= max_attempts
     ),
@@ -188,7 +209,11 @@ CREATE TABLE crm_integration_outbox (
         (dispatch_status NOT IN ('COMPLETED','DEAD_LETTER','CANCELLED'))
         OR (completed_at IS NOT NULL)
     ),
-    CONSTRAINT crm_integration_outbox_uq UNIQUE (tenant_id, integration_request_id)
+    CONSTRAINT crm_integration_outbox_non_terminal_ck CHECK (
+        (dispatch_status IN ('COMPLETED','DEAD_LETTER','CANCELLED'))
+        OR (completed_at IS NULL)
+    ),
+    CONSTRAINT crm_integration_outbox_uq UNIQUE (tenant_id, integration_request_id, event_type)
 );
 
 -- Claimable events: PENDING or RETRY_WAIT with next_attempt_at <= now
@@ -204,6 +229,11 @@ CREATE INDEX crm_integration_outbox_retry_idx
 -- Tenant status index
 CREATE INDEX crm_integration_outbox_tenant_status_idx
     ON crm_integration_outbox (tenant_id, dispatch_status, created_at DESC);
+
+-- Expired claims recovery index — partial index on CLAIMED events whose claim has expired
+CREATE INDEX crm_integration_outbox_expired_claim_idx
+    ON crm_integration_outbox (claim_expires_at)
+    WHERE dispatch_status = 'CLAIMED';
 
 -- ============================================================
 -- DDL — crm_integration_decisions (human confirmation idempotency)
@@ -233,9 +263,17 @@ CREATE TABLE crm_integration_decisions (
     CONSTRAINT crm_integration_decision_status_ck CHECK (
         decision_status IN ('PENDING','CONFIRMED','REJECTED','EXECUTING','EXECUTED','EXECUTION_REJECTED','CONFLICT')
     ),
+    -- Terminal decision states require completed_at NOT NULL:
+    --   REJECTED, EXECUTED, EXECUTION_REJECTED, CONFLICT
+    -- Non-terminal decision states require completed_at NULL:
+    --   PENDING, CONFIRMED, EXECUTING
     CONSTRAINT crm_integration_decision_terminal_ck CHECK (
-        (decision_status NOT IN ('CONFIRMED','REJECTED','EXECUTED','EXECUTION_REJECTED','CONFLICT'))
+        (decision_status NOT IN ('REJECTED','EXECUTED','EXECUTION_REJECTED','CONFLICT'))
         OR (completed_at IS NOT NULL)
+    ),
+    CONSTRAINT crm_integration_decision_non_terminal_ck CHECK (
+        (decision_status IN ('REJECTED','EXECUTED','EXECUTION_REJECTED','CONFLICT'))
+        OR (completed_at IS NULL)
     ),
     CONSTRAINT crm_integration_decision_uq
         UNIQUE (tenant_id, integration_request_id, idempotency_key)
@@ -243,6 +281,9 @@ CREATE TABLE crm_integration_decisions (
 
 CREATE INDEX crm_integration_decisions_tenant_request_idx
     ON crm_integration_decisions (tenant_id, integration_request_id, created_at DESC);
+
+CREATE INDEX crm_integration_decisions_tenant_status_idx
+    ON crm_integration_decisions (tenant_id, decision_status, created_at DESC);
 
 -- ============================================================
 -- DML — seed 3 CRM-009 capabilities (deterministic, fail-closed)
@@ -267,20 +308,26 @@ VALUES ('a0000009-0000-0000-0000-000000000903', 'CRM.AI.CONFIRM',
 -- ============================================================
 DO $postcondition$
 DECLARE
-    table_exists         INTEGER;
-    outbox_exists        INTEGER;
-    decisions_exists     INTEGER;
-    payload_type         TEXT;
-    payload_udt          TEXT;
-    result_type          TEXT;
-    result_udt           TEXT;
-    version_type         TEXT;
-    version_nullable     TEXT;
-    version_default      TEXT;
-    expected_indexes     INTEGER;
-    cap_count            INTEGER;
+    table_exists             INTEGER;
+    outbox_exists            INTEGER;
+    decisions_exists         INTEGER;
+    payload_type             TEXT;
+    payload_udt              TEXT;
+    result_type              TEXT;
+    result_udt               TEXT;
+    version_type             TEXT;
+    version_nullable         TEXT;
+    version_default          TEXT;
+    claim_token_type         TEXT;
+    claim_token_nullable     TEXT;
+    requested_locale_type    TEXT;
+    requested_locale_nullable TEXT;
+    expected_indexes         INTEGER;
+    cap_count                INTEGER;
+    cap_workflow             INTEGER;
+    cap_ai_read              INTEGER;
+    cap_ai_confirm           INTEGER;
 BEGIN
-    -- crm_integration_requests must exist
     SELECT COUNT(*) INTO table_exists
       FROM information_schema.tables
      WHERE table_schema = 'public' AND table_name = 'crm_integration_requests';
@@ -288,7 +335,6 @@ BEGIN
         RAISE EXCEPTION 'V20260723.1 postcondition failed: crm_integration_requests not created';
     END IF;
 
-    -- crm_integration_outbox must exist
     SELECT COUNT(*) INTO outbox_exists
       FROM information_schema.tables
      WHERE table_schema = 'public' AND table_name = 'crm_integration_outbox';
@@ -296,7 +342,6 @@ BEGIN
         RAISE EXCEPTION 'V20260723.1 postcondition failed: crm_integration_outbox not created';
     END IF;
 
-    -- crm_integration_decisions must exist
     SELECT COUNT(*) INTO decisions_exists
       FROM information_schema.tables
      WHERE table_schema = 'public' AND table_name = 'crm_integration_decisions';
@@ -333,25 +378,51 @@ BEGIN
     IF version_type IS DISTINCT FROM 'bigint' OR version_nullable IS DISTINCT FROM 'NO' THEN
         RAISE EXCEPTION 'V20260723.1 postcondition failed: version data_type=% is_nullable=% (expected bigint/NO)', version_type, version_nullable;
     END IF;
+    IF version_default IS DISTINCT FROM '0' THEN
+        RAISE EXCEPTION 'V20260723.1 postcondition failed: version column_default=% (expected 0)', version_default;
+    END IF;
 
-    -- All 6 indexes must exist (3 request + 3 outbox)
+    -- claim_token must be UUID and nullable
+    SELECT data_type, is_nullable INTO claim_token_type, claim_token_nullable
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'crm_integration_outbox'
+       AND column_name = 'claim_token';
+    IF claim_token_type IS DISTINCT FROM 'uuid' OR claim_token_nullable IS DISTINCT FROM 'YES' THEN
+        RAISE EXCEPTION 'V20260723.1 postcondition failed: claim_token data_type=% is_nullable=% (expected uuid/YES)', claim_token_type, claim_token_nullable;
+    END IF;
+
+    -- requested_locale must be VARCHAR NOT NULL
+    SELECT data_type, is_nullable INTO requested_locale_type, requested_locale_nullable
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'crm_integration_requests'
+       AND column_name = 'requested_locale';
+    IF requested_locale_type IS DISTINCT FROM 'character varying' OR requested_locale_nullable IS DISTINCT FROM 'NO' THEN
+        RAISE EXCEPTION 'V20260723.1 postcondition failed: requested_locale data_type=% is_nullable=% (expected character varying/NO)', requested_locale_type, requested_locale_nullable;
+    END IF;
+
+    -- All 8 indexes must exist (3 request + 4 outbox + 1 decisions)
     SELECT COUNT(*) INTO expected_indexes
       FROM pg_indexes
      WHERE schemaname = 'public'
-       AND tablename IN ('crm_integration_requests','crm_integration_outbox')
+       AND tablename IN ('crm_integration_requests','crm_integration_outbox','crm_integration_decisions')
        AND indexname IN (
            'crm_integration_tenant_status_idx',
            'crm_integration_correlation_idx',
            'crm_integration_tenant_entity_idx',
            'crm_integration_outbox_claimable_idx',
            'crm_integration_outbox_retry_idx',
-           'crm_integration_outbox_tenant_status_idx'
+           'crm_integration_outbox_tenant_status_idx',
+           'crm_integration_outbox_expired_claim_idx',
+           'crm_integration_decisions_tenant_request_idx',
+           'crm_integration_decisions_tenant_status_idx'
        );
-    IF expected_indexes <> 6 THEN
-        RAISE EXCEPTION 'V20260723.1 postcondition failed: expected 6 indexes, found %', expected_indexes;
+    IF expected_indexes <> 9 THEN
+        RAISE EXCEPTION 'V20260723.1 postcondition failed: expected 9 indexes, found %', expected_indexes;
     END IF;
 
-    -- 3 CRM-009 capabilities must be seeded
+    -- 3 CRM-009 capabilities must be seeded with EXACT tuple match
     SELECT COUNT(*) INTO cap_count
       FROM access_capabilities
      WHERE code IN ('CRM.WORKFLOW.EXECUTE', 'CRM.AI.READ', 'CRM.AI.CONFIRM')
@@ -361,6 +432,39 @@ BEGIN
                   'a0000009-0000-0000-0000-000000000903');
     IF cap_count <> 3 THEN
         RAISE EXCEPTION 'V20260723.1 postcondition failed: expected 3 CRM-009 capabilities, found %', cap_count;
+    END IF;
+
+    SELECT COUNT(*) INTO cap_workflow
+      FROM access_capabilities
+     WHERE id = 'a0000009-0000-0000-0000-000000000901'
+       AND code = 'CRM.WORKFLOW.EXECUTE'
+       AND name = 'Execute CRM Workflows'
+       AND description = 'Dispatch and inspect governed CRM workflow requests'
+       AND status = 'ACTIVE';
+    IF cap_workflow <> 1 THEN
+        RAISE EXCEPTION 'V20260723.1 postcondition failed: CRM.WORKFLOW.EXECUTE tuple mismatch (found %)', cap_workflow;
+    END IF;
+
+    SELECT COUNT(*) INTO cap_ai_read
+      FROM access_capabilities
+     WHERE id = 'a0000009-0000-0000-0000-000000000902'
+       AND code = 'CRM.AI.READ'
+       AND name = 'Read CRM AI Insights'
+       AND description = 'Request governed advisory CRM AI outputs'
+       AND status = 'ACTIVE';
+    IF cap_ai_read <> 1 THEN
+        RAISE EXCEPTION 'V20260723.1 postcondition failed: CRM.AI.READ tuple mismatch (found %)', cap_ai_read;
+    END IF;
+
+    SELECT COUNT(*) INTO cap_ai_confirm
+      FROM access_capabilities
+     WHERE id = 'a0000009-0000-0000-0000-000000000903'
+       AND code = 'CRM.AI.CONFIRM'
+       AND name = 'Confirm CRM AI Recommendations'
+       AND description = 'Accept or reject AI-generated recommendations with human confirmation'
+       AND status = 'ACTIVE';
+    IF cap_ai_confirm <> 1 THEN
+        RAISE EXCEPTION 'V20260723.1 postcondition failed: CRM.AI.CONFIRM tuple mismatch (found %)', cap_ai_confirm;
     END IF;
 END
 $postcondition$;

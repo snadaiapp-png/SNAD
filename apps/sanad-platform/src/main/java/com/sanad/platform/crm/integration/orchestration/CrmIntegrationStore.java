@@ -17,11 +17,17 @@ import java.util.stream.Collectors;
  * <p>Provides:</p>
  * <ul>
  *   <li>{@link #transitionStatus} — status-only transition, preserves result_payload</li>
- *   <li>{@link #transitionWithResult} — writes result_payload exactly once</li>
+ *   <li>{@link #transitionWithResult} — writes result_payload exactly once
+ *       (SQL-level guard: AND result_payload IS NULL)</li>
  *   <li>{@link #claimNextOutboxEvent} — atomic CTE-based claim with claim_token</li>
- *   <li>{@link #completeOutboxEvent} / {@link #failOutboxEvent} — claim ownership verified</li>
+ *   <li>{@link #completeOutboxEvent} / {@link #failOutboxEvent} — claim ownership verified,
+ *       all claim fields cleared on completion</li>
  *   <li>{@link #createDecision} / {@link #findDecision} / {@link #findDecisionById}</li>
  * </ul>
+ *
+ * <p>Envelopes are reconstructed from stored columns only. No fallback values
+ * are guessed by callers — missing required fields surface as
+ * {@link IntegrationErrorCode#INVALID_CONTRACT} at the application layer.</p>
  */
 @Component
 public class CrmIntegrationStore {
@@ -32,6 +38,10 @@ public class CrmIntegrationStore {
             "COMPLETED", "EXECUTED", "EXECUTION_REJECTED", "REJECTED",
             "POLICY_DENIED", "UNSAFE_OUTPUT", "TIMED_OUT",
             "UNAVAILABLE", "CANCELLED", "EXPIRED");
+
+    /** Decision statuses considered terminal (completed_at must be NOT NULL). */
+    public static final Set<String> TERMINAL_DECISION_STATES = Set.of(
+            "REJECTED", "EXECUTED", "EXECUTION_REJECTED", "CONFLICT");
 
     public CrmIntegrationStore(JdbcTemplate jdbc, ObjectMapper mapper) {
         this.jdbc = jdbc;
@@ -52,14 +62,16 @@ public class CrmIntegrationStore {
             jdbc.update("INSERT INTO crm_integration_requests " +
                             "(id, tenant_id, actor_id, integration_type, contract_name, contract_version, " +
                             "correlation_id, causation_id, idempotency_key, source_entity_type, source_entity_id, " +
-                            "source_entity_version, required_capability, data_classification, payload, status, " +
-                            "requested_at, expires_at, created_at, updated_at, version) " +
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), 'PENDING', ?, ?, ?, ?, 0)",
+                            "source_entity_version, required_capability, data_classification, requested_locale, " +
+                            "payload, status, requested_at, expires_at, created_at, updated_at, version) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), 'PENDING', ?, ?, ?, ?, 0)",
                     id, envelope.tenantId(), envelope.actorId(), integrationType,
                     envelope.contractName(), envelope.contractVersion(), envelope.correlationId(),
                     envelope.causationId(), envelope.idempotencyKey(), envelope.sourceEntityType(),
                     envelope.sourceEntityId(), envelope.sourceEntityVersion(), envelope.requiredCapability(),
-                    envelope.dataClassification(), json(payload), Timestamp.from(envelope.requestedAt()),
+                    envelope.dataClassification(),
+                    envelope.locale() == null ? null : envelope.locale().toLanguageTag(),
+                    json(payload), Timestamp.from(envelope.requestedAt()),
                     Timestamp.from(envelope.expiresAt()), Timestamp.from(Instant.now()), Timestamp.from(Instant.now()));
             return new CreateResult(find(envelope.tenantId(), id).orElseThrow(), CreationDisposition.CREATED_NEW);
         } catch (DuplicateKeyException duplicate) {
@@ -76,6 +88,11 @@ public class CrmIntegrationStore {
     /**
      * Status-only transition: does NOT modify result_payload, external_reference, or error_code.
      * Use for: PENDING→DISPATCHED, RECOMMENDATION_AVAILABLE→CONFIRMED, CONFIRMED→EXECUTING, etc.
+     *
+     * <p>Atomic If-Match: caller passes {@code expectedVersion} — the UPDATE only
+     * affects a row whose version matches. If 0 rows updated, the caller observes
+     * a transition conflict and can surface {@link IntegrationErrorCode#STATE_TRANSITION_FAILED}
+     * or {@link IntegrationErrorCode#INTEGRATION_VERSION_MISMATCH}.</p>
      */
     public TransitionResult transitionStatus(UUID tenantId, UUID requestId, long expectedVersion,
                                               Set<String> allowedFrom, String targetStatus) {
@@ -102,7 +119,13 @@ public class CrmIntegrationStore {
 
     /**
      * Transition with result: writes result_payload, external_reference, error_code exactly once.
-     * Use only when receiving AI/Workflow response. Does NOT convert null to {}.
+     *
+     * <p><strong>SQL-level immutability:</strong> the UPDATE includes
+     * {@code AND result_payload IS NULL} so concurrent workers or retry paths
+     * cannot overwrite an existing AI result. The second writer observes 0 rows
+     * affected and the caller surfaces a transition conflict.</p>
+     *
+     * <p>Use only when receiving AI/Workflow response. Does NOT convert null to {}.</p>
      */
     public TransitionResult transitionWithResult(UUID tenantId, UUID requestId, long expectedVersion,
                                                   Set<String> allowedFrom, String targetStatus,
@@ -117,7 +140,8 @@ public class CrmIntegrationStore {
                 "completed_at=CASE WHEN ? IN (" + terminalMarkers + ") " +
                 "THEN CURRENT_TIMESTAMP ELSE completed_at END, " +
                 "updated_at=CURRENT_TIMESTAMP, version=version+1 " +
-                "WHERE tenant_id=? AND id=? AND version=?");
+                "WHERE tenant_id=? AND id=? AND version=? " +
+                "AND result_payload IS NULL");
         var params = new ArrayList<Object>();
         params.add(targetStatus); params.add(externalReference);
         if (result != null) params.add(json(result));
@@ -142,7 +166,7 @@ public class CrmIntegrationStore {
         return jdbc.query("SELECT id, tenant_id, actor_id, integration_type, status, external_reference, " +
                         "correlation_id, idempotency_key, source_entity_type, source_entity_id, " +
                         "source_entity_version, required_capability, contract_name, contract_version, " +
-                        "causation_id, data_classification, payload, result_payload, " +
+                        "causation_id, data_classification, requested_locale, payload, result_payload, " +
                         "requested_at, expires_at, error_code, version " +
                         "FROM crm_integration_requests WHERE tenant_id=? AND id=?",
                 (rs, row) -> mapRow(rs), tenantId, id).stream().findFirst();
@@ -152,7 +176,7 @@ public class CrmIntegrationStore {
         return jdbc.query("SELECT id, tenant_id, actor_id, integration_type, status, external_reference, " +
                         "correlation_id, idempotency_key, source_entity_type, source_entity_id, " +
                         "source_entity_version, required_capability, contract_name, contract_version, " +
-                        "causation_id, data_classification, payload, result_payload, " +
+                        "causation_id, data_classification, requested_locale, payload, result_payload, " +
                         "requested_at, expires_at, error_code, version " +
                         "FROM crm_integration_requests WHERE tenant_id=? AND integration_type=? AND idempotency_key=?",
                 (rs, row) -> mapRow(rs), tenantId, type, key).stream().findFirst();
@@ -163,14 +187,16 @@ public class CrmIntegrationStore {
     // ============================================================
 
     public void createOutboxEvent(UUID tenantId, UUID requestId, String integrationType,
-                                   String idempotencyKey, JsonNode payload) {
+                                   String eventType, String idempotencyKey, JsonNode payload) {
         jdbc.update("INSERT INTO crm_integration_outbox " +
-                        "(tenant_id, integration_request_id, integration_type, dispatch_status, " +
+                        "(tenant_id, integration_request_id, integration_type, event_type, dispatch_status, " +
                         "attempt_count, max_attempts, next_attempt_at, idempotency_key, payload, " +
                         "created_at, updated_at, version) " +
-                        "VALUES (?, ?, ?, 'PENDING', 0, 5, CURRENT_TIMESTAMP, ?, CAST(? AS jsonb), " +
+                        "VALUES (?, ?, ?, ?, 'PENDING', 0, 5, CURRENT_TIMESTAMP, ?, CAST(? AS jsonb), " +
                         "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)",
-                tenantId, requestId, integrationType, idempotencyKey, json(payload));
+                tenantId, requestId, integrationType,
+                eventType == null ? "AI_REQUEST_DISPATCH" : eventType,
+                idempotencyKey, json(payload));
     }
 
     // ============================================================
@@ -199,14 +225,16 @@ public class CrmIntegrationStore {
                 "    updated_at=CURRENT_TIMESTAMP, version=version+1 " +
                 "FROM candidate WHERE event.id = candidate.id " +
                 "RETURNING event.id, event.tenant_id, event.integration_request_id, " +
-                "          event.integration_type, event.dispatch_status, " +
+                "          event.integration_type, event.event_type, event.dispatch_status, " +
                 "          event.attempt_count, event.max_attempts, " +
                 "          event.idempotency_key, event.payload, event.version, " +
                 "          event.claim_token, event.claim_expires_at",
                 (rs, row) -> new OutboxEvent(
                         (UUID) rs.getObject("id"), (UUID) rs.getObject("tenant_id"),
                         (UUID) rs.getObject("integration_request_id"),
-                        rs.getString("integration_type"), rs.getString("dispatch_status"),
+                        rs.getString("integration_type"),
+                        rs.getString("event_type") == null ? "AI_REQUEST_DISPATCH" : rs.getString("event_type"),
+                        rs.getString("dispatch_status"),
                         rs.getInt("attempt_count"), rs.getInt("max_attempts"),
                         rs.getString("idempotency_key"), readJson(rs.getString("payload")),
                         rs.getLong("version"),
@@ -221,15 +249,31 @@ public class CrmIntegrationStore {
     // Transactional Outbox — COMPLETE / FAIL (with claim ownership verification)
     // ============================================================
 
+    /**
+     * Complete an outbox event — clears ALL claim fields atomically.
+     *
+     * <p>Required claim ownership: the caller must hold the matching
+     * {@code claim_token}, {@code claimed_by}, an unexpired claim, and the
+     * expected row version. If any of these conditions fail, 0 rows are updated
+     * and an {@link IntegrationException} ({@code OUTBOX_CLAIM_LOST}) is thrown.</p>
+     */
     public void completeOutboxEvent(UUID tenantId, UUID outboxId, long expectedVersion,
                                      UUID claimToken, String claimedBy) {
         int updated = jdbc.update(
-                "UPDATE crm_integration_outbox SET dispatch_status='COMPLETED', completed_at=CURRENT_TIMESTAMP, " +
-                        "updated_at=CURRENT_TIMESTAMP, version=version+1 " +
-                        "WHERE tenant_id=? AND id=? AND version=? AND claim_token=? AND claimed_by=? " +
-                        "AND dispatch_status='CLAIMED' AND claim_expires_at > CURRENT_TIMESTAMP",
+                "UPDATE crm_integration_outbox SET dispatch_status = 'COMPLETED', " +
+                        "completed_at = CURRENT_TIMESTAMP, " +
+                        "claimed_at = NULL, claimed_by = NULL, " +
+                        "claim_token = NULL, claim_expires_at = NULL, " +
+                        "updated_at = CURRENT_TIMESTAMP, version = version + 1 " +
+                        "WHERE tenant_id = ? AND id = ? AND version = ? " +
+                        "AND claim_token = ? AND claimed_by = ? " +
+                        "AND dispatch_status = 'CLAIMED' " +
+                        "AND claim_expires_at > CURRENT_TIMESTAMP",
                 tenantId, outboxId, expectedVersion, claimToken, claimedBy);
-        if (updated != 1) throw new IllegalStateException("Outbox claim lost, expired, or token mismatch");
+        if (updated != 1) {
+            throw new IntegrationException(IntegrationErrorCode.OUTBOX_CLAIM_LOST,
+                    "Outbox claim lost, expired, or token mismatch (outboxId=" + outboxId + ")");
+        }
     }
 
     public void failOutboxEvent(UUID tenantId, UUID outboxId, long expectedVersion,
@@ -257,7 +301,10 @@ public class CrmIntegrationStore {
         params.add(tenantId); params.add(outboxId); params.add(expectedVersion);
         params.add(claimToken); params.add(claimedBy);
         int updated = jdbc.update(sql, params.toArray());
-        if (updated != 1) throw new IllegalStateException("Outbox claim lost, expired, or token mismatch");
+        if (updated != 1) {
+            throw new IntegrationException(IntegrationErrorCode.OUTBOX_CLAIM_LOST,
+                    "Outbox claim lost, expired, or token mismatch (outboxId=" + outboxId + ")");
+        }
     }
 
     // ============================================================
@@ -283,7 +330,7 @@ public class CrmIntegrationStore {
         } catch (DuplicateKeyException duplicate) {
             DecisionRecord existing = findDecision(tenantId, requestId, idempotencyKey).orElseThrow();
             if (!existing.requestFingerprint().equals(fingerprint)) {
-                throw new IdempotencyConflictException(
+                throw new IntegrationException(IntegrationErrorCode.IDEMPOTENCY_KEY_REUSED,
                         "Idempotency key reused with different request fingerprint");
             }
             return new DecisionResult(existing, false);
@@ -365,14 +412,14 @@ public class CrmIntegrationStore {
             String sourceEntityType, UUID sourceEntityId, long sourceEntityVersion,
             String requiredCapability,
             String contractName, String contractVersion,
-            String causationId, String dataClassification,
+            String causationId, String dataClassification, String requestedLocale,
             JsonNode payload, JsonNode resultPayload,
             Instant requestedAt, Instant expiresAt, String errorCode,
             long version) {}
 
     public record OutboxEvent(
             UUID id, UUID tenantId, UUID integrationRequestId,
-            String integrationType, String dispatchStatus,
+            String integrationType, String eventType, String dispatchStatus,
             int attemptCount, int maxAttempts,
             String idempotencyKey, JsonNode payload, long version,
             UUID claimToken, Instant claimExpiresAt) {}
@@ -403,6 +450,7 @@ public class CrmIntegrationStore {
                 rs.getString("required_capability"),
                 rs.getString("contract_name"), rs.getString("contract_version"),
                 rs.getString("causation_id"), rs.getString("data_classification"),
+                rs.getString("requested_locale"),
                 readJson(rs.getString("payload")), readJson(rs.getString("result_payload")),
                 rs.getTimestamp("requested_at").toInstant(),
                 rs.getTimestamp("expires_at").toInstant(),

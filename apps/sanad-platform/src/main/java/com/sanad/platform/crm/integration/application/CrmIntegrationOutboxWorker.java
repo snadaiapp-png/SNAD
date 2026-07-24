@@ -13,17 +13,39 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
 /**
  * Outbox worker with proper transaction boundary separation.
  *
- * Transaction A: claim event (short, no HTTP)
- * No transaction: external HTTP call
- * Transaction B: validate claim, persist result, transition request, finalize outbox
+ * <p><strong>Transaction model:</strong></p>
+ * <ol>
+ *   <li>Transaction A: claim event (short, no HTTP).</li>
+ *   <li>Transaction A2: transition request PENDING → DISPATCHED (atomic, with version check).</li>
+ *   <li>No transaction: external HTTP call.</li>
+ *   <li>Transaction B: validate claim ownership, persist result via
+ *       {@link CrmIntegrationStore#transitionWithResult} (atomic — fails if
+ *       result_payload already exists), then finalize outbox event
+ *       (validates claim_token ownership). All in ONE transaction so a transition
+ *       conflict rolls back the outbox completion.</li>
+ * </ol>
  *
- * Uses claim_token for ownership verification — stale workers cannot complete.
+ * <p><strong>Result immutability:</strong> {@code transitionWithResult} includes
+ * SQL-level {@code AND result_payload IS NULL} — concurrent workers or retry paths
+ * cannot overwrite an existing AI result.</p>
+ *
+ * <p><strong>Envelope reconstruction:</strong> the envelope is rebuilt exclusively
+ * from stored columns ({@code contract_name, contract_version, causation_id,
+ * data_classification, requested_locale, actor_id, ...}). Missing required fields
+ * surface as {@link IntegrationErrorCode#INVALID_CONTRACT} rather than guessed
+ * defaults.</p>
+ *
+ * <p><strong>Dispatch status guard:</strong> before issuing the external call,
+ * the worker verifies the request is in {@code PENDING} (or {@code DISPATCHED}
+ * when recovering a previously claimed event). Requests in terminal or
+ * already-confirmed states are not dispatched.</p>
  */
 @Component
 public class CrmIntegrationOutboxWorker {
@@ -73,20 +95,47 @@ public class CrmIntegrationOutboxWorker {
      * Transaction B is explicit via txTemplate.
      */
     void processSingleEvent(CrmIntegrationStore.OutboxEvent event) {
-        log.info("Processing outbox event: tenant={}, request={}, attempt={}/{}",
+        log.info("Processing outbox event: tenant={}, request={}, type={}, attempt={}/{}",
                 event.tenantId(), event.integrationRequestId(),
-                event.attemptCount(), event.maxAttempts());
+                event.eventType(), event.attemptCount(), event.maxAttempts());
 
         // Load integration request (no transaction needed for read)
         final CrmIntegrationStore.StoredRequest initialRequest = store.find(event.tenantId(), event.integrationRequestId())
-                .orElseThrow(() -> new IllegalStateException("Integration request not found"));
+                .orElseThrow(() -> new IntegrationException(IntegrationErrorCode.ENTITY_NOT_FOUND,
+                        "Integration request not found for claimed outbox event"));
 
-        // Transaction A2: transition to DISPATCHED
-        txTemplate.execute(status -> {
-            store.transitionStatus(event.tenantId(), event.integrationRequestId(),
-                    initialRequest.version(), Set.of("PENDING"), "DISPATCHED");
-            return null;
-        });
+        // Dispatch status guard — only proceed if request is in a dispatchable state.
+        // PENDING is the normal first-dispatch path; DISPATCHED is the recovery path
+        // for a previously claimed event whose worker died mid-flight.
+        if (!isDispatchableStatus(initialRequest.status())) {
+            log.warn("Skipping dispatch for request {} — status {} is not dispatchable",
+                    event.integrationRequestId(), initialRequest.status());
+            // Finalize outbox without external call — the request is already in a
+            // terminal or non-dispatchable state, so the outbox event is completed
+            // to prevent further retries.
+            txTemplate.execute(status -> {
+                store.completeOutboxEvent(event.tenantId(), event.id(), event.version(),
+                        event.claimToken(), workerId);
+                return null;
+            });
+            return;
+        }
+
+        // Transaction A2: transition to DISPATCHED (atomic — only if still PENDING)
+        // If recovery (already DISPATCHED), skip this transition.
+        if ("PENDING".equals(initialRequest.status())) {
+            txTemplate.execute(status -> {
+                CrmIntegrationStore.TransitionResult tr = store.transitionStatus(
+                        event.tenantId(), event.integrationRequestId(),
+                        initialRequest.version(), Set.of("PENDING"), "DISPATCHED");
+                if (!tr.success()) {
+                    throw new IntegrationException(IntegrationErrorCode.STATE_TRANSITION_FAILED,
+                            "PENDING → DISPATCHED transition conflict for request "
+                            + event.integrationRequestId());
+                }
+                return null;
+            });
+        }
 
         // Reload after transition
         final CrmIntegrationStore.StoredRequest request = store.find(event.tenantId(), event.integrationRequestId()).orElseThrow();
@@ -95,21 +144,42 @@ public class CrmIntegrationOutboxWorker {
         DispatchResult dispatchResult;
         try {
             dispatchResult = dispatchExternal(request, event);
+        } catch (IntegrationException e) {
+            log.error("External dispatch failed for request={}: {}",
+                    event.integrationRequestId(), e.errorCode());
+            txTemplate.execute(status -> {
+                handleFailure(event, e.errorCode());
+                return null;
+            });
+            return;
         } catch (Exception e) {
             log.error("External dispatch failed for request={}", event.integrationRequestId(), e);
-            // Transaction B: handle failure
             txTemplate.execute(status -> {
-                handleFailure(event, IntegrationErrorCode.UNKNOWN_ERROR);
+                handleFailure(event, classifyException(e));
                 return null;
             });
             return;
         }
 
         // Transaction B: persist result + transition + finalize outbox (atomic)
-        txTemplate.execute(status -> {
-            handleSuccess(event, request, dispatchResult);
-            return null;
-        });
+        // If transitionWithResult fails (e.g. result_payload already exists from
+        // a concurrent worker), the entire transaction rolls back — outbox stays
+        // CLAIMED or recoverable, never COMPLETED.
+        try {
+            txTemplate.execute(status -> {
+                handleSuccess(event, request, dispatchResult);
+                return null;
+            });
+        } catch (IntegrationException e) {
+            log.error("Finalization failed for request={}: {} — outbox NOT completed",
+                    event.integrationRequestId(), e.errorCode(), e);
+            // Outbox remains CLAIMED — will be recovered by next worker scan
+            // once claim_expires_at passes.
+        }
+    }
+
+    private boolean isDispatchableStatus(String status) {
+        return "PENDING".equals(status) || "DISPATCHED".equals(status);
     }
 
     private DispatchResult dispatchExternal(CrmIntegrationStore.StoredRequest request,
@@ -117,32 +187,56 @@ public class CrmIntegrationOutboxWorker {
         if ("AI".equals(event.integrationType())) {
             return dispatchAi(request, event);
         }
-        throw new IllegalStateException("Unknown integration type: " + event.integrationType());
+        throw new IntegrationException(IntegrationErrorCode.INVALID_CONTRACT,
+                "Unknown integration type: " + event.integrationType());
     }
 
     private DispatchResult dispatchAi(CrmIntegrationStore.StoredRequest request,
                                        CrmIntegrationStore.OutboxEvent event) {
-        // Reconstruct envelope from STORED values (not guessed)
+        // Reconstruct envelope EXCLUSIVELY from stored values — no fallbacks.
+        // Missing required fields surface as INVALID_CONTRACT.
+        if (request.contractName() == null || request.contractName().isBlank()
+                || request.contractVersion() == null || request.contractVersion().isBlank()
+                || request.causationId() == null || request.causationId().isBlank()
+                || request.dataClassification() == null || request.dataClassification().isBlank()
+                || request.requiredCapability() == null || request.requiredCapability().isBlank()
+                || request.requestedLocale() == null || request.requestedLocale().isBlank()) {
+            throw new IntegrationException(IntegrationErrorCode.INVALID_CONTRACT,
+                    "Stored integration request is missing required envelope fields");
+        }
+
+        Locale locale = parseLocale(request.requestedLocale());
+
         IntegrationEnvelope envelope = new IntegrationEnvelope(
-                request.contractName() != null ? request.contractName() : "crm.ai",
-                request.contractVersion() != null ? request.contractVersion() : "1.0",
+                request.contractName(),
+                request.contractVersion(),
                 request.tenantId(),
                 request.actorId(),
                 request.correlationId(),
-                request.causationId() != null ? request.causationId() : request.correlationId(),
+                request.causationId(),
                 request.idempotencyKey(),
                 request.sourceEntityType(),
                 request.sourceEntityId(),
                 request.sourceEntityVersion(),
                 request.requestedAt(),
                 request.expiresAt(),
-                java.util.Locale.ENGLISH,
+                locale,
                 request.requiredCapability(),
-                request.dataClassification() != null ? request.dataClassification() : "INTERNAL");
+                request.dataClassification());
 
         String capStr = event.payload() != null && event.payload().has("capability")
-                ? event.payload().get("capability").asText() : "CUSTOMER_SUMMARY";
-        AiGatewayPort.Capability capability = AiGatewayPort.Capability.valueOf(capStr);
+                ? event.payload().get("capability").asText() : null;
+        if (capStr == null || capStr.isBlank()) {
+            throw new IntegrationException(IntegrationErrorCode.INVALID_CONTRACT,
+                    "AI outbox event payload missing capability");
+        }
+        AiGatewayPort.Capability capability;
+        try {
+            capability = AiGatewayPort.Capability.valueOf(capStr);
+        } catch (IllegalArgumentException e) {
+            throw new IntegrationException(IntegrationErrorCode.INVALID_CONTRACT,
+                    "Unknown AI capability: " + capStr);
+        }
 
         AiGatewayPort.AiResult aiResult = ai.request(envelope, capability, event.payload());
 
@@ -165,17 +259,33 @@ public class CrmIntegrationOutboxWorker {
         return new DispatchResult(targetStatus, errorCode, mapper.valueToTree(aiResult));
     }
 
+    /**
+     * Persist AI result + finalize outbox — all in the caller's transaction.
+     *
+     * <p>If {@code transitionWithResult} fails (because result_payload already
+     * exists — concurrent worker wrote first), this method throws
+     * {@link IntegrationException} of type {@code STATE_TRANSITION_FAILED},
+     * which rolls back the entire transaction. The outbox event stays CLAIMED
+     * (or recoverable) and is NEVER marked COMPLETED with a missing result.</p>
+     */
     private void handleSuccess(CrmIntegrationStore.OutboxEvent event,
                                 CrmIntegrationStore.StoredRequest request,
                                 DispatchResult result) {
-        // Transition request with result (writes result_payload exactly once)
-        store.transitionWithResult(
+        CrmIntegrationStore.TransitionResult tr = store.transitionWithResult(
                 event.tenantId(), event.integrationRequestId(), request.version(),
                 Set.of("DISPATCHED"), result.targetStatus(),
                 null, result.resultJson(),
                 result.errorCode() != null ? result.errorCode().name() : null);
 
-        // Complete outbox event (validates claim_token ownership)
+        if (!tr.success()) {
+            // Transition failed — either version mismatch (concurrent worker) or
+            // result_payload already exists (immutable write protection).
+            throw new IntegrationException(IntegrationErrorCode.STATE_TRANSITION_FAILED,
+                    "transitionWithResult failed for request " + event.integrationRequestId()
+                    + " — concurrent worker likely wrote result first; outbox NOT completed");
+        }
+
+        // Complete outbox event (validates claim_token ownership, clears claim fields)
         store.completeOutboxEvent(event.tenantId(), event.id(), event.version(),
                 event.claimToken(), workerId);
 
@@ -219,6 +329,41 @@ public class CrmIntegrationOutboxWorker {
             case UNSAFE_OUTPUT -> IntegrationErrorCode.AI_UNSAFE_OUTPUT;
             default -> IntegrationErrorCode.UNKNOWN_ERROR;
         };
+    }
+
+    /**
+     * Classify raw exceptions into typed {@link IntegrationErrorCode}.
+     * Never stores raw exception text in the database.
+     */
+    private IntegrationErrorCode classifyException(Exception e) {
+        if (e instanceof IntegrationException ie) return ie.errorCode();
+        Throwable cause = e.getCause() != null ? e.getCause() : e;
+        if (cause instanceof java.net.SocketTimeoutException
+                || cause instanceof java.net.http.HttpTimeoutException) {
+            return IntegrationErrorCode.AI_GATEWAY_TIMEOUT;
+        }
+        if (cause instanceof java.net.ConnectException
+                || cause instanceof java.net.UnknownHostException
+                || cause instanceof java.io.IOException) {
+            return IntegrationErrorCode.AI_GATEWAY_UNAVAILABLE;
+        }
+        if (cause instanceof java.security.SignatureException) {
+            return IntegrationErrorCode.INVALID_SIGNATURE;
+        }
+        if (cause instanceof java.util.NoSuchElementException
+                || cause instanceof IllegalArgumentException) {
+            return IntegrationErrorCode.INVALID_CONTRACT;
+        }
+        return IntegrationErrorCode.UNKNOWN_ERROR;
+    }
+
+    private Locale parseLocale(String tag) {
+        if (tag == null || tag.isBlank()) return Locale.ENGLISH;
+        try {
+            return Locale.forLanguageTag(tag);
+        } catch (Exception e) {
+            return Locale.ENGLISH;
+        }
     }
 
     private record DispatchResult(String targetStatus, IntegrationErrorCode errorCode, JsonNode resultJson) {}
