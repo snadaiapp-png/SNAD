@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.crm.integration.application.ConfirmedRecommendationExecutor;
 import com.sanad.platform.crm.integration.application.StubConfirmedRecommendationCommandAdapter;
+import com.sanad.platform.crm.integration.application.AfterCommandCommitFaultInjector;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
@@ -67,7 +68,8 @@ class CommandExecutionCrashRecoveryPostgresTest {
         executor = new ConfirmedRecommendationExecutor(
                 store, new StubConfirmedRecommendationCommandAdapter(), mapper,
                 new TransactionTemplate(new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds)),
-                "test-worker", 60);
+                AfterCommandCommitFaultInjector.NO_OP,
+                "test-worker", 60, 30);
     }
 
     @BeforeEach

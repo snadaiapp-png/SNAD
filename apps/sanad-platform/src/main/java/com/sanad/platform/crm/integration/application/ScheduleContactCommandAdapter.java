@@ -2,44 +2,53 @@ package com.sanad.platform.crm.integration.application;
 
 import com.sanad.platform.crm.activity.application.ActivityUseCases;
 import com.sanad.platform.crm.activity.domain.ActivityRepository;
+import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import com.sanad.platform.crm.integration.orchestration.IntegrationErrorCode;
-import com.sanad.platform.crm.integration.orchestration.IntegrationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Production-grade adapter for {@code SCHEDULE_CONTACT}.
+ * Production-grade adapter for {@code SCHEDULE_CONTACT} with atomic
+ * artifact idempotency.
  *
- * <p><strong>Real side effect:</strong> creates a SCHEDULED_CALL activity
- * linked to the source contact, with the scheduled time set to 24 hours
- * from now. The activity's subject contains the decisionId for
- * database-enforced idempotency — a replay returns the original scheduled
- * activity, not a duplicate.</p>
+ * <p>Creates a SCHEDULED_CALL activity linked to the source contact.
+ * Uses {@code crm_integration_command_artifacts} to enforce exactly-once
+ * creation — a replay returns the original scheduled activity, not a
+ * duplicate.</p>
  */
 @Component
 @Profile({"!test", "!local", "!crm-acceptance"})
 public class ScheduleContactCommandAdapter implements ConfirmedRecommendationCommandPort {
 
     private static final Logger log = LoggerFactory.getLogger(ScheduleContactCommandAdapter.class);
+    private static final String ACTION_CODE = "SCHEDULE_CONTACT";
+    private static final String ARTIFACT_TYPE = "SCHEDULED_ACTIVITY";
 
     private final ActivityUseCases activityUseCases;
     private final JdbcTemplate jdbc;
+    private final CrmIntegrationStore store;
 
-    public ScheduleContactCommandAdapter(ActivityUseCases activityUseCases, JdbcTemplate jdbc) {
+    public ScheduleContactCommandAdapter(ActivityUseCases activityUseCases,
+                                           JdbcTemplate jdbc,
+                                           CrmIntegrationStore store) {
         this.activityUseCases = activityUseCases;
         this.jdbc = jdbc;
+        this.store = store;
     }
 
     @Override
+    @Transactional
     public CommandExecutionResult execute(ConfirmedRecommendation recommendation) {
-        if (!"SCHEDULE_CONTACT".equals(recommendation.actionCode())) {
+        if (!ACTION_CODE.equals(recommendation.actionCode())) {
             return new CommandExecutionResult(false, null, null, "UNKNOWN_ACTION_CODE");
         }
         if (!"CONTACT".equals(recommendation.sourceEntityType())) {
@@ -48,22 +57,21 @@ public class ScheduleContactCommandAdapter implements ConfirmedRecommendationCom
         }
         try {
             UUID tenantId = recommendation.tenantId();
-            UUID actorId = recommendation.actorId();
             UUID decisionId = recommendation.decisionId();
 
-            // Step 1: Idempotency check — find existing scheduled activity
-            String existingActivityId = findExistingScheduledActivity(tenantId, decisionId);
-            if (existingActivityId != null) {
+            // Step 1: Atomic reservation
+            CrmIntegrationStore.ArtifactReservation reservation = store.reserveOrGetArtifact(
+                    tenantId, decisionId, ACTION_CODE, ARTIFACT_TYPE);
+
+            if (!reservation.created() && reservation.artifact().artifactId() != null) {
+                UUID originalActivityId = reservation.artifact().artifactId();
                 log.info("Idempotent replay: returning existing scheduled activity {} for decision {}",
-                        existingActivityId, decisionId);
+                        originalActivityId, decisionId);
                 return new CommandExecutionResult(
-                        true,
-                        "SCHEDULE_CONTACT",
-                        "scheduled-activity:" + existingActivityId,
-                        null);
+                        true, ACTION_CODE, "scheduled-activity:" + originalActivityId, null);
             }
 
-            // Step 2: Create a real SCHEDULED_CALL activity
+            // Step 2: Create the scheduled-call activity
             OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
             ActivityRepository.CreateActivityCommand cmd = new ActivityRepository.CreateActivityCommand(
                     "SCHEDULED_CALL",
@@ -74,35 +82,32 @@ public class ScheduleContactCommandAdapter implements ConfirmedRecommendationCom
                             + " (decision=" + decisionId + ")",
                     "CONTACT",
                     recommendation.sourceEntityId(),
-                    actorId,
+                    recommendation.actorId(),
                     3,
                     now,
                     now.plusHours(24));
-            ActivityRepository.ActivityRecord created = activityUseCases.create(tenantId, actorId, cmd);
+            ActivityRepository.ActivityRecord created = activityUseCases.create(
+                    tenantId, recommendation.actorId(), cmd);
+
+            // Step 3: Persist the artifact_id
+            store.persistArtifactId(tenantId, decisionId, ACTION_CODE, created.id());
 
             return new CommandExecutionResult(
-                    true,
-                    "SCHEDULE_CONTACT",
-                    "scheduled-activity:" + created.id(),
-                    null);
+                    true, ACTION_CODE, "scheduled-activity:" + created.id(), null);
         } catch (Exception e) {
             log.error("SCHEDULE_CONTACT failed for decision {}", recommendation.decisionId(), e);
             return new CommandExecutionResult(
-                    false, "SCHEDULE_CONTACT", null,
+                    false, ACTION_CODE, null,
                     IntegrationErrorCode.UNKNOWN_ERROR.name());
         }
     }
 
-    private String findExistingScheduledActivity(UUID tenantId, UUID decisionId) {
-        try {
-            return jdbc.queryForObject(
-                    "SELECT CAST(id AS VARCHAR) FROM crm_activities " +
-                            "WHERE tenant_id = ? AND activity_type = 'SCHEDULED_CALL' " +
-                            "AND subject LIKE ? " +
-                            "ORDER BY created_at LIMIT 1",
-                    String.class, tenantId, "Scheduled contact follow-up — " + decisionId + "%");
-        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
-            return null;
-        }
+    @Override
+    public Optional<CommandExecutionResult> findExisting(UUID tenantId, UUID decisionId, String actionCode) {
+        if (!ACTION_CODE.equals(actionCode)) return Optional.empty();
+        return store.findArtifact(tenantId, decisionId, actionCode)
+                .filter(a -> a.artifactId() != null)
+                .map(a -> new CommandExecutionResult(
+                        true, ACTION_CODE, "scheduled-activity:" + a.artifactId(), null));
     }
 }

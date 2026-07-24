@@ -56,6 +56,7 @@ class CrmPostgresMigrationTest {
     private static final String CRM_008B_COUNTERS_VERSION = "20260722.9";
     private static final String CRM_009_INTEGRATION_VERSION = "20260723.1";
     private static final String CRM_009_COMMAND_EXECUTIONS_VERSION = "20260724.1";
+    private static final String CRM_009_COMMAND_ARTIFACTS_VERSION = "20260724.2";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -98,7 +99,7 @@ class CrmPostgresMigrationTest {
 
     private static final List<String> CRM_009_NEW_TABLES = List.of(
             "crm_integration_requests", "crm_integration_outbox", "crm_integration_decisions",
-            "crm_integration_command_executions");
+            "crm_integration_command_executions", "crm_integration_command_artifacts");
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
@@ -161,7 +162,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_008B_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(CRM_008B_COUNTERS_VERSION),
                         MigrationVersion.fromVersion(CRM_009_INTEGRATION_VERSION),
-                        MigrationVersion.fromVersion(CRM_009_COMMAND_EXECUTIONS_VERSION));
+                        MigrationVersion.fromVersion(CRM_009_COMMAND_EXECUTIONS_VERSION),
+                        MigrationVersion.fromVersion(CRM_009_COMMAND_ARTIFACTS_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -212,7 +214,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_008B_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(CRM_008B_COUNTERS_VERSION),
                         MigrationVersion.fromVersion(CRM_009_INTEGRATION_VERSION),
-                        MigrationVersion.fromVersion(CRM_009_COMMAND_EXECUTIONS_VERSION));
+                        MigrationVersion.fromVersion(CRM_009_COMMAND_EXECUTIONS_VERSION),
+                        MigrationVersion.fromVersion(CRM_009_COMMAND_ARTIFACTS_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -325,8 +328,9 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_008B_COUNTERS_VERSION, "SQL", "create crm assignment rule counters");
         assertMigration(jdbc, CRM_009_INTEGRATION_VERSION, "SQL", "create crm integration requests");
         assertMigration(jdbc, CRM_009_COMMAND_EXECUTIONS_VERSION, "SQL", "create crm command executions ledger");
+        assertMigration(jdbc, CRM_009_COMMAND_ARTIFACTS_VERSION, "SQL", "create crm command artifacts");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(CRM_009_COMMAND_EXECUTIONS_VERSION);
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_009_COMMAND_ARTIFACTS_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 

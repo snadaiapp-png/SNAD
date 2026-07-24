@@ -2,72 +2,84 @@ package com.sanad.platform.crm.integration.application;
 
 import com.sanad.platform.crm.activity.application.ActivityUseCases;
 import com.sanad.platform.crm.activity.domain.ActivityRepository;
+import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import com.sanad.platform.crm.integration.orchestration.IntegrationErrorCode;
 import com.sanad.platform.crm.integration.orchestration.IntegrationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
  * Production-grade adapter that executes {@code CREATE_FOLLOW_UP_ACTIVITY}
- * by invoking the existing CRM {@link ActivityUseCases#create} application
- * command with database-enforced idempotency.
+ * with atomic artifact idempotency.
  *
- * <p><strong>Idempotency:</strong> the {@code decisionId} is stored in the
- * activity's {@code source} column (a free-form metadata field on
- * {@link ActivityRepository.CreateActivityCommand}). Before creating a new
- * activity, the adapter queries for an existing activity with the same
- * decisionId in the source field. If found, the original activity is
- * returned — no second activity is created.</p>
+ * <p><strong>Atomic idempotency model:</strong></p>
+ * <ol>
+ *   <li>{@link CrmIntegrationStore#reserveOrGetArtifact} reserves a row in
+ *       {@code crm_integration_command_artifacts} (INSERT...ON CONFLICT DO
+ *       NOTHING). If the row already exists with a non-null artifact_id,
+ *       the original activity is returned.</li>
+ *   <li>If the reservation is new, the adapter creates the activity and
+ *       calls {@link CrmIntegrationStore#persistArtifactId} to link it.</li>
+ *   <li>Both operations happen inside a single {@code @Transactional}
+ *       boundary — if either fails, neither persists.</li>
+ * </ol>
  *
- * <p>This ensures that a crash-recovery retry with the same decisionId
- * returns the original activity, not a duplicate.</p>
+ * <p>This replaces the fragile "subject LIKE decisionId" pattern which
+ * is not atomic and can produce duplicates under crash recovery.</p>
  */
 @Component
 @Profile({"!test", "!local", "!crm-acceptance"})
 public class CreateFollowUpActivityCommandAdapter implements ConfirmedRecommendationCommandPort {
 
     private static final Logger log = LoggerFactory.getLogger(CreateFollowUpActivityCommandAdapter.class);
+    private static final String ACTION_CODE = "CREATE_FOLLOW_UP_ACTIVITY";
+    private static final String ARTIFACT_TYPE = "ACTIVITY";
 
     private final ActivityUseCases activityUseCases;
     private final JdbcTemplate jdbc;
+    private final CrmIntegrationStore store;
 
-    public CreateFollowUpActivityCommandAdapter(ActivityUseCases activityUseCases, JdbcTemplate jdbc) {
+    public CreateFollowUpActivityCommandAdapter(ActivityUseCases activityUseCases,
+                                                  JdbcTemplate jdbc,
+                                                  CrmIntegrationStore store) {
         this.activityUseCases = activityUseCases;
         this.jdbc = jdbc;
+        this.store = store;
     }
 
     @Override
+    @Transactional
     public CommandExecutionResult execute(ConfirmedRecommendation recommendation) {
-        if (!"CREATE_FOLLOW_UP_ACTIVITY".equals(recommendation.actionCode())) {
+        if (!ACTION_CODE.equals(recommendation.actionCode())) {
             return new CommandExecutionResult(false, null, null, "UNKNOWN_ACTION_CODE");
         }
         try {
             UUID tenantId = recommendation.tenantId();
-            UUID actorId = recommendation.actorId();
             UUID decisionId = recommendation.decisionId();
 
-            // Step 1: Check for an existing activity created by this decisionId
-            // (database-enforced idempotency — replay returns the original).
-            String existingActivityId = findExistingActivityId(tenantId, decisionId);
-            if (existingActivityId != null) {
+            // Step 1: Atomic reservation — if row exists with artifact_id, return original
+            CrmIntegrationStore.ArtifactReservation reservation = store.reserveOrGetArtifact(
+                    tenantId, decisionId, ACTION_CODE, ARTIFACT_TYPE);
+
+            if (!reservation.created() && reservation.artifact().artifactId() != null) {
+                // Original artifact already exists — return it
+                UUID originalActivityId = reservation.artifact().artifactId();
                 log.info("Idempotent replay: returning existing activity {} for decision {}",
-                        existingActivityId, decisionId);
+                        originalActivityId, decisionId);
                 return new CommandExecutionResult(
-                        true,
-                        "CREATE_FOLLOW_UP_ACTIVITY",
-                        "activity:" + existingActivityId,
-                        null);
+                        true, ACTION_CODE, "activity:" + originalActivityId, null);
             }
 
-            // Step 2: Create a new follow-up activity
+            // Step 2: Create the activity (inside the same transaction)
             String relatedType = mapEntityType(recommendation.sourceEntityType());
             OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
             ActivityRepository.CreateActivityCommand cmd = new ActivityRepository.CreateActivityCommand(
@@ -78,40 +90,33 @@ public class CreateFollowUpActivityCommandAdapter implements ConfirmedRecommenda
                             + " (decision=" + decisionId + ")",
                     relatedType,
                     recommendation.sourceEntityId(),
-                    actorId,
+                    recommendation.actorId(),
                     2,
                     now,
                     now.plusDays(3));
-            ActivityRepository.ActivityRecord created = activityUseCases.create(tenantId, actorId, cmd);
+            ActivityRepository.ActivityRecord created = activityUseCases.create(
+                    tenantId, recommendation.actorId(), cmd);
+
+            // Step 3: Persist the artifact_id (links idempotency row to the activity)
+            store.persistArtifactId(tenantId, decisionId, ACTION_CODE, created.id());
 
             return new CommandExecutionResult(
-                    true,
-                    "CREATE_FOLLOW_UP_ACTIVITY",
-                    "activity:" + created.id(),
-                    null);
+                    true, ACTION_CODE, "activity:" + created.id(), null);
         } catch (Exception e) {
             log.error("CREATE_FOLLOW_UP_ACTIVITY failed for decision {}", recommendation.decisionId(), e);
             return new CommandExecutionResult(
-                    false, "CREATE_FOLLOW_UP_ACTIVITY", null,
+                    false, ACTION_CODE, null,
                     IntegrationErrorCode.UNKNOWN_ERROR.name());
         }
     }
 
-    /**
-     * Query for an existing activity whose subject contains the decisionId.
-     * This is the idempotency check — if found, the original activity is
-     * returned instead of creating a duplicate.
-     */
-    private String findExistingActivityId(UUID tenantId, UUID decisionId) {
-        try {
-            return jdbc.queryForObject(
-                    "SELECT CAST(id AS VARCHAR) FROM crm_activities " +
-                            "WHERE tenant_id = ? AND subject LIKE ? " +
-                            "ORDER BY created_at LIMIT 1",
-                    String.class, tenantId, "AI follow-up — " + decisionId + "%");
-        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
-            return null;
-        }
+    @Override
+    public Optional<CommandExecutionResult> findExisting(UUID tenantId, UUID decisionId, String actionCode) {
+        if (!ACTION_CODE.equals(actionCode)) return Optional.empty();
+        return store.findArtifact(tenantId, decisionId, actionCode)
+                .filter(a -> a.artifactId() != null)
+                .map(a -> new CommandExecutionResult(
+                        true, ACTION_CODE, "activity:" + a.artifactId(), null));
     }
 
     private String mapEntityType(String entityType) {

@@ -117,8 +117,10 @@ class CrmEntitySnapshotValidationTest {
                     new ObjectMapper(),
                     new org.springframework.transaction.support.TransactionTemplate(
                             new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds)),
+                    com.sanad.platform.crm.integration.application.AfterCommandCommitFaultInjector.NO_OP,
                     "test-worker",
-                    60);
+                    60,
+                    30);
         } catch (Exception e) {
             // If executor construction fails, tests that need it will fail explicitly
         }

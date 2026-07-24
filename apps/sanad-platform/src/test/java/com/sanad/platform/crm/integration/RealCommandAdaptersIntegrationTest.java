@@ -78,21 +78,24 @@ class RealCommandAdaptersIntegrationTest {
 
     @Test
     void realAdaptersHaveJdbcDependency() {
-        // Real adapters require JdbcTemplate in their constructor — this is
-        // what enables them to perform idempotency checks against the database.
-        // We verify the constructor signature exists.
+        // Real adapters require JdbcTemplate + CrmIntegrationStore in their
+        // constructor — this is what enables them to perform atomic artifact
+        // idempotency via the crm_integration_command_artifacts table.
         try {
             CreateFollowUpActivityCommandAdapter.class.getConstructor(
                     com.sanad.platform.crm.activity.application.ActivityUseCases.class,
-                    org.springframework.jdbc.core.JdbcTemplate.class);
+                    org.springframework.jdbc.core.JdbcTemplate.class,
+                    com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore.class);
             ScheduleContactCommandAdapter.class.getConstructor(
                     com.sanad.platform.crm.activity.application.ActivityUseCases.class,
-                    org.springframework.jdbc.core.JdbcTemplate.class);
+                    org.springframework.jdbc.core.JdbcTemplate.class,
+                    com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore.class);
             RequestOpportunityReviewCommandAdapter.class.getConstructor(
                     com.sanad.platform.crm.task.application.TaskUseCases.class,
-                    org.springframework.jdbc.core.JdbcTemplate.class);
+                    org.springframework.jdbc.core.JdbcTemplate.class,
+                    com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore.class);
         } catch (NoSuchMethodException e) {
-            throw new AssertionError("Real adapter missing required constructor with JdbcTemplate: " + e.getMessage(), e);
+            throw new AssertionError("Real adapter missing required constructor with JdbcTemplate + CrmIntegrationStore: " + e.getMessage(), e);
         }
     }
 }

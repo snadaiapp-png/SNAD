@@ -1,10 +1,10 @@
 # ============================================================
 # SANAD Platform — CRM-009 PostgreSQL Specialized Acceptance
 # ============================================================
-# Mandatory gate for CRM-009 remediation items 1-15.
-# Runs all 6 PostgreSQL-specialized test files and enforces:
+# Mandatory gate for CRM-009 remediation.
+# Runs all PostgreSQL-specialized test files and enforces:
 #   - Docker/PostgreSQL is mandatory (CI fails if unavailable)
-#   - All 19 specialized tests must execute (0 skipped, 0 failed)
+#   - All specialized tests must execute (0 skipped, 0 failed)
 #   - Surefire XML is parsed to verify executed/skipped/failure counts
 # This workflow is a required status check for PR #704 until Item 16
 # is complete and CRM-009 is ready for review.
@@ -21,8 +21,10 @@ on:
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmIntegrationController.java'
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/config/ProductionWorkflowStubGuard.java'
       - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260723_1__create_crm_integration_requests.sql'
+      - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260724_1__create_crm_command_executions_ledger.sql'
+      - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260724_2__create_crm_command_artifacts.sql'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/integration/**'
-      - 'apps/sanad-platform/src/test/resources/db/vendor/h2/V20260723_1__create_crm_integration_requests.sql'
+      - 'apps/sanad-platform/src/test/resources/db/vendor/h2/**'
       - '.github/workflows/crm-009-postgres-specialized-acceptance.yml'
   pull_request:
     branches:
@@ -32,8 +34,10 @@ on:
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmIntegrationController.java'
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/config/ProductionWorkflowStubGuard.java'
       - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260723_1__create_crm_integration_requests.sql'
+      - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260724_1__create_crm_command_executions_ledger.sql'
+      - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260724_2__create_crm_command_artifacts.sql'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/integration/**'
-      - 'apps/sanad-platform/src/test/resources/db/vendor/h2/V20260723_1__create_crm_integration_requests.sql'
+      - 'apps/sanad-platform/src/test/resources/db/vendor/h2/**'
   workflow_dispatch:
 
 permissions:
@@ -41,7 +45,7 @@ permissions:
 
 jobs:
   postgres-specialized-acceptance:
-    name: PostgreSQL Specialized Acceptance (19 tests, 0 skip, 0 fail)
+    name: PostgreSQL Specialized Acceptance (13 files, 38 tests, 0 skip, 0 fail)
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -89,7 +93,7 @@ jobs:
         run: |
           set -euo pipefail
           mvn -B -ntp test \
-            -Dtest='CrmIntegrationOutboxPostgresTest,CrmIntegrationOutboxWorkerTest,CrmIntegrationOutboxConcurrencyTest,CrmIntegrationOutboxRecoveryTest,CrmIntegrationDecisionPostgresTest,CrmIntegrationResultImmutabilityTest,ConfirmedRecommendationEnqueuePostgresTest,ConfirmedRecommendationExecutionPostgresTest,CommandExecutionIdempotencyPostgresTest,CommandExecutionCrashRecoveryPostgresTest,CrossWorkerOutboxRoutingPostgresTest' \
+            -Dtest='CrmIntegrationOutboxPostgresTest,CrmIntegrationOutboxWorkerTest,CrmIntegrationOutboxConcurrencyTest,CrmIntegrationOutboxRecoveryTest,CrmIntegrationDecisionPostgresTest,CrmIntegrationResultImmutabilityTest,ConfirmedRecommendationEnqueuePostgresTest,ConfirmedRecommendationExecutionPostgresTest,CommandExecutionIdempotencyPostgresTest,CommandExecutionCrashRecoveryPostgresTest,CrossWorkerOutboxRoutingPostgresTest,RealCommandAdaptersPostgresTest,CrashAfterCommitRecoveryPostgresTest' \
             -DfailIfNoTests=false \
             -Dsurefire.useFile=false
 
@@ -109,8 +113,8 @@ jobs:
           TOTAL_SKIPPED=0
           TOTAL_FAILURES=0
           TOTAL_ERRORS=0
-          EXPECTED_TESTS=29
-          EXPECTED_TEST_FILES=11
+          EXPECTED_TESTS=38
+          EXPECTED_TEST_FILES=13
           ACTUAL_TEST_FILES=0
 
           for xml in "$REPORTS_DIR"/TEST-com.sanad.platform.crm.integration.*.xml; do

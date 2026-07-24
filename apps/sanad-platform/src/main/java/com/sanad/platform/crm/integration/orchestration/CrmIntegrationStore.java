@@ -212,8 +212,9 @@ public class CrmIntegrationStore {
         List<OutboxEvent> events = jdbc.query(
                 "WITH candidate AS (" +
                 "  SELECT id FROM crm_integration_outbox " +
-                "  WHERE (dispatch_status IN ('PENDING','RETRY_WAIT') AND next_attempt_at <= CURRENT_TIMESTAMP) " +
-                "     OR (dispatch_status = 'CLAIMED' AND claim_expires_at <= CURRENT_TIMESTAMP) " +
+                "  WHERE attempt_count < max_attempts " +
+                "    AND ((dispatch_status IN ('PENDING','RETRY_WAIT') AND next_attempt_at <= CURRENT_TIMESTAMP) " +
+                "     OR (dispatch_status = 'CLAIMED' AND claim_expires_at <= CURRENT_TIMESTAMP)) " +
                 "  ORDER BY next_attempt_at, created_at " +
                 "  FOR UPDATE SKIP LOCKED LIMIT 1" +
                 ") " +
@@ -271,6 +272,7 @@ public class CrmIntegrationStore {
                 "WITH candidate AS (" +
                 "  SELECT id FROM crm_integration_outbox " +
                 "  WHERE event_type IN (" + typeMarkers + ") " +
+                "    AND attempt_count < max_attempts " +
                 "    AND ((dispatch_status IN ('PENDING','RETRY_WAIT') AND next_attempt_at <= CURRENT_TIMESTAMP) " +
                 "     OR (dispatch_status = 'CLAIMED' AND claim_expires_at <= CURRENT_TIMESTAMP)) " +
                 "  ORDER BY next_attempt_at, created_at " +
@@ -593,6 +595,88 @@ public class CrmIntegrationStore {
                 rs.getTimestamp("updated_at").toInstant(),
                 rs.getLong("version"));
     }
+
+    // ============================================================
+    // Command Artifacts (Atomic Idempotency)
+    // ============================================================
+
+    /**
+     * Atomically reserve or retrieve a command artifact idempotency row.
+     *
+     * <p>Uses {@code INSERT ... ON CONFLICT DO NOTHING} so concurrent
+     * attempts do not poison the transaction. After the upsert, the row
+     * is read back unconditionally.</p>
+     *
+     * <p>If the row already exists with a non-null {@code artifact_id},
+     * the original artifact was already created — the caller returns
+     * it instead of creating a duplicate.</p>
+     *
+     * @return {@link ArtifactReservation} with {@code created=true} if
+     *         this call reserved a new row (caller must create the
+     *         artifact and call {@link #persistArtifactId}), or
+     *         {@code created=false} if the row already existed.
+     */
+    public ArtifactReservation reserveOrGetArtifact(UUID tenantId, UUID decisionId,
+                                                       String actionCode, String artifactType) {
+        UUID id = UUID.randomUUID();
+        int inserted = jdbc.update(
+                "INSERT INTO crm_integration_command_artifacts " +
+                        "(id, tenant_id, decision_id, action_code, artifact_type, artifact_id, " +
+                        "execution_status, created_at, updated_at) " +
+                        "VALUES (?, ?, ?, ?, ?, ?,'CREATED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) " +
+                        "ON CONFLICT (tenant_id, decision_id, action_code) DO NOTHING",
+                id, tenantId, decisionId, actionCode, artifactType, id);
+        boolean created = inserted > 0;
+        CommandArtifact artifact = findArtifact(tenantId, decisionId, actionCode).orElseThrow();
+        return new ArtifactReservation(artifact, created);
+    }
+
+    /**
+     * Persist the {@code artifact_id} of the created CRM artifact into
+     * the idempotency row. Called after the CRM artifact is created
+     * successfully, inside the same transaction.
+     */
+    public void persistArtifactId(UUID tenantId, UUID decisionId, String actionCode,
+                                    UUID artifactId) {
+        int updated = jdbc.update(
+                "UPDATE crm_integration_command_artifacts SET artifact_id = ?, " +
+                        "updated_at = CURRENT_TIMESTAMP " +
+                        "WHERE tenant_id = ? AND decision_id = ? AND action_code = ?",
+                artifactId, tenantId, decisionId, actionCode);
+        if (updated != 1) {
+            throw new IntegrationException(IntegrationErrorCode.STATE_TRANSITION_FAILED,
+                    "Artifact idempotency row not found for decision=" + decisionId
+                    + " action=" + actionCode);
+        }
+    }
+
+    /**
+     * Find an existing command artifact by (tenantId, decisionId, actionCode).
+     * Used by crash recovery to determine whether the CRM command was
+     * already executed.
+     */
+    public Optional<CommandArtifact> findArtifact(UUID tenantId, UUID decisionId,
+                                                     String actionCode) {
+        return jdbc.query("SELECT id, tenant_id, decision_id, action_code, " +
+                        "artifact_type, artifact_id, execution_status, created_at, updated_at " +
+                        "FROM crm_integration_command_artifacts " +
+                        "WHERE tenant_id=? AND decision_id=? AND action_code=?",
+                (rs, row) -> new CommandArtifact(
+                        (UUID) rs.getObject("id"), (UUID) rs.getObject("tenant_id"),
+                        (UUID) rs.getObject("decision_id"), rs.getString("action_code"),
+                        rs.getString("artifact_type"), (UUID) rs.getObject("artifact_id"),
+                        rs.getString("execution_status"),
+                        rs.getTimestamp("created_at").toInstant(),
+                        rs.getTimestamp("updated_at").toInstant()),
+                tenantId, decisionId, actionCode).stream().findFirst();
+    }
+
+    public record ArtifactReservation(CommandArtifact artifact, boolean created) {}
+
+    public record CommandArtifact(
+            UUID id, UUID tenantId, UUID decisionId, String actionCode,
+            String artifactType, UUID artifactId, String executionStatus,
+            Instant createdAt, Instant updatedAt) {}
 
     // ============================================================
     // Records & Exceptions

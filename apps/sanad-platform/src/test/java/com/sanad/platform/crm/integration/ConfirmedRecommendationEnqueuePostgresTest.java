@@ -8,6 +8,7 @@ import com.sanad.platform.crm.integration.application.ConfirmedRecommendationExe
 import com.sanad.platform.crm.integration.application.CrmEntitySnapshotPort;
 import com.sanad.platform.crm.integration.application.CrmIntegrationUseCases;
 import com.sanad.platform.crm.integration.application.StubConfirmedRecommendationCommandAdapter;
+import com.sanad.platform.crm.integration.application.AfterCommandCommitFaultInjector;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
@@ -72,7 +73,8 @@ class ConfirmedRecommendationEnqueuePostgresTest {
         ConfirmedRecommendationExecutor executor = new ConfirmedRecommendationExecutor(
                 store, new StubConfirmedRecommendationCommandAdapter(), mapper,
                 new TransactionTemplate(new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds)),
-                "test-worker", 60);
+                AfterCommandCommitFaultInjector.NO_OP,
+                "test-worker", 60, 30);
         useCases = new CrmIntegrationUseCases(store, stubSnapshot, executor, mapper);
     }
 
