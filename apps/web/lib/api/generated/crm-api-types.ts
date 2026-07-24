@@ -2114,6 +2114,9 @@ export type components = {
             readonly result?: string;
         };
         readonly ConfirmRequest: {
+            readonly sourceEntityType: string;
+            /** Format: uuid */
+            readonly sourceEntityId: string;
             /** Format: int64 */
             readonly expectedEntityVersion?: number;
         };
@@ -3254,6 +3257,8 @@ export type components = {
             readonly id?: string;
             /** Format: uuid */
             readonly tenantId?: string;
+            /** Format: uuid */
+            readonly actorId?: string;
             readonly integrationType?: string;
             readonly status?: string;
             /** Format: uuid */

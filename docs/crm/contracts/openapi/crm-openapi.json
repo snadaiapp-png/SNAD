@@ -8052,11 +8052,23 @@
       "ConfirmRequest": {
         "type": "object",
         "properties": {
+          "sourceEntityType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sourceEntityId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "expectedEntityVersion": {
             "type": "integer",
             "format": "int64"
           }
-        }
+        },
+        "required": [
+          "sourceEntityId",
+          "sourceEntityType"
+        ]
       },
       "ContactProfileResponse": {
         "type": "object",
@@ -11305,6 +11317,10 @@
             "format": "uuid"
           },
           "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "actorId": {
             "type": "string",
             "format": "uuid"
           },
