@@ -144,6 +144,7 @@ async function mockIntegrationApi(page: Page): Promise<{ current: IntegrationSta
       return;
     }
     if (request.method() === "POST" && path.endsWith("/cancel")) {
+      expect(request.headers()["idempotency-key"]).toBeTruthy();
       expect(request.headers()["if-match"]).toBe('"1"');
       state.current = { ...state.current, status: "CANCELLED", version: 2 };
       await fulfillJson(route, state.current);
