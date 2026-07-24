@@ -20,7 +20,6 @@ on:
       - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260723_1__create_crm_integration_requests.sql'
       - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260724_1__create_crm_command_executions_ledger.sql'
       - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260724_2__create_crm_command_artifacts.sql'
-      - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260724_3__create_crm_callback_replay.sql'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/integration/**'
       - 'apps/sanad-platform/src/test/resources/db/vendor/h2/**'
       - '.github/workflows/crm-009-postgres-specialized-acceptance.yml'
@@ -36,7 +35,6 @@ on:
       - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260723_1__create_crm_integration_requests.sql'
       - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260724_1__create_crm_command_executions_ledger.sql'
       - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260724_2__create_crm_command_artifacts.sql'
-      - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260724_3__create_crm_callback_replay.sql'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/integration/**'
       - 'apps/sanad-platform/src/test/resources/db/vendor/h2/**'
   workflow_dispatch:
@@ -46,9 +44,9 @@ permissions:
 
 jobs:
   postgres-specialized-acceptance:
-    name: PostgreSQL Specialized Acceptance (16 files, 50 tests, 0 skip, 0 fail)
+    name: PostgreSQL Specialized Acceptance (18 files, 63 tests, 0 skip, 0 fail)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     defaults:
       run:
@@ -90,7 +88,7 @@ jobs:
         run: |
           set -euo pipefail
           mvn -B -ntp test \
-            -Dtest='CrmIntegrationOutboxPostgresTest,CrmIntegrationOutboxWorkerTest,CrmIntegrationOutboxConcurrencyTest,CrmIntegrationOutboxRecoveryTest,CrmIntegrationDecisionPostgresTest,CrmIntegrationResultImmutabilityTest,ConfirmedRecommendationEnqueuePostgresTest,ConfirmedRecommendationExecutionPostgresTest,CommandExecutionIdempotencyPostgresTest,CommandExecutionCrashRecoveryPostgresTest,CrossWorkerOutboxRoutingPostgresTest,RealCommandAdaptersPostgresTest,CrashAfterCommitRecoveryPostgresTest,ServiceJwtProviderTest,WorkflowCallbackSecurityPostgresTest,CrmWorkflowIntegrationPostgresTest' \
+            -Dtest='CrmIntegrationOutboxPostgresTest,CrmIntegrationOutboxWorkerTest,CrmIntegrationOutboxConcurrencyTest,CrmIntegrationOutboxRecoveryTest,CrmIntegrationDecisionPostgresTest,CrmIntegrationResultImmutabilityTest,ConfirmedRecommendationEnqueuePostgresTest,ConfirmedRecommendationExecutionPostgresTest,CommandExecutionIdempotencyPostgresTest,CommandExecutionCrashRecoveryPostgresTest,CrossWorkerOutboxRoutingPostgresTest,RealCommandAdaptersPostgresTest,CrashAfterCommitRecoveryPostgresTest,ServiceJwtProviderTest,WorkflowCallbackSecurityPostgresTest,CrmWorkflowIntegrationPostgresTest,ProductionCommandAdapterContextTest,ProductionCommandAdapterGuardTest' \
             -DfailIfNoTests=false \
             -Dsurefire.useFile=false
 
@@ -109,8 +107,8 @@ jobs:
           TOTAL_SKIPPED=0
           TOTAL_FAILURES=0
           TOTAL_ERRORS=0
-          EXPECTED_TESTS=50
-          EXPECTED_TEST_FILES=16
+          EXPECTED_TESTS=63
+          EXPECTED_TEST_FILES=18
           ACTUAL_TEST_FILES=0
 
           for xml in "$REPORTS_DIR"/TEST-com.sanad.platform.crm.integration.*.xml; do
