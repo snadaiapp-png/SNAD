@@ -41,25 +41,13 @@ jobs:
             echo "  $key set (HTTP $STATUS)"
           }
 
-          # Restore DATABASE_URL from GitHub Secret
-          set_render_var "DATABASE_URL" "${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}"
-
-          # Restore DATABASE_USERNAME
-          set_render_var "DATABASE_USERNAME" "${{ secrets.PRODUCTION_DATABASE_USERNAME }}"
-
-          # Restore DATABASE_PASSWORD
-          set_render_var "DATABASE_PASSWORD" "${{ secrets.PRODUCTION_DATABASE_PASSWORD }}"
-
-          # Restore SPRING_PROFILES_ACTIVE
+          # Use PROD_JDBC_URL / PROD_DB_USER / PROD_DB_PASSWORD (current production DB)
+          set_render_var "DATABASE_URL" "${{ secrets.PROD_JDBC_URL }}"
+          set_render_var "DATABASE_USERNAME" "${{ secrets.PROD_DB_USER }}"
+          set_render_var "DATABASE_PASSWORD" "${{ secrets.PROD_DB_PASSWORD }}"
           set_render_var "SPRING_PROFILES_ACTIVE" "prod"
-
-          # Restore FLYWAY_ENABLED
           set_render_var "FLYWAY_ENABLED" "true"
-
-          # Restore FLYWAY_LOCATIONS (already set but ensure correct value)
           set_render_var "FLYWAY_LOCATIONS" "classpath:db/migration,classpath:db/vendor/{vendor}"
-
-          # Restore CORS allowed origins
           set_render_var "SANAD_CORS_ALLOWED_ORIGINS" "https://snad-app.vercel.app,https://streak-train-empower.ngrok-free.dev"
 
           echo ""
@@ -83,7 +71,7 @@ jobs:
       - name: Wait for deploy
         shell: bash
         run: |
-          sleep 120
+          sleep 180
           echo "Waiting for health check..."
           for i in $(seq 1 12); do
             CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 \
