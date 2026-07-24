@@ -159,7 +159,13 @@ public class CrmWorkflowUseCases {
             UUID requestId,
             long expectedVersion,
             String correlationId,
+            String idempotencyKey,
             String reason) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IntegrationException(
+                    IntegrationErrorCode.INVALID_CONTRACT,
+                    "Workflow cancellation idempotency key is required");
+        }
         CrmIntegrationStore.StoredRequest request = getWorkflowStatus(tenantId, requestId);
         if (request.version() != expectedVersion) {
             throw new IntegrationException(
@@ -182,6 +188,7 @@ public class CrmWorkflowUseCases {
                 tenantId,
                 request.externalReference(),
                 correlationId,
+                idempotencyKey.strip(),
                 reason == null || reason.isBlank() ? "Cancelled by CRM user" : reason.strip());
 
         CrmIntegrationStore.TransitionResult transition = store.transitionStatus(
