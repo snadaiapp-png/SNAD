@@ -126,6 +126,7 @@ CREATE TABLE IF NOT EXISTS crm_integration_decisions (
     command_reference VARCHAR(500),
     error_code VARCHAR(120),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP WITH TIME ZONE,
     version BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT crm_integration_decisions_request_fk FOREIGN KEY (tenant_id, integration_request_id)

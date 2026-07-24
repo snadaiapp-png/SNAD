@@ -252,6 +252,7 @@ CREATE TABLE crm_integration_decisions (
     command_reference       VARCHAR(500),
     error_code              VARCHAR(120),
     created_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at            TIMESTAMPTZ,
     version                 BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT pk_crm_integration_decisions PRIMARY KEY (id),
