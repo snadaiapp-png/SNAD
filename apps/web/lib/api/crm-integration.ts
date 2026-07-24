@@ -160,14 +160,17 @@ export async function rejectCrmAiRecommendation(
 
 export async function cancelCrmWorkflow(
   requestId: string,
+  idempotencyKey: string,
   ifMatch: string,
   reason?: string,
   client: ApiClient = apiClient,
 ): Promise<CrmIntegrationRequestStatus> {
-  if (!ifMatch.trim()) throw new Error("If-Match header is required");
   return client.post<CrmIntegrationRequestStatus, CrmWorkflowCancelRequest>(
     `/api/v2/crm/integrations/workflows/${encodeURIComponent(requestId)}/cancel`,
     { reason },
-    { context: { headers: { "If-Match": ifMatch } }, cache: "no-store" },
+    {
+      context: { headers: mutationHeaders(idempotencyKey, ifMatch) },
+      cache: "no-store",
+    },
   );
 }
