@@ -32,7 +32,7 @@ public class CallbackReplayStore {
             Instant expiresAt) {
         try {
             int inserted = jdbc.update(
-                    "INSERT INTO crm_integration_callback_replay " +
+                    "INSERT INTO service_callback_replay " +
                             "(tenant_id, service_name, jti, nonce, correlation_id, received_at, expires_at) " +
                             "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)",
                     tenantId,
@@ -49,7 +49,7 @@ public class CallbackReplayStore {
 
     @Scheduled(cron = "${sanad.service-auth.replay-cleanup-cron:0 17 * * * *}")
     public void deleteExpired() {
-        jdbc.update("DELETE FROM crm_integration_callback_replay WHERE expires_at <= CURRENT_TIMESTAMP");
+        jdbc.update("DELETE FROM service_callback_replay WHERE expires_at <= CURRENT_TIMESTAMP");
     }
 
     private static String required(String value, String name) {
