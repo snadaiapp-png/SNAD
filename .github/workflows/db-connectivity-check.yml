@@ -1,0 +1,57 @@
+name: DB Connectivity Check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check production DB connectivity
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Test PROD_JDBC_URL
+        env:
+          JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          DB_USER: ${{ secrets.PROD_DB_USER }}
+          DB_PASS: ${{ secrets.PROD_DB_PASSWORD }}
+        run: |
+          echo "Testing PROD_JDBC_URL..."
+          # Extract host, port, dbname from JDBC URL
+          HOST=$(echo "$JDBC_URL" | sed -n 's|.*//\([^:]*\):\([0-9]*\)/\([^?]*\).*|\1|p')
+          PORT=$(echo "$JDBC_URL" | sed -n 's|.*//\([^:]*\):\([0-9]*\)/\([^?]*\).*|\2|p')
+          DBNAME=$(echo "$JDBC_URL" | sed -n 's|.*//\([^:]*\):\([0-9]*\)/\([^?]*\).*|\3|p')
+          echo "Host: $HOST Port: $PORT DB: $DBNAME"
+          PGPASSWORD="$DB_PASS" psql -h "$HOST" -p "$PORT" -U "$DB_USER" -d "$DBNAME" -c "SELECT count(*) FROM flyway_schema_history;" 2>&1 || echo "PROD_JDBC_URL FAILED"
+
+      - name: Test PRODUCTION_DATABASE_URL
+        env:
+          DB_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DB_USER: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+          DB_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          echo "Testing PRODUCTION_DATABASE_URL..."
+          HOST=$(echo "$DB_URL" | sed -n 's|.*//\([^:]*\):\([0-9]*\)/\([^?]*\).*|\1|p')
+          PORT=$(echo "$DB_URL" | sed -n 's|.*//\([^:]*\):\([0-9]*\)/\([^?]*\).*|\2|p')
+          DBNAME=$(echo "$DB_URL" | sed -n 's|.*//\([^:]*\):\([0-9]*\)/\([^?]*\).*|\3|p')
+          echo "Host: $HOST Port: $PORT DB: $DBNAME"
+          PGPASSWORD="$DB_PASS" psql -h "$HOST" -p "$PORT" -U "$DB_USER" -d "$DBNAME" -c "SELECT count(*) FROM flyway_schema_history;" 2>&1 || echo "PRODUCTION_DATABASE_URL FAILED"
+
+      - name: Test PRODUCTION_DATABASE_JDBC_URL
+        env:
+          JDBC_URL: ${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}
+          DB_USER: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+          DB_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          echo "Testing PRODUCTION_DATABASE_JDBC_URL..."
+          HOST=$(echo "$JDBC_URL" | sed -n 's|.*//\([^:]*\):\([0-9]*\)/\([^?]*\).*|\1|p')
+          PORT=$(echo "$JDBC_URL" | sed -n 's|.*//\([^:]*\):\([0-9]*\)/\([^?]*\).*|\2|p')
+          DBNAME=$(echo "$JDBC_URL" | sed -n 's|.*//\([^:]*\):\([0-9]*\)/\([^?]*\).*|\3|p')
+          echo "Host: $HOST Port: $PORT DB: $DBNAME"
+          PGPASSWORD="$DB_PASS" psql -h "$HOST" -p "$PORT" -U "$DB_USER" -d "$DBNAME" -c "SELECT count(*) FROM flyway_schema_history;" 2>&1 || echo "PRODUCTION_DATABASE_JDBC_URL FAILED"
