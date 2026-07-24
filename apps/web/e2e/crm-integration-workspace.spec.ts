@@ -1,9 +1,11 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
-import { loginThroughUi } from "./crm-auth-session";
+import { loginThroughUi, type CrmLoginResponse } from "./crm-auth-session";
 
-const EMAIL = process.env.CRM_TENANT_A_EMAIL ?? "";
-const PASSWORD = process.env.CRM_TENANT_A_PASSWORD ?? "";
+const EMAIL = "crm-integration-ui@example.test";
+const PASSWORD = "crm-integration-ui-password";
 const ENTITY_ID = "11111111-1111-4111-8111-111111111111";
+const TENANT_ID = "33333333-3333-4333-8333-333333333333";
+const USER_ID = "44444444-4444-4444-8444-444444444444";
 
 interface IntegrationState {
   id: string;
@@ -25,22 +27,66 @@ interface IntegrationState {
   version: number;
 }
 
-async function fulfillJson(route: Route, body: unknown, status = 200): Promise<void> {
+async function fulfillJson(route: Route, body: unknown, status = 200, headers?: Record<string, string>): Promise<void> {
   await route.fulfill({
     status,
     contentType: "application/json",
+    headers,
     body: JSON.stringify(body),
+  });
+}
+
+async function mockAuthApi(page: Page): Promise<void> {
+  let loggedIn = false;
+  const loginResponse: CrmLoginResponse = {
+    accessToken: "crm-integration-ui-access-token",
+    expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+    credentialRotationRequired: false,
+    defaultDestination: "/crm/overview",
+    availableDestinations: ["/crm", "/workspace"],
+    user: {
+      id: USER_ID,
+      tenantId: TENANT_ID,
+      email: EMAIL,
+      displayName: "CRM Integration UI",
+      status: "ACTIVE",
+    },
+  };
+  const cookie = "sanad_refresh=crm-integration-ui-refresh; Path=/; HttpOnly; SameSite=Lax";
+
+  await page.route("**/api/platform/api/v1/auth/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (path.endsWith("/auth/login") && request.method() === "POST") {
+      loggedIn = true;
+      await fulfillJson(route, loginResponse, 200, { "set-cookie": cookie });
+      return;
+    }
+    if (path.endsWith("/auth/refresh") && request.method() === "POST") {
+      if (!loggedIn) {
+        await fulfillJson(route, { errorCode: "UNAUTHENTICATED" }, 401);
+        return;
+      }
+      await fulfillJson(route, loginResponse, 200, { "set-cookie": cookie });
+      return;
+    }
+    if (path.endsWith("/auth/logout")) {
+      loggedIn = false;
+      await fulfillJson(route, {}, 204);
+      return;
+    }
+    await fulfillJson(route, loggedIn ? loginResponse.user : { errorCode: "UNAUTHENTICATED" }, loggedIn ? 200 : 401);
   });
 }
 
 async function mockIntegrationApi(page: Page): Promise<{ current: IntegrationState }> {
   const now = new Date();
-  const state = {
+  const state: { current: IntegrationState } = {
     current: {
       id: "22222222-2222-4222-8222-222222222222",
-      tenantId: "33333333-3333-4333-8333-333333333333",
-      actorId: "44444444-4444-4444-8444-444444444444",
-      integrationType: "AI" as const,
+      tenantId: TENANT_ID,
+      actorId: USER_ID,
+      integrationType: "AI",
       status: "RECOMMENDATION_AVAILABLE",
       externalReference: null,
       correlationId: "corr-workspace",
@@ -63,10 +109,9 @@ async function mockIntegrationApi(page: Page): Promise<{ current: IntegrationSta
     },
   };
 
-  await page.route("**/api/platform/api/v2/crm/integrations/**", async (route) => {
+  await page.route("**/api/platform/api/v2/crm/integrations**", async (route) => {
     const request = route.request();
-    const url = new URL(request.url());
-    const path = url.pathname;
+    const path = new URL(request.url()).pathname;
 
     if (request.method() === "POST" && path.endsWith("/integrations/ai")) {
       await fulfillJson(route, state.current, 202);
@@ -114,6 +159,7 @@ async function mockIntegrationApi(page: Page): Promise<{ current: IntegrationSta
 }
 
 async function openWorkspace(page: Page, locale: "ar" | "en"): Promise<void> {
+  await mockAuthApi(page);
   await loginThroughUi(page, EMAIL, PASSWORD);
   await page.evaluate((nextLocale) => window.localStorage.setItem("snad.locale", nextLocale), locale);
   await page.goto("/crm/integrations");
@@ -121,11 +167,6 @@ async function openWorkspace(page: Page, locale: "ar" | "en"): Promise<void> {
 }
 
 test.describe("CRM Workflow & AI integration workspace", () => {
-  test.beforeAll(() => {
-    expect(EMAIL, "CRM_TENANT_A_EMAIL must be configured").toBeTruthy();
-    expect(PASSWORD, "CRM_TENANT_A_PASSWORD must be configured").toBeTruthy();
-  });
-
   test("renders all governed panels in Arabic RTL", async ({ page }) => {
     await mockIntegrationApi(page);
     await openWorkspace(page, "ar");
