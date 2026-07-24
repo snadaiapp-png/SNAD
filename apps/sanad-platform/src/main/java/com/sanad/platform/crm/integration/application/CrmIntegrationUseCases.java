@@ -336,7 +336,7 @@ public class CrmIntegrationUseCases {
             throw new IntegrationException(IntegrationErrorCode.ENTITY_STATE_CONFLICT,
                     "Entity is not active (state=" + snapshot.currentState() + ")");
         }
-        // Object-level authorization placeholder — the controller layer enforces
+        // Object-level authorization boundary — the controller layer enforces
         // capability checks via @RequireCapability("CRM.AI.CONFIRM"). Deeper
         // object-level checks (e.g. territory scoping) would be added here once
         // the corresponding port is available.
