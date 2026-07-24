@@ -121,17 +121,26 @@ public class HttpWorkflowIntegrationAdapter implements WorkflowIntegrationPort {
     }
 
     @Override
-    public void cancel(UUID tenantId, UUID workflowRunId, String correlationId, String reason) {
+    public void cancel(
+            UUID tenantId,
+            UUID workflowRunId,
+            String correlationId,
+            String idempotencyKey,
+            String reason) {
         if (baseUrl.isBlank()) {
             throw new IllegalStateException("Workflow Engine is not configured");
         }
         if (serviceJwtProvider == null || !serviceJwtProvider.isConfigured()) {
             throw new IllegalStateException("Workflow service authentication is not configured");
         }
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("Workflow cancellation idempotency key is required");
+        }
         try {
             ObjectNode body = mapper.createObjectNode();
             body.put("tenantId", tenantId.toString());
             body.put("correlationId", correlationId);
+            body.put("idempotencyKey", idempotencyKey.strip());
             body.put("reason", reason == null ? "Cancelled by CRM" : reason);
             String serviceToken = serviceJwtProvider.mint(
                     tenantId, correlationId, "1.0", audience);
@@ -141,6 +150,7 @@ public class HttpWorkflowIntegrationAdapter implements WorkflowIntegrationPort {
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + serviceToken)
                     .header("X-Correlation-Id", correlationId)
+                    .header("Idempotency-Key", idempotencyKey.strip())
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
                     .build();
             HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
