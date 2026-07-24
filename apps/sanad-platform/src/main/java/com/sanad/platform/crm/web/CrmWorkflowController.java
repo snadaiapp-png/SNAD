@@ -94,6 +94,7 @@ public class CrmWorkflowController {
     public ResponseEntity<CrmIntegrationStore.StoredRequest> cancel(
             Authentication authentication,
             @PathVariable UUID requestId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestHeader("If-Match") String ifMatch,
             @Valid @RequestBody(required = false) WorkflowCancelRequest body,
             HttpServletRequest request) {
@@ -112,6 +113,7 @@ public class CrmWorkflowController {
                     requestId,
                     expectedVersion,
                     trace.correlationId().toString(),
+                    idempotencyKey,
                     body == null ? null : body.reason());
             return response(result, trace, HttpStatus.OK);
         } catch (IntegrationException error) {
