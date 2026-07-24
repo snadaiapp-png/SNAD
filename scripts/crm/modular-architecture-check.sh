@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
 SCRIPT_PATH="${BASH_SOURCE[0]}"
 REPO_ROOT="$(cd "$(dirname "${SCRIPT_PATH}")/../.." && pwd)"
 CRM_BASE="${REPO_ROOT}/apps/sanad-platform/src/main/java/com/sanad/platform/crm"
 
 echo "=== CRM Modular Architecture Check ==="
 
-MODULES=("party" "lead" "opportunity" "activity" "configuration" "query" "integration")
+MODULES=("party" "lead" "opportunity" "activity" "task" "configuration" "query" "integration")
 MISSING=0
 for mod in "${MODULES[@]}"; do
   dir="${CRM_BASE}/${mod}"
@@ -23,7 +24,10 @@ for mod in "${MODULES[@]}"; do
     fi
   fi
 done
-if [ "$MISSING" -gt 0 ]; then echo "FAIL: $MISSING module(s) missing or empty"; exit 1; fi
+if [ "$MISSING" -gt 0 ]; then
+  echo "FAIL: $MISSING module(s) missing or empty"
+  exit 1
+fi
 
 echo ""
 echo "Checking domain layer isolation..."
@@ -55,14 +59,31 @@ fi
 echo "Domain port typing: PASS"
 
 echo ""
-echo "Checking for placeholder classes..."
-PLACEHOLDERS=$(find "${CRM_BASE}" -name "*.java" -exec grep -l "Placeholder\|placeholder" {} \; 2>/dev/null || true)
-PH_COUNT=$(echo "$PLACEHOLDERS" | grep -c "." || true)
+echo "Checking for implementation placeholders..."
+# The previous raw-word scan rejected legitimate Javadocs that discussed
+# placeholder prevention. This semantic gate detects actual placeholder
+# artifacts and executable non-implementations instead of prose.
+PLACEHOLDER_FILES=$(find "${CRM_BASE}" -type f -name "*Placeholder*.java" -print 2>/dev/null || true)
+PLACEHOLDER_DECLARATIONS=$(grep -RInE \
+  '(^|[[:space:]])(class|interface|enum|record)[[:space:]]+[A-Za-z0-9_]*Placeholder[A-Za-z0-9_]*' \
+  "${CRM_BASE}" 2>/dev/null || true)
+PLACEHOLDER_MARKERS=$(grep -RInE \
+  'IMPLEMENTATION_PLACEHOLDER|TODO[[:space:]]*:[[:space:]]*(implement|placeholder)|throw[[:space:]]+new[[:space:]]+UnsupportedOperationException' \
+  "${CRM_BASE}" 2>/dev/null || true)
+
+PH_COUNT=0
+for result in "$PLACEHOLDER_FILES" "$PLACEHOLDER_DECLARATIONS" "$PLACEHOLDER_MARKERS"; do
+  if [ -n "$result" ]; then
+    echo "$result"
+    count=$(printf '%s\n' "$result" | grep -c "." || true)
+    PH_COUNT=$((PH_COUNT + count))
+  fi
+done
 if [ "$PH_COUNT" -gt 0 ]; then
-  echo "FAIL: $PH_COUNT file(s) contain placeholder markers"
+  echo "FAIL: $PH_COUNT implementation placeholder marker(s) found"
   exit 1
 fi
-echo "Placeholder check: PASS"
+echo "Implementation placeholder check: PASS"
 
 echo ""
 echo "CRM Modular Architecture Check: PASS"

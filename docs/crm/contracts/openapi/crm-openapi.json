@@ -4430,6 +4430,361 @@
         ]
       }
     },
+    "/integrations/ai": {
+      "post": {
+        "tags": [
+          "crm-integration-controller"
+        ],
+        "operationId": "requestAi",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredRequest"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/integrations/workflows": {
+      "post": {
+        "tags": [
+          "crm-workflow-controller"
+        ],
+        "operationId": "dispatch",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowDispatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredRequest"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/integrations/workflows/{requestId}": {
+      "get": {
+        "tags": [
+          "crm-workflow-controller"
+        ],
+        "operationId": "status_1",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredRequest"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/integrations/workflows/{requestId}/cancel": {
+      "post": {
+        "tags": [
+          "crm-workflow-controller"
+        ],
+        "operationId": "cancel",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowCancelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredRequest"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/integrations/{requestId}": {
+      "get": {
+        "tags": [
+          "crm-integration-controller"
+        ],
+        "operationId": "status",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredRequest"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/integrations/{requestId}/confirm": {
+      "post": {
+        "tags": [
+          "crm-integration-controller"
+        ],
+        "operationId": "confirm",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredRequest"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/integrations/{requestId}/reject": {
+      "post": {
+        "tags": [
+          "crm-integration-controller"
+        ],
+        "operationId": "reject",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredRequest"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/leads": {
       "get": {
         "tags": [
@@ -7098,6 +7453,39 @@
           }
         }
       },
+      "AiRequest": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "string",
+            "enum": [
+              "CUSTOMER_SUMMARY",
+              "NEXT_BEST_ACTION",
+              "SCORING"
+            ]
+          },
+          "sourceEntityType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sourceEntityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceEntityVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "userIntent": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability",
+          "sourceEntityId",
+          "sourceEntityType"
+        ]
+      },
       "ArchiveAccountResponse": {
         "type": "object",
         "properties": {
@@ -7816,6 +8204,15 @@
             "type": "string",
             "maxLength": 4000,
             "minLength": 0
+          }
+        }
+      },
+      "ConfirmRequest": {
+        "type": "object",
+        "properties": {
+          "expectedEntityVersion": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -10549,6 +10946,14 @@
           "recordType"
         ]
       },
+      "RejectRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
       "RelationshipCommandRequest": {
         "type": "object",
         "properties": {
@@ -11047,6 +11452,89 @@
           },
           "active": {
             "type": "boolean"
+          }
+        }
+      },
+      "StoredRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "actorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "integrationType": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "externalReference": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "correlationId": {
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          },
+          "sourceEntityType": {
+            "type": "string"
+          },
+          "sourceEntityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceEntityVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "requiredCapability": {
+            "type": "string"
+          },
+          "contractName": {
+            "type": "string"
+          },
+          "contractVersion": {
+            "type": "string"
+          },
+          "causationId": {
+            "type": "string"
+          },
+          "dataClassification": {
+            "type": "string"
+          },
+          "requestedLocale": {
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/JsonNode"
+          },
+          "resultPayload": {
+            "$ref": "#/components/schemas/JsonNode"
+          },
+          "requestedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -12216,6 +12704,48 @@
             "format": "uuid"
           }
         }
+      },
+      "WorkflowCancelRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkflowDispatchRequest": {
+        "type": "object",
+        "properties": {
+          "workflowType": {
+            "type": "string",
+            "enum": [
+              "ASSIGNMENT",
+              "OPPORTUNITY_APPROVAL",
+              "REMINDER",
+              "ESCALATION"
+            ]
+          },
+          "sourceEntityType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sourceEntityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceEntityVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/JsonNode"
+          }
+        },
+        "required": [
+          "sourceEntityId",
+          "sourceEntityType",
+          "workflowType"
+        ]
       },
       "WorkloadSummary": {
         "type": "object",

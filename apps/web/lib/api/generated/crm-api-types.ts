@@ -1102,6 +1102,118 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/integrations/ai": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["requestAi"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/integrations/workflows": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["dispatch"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/integrations/workflows/{requestId}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["status_1"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/integrations/workflows/{requestId}/cancel": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["cancel"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/integrations/{requestId}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["status"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/integrations/{requestId}/confirm": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["confirm"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/integrations/{requestId}/reject": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["reject"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/leads": {
         readonly parameters: {
             readonly query?: never;
@@ -1776,6 +1888,16 @@ export type components = {
             /** Format: date-time */
             readonly updatedAt?: string;
         };
+        readonly AiRequest: {
+            /** @enum {string} */
+            readonly capability: "CUSTOMER_SUMMARY" | "NEXT_BEST_ACTION" | "SCORING";
+            readonly sourceEntityType: string;
+            /** Format: uuid */
+            readonly sourceEntityId: string;
+            /** Format: int64 */
+            readonly sourceEntityVersion?: number;
+            readonly userIntent?: string;
+        };
         readonly ArchiveAccountResponse: {
             /** Format: uuid */
             readonly id?: string;
@@ -2038,6 +2160,10 @@ export type components = {
         };
         readonly CompleteActivityRequest: {
             readonly result?: string;
+        };
+        readonly ConfirmRequest: {
+            /** Format: int64 */
+            readonly expectedEntityVersion?: number;
         };
         readonly ContactProfileResponse: {
             /** Format: uuid */
@@ -2980,6 +3106,9 @@ export type components = {
             /** Format: uuid */
             readonly assignedByRuleId?: string;
         };
+        readonly RejectRequest: {
+            readonly reason?: string;
+        };
         readonly RelationshipCommandRequest: {
             /** Format: int64 */
             readonly expectedVersion?: number;
@@ -3167,6 +3296,40 @@ export type components = {
             readonly probability?: number;
             readonly terminalState?: string;
             readonly active?: boolean;
+        };
+        readonly StoredRequest: {
+            /** Format: uuid */
+            readonly id?: string;
+            /** Format: uuid */
+            readonly tenantId?: string;
+            /** Format: uuid */
+            readonly actorId?: string;
+            readonly integrationType?: string;
+            readonly status?: string;
+            /** Format: uuid */
+            readonly externalReference?: string;
+            readonly correlationId?: string;
+            readonly idempotencyKey?: string;
+            readonly sourceEntityType?: string;
+            /** Format: uuid */
+            readonly sourceEntityId?: string;
+            /** Format: int64 */
+            readonly sourceEntityVersion?: number;
+            readonly requiredCapability?: string;
+            readonly contractName?: string;
+            readonly contractVersion?: string;
+            readonly causationId?: string;
+            readonly dataClassification?: string;
+            readonly requestedLocale?: string;
+            readonly payload?: components["schemas"]["JsonNode"];
+            readonly resultPayload?: components["schemas"]["JsonNode"];
+            /** Format: date-time */
+            readonly requestedAt?: string;
+            /** Format: date-time */
+            readonly expiresAt?: string;
+            readonly errorCode?: string;
+            /** Format: int64 */
+            readonly version?: number;
         };
         readonly SubmitTransferRequest: {
             readonly approverUserIds?: readonly string[];
@@ -3567,6 +3730,19 @@ export type components = {
             readonly decisionAuthority?: string;
             /** Format: uuid */
             readonly ownerUserId?: string;
+        };
+        readonly WorkflowCancelRequest: {
+            readonly reason?: string;
+        };
+        readonly WorkflowDispatchRequest: {
+            /** @enum {string} */
+            readonly workflowType: "ASSIGNMENT" | "OPPORTUNITY_APPROVAL" | "REMINDER" | "ESCALATION";
+            readonly sourceEntityType: string;
+            /** Format: uuid */
+            readonly sourceEntityId: string;
+            /** Format: int64 */
+            readonly sourceEntityVersion?: number;
+            readonly payload?: components["schemas"]["JsonNode"];
         };
         readonly WorkloadSummary: {
             /** Format: uuid */
@@ -5814,6 +5990,190 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseImportRunResponse"];
+                };
+            };
+        };
+    };
+    readonly requestAi: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "Idempotency-Key": string;
+                readonly "Accept-Language"?: string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["AiRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["StoredRequest"];
+                };
+            };
+        };
+    };
+    readonly dispatch: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "Idempotency-Key": string;
+                readonly "Accept-Language"?: string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["WorkflowDispatchRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["StoredRequest"];
+                };
+            };
+        };
+    };
+    readonly status_1: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly requestId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["StoredRequest"];
+                };
+            };
+        };
+    };
+    readonly cancel: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "If-Match": string;
+            };
+            readonly path: {
+                readonly requestId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["WorkflowCancelRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["StoredRequest"];
+                };
+            };
+        };
+    };
+    readonly status: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly requestId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["StoredRequest"];
+                };
+            };
+        };
+    };
+    readonly confirm: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "Idempotency-Key": string;
+                readonly "If-Match": string;
+            };
+            readonly path: {
+                readonly requestId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["ConfirmRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["StoredRequest"];
+                };
+            };
+        };
+    };
+    readonly reject: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "Idempotency-Key": string;
+                readonly "If-Match": string;
+            };
+            readonly path: {
+                readonly requestId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["RejectRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["StoredRequest"];
                 };
             };
         };

@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(properties = {
         "sanad.cors.allowed-origins=https://snad-app.vercel.app",
+        "sanad.production-guard.enabled=false",
         "management.health.mail.enabled=false",
         "spring.datasource.url=jdbc:postgresql://localhost:5432/sanad_test_guard_placeholder",
         "spring.datasource.username=sanad_test",

@@ -1,0 +1,144 @@
+name: CRM-009 Diagnostic Artifact Sync
+
+on:
+  push:
+    branches:
+      - feature/crm-009-workflow-ai-implementation-20260723
+    paths:
+      - '.github/workflows/crm-009-artifact-sync-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  JWT_SECRET: ci-only-non-production-validation-key-1234567890
+  BASE_SHA: 74c6618a60ecd983086553cf75f71b5a6c8d2c9a
+  EXPECTED_CRM_PATHS: '107'
+  EXPECTED_CRM_OPERATIONS: '140'
+
+jobs:
+  diagnose-and-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/crm-009-workflow-ai-implementation-20260723
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Execute finalization with captured outcomes
+        id: finalization
+        shell: bash
+        run: |
+          set +e
+          mkdir -p /tmp/crm009-finalization docs/crm/crm-009
+          FAIL=0
+
+          run_stage() {
+            name="$1"; shift
+            echo "=== ${name} ===" | tee -a /tmp/crm009-finalization/summary.log
+            "$@" >"/tmp/crm009-finalization/${name}.log" 2>&1
+            code=$?
+            echo "${name}=${code}" >> /tmp/crm009-finalization/status.env
+            if [ "$code" -ne 0 ]; then
+              FAIL=1
+              tail -200 "/tmp/crm009-finalization/${name}.log" >> /tmp/crm009-finalization/summary.log
+            fi
+            return 0
+          }
+
+          run_stage compile bash -lc 'cd apps/sanad-platform && mvn -B -ntp -DskipTests compile test-compile'
+
+          if grep -q '^compile=0$' /tmp/crm009-finalization/status.env; then
+            (cd apps/sanad-platform && nohup mvn -q -DskipTests spring-boot:run \
+              -Dspring-boot.run.profiles=local \
+              -Dspring-boot.run.arguments="--server.port=8081" \
+              >/tmp/crm009-finalization/backend.log 2>&1 & echo $! >/tmp/crm009-finalization/backend.pid)
+
+            READY=1
+            for attempt in $(seq 1 120); do
+              if ! kill -0 "$(cat /tmp/crm009-finalization/backend.pid)" 2>/dev/null; then READY=0; break; fi
+              code="$(curl -sS -o /tmp/platform-openapi.json -w '%{http_code}' http://localhost:8081/v3/api-docs || true)"
+              if [ "$code" = '200' ] && [ -s /tmp/platform-openapi.json ]; then READY=2; break; fi
+              sleep 2
+            done
+            if [ "$READY" -eq 2 ]; then
+              run_stage openapi python3 scripts/crm/filter-runtime-openapi.py \
+                --input /tmp/platform-openapi.json \
+                --output docs/crm/contracts/openapi/crm-openapi.json \
+                --prefix /api/v2/crm \
+                --expected-paths "$EXPECTED_CRM_PATHS" \
+                --expected-operations "$EXPECTED_CRM_OPERATIONS"
+              run_stage backend_tests bash -lc "cd apps/sanad-platform && mvn -B -ntp -Dtest='CrmOpenApiContractTest,PlatformApiCountTest,ServiceJwtProviderTest,ProductionCommandAdapterContextTest,ProductionCommandAdapterGuardTest' test"
+            else
+              echo 'openapi=97' >> /tmp/crm009-finalization/status.env
+              FAIL=1
+              tail -300 /tmp/crm009-finalization/backend.log >> /tmp/crm009-finalization/summary.log
+            fi
+          fi
+
+          run_stage npm_install bash -lc 'cd apps/web && npm ci'
+          if grep -q '^npm_install=0$' /tmp/crm009-finalization/status.env; then
+            run_stage generate_types bash -lc 'cd apps/web && npm run crm:generate-api-types && npx tsc --noEmit --skipLibCheck lib/api/generated/crm-api-types.ts'
+            run_stage web_lint bash -lc 'cd apps/web && npm run lint'
+          fi
+
+          if [ "$FAIL" -eq 0 ]; then
+            git checkout "$BASE_SHA" -- upload/pasted_image_*.png
+            rm -f .github/workflows/crm-009-contract-sync.yml
+            rm -f .github/workflows/crm-009-finalize-artifacts.yml
+            rm -f .github/workflows/crm-009-finalize-v2.yml
+            rm -f .github/workflows/crm-009-artifact-final-sync.yml
+            rm -f .github/workflows/crm-009-artifact-sync-final.yml
+          fi
+
+          {
+            echo '# CRM-009 Finalization Workflow Status'
+            echo
+            echo "- Source SHA: \`${GITHUB_SHA}\`"
+            echo "- Run ID: \`${GITHUB_RUN_ID}\`"
+            echo "- Result: $([ "$FAIL" -eq 0 ] && echo PASS || echo FAIL)"
+            echo
+            echo '## Stage exit codes'
+            echo '```text'
+            cat /tmp/crm009-finalization/status.env 2>/dev/null || true
+            echo '```'
+            if [ "$FAIL" -ne 0 ]; then
+              echo
+              echo '## Failure tail'
+              echo '```text'
+              tail -500 /tmp/crm009-finalization/summary.log
+              echo '```'
+            fi
+          } > docs/crm/crm-009/FINALIZATION-WORKFLOW-STATUS.md
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if [ "$FAIL" -eq 0 ]; then
+            git add -A
+            git commit -m 'chore(crm-009): finalize runtime artifacts and branch scope'
+          else
+            git add docs/crm/crm-009/FINALIZATION-WORKFLOW-STATUS.md
+            git commit -m 'chore(crm-009): record finalization workflow failure evidence'
+          fi
+          git push origin HEAD:feature/crm-009-workflow-ai-implementation-20260723
+          echo "fail=${FAIL}" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Fail workflow when finalization failed
+        if: steps.finalization.outputs.fail != '0'
+        run: exit 1

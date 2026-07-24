@@ -1,0 +1,181 @@
+name: CRM-009 One-Time Finalization
+
+on:
+  push:
+    branches:
+      - feature/crm-009-workflow-ai-implementation-20260723
+    paths:
+      - '.github/workflows/crm-009-finalize-artifacts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: crm-009-one-time-finalization
+  cancel-in-progress: false
+
+env:
+  JWT_SECRET: ci-only-non-production-validation-key-1234567890
+  BASE_SHA: 74c6618a60ecd983086553cf75f71b5a6c8d2c9a
+  EXPECTED_CRM_PATHS: '107'
+  EXPECTED_CRM_OPERATIONS: '140'
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/crm-009-workflow-ai-implementation-20260723
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply deterministic closure patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'Expected closure pattern not found in {path}: {old[:120]!r}')
+              target.write_text(text.replace(old, new), encoding='utf-8')
+
+          replace(
+              'apps/web/app/crm/(operational)/integrations/page.tsx',
+              'setRequest(await cancelCrmWorkflow(request.id, `"${request.version}"`, "Cancelled from CRM workspace"));',
+              'setRequest(await cancelCrmWorkflow(\n        request.id,\n        crypto.randomUUID(),\n        `"${request.version}"`,\n        "Cancelled from CRM workspace",\n      ));',
+          )
+
+          replace(
+              'apps/web/e2e/crm-integration-workspace.spec.ts',
+              'if (request.method() === "POST" && path.endsWith("/cancel")) {\n      expect(request.headers()["if-match"]).toBe(\'"1"\');',
+              'if (request.method() === "POST" && path.endsWith("/cancel")) {\n      expect(request.headers()["idempotency-key"]).toBeTruthy();\n      expect(request.headers()["if-match"]).toBe(\'"1"\');',
+          )
+
+          contract = Path('.github/workflows/crm-api-contract-validation.yml')
+          text = contract.read_text(encoding='utf-8')
+          text = text.replace("EXPECTED_CRM_PATHS: '104'", "EXPECTED_CRM_PATHS: '107'")
+          text = text.replace("EXPECTED_CRM_OPERATIONS: '137'", "EXPECTED_CRM_OPERATIONS: '140'")
+          marker = "            ('/transfers/{transferId}/cancel','post','If-Match')"
+          addition = """            ('/transfers/{transferId}/cancel','post','If-Match'),
+            ('/integrations/ai','post','Idempotency-Key'),
+            ('/integrations/{requestId}/confirm','post','Idempotency-Key'),
+            ('/integrations/{requestId}/confirm','post','If-Match'),
+            ('/integrations/{requestId}/reject','post','Idempotency-Key'),
+            ('/integrations/{requestId}/reject','post','If-Match'),
+            ('/integrations/workflows','post','Idempotency-Key'),
+            ('/integrations/workflows/{requestId}/cancel','post','Idempotency-Key'),
+            ('/integrations/workflows/{requestId}/cancel','post','If-Match')"""
+          if marker not in text:
+              raise SystemExit('Required-header insertion marker missing')
+          text = text.replace(marker, addition)
+          contract.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Restore accidentally deleted uploaded assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout "$BASE_SHA" -- upload/pasted_image_*.png
+
+      - name: Remove superseded contract sync workflow
+        shell: bash
+        run: rm -f .github/workflows/crm-009-contract-sync.yml
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Compile backend and tests
+        working-directory: apps/sanad-platform
+        run: mvn -B -ntp -DskipTests compile test-compile
+
+      - name: Start backend for runtime OpenAPI
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          nohup mvn -q -DskipTests spring-boot:run \
+            -Dspring-boot.run.profiles=local \
+            -Dspring-boot.run.arguments="--server.port=8081" \
+            >/tmp/crm-009-finalize-backend.log 2>&1 &
+          echo $! >/tmp/crm-009-finalize-backend.pid
+
+      - name: Generate committed runtime CRM contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 120); do
+            if ! kill -0 "$(cat /tmp/crm-009-finalize-backend.pid)" 2>/dev/null; then
+              cat /tmp/crm-009-finalize-backend.log
+              exit 1
+            fi
+            code="$(curl -sS -o /tmp/platform-openapi.json -w '%{http_code}' http://localhost:8081/v3/api-docs || true)"
+            if [ "$code" = '200' ] && [ -s /tmp/platform-openapi.json ]; then
+              break
+            fi
+            sleep 2
+          done
+          python3 scripts/crm/filter-runtime-openapi.py \
+            --input /tmp/platform-openapi.json \
+            --output docs/crm/contracts/openapi/crm-openapi.json \
+            --prefix /api/v2/crm \
+            --expected-paths "$EXPECTED_CRM_PATHS" \
+            --expected-operations "$EXPECTED_CRM_OPERATIONS"
+
+      - name: Run contract and platform count tests
+        working-directory: apps/sanad-platform
+        run: mvn -B -ntp -Dtest='CrmOpenApiContractTest,PlatformApiCountTest,ServiceJwtProviderTest' test
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Generate TypeScript and verify frontend
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run crm:generate-api-types
+          npx tsc --noEmit --skipLibCheck lib/api/generated/crm-api-types.ts
+          npm run lint
+
+      - name: Commit exact closure artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            apps/web/app/crm/'(operational)'/integrations/page.tsx \
+            apps/web/e2e/crm-integration-workspace.spec.ts \
+            .github/workflows/crm-api-contract-validation.yml \
+            .github/workflows/crm-009-contract-sync.yml \
+            docs/crm/contracts/openapi/crm-openapi.json \
+            apps/web/lib/api/generated/crm-api-types.ts \
+            upload/
+          if git diff --cached --quiet; then
+            echo 'No finalization changes required'
+            exit 0
+          fi
+          git commit -m 'chore(crm-009): finalize runtime contracts and restore branch scope'
+          git push origin HEAD:feature/crm-009-workflow-ai-implementation-20260723
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f /tmp/crm-009-finalize-backend.pid ]; then
+            kill "$(cat /tmp/crm-009-finalize-backend.pid)" 2>/dev/null || true
+          fi
