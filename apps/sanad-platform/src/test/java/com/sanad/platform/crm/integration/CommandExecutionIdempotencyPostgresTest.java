@@ -108,6 +108,14 @@ class CommandExecutionIdempotencyPostgresTest {
         var claimed1 = store.claimNextOutboxEvent("test-worker", 60,
                 ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
         assertThat(claimed1).isPresent();
+
+        // Debug: print the claimed event details
+        System.out.println("DEBUG: test decisionId=" + decisionId);
+        System.out.println("DEBUG: test requestId=" + requestId);
+        System.out.println("DEBUG: claimed event id=" + claimed1.get().id());
+        System.out.println("DEBUG: claimed event requestId=" + claimed1.get().integrationRequestId());
+        System.out.println("DEBUG: claimed event payload=" + claimed1.get().payload());
+
         executor.processSingleExecutionEvent(claimed1.get());
 
         // Debug: print decisionId and request status
@@ -117,7 +125,7 @@ class CommandExecutionIdempotencyPostgresTest {
         Integer totalLedgers = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_integration_command_executions",
                 Integer.class);
-        System.out.println("DEBUG: decisionId=" + decisionId + " reqStatus=" + reqStatus
+        System.out.println("DEBUG: after process: decisionId=" + decisionId + " reqStatus=" + reqStatus
                 + " totalLedgers=" + totalLedgers);
 
         // Verify one ledger row exists
