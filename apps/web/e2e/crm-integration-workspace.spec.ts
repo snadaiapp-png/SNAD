@@ -119,13 +119,13 @@ async function mockIntegrationApi(page: Page): Promise<{ current: IntegrationSta
       return;
     }
     if (request.method() === "POST" && path.endsWith("/confirm")) {
-      expect(request.headers()["if-match"]).toBe('"1"');
+      expect(request.headers()["x-snad-if-match"]).toBe('"1"');
       state.current = { ...state.current, status: "EXECUTING", version: 2 };
       await fulfillJson(route, state.current);
       return;
     }
     if (request.method() === "POST" && path.endsWith("/reject")) {
-      expect(request.headers()["if-match"]).toBe('"1"');
+      expect(request.headers()["x-snad-if-match"]).toBe('"1"');
       state.current = { ...state.current, status: "REJECTED", version: 2 };
       await fulfillJson(route, state.current);
       return;
@@ -146,7 +146,7 @@ async function mockIntegrationApi(page: Page): Promise<{ current: IntegrationSta
     }
     if (request.method() === "POST" && path.endsWith("/cancel")) {
       expect(request.headers()["idempotency-key"]).toBeTruthy();
-      expect(request.headers()["if-match"]).toBe('"1"');
+      expect(request.headers()["x-snad-if-match"]).toBe('"1"');
       state.current = { ...state.current, status: "CANCELLED", version: 2 };
       await fulfillJson(route, state.current);
       return;
