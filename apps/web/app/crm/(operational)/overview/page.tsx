@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { crmApi, type CrmDashboard } from "@/lib/api/crm";
 import { toUserFacingError } from "@/lib/api/user-facing-errors";
@@ -10,19 +11,9 @@ import { CrmError } from "../../components/crm-error";
 import { CrmEmpty } from "../../components/crm-empty";
 import styles from "../../crm.module.css";
 
-/**
- * CRM Overview route — /crm/overview
- *
- * Connects to `crmApi.dashboard()` and renders:
- *   - Six KPI cards (accounts, contacts, open leads, open opportunities,
- *     weighted pipeline, overdue activities).
- *   - A recent-activity timeline sourced from `dashboard.recentActivity`.
- *   - "Last updated" timestamp + retry CTA.
- *
- * Each surface handles loading, error, and empty states explicitly.
- */
+/** CRM overview dashboard and entry point to governed Workflow/AI operations. */
 export default function CrmOverviewPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [dashboard, setDashboard] = useState<CrmDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -49,27 +40,15 @@ export default function CrmOverviewPage() {
   }, [reload]);
 
   if (loading && !dashboard) {
-    return (
-      <div className={styles.contentInner}>
-        <CrmLoading />
-      </div>
-    );
+    return <div className={styles.contentInner}><CrmLoading /></div>;
   }
 
   if (error && !dashboard) {
-    return (
-      <div className={styles.contentInner}>
-        <CrmError message={error} onRetry={() => void reload()} />
-      </div>
-    );
+    return <div className={styles.contentInner}><CrmError message={error} onRetry={() => void reload()} /></div>;
   }
 
   if (!dashboard) {
-    return (
-      <div className={styles.contentInner}>
-        <CrmEmpty />
-      </div>
-    );
+    return <div className={styles.contentInner}><CrmEmpty /></div>;
   }
 
   const kpis = [
@@ -80,7 +59,6 @@ export default function CrmOverviewPage() {
     { key: "crm.overview.kpi.weightedPipeline", value: formatNumber(dashboard.weightedPipeline) },
     { key: "crm.overview.kpi.overdueActivities", value: String(dashboard.overdueActivities) },
   ];
-
   const recentActivity = dashboard.recentActivity ?? [];
 
   return (
@@ -90,16 +68,17 @@ export default function CrmOverviewPage() {
           <h1 className={styles.pageTitle}>{t("crm.overview.title")}</h1>
           <p className={styles.pageDescription}>{t("crm.overview.description")}</p>
         </div>
-        <button type="button" onClick={() => void reload()} disabled={loading}>
-          {loading ? t("crm.state.loading") : t("crm.shell.refresh")}
-        </button>
+        <div className={styles.rowHeader}>
+          <Link href="/crm/integrations">
+            {locale === "ar" ? "تكاملات سير العمل والذكاء" : "Workflow & AI integrations"}
+          </Link>
+          <button type="button" onClick={() => void reload()} disabled={loading}>
+            {loading ? t("crm.state.loading") : t("crm.shell.refresh")}
+          </button>
+        </div>
       </div>
 
-      {error ? (
-        <div className={styles.error} role="alert">
-          {error}
-        </div>
-      ) : null}
+      {error ? <div className={styles.error} role="alert">{error}</div> : null}
 
       <section aria-label={t("crm.overview.title")}>
         <div className={styles.kpiGrid}>

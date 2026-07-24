@@ -54,8 +54,15 @@ public class JdbcActivityRepository implements ActivityRepository {
         return findById(t, id);
     }
     private ActivityRecord mapRow(Map<String,Object> r) {
-        return new ActivityRecord((UUID)r.get("id"),asLong(r.get("version")),(String)r.get("activity_type"),(String)r.get("subject"),(String)r.get("body"),(String)r.get("related_type"),(UUID)r.get("related_id"),(UUID)r.get("owner_user_id"),(String)r.get("status"),r.get("priority")==null?null:((Number)r.get("priority")).intValue(),(java.time.OffsetDateTime)r.get("start_at"),(java.time.OffsetDateTime)r.get("due_at"),(java.time.OffsetDateTime)r.get("completed_at"),(String)r.get("result"),asInstant(r.get("created_at")),asInstant(r.get("updated_at")));
+        return new ActivityRecord((UUID)r.get("id"),asLong(r.get("version")),(String)r.get("activity_type"),(String)r.get("subject"),(String)r.get("body"),(String)r.get("related_type"),(UUID)r.get("related_id"),(UUID)r.get("owner_user_id"),(String)r.get("status"),r.get("priority")==null?null:((Number)r.get("priority")).intValue(),asOffsetDateTime(r.get("start_at")),asOffsetDateTime(r.get("due_at")),asOffsetDateTime(r.get("completed_at")),(String)r.get("result"),asInstant(r.get("created_at")),asInstant(r.get("updated_at")));
     }
     private static long asLong(Object v) { if(v==null)return 0L; if(v instanceof Number n)return n.longValue(); try{return Long.parseLong(String.valueOf(v));}catch(Exception e){return 0L;} }
     private static Instant asInstant(Object v) { if(v==null)return null; if(v instanceof Timestamp t)return t.toInstant(); if(v instanceof Instant i)return i; return null; }
+    private static java.time.OffsetDateTime asOffsetDateTime(Object v) {
+        if(v==null)return null;
+        if(v instanceof java.time.OffsetDateTime odt)return odt;
+        if(v instanceof Timestamp t)return t.toInstant().atOffset(java.time.ZoneOffset.UTC);
+        if(v instanceof Instant i)return i.atOffset(java.time.ZoneOffset.UTC);
+        return null;
+    }
 }

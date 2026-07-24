@@ -9,19 +9,17 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 /**
  * JDBC implementation of {@link TaskRepository}.
- * <p>
- * Tenant isolation is enforced at the SQL level — every query filters
- * on {@code tenant_id}. Optimistic concurrency is enforced via
- * {@code WHERE version = :expectedVersion} on mutations; a zero-rows
- * result raises {@link CrmErrorCode#CRM_CONCURRENCY_CONFLICT}.
- * <p>
- * Branch: feature/crm-tasks
+ * Tenant isolation is enforced in every query and optimistic concurrency is
+ * enforced with {@code WHERE version = :expectedVersion} on mutations.
  */
 @Repository
 public class JdbcTaskRepository implements TaskRepository {
@@ -75,16 +73,16 @@ public class JdbcTaskRepository implements TaskRepository {
 
         jdbc.update(
                 "INSERT INTO crm_tasks (" +
-                "  id, tenant_id, version, title, description, " +
-                "  related_type, related_id, assignee_user_id, owner_user_id, " +
-                "  status, priority, start_at, due_at, " +
-                "  created_by, updated_by, created_at, updated_at" +
-                ") VALUES (" +
-                "  :id, :t, 0, :title, :description, " +
-                "  :relatedType, :relatedId, :assigneeUserId, :ownerUserId, " +
-                "  'OPEN', :priority, :startAt, :dueAt, " +
-                "  :actorId, :actorId, :now, :now" +
-                ")",
+                        "id, tenant_id, version, title, description, " +
+                        "related_type, related_id, assignee_user_id, owner_user_id, " +
+                        "status, priority, start_at, due_at, " +
+                        "created_by, updated_by, created_at, updated_at" +
+                        ") VALUES (" +
+                        ":id, :t, 0, :title, :description, " +
+                        ":relatedType, :relatedId, :assigneeUserId, :ownerUserId, " +
+                        "'OPEN', :priority, :startAt, :dueAt, " +
+                        ":actorId, :actorId, :now, :now" +
+                        ")",
                 new MapSqlParameterSource()
                         .addValue("id", id)
                         .addValue("t", tenantId)
@@ -150,9 +148,9 @@ public class JdbcTaskRepository implements TaskRepository {
     public TaskRecord start(UUID tenantId, UUID actorId, UUID taskId, long expectedVersion) {
         int updated = jdbc.update(
                 "UPDATE crm_tasks SET status = 'IN_PROGRESS', version = version + 1, " +
-                "  updated_by = :actorId, updated_at = :now, " +
-                "  start_at = COALESCE(start_at, :now) " +
-                "WHERE tenant_id = :t AND id = :id AND version = :expectedVersion AND status = 'OPEN'",
+                        "updated_by = :actorId, updated_at = :now, " +
+                        "start_at = COALESCE(start_at, :now) " +
+                        "WHERE tenant_id = :t AND id = :id AND version = :expectedVersion AND status = 'OPEN'",
                 new MapSqlParameterSource()
                         .addValue("t", tenantId)
                         .addValue("id", taskId)
@@ -160,7 +158,6 @@ public class JdbcTaskRepository implements TaskRepository {
                         .addValue("actorId", actorId)
                         .addValue("now", Timestamp.from(Instant.now())));
         if (updated == 0) {
-            // Either version mismatch or invalid state transition
             TaskRecord current = findById(tenantId, taskId);
             if (!"OPEN".equals(current.status())) {
                 throw new CrmContractException(CrmErrorCode.CRM_INVALID_TASK_TRANSITION);
@@ -174,9 +171,9 @@ public class JdbcTaskRepository implements TaskRepository {
     public TaskRecord complete(UUID tenantId, UUID actorId, UUID taskId, String result, long expectedVersion) {
         int updated = jdbc.update(
                 "UPDATE crm_tasks SET status = 'COMPLETED', result = :result, completed_at = :now, " +
-                "  version = version + 1, updated_by = :actorId, updated_at = :now " +
-                "WHERE tenant_id = :t AND id = :id AND version = :expectedVersion " +
-                "  AND status IN ('OPEN', 'IN_PROGRESS')",
+                        "version = version + 1, updated_by = :actorId, updated_at = :now " +
+                        "WHERE tenant_id = :t AND id = :id AND version = :expectedVersion " +
+                        "AND status IN ('OPEN', 'IN_PROGRESS')",
                 new MapSqlParameterSource()
                         .addValue("t", tenantId)
                         .addValue("id", taskId)
@@ -198,9 +195,9 @@ public class JdbcTaskRepository implements TaskRepository {
     public TaskRecord cancel(UUID tenantId, UUID actorId, UUID taskId, String reason, long expectedVersion) {
         int updated = jdbc.update(
                 "UPDATE crm_tasks SET status = 'CANCELLED', result = :reason, " +
-                "  version = version + 1, updated_by = :actorId, updated_at = :now " +
-                "WHERE tenant_id = :t AND id = :id AND version = :expectedVersion " +
-                "  AND status IN ('OPEN', 'IN_PROGRESS')",
+                        "version = version + 1, updated_by = :actorId, updated_at = :now " +
+                        "WHERE tenant_id = :t AND id = :id AND version = :expectedVersion " +
+                        "AND status IN ('OPEN', 'IN_PROGRESS')",
                 new MapSqlParameterSource()
                         .addValue("t", tenantId)
                         .addValue("id", taskId)
@@ -230,24 +227,51 @@ public class JdbcTaskRepository implements TaskRepository {
                 (UUID) r.get("owner_user_id"),
                 (String) r.get("status"),
                 r.get("priority") == null ? null : ((Number) r.get("priority")).intValue(),
-                (java.time.OffsetDateTime) r.get("start_at"),
-                (java.time.OffsetDateTime) r.get("due_at"),
-                (java.time.OffsetDateTime) r.get("completed_at"),
+                asOffsetDateTime(r.get("start_at")),
+                asOffsetDateTime(r.get("due_at")),
+                asOffsetDateTime(r.get("completed_at")),
                 (String) r.get("result"),
                 asInstant(r.get("created_at")),
                 asInstant(r.get("updated_at")));
     }
 
-    private static long asLong(Object v) {
-        if (v == null) return 0L;
-        if (v instanceof Number n) return n.longValue();
-        try { return Long.parseLong(String.valueOf(v)); } catch (Exception e) { return 0L; }
+    private static long asLong(Object value) {
+        if (value == null) return 0L;
+        if (value instanceof Number number) return number.longValue();
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (Exception ignored) {
+            return 0L;
+        }
     }
 
-    private static Instant asInstant(Object v) {
-        if (v == null) return null;
-        if (v instanceof Timestamp t) return t.toInstant();
-        if (v instanceof Instant i) return i;
-        return null;
+    private static OffsetDateTime asOffsetDateTime(Object value) {
+        if (value == null) return null;
+        if (value instanceof OffsetDateTime offsetDateTime) return offsetDateTime;
+        if (value instanceof Timestamp timestamp) return timestamp.toInstant().atOffset(ZoneOffset.UTC);
+        if (value instanceof Instant instant) return instant.atOffset(ZoneOffset.UTC);
+        if (value instanceof LocalDateTime localDateTime) return localDateTime.atOffset(ZoneOffset.UTC);
+        try {
+            return OffsetDateTime.parse(String.valueOf(value));
+        } catch (Exception ignored) {
+            try {
+                return Instant.parse(String.valueOf(value)).atOffset(ZoneOffset.UTC);
+            } catch (Exception invalidTemporalValue) {
+                throw new IllegalArgumentException("Unsupported CRM task timestamp value: " + value.getClass(), invalidTemporalValue);
+            }
+        }
+    }
+
+    private static Instant asInstant(Object value) {
+        if (value == null) return null;
+        if (value instanceof Timestamp timestamp) return timestamp.toInstant();
+        if (value instanceof Instant instant) return instant;
+        if (value instanceof OffsetDateTime offsetDateTime) return offsetDateTime.toInstant();
+        if (value instanceof LocalDateTime localDateTime) return localDateTime.toInstant(ZoneOffset.UTC);
+        try {
+            return Instant.parse(String.valueOf(value));
+        } catch (Exception invalidTemporalValue) {
+            throw new IllegalArgumentException("Unsupported CRM task instant value: " + value.getClass(), invalidTemporalValue);
+        }
     }
 }

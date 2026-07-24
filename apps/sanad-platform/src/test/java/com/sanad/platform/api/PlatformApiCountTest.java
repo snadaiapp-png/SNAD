@@ -26,8 +26,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * <p>Verifies that the runtime OpenAPI ({@code /v3/api-docs}) matches the
  * committed CRM contract ({@code docs/crm/contracts/openapi/crm-openapi.json})
- * and that CRM-008B ownership operations are correctly counted, secured, and
- * scoped.</p>
+ * and that CRM-008B ownership and CRM-009 integration operations are counted,
+ * secured, and scoped correctly.</p>
  */
 @SpringBootTest
 @Import(SecurityPermitAllTestConfig.class)
@@ -37,19 +37,20 @@ class PlatformApiCountTest {
     private static final Set<String> METHODS = Set.of(
             "get", "post", "put", "patch", "delete", "head", "options", "trace");
 
-    /** Ownership path prefixes (relative to /api/v2/crm). */
     private static final Set<String> OWNERSHIP_PREFIXES = Set.of(
             "/teams", "/queues", "/territories", "/assignment-rules",
             "/assignments", "/ownership-history", "/transfers", "/my-work");
 
-    /** Expected counts. */
     private static final long EXPECTED_CRM_V1_OPS = 84;
-    private static final long EXPECTED_CRM_V2_OPS = 133;  // 95 baseline + 38 ownership
-    private static final long EXPECTED_TOTAL_OPS = 308;   // 270 baseline + 38 ownership
+    /** 95 CRM baseline + 38 ownership + 7 CRM-009 public integration operations. */
+    private static final long EXPECTED_CRM_V2_OPS = 140;
+    /** Previous total 312 + 3 public workflow operations + 1 internal callback. */
+    private static final long EXPECTED_TOTAL_OPS = 316;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
+    private static final long EXPECTED_COMMITTED_CRM_PATHS = 107;
+    private static final long EXPECTED_COMMITTED_CRM_OPS = 140;
 
-    /** Committed OpenAPI artifact path. */
     private static final Path COMMITTED_OPENAPI =
             Path.of(System.getProperty("user.dir")).getParent().getParent()
                     .resolve("docs/crm/contracts/openapi/crm-openapi.json");
@@ -64,7 +65,6 @@ class PlatformApiCountTest {
                 .andReturn().getResponse().getContentAsString();
         JsonNode paths = objectMapper.readTree(body).path("paths");
 
-        // Per-prefix counts (total platform surface)
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
         assertThat(count(paths, "/api/v1/control-plane")).isEqualTo(35);
@@ -73,7 +73,6 @@ class PlatformApiCountTest {
         assertThat(count(paths, "/api/v1/business-process-e2e")).isEqualTo(2);
         assertThat(count(paths, null)).isEqualTo(EXPECTED_TOTAL_OPS);
 
-        // Specific path assertions (unchanged from before)
         assertThat(has(paths, "/api/v1/auth/change-credential", "post")).isTrue();
         assertThat(has(paths, "/api/v1/access/evaluation", "get")).isTrue();
         assertThat(has(paths, "/api/v1/control-plane/dashboard", "get")).isTrue();
@@ -103,14 +102,14 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v2/crm/accounts/{accountId}/contact-relationships", "get")).isTrue();
         assertThat(has(paths, "/api/v2/crm/accounts/{accountId}/addresses", "get")).isTrue();
         assertThat(has(paths, "/api/v2/crm/contacts/{contactId}/communication-methods", "get")).isTrue();
+        assertThat(has(paths, "/api/v2/crm/integrations/workflows", "post")).isTrue();
+        assertThat(has(paths, "/api/v2/crm/integrations/workflows/{requestId}", "get")).isTrue();
+        assertThat(has(paths, "/api/v2/crm/integrations/workflows/{requestId}/cancel", "post")).isTrue();
+        assertThat(has(paths, "/internal/crm/integrations/workflows/callback", "post")).isTrue();
         assertThat(has(paths, "/api/v1/business-process-e2e/{processCode}/execute", "post")).isTrue();
         assertThat(has(paths, "/api/v1/business-process-e2e/runs/{runId}", "get")).isTrue();
     }
 
-    /**
-     * CRM-008B ownership sub-surface: exactly 28 paths and 38 operations,
-     * all under /api/v2/crm.
-     */
     @Test
     void ownershipApiSurfaceMatchesApprovedContract() throws Exception {
         String body = mockMvc.perform(get("/v3/api-docs"))
@@ -118,7 +117,6 @@ class PlatformApiCountTest {
                 .andReturn().getResponse().getContentAsString();
         JsonNode paths = objectMapper.readTree(body).path("paths");
 
-        // Count ownership paths (under /api/v2/crm + ownership prefix)
         long ownershipPaths = 0;
         long ownershipOps = 0;
         for (Iterator<Map.Entry<String, JsonNode>> it = paths.fields(); it.hasNext(); ) {
@@ -142,21 +140,6 @@ class PlatformApiCountTest {
                 .isEqualTo(EXPECTED_OWNERSHIP_OPS);
     }
 
-    /**
-     * No public endpoint for CRM.TRANSFER.EXECUTE — it is internal-only
-     * (workflow callback, never exposed to human callers).
-     *
-     * <p>The transfer API exposes: list, create, submit, approve, cancel.
-     * The "execute" operation is NOT a public HTTP endpoint — it is an
-     * internal service-level call invoked by the workflow engine after
-     * approval. This test ensures no CRM transfer path containing
-     * "execute" appears in either the runtime or committed OpenAPI.</p>
-     *
-     * <p>Note: the business-process E2E endpoint
-     * {@code /api/v1/business-process-e2e/{processCode}/execute} is a
-     * legitimate endpoint and is NOT a CRM.TRANSFER.EXECUTE endpoint.
-     * This test only checks CRM transfer paths.</p>
-     */
     @Test
     void transferExecuteIsNotPubliclyExposed() throws Exception {
         String body = mockMvc.perform(get("/v3/api-docs"))
@@ -166,20 +149,16 @@ class PlatformApiCountTest {
 
         for (Iterator<String> it = paths.fieldNames(); it.hasNext(); ) {
             String path = it.next();
-            // Only check CRM transfer paths — the business-process E2E
-            // execute endpoint is legitimate and out of scope.
             if (!path.startsWith("/api/v2/crm/transfers")) continue;
             assertThat(path.toLowerCase().endsWith("/execute"))
                     .as("No public CRM.TRANSFER.EXECUTE endpoint: %s", path)
                     .isFalse();
         }
 
-        // Also check the committed OpenAPI (CRM transfer paths only)
         JsonNode committed = objectMapper.readTree(Files.readAllBytes(COMMITTED_OPENAPI));
         JsonNode committedPaths = committed.path("paths");
         for (Iterator<String> it = committedPaths.fieldNames(); it.hasNext(); ) {
             String path = it.next();
-            // Committed OpenAPI uses relative paths under /api/v2/crm server
             if (!path.startsWith("/transfers")) continue;
             assertThat(path.toLowerCase().endsWith("/execute"))
                     .as("No public CRM.TRANSFER.EXECUTE endpoint in committed OpenAPI: %s", path)
@@ -187,10 +166,6 @@ class PlatformApiCountTest {
         }
     }
 
-    /**
-     * Runtime OpenAPI and committed CRM contract are semantically consistent
-     * for the ownership sub-surface.
-     */
     @Test
     void runtimeMatchesCommittedOwnershipContract() throws Exception {
         String body = mockMvc.perform(get("/v3/api-docs"))
@@ -201,7 +176,6 @@ class PlatformApiCountTest {
         JsonNode committed = objectMapper.readTree(Files.readAllBytes(COMMITTED_OPENAPI));
         JsonNode committedPaths = committed.path("paths");
 
-        // Every committed ownership path must exist in runtime under /api/v2/crm
         for (Iterator<String> it = committedPaths.fieldNames(); it.hasNext(); ) {
             String committedPath = it.next();
             if (!isOwnershipPath(committedPath)) continue;
@@ -211,7 +185,6 @@ class PlatformApiCountTest {
                     .isTrue();
         }
 
-        // Committed CRM totals: 100 paths, 133 operations
         int committedPathCount = 0;
         int committedOpCount = 0;
         for (Iterator<Map.Entry<String, JsonNode>> it = committedPaths.fields(); it.hasNext(); ) {
@@ -224,15 +197,11 @@ class PlatformApiCountTest {
         }
         assertThat(committedPathCount)
                 .as("Committed CRM OpenAPI path count")
-                .isEqualTo(100);
+                .isEqualTo(EXPECTED_COMMITTED_CRM_PATHS);
         assertThat(committedOpCount)
                 .as("Committed CRM OpenAPI operation count")
-                .isEqualTo(133);
+                .isEqualTo(EXPECTED_COMMITTED_CRM_OPS);
     }
-
-    // ============================================================
-    // Helpers
-    // ============================================================
 
     private static boolean isOwnershipPath(String relativePath) {
         for (String prefix : OWNERSHIP_PREFIXES) {

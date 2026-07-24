@@ -2,6 +2,7 @@ package com.sanad.platform.crm.ownership.infrastructure;
 
 import com.sanad.platform.crm.ownership.domain.OwnershipDomainException;
 import com.sanad.platform.crm.ownership.domain.WorkflowPort;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -10,6 +11,7 @@ import java.util.UUID;
 
 /** Explicit temporary adapter: supports exactly one synchronous approver. */
 @Component
+@Profile({"!prod"})
 public class InlineTransferWorkflowStubAdapter implements WorkflowPort {
 
     @Override

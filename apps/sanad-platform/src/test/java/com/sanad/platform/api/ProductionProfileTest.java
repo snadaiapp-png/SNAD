@@ -33,6 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(
     properties = {
         "sanad.cors.allowed-origins=https://snad-app.vercel.app",
+        "sanad.production-guard.enabled=false",
         "management.health.mail.enabled=false",
         // Required before DynamicPropertySource runs because ProductionDatasourceGuard
         // is an EnvironmentPostProcessor. DynamicPropertySource still overrides this
