@@ -83,7 +83,7 @@ class WorkflowCallbackSecurityPostgresTest {
 
         assertThat(validated.tenantId()).isEqualTo(tenantId);
         assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_integration_callback_replay WHERE tenant_id=?",
+                "SELECT COUNT(*) FROM service_callback_replay WHERE tenant_id=?",
                 Integer.class,
                 tenantId)).isEqualTo(1);
     }
