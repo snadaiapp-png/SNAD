@@ -104,20 +104,22 @@ class CrmOpenApiContractTest {
 
     @Test
     void specDefinesCoreCrm007AndIntegrationSchemas() throws Exception {
-        JsonNode schemas = loadSpec().path("components").path("schemas");
+        JsonNode spec = loadSpec();
+        JsonNode schemas = spec.path("components").path("schemas");
         for (String name : new String[]{
                 "CreateAccountRequest", "AccountResponse", "SingleResponseAccountResponse",
                 "CreateContactRequest", "ContactResponse", "ListResponseContactResponse",
                 "CreateAddressRequest", "AddressResponse", "SingleResponseAddressResponse",
                 "CreateCommunicationMethodRequest", "CommunicationMethodResponse",
-                "SingleResponseCommunicationMethodResponse",
-                "CrmIntegrationControllerAiRequest",
-                "CrmIntegrationControllerConfirmRequest",
-                "CrmIntegrationControllerRejectRequest",
-                "CrmWorkflowControllerWorkflowDispatchRequest",
-                "CrmWorkflowControllerWorkflowCancelRequest"}) {
+                "SingleResponseCommunicationMethodResponse"}) {
             assertNotNull(schemas.get(name), "OpenAPI spec is missing generated schema: " + name);
         }
+
+        assertRequestBodySchemaExists(spec, "/integrations/ai", "post");
+        assertRequestBodySchemaExists(spec, "/integrations/{requestId}/confirm", "post");
+        assertRequestBodySchemaExists(spec, "/integrations/{requestId}/reject", "post");
+        assertRequestBodySchemaExists(spec, "/integrations/workflows", "post");
+        assertRequestBodySchemaExists(spec, "/integrations/workflows/{requestId}/cancel", "post");
     }
 
     @Test
@@ -233,6 +235,19 @@ class CrmOpenApiContractTest {
                 "/integrations/{requestId}/reject", "/integrations/workflows",
                 "/integrations/workflows/{requestId}/cancel"}) {
             assertRequiredHeader(paths.path(path).path("post"), "Idempotency-Key", path);
+        }
+    }
+
+    private static void assertRequestBodySchemaExists(JsonNode spec, String path, String method) {
+        JsonNode schema = spec.path("paths").path(path).path(method)
+                .path("requestBody").path("content").path("application/json").path("schema");
+        assertTrue(!schema.isMissingNode() && !schema.isEmpty(),
+                method.toUpperCase() + " " + path + " must define an application/json request schema");
+        String reference = schema.path("$ref").asText();
+        if (!reference.isBlank()) {
+            String schemaName = reference.substring(reference.lastIndexOf('/') + 1);
+            assertNotNull(spec.path("components").path("schemas").get(schemaName),
+                    method.toUpperCase() + " " + path + " references missing schema: " + schemaName);
         }
     }
 
