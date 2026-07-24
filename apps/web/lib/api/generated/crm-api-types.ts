@@ -1118,6 +1118,54 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/integrations/workflows": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["dispatch"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/integrations/workflows/{requestId}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["status_1"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/integrations/workflows/{requestId}/cancel": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["cancel"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/integrations/{requestId}": {
         readonly parameters: {
             readonly query?: never;
@@ -3683,6 +3731,19 @@ export type components = {
             /** Format: uuid */
             readonly ownerUserId?: string;
         };
+        readonly WorkflowCancelRequest: {
+            readonly reason?: string;
+        };
+        readonly WorkflowDispatchRequest: {
+            /** @enum {string} */
+            readonly workflowType: "ASSIGNMENT" | "OPPORTUNITY_APPROVAL" | "REMINDER" | "ESCALATION";
+            readonly sourceEntityType: string;
+            /** Format: uuid */
+            readonly sourceEntityId: string;
+            /** Format: int64 */
+            readonly sourceEntityVersion?: number;
+            readonly payload?: components["schemas"]["JsonNode"];
+        };
         readonly WorkloadSummary: {
             /** Format: uuid */
             readonly tenantId?: string;
@@ -5946,6 +6007,83 @@ export interface operations {
         readonly requestBody: {
             readonly content: {
                 readonly "application/json": components["schemas"]["AiRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["StoredRequest"];
+                };
+            };
+        };
+    };
+    readonly dispatch: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "Idempotency-Key": string;
+                readonly "Accept-Language"?: string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["WorkflowDispatchRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["StoredRequest"];
+                };
+            };
+        };
+    };
+    readonly status_1: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly requestId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["StoredRequest"];
+                };
+            };
+        };
+    };
+    readonly cancel: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "If-Match": string;
+            };
+            readonly path: {
+                readonly requestId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["WorkflowCancelRequest"];
             };
         };
         readonly responses: {
