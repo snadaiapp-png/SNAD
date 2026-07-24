@@ -326,7 +326,7 @@ public class ConfirmedRecommendationExecutor {
         // This scheduled task catches ledgers where the outbox event was
         // somehow completed but the ledger is still EXECUTING (edge case).
         //
-        // For now, this is a no-op placeholder — the primary recovery
+        // For now, this is a no-op stub — the primary recovery
         // path is the outbox claim expiry + findExisting in
         // processSingleExecutionEvent.
         log.debug("recoverStuckLedgers scan running");
