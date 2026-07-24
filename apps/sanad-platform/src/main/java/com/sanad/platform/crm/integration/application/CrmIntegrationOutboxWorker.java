@@ -75,12 +75,16 @@ public class CrmIntegrationOutboxWorker {
         this.claimTimeoutSeconds = Math.max(10, Math.min(claimTimeoutSeconds, 300));
     }
 
+    /** Event types this worker is allowed to claim — AI dispatch only. */
+    public static final java.util.Set<String> ACCEPTED_EVENT_TYPES = java.util.Set.of("AI_REQUEST_DISPATCH");
+
     @Scheduled(fixedDelay = 2000, initialDelay = 5000)
     public void processOutboxEvents() {
         while (true) {
-            // Transaction A: claim
+            // Transaction A: claim — AI worker claims ONLY AI_REQUEST_DISPATCH events.
+            // Never claims CONFIRMED_COMMAND_EXECUTION events (owned by ConfirmedRecommendationExecutor).
             var claimed = txTemplate.execute(status ->
-                    store.claimNextOutboxEvent(workerId, claimTimeoutSeconds));
+                    store.claimNextOutboxEvent(workerId, claimTimeoutSeconds, ACCEPTED_EVENT_TYPES));
             if (claimed == null || claimed.isEmpty()) break;
             try {
                 processSingleEvent(claimed.get());

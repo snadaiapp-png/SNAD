@@ -245,6 +245,74 @@ public class CrmIntegrationStore {
         return events.isEmpty() ? Optional.empty() : Optional.of(events.get(0));
     }
 
+    /**
+     * Atomic claim using CTE with event-type filtering.
+     *
+     * <p>Only events whose {@code event_type} is in {@code acceptedEventTypes}
+     * are claimed. This ensures the AI worker never claims a
+     * {@code CONFIRMED_COMMAND_EXECUTION} event and the command worker
+     * never claims an {@code AI_REQUEST_DISPATCH} event. An event is never
+     * left in CLAIMED by the wrong worker.</p>
+     *
+     * <p>If {@code acceptedEventTypes} is null or empty, falls back to the
+     * unfiltered claim (backwards-compatible).</p>
+     */
+    public Optional<OutboxEvent> claimNextOutboxEvent(String workerId, int claimTimeoutSeconds,
+                                                       Set<String> acceptedEventTypes) {
+        if (acceptedEventTypes == null || acceptedEventTypes.isEmpty()) {
+            return claimNextOutboxEvent(workerId, claimTimeoutSeconds);
+        }
+        UUID claimToken = UUID.randomUUID();
+        List<String> typeList = new ArrayList<>(acceptedEventTypes);
+        String typeMarkers = typeList.stream().map(s -> "?").collect(Collectors.joining(","));
+
+        List<OutboxEvent> events = jdbc.query(
+                "WITH candidate AS (" +
+                "  SELECT id FROM crm_integration_outbox " +
+                "  WHERE event_type IN (" + typeMarkers + ") " +
+                "    AND ((dispatch_status IN ('PENDING','RETRY_WAIT') AND next_attempt_at <= CURRENT_TIMESTAMP) " +
+                "     OR (dispatch_status = 'CLAIMED' AND claim_expires_at <= CURRENT_TIMESTAMP)) " +
+                "  ORDER BY next_attempt_at, created_at " +
+                "  FOR UPDATE SKIP LOCKED LIMIT 1" +
+                ") " +
+                "UPDATE crm_integration_outbox AS event " +
+                "SET dispatch_status='CLAIMED', claimed_by=?, claim_token=?, " +
+                "    claimed_at=CURRENT_TIMESTAMP, " +
+                "    claim_expires_at=CURRENT_TIMESTAMP + (? * INTERVAL '1 second'), " +
+                "    attempt_count=attempt_count+1, " +
+                "    updated_at=CURRENT_TIMESTAMP, version=version+1 " +
+                "FROM candidate WHERE event.id = candidate.id " +
+                "RETURNING event.id, event.tenant_id, event.integration_request_id, " +
+                "          event.integration_type, event.event_type, event.dispatch_status, " +
+                "          event.attempt_count, event.max_attempts, " +
+                "          event.idempotency_key, event.payload, event.version, " +
+                "          event.claim_token, event.claim_expires_at",
+                (rs, row) -> new OutboxEvent(
+                        (UUID) rs.getObject("id"), (UUID) rs.getObject("tenant_id"),
+                        (UUID) rs.getObject("integration_request_id"),
+                        rs.getString("integration_type"),
+                        rs.getString("event_type") == null ? "AI_REQUEST_DISPATCH" : rs.getString("event_type"),
+                        rs.getString("dispatch_status"),
+                        rs.getInt("attempt_count"), rs.getInt("max_attempts"),
+                        rs.getString("idempotency_key"), readJson(rs.getString("payload")),
+                        rs.getLong("version"),
+                        (UUID) rs.getObject("claim_token"),
+                        rs.getTimestamp("claim_expires_at") != null
+                                ? rs.getTimestamp("claim_expires_at").toInstant() : null),
+                prependArgs(typeList, workerId, claimToken, claimTimeoutSeconds));
+        return events.isEmpty() ? Optional.empty() : Optional.of(events.get(0));
+    }
+
+    private Object[] prependArgs(List<String> typeList, String workerId,
+                                  UUID claimToken, int claimTimeoutSeconds) {
+        Object[] args = new Object[typeList.size() + 3];
+        for (int i = 0; i < typeList.size(); i++) args[i] = typeList.get(i);
+        args[typeList.size()] = workerId;
+        args[typeList.size() + 1] = claimToken;
+        args[typeList.size() + 2] = claimTimeoutSeconds;
+        return args;
+    }
+
     // ============================================================
     // Transactional Outbox — COMPLETE / FAIL (with claim ownership verification)
     // ============================================================
@@ -403,6 +471,124 @@ public class CrmIntegrationStore {
     }
 
     // ============================================================
+    // Command Execution Ledger
+    // ============================================================
+
+    /**
+     * Create a ledger row for a confirmed-command execution. Idempotent:
+     * if a row already exists for the same (tenantId, decisionId), returns
+     * the existing row without creating a new one.
+     *
+     * <p>The ledger row is created in PENDING state before the CRM command
+     * is invoked. On crash recovery, the worker reads the ledger to
+     * determine whether the command was already executed.</p>
+     */
+    public LedgerResult createExecutionLedger(UUID tenantId, UUID decisionId,
+                                                UUID integrationRequestId, UUID actorId,
+                                                String actionCode, String idempotencyKey,
+                                                UUID claimToken) {
+        UUID id = UUID.randomUUID();
+        try {
+            jdbc.update("INSERT INTO crm_integration_command_executions " +
+                            "(id, tenant_id, decision_id, integration_request_id, action_code, " +
+                            "execution_status, idempotency_key, attempt_count, claim_token, " +
+                            "started_at, created_at, updated_at, version) " +
+                            "VALUES (?, ?, ?, ?, ?, 'PENDING', ?, 0, ?, CURRENT_TIMESTAMP, " +
+                            "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)",
+                    id, tenantId, decisionId, integrationRequestId, actionCode,
+                    idempotencyKey, claimToken);
+            return new LedgerResult(findExecutionLedger(tenantId, decisionId).orElseThrow(), true);
+        } catch (DuplicateKeyException duplicate) {
+            return new LedgerResult(findExecutionLedger(tenantId, decisionId).orElseThrow(), false);
+        }
+    }
+
+    public record LedgerResult(CommandExecutionLedger ledger, boolean created) {}
+
+    /**
+     * Transition a ledger row to a new status. Returns true if exactly one
+     * row was updated (verifies affected row count).
+     */
+    public boolean transitionExecutionLedger(UUID tenantId, UUID ledgerId, long expectedVersion,
+                                               Set<String> allowedFrom, String targetStatus,
+                                               String commandReference, String errorCode,
+                                               JsonNode resultPayload) {
+        // Terminal execution states: EXECUTED, EXECUTION_REJECTED, UNKNOWN_OUTCOME
+        StringBuilder sql = new StringBuilder(
+                "UPDATE crm_integration_command_executions SET execution_status=?, " +
+                        "command_reference=" + (commandReference == null ? "command_reference" : "?") + ", " +
+                        "error_code=" + (errorCode == null ? "error_code" : "?") + ", " +
+                        "result_payload=" + (resultPayload == null ? "result_payload" : "CAST(? AS jsonb)") + ", " +
+                        "completed_at=CASE WHEN ? IN ('EXECUTED','EXECUTION_REJECTED','UNKNOWN_OUTCOME') " +
+                        "THEN CURRENT_TIMESTAMP ELSE completed_at END, " +
+                        "updated_at=CURRENT_TIMESTAMP, version=version+1 " +
+                        "WHERE tenant_id=? AND id=? AND version=?");
+        var params = new ArrayList<Object>();
+        params.add(targetStatus);
+        if (commandReference != null) params.add(commandReference);
+        if (errorCode != null) params.add(errorCode);
+        if (resultPayload != null) params.add(json(resultPayload));
+        params.add(targetStatus);
+        params.add(tenantId); params.add(ledgerId); params.add(expectedVersion);
+        if (allowedFrom != null && !allowedFrom.isEmpty()) {
+            List<String> allowedList = new ArrayList<>(allowedFrom);
+            sql.append(" AND execution_status IN (").append(allowedList.stream().map(s->"?").collect(Collectors.joining(","))).append(")");
+            params.addAll(allowedList);
+        }
+        return jdbc.update(sql.toString(), params.toArray()) == 1;
+    }
+
+    /**
+     * Increment the attempt_count on a ledger row. Used when a worker
+     * retries after a crash. Returns true if exactly one row was updated.
+     */
+    public boolean incrementLedgerAttempt(UUID tenantId, UUID ledgerId, long expectedVersion,
+                                            UUID claimToken) {
+        int updated = jdbc.update(
+                "UPDATE crm_integration_command_executions SET attempt_count=attempt_count+1, " +
+                        "claim_token=?, started_at=CURRENT_TIMESTAMP, " +
+                        "updated_at=CURRENT_TIMESTAMP, version=version+1 " +
+                        "WHERE tenant_id=? AND id=? AND version=?",
+                claimToken, tenantId, ledgerId, expectedVersion);
+        return updated == 1;
+    }
+
+    public Optional<CommandExecutionLedger> findExecutionLedger(UUID tenantId, UUID decisionId) {
+        return jdbc.query("SELECT id, tenant_id, decision_id, integration_request_id, " +
+                        "action_code, execution_status, idempotency_key, attempt_count, " +
+                        "command_reference, result_payload, error_code, claim_token, " +
+                        "started_at, completed_at, created_at, updated_at, version " +
+                        "FROM crm_integration_command_executions " +
+                        "WHERE tenant_id=? AND decision_id=?",
+                (rs, row) -> mapLedgerRow(rs), tenantId, decisionId).stream().findFirst();
+    }
+
+    public Optional<CommandExecutionLedger> findExecutionLedgerById(UUID tenantId, UUID ledgerId) {
+        return jdbc.query("SELECT id, tenant_id, decision_id, integration_request_id, " +
+                        "action_code, execution_status, idempotency_key, attempt_count, " +
+                        "command_reference, result_payload, error_code, claim_token, " +
+                        "started_at, completed_at, created_at, updated_at, version " +
+                        "FROM crm_integration_command_executions " +
+                        "WHERE tenant_id=? AND id=?",
+                (rs, row) -> mapLedgerRow(rs), tenantId, ledgerId).stream().findFirst();
+    }
+
+    private CommandExecutionLedger mapLedgerRow(java.sql.ResultSet rs) throws java.sql.SQLException {
+        return new CommandExecutionLedger(
+                (UUID) rs.getObject("id"), (UUID) rs.getObject("tenant_id"),
+                (UUID) rs.getObject("decision_id"), (UUID) rs.getObject("integration_request_id"),
+                rs.getString("action_code"), rs.getString("execution_status"),
+                rs.getString("idempotency_key"), rs.getInt("attempt_count"),
+                rs.getString("command_reference"), readJson(rs.getString("result_payload")),
+                rs.getString("error_code"), (UUID) rs.getObject("claim_token"),
+                rs.getTimestamp("started_at") != null ? rs.getTimestamp("started_at").toInstant() : null,
+                rs.getTimestamp("completed_at") != null ? rs.getTimestamp("completed_at").toInstant() : null,
+                rs.getTimestamp("created_at").toInstant(),
+                rs.getTimestamp("updated_at").toInstant(),
+                rs.getLong("version"));
+    }
+
+    // ============================================================
     // Records & Exceptions
     // ============================================================
 
@@ -430,6 +616,19 @@ public class CrmIntegrationStore {
             long expectedEntityVersion, String correlationId, String decisionStatus,
             String commandReference, String errorCode,
             Instant createdAt, Instant completedAt, long version) {}
+
+    /**
+     * Durable ledger row for a confirmed-command execution. One row per
+     * decision. Used for crash recovery: the worker reads the ledger to
+     * determine whether the CRM command was already executed.
+     */
+    public record CommandExecutionLedger(
+            UUID id, UUID tenantId, UUID decisionId, UUID integrationRequestId,
+            String actionCode, String executionStatus, String idempotencyKey,
+            int attemptCount, String commandReference, JsonNode resultPayload,
+            String errorCode, UUID claimToken,
+            Instant startedAt, Instant completedAt,
+            Instant createdAt, Instant updatedAt, long version) {}
 
     public static class IdempotencyConflictException extends RuntimeException {
         public IdempotencyConflictException(String message) { super(message); }
@@ -459,7 +658,21 @@ public class CrmIntegrationStore {
 
     private JsonNode readJson(String value) {
         if (value == null || value.isBlank()) return null;
-        try { return mapper.readTree(value); } catch (Exception e) { return null; }
+        try {
+            JsonNode node = mapper.readTree(value);
+            // H2 in PostgreSQL mode wraps JSON values in a JSON string scalar
+            // (e.g. returns "\"{\\\"key\\\":...}\"" instead of "{...}").
+            // PostgreSQL returns the raw JSON object. To handle both, if the
+            // parsed node is a text node (JSON string), parse its contents as
+            // JSON again.
+            if (node != null && node.isTextual()) {
+                String inner = node.asText();
+                if (inner != null && !inner.isBlank() && (inner.startsWith("{") || inner.startsWith("["))) {
+                    return mapper.readTree(inner);
+                }
+            }
+            return node;
+        } catch (Exception e) { return null; }
     }
 
     private String json(JsonNode value) {

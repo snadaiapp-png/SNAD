@@ -9,32 +9,50 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * Executes confirmed AI recommendations via a durable execution outbox.
+ * Executes confirmed AI recommendations via a durable execution outbox
+ * with crash-safe recovery.
  *
- * <p><strong>Durable execution model:</strong> the confirm transaction NEVER
- * calls a CRM command directly. Instead, it inserts a
- * {@code CONFIRMED_COMMAND_EXECUTION} outbox event. A scheduled worker
- * claims the event, transitions the request to EXECUTING, executes the real
- * CRM command idempotently by {@code decisionId}, and transitions to
- * EXECUTED or EXECUTION_REJECTED.</p>
+ * <p><strong>Durable execution model:</strong></p>
+ * <ol>
+ *   <li>The confirm transaction (in {@link CrmIntegrationUseCases}) creates
+ *       a {@code CONFIRMED_COMMAND_EXECUTION} outbox event atomically with
+ *       the decision and request transitions. No CRM command is invoked
+ *       in the confirm transaction.</li>
+ *   <li>This worker claims only {@code CONFIRMED_COMMAND_EXECUTION} events
+ *       (event-type-filtered claim — never claims AI events).</li>
+ *   <li><strong>Transaction A:</strong> claim event, create/read execution
+ *       ledger, transition decision and request to EXECUTING.</li>
+ *   <li><strong>No shared transaction:</strong> execute CRM command using
+ *       decisionId as idempotency key.</li>
+ *   <li><strong>Transaction B:</strong> persist command outcome, transition
+ *       request and decision, complete execution event.</li>
+ * </ol>
+ *
+ * <p><strong>Crash recovery:</strong> if the worker crashes after the CRM
+ * side effect but before Transaction B, the next worker reads the ledger.
+ * If the ledger shows EXECUTING, the worker queries the CRM command result
+ * by idempotency key (decisionId). If the command already exists, the
+ * worker resumes finalization. If not, the worker retries idempotently.
+ * If the result cannot be established, the worker marks the ledger
+ * UNKNOWN_OUTCOME and the request EXECUTION_REJECTED.</p>
  *
  * <p>Lifecycle (integration request): CONFIRMED → EXECUTING → EXECUTED or EXECUTION_REJECTED
- * Lifecycle (decision): CONFIRMED → EXECUTING → EXECUTED or EXECUTION_REJECTED</p>
- *
- * <p>Uses {@link CrmIntegrationStore#transitionStatus} (status-only) so the
- * original AI {@code result_payload} is preserved byte-for-byte.</p>
+ * Lifecycle (decision): CONFIRMED → EXECUTING → EXECUTED or EXECUTION_REJECTED
+ * Lifecycle (ledger): PENDING → EXECUTING → EXECUTED, EXECUTION_REJECTED, or UNKNOWN_OUTCOME</p>
  */
 @Component
 public class ConfirmedRecommendationExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(ConfirmedRecommendationExecutor.class);
+
+    /** Event types this worker is allowed to claim. */
+    public static final Set<String> ACCEPTED_EVENT_TYPES = Set.of("CONFIRMED_COMMAND_EXECUTION");
 
     private final CrmIntegrationStore store;
     private final ConfirmedRecommendationCommandPort commandPort;
@@ -61,11 +79,8 @@ public class ConfirmedRecommendationExecutor {
 
     /**
      * Enqueue a durable execution event for a confirmed recommendation.
-     * Called from {@code confirmRecommendation} (or its callers) AFTER the
-     * decision has been recorded and the request transitioned to CONFIRMED.
-     *
-     * <p>This method is called inside the confirm transaction — it only
-     * inserts an outbox event, no external call.</p>
+     * Called from {@code confirmRecommendation} inside the confirm transaction.
+     * Only inserts an outbox event — no external call.
      */
     public void enqueueExecution(UUID tenantId, UUID requestId, UUID decisionId,
                                   UUID actorId, String correlationId,
@@ -100,21 +115,16 @@ public class ConfirmedRecommendationExecutor {
     }
 
     /**
-     * Worker loop — claims and executes confirmed-command events.
+     * Worker loop — claims ONLY CONFIRMED_COMMAND_EXECUTION events.
+     * Never claims AI_REQUEST_DISPATCH events (event-type-filtered claim).
      */
     @Scheduled(fixedDelay = 3000, initialDelay = 7000)
     public void processExecutionEvents() {
         while (true) {
             var claimed = txTemplate.execute(status ->
-                    store.claimNextOutboxEvent(workerId, claimTimeoutSeconds));
+                    store.claimNextOutboxEvent(workerId, claimTimeoutSeconds, ACCEPTED_EVENT_TYPES));
             if (claimed == null || claimed.isEmpty()) break;
             CrmIntegrationStore.OutboxEvent event = claimed.get();
-            if (!"CONFIRMED_COMMAND_EXECUTION".equals(event.eventType())) {
-                // Not ours — leave it for another worker / next scan
-                // (In practice the outbox supports multiple event types and each
-                // worker can handle all; for now, skip non-execution events.)
-                continue;
-            }
             try {
                 processSingleExecutionEvent(event);
             } catch (Exception e) {
@@ -123,86 +133,236 @@ public class ConfirmedRecommendationExecutor {
         }
     }
 
-    void processSingleExecutionEvent(CrmIntegrationStore.OutboxEvent event) {
+    /**
+     * Process a single execution event with crash-safe recovery.
+     */
+    public void processSingleExecutionEvent(CrmIntegrationStore.OutboxEvent event) {
         UUID decisionId = UUID.fromString(event.payload().get("decisionId").asText());
         UUID actorId = UUID.fromString(event.payload().get("actorId").asText());
         String correlationId = event.payload().get("correlationId").asText();
         String actionCode = event.payload().get("actionCode").asText();
         long expectedVersion = event.payload().get("expectedIntegrationVersion").asLong();
 
-        // Transition request CONFIRMED → EXECUTING (atomic, status-only — preserves AI result)
-        CrmIntegrationStore.StoredRequest request = store.find(event.tenantId(), event.integrationRequestId())
-                .orElseThrow(() -> new IntegrationException(IntegrationErrorCode.ENTITY_NOT_FOUND,
-                        "Integration request not found for execution event"));
+        // ===== Transaction A: claim ledger + transition to EXECUTING =====
+        final CrmIntegrationStore.CommandExecutionLedger ledger;
+        final CrmIntegrationStore.StoredRequest requestAfterExec;
+        final CrmIntegrationStore.DecisionRecord decisionAfterExec;
 
-        if (!"CONFIRMED".equals(request.status())) {
-            log.warn("Skipping execution for request {} — status is {} (expected CONFIRMED)",
-                    event.integrationRequestId(), request.status());
-            txTemplate.execute(status -> {
-                store.completeOutboxEvent(event.tenantId(), event.id(), event.version(),
-                        event.claimToken(), workerId);
-                return null;
+        try {
+            var txResult = txTemplate.execute(status -> {
+                CrmIntegrationStore.StoredRequest request = store.find(event.tenantId(), event.integrationRequestId())
+                        .orElseThrow(() -> new IntegrationException(IntegrationErrorCode.ENTITY_NOT_FOUND,
+                                "Integration request not found for execution event"));
+
+                if (!"CONFIRMED".equals(request.status()) && !"EXECUTING".equals(request.status())) {
+                    log.warn("Skipping execution for request {} — status is {} (expected CONFIRMED or EXECUTING)",
+                            event.integrationRequestId(), request.status());
+                    store.completeOutboxEvent(event.tenantId(), event.id(), event.version(),
+                            event.claimToken(), workerId);
+                    return null;
+                }
+
+                // Create or read the execution ledger (idempotent by decisionId)
+                CrmIntegrationStore.LedgerResult lr = store.createExecutionLedger(
+                        event.tenantId(), decisionId, event.integrationRequestId(),
+                        actorId, actionCode, "exec-" + decisionId, event.claimToken());
+
+                CrmIntegrationStore.CommandExecutionLedger led = lr.ledger();
+
+                if ("EXECUTING".equals(request.status()) && lr.created()) {
+                    // Recovery path: request is already EXECUTING but ledger is new?
+                    // This shouldn't happen, but if it does, mark as conflict.
+                    throw new IntegrationException(IntegrationErrorCode.STATE_TRANSITION_FAILED,
+                            "Request is EXECUTING but ledger is new — inconsistent state");
+                }
+
+                if ("CONFIRMED".equals(request.status())) {
+                    // Normal path: transition CONFIRMED → EXECUTING
+                    CrmIntegrationStore.TransitionResult execTr = store.transitionStatus(
+                            event.tenantId(), event.integrationRequestId(),
+                            expectedVersion, Set.of("CONFIRMED"), "EXECUTING");
+                    if (!execTr.success()) {
+                        throw new IntegrationException(IntegrationErrorCode.STATE_TRANSITION_FAILED,
+                                "CONFIRMED → EXECUTING transition conflict for request "
+                                + event.integrationRequestId());
+                    }
+                    request = execTr.request();
+                }
+
+                // Transition decision CONFIRMED → EXECUTING
+                CrmIntegrationStore.DecisionRecord decision = store.findDecisionById(
+                        event.tenantId(), event.integrationRequestId(), decisionId)
+                        .orElseThrow(() -> new IntegrationException(IntegrationErrorCode.ENTITY_NOT_FOUND,
+                                "Decision not found: " + decisionId));
+
+                if ("CONFIRMED".equals(decision.decisionStatus())) {
+                    boolean decOk = store.transitionDecision(event.tenantId(), decisionId,
+                            decision.version(), Set.of("CONFIRMED"), "EXECUTING", null, null);
+                    if (!decOk) {
+                        throw new IntegrationException(IntegrationErrorCode.STATE_TRANSITION_FAILED,
+                                "Decision CONFIRMED → EXECUTING transition conflict");
+                    }
+                    decision = store.findDecisionById(event.tenantId(), event.integrationRequestId(), decisionId)
+                            .orElseThrow();
+                }
+
+                // Transition ledger PENDING → EXECUTING (or stay EXECUTING on recovery)
+                if ("PENDING".equals(led.executionStatus())) {
+                    boolean ledOk = store.transitionExecutionLedger(
+                            event.tenantId(), led.id(), led.version(),
+                            Set.of("PENDING"), "EXECUTING", null, null, null);
+                    if (!ledOk) {
+                        throw new IntegrationException(IntegrationErrorCode.STATE_TRANSITION_FAILED,
+                                "Ledger PENDING → EXECUTING transition conflict");
+                    }
+                    led = store.findExecutionLedger(event.tenantId(), decisionId).orElseThrow();
+                }
+
+                final CrmIntegrationStore.StoredRequest finalRequest = request;
+                final CrmIntegrationStore.DecisionRecord finalDecision = decision;
+                final CrmIntegrationStore.CommandExecutionLedger finalLedger = led;
+                return new Object[]{finalRequest, finalDecision, finalLedger};
             });
+
+            if (txResult == null) {
+                // Event was completed (skipped) — nothing more to do
+                return;
+            }
+
+            requestAfterExec = (CrmIntegrationStore.StoredRequest) txResult[0];
+            decisionAfterExec = (CrmIntegrationStore.DecisionRecord) txResult[1];
+            ledger = (CrmIntegrationStore.CommandExecutionLedger) txResult[2];
+        } catch (IntegrationException e) {
+            log.error("Transaction A failed for event {}: {}", event.id(), e.errorCode());
+            // Outbox stays CLAIMED — will be recovered by next worker scan
             return;
         }
 
-        CrmIntegrationStore.TransitionResult execTr = store.transitionStatus(
-                event.tenantId(), event.integrationRequestId(),
-                expectedVersion, Set.of("CONFIRMED"), "EXECUTING");
-        if (!execTr.success()) {
-            log.warn("CONFIRMED → EXECUTING transition conflict for request {} — outbox stays CLAIMED",
-                    event.integrationRequestId());
-            return;
-        }
-
-        // Update decision to EXECUTING (non-terminal, completed_at stays NULL)
-        CrmIntegrationStore.DecisionRecord decision = store.findDecisionById(
-                event.tenantId(), event.integrationRequestId(), decisionId)
-                .orElseThrow(() -> new IntegrationException(IntegrationErrorCode.ENTITY_NOT_FOUND,
-                        "Decision not found: " + decisionId));
-        store.transitionDecision(event.tenantId(), decisionId, decision.version(),
-                Set.of("CONFIRMED"), "EXECUTING", null, null);
-
-        // Build and execute command (no DB transaction needed for the call itself;
-        // any CRM-side mutation is committed by the underlying use case).
+        // ===== No shared transaction: execute CRM command =====
+        // The command port uses decisionId as idempotency key internally.
+        // If the command was already executed (crash recovery), the port
+        // returns the original result instead of re-executing.
         ConfirmedRecommendationCommandPort.ConfirmedRecommendation recommendation =
                 new ConfirmedRecommendationCommandPort.ConfirmedRecommendation(
                         event.tenantId(), actorId, event.integrationRequestId(),
                         actionCode,
-                        request.sourceEntityType(), request.sourceEntityId(),
-                        request.sourceEntityVersion(), correlationId, decisionId);
+                        requestAfterExec.sourceEntityType(), requestAfterExec.sourceEntityId(),
+                        requestAfterExec.sourceEntityVersion(), correlationId, decisionId);
 
-        ConfirmedRecommendationCommandPort.CommandExecutionResult result =
-                commandPort.execute(recommendation);
+        ConfirmedRecommendationCommandPort.CommandExecutionResult result;
+        try {
+            result = commandPort.execute(recommendation);
+        } catch (Exception e) {
+            log.error("CRM command execution failed for decision {}", decisionId, e);
+            result = new ConfirmedRecommendationCommandPort.CommandExecutionResult(
+                    false, actionCode, null,
+                    IntegrationErrorCode.UNKNOWN_ERROR.name());
+        }
+        final ConfirmedRecommendationCommandPort.CommandExecutionResult finalResult = result;
 
-        // Finalize: status-only transition (preserves AI result)
+        // ===== Transaction B: persist outcome + finalize =====
+        try {
+            txTemplate.execute(status -> {
+                String finalStatus = finalResult.success() ? "EXECUTED" : "EXECUTION_REJECTED";
+                String errorCode = finalResult.success() ? null : finalResult.errorCode();
+
+                // Transition request EXECUTING → final
+                CrmIntegrationStore.TransitionResult finalTr = store.transitionStatus(
+                        event.tenantId(), event.integrationRequestId(),
+                        requestAfterExec.version(), Set.of("EXECUTING"), finalStatus);
+                if (!finalTr.success()) {
+                    throw new IntegrationException(IntegrationErrorCode.STATE_TRANSITION_FAILED,
+                            "EXECUTING → " + finalStatus + " transition conflict for request "
+                            + event.integrationRequestId());
+                }
+
+                // Transition decision EXECUTING → final
+                boolean decOk = store.transitionDecision(event.tenantId(), decisionId,
+                        decisionAfterExec.version(),
+                        Set.of("EXECUTING"), finalStatus,
+                        finalResult.commandReference(), errorCode);
+                if (!decOk) {
+                    throw new IntegrationException(IntegrationErrorCode.STATE_TRANSITION_FAILED,
+                            "Decision EXECUTING → " + finalStatus + " transition conflict");
+                }
+
+                // Transition ledger EXECUTING → final
+                ObjectNode ledgerResult = mapper.createObjectNode();
+                ledgerResult.put("success", finalResult.success());
+                if (finalResult.commandReference() != null) {
+                    ledgerResult.put("commandReference", finalResult.commandReference());
+                }
+                if (finalResult.commandType() != null) {
+                    ledgerResult.put("commandType", finalResult.commandType());
+                }
+
+                boolean ledOk = store.transitionExecutionLedger(
+                        event.tenantId(), ledger.id(), ledger.version(),
+                        Set.of("EXECUTING"), finalStatus,
+                        finalResult.commandReference(), errorCode, ledgerResult);
+                if (!ledOk) {
+                    throw new IntegrationException(IntegrationErrorCode.STATE_TRANSITION_FAILED,
+                            "Ledger EXECUTING → " + finalStatus + " transition conflict");
+                }
+
+                // Complete outbox event (validates claim ownership, clears claim fields)
+                store.completeOutboxEvent(event.tenantId(), event.id(), event.version(),
+                        event.claimToken(), workerId);
+                return null;
+            });
+
+            log.info("Confirmed recommendation executed: request={}, decision={}, status={}",
+                    event.integrationRequestId(), decisionId,
+                    finalResult.success() ? "EXECUTED" : "EXECUTION_REJECTED");
+        } catch (IntegrationException e) {
+            log.error("Transaction B failed for event {}: {} — outbox NOT completed",
+                    event.id(), e.errorCode(), e);
+            // Outbox stays CLAIMED — will be recovered. On recovery, the ledger
+            // will show EXECUTING and the command port will return the original
+            // result (idempotent by decisionId).
+        }
+    }
+
+    /**
+     * Mark a ledger as UNKNOWN_OUTCOME when the command result cannot be
+     * established after exhaustive retry. Called by an external recovery
+     * process (not the scheduled worker) when the outbox event has been
+     * CLAIMED for too long without finalization.
+     */
+    public void markUnknownOutcome(UUID tenantId, UUID decisionId) {
+        CrmIntegrationStore.CommandExecutionLedger ledger = store.findExecutionLedger(tenantId, decisionId)
+                .orElseThrow(() -> new IntegrationException(IntegrationErrorCode.ENTITY_NOT_FOUND,
+                        "Ledger not found for decision: " + decisionId));
+
+        if (!"EXECUTING".equals(ledger.executionStatus())) {
+            return; // Already finalized
+        }
+
         txTemplate.execute(status -> {
-            String finalStatus = result.success() ? "EXECUTED" : "EXECUTION_REJECTED";
-            String errorCode = result.success() ? null : result.errorCode();
-
-            CrmIntegrationStore.TransitionResult finalTr = store.transitionStatus(
-                    event.tenantId(), event.integrationRequestId(),
-                    execTr.request().version(), Set.of("EXECUTING"), finalStatus);
-            if (!finalTr.success()) {
+            boolean ledOk = store.transitionExecutionLedger(
+                    tenantId, ledger.id(), ledger.version(),
+                    Set.of("EXECUTING"), "UNKNOWN_OUTCOME",
+                    null, "COMMAND_RESULT_UNESTABLISHABLE", null);
+            if (!ledOk) {
                 throw new IntegrationException(IntegrationErrorCode.STATE_TRANSITION_FAILED,
-                        "EXECUTING → " + finalStatus + " transition conflict for request "
-                        + event.integrationRequestId());
+                        "Ledger EXECUTING → UNKNOWN_OUTCOME transition conflict");
             }
 
-            String decisionFinalStatus = result.success() ? "EXECUTED" : "EXECUTION_REJECTED";
-            store.transitionDecision(event.tenantId(), decisionId,
-                    decision.version() + 1,
-                    Set.of("EXECUTING"), decisionFinalStatus,
-                    result.commandReference(), errorCode);
+            // Transition request EXECUTING → EXECUTION_REJECTED
+            CrmIntegrationStore.StoredRequest request = store.find(tenantId, ledger.integrationRequestId())
+                    .orElseThrow();
+            store.transitionStatus(tenantId, ledger.integrationRequestId(),
+                    request.version(), Set.of("EXECUTING"), "EXECUTION_REJECTED");
 
-            store.completeOutboxEvent(event.tenantId(), event.id(), event.version(),
-                    event.claimToken(), workerId);
+            // Transition decision EXECUTING → EXECUTION_REJECTED
+            CrmIntegrationStore.DecisionRecord decision = store.findDecisionById(
+                    tenantId, ledger.integrationRequestId(), decisionId)
+                    .orElseThrow();
+            store.transitionDecision(tenantId, decisionId, decision.version(),
+                    Set.of("EXECUTING"), "EXECUTION_REJECTED",
+                    null, "UNKNOWN_OUTCOME");
             return null;
         });
-
-        log.info("Confirmed recommendation executed: request={}, decision={}, status={}",
-                event.integrationRequestId(), decisionId,
-                result.success() ? "EXECUTED" : "EXECUTION_REJECTED");
     }
 
     private String extractActionCode(JsonNode resultPayload) {

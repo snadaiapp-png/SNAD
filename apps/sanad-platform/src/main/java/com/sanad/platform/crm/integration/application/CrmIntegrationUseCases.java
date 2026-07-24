@@ -48,13 +48,16 @@ public class CrmIntegrationUseCases {
 
     private final CrmIntegrationStore store;
     private final CrmEntitySnapshotPort entitySnapshotPort;
+    private final ConfirmedRecommendationExecutor commandExecutor;
     private final ObjectMapper mapper;
 
     public CrmIntegrationUseCases(CrmIntegrationStore store,
                                   CrmEntitySnapshotPort entitySnapshotPort,
+                                  ConfirmedRecommendationExecutor commandExecutor,
                                   ObjectMapper mapper) {
         this.store = store;
         this.entitySnapshotPort = entitySnapshotPort;
+        this.commandExecutor = commandExecutor;
         this.mapper = mapper;
     }
 
@@ -181,6 +184,16 @@ public class CrmIntegrationUseCases {
 
         store.transitionDecision(tenantId, dr.record().id(), dr.record().version(),
                 Set.of("PENDING"), "CONFIRMED", null, null);
+
+        // Step 5: Atomically enqueue a durable CONFIRMED_COMMAND_EXECUTION outbox
+        // event in the SAME transaction as the decision and request transitions.
+        // If enqueueExecution throws, the entire transaction rolls back — the
+        // decision does NOT transition to CONFIRMED and the request does NOT
+        // transition to CONFIRMED. No CRM command is invoked here.
+        long confirmedVersion = tr.request().version();
+        commandExecutor.enqueueExecution(
+                tenantId, requestId, dr.record().id(), actorId,
+                correlationId, confirmedVersion);
 
         return tr.request();
     }

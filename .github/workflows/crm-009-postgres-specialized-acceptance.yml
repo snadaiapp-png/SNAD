@@ -89,7 +89,7 @@ jobs:
         run: |
           set -euo pipefail
           mvn -B -ntp test \
-            -Dtest='CrmIntegrationOutboxPostgresTest,CrmIntegrationOutboxWorkerTest,CrmIntegrationOutboxConcurrencyTest,CrmIntegrationOutboxRecoveryTest,CrmIntegrationDecisionPostgresTest,CrmIntegrationResultImmutabilityTest' \
+            -Dtest='CrmIntegrationOutboxPostgresTest,CrmIntegrationOutboxWorkerTest,CrmIntegrationOutboxConcurrencyTest,CrmIntegrationOutboxRecoveryTest,CrmIntegrationDecisionPostgresTest,CrmIntegrationResultImmutabilityTest,ConfirmedRecommendationEnqueuePostgresTest,ConfirmedRecommendationExecutionPostgresTest,CommandExecutionIdempotencyPostgresTest,CommandExecutionCrashRecoveryPostgresTest,CrossWorkerOutboxRoutingPostgresTest' \
             -DfailIfNoTests=false \
             -Dsurefire.useFile=false
 
@@ -109,11 +109,11 @@ jobs:
           TOTAL_SKIPPED=0
           TOTAL_FAILURES=0
           TOTAL_ERRORS=0
-          EXPECTED_TESTS=19
-          EXPECTED_TEST_FILES=6
+          EXPECTED_TESTS=29
+          EXPECTED_TEST_FILES=11
           ACTUAL_TEST_FILES=0
 
-          for xml in "$REPORTS_DIR"/TEST-com.sanad.platform.crm.integration.CrmIntegration*.xml; do
+          for xml in "$REPORTS_DIR"/TEST-com.sanad.platform.crm.integration.*.xml; do
             if [ ! -f "$xml" ]; then
               continue
             fi

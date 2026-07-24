@@ -2,6 +2,7 @@ package com.sanad.platform.crm.integration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.crm.integration.application.CrmIntegrationUseCases;
+import com.sanad.platform.crm.integration.application.ConfirmedRecommendationExecutor;
 import com.sanad.platform.crm.integration.application.CrmEntitySnapshotPort;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import com.sanad.platform.crm.integration.orchestration.IntegrationErrorCode;
@@ -90,9 +91,38 @@ class CrmEntitySnapshotValidationTest {
                     "updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
                     "completed_at TIMESTAMP WITH TIME ZONE, " +
                     "version BIGINT NOT NULL DEFAULT 0)");
+            s.execute("CREATE TABLE IF NOT EXISTS crm_integration_command_executions (" +
+                    "id UUID NOT NULL DEFAULT RANDOM_UUID() PRIMARY KEY, tenant_id UUID NOT NULL, " +
+                    "decision_id UUID NOT NULL, integration_request_id UUID NOT NULL, " +
+                    "action_code VARCHAR(80) NOT NULL, " +
+                    "execution_status VARCHAR(40) NOT NULL DEFAULT 'PENDING', " +
+                    "idempotency_key VARCHAR(200) NOT NULL, " +
+                    "attempt_count INTEGER NOT NULL DEFAULT 0, " +
+                    "command_reference VARCHAR(500), result_payload JSON, " +
+                    "error_code VARCHAR(120), claim_token UUID, " +
+                    "started_at TIMESTAMP WITH TIME ZONE, completed_at TIMESTAMP WITH TIME ZONE, " +
+                    "created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
+                    "updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
+                    "version BIGINT NOT NULL DEFAULT 0, " +
+                    "CONSTRAINT crm_cmd_exec_decision_uq UNIQUE (tenant_id, decision_id))");
         }
         store = new CrmIntegrationStore(jdbc, new ObjectMapper());
-        useCases = new CrmIntegrationUseCases(store, stubSnapshot, new ObjectMapper());
+        // Pass a no-op executor — confirm path tests do not exercise execution
+        // (entity validation fails before enqueueExecution is reached)
+        ConfirmedRecommendationExecutor noopExecutor = null;
+        try {
+            noopExecutor = new ConfirmedRecommendationExecutor(
+                    store,
+                    new com.sanad.platform.crm.integration.application.StubConfirmedRecommendationCommandAdapter(),
+                    new ObjectMapper(),
+                    new org.springframework.transaction.support.TransactionTemplate(
+                            new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds)),
+                    "test-worker",
+                    60);
+        } catch (Exception e) {
+            // If executor construction fails, tests that need it will fail explicitly
+        }
+        useCases = new CrmIntegrationUseCases(store, stubSnapshot, noopExecutor, new ObjectMapper());
 
         tenantId = UUID.randomUUID();
         requestId = UUID.randomUUID();

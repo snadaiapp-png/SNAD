@@ -2,6 +2,7 @@ package com.sanad.platform.crm.integration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.crm.integration.application.CrmIntegrationUseCases;
+import com.sanad.platform.crm.integration.application.ConfirmedRecommendationExecutor;
 import com.sanad.platform.crm.integration.application.CrmEntitySnapshotPort;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import com.sanad.platform.crm.integration.orchestration.IntegrationErrorCode;
@@ -85,26 +86,60 @@ class CrmIntegrationControllerPreconditionTest {
                     "updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
                     "completed_at TIMESTAMP WITH TIME ZONE, " +
                     "version BIGINT NOT NULL DEFAULT 0)");
+            s.execute("CREATE TABLE IF NOT EXISTS crm_integration_command_executions (" +
+                    "id UUID NOT NULL DEFAULT RANDOM_UUID() PRIMARY KEY, tenant_id UUID NOT NULL, " +
+                    "decision_id UUID NOT NULL, integration_request_id UUID NOT NULL, " +
+                    "action_code VARCHAR(80) NOT NULL, " +
+                    "execution_status VARCHAR(40) NOT NULL DEFAULT 'PENDING', " +
+                    "idempotency_key VARCHAR(200) NOT NULL, " +
+                    "attempt_count INTEGER NOT NULL DEFAULT 0, " +
+                    "command_reference VARCHAR(500), result_payload JSON, " +
+                    "error_code VARCHAR(120), claim_token UUID, " +
+                    "started_at TIMESTAMP WITH TIME ZONE, completed_at TIMESTAMP WITH TIME ZONE, " +
+                    "created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
+                    "updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
+                    "version BIGINT NOT NULL DEFAULT 0, " +
+                    "CONSTRAINT crm_cmd_exec_decision_uq UNIQUE (tenant_id, decision_id))");
         }
         store = new CrmIntegrationStore(jdbc, new ObjectMapper());
         // Stub snapshot that always returns a valid snapshot for the request's entity
         CrmEntitySnapshotPort stubSnapshot = (tenantId, entityType, entityId) ->
                 new CrmEntitySnapshotPort.CrmEntitySnapshot(
                         tenantId, entityType, entityId, 5L, "ACTIVE", true);
-        useCases = new CrmIntegrationUseCases(store, stubSnapshot, new ObjectMapper());
+        // Pass a no-op executor — confirm path tests do not exercise execution
+        ConfirmedRecommendationExecutor noopExecutor = null;
+        try {
+            noopExecutor = new ConfirmedRecommendationExecutor(
+                    store,
+                    new com.sanad.platform.crm.integration.application.StubConfirmedRecommendationCommandAdapter(),
+                    new ObjectMapper(),
+                    new org.springframework.transaction.support.TransactionTemplate(
+                            new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds)),
+                    "test-worker",
+                    60);
+        } catch (Exception e) {
+            // If executor construction fails, tests that need it will fail explicitly
+        }
+        useCases = new CrmIntegrationUseCases(store, stubSnapshot, noopExecutor, new ObjectMapper());
 
         tenantId = UUID.randomUUID();
         requestId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        // Insert with result_payload containing actionCode so confirm's enqueueExecution succeeds
+        // Use PreparedStatement.setObject with a String — H2 in PostgreSQL mode treats JSON as VARCHAR-like.
+        String resultPayloadJson = "{\"actionCode\":\"CREATE_FOLLOW_UP_ACTIVITY\",\"status\":\"AVAILABLE\",\"actionable\":true,\"humanConfirmationRequired\":true,\"generatedAt\":\"2026-07-24T00:00:00Z\",\"expiresAt\":\"2099-12-31T00:00:00Z\",\"policyVersion\":\"v1\",\"modelVersion\":\"v1\"}";
         jdbc.update("INSERT INTO crm_integration_requests " +
                 "(id, tenant_id, actor_id, integration_type, contract_name, contract_version, " +
                 "correlation_id, causation_id, idempotency_key, source_entity_type, source_entity_id, " +
                 "source_entity_version, required_capability, data_classification, requested_locale, " +
-                "payload, status, requested_at, expires_at, created_at, updated_at, version) " +
+                "payload, result_payload, status, requested_at, expires_at, created_at, updated_at, version) " +
                 "VALUES (?, ?, ?, 'AI', 'crm.ai', '1.0', ?, ?, ?, 'ACCOUNT', ?, 5, " +
-                "'CRM.AI.READ', 'INTERNAL', 'en', '{}', 'RECOMMENDATION_AVAILABLE', ?, ?, ?, ?, 0)",
+                "'CRM.AI.READ', 'INTERNAL', 'en', '{}', " +
+                "?, " +
+                "'RECOMMENDATION_AVAILABLE', ?, ?, ?, ?, 0)",
                 requestId, tenantId, UUID.randomUUID(),
                 "corr", "caus", "idem", UUID.randomUUID(),
+                resultPayloadJson,
                 java.sql.Timestamp.from(now), java.sql.Timestamp.from(now.plus(30, ChronoUnit.SECONDS)),
                 java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
     }
