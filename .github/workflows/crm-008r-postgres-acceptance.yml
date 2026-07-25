@@ -1,0 +1,165 @@
+name: CRM-008R PostgreSQL Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/ownership/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/ownership/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/pagination/**'
+      - '.github/workflows/crm-008r-postgres-acceptance.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/ownership/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/ownership/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/pagination/**'
+      - '.github/workflows/crm-008r-postgres-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-008r-postgres-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-acceptance:
+    name: CRM-008R PostgreSQL 16 Acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Verify Docker and exact candidate SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker version
+          docker info
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$CANDIDATE_SHA"
+          echo "CANDIDATE_SHA=$CANDIDATE_SHA"
+          echo "ACTUAL_SHA=$ACTUAL_SHA"
+
+      - name: Run CRM-008R mandatory PostgreSQL tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn test \
+            -Dtest='CrmOwnershipAtomicIfMatchPostgresTest,CrmOwnershipCursorPaginationPostgresTest' \
+            -Dspring.profiles.active=test \
+            --batch-mode \
+            --no-transfer-progress
+
+      - name: Prove mandatory tests executed with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import glob
+          import sys
+          import xml.etree.ElementTree as ET
+
+          required = {
+              "com.sanad.platform.crm.ownership.infrastructure.CrmOwnershipAtomicIfMatchPostgresTest",
+              "com.sanad.platform.crm.ownership.infrastructure.CrmOwnershipCursorPaginationPostgresTest",
+          }
+          reports = {}
+          for path in glob.glob("target/surefire-reports/TEST-*.xml"):
+              root = ET.parse(path).getroot()
+              reports[root.attrib.get("name", "")] = root
+
+          missing = required - reports.keys()
+          if missing:
+              print(f"::error::Missing mandatory Surefire reports: {sorted(missing)}")
+              sys.exit(1)
+
+          total = 0
+          for name in sorted(required):
+              root = reports[name]
+              tests = int(root.attrib.get("tests", 0))
+              failures = int(root.attrib.get("failures", 0))
+              errors = int(root.attrib.get("errors", 0))
+              skipped = int(root.attrib.get("skipped", 0))
+              print(f"{name}: tests={tests} failures={failures} errors={errors} skipped={skipped}")
+              if tests == 0 or failures or errors or skipped:
+                  print(f"::error::{name} did not execute cleanly")
+                  sys.exit(1)
+              total += tests
+
+          if total < 4:
+              print(f"::error::Expected at least 4 CRM-008R PostgreSQL test cases; got {total}")
+              sys.exit(1)
+          print(f"CRM-008R PostgreSQL acceptance passed: {total} tests, 0 failures, 0 errors, 0 skipped")
+          PY
+
+      - name: Run ownership PostgreSQL regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          TC_CLASSES=$(grep -rl '@Testcontainers' \
+            src/test/java/com/sanad/platform/crm/ownership 2>/dev/null \
+            | sed 's|.*/java/||; s|/|.|g; s|\.java$||' \
+            | sort)
+          test -n "$TC_CLASSES"
+          TESTS=$(printf '%s\n' "$TC_CLASSES" | paste -sd, -)
+          mvn test \
+            -Dtest="$TESTS" \
+            -Dspring.profiles.active=test \
+            --batch-mode \
+            --no-transfer-progress
+
+      - name: Verify ownership regression reports have zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import glob
+          import sys
+          import xml.etree.ElementTree as ET
+
+          paths = glob.glob("target/surefire-reports/TEST-com.sanad.platform.crm.ownership*.xml")
+          if not paths:
+              print("::error::No CRM ownership PostgreSQL reports found")
+              sys.exit(1)
+          tests = failures = errors = skipped = 0
+          for path in paths:
+              root = ET.parse(path).getroot()
+              tests += int(root.attrib.get("tests", 0))
+              failures += int(root.attrib.get("failures", 0))
+              errors += int(root.attrib.get("errors", 0))
+              skipped += int(root.attrib.get("skipped", 0))
+          print(f"Ownership PostgreSQL regression: tests={tests} failures={failures} errors={errors} skipped={skipped}")
+          if tests == 0 or failures or errors or skipped:
+              sys.exit(1)
+          PY
+
+      - name: Upload immutable PostgreSQL evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-008r-postgres-${{ env.CANDIDATE_SHA }}
+          path: |
+            apps/sanad-platform/target/surefire-reports/TEST-com.sanad.platform.crm.ownership*.xml
+            apps/sanad-platform/target/surefire-reports/*.txt
+          if-no-files-found: error
+          retention-days: 90

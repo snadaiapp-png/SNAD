@@ -1,37 +1,79 @@
 # EXEC-PROMPT-CRM-007 — Addresses and Communication Methods
 
-## Status
+## Current status
 
 ```text
-EXEC-PROMPT-CRM-007: VERIFICATION CANDIDATE
-CRM-G3D: OPEN
-STARTING_MAIN_SHA: 1c76e879d91d95e29f505250b445463f5ea7a6d4
-BASE_MAIN_SHA: 8ef57062e3dc9aa18ff466f230470d62cf1a0a70
-CONTRACT_SURFACE: 72 paths / 95 operations
+EXEC-PROMPT-CRM-007: CLOSED
+CRM-G3D: CLOSED
+FINAL_RELEASE_SHA: 4cedf631a3e61f39039615d93cd03c3111213eb9
+PRODUCTION_PATH: Vercel -> BFF -> Render PostgreSQL
+FINAL_EVIDENCE: docs/crm/evidence/CRM-007-FINAL-PRODUCTION-CLOSURE.md
+EVIDENCE_PR: #689 / MERGED
+ISSUE_563: CLOSED_COMPLETED
+ISSUE_571: CLOSED_COMPLETED
+UNEXPECTED_CRM_HTTP_5XX_AT_CLOSURE: 0
 ```
 
-## Entry gate
+CRM-007 is closed on the immutable Production release shown above. This file is
+now the current execution-status record; earlier candidate and blocked states
+remain available in the pull-request and issue timelines and are not current
+status declarations.
 
-CRM-006 is merged through `d0fe9bdd2aec9f080450b509e9d1a53c9d0ec275`; the trusted `main` production rollout is READY and the required exact-head workflows passed. The later `/api/system/release` runtime regression is tracked independently in issue #545 and is not part of this domain stage.
+## Delivered scope
 
-## As-built discovery
+CRM-007 provides canonical tenant-scoped addresses and communication methods
+for ACCOUNT and PERSON owners, including:
 
-- `crm_accounts.primary_email`, `crm_accounts.primary_phone`, and `crm_contacts.primary_email` / `primary_phone` are compatibility projections.
-- CRM-005 introduced account-only `crm_account_addresses`; CRM-007 migrates those rows into a canonical owner-scoped address model while retaining the legacy table during the compatibility window.
-- `crm_contacts.consent_summary` remains the existing consent projection; CRM-007 references it and does not create a parallel consent engine.
-- Tenant identity is derived only from the authenticated context.
-- Central `AuditPort` and `TimelineEventPort` remain authoritative.
+- tenant-safe CRUD and owner-scoped composite integrity;
+- lifecycle, primary/preferred, verification and archive transitions;
+- strong ETag/If-Match optimistic-concurrency contracts;
+- idempotent create/import operations;
+- privacy masking and separately governed sensitive reads;
+- governed search, import and export;
+- central Audit and Timeline integration;
+- CRM-005 compatibility projections and legacy-row preservation;
+- Arabic and English operational surfaces;
+- deterministic OpenAPI and generated TypeScript contracts;
+- PostgreSQL clean-install and upgrade verification;
+- additive rollback and production verification runbooks.
 
-## Implemented design
+## Final production evidence
 
-Canonical owner types are `ACCOUNT` and `PERSON`. Address and communication records preserve raw input, deterministic normalized values, lifecycle, versioning, verification and privacy metadata. Composite tenant/owner foreign-key enforcement is implemented through owner-specific constrained columns rather than trusting application filtering.
+```text
+VERCEL_DEPLOYMENT: dpl_FtG7Pj4MUBNjEFjahPopscqKn7b9
+RENDER_DEPLOYMENT: dep-d9gartok1i2s7388lprg
+RENDER_IMAGE: ghcr.io/snadaiapp-png/snad-backend:4cedf631a3e61f39039615d93cd03c3111213eb9
+RENDER_IMAGE_DIGEST: sha256:810e69e1c05668ebd9540b71554e13190c837d38004aa3a37dacbde7521cb2cd
+ORCHESTRATOR_RUN: 29916836291 / SUCCESS
+RECONCILIATION_RUN: 29917067433 / SUCCESS
+CRM_G1_RUN: 29917230857 / SUCCESS
+CRM_007_RUN: 29917314330 / SUCCESS
+CRM_G1_ARTIFACT: 8528404489
+CRM_007_ARTIFACT: 8528450065
+```
 
-The implemented surface includes tenant-safe CRUD, ETag and idempotency protection, privacy masking, verification and lifecycle transitions, governed search/import/export, Audit/Timeline/History, CRM-005 compatibility projections, Arabic/English operational UI, deterministic OpenAPI generation, generated TypeScript contracts, PostgreSQL upgrade acceptance, and an additive rollback runbook.
+The final chain proved Render health/liveness/readiness, read-only Flyway
+postconditions, authenticated address and communication lifecycle behavior,
+two-tenant isolation, current/stale concurrency validators and zero unexpected
+CRM HTTP 5xx.
 
-## Exact-head candidate gate
+## Historical implementation baseline
 
-This document update intentionally creates the single immutable candidate on which every required pull-request workflow must complete. No merge or production action is permitted if the branch head changes after the successful run set.
+CRM-007 began from the CRM-006/CRM-G1 baseline and introduced Flyway versions:
 
-## Required evidence before closure
+```text
+20260717.100 — crm_addresses_communication_methods
+20260717.101 — crm_addresses_communication_capabilities
+```
 
-PostgreSQL clean-install and CRM-006 upgrade, legacy row-count preservation, Arabic data preservation, international phone normalization, tenant isolation, RBAC and masking, Audit, Timeline, rollback, OpenAPI/type drift zero, exact-head CI, expected-head merge, backend Production migration verification, Vercel Production verification on the merge SHA, production smoke tests, and runtime-error inspection.
+A forward-only CRM-G1 reconciliation was required because production had
+historically recorded migration `20260717.6` as a baseline rather than applying
+its SQL. The correction did not use Flyway repair, schema-history edits,
+destructive rollback or manual production SQL.
+
+## Post-closure control
+
+CRM-007 closure is evidence for release `4cedf631...`; later releases must keep
+CRM-007 regression tests, tenant isolation, ETag behavior and API-contract drift
+checks enabled. CRM-008R may harden shared CRM concurrency infrastructure, but
+it does not reopen or invalidate the historical CRM-007 closure.
