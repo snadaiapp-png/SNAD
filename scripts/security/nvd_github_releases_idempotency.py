@@ -74,7 +74,7 @@ def _remove_named_assets(
         if not asset_id:
             continue
         try:
-            backend._request("DELETE", f"releases/{release_id}/assets/{asset_id}")
+            backend._request("DELETE", f"releases/assets/{asset_id}")
         except SnapshotNotFoundError:
             pass
 
