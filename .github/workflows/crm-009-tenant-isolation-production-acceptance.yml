@@ -24,7 +24,7 @@ jobs:
       AUTH_SMOKE_TENANT_B_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
       AUTH_SMOKE_TENANT_B_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
       AUTH_SMOKE_TENANT_B_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
-      CRM_009_TENANT_ISOLATION_EVIDENCE_PATH: ${{ runner.temp }}/crm-009-tenant-isolation-evidence.json
+      CRM_009_TENANT_ISOLATION_EVIDENCE_PATH: /tmp/crm-009-tenant-isolation-evidence.json
 
     steps:
       - name: Checkout exact workflow SHA

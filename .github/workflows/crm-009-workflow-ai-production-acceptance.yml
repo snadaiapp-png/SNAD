@@ -21,7 +21,7 @@ jobs:
       AUTH_SMOKE_TENANT_A_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
       AUTH_SMOKE_TENANT_A_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
       AUTH_SMOKE_TENANT_A_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
-      CRM_009_WORKFLOW_AI_EVIDENCE_PATH: ${{ runner.temp }}/crm-009-workflow-ai-production-evidence.json
+      CRM_009_WORKFLOW_AI_EVIDENCE_PATH: /tmp/crm-009-workflow-ai-production-evidence.json
 
     steps:
       - name: Checkout exact workflow SHA
