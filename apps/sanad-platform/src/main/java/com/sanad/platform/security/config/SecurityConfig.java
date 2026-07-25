@@ -167,7 +167,12 @@ public class SecurityConfig {
         configuration.setExposedHeaders(
                 List.of("X-SANAD-Refresh-Token", "Location"));
 
-        configuration.setAllowCredentials(true);
+        // CRM-009 security boundary: Browser → Vercel BFF → Render Backend.
+        // No direct browser-to-backend cross-origin access. The BFF makes
+        // server-side requests with Authorization header, not browser cookies.
+        // allowCredentials(false) enforces this boundary and prevents
+        // browser credential leakage to the stateless backend.
+        configuration.setAllowCredentials(false);
         configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
