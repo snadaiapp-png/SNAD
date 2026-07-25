@@ -25,6 +25,10 @@ export default defineConfig({
     // Mutates the real Production environment and requires protected secrets.
     // It is mandatory in playwright.crm007-production.config.ts only.
     "**/crm-007-production-closure.spec.ts",
+    // Mutates the real Production environment and requires the exact-SHA
+    // Vercel/Render/Flyway gate plus protected two-tenant credentials.
+    // It is mandatory in playwright.crm008r-production.config.ts only.
+    "**/crm-008r-production-closure.spec.ts",
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
