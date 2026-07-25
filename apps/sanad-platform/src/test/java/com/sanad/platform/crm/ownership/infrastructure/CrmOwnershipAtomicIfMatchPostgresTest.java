@@ -174,7 +174,7 @@ class CrmOwnershipAtomicIfMatchPostgresTest {
             assertThatThrownBy(() -> aspect.enforceAtomicIfMatch(joinPoint))
                     .isInstanceOf(CrmContractException.class)
                     .satisfies(error -> assertThat(((CrmContractException) error).code())
-                            .isEqualTo(CrmErrorCode.CRM_CONCURRENCY_PRECONDITION_REQUIRED));
+                            .isEqualTo(CrmErrorCode.CRM_PRECONDITION_REQUIRED));
             assertThat(invoked).isFalse();
         } finally {
             clearRequest();
