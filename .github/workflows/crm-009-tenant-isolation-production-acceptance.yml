@@ -1,0 +1,72 @@
+name: CRM-009 Tenant Isolation Production Acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-009-tenant-isolation-production-acceptance
+  cancel-in-progress: true
+
+jobs:
+  tenant-isolation:
+    name: Fail-closed CRM tenant data isolation through production BFF
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: Production
+    env:
+      PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
+      AUTH_SMOKE_TENANT_A_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
+      AUTH_SMOKE_TENANT_A_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+      AUTH_SMOKE_TENANT_A_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+      AUTH_SMOKE_TENANT_B_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+      AUTH_SMOKE_TENANT_B_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
+      AUTH_SMOKE_TENANT_B_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
+      CRM_009_TENANT_ISOLATION_EVIDENCE_PATH: ${{ runner.temp }}/crm-009-tenant-isolation-evidence.json
+
+    steps:
+      - name: Checkout exact workflow SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify protected production identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          for value in \
+            "$AUTH_SMOKE_TENANT_A_ID" "$AUTH_SMOKE_TENANT_A_EMAIL" "$AUTH_SMOKE_TENANT_A_PASSWORD" \
+            "$AUTH_SMOKE_TENANT_B_ID" "$AUTH_SMOKE_TENANT_B_EMAIL" "$AUTH_SMOKE_TENANT_B_PASSWORD"; do
+            test -n "$value" || { echo '::error::A required Production auth identity value is missing'; exit 1; }
+            echo "::add-mask::$value"
+          done
+          test "$AUTH_SMOKE_TENANT_A_ID" != "$AUTH_SMOKE_TENANT_B_ID"
+          test "${AUTH_SMOKE_TENANT_A_EMAIL,,}" != "${AUTH_SMOKE_TENANT_B_EMAIL,,}"
+
+      - name: Run fail-closed tenant isolation acceptance
+        run: python3 scripts/operations/crm_009_tenant_isolation_acceptance.py
+
+      - name: Validate sanitized evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '.result == "PASS" and .crossTenantReadRejected == true and .skippedSections == 0' \
+            "$CRM_009_TENANT_ISOLATION_EVIDENCE_PATH" >/dev/null
+          for value in "$AUTH_SMOKE_TENANT_A_EMAIL" "$AUTH_SMOKE_TENANT_A_PASSWORD" \
+                       "$AUTH_SMOKE_TENANT_B_EMAIL" "$AUTH_SMOKE_TENANT_B_PASSWORD"; do
+            if grep -Fq -- "$value" "$CRM_009_TENANT_ISOLATION_EVIDENCE_PATH"; then
+              echo '::error::Protected value leaked into tenant-isolation evidence'
+              exit 1
+            fi
+          done
+
+      - name: Upload immutable tenant isolation evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: crm-009-tenant-isolation-${{ github.run_id }}
+          path: ${{ runner.temp }}/crm-009-tenant-isolation-evidence.json
+          if-no-files-found: error
+          retention-days: 90
