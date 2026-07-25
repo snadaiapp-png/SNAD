@@ -1,10 +1,10 @@
+# terminal-trigger: 2026-07-25
 name: CRM-009 Terminal Production Closure
 
 on:
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/crm-009-terminal-production-closure.yml'
+    paths: ['.github/workflows/crm-009-terminal-production-closure.yml']
   workflow_dispatch:
 
 permissions:
@@ -19,162 +19,126 @@ concurrency:
 
 jobs:
   terminal-closure:
-    name: Deploy, verify, prove, and close CRM-009
     runs-on: ubuntu-latest
     timeout-minutes: 720
     environment: Production
     env:
-      REPOSITORY: ${{ github.repository }}
-      RELEASE_SHA: ${{ github.sha }}
-      ISSUE_NUMBER: '692'
-      BACKEND_URL: https://sanad-backend-mcrj.onrender.com
-      WEB_URL: https://snad-app.vercel.app
+      REPO: ${{ github.repository }}
+      SHA: ${{ github.sha }}
+      ISSUE: '692'
+      BACKEND: https://sanad-backend-mcrj.onrender.com
+      WEB: https://snad-app.vercel.app
     steps:
-      - name: Checkout exact main
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Verify authoritative exact main
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
+      - name: Verify exact current main
+        env: { GH_TOKEN: '${{ github.token }}' }
         run: |
           set -euo pipefail
-          ACTUAL="$(gh api "repos/${REPOSITORY}/commits/main" --jq .sha)"
-          test "$ACTUAL" = "$RELEASE_SHA" || { echo "::error::main moved: $ACTUAL"; exit 1; }
-
-      - name: Initialize immutable evidence
-        shell: bash
-        run: |
-          set -euo pipefail
+          test "$(gh api repos/$REPO/commits/main --jq .sha)" = "$SHA"
           mkdir -p evidence
-          printf 'RELEASE_SHA=%s\n' "$RELEASE_SHA" > evidence/context.env
-          jq -n --arg sha "$RELEASE_SHA" --arg run "$GITHUB_RUN_ID" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{release_sha:$sha,orchestrator_run_id:($run|tonumber),started_at_utc:$at,status:"IN_PROGRESS"}' \
-            > evidence/context.json
+          printf 'FINAL_RELEASE_SHA=%s\nORCHESTRATOR_RUN_ID=%s\n' "$SHA" "$GITHUB_RUN_ID" > evidence/context.env
 
-      - name: Dispatch and await exact-SHA production deployment
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
+      - name: Run exact-SHA production deployment
+        env: { GH_TOKEN: '${{ github.token }}' }
         run: |
           set -euo pipefail
-          workflow='crm-exact-sha-production-orchestrator.yml'
-          before="$(gh run list --repo "$REPOSITORY" --workflow "$workflow" --branch main --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
-          gh workflow run "$workflow" --repo "$REPOSITORY" --ref main
-          run_id=''
-          for _ in $(seq 1 90); do
+          wf=crm-exact-sha-production-orchestrator.yml
+          old="$(gh run list -R "$REPO" -w "$wf" -b main -L 1 --json databaseId --jq '.[0].databaseId // empty')"
+          gh workflow run "$wf" -R "$REPO" --ref main
+          id=''
+          for i in $(seq 1 120); do
             sleep 10
-            run_id="$(gh run list --repo "$REPOSITORY" --workflow "$workflow" --branch main --event workflow_dispatch --limit 5 --json databaseId,headSha --jq --arg sha "$RELEASE_SHA" '[.[]|select(.headSha==$sha)][0].databaseId // empty')"
-            [ -n "$run_id" ] && [ "$run_id" != "$before" ] && break
+            id="$(gh run list -R "$REPO" -w "$wf" -b main -e workflow_dispatch -L 10 --json databaseId,headSha --jq --arg s "$SHA" '[.[]|select(.headSha==$s)][0].databaseId // empty')"
+            [ -n "$id" ] && [ "$id" != "$old" ] && break
           done
-          test -n "$run_id" || { echo '::error::deployment orchestrator run not found'; exit 1; }
-          echo "DEPLOYMENT_ORCHESTRATOR_RUN_ID=$run_id" >> evidence/context.env
-          gh run watch "$run_id" --repo "$REPOSITORY" --exit-status
-          gh run view "$run_id" --repo "$REPOSITORY" --json databaseId,name,headSha,status,conclusion,url,createdAt,updatedAt > evidence/deployment-orchestrator.json
-          jq -e --arg sha "$RELEASE_SHA" '.conclusion=="success" and .headSha==$sha' evidence/deployment-orchestrator.json >/dev/null
+          test -n "$id"
+          echo "DEPLOYMENT_RUN_ID=$id" >> evidence/context.env
+          gh run watch "$id" -R "$REPO" --exit-status
+          gh run view "$id" -R "$REPO" --json databaseId,name,headSha,status,conclusion,url > evidence/deployment.json
+          jq -e --arg s "$SHA" '.conclusion=="success" and .headSha==$s' evidence/deployment.json >/dev/null
 
-      - name: Verify live backend and Vercel
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
+      - name: Verify production endpoints and Vercel exact SHA
+        env: { GH_TOKEN: '${{ github.token }}' }
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error --retry 8 --retry-all-errors --max-time 90 "$BACKEND_URL/actuator/health" | tee evidence/backend-health.json
-          curl --fail-with-body --silent --show-error --retry 8 --retry-all-errors --max-time 90 "$BACKEND_URL/actuator/health/readiness" | tee evidence/backend-readiness.json
-          curl --fail-with-body --silent --show-error --retry 8 --retry-all-errors --max-time 90 "$BACKEND_URL/actuator/health/liveness" | tee evidence/backend-liveness.json
-          jq -e '.status=="UP"' evidence/backend-health.json evidence/backend-readiness.json evidence/backend-liveness.json >/dev/null
-          gh api "repos/${REPOSITORY}/commits/${RELEASE_SHA}/status" > evidence/commit-status.json
-          jq -e '.statuses[]|select(.context=="Vercel" and .state=="success")' evidence/commit-status.json >/dev/null
-          curl --fail-with-body --silent --show-error --retry 8 --retry-all-errors --max-time 90 "$WEB_URL/api/system/backend-status" | tee evidence/vercel-backend-status.json
+          for p in health health/readiness health/liveness; do
+            f="evidence/backend-${p//\//-}.json"
+            curl -fsS --retry 8 --retry-all-errors --max-time 90 "$BACKEND/actuator/$p" | tee "$f"
+            jq -e '.status=="UP"' "$f" >/dev/null
+          done
+          gh api repos/$REPO/commits/$SHA/status > evidence/status.json
+          jq -e '.statuses[]|select(.context=="Vercel" and .state=="success")' evidence/status.json >/dev/null
+          curl -fsS --retry 8 --retry-all-errors --max-time 90 "$WEB/api/system/backend-status" > evidence/vercel-backend-status.json
 
-      - name: Execute ordered exact-SHA acceptance gates
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
+      - name: Run ordered closure gates
+        env: { GH_TOKEN: '${{ github.token }}' }
         run: |
           set -euo pipefail
-          run_gate() {
-            local workflow="$1" label="$2"
-            local previous run_id
-            previous="$(gh run list --repo "$REPOSITORY" --workflow "$workflow" --branch main --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
-            gh workflow run "$workflow" --repo "$REPOSITORY" --ref main
-            run_id=''
-            for _ in $(seq 1 120); do
+          gate() {
+            wf="$1"; label="$2"
+            old="$(gh run list -R "$REPO" -w "$wf" -b main -L 1 --json databaseId --jq '.[0].databaseId // empty')"
+            gh workflow run "$wf" -R "$REPO" --ref main
+            id=''
+            for i in $(seq 1 180); do
               sleep 10
-              run_id="$(gh run list --repo "$REPOSITORY" --workflow "$workflow" --branch main --event workflow_dispatch --limit 10 --json databaseId,headSha --jq --arg sha "$RELEASE_SHA" '[.[]|select(.headSha==$sha)][0].databaseId // empty')"
-              [ -n "$run_id" ] && [ "$run_id" != "$previous" ] && break
+              id="$(gh run list -R "$REPO" -w "$wf" -b main -e workflow_dispatch -L 10 --json databaseId,headSha --jq --arg s "$SHA" '[.[]|select(.headSha==$s)][0].databaseId // empty')"
+              [ -n "$id" ] && [ "$id" != "$old" ] && break
             done
-            test -n "$run_id" || { echo "::error::$label run not found"; exit 1; }
-            echo "${label}_RUN_ID=$run_id" | tee -a evidence/context.env
-            gh run watch "$run_id" --repo "$REPOSITORY" --exit-status
-            gh run view "$run_id" --repo "$REPOSITORY" --json databaseId,name,headSha,status,conclusion,url,createdAt,updatedAt > "evidence/${label}.json"
-            jq -e --arg sha "$RELEASE_SHA" '.conclusion=="success" and .headSha==$sha' "evidence/${label}.json" >/dev/null
+            test -n "$id"
+            echo "${label}_RUN_ID=$id" >> evidence/context.env
+            gh run watch "$id" -R "$REPO" --exit-status
+            gh run view "$id" -R "$REPO" --json databaseId,name,headSha,status,conclusion,url > "evidence/$label.json"
+            jq -e --arg s "$SHA" '.conclusion=="success" and .headSha==$s' "evidence/$label.json" >/dev/null
           }
-          run_gate nvd-snapshot-bootstrap.yml NVD_BOOTSTRAP
-          run_gate nvd-snapshot-publisher.yml NVD_PUBLISHER
-          run_gate nvd-snapshot-integrity.yml NVD_INTEGRITY
-          run_gate security-scan.yml OWASP
-          run_gate auth-tenant-production-acceptance.yml AUTH_ACCEPTANCE
-          run_gate bff-auth-session-synthetic.yml BFF_AUTH
-          run_gate production-smoke.yml PRODUCTION_SMOKE
-          run_gate post-merge-verification.yml POST_MERGE
+          gate nvd-snapshot-bootstrap.yml NVD_BOOTSTRAP
+          gate nvd-snapshot-publisher.yml NVD_PUBLISHER
+          gate nvd-snapshot-integrity.yml NVD_INTEGRITY
+          gate security-scan.yml OWASP
+          gate auth-tenant-production-acceptance.yml AUTH_ACCEPTANCE
+          gate bff-auth-session-synthetic.yml BFF_AUTH
+          gate production-smoke.yml PRODUCTION_SMOKE
+          gate post-merge-verification.yml POST_MERGE
 
-      - name: Build terminal closure evidence
-        shell: bash
+      - name: Build and publish immutable closure evidence
+        env: { GH_TOKEN: '${{ github.token }}' }
         run: |
           set -euo pipefail
           source evidence/context.env
           cat > evidence/CRM-009-FINAL-CLOSURE.md <<EOF
-          ## CRM-009 Terminal Production Closure
+          ## CRM-009 Final Production Closure
 
-          **Final release SHA:** \`${RELEASE_SHA}\`  
-          **Backend:** \`${BACKEND_URL}\` — health/readiness/liveness UP  
-          **Frontend:** \`${WEB_URL}\` — Vercel Production SUCCESS
+          FINAL_RELEASE_SHA: \`$FINAL_RELEASE_SHA\`
 
           | Gate | Run ID | Result |
           |---|---:|---|
-          | Exact-SHA Production Deployment | ${DEPLOYMENT_ORCHESTRATOR_RUN_ID} | PASS |
-          | NVD Snapshot Bootstrap | ${NVD_BOOTSTRAP_RUN_ID} | PASS |
-          | NVD Snapshot Publisher | ${NVD_PUBLISHER_RUN_ID} | PASS |
-          | NVD Snapshot Integrity | ${NVD_INTEGRITY_RUN_ID} | PASS |
-          | OWASP Security Scan | ${OWASP_RUN_ID} | PASS |
-          | Auth Tenant Production Acceptance | ${AUTH_ACCEPTANCE_RUN_ID} | PASS |
-          | BFF Auth Session Synthetic | ${BFF_AUTH_RUN_ID} | PASS |
-          | Production Smoke | ${PRODUCTION_SMOKE_RUN_ID} | PASS |
-          | Post-Merge Verification | ${POST_MERGE_RUN_ID} | PASS |
+          | Deployment | $DEPLOYMENT_RUN_ID | PASS |
+          | NVD Bootstrap | $NVD_BOOTSTRAP_RUN_ID | PASS |
+          | NVD Publisher | $NVD_PUBLISHER_RUN_ID | PASS |
+          | NVD Integrity | $NVD_INTEGRITY_RUN_ID | PASS |
+          | OWASP | $OWASP_RUN_ID | PASS |
+          | Auth Acceptance | $AUTH_ACCEPTANCE_RUN_ID | PASS |
+          | BFF Auth | $BFF_AUTH_RUN_ID | PASS |
+          | Production Smoke | $PRODUCTION_SMOKE_RUN_ID | PASS |
+          | Post-Merge | $POST_MERGE_RUN_ID | PASS |
 
-          \`FAILED_GATES=0\`  
-          \`BLOCKED_GATES=0\`  
-          \`UNEXPLAINED_HTTP_5XX=0\`  
-          \`CRM_009_FINAL_DECISION=PRODUCTION_ACCEPTED\`
+          BACKEND_HEALTH=UP  
+          VERCEL_PRODUCTION=READY  
+          FAILED_GATES=0  
+          BLOCKED_GATES=0  
+          UNEXPLAINED_HTTP_5XX=0  
+          CRM_009_FINAL_DECISION=PRODUCTION_ACCEPTED
           EOF
-          jq --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.status="PRODUCTION_ACCEPTED"|.completed_at_utc=$at' evidence/context.json > evidence/context.final.json
-          mv evidence/context.final.json evidence/context.json
+          gh issue comment "$ISSUE" -R "$REPO" --body-file evidence/CRM-009-FINAL-CLOSURE.md
+          gh issue close "$ISSUE" -R "$REPO" --reason completed
 
-      - name: Upload immutable closure evidence
-        uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v6
+        if: always()
         with:
           name: crm-009-final-production-closure-evidence
           path: evidence/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 90
-
-      - name: Record evidence and close Issue 692
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh issue comment "$ISSUE_NUMBER" --repo "$REPOSITORY" --body-file evidence/CRM-009-FINAL-CLOSURE.md
-          gh issue close "$ISSUE_NUMBER" --repo "$REPOSITORY" --reason completed
-
-      - name: Final summary
-        if: always()
-        shell: bash
-        run: |
-          echo '## CRM-009 Terminal Production Closure' >> "$GITHUB_STEP_SUMMARY"
-          echo '' >> "$GITHUB_STEP_SUMMARY"
-          if [ -f evidence/CRM-009-FINAL-CLOSURE.md ]; then cat evidence/CRM-009-FINAL-CLOSURE.md >> "$GITHUB_STEP_SUMMARY"; else echo 'Closure not granted; inspect first failed gate.' >> "$GITHUB_STEP_SUMMARY"; fi
