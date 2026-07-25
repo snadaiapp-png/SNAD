@@ -29,14 +29,18 @@ jobs:
     name: CRM-008R PostgreSQL 16 Acceptance
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
     defaults:
       run:
         working-directory: apps/sanad-platform
 
     steps:
-      - name: Checkout exact candidate
+      - name: Checkout exact candidate head
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -45,14 +49,16 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Verify Docker and candidate SHA
+      - name: Verify Docker and exact candidate SHA
         shell: bash
         run: |
           set -euo pipefail
           docker version
           docker info
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          echo "CANDIDATE_SHA=${GITHUB_SHA}"
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$CANDIDATE_SHA"
+          echo "CANDIDATE_SHA=$CANDIDATE_SHA"
+          echo "ACTUAL_SHA=$ACTUAL_SHA"
 
       - name: Run CRM-008R mandatory PostgreSQL tests
         shell: bash
@@ -151,7 +157,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: crm-008r-postgres-${{ github.sha }}
+          name: crm-008r-postgres-${{ env.CANDIDATE_SHA }}
           path: |
             apps/sanad-platform/target/surefire-reports/TEST-com.sanad.platform.crm.ownership*.xml
             apps/sanad-platform/target/surefire-reports/*.txt
