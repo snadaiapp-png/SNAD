@@ -50,6 +50,12 @@ jobs:
           python3 -m pip install --quiet pyyaml pytest
           sudo apt-get install -y zstd || true
 
+      - name: Verify NVD bootstrap regression tests
+        shell: bash
+        run: |
+          python3 -m pytest tests/security/test_nvd_github_releases_idempotency.py -q
+          python3 -m pytest tests/security/test_nvd_datafeed_runtime_hardening.py -q
+
       - name: Run Bootstrap (Datafeed Mode)
         shell: bash
         env:
@@ -66,7 +72,7 @@ jobs:
           rm -rf "$WORK_DIR" "$CANONICAL_DIR" "$LKG_DIR" "$LOG_DIR"
           mkdir -p "$WORK_DIR" "$CANONICAL_DIR" "$LKG_DIR" "$LOG_DIR"
 
-          python3 -c 'from scripts.security.nvd_datafeed_runtime_hardening import install; install(); import runpy; runpy.run_path("scripts/security/publish_nvd_snapshot.py", run_name="__main__")' \
+          python3 -c 'from scripts.security.nvd_github_releases_idempotency import install_github_releases_idempotency_patch; install_github_releases_idempotency_patch(); from scripts.security.nvd_datafeed_runtime_hardening import install; install(); import runpy; runpy.run_path("scripts/security/publish_nvd_snapshot.py", run_name="__main__")' \
             --mode bootstrap \
             --source-mode datafeed \
             --update-timeout-minutes 240 \
@@ -96,6 +102,7 @@ jobs:
             echo "**SHA:** \`${{ github.sha }}\`"
             echo "**Backend:** GitHub Releases"
             echo "**Runtime metadata hardening:** ENABLED"
+            echo "**Release pointer idempotency:** ENABLED"
             echo "**Complete diagnostic artifact:** ENABLED"
             echo "**Direct NVD API:** PROHIBITED"
           } >> "$GITHUB_STEP_SUMMARY"
