@@ -30,6 +30,7 @@ class FakeGitHubReleasesBackend(GitHubReleasesBackend):
         self.upload_422_once = upload_422_once
         self.upload_attempts = 0
         self.deleted_assets = 0
+        self.requested_paths = []
         self.stored_bytes = b""
 
     def _release(self):
@@ -50,6 +51,7 @@ class FakeGitHubReleasesBackend(GitHubReleasesBackend):
         }
 
     def _request(self, method, path, body=None, expected=(200, 201, 204)):
+        self.requested_paths.append((method, path))
         if method == "GET" and path == f"releases/tags/{self.LATEST_TAG}":
             if not self.release_exists:
                 raise SnapshotNotFoundError("missing")
@@ -66,7 +68,7 @@ class FakeGitHubReleasesBackend(GitHubReleasesBackend):
         if method == "GET" and path == "releases/7":
             return self._release()
 
-        if method == "DELETE" and path == "releases/7/assets/99":
+        if method == "DELETE" and path == "releases/assets/99":
             self.deleted_assets += 1
             self.asset_exists = False
             if self.delete_404_once:
@@ -97,6 +99,18 @@ def pointer():
         "archive_sha256": "a" * 64,
         "manifest_sha256": "b" * 64,
     }
+
+
+def test_delete_uses_github_release_asset_endpoint():
+    backend = FakeGitHubReleasesBackend()
+
+    promote_latest_pointer_idempotent(backend, pointer())
+
+    assert ("DELETE", "releases/assets/99") in backend.requested_paths
+    assert not any(
+        method == "DELETE" and path == "releases/7/assets/99"
+        for method, path in backend.requested_paths
+    )
 
 
 def test_delete_404_is_treated_as_already_successful():
