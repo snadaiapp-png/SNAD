@@ -64,7 +64,7 @@ jobs:
           id=''
           for _ in $(seq 1 120); do
             sleep 10
-            id="$(gh run list -R "$REPO" -w "$wf" -b main -e workflow_dispatch -L 10 --json databaseId,headSha --jq --arg s "$SHA" '[.[]|select(.headSha==$s)][0].databaseId // empty')"
+            id="$(gh run list -R "$REPO" -w "$wf" -b main -e workflow_dispatch -L 10 --json databaseId,headSha | jq --arg s "$SHA" '[.[]|select(.headSha==$s)][0].databaseId // empty' -r)"
             [ -n "$id" ] && [ "$id" != "$old" ] && break
           done
           test -n "$id" || { echo '::error::Exact-SHA deployment run was not found'; exit 1; }
@@ -108,7 +108,7 @@ jobs:
             id=''
             for _ in $(seq 1 180); do
               sleep 10
-              id="$(gh run list -R "$REPO" -w "$wf" -b main -e workflow_dispatch -L 10 --json databaseId,headSha --jq --arg s "$SHA" '[.[]|select(.headSha==$s)][0].databaseId // empty')"
+              id="$(gh run list -R "$REPO" -w "$wf" -b main -e workflow_dispatch -L 10 --json databaseId,headSha | jq --arg s "$SHA" '[.[]|select(.headSha==$s)][0].databaseId // empty' -r)"
               [ -n "$id" ] && [ "$id" != "$old" ] && break
             done
             test -n "$id" || { echo "::error::$label run was not found for exact SHA"; exit 1; }
