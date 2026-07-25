@@ -34,8 +34,10 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -111,17 +113,7 @@ class CrmOwnershipAtomicIfMatchPostgresTest {
 
     @Test
     void concurrentRequestsWithSameEtag_haveExactlyOneWinner() throws Exception {
-        Timestamp initialTimestamp = jdbc.queryForObject("""
-                SELECT updated_at FROM crm_sales_teams
-                 WHERE tenant_id=:tenantId AND id=:teamId
-                """, new MapSqlParameterSource()
-                .addValue("tenantId", tenantId)
-                .addValue("teamId", teamId), Timestamp.class);
-        Instant initial = initialTimestamp.toInstant();
-        String etag = new ETagService().etag(
-                "sales-team", teamId,
-                CrmOwnershipAtomicIfMatchAspect.timestampVersion(initial));
-
+        String etag = currentEtag();
         CyclicBarrier start = new CyclicBarrier(2);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
@@ -136,26 +128,62 @@ class CrmOwnershipAtomicIfMatchPostgresTest {
         String finalName = jdbc.queryForObject("""
                 SELECT display_name FROM crm_sales_teams
                  WHERE tenant_id=:tenantId AND id=:teamId
-                """, new MapSqlParameterSource()
-                .addValue("tenantId", tenantId)
-                .addValue("teamId", teamId), String.class);
+                """, params(), String.class);
         assertThat(finalName).isIn("First", "Second");
+    }
+
+    @Test
+    void staleEtag_isRejectedBeforeMutationExecutes() throws Throwable {
+        String stale = currentEtag();
+        jdbc.update("""
+                UPDATE crm_sales_teams
+                   SET updated_at=updated_at + INTERVAL '1 second'
+                 WHERE tenant_id=:tenantId AND id=:teamId
+                """, params());
+
+        AtomicBoolean invoked = new AtomicBoolean(false);
+        ProceedingJoinPoint joinPoint = mock(ProceedingJoinPoint.class);
+        when(joinPoint.proceed()).thenAnswer(invocation -> {
+            invoked.set(true);
+            return null;
+        });
+
+        bindRequest(stale);
+        try {
+            assertThatThrownBy(() -> aspect.enforceAtomicIfMatch(joinPoint))
+                    .isInstanceOf(CrmContractException.class)
+                    .satisfies(error -> assertThat(((CrmContractException) error).code())
+                            .isEqualTo(CrmErrorCode.CRM_CONCURRENCY_CONFLICT));
+            assertThat(invoked).isFalse();
+        } finally {
+            clearRequest();
+        }
+    }
+
+    @Test
+    void missingIfMatch_isRejectedBeforeMutationExecutes() throws Throwable {
+        AtomicBoolean invoked = new AtomicBoolean(false);
+        ProceedingJoinPoint joinPoint = mock(ProceedingJoinPoint.class);
+        when(joinPoint.proceed()).thenAnswer(invocation -> {
+            invoked.set(true);
+            return null;
+        });
+
+        bindRequest(null);
+        try {
+            assertThatThrownBy(() -> aspect.enforceAtomicIfMatch(joinPoint))
+                    .isInstanceOf(CrmContractException.class)
+                    .satisfies(error -> assertThat(((CrmContractException) error).code())
+                            .isEqualTo(CrmErrorCode.CRM_CONCURRENCY_PRECONDITION_REQUIRED));
+            assertThat(invoked).isFalse();
+        } finally {
+            clearRequest();
+        }
     }
 
     private boolean mutate(CyclicBarrier start, String etag, String displayName) throws Exception {
         start.await();
-        var authentication = UsernamePasswordAuthenticationToken.authenticated(
-                actorId.toString(), "n/a", List.of());
-        authentication.setDetails(Map.of(
-                "tenant_id", tenantId.toString(),
-                "user_id", actorId.toString()));
-        SecurityContextHolder.getContext().setAuthentication(authentication);
-
-        MockHttpServletRequest request = new MockHttpServletRequest(
-                "PATCH", "/api/v2/crm/teams/" + teamId);
-        request.addHeader("If-Match", etag);
-        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
-
+        bindRequest(etag);
         ProceedingJoinPoint joinPoint = mock(ProceedingJoinPoint.class);
         try {
             when(joinPoint.proceed()).thenAnswer(invocation -> {
@@ -165,11 +193,7 @@ class CrmOwnershipAtomicIfMatchPostgresTest {
                                updated_at=updated_at + INTERVAL '1 second',
                                updated_by=:actorId
                          WHERE tenant_id=:tenantId AND id=:teamId
-                        """, new MapSqlParameterSource()
-                        .addValue("displayName", displayName)
-                        .addValue("actorId", actorId)
-                        .addValue("tenantId", tenantId)
-                        .addValue("teamId", teamId));
+                        """, params().addValue("displayName", displayName));
                 return displayName;
             });
         } catch (Throwable setupFailure) {
@@ -185,8 +209,44 @@ class CrmOwnershipAtomicIfMatchPostgresTest {
         } catch (Throwable unexpected) {
             throw new RuntimeException(unexpected);
         } finally {
-            RequestContextHolder.resetRequestAttributes();
-            SecurityContextHolder.clearContext();
+            clearRequest();
         }
+    }
+
+    private String currentEtag() {
+        Timestamp timestamp = jdbc.queryForObject("""
+                SELECT updated_at FROM crm_sales_teams
+                 WHERE tenant_id=:tenantId AND id=:teamId
+                """, params(), Timestamp.class);
+        Instant value = timestamp.toInstant();
+        return new ETagService().etag(
+                "sales-team", teamId,
+                CrmOwnershipAtomicIfMatchAspect.timestampVersion(value));
+    }
+
+    private void bindRequest(String etag) {
+        var authentication = UsernamePasswordAuthenticationToken.authenticated(
+                actorId.toString(), "n/a", List.of());
+        authentication.setDetails(Map.of(
+                "tenant_id", tenantId.toString(),
+                "user_id", actorId.toString()));
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "PATCH", "/api/v2/crm/teams/" + teamId);
+        if (etag != null) request.addHeader("If-Match", etag);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+    }
+
+    private void clearRequest() {
+        RequestContextHolder.resetRequestAttributes();
+        SecurityContextHolder.clearContext();
+    }
+
+    private MapSqlParameterSource params() {
+        return new MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("teamId", teamId)
+                .addValue("actorId", actorId);
     }
 }
