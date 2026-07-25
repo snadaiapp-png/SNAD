@@ -2,6 +2,7 @@ package com.sanad.platform.crm.ownership.infrastructure;
 
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.crm.error.CrmContractException;
+import com.sanad.platform.crm.error.CrmErrorCode;
 import com.sanad.platform.crm.pagination.CursorCodec;
 import com.sanad.platform.crm.web.CrmOwnershipResourceController;
 import com.sanad.platform.security.authorization.CapabilityAuthorizationAspect;
@@ -134,9 +135,7 @@ class CrmOwnershipCursorPaginationPostgresTest {
         UUID otherTenant = UUID.randomUUID();
         ProceedingJoinPoint otherJoinPoint = joinPoint(
                 request(cursor, null), authentication(otherTenant));
-        assertThatThrownBy(() -> aspect.pageTeams(otherJoinPoint))
-                .isInstanceOf(CrmContractException.class)
-                .hasMessageContaining("tenant");
+        assertValidationError(() -> aspect.pageTeams(otherJoinPoint));
     }
 
     @Test
@@ -144,17 +143,20 @@ class CrmOwnershipCursorPaginationPostgresTest {
         String cursor = firstCursor();
         char replacement = cursor.charAt(cursor.length() - 1) == 'A' ? 'B' : 'A';
         String tampered = cursor.substring(0, cursor.length() - 1) + replacement;
-        assertThatThrownBy(() -> invoke(request(tampered, null)))
-                .isInstanceOf(CrmContractException.class)
-                .hasMessageContaining("invalid");
+        assertValidationError(() -> invoke(request(tampered, null)));
     }
 
     @Test
     void cursorCannotBeReusedWithDifferentFilter() throws Throwable {
         String cursor = firstCursor();
-        assertThatThrownBy(() -> invoke(request(cursor, "ARCHIVED")))
+        assertValidationError(() -> invoke(request(cursor, "ARCHIVED")));
+    }
+
+    private void assertValidationError(ThrowingCall call) {
+        assertThatThrownBy(call::run)
                 .isInstanceOf(CrmContractException.class)
-                .hasMessageContaining("filter");
+                .satisfies(error -> assertThat(((CrmContractException) error).code())
+                        .isEqualTo(CrmErrorCode.VALIDATION_ERROR));
     }
 
     private String firstCursor() throws Throwable {
@@ -210,5 +212,10 @@ class CrmOwnershipCursorPaginationPostgresTest {
                 .addValue("tenantId", tenantId)
                 .addValue("code", code)
                 .addValue("userId", userId));
+    }
+
+    @FunctionalInterface
+    private interface ThrowingCall {
+        void run() throws Throwable;
     }
 }
