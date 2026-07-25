@@ -3,17 +3,16 @@
 | Field | Evidence |
 |---|---|
 | Result | PASS |
-| Release SHA | 4cedf631a3e61f39039615d93cd03c3111213eb9 |
-| Upstream CRM-G1 run | 29917230857 |
+| Release SHA | 59f73931102ed4107441c3f3bf8f5ddf108f4270 |
+| Upstream CRM-G1 run | 30174231224 |
 | Flyway | 20260717.100, 20260717.101, 20260718.1, 20260721.1, 20260721.2 = SQL / true |
 | Database execution | Read-only; no migrate, repair, history edit, or manual SQL |
 | Authenticated lifecycle | PASS |
 | Two-tenant isolation | PASS |
 | CRM HTTP 500 during gate | 0 |
-| Vercel deployment | dpl_FtG7Pj4MUBNjEFjahPopscqKn7b9 |
-| Render deployment | dep-d9gartok1i2s7388lprg |
-| Render image | ghcr.io/snadaiapp-png/snad-backend:4cedf631a3e61f39039615d93cd03c3111213eb9 |
-| Render image digest | sha256:810e69e1c05668ebd9540b71554e13190c837d38004aa3a37dacbde7521cb2cd |
-| Workflow | https://github.com/snadaiapp-png/SNAD/actions/runs/29917314330 |
-| Artifact | https://github.com/snadaiapp-png/SNAD/actions/runs/29917314330/artifacts/8528450065 |
-| Artifact digest | c5f246f077df0df05d4946bd238eee2b50ad3e6621f176da59448ca3a6976fed |
+| Vercel deployment | dpl_35W75h8KVXHB8Yq3tzHNWtYfRnqo |
+| Render deployment | dep-d9ihvrfaqgkc73a4tl5g |
+| Render image digest | not-returned-by-api |
+| Workflow | https://github.com/snadaiapp-png/SNAD/actions/runs/30174267128 |
+| Artifact | https://github.com/snadaiapp-png/SNAD/actions/runs/30174267128/artifacts/8623780913 |
+| Artifact digest | e9ba8704a008741930860c42a7c367e71fd0560dafe6fb39538262b3e5b4e7b9 |
