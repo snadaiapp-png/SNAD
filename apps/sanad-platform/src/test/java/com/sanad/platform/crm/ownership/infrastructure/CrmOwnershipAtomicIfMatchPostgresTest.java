@@ -157,20 +157,24 @@ class CrmOwnershipAtomicIfMatchPostgresTest {
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
 
         ProceedingJoinPoint joinPoint = mock(ProceedingJoinPoint.class);
-        when(joinPoint.proceed()).thenAnswer(invocation -> {
-            jdbc.update("""
-                    UPDATE crm_sales_teams
-                       SET display_name=:displayName,
-                           updated_at=updated_at + INTERVAL '1 second',
-                           updated_by=:actorId
-                     WHERE tenant_id=:tenantId AND id=:teamId
-                    """, new MapSqlParameterSource()
-                    .addValue("displayName", displayName)
-                    .addValue("actorId", actorId)
-                    .addValue("tenantId", tenantId)
-                    .addValue("teamId", teamId));
-            return displayName;
-        });
+        try {
+            when(joinPoint.proceed()).thenAnswer(invocation -> {
+                jdbc.update("""
+                        UPDATE crm_sales_teams
+                           SET display_name=:displayName,
+                               updated_at=updated_at + INTERVAL '1 second',
+                               updated_by=:actorId
+                         WHERE tenant_id=:tenantId AND id=:teamId
+                        """, new MapSqlParameterSource()
+                        .addValue("displayName", displayName)
+                        .addValue("actorId", actorId)
+                        .addValue("tenantId", tenantId)
+                        .addValue("teamId", teamId));
+                return displayName;
+            });
+        } catch (Throwable setupFailure) {
+            throw new RuntimeException("Unable to configure race mutation", setupFailure);
+        }
 
         try {
             aspect.enforceAtomicIfMatch(joinPoint);
