@@ -102,9 +102,8 @@ class CrmOwnershipCursorPaginationPostgresTest {
     }
 
     @Test
-    void pagesAreBoundedStableAndTenantBound() throws Throwable {
-        MockHttpServletRequest firstRequest = request(null);
-        ResponseEntity<Map<String, Object>> first = invoke(firstRequest);
+    void firstMiddleAndFinalPages_areBoundedAndStable() throws Throwable {
+        ResponseEntity<Map<String, Object>> first = invoke(request(null, null));
         Map<String, Object> firstBody = first.getBody();
         List<?> firstData = (List<?>) firstBody.get("data");
         Map<?, ?> firstPage = (Map<?, ?>) firstBody.get("page");
@@ -113,20 +112,48 @@ class CrmOwnershipCursorPaginationPostgresTest {
         assertThat(firstPage.get("nextCursor")).isInstanceOf(String.class);
 
         String cursor = (String) firstPage.get("nextCursor");
-        ResponseEntity<Map<String, Object>> second = invoke(request(cursor));
+        ResponseEntity<Map<String, Object>> second = invoke(request(cursor, null));
         Map<String, Object> secondBody = second.getBody();
         List<?> secondData = (List<?>) secondBody.get("data");
         Map<?, ?> secondPage = (Map<?, ?>) secondBody.get("page");
         assertThat(secondData).hasSize(1);
         assertThat(secondPage.get("hasMore")).isEqualTo(false);
         assertThat(secondPage.get("nextCursor")).isNull();
+    }
 
+    @Test
+    void cursorFromAnotherTenant_isRejected() throws Throwable {
+        String cursor = firstCursor();
         UUID otherTenant = UUID.randomUUID();
-        Authentication otherAuthentication = authentication(otherTenant);
-        ProceedingJoinPoint otherJoinPoint = joinPoint(request(cursor), otherAuthentication);
+        ProceedingJoinPoint otherJoinPoint = joinPoint(
+                request(cursor, null), authentication(otherTenant));
         assertThatThrownBy(() -> aspect.pageTeams(otherJoinPoint))
                 .isInstanceOf(CrmContractException.class)
                 .hasMessageContaining("tenant");
+    }
+
+    @Test
+    void tamperedCursor_isRejected() throws Throwable {
+        String cursor = firstCursor();
+        char replacement = cursor.charAt(cursor.length() - 1) == 'A' ? 'B' : 'A';
+        String tampered = cursor.substring(0, cursor.length() - 1) + replacement;
+        assertThatThrownBy(() -> invoke(request(tampered, null)))
+                .isInstanceOf(CrmContractException.class)
+                .hasMessageContaining("invalid");
+    }
+
+    @Test
+    void cursorCannotBeReusedWithDifferentFilter() throws Throwable {
+        String cursor = firstCursor();
+        assertThatThrownBy(() -> invoke(request(cursor, "ARCHIVED")))
+                .isInstanceOf(CrmContractException.class)
+                .hasMessageContaining("filter");
+    }
+
+    private String firstCursor() throws Throwable {
+        ResponseEntity<Map<String, Object>> response = invoke(request(null, null));
+        Map<?, ?> page = (Map<?, ?>) response.getBody().get("page");
+        return (String) page.get("nextCursor");
     }
 
     @SuppressWarnings("unchecked")
@@ -155,10 +182,11 @@ class CrmOwnershipCursorPaginationPostgresTest {
         return authentication;
     }
 
-    private MockHttpServletRequest request(String cursor) {
+    private MockHttpServletRequest request(String cursor, String status) {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v2/crm/teams");
         request.addParameter("pageSize", "2");
         if (cursor != null) request.addParameter("cursor", cursor);
+        if (status != null) request.addParameter("status", status);
         return request;
     }
 
