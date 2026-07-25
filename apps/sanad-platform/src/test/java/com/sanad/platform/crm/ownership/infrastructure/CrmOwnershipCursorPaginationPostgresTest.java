@@ -25,9 +25,11 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.lang.reflect.Method;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -49,6 +51,7 @@ class CrmOwnershipCursorPaginationPostgresTest {
 
     private UUID tenantId;
     private UUID userId;
+    private List<UUID> teamIds;
 
     @BeforeAll
     static void migrateAndCreateAspect() throws Exception {
@@ -89,6 +92,10 @@ class CrmOwnershipCursorPaginationPostgresTest {
     void createTenantAndTeams() {
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
+        teamIds = Stream.generate(UUID::randomUUID)
+                .limit(3)
+                .sorted(Comparator.naturalOrder())
+                .toList();
         jdbc.update("""
                 INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
                 VALUES (:id, :name, :subdomain, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -96,9 +103,9 @@ class CrmOwnershipCursorPaginationPostgresTest {
                 .addValue("id", tenantId)
                 .addValue("name", "CRM-008R Cursor")
                 .addValue("subdomain", "crm008r-page-" + tenantId.toString().substring(0, 8)));
-        insertTeam(UUID.fromString("00000000-0000-0000-0000-000000000001"), "PAGE-1");
-        insertTeam(UUID.fromString("00000000-0000-0000-0000-000000000002"), "PAGE-2");
-        insertTeam(UUID.fromString("00000000-0000-0000-0000-000000000003"), "PAGE-3");
+        insertTeam(teamIds.get(0), "PAGE-1");
+        insertTeam(teamIds.get(1), "PAGE-2");
+        insertTeam(teamIds.get(2), "PAGE-3");
     }
 
     @Test
