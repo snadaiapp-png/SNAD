@@ -22,7 +22,6 @@ import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.security.core.Authentication;
@@ -65,17 +64,15 @@ public class CrmOwnershipCursorPaginationAspect {
         int pageSize = pageSize(invocation.request());
         String filterKey = "crm008:teams:" + status.name() + ":id";
         UUID afterId = afterId(invocation.request(), tenantId, filterKey);
+        MapSqlParameterSource parameters = baseParameters(tenantId, pageSize);
+        String cursorClause = cursorClause(afterId, parameters);
 
         List<SalesTeam> rows = jdbc.query(
                 "SELECT * FROM crm_sales_teams "
                         + "WHERE tenant_id=:tenantId AND status=:status "
-                        + "AND (:afterId IS NULL OR id > :afterId) "
+                        + cursorClause
                         + "ORDER BY id ASC LIMIT :limit",
-                new MapSqlParameterSource()
-                        .addValue("tenantId", tenantId)
-                        .addValue("status", status.name())
-                        .addValue("afterId", afterId)
-                        .addValue("limit", pageSize + 1),
+                parameters.addValue("status", status.name()),
                 OwnershipJdbcSupport.salesTeamMapper());
         return response(rows, pageSize, tenantId, filterKey, SalesTeam::id, invocation.request());
     }
@@ -91,16 +88,14 @@ public class CrmOwnershipCursorPaginationAspect {
         String filterKey = "crm008:queues:" + (status == null ? "ALL" : status.name()) + ":id";
         UUID afterId = afterId(invocation.request(), tenantId, filterKey);
         String statusClause = status == null ? "" : "AND status=:status ";
-        MapSqlParameterSource parameters = new MapSqlParameterSource()
-                .addValue("tenantId", tenantId)
-                .addValue("afterId", afterId)
-                .addValue("limit", pageSize + 1);
+        MapSqlParameterSource parameters = baseParameters(tenantId, pageSize);
+        String cursorClause = cursorClause(afterId, parameters);
         if (status != null) parameters.addValue("status", status.name());
 
         List<Queue> rows = jdbc.query(
                 "SELECT * FROM crm_queues WHERE tenant_id=:tenantId "
                         + statusClause
-                        + "AND (:afterId IS NULL OR id > :afterId) "
+                        + cursorClause
                         + "ORDER BY id ASC LIMIT :limit",
                 parameters,
                 OwnershipJdbcSupport.queueMapper());
@@ -123,12 +118,10 @@ public class CrmOwnershipCursorPaginationAspect {
                 + (state == null ? "ALL" : state.name()) + ":id";
         UUID afterId = afterId(invocation.request(), tenantId, filterKey);
         String stateClause = state == null ? "" : "AND state=:state ";
-        MapSqlParameterSource parameters = new MapSqlParameterSource()
-                .addValue("tenantId", tenantId)
+        MapSqlParameterSource parameters = baseParameters(tenantId, pageSize)
                 .addValue("userId", userId)
-                .addValue("direction", direction.name())
-                .addValue("afterId", afterId)
-                .addValue("limit", pageSize + 1);
+                .addValue("direction", direction.name());
+        String cursorClause = cursorClause(afterId, parameters);
         if (state != null) parameters.addValue("state", state.name());
 
         List<TransferRequest> rows = jdbc.query(
@@ -138,7 +131,7 @@ public class CrmOwnershipCursorPaginationAspect {
                         + " OR (:direction='INCOMING' AND proposed_owner_user_id=:userId) "
                         + " OR (:direction='ALL' AND (requester_user_id=:userId OR proposed_owner_user_id=:userId))) "
                         + stateClause
-                        + "AND (:afterId IS NULL OR id > :afterId) "
+                        + cursorClause
                         + "ORDER BY id ASC LIMIT :limit",
                 parameters,
                 OwnershipJdbcSupport.transferRequestMapper());
@@ -157,20 +150,30 @@ public class CrmOwnershipCursorPaginationAspect {
                 + (status == null ? "ALL" : status.name()) + ":id";
         UUID afterId = afterId(invocation.request(), tenantId, filterKey);
         String statusClause = status == null ? "" : "AND status=:status ";
-        MapSqlParameterSource parameters = new MapSqlParameterSource()
-                .addValue("tenantId", tenantId)
-                .addValue("afterId", afterId)
-                .addValue("limit", pageSize + 1);
+        MapSqlParameterSource parameters = baseParameters(tenantId, pageSize);
+        String cursorClause = cursorClause(afterId, parameters);
         if (status != null) parameters.addValue("status", status.name());
 
         List<AssignmentRule> rows = jdbc.query(
                 "SELECT * FROM crm_assignment_rules WHERE tenant_id=:tenantId "
                         + statusClause
-                        + "AND (:afterId IS NULL OR id > :afterId) "
+                        + cursorClause
                         + "ORDER BY id ASC LIMIT :limit",
                 parameters,
                 OwnershipJdbcSupport.assignmentRuleMapper());
         return response(rows, pageSize, tenantId, filterKey, AssignmentRule::id, invocation.request());
+    }
+
+    private MapSqlParameterSource baseParameters(UUID tenantId, int pageSize) {
+        return new MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("limit", pageSize + 1);
+    }
+
+    private String cursorClause(UUID afterId, MapSqlParameterSource parameters) {
+        if (afterId == null) return "";
+        parameters.addValue("afterId", afterId);
+        return "AND id > :afterId ";
     }
 
     private void authorize(ProceedingJoinPoint joinPoint) {
