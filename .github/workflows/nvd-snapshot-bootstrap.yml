@@ -1,18 +1,6 @@
 # ============================================================
 # SANAD — NVD Snapshot Bootstrap (GitHub-hosted, Datafeed)
 # ============================================================
-# R12J: Uses GitHub-hosted runner with GitHub Releases as storage.
-# Consumes a verified NVD Data Feed from the Feed Mirror Publisher.
-# Does NOT have NVD_API_KEY. Does NOT contact NVD API directly.
-#
-# Architecture:
-#   Feed Mirror Publisher → GitHub Releases (feed)
-#   → Bootstrap downloads feed
-#   → Local HTTP server serves feed to Dependency-Check
-#   → odc.mv.db built without direct NVD API access
-#   → Published to GitHub Releases (snapshot)
-# ============================================================
-
 name: NVD Snapshot Bootstrap
 
 on:
@@ -29,6 +17,7 @@ concurrency:
 env:
   DEPENDENCY_CHECK_VERSION: "12.1.0"
   PYTHONUNBUFFERED: "1"
+  PYTHONFAULTHANDLER: "1"
   NVD_SNAPSHOT_BACKEND: github-releases
   NVD_SOURCE_MODE: datafeed
 
@@ -69,14 +58,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          set -euo pipefail
+          set -o pipefail
           WORK_DIR="${{ runner.temp }}/nvd-work"
           CANONICAL_DIR="${{ runner.temp }}/nvd-canonical"
           LKG_DIR="${{ runner.temp }}/nvd-lkg"
-          rm -rf "$WORK_DIR" "$CANONICAL_DIR" "$LKG_DIR"
-          mkdir -p "$WORK_DIR" "$CANONICAL_DIR" "$LKG_DIR"
+          LOG_DIR="${{ runner.temp }}/nvd-diagnostics"
+          rm -rf "$WORK_DIR" "$CANONICAL_DIR" "$LKG_DIR" "$LOG_DIR"
+          mkdir -p "$WORK_DIR" "$CANONICAL_DIR" "$LKG_DIR" "$LOG_DIR"
 
-          python3 scripts/security/publish_nvd_snapshot.py \
+          python3 -c 'from scripts.security.nvd_datafeed_runtime_hardening import install; install(); import runpy; runpy.run_path("scripts/security/publish_nvd_snapshot.py", run_name="__main__")' \
             --mode bootstrap \
             --source-mode datafeed \
             --update-timeout-minutes 240 \
@@ -84,19 +74,28 @@ jobs:
             --canonical-dir "$CANONICAL_DIR" \
             --lkg-dir "$LKG_DIR" \
             --publisher-commit-sha "${{ github.sha }}" \
-            --publisher-run-id "${{ github.run_id }}"
+            --publisher-run-id "${{ github.run_id }}" 2>&1 | tee "$LOG_DIR/bootstrap.log"
+
+      - name: Upload NVD bootstrap diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: nvd-bootstrap-diagnostics-${{ github.run_id }}
+          path: ${{ runner.temp }}/nvd-diagnostics/
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Write summary
         if: always()
         shell: bash
         run: |
           {
-            echo "## NVD Snapshot Bootstrap — R12J (Datafeed Mode)"
+            echo "## NVD Snapshot Bootstrap — hardened datafeed mode"
             echo ""
             echo "**Run ID:** ${{ github.run_id }}"
             echo "**SHA:** \`${{ github.sha }}\`"
-            echo "**Mode:** Bootstrap (datafeed source)"
             echo "**Backend:** GitHub Releases"
-            echo "**NVD_API_KEY:** NOT USED (datafeed mode)"
+            echo "**Runtime metadata hardening:** ENABLED"
+            echo "**Complete diagnostic artifact:** ENABLED"
             echo "**Direct NVD API:** PROHIBITED"
           } >> "$GITHUB_STEP_SUMMARY"
