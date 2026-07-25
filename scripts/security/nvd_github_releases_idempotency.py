@@ -57,6 +57,11 @@ def _get_or_create_latest_release(backend: GitHubReleasesBackend) -> dict[str, A
     raise AssertionError("unreachable")
 
 
+_POST_DELETE_SETTLE_SECONDS = 3
+_MAX_SETTLE_POLLS = 5
+_SETTLE_POLL_INTERVAL_SECONDS = 2
+
+
 def _remove_named_assets(
     backend: GitHubReleasesBackend,
     release: dict[str, Any],
@@ -67,6 +72,7 @@ def _remove_named_assets(
     if not release_id:
         raise StorageBackendError("latest-pointer release response has no id")
 
+    deleted_any = False
     for asset in release.get("assets", []):
         if asset.get("name") != asset_name:
             continue
@@ -75,10 +81,33 @@ def _remove_named_assets(
             continue
         try:
             backend._request("DELETE", f"releases/assets/{asset_id}")
+            deleted_any = True
         except SnapshotNotFoundError:
             pass
 
-    return backend._request("GET", f"releases/{release_id}")
+    if deleted_any:
+        # api.github.com and uploads.github.com are separate services.
+        # After a DELETE on api.github.com the uploads service may still
+        # report the asset as present.  Poll until the asset disappears
+        # from the GET response so the subsequent upload does not hit a
+        # 422 "already_exists" due to cross-service eventual consistency.
+        time.sleep(_POST_DELETE_SETTLE_SECONDS)
+        for _ in range(_MAX_SETTLE_POLLS):
+            release = backend._request("GET", f"releases/{release_id}")
+            still_present = any(
+                a.get("name") == asset_name
+                for a in release.get("assets", [])
+            )
+            if not still_present:
+                break
+            time.sleep(_SETTLE_POLL_INTERVAL_SECONDS)
+        else:
+            # Best-effort: proceed anyway; the upload retry will handle it.
+            pass
+    else:
+        release = backend._request("GET", f"releases/{release_id}")
+
+    return release
 
 
 def promote_latest_pointer_idempotent(
@@ -97,7 +126,8 @@ def promote_latest_pointer_idempotent(
         pointer_path = Path(handle.name)
 
     try:
-        for attempt in range(2):
+        max_attempts = 4
+        for attempt in range(max_attempts):
             try:
                 upload_url = release.get("upload_url", "")
                 if not upload_url:
@@ -105,8 +135,14 @@ def promote_latest_pointer_idempotent(
                 backend._upload_asset(upload_url, "latest.json", pointer_path)
                 break
             except StorageBackendError as error:
-                if attempt != 0 or not _is_already_exists(error):
+                if not _is_already_exists(error):
                     raise
+                if attempt == max_attempts - 1:
+                    raise
+                wait = 2 ** attempt  # 1s, 2s, 4s
+                print(f"  ⚠️ latest.json upload got already_exists (attempt {attempt + 1}/{max_attempts}); "
+                      f"retrying in {wait}s")
+                time.sleep(wait)
                 release = backend._request("GET", f"releases/{release_id}")
                 release = _remove_named_assets(backend, release, "latest.json")
         else:
