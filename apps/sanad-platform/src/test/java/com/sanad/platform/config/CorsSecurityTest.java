@@ -54,14 +54,14 @@ class CorsSecurityTest {
         }
 
         @Test
-        @DisplayName("CORS: approved origin receives Allow-Credentials = true")
+        @DisplayName("CORS: approved origin receives Allow-Credentials = false (BFF-only architecture)")
         void cors_approvedOrigin_credentials() throws Exception {
             mockMvc.perform(options("/api/v1/organizations")
                             .header("Origin", "https://snad-app.vercel.app")
                             .header("Access-Control-Request-Method", "POST")
                             .header("Access-Control-Request-Headers", "Authorization,Content-Type"))
                     .andExpect(status().isOk())
-                    .andExpect(header().string("Access-Control-Allow-Credentials", "true"));
+                    .andExpect(header().string("Access-Control-Allow-Credentials", "false"));
         }
 
         @Test
