@@ -24,6 +24,7 @@ type Team = {
 };
 
 type TeamResponse = { data?: Team };
+type TeamDetailResponse = { data?: { team?: Team } };
 type TeamPageResponse = {
   data?: Team[];
   page?: { nextCursor?: string | null; hasMore?: boolean; limit?: number };
@@ -53,12 +54,13 @@ async function readTeam(
     headers: auth,
   });
   expect(response.status(), `Team ${teamId} read failed`).toBe(200);
-  const body = (await response.json()) as TeamResponse;
-  expect(body.data?.id).toBe(teamId);
+  const body = (await response.json()) as TeamDetailResponse;
+  const team = body.data?.team;
+  expect(team?.id).toBe(teamId);
   const tag = entityTag(response.headers());
   expect(tag, `Team ${teamId} response is missing a strong entity tag`).toBeTruthy();
   expect(tag.startsWith("W/")).toBe(false);
-  return { team: body.data as Team, tag };
+  return { team: team as Team, tag };
 }
 
 async function archiveTeam(
@@ -87,13 +89,14 @@ test("CRM-008R exact-production atomic ETag, cursor integrity and tenant isolati
   const pageA = await contextA.newPage();
   const pageB = await contextB.newPage();
   const createdTeamIds: string[] = [];
+  let authA: AuthHeaders | undefined;
 
   try {
     const loginA = await loginThroughUi(pageA, TENANT_A_EMAIL, TENANT_A_PASSWORD);
     const loginB = await loginThroughUi(pageB, TENANT_B_EMAIL, TENANT_B_PASSWORD);
     expect(loginA.user.tenantId).not.toBe(loginB.user.tenantId);
 
-    const authA: AuthHeaders = { Authorization: `Bearer ${loginA.accessToken}` };
+    authA = { Authorization: `Bearer ${loginA.accessToken}` };
     const authB: AuthHeaders = { Authorization: `Bearer ${loginB.accessToken}` };
     const runId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
 
@@ -174,12 +177,13 @@ test("CRM-008R exact-production atomic ETag, cursor integrity and tenant isolati
     const raceStatuses = [firstMutation.status(), secondMutation.status()].sort((a, b) => a - b);
     expect(raceStatuses).toEqual([200, 412]);
 
+    const missingIfMatchTeam = await readTeam(pageA.request, authA, createdTeamIds[1]);
     const missingIfMatch = await pageA.request.patch(
       `/api/platform/api/v2/crm/teams/${createdTeamIds[1]}`,
       {
         headers: authA,
         data: updatePayload(
-          (await readTeam(pageA.request, authA, createdTeamIds[1])).team,
+          missingIfMatchTeam.team,
           `CRM-008R Missing If-Match ${runId}`,
         ),
       },
@@ -192,6 +196,10 @@ test("CRM-008R exact-production atomic ETag, cursor integrity and tenant isolati
     );
     expect(isolatedTeamRead.status()).toBe(404);
 
+    for (const teamId of createdTeamIds) {
+      await archiveTeam(pageA.request, authA, teamId);
+    }
+
     writeFileSync(
       EVIDENCE_FILE,
       JSON.stringify(
@@ -202,7 +210,7 @@ test("CRM-008R exact-production atomic ETag, cursor integrity and tenant isolati
           completedAt: new Date().toISOString(),
           tenantAId: loginA.user.tenantId,
           tenantBId: loginB.user.tenantId,
-          createdTeamCount: createdTeamIds.length,
+          createdAndArchivedTeamCount: createdTeamIds.length,
           checks: {
             authenticatedTwoTenantLogin: "PASS",
             boundedFirstAndNextPage: "PASS",
@@ -213,6 +221,7 @@ test("CRM-008R exact-production atomic ETag, cursor integrity and tenant isolati
             staleEtagRejected412: "PASS",
             missingIfMatchRejected428: "PASS",
             crossTenantEntityReadRejected404: "PASS",
+            temporaryDataArchived: "PASS",
           },
         },
         null,
@@ -220,13 +229,17 @@ test("CRM-008R exact-production atomic ETag, cursor integrity and tenant isolati
       ),
       "utf8",
     );
+    createdTeamIds.length = 0;
   } finally {
-    const auth = pageA.url() ? undefined : undefined;
-    // Login may fail before an access token exists. Cleanup is performed only
-    // when the helper stored the token below through the authenticated page.
-    const storedToken = await pageA.evaluate(() => null).catch(() => null);
-    void auth;
-    void storedToken;
+    if (authA) {
+      for (const teamId of createdTeamIds) {
+        try {
+          await archiveTeam(pageA.request, authA, teamId);
+        } catch (cleanupError) {
+          console.warn(`CRM-008R best-effort cleanup failed for ${teamId}`, cleanupError);
+        }
+      }
+    }
     await contextA.close();
     await contextB.close();
   }
