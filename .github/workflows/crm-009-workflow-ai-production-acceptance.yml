@@ -1,0 +1,65 @@
+name: CRM-009 Workflow and AI Production Acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-009-workflow-ai-production-acceptance
+  cancel-in-progress: true
+
+jobs:
+  workflow-ai:
+    name: Exercise real Workflow Engine and AI Gateway through production BFF
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: Production
+    env:
+      PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
+      AUTH_SMOKE_TENANT_A_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
+      AUTH_SMOKE_TENANT_A_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+      AUTH_SMOKE_TENANT_A_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+      CRM_009_WORKFLOW_AI_EVIDENCE_PATH: ${{ runner.temp }}/crm-009-workflow-ai-production-evidence.json
+
+    steps:
+      - name: Checkout exact workflow SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify protected production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          for value in "$AUTH_SMOKE_TENANT_A_ID" "$AUTH_SMOKE_TENANT_A_EMAIL" "$AUTH_SMOKE_TENANT_A_PASSWORD"; do
+            test -n "$value" || { echo '::error::A required Production auth identity value is missing'; exit 1; }
+            echo "::add-mask::$value"
+          done
+          [[ "$PRODUCTION_WEB_BASE_URL" == https://* ]]
+
+      - name: Run real production Workflow and AI acceptance
+        run: python3 scripts/operations/crm_009_workflow_ai_production_acceptance.py
+
+      - name: Validate sanitized evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$CRM_009_WORKFLOW_AI_EVIDENCE_PATH"
+          jq -e '.result == "PASS" and .workflowProductionIntegration == true and .aiGatewayProductionIntegration == true and .humanControlBoundary == true and .directModelProviderCalls == 0 and .skippedSections == 0' "$evidence" >/dev/null
+          for value in "$AUTH_SMOKE_TENANT_A_EMAIL" "$AUTH_SMOKE_TENANT_A_PASSWORD"; do
+            if grep -Fq -- "$value" "$evidence"; then
+              echo '::error::Protected value leaked into Workflow/AI evidence'
+              exit 1
+            fi
+          done
+
+      - name: Upload immutable Workflow and AI evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: crm-009-workflow-ai-production-${{ github.run_id }}
+          path: ${{ runner.temp }}/crm-009-workflow-ai-production-evidence.json
+          if-no-files-found: error
+          retention-days: 90
