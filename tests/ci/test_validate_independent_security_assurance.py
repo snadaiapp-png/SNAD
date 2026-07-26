@@ -97,6 +97,13 @@ def complete_candidate(package: Path, approve: bool = True) -> None:
     findings["assessment_status"] = "COMPLETE"
     findings["findings"] = []
     write_json(package / "findings-register.json", findings)
+    manifest["findings_summary"] = {
+        "critical": {"open": 0, "closed": 0, "residual_accepted": 0},
+        "high": {"open": 0, "closed": 0, "residual_accepted": 0},
+        "medium": {"open": 0, "closed": 0, "residual_accepted": 0},
+        "low": {"open": 0, "closed": 0, "residual_accepted": 0},
+    }
+    manifest["residual_risks"] = []
 
     manifest["closure_state"] = "READY_FOR_APPROVAL"
     manifest["assessor"] = {
