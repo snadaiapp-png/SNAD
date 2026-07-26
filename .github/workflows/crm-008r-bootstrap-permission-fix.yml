@@ -41,33 +41,36 @@ jobs:
 
           source = Path('.github/workflows/crm-008r-final-production-closure.yml')
           output = Path('generated/crm-008r-final-production-closure.tenant-resolution-fixed.yml')
-          text = source.read_text(encoding='utf-8')
+          source_text = source.read_text(encoding='utf-8')
+          lines = source_text.splitlines()
 
           baseline_checks = {
-              'actions_write': text.count('  actions: write') == 1,
-              'actions_read_absent': '  actions: read' not in text,
-              'runtime_fail_safe': text.count('SKIPPED_UPSTREAM_FAILURE') == 1,
-              'failure_comment': text.count('CRM-008R Production FAILURE.') == 1,
-              'resolver_function': text.count('          resolve_tenant() {') == 1,
+              'actions_write': lines.count('  actions: write') == 1,
+              'actions_read_absent': '  actions: read' not in lines,
+              'runtime_fail_safe': source_text.count('SKIPPED_UPSTREAM_FAILURE') == 1,
+              'failure_comment': source_text.count('CRM-008R Production FAILURE.') == 1,
+              'resolver_function': lines.count('          resolve_tenant() {') == 1,
           }
           if not all(baseline_checks.values()):
               raise SystemExit(f'Unexpected protected workflow baseline: {baseline_checks}')
 
           unsafe = '              echo "::add-mask::$candidate"'
           safe = '              echo "::add-mask::$candidate" >&2'
-          if text.count(unsafe) != 1:
-              raise SystemExit(f'Expected exactly one stdout tenant mask command, found {text.count(unsafe)}')
-          if safe in text:
-              raise SystemExit('Tenant mask command is already redirected to stderr')
+          if lines.count(unsafe) != 1:
+              raise SystemExit(f'Expected exactly one stdout tenant mask line, found {lines.count(unsafe)}')
+          if lines.count(safe) != 0:
+              raise SystemExit(f'Tenant mask stderr line already exists: {lines.count(safe)}')
 
-          result = text.replace(unsafe, safe, 1)
+          lines[lines.index(unsafe)] = safe
+          result = '\n'.join(lines) + '\n'
+          result_lines = result.splitlines()
           post_checks = {
-              'unsafe_removed': unsafe not in result,
-              'safe_once': result.count(safe) == 1,
-              'actions_write_unchanged': result.count('  actions: write') == 1,
+              'unsafe_removed': result_lines.count(unsafe) == 0,
+              'safe_once': result_lines.count(safe) == 1,
+              'actions_write_unchanged': result_lines.count('  actions: write') == 1,
               'runtime_fail_safe_unchanged': result.count('SKIPPED_UPSTREAM_FAILURE') == 1,
               'failure_comment_unchanged': result.count('CRM-008R Production FAILURE.') == 1,
-              'resolver_output_only': result.count('            printf \'%s\' "$resolved"') == 1,
+              'resolver_output_only': result_lines.count('            printf \'%s\' "$resolved"') == 1,
           }
           if not all(post_checks.values()):
               raise SystemExit(f'Post-materialization validation failed: {post_checks}')
@@ -81,7 +84,7 @@ jobs:
           test -s "$OUTPUT"
           grep -Fx '              echo "::add-mask::$candidate" >&2' "$OUTPUT"
           if grep -Fx '              echo "::add-mask::$candidate"' "$OUTPUT"; then
-            echo '::error::Unsafe stdout masking command remains'
+            echo '::error::Unsafe stdout masking line remains'
             exit 1
           fi
           test "$(diff -U0 "$TARGET" "$OUTPUT" | grep -Ec '^[+-][^+-]')" = 2
