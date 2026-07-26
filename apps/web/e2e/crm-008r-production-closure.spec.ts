@@ -77,6 +77,36 @@ async function archiveTeam(
   expect(response.status(), `Team ${teamId} cleanup failed`).toBe(200);
 }
 
+async function archivePriorTemporaryTeams(
+  request: APIRequestContext,
+  auth: AuthHeaders,
+): Promise<number> {
+  let cursor: string | undefined;
+  let archived = 0;
+  do {
+    const query = new URLSearchParams({ pageSize: "100", status: "ACTIVE" });
+    if (cursor) query.set("cursor", cursor);
+    const response = await request.get(
+      `/api/platform/api/v2/crm/teams?${query.toString()}`,
+      { headers: auth },
+    );
+    expect(response.status(), "Prior CRM-008R cleanup listing failed").toBe(200);
+    const page = (await response.json()) as TeamPageResponse;
+    for (const team of page.data ?? []) {
+      if (team.code.startsWith("CRM008R-")) {
+        await archiveTeam(request, auth, team.id);
+        archived += 1;
+      }
+    }
+    const nextCursor = page.page?.hasMore ? page.page.nextCursor : null;
+    if (page.page?.hasMore) {
+      expect(nextCursor, "A next cursor is required while more teams remain").toBeTruthy();
+    }
+    cursor = nextCursor ?? undefined;
+  } while (cursor);
+  return archived;
+}
+
 test("CRM-008R exact-production atomic ETag, cursor integrity and tenant isolation", async ({ browser }) => {
   expect(TENANT_A_EMAIL).toBeTruthy();
   expect(TENANT_A_PASSWORD).toBeTruthy();
@@ -98,6 +128,7 @@ test("CRM-008R exact-production atomic ETag, cursor integrity and tenant isolati
 
     authA = { Authorization: `Bearer ${loginA.accessToken}` };
     const authB: AuthHeaders = { Authorization: `Bearer ${loginB.accessToken}` };
+    const priorTemporaryTeamsArchived = await archivePriorTemporaryTeams(pageA.request, authA);
     const runId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
 
     for (let index = 1; index <= 3; index += 1) {
@@ -211,6 +242,7 @@ test("CRM-008R exact-production atomic ETag, cursor integrity and tenant isolati
           tenantAId: loginA.user.tenantId,
           tenantBId: loginB.user.tenantId,
           createdAndArchivedTeamCount: createdTeamIds.length,
+          priorTemporaryTeamsArchived,
           checks: {
             authenticatedTwoTenantLogin: "PASS",
             boundedFirstAndNextPage: "PASS",
@@ -221,6 +253,7 @@ test("CRM-008R exact-production atomic ETag, cursor integrity and tenant isolati
             staleEtagRejected412: "PASS",
             missingIfMatchRejected428: "PASS",
             crossTenantEntityReadRejected404: "PASS",
+            priorTemporaryDataArchived: "PASS",
             temporaryDataArchived: "PASS",
           },
         },
