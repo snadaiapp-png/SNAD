@@ -1,0 +1,131 @@
+name: Independent Security Assurance Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/security/independent-assurance/**'
+      - 'scripts/ci/validate_independent_security_assurance.py'
+      - 'tests/ci/test_validate_independent_security_assurance.py'
+      - '.github/workflows/independent-security-assurance.yml'
+  workflow_dispatch:
+    inputs:
+      gate_mode:
+        description: 'readiness validates the package; closure requires the protected main-branch decision gate'
+        required: true
+        type: choice
+        default: readiness
+        options:
+          - readiness
+          - closure
+      release_sha:
+        description: 'Exact assessed release SHA; mandatory for closure mode'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rem-p0-006-${{ github.event_name }}-${{ github.ref }}-${{ inputs.gate_mode || 'readiness' }}
+  cancel-in-progress: false
+
+jobs:
+  readiness:
+    name: REM-P0-006 Readiness Validation
+    if: ${{ github.event_name == 'pull_request' || inputs.gate_mode == 'readiness' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test fail-closed validator
+        run: python3 -m unittest tests/ci/test_validate_independent_security_assurance.py -v
+
+      - name: Validate readiness package and assessed release reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_sha="$(python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('docs/security/independent-assurance/assessment-manifest.json').read_text())
+          print(data.get('assessed_release', {}).get('repository_sha', ''))
+          PY
+          )"
+          args=(--mode readiness)
+          if [[ -n "$release_sha" ]]; then
+            [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid assessed release SHA"; exit 1; }
+            git cat-file -e "${release_sha}^{commit}"
+            git merge-base --is-ancestor "$release_sha" HEAD
+            args+=(--expected-release-sha "$release_sha")
+          fi
+          python3 scripts/ci/validate_independent_security_assurance.py "${args[@]}"
+
+      - name: Publish readiness boundary
+        if: always()
+        run: |
+          {
+            echo '## REM-P0-006 Readiness Boundary'
+            echo ''
+            echo "- Tested repository ref: ${{ github.sha }}"
+            echo '- This job validates package structure, cross-file reconciliation and evidence integrity.'
+            echo '- It does not appoint an assessor, authorize active testing, approve residual risk or close REM-P0-006.'
+            echo '- Broad commercial go-live remains NOT_APPROVED.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  closure:
+    name: REM-P0-006 Protected Closure Validation
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.gate_mode == 'closure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: rem-p0-006-closure
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Enforce main branch and exact assessed release
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == 'refs/heads/main' ]] || { echo '::error::Closure mode is allowed only on main'; exit 1; }
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::Closure requires an exact 40-character release SHA'; exit 1; }
+          git cat-file -e "${RELEASE_SHA}^{commit}"
+          git merge-base --is-ancestor "$RELEASE_SHA" "$GITHUB_SHA"
+
+      - name: Test fail-closed validator
+        run: python3 -m unittest tests/ci/test_validate_independent_security_assurance.py -v
+
+      - name: Validate protected closure package
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: >-
+          python3 scripts/ci/validate_independent_security_assurance.py
+          --mode closure
+          --expected-release-sha "$RELEASE_SHA"
+
+      - name: Publish closure boundary
+        if: always()
+        run: |
+          {
+            echo '## REM-P0-006 Protected Closure Validation'
+            echo ''
+            echo "- Package SHA: ${{ github.sha }}"
+            echo "- Assessed release SHA: ${{ inputs.release_sha }}"
+            echo '- This job is protected by the rem-p0-006-closure GitHub Environment.'
+            echo '- A successful run proves the committed package passed the machine gate; the governed closure record must still be published.'
+            echo '- Broad commercial go-live remains governed separately by Issue #516.'
+          } >> "$GITHUB_STEP_SUMMARY"
