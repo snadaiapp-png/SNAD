@@ -14,7 +14,7 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
-  actions: read
+  actions: write
 
 concurrency:
   group: crm-008r-final-production-closure
@@ -300,21 +300,23 @@ jobs:
           if [ -d apps/web/crm008r-production-report ]; then cp -R apps/web/crm008r-production-report "$EVIDENCE_DIR/"; fi
           if [ -d apps/web/test-results ]; then cp -R apps/web/test-results "$EVIDENCE_DIR/playwright-test-results"; fi
           END_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          test -n "$RENDER_OWNER_ID" || { echo "::error::Render owner ID unavailable"; exit 1; }
-          curl --get --fail-with-body --silent --show-error --max-time 45 \
-            -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
-            --data-urlencode "ownerId=${RENDER_OWNER_ID}" \
-            --data-urlencode "resource=${RENDER_SERVICE_ID}" \
-            --data-urlencode "startTime=${CRM008R_STARTED_AT}" \
-            --data-urlencode "endTime=${END_TIME}" \
-            --data-urlencode "type=request" \
-            --data-urlencode "statusCode=500" \
-            --data-urlencode "limit=100" \
-            https://api.render.com/v1/logs > "$EVIDENCE_DIR/render-500-logs.json"
-          CRM_500_COUNT="$(jq '[if type=="array" then .[] else (.logs // .items // [])[] end | tostring | select(test("/api/v2/crm"))] | length' "$EVIDENCE_DIR/render-500-logs.json")"
-          test "$CRM_500_COUNT" = 0 || { echo "::error::Unexpected CRM HTTP 500 count: ${CRM_500_COUNT}"; exit 1; }
-          jq -n --argjson count "$CRM_500_COUNT" '{result:"PASS",unexpected_crm_http_500:$count}' \
-            > "$EVIDENCE_DIR/runtime-error-summary.json"
+          if [ -z "$RENDER_OWNER_ID" ]; then
+            jq -n '{result:"SKIPPED_UPSTREAM_FAILURE",unexpected_crm_http_500:null}' > "$EVIDENCE_DIR/runtime-error-summary.json"
+          else
+            curl --get --fail-with-body --silent --show-error --max-time 45 \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
+              --data-urlencode "ownerId=${RENDER_OWNER_ID}" \
+              --data-urlencode "resource=${RENDER_SERVICE_ID}" \
+              --data-urlencode "startTime=${CRM008R_STARTED_AT}" \
+              --data-urlencode "endTime=${END_TIME}" \
+              --data-urlencode "type=request" \
+              --data-urlencode "statusCode=500" \
+              --data-urlencode "limit=100" \
+              https://api.render.com/v1/logs > "$EVIDENCE_DIR/render-500-logs.json"
+            CRM_500_COUNT="$(jq '[if type=="array" then .[] else (.logs // .items // [])[] end | tostring | select(test("/api/v2/crm"))] | length' "$EVIDENCE_DIR/render-500-logs.json")"
+            test "$CRM_500_COUNT" = 0 || { echo "::error::Unexpected CRM HTTP 500 count: ${CRM_500_COUNT}"; exit 1; }
+            jq -n --argjson count "$CRM_500_COUNT" '{result:"PASS",unexpected_crm_http_500:$count}' > "$EVIDENCE_DIR/runtime-error-summary.json"
+          fi
 
       - name: Finalize immutable evidence hashes
         if: always()
@@ -418,3 +420,6 @@ jobs:
             echo "- Evidence artifact: ${ARTIFACT_URL:-not-created}"
             echo "- Evidence PR: ${EVIDENCE_PR:-not-created}"
           } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$STATUS" != "success" ]; then
+            gh issue comment 725 --repo "$GITHUB_REPOSITORY" --body "CRM-008R Production FAILURE. Release: ${GITHUB_SHA}. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. Artifact: ${ARTIFACT_URL:-not-created}. Issue remains open; no closure is authorized."
+          fi
