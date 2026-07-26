@@ -1,0 +1,56 @@
+name: REM-P0-006 Run Introspection
+
+on:
+  push:
+    branches:
+      - rem-p0-006-run-introspection
+    paths:
+      - 'docs/security/independent-assurance/RUN-INTROSPECTION-TRIGGER.md'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  publish:
+    name: Publish immutable root assessment identity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve successful root assessment run and artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          runs_json="$(gh run list \
+            --workflow rem-p0-006-root-closure-assessment.yml \
+            --branch rem-p0-006-assessment-execution-v2 \
+            --limit 30 \
+            --json databaseId,status,conclusion,headSha,url,createdAt,updatedAt,event)"
+          run_json="$(jq -c '[.[] | select(.conclusion == "success" and .headSha == "c14f8883a2e03449ecbf7fd31776f0b00dc01954")] | first' <<< "$runs_json")"
+          test -n "$run_json" && test "$run_json" != null
+          run_id="$(jq -r '.databaseId' <<< "$run_json")"
+          artifact_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100")"
+          artifact_record="$(jq -c '[.artifacts[] | select(.name | startswith("rem-p0-006-root-assessment-"))] | first' <<< "$artifact_json")"
+          test -n "$artifact_record" && test "$artifact_record" != null
+          artifact_id="$(jq -r '.id' <<< "$artifact_record")"
+          artifact_name="$(jq -r '.name' <<< "$artifact_record")"
+          artifact_digest="$(jq -r '.digest' <<< "$artifact_record")"
+          artifact_expires="$(jq -r '.expires_at' <<< "$artifact_record")"
+
+          gh issue comment 516 --body "## REM-P0-006 root assessment immutable identity
+
+          - Run ID: \`${run_id}\`
+          - Status: \`$(jq -r '.status' <<< "$run_json")\`
+          - Conclusion: \`$(jq -r '.conclusion' <<< "$run_json")\`
+          - Controller HEAD: \`$(jq -r '.headSha' <<< "$run_json")\`
+          - Run URL: $(jq -r '.url' <<< "$run_json")
+          - Artifact ID: \`${artifact_id}\`
+          - Artifact name: \`${artifact_name}\`
+          - Artifact digest: \`${artifact_digest}\`
+          - Artifact expires: \`${artifact_expires}\`
+          - Assessed Production SHA: \`f34f2dd71743e6361a49e86643944c089622bd4c\`
+
+          This is a read-only GitHub Actions inventory result. It does not change the assessment or approve closure."
