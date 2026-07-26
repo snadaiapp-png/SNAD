@@ -16,7 +16,7 @@ jobs:
   contract-validation:
     name: Validate NVD snapshot maintenance contract
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout exact SHA
         uses: actions/checkout@v4
@@ -50,24 +50,49 @@ jobs:
           python scripts/security/publish_nvd_snapshot.py --help >/dev/null
           python scripts/security/verify_nvd_snapshot.py --help >/dev/null
 
-      - name: Run NVD snapshot contract tests
+      - name: Discover NVD snapshot contract tests
+        id: discover
         run: |
           set -euo pipefail
-          mapfile -t tests < <(find scripts/security -type f -name 'test_*nvd*.py' -o -name 'test_*snapshot*.py' | sort)
+          mapfile -t tests < <(
+            find tests/security scripts/security \
+              -type f \
+              \( -name 'test_*nvd*.py' -o -name 'test_*snapshot*.py' \) \
+              -print | sort -u
+          )
           if [ "${#tests[@]}" -eq 0 ]; then
             echo 'No NVD snapshot contract tests were found.' >&2
             exit 1
           fi
-          pytest -q "${tests[@]}"
+          printf '%s\n' "${tests[@]}" | tee nvd-contract-tests.txt
+          {
+            echo 'tests<<EOF'
+            printf '%s\n' "${tests[@]}"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run NVD snapshot contract tests
+        run: |
+          set -euo pipefail
+          mapfile -t tests <<< "${{ steps.discover.outputs.tests }}"
+          pytest -q --maxfail=1 --junitxml=nvd-contract-results.xml "${tests[@]}"
 
       - name: Validate Dependency-Check integration
         working-directory: apps/sanad-platform
         run: |
           set -euo pipefail
-          mvn --batch-mode --no-transfer-progress \
-            -DskipTests \
-            -DskipDependencyCheck=true \
-            validate
+          mvn --batch-mode --no-transfer-progress -DskipTests -DskipDependencyCheck=true validate
+
+      - name: Upload NVD contract evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nvd-database-maintenance-${{ github.run_id }}
+          path: |
+            nvd-contract-tests.txt
+            nvd-contract-results.xml
+          if-no-files-found: warn
+          retention-days: 90
 
       - name: Publish maintenance summary
         if: always()
@@ -76,6 +101,6 @@ jobs:
             echo '## NVD Database Maintenance'
             echo ''
             echo "- Exact SHA: \`${{ github.sha }}\`"
-            echo '- Snapshot archive, manifest, checksum, safe-extraction, freshness, and publisher contracts were validated.'
-            echo '- This workflow validates the maintenance mechanism; immutable snapshot publication remains fail-closed in the dedicated publisher scripts and storage backend.'
+            echo "- Job result: \`${{ job.status }}\`"
+            echo '- Snapshot contracts are accepted only when this job succeeds.'
           } >> "$GITHUB_STEP_SUMMARY"
