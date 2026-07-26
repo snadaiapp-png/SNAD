@@ -7,7 +7,6 @@ import com.sanad.platform.crm.task.domain.TaskRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,8 +20,8 @@ import java.util.UUID;
  * atomic artifact idempotency.
  *
  * <p>Creates a managerial review task linked to the source opportunity.
- * Uses {@code crm_integration_command_artifacts} to enforce exactly-once
- * creation — a replay returns the original review task, not a duplicate.</p>
+ * Reservation, task creation, and artifact linking share one transaction;
+ * failures propagate so partial writes cannot commit.</p>
  */
 @Component
 @Profile({"!test", "!local", "!crm-acceptance"})
@@ -33,14 +32,11 @@ public class RequestOpportunityReviewCommandAdapter implements ConfirmedRecommen
     private static final String ARTIFACT_TYPE = "REVIEW_TASK";
 
     private final TaskUseCases taskUseCases;
-    private final JdbcTemplate jdbc;
     private final CrmIntegrationStore store;
 
     public RequestOpportunityReviewCommandAdapter(TaskUseCases taskUseCases,
-                                                     JdbcTemplate jdbc,
                                                      CrmIntegrationStore store) {
         this.taskUseCases = taskUseCases;
-        this.jdbc = jdbc;
         this.store = store;
     }
 
@@ -54,53 +50,44 @@ public class RequestOpportunityReviewCommandAdapter implements ConfirmedRecommen
             return new CommandExecutionResult(false, null, null,
                     IntegrationErrorCode.INVALID_CONTRACT.name());
         }
-        try {
-            UUID tenantId = recommendation.tenantId();
-            UUID decisionId = recommendation.decisionId();
 
-            // Step 1: Atomic reservation
-            CrmIntegrationStore.ArtifactReservation reservation = store.reserveOrGetArtifact(
-                    tenantId, decisionId, ACTION_CODE, ARTIFACT_TYPE);
+        UUID tenantId = recommendation.tenantId();
+        UUID decisionId = recommendation.decisionId();
 
-            if (!reservation.created() && reservation.artifact().artifactId() != null) {
-                UUID originalTaskId = reservation.artifact().artifactId();
-                log.info("Idempotent replay: returning existing review task {} for decision {}",
-                        originalTaskId, decisionId);
-                return new CommandExecutionResult(
-                        true, ACTION_CODE, "review-task:" + originalTaskId, null);
-            }
+        CrmIntegrationStore.ArtifactReservation reservation = store.reserveOrGetArtifact(
+                tenantId, decisionId, ACTION_CODE, ARTIFACT_TYPE);
 
-            // Step 2: Create the review task
-            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-            TaskRepository.CreateTaskCommand cmd = new TaskRepository.CreateTaskCommand(
-                    "Opportunity review request — " + decisionId,
-                    "Auto-created by confirmed AI recommendation "
-                            + recommendation.integrationRequestId()
-                            + " for opportunity " + recommendation.sourceEntityId()
-                            + " (decision=" + decisionId + "). "
-                            + "A manager must review this opportunity and decide whether "
-                            + "to advance, hold, or reject it.",
-                    "OPPORTUNITY",
-                    recommendation.sourceEntityId(),
-                    null,
-                    recommendation.actorId(),
-                    60,
-                    now,
-                    now.plusDays(3));
-            TaskRepository.TaskRecord created = taskUseCases.create(
-                    tenantId, recommendation.actorId(), cmd);
-
-            // Step 3: Persist the artifact_id
-            store.persistArtifactId(tenantId, decisionId, ACTION_CODE, created.id());
-
+        if (!reservation.created() && reservation.artifact().artifactId() != null) {
+            UUID originalTaskId = reservation.artifact().artifactId();
+            log.info("Idempotent replay: returning existing review task {} for decision {}",
+                    originalTaskId, decisionId);
             return new CommandExecutionResult(
-                    true, ACTION_CODE, "review-task:" + created.id(), null);
-        } catch (Exception e) {
-            log.error("REQUEST_OPPORTUNITY_REVIEW failed for decision {}", recommendation.decisionId(), e);
-            return new CommandExecutionResult(
-                    false, ACTION_CODE, null,
-                    IntegrationErrorCode.UNKNOWN_ERROR.name());
+                    true, ACTION_CODE, "review-task:" + originalTaskId, null);
         }
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        TaskRepository.CreateTaskCommand cmd = new TaskRepository.CreateTaskCommand(
+                "Opportunity review request — " + decisionId,
+                "Auto-created by confirmed AI recommendation "
+                        + recommendation.integrationRequestId()
+                        + " for opportunity " + recommendation.sourceEntityId()
+                        + " (decision=" + decisionId + "). "
+                        + "A manager must review this opportunity and decide whether "
+                        + "to advance, hold, or reject it.",
+                "OPPORTUNITY",
+                recommendation.sourceEntityId(),
+                null,
+                recommendation.actorId(),
+                60,
+                now,
+                now.plusDays(3));
+        TaskRepository.TaskRecord created = taskUseCases.create(
+                tenantId, recommendation.actorId(), cmd);
+
+        store.persistArtifactId(tenantId, decisionId, ACTION_CODE, created.id());
+
+        return new CommandExecutionResult(
+                true, ACTION_CODE, "review-task:" + created.id(), null);
     }
 
     @Override
