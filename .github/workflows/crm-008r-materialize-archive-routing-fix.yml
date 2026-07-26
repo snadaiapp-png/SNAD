@@ -41,97 +41,104 @@ jobs:
 
           controller = Path('apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmOwnershipResourceController.java')
           acceptance = Path('apps/web/e2e/crm-008r-production-closure.spec.ts')
-          controller_text = controller.read_text(encoding='utf-8')
-          acceptance_text = acceptance.read_text(encoding='utf-8')
+          controller_lines = controller.read_text(encoding='utf-8').splitlines()
+          acceptance_lines = acceptance.read_text(encoding='utf-8').splitlines()
 
-          old_controller = '''        SalesTeam updated = teams.updateTeam(
-                  context.tenantId(), context.userId(), teamId,
-                  new SalesTeamUseCases.UpdateTeamCommand(
-                          body.displayName(), body.description(), body.status(),
-                          body.managerUserId(), body.defaultQueueId(), body.defaultTerritoryId()));'''
-          new_controller = '''        SalesTeam updated;
-          if (body.status() == TeamStatus.ARCHIVED) {
-              updated = teams.archiveTeam(context.tenantId(), context.userId(), teamId);
-          } else {
-              updated = teams.updateTeam(
-                      context.tenantId(), context.userId(), teamId,
-                      new SalesTeamUseCases.UpdateTeamCommand(
-                              body.displayName(), body.description(), body.status(),
-                              body.managerUserId(), body.defaultQueueId(), body.defaultTerritoryId()));
-          }'''
-          if controller_text.count(old_controller) != 1:
-              raise SystemExit(f'Expected one controller update block, found {controller_text.count(old_controller)}')
-          if new_controller in controller_text:
+          def locate_once(lines, needle, label):
+              starts = [
+                  index
+                  for index in range(0, len(lines) - len(needle) + 1)
+                  if lines[index:index + len(needle)] == needle
+              ]
+              if len(starts) != 1:
+                  raise SystemExit(f'Expected exactly one {label}, found {len(starts)}')
+              return starts[0]
+
+          old_controller = [
+              '        SalesTeam updated = teams.updateTeam(',
+              '                context.tenantId(), context.userId(), teamId,',
+              '                new SalesTeamUseCases.UpdateTeamCommand(',
+              '                        body.displayName(), body.description(), body.status(),',
+              '                        body.managerUserId(), body.defaultQueueId(), body.defaultTerritoryId()));',
+          ]
+          new_controller = [
+              '        SalesTeam updated;',
+              '        if (body.status() == TeamStatus.ARCHIVED) {',
+              '            updated = teams.archiveTeam(context.tenantId(), context.userId(), teamId);',
+              '        } else {',
+              '            updated = teams.updateTeam(',
+              '                    context.tenantId(), context.userId(), teamId,',
+              '                    new SalesTeamUseCases.UpdateTeamCommand(',
+              '                            body.displayName(), body.description(), body.status(),',
+              '                            body.managerUserId(), body.defaultQueueId(), body.defaultTerritoryId()));',
+              '        }',
+          ]
+          controller_start = locate_once(controller_lines, old_controller, 'controller update block')
+          if any(line == new_controller[2] for line in controller_lines):
               raise SystemExit('Controller archive routing already exists')
-          controller_result = controller_text.replace(old_controller, new_controller, 1)
+          controller_lines[controller_start:controller_start + len(old_controller)] = new_controller
 
-          insert_marker = '''}
+          test_line = 'test("CRM-008R exact-production atomic ETag, cursor integrity and tenant isolation", async ({ browser }) => {'
+          if acceptance_lines.count(test_line) != 1:
+              raise SystemExit(f'Expected exactly one Production test declaration, found {acceptance_lines.count(test_line)}')
+          test_index = acceptance_lines.index(test_line)
+          cleanup_lines = [
+              'async function archivePriorTemporaryTeams(',
+              '  request: APIRequestContext,',
+              '  auth: AuthHeaders,',
+              '): Promise<number> {',
+              '  let cursor: string | undefined;',
+              '  let archived = 0;',
+              '  do {',
+              '    const query = new URLSearchParams({ pageSize: "100", status: "ACTIVE" });',
+              '    if (cursor) query.set("cursor", cursor);',
+              '    const response = await request.get(',
+              '      `/api/platform/api/v2/crm/teams?${query.toString()}`,',
+              '      { headers: auth },',
+              '    );',
+              '    expect(response.status(), "Prior CRM-008R cleanup listing failed").toBe(200);',
+              '    const page = (await response.json()) as TeamPageResponse;',
+              '    for (const team of page.data ?? []) {',
+              '      if (team.code.startsWith("CRM008R-")) {',
+              '        await archiveTeam(request, auth, team.id);',
+              '        archived += 1;',
+              '      }',
+              '    }',
+              '    const nextCursor = page.page?.hasMore ? page.page.nextCursor : null;',
+              '    if (page.page?.hasMore) {',
+              '      expect(nextCursor, "A next cursor is required while more teams remain").toBeTruthy();',
+              '    }',
+              '    cursor = nextCursor ?? undefined;',
+              '  } while (cursor);',
+              '  return archived;',
+              '}',
+              '',
+          ]
+          if 'async function archivePriorTemporaryTeams(' in acceptance_lines:
+              raise SystemExit('Prior temporary-team cleanup function already exists')
+          acceptance_lines[test_index:test_index] = cleanup_lines
 
-          test("CRM-008R exact-production atomic ETag, cursor integrity and tenant isolation", async ({ browser }) => {'''
-          cleanup_function = '''}
+          auth_line = '    const authB: AuthHeaders = { Authorization: `Bearer ${loginB.accessToken}` };'
+          if acceptance_lines.count(auth_line) != 1:
+              raise SystemExit(f'Expected exactly one authB declaration, found {acceptance_lines.count(auth_line)}')
+          auth_index = acceptance_lines.index(auth_line)
+          cleanup_call = '    const priorTemporaryTeamsArchived = await archivePriorTemporaryTeams(pageA.request, authA);'
+          acceptance_lines.insert(auth_index + 1, cleanup_call)
 
-          async function archivePriorTemporaryTeams(
-            request: APIRequestContext,
-            auth: AuthHeaders,
-          ): Promise<number> {
-            let cursor: string | undefined;
-            let archived = 0;
-            do {
-              const query = new URLSearchParams({ pageSize: "100", status: "ACTIVE" });
-              if (cursor) query.set("cursor", cursor);
-              const response = await request.get(
-                `/api/platform/api/v2/crm/teams?${query.toString()}`,
-                { headers: auth },
-              );
-              expect(response.status(), "Prior CRM-008R cleanup listing failed").toBe(200);
-              const page = (await response.json()) as TeamPageResponse;
-              for (const team of page.data ?? []) {
-                if (team.code.startsWith("CRM008R-")) {
-                  await archiveTeam(request, auth, team.id);
-                  archived += 1;
-                }
-              }
-              const nextCursor = page.page?.hasMore ? page.page.nextCursor : null;
-              if (page.page?.hasMore) {
-                expect(nextCursor, "A next cursor is required while more teams remain").toBeTruthy();
-              }
-              cursor = nextCursor ?? undefined;
-            } while (cursor);
-            return archived;
-          }
+          evidence_line = '          createdAndArchivedTeamCount: createdTeamIds.length,'
+          if acceptance_lines.count(evidence_line) != 1:
+              raise SystemExit(f'Expected exactly one created-team evidence line, found {acceptance_lines.count(evidence_line)}')
+          evidence_index = acceptance_lines.index(evidence_line)
+          acceptance_lines.insert(evidence_index + 1, '          priorTemporaryTeamsArchived,')
 
-          test("CRM-008R exact-production atomic ETag, cursor integrity and tenant isolation", async ({ browser }) => {'''
-          if acceptance_text.count(insert_marker) != 1:
-              raise SystemExit(f'Expected one acceptance insertion marker, found {acceptance_text.count(insert_marker)}')
-          acceptance_result = acceptance_text.replace(insert_marker, cleanup_function, 1)
+          cleanup_check = '            temporaryDataArchived: "PASS",'
+          if acceptance_lines.count(cleanup_check) != 1:
+              raise SystemExit(f'Expected exactly one cleanup assertion, found {acceptance_lines.count(cleanup_check)}')
+          check_index = acceptance_lines.index(cleanup_check)
+          acceptance_lines.insert(check_index, '            priorTemporaryDataArchived: "PASS",')
 
-          auth_marker = '''    authA = { Authorization: `Bearer ${loginA.accessToken}` };
-              const authB: AuthHeaders = { Authorization: `Bearer ${loginB.accessToken}` };
-              const runId = `${Date.now()}-${randomUUID().slice(0, 8)}`;'''
-          auth_replacement = '''    authA = { Authorization: `Bearer ${loginA.accessToken}` };
-              const authB: AuthHeaders = { Authorization: `Bearer ${loginB.accessToken}` };
-              const priorTemporaryTeamsArchived = await archivePriorTemporaryTeams(pageA.request, authA);
-              const runId = `${Date.now()}-${randomUUID().slice(0, 8)}`;'''
-          if acceptance_result.count(auth_marker) != 1:
-              raise SystemExit(f'Expected one authentication marker, found {acceptance_result.count(auth_marker)}')
-          acceptance_result = acceptance_result.replace(auth_marker, auth_replacement, 1)
-
-          evidence_marker = '''          createdAndArchivedTeamCount: createdTeamIds.length,
-                    checks: {'''
-          evidence_replacement = '''          createdAndArchivedTeamCount: createdTeamIds.length,
-                    priorTemporaryTeamsArchived,
-                    checks: {'''
-          if acceptance_result.count(evidence_marker) != 1:
-              raise SystemExit(f'Expected one evidence marker, found {acceptance_result.count(evidence_marker)}')
-          acceptance_result = acceptance_result.replace(evidence_marker, evidence_replacement, 1)
-
-          check_marker = '''            temporaryDataArchived: "PASS",'''
-          check_replacement = '''            priorTemporaryDataArchived: "PASS",
-                      temporaryDataArchived: "PASS",'''
-          if acceptance_result.count(check_marker) != 1:
-              raise SystemExit(f'Expected one cleanup check marker, found {acceptance_result.count(check_marker)}')
-          acceptance_result = acceptance_result.replace(check_marker, check_replacement, 1)
-
+          controller_result = '\n'.join(controller_lines) + '\n'
+          acceptance_result = '\n'.join(acceptance_lines) + '\n'
           validations = {
               'controller_archives_via_use_case': controller_result.count('updated = teams.archiveTeam(context.tenantId(), context.userId(), teamId);') == 1,
               'controller_keeps_normal_update': controller_result.count('updated = teams.updateTeam(') == 1,
@@ -139,6 +146,7 @@ jobs:
               'cleanup_prefix_once': acceptance_result.count('team.code.startsWith("CRM008R-")') == 1,
               'cleanup_call_once': acceptance_result.count('await archivePriorTemporaryTeams(pageA.request, authA)') == 1,
               'cleanup_evidence_once': acceptance_result.count('priorTemporaryTeamsArchived,') == 1,
+              'prior_cleanup_check_once': acceptance_result.count('priorTemporaryDataArchived: "PASS"') == 1,
           }
           if not all(validations.values()):
               raise SystemExit(f'Post-materialization validation failed: {validations}')
@@ -154,6 +162,7 @@ jobs:
           grep -F 'async function archivePriorTemporaryTeams(' "$ACCEPTANCE"
           grep -F 'team.code.startsWith("CRM008R-")' "$ACCEPTANCE"
           grep -F 'priorTemporaryTeamsArchived,' "$ACCEPTANCE"
+          grep -F 'priorTemporaryDataArchived: "PASS"' "$ACCEPTANCE"
 
       - name: Publish corrective implementation branch
         id: publish
