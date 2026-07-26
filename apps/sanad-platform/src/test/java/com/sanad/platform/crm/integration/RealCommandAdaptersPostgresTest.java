@@ -87,9 +87,9 @@ class RealCommandAdaptersPostgresTest {
         JdbcTaskRepository taskRepo = new JdbcTaskRepository(namedJdbc);
         TaskUseCases taskUseCases = new TaskUseCases(taskRepo);
 
-        followUpAdapter = new CreateFollowUpActivityCommandAdapter(activityUseCases, jdbc, store);
-        scheduleContactAdapter = new ScheduleContactCommandAdapter(activityUseCases, jdbc, store);
-        reviewAdapter = new RequestOpportunityReviewCommandAdapter(taskUseCases, jdbc, store);
+        followUpAdapter = new CreateFollowUpActivityCommandAdapter(activityUseCases, store);
+        scheduleContactAdapter = new ScheduleContactCommandAdapter(activityUseCases, store);
+        reviewAdapter = new RequestOpportunityReviewCommandAdapter(taskUseCases, store);
     }
 
     @BeforeEach
