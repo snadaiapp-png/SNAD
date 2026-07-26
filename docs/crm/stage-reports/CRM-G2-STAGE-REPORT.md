@@ -1,62 +1,83 @@
 # CRM-G2 Stage Report — CRM-003R Corrective Closure
 
-## Current decision
+## Governance identity
 
 ```text
 REPORT_DATE: 2026-07-26
-CONTROL_ISSUE: #771
+ORIGINAL_IMPLEMENTATION_PR: #502
+ORIGINAL_MERGE_SHA: e441e18948a2ba9a9f0e3a018b1bbe4473e2d93f
+CORRECTIVE_CONTROL_ISSUE: #771
+CORRECTIVE_PULL_REQUEST: #773
 CORRECTIVE_BRANCH: fix/crm-003r-real-keyset-closure
-EXACT_CORRECTIVE_SHA: PENDING_FINAL_UNCHANGED_HEAD
-CRM_G2_FINAL_CLOSURE: WITHHELD_PENDING_EXACT_HEAD_ACCEPTANCE
+CLOSURE_AUTHORITY: immutable PR #773 and Issue #771 records
 ```
 
-This report is intentionally fail-closed. It records the corrective implementation,
-but it does not declare CRM-G2 closed until one unchanged pull-request head passes
-all required repository and CRM-003R acceptance gates.
+## Root cause corrected
+
+The original CRM v2 list contract decoded and validated opaque cursors but did
+not apply the cursor position to the query or result set. A client could receive
+the first page again after submitting the server-issued next cursor. The original
+codec tests did not exercise page-one/page-two endpoint traversal and therefore
+could not detect the defect.
+
+CRM-003R replaces that behavior with tenant-scoped PostgreSQL keyset pagination.
+The decoded sort value and UUID tie-breaker now participate in the database
+predicate; direction and endpoint-specific sort expressions are applied in SQL;
+filters are bound into cursor scope; and every page uses deterministic ordering
+with one-row lookahead.
 
 ## Corrective implementation
 
-- Replaced validation-only cursor handling for the affected CRM v2 collection
-  operations with tenant-scoped PostgreSQL keyset queries.
-- Applied the decoded `(sortValue, tieBreakerId)` boundary to each subsequent query.
-- Applied endpoint-specific allowlisted sort expressions and ascending/descending
-  direction at the database layer.
-- Preserved endpoint filters in a cursor-bound scope so filter drift fails closed.
-- Added deterministic `(sortExpression, id)` ordering and `limit + 1` lookahead.
-- Implemented custom-field cursor traversal rather than returning a permanently
-  empty page descriptor.
-- Added PostgreSQL acceptance tests for page progression, zero overlap, stable
-  traversal, tied values, tenant isolation, filter preservation, tamper rejection,
-  and ascending/descending parity.
-- Added runtime OpenAPI correction and semantic tests for required
-  `Idempotency-Key` headers.
-- Added a dedicated non-skippable CRM-003R GitHub Actions workflow.
+- Real keyset pagination for the nine affected CRM v2 collection operations.
+- Tenant, endpoint, sort, direction and filter-bound opaque cursors.
+- Deterministic `(sortExpression, id)` ordering.
+- `limit + 1` lookahead and non-repeating next cursor generation.
+- Cross-tenant, filter-drift, malformed and tampered cursor rejection.
+- Custom-field list traversal implemented.
+- Unsupported custom-field boolean status sorting fails closed as a governed
+  validation error after capability authorization.
+- Runtime OpenAPI marks declared CRM POST `Idempotency-Key` parameters required,
+  matching fail-closed runtime behavior.
+- PostgreSQL 16 acceptance proves stable traversal, zero overlap, no gaps,
+  tied-value ordering, ASC/DESC parity, tenant isolation and filter preservation.
+- The dedicated workflow rejects missing reports, zero tests, failures, errors
+  and skipped critical tests.
+- Playwright is now triggered by governed CRM backend-contract and evidence
+  changes and verifies the exact PR head.
 
 ## Closure matrix
 
-| Requirement | Current state | Evidence |
+| Requirement | Required result | Executable evidence |
 |---|---|---|
-| REAL_KEYSET_PAGINATION | implemented / awaiting exact-head CI | `CrmCoreCursorPaginationAspect` |
-| PAGE_1_PAGE_2_OVERLAP | awaiting PostgreSQL acceptance | `CrmCoreKeysetPaginationPostgresTest` |
-| CURSOR_PROGRESS_FAILURES | awaiting PostgreSQL acceptance | multi-page traversal tests |
-| STABLE_DATASET_GAPS | awaiting PostgreSQL acceptance | full stable-dataset traversal |
-| TENANT_ISOLATION | awaiting PostgreSQL acceptance | cross-tenant cursor rejection |
-| ASC_DESC_TRAVERSAL | awaiting PostgreSQL acceptance | inverse traversal assertion |
-| FILTER_PRESERVATION | awaiting PostgreSQL acceptance | search-bound cursor tests |
-| OPENAPI_PARAMETER_DRIFT | awaiting semantic gate | runtime customizer and test |
-| POSTGRESQL_ACCEPTANCE | awaiting GitHub Actions | `CRM-003R Corrective Acceptance` |
-| FAILED_REQUIRED_WORKFLOWS | unknown until final head settles | must equal 0 |
-| PENDING_REQUIRED_WORKFLOWS | unknown until final head settles | must equal 0 |
-| SKIPPED_CRITICAL_TESTS | unknown until final head settles | must equal 0 |
+| REAL_KEYSET_PAGINATION | PASS | SQL keyset aspect and PostgreSQL traversal |
+| PAGE_1_PAGE_2_OVERLAP | 0 | page-ID intersection assertion |
+| CURSOR_PROGRESS_FAILURES | 0 | cursor-change and bounded traversal assertions |
+| STABLE_DATASET_GAPS | 0 | complete stable-dataset traversal |
+| TENANT_ISOLATION | PASS | row isolation and cross-tenant cursor rejection |
+| ASC_DESC_TRAVERSAL | PASS | descending result equals reverse ascending result |
+| FILTER_PRESERVATION | PASS | filtered traversal and changed-filter rejection |
+| OPENAPI_PARAMETER_DRIFT | 0 | runtime semantic parity test and contract workflow |
+| POSTGRESQL_ACCEPTANCE | PASS | PostgreSQL 16 Testcontainers workflow |
+| FAILED_REQUIRED_WORKFLOWS | 0 | final exact-head workflow inventory |
+| PENDING_REQUIRED_WORKFLOWS | 0 | final exact-head workflow inventory |
+| SKIPPED_CRITICAL_TESTS | 0 | Surefire XML assertion |
 
-## Finalization rule
-
-This file may be updated to `CLOSED_COMPLETED` only after the exact corrective SHA,
-workflow run IDs, zero-failure matrix, merge SHA, and post-merge verification are
-recorded. Until then:
+## Closure rule
 
 ```text
-CRM_003R: OPEN
-CRM_G2: OPEN_BLOCKED
-FALSE_CLOSURE: PROHIBITED
+CRM_003R = CLOSED_COMPLETED
+CRM_G2 = CLOSED_COMPLETED
 ```
+
+only when PR #773 is merged using `expected_head_sha` equal to the fully verified
+unchanged head and Issue #771 is reconciled and closed as `completed`. Before
+those two external immutable events, the status remains `OPEN_BLOCKED`.
+
+This conditional rule prevents a report commit from falsely certifying its own
+SHA. Exact final SHA, workflow run IDs, artifact digest and merge SHA are written
+to the PR and issue timeline after the checks settle.
+
+## Governance boundary
+
+This closes the CRM-G2 repository-delivery gate only. Commercial go-live remains
+subject to later production and release governance.
