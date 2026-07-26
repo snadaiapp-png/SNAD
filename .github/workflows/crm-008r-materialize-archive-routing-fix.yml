@@ -1,0 +1,184 @@
+name: CRM-008R Materialize Archive Routing Fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm-008r-materialize-archive-routing-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: crm-008r-materialize-archive-routing-fix
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    name: Materialize audited archive routing and cleanup fix
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CONTROLLER: apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmOwnershipResourceController.java
+      ACCEPTANCE: apps/web/e2e/crm-008r-production-closure.spec.ts
+    steps:
+      - name: Checkout exact main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Apply exact governed replacements
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          controller = Path('apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmOwnershipResourceController.java')
+          acceptance = Path('apps/web/e2e/crm-008r-production-closure.spec.ts')
+          controller_text = controller.read_text(encoding='utf-8')
+          acceptance_text = acceptance.read_text(encoding='utf-8')
+
+          old_controller = '''        SalesTeam updated = teams.updateTeam(
+                  context.tenantId(), context.userId(), teamId,
+                  new SalesTeamUseCases.UpdateTeamCommand(
+                          body.displayName(), body.description(), body.status(),
+                          body.managerUserId(), body.defaultQueueId(), body.defaultTerritoryId()));'''
+          new_controller = '''        SalesTeam updated;
+          if (body.status() == TeamStatus.ARCHIVED) {
+              updated = teams.archiveTeam(context.tenantId(), context.userId(), teamId);
+          } else {
+              updated = teams.updateTeam(
+                      context.tenantId(), context.userId(), teamId,
+                      new SalesTeamUseCases.UpdateTeamCommand(
+                              body.displayName(), body.description(), body.status(),
+                              body.managerUserId(), body.defaultQueueId(), body.defaultTerritoryId()));
+          }'''
+          if controller_text.count(old_controller) != 1:
+              raise SystemExit(f'Expected one controller update block, found {controller_text.count(old_controller)}')
+          if new_controller in controller_text:
+              raise SystemExit('Controller archive routing already exists')
+          controller_result = controller_text.replace(old_controller, new_controller, 1)
+
+          insert_marker = '''}
+
+          test("CRM-008R exact-production atomic ETag, cursor integrity and tenant isolation", async ({ browser }) => {'''
+          cleanup_function = '''}
+
+          async function archivePriorTemporaryTeams(
+            request: APIRequestContext,
+            auth: AuthHeaders,
+          ): Promise<number> {
+            let cursor: string | undefined;
+            let archived = 0;
+            do {
+              const query = new URLSearchParams({ pageSize: "100", status: "ACTIVE" });
+              if (cursor) query.set("cursor", cursor);
+              const response = await request.get(
+                `/api/platform/api/v2/crm/teams?${query.toString()}`,
+                { headers: auth },
+              );
+              expect(response.status(), "Prior CRM-008R cleanup listing failed").toBe(200);
+              const page = (await response.json()) as TeamPageResponse;
+              for (const team of page.data ?? []) {
+                if (team.code.startsWith("CRM008R-")) {
+                  await archiveTeam(request, auth, team.id);
+                  archived += 1;
+                }
+              }
+              const nextCursor = page.page?.hasMore ? page.page.nextCursor : null;
+              if (page.page?.hasMore) {
+                expect(nextCursor, "A next cursor is required while more teams remain").toBeTruthy();
+              }
+              cursor = nextCursor ?? undefined;
+            } while (cursor);
+            return archived;
+          }
+
+          test("CRM-008R exact-production atomic ETag, cursor integrity and tenant isolation", async ({ browser }) => {'''
+          if acceptance_text.count(insert_marker) != 1:
+              raise SystemExit(f'Expected one acceptance insertion marker, found {acceptance_text.count(insert_marker)}')
+          acceptance_result = acceptance_text.replace(insert_marker, cleanup_function, 1)
+
+          auth_marker = '''    authA = { Authorization: `Bearer ${loginA.accessToken}` };
+              const authB: AuthHeaders = { Authorization: `Bearer ${loginB.accessToken}` };
+              const runId = `${Date.now()}-${randomUUID().slice(0, 8)}`;'''
+          auth_replacement = '''    authA = { Authorization: `Bearer ${loginA.accessToken}` };
+              const authB: AuthHeaders = { Authorization: `Bearer ${loginB.accessToken}` };
+              const priorTemporaryTeamsArchived = await archivePriorTemporaryTeams(pageA.request, authA);
+              const runId = `${Date.now()}-${randomUUID().slice(0, 8)}`;'''
+          if acceptance_result.count(auth_marker) != 1:
+              raise SystemExit(f'Expected one authentication marker, found {acceptance_result.count(auth_marker)}')
+          acceptance_result = acceptance_result.replace(auth_marker, auth_replacement, 1)
+
+          evidence_marker = '''          createdAndArchivedTeamCount: createdTeamIds.length,
+                    checks: {'''
+          evidence_replacement = '''          createdAndArchivedTeamCount: createdTeamIds.length,
+                    priorTemporaryTeamsArchived,
+                    checks: {'''
+          if acceptance_result.count(evidence_marker) != 1:
+              raise SystemExit(f'Expected one evidence marker, found {acceptance_result.count(evidence_marker)}')
+          acceptance_result = acceptance_result.replace(evidence_marker, evidence_replacement, 1)
+
+          check_marker = '''            temporaryDataArchived: "PASS",'''
+          check_replacement = '''            priorTemporaryDataArchived: "PASS",
+                      temporaryDataArchived: "PASS",'''
+          if acceptance_result.count(check_marker) != 1:
+              raise SystemExit(f'Expected one cleanup check marker, found {acceptance_result.count(check_marker)}')
+          acceptance_result = acceptance_result.replace(check_marker, check_replacement, 1)
+
+          validations = {
+              'controller_archives_via_use_case': controller_result.count('updated = teams.archiveTeam(context.tenantId(), context.userId(), teamId);') == 1,
+              'controller_keeps_normal_update': controller_result.count('updated = teams.updateTeam(') == 1,
+              'cleanup_function_once': acceptance_result.count('async function archivePriorTemporaryTeams(') == 1,
+              'cleanup_prefix_once': acceptance_result.count('team.code.startsWith("CRM008R-")') == 1,
+              'cleanup_call_once': acceptance_result.count('await archivePriorTemporaryTeams(pageA.request, authA)') == 1,
+              'cleanup_evidence_once': acceptance_result.count('priorTemporaryTeamsArchived,') == 1,
+          }
+          if not all(validations.values()):
+              raise SystemExit(f'Post-materialization validation failed: {validations}')
+
+          controller.write_text(controller_result, encoding='utf-8')
+          acceptance.write_text(acceptance_result, encoding='utf-8')
+          print(validations)
+          PY
+
+          git diff --check
+          test "$(git diff --name-only | wc -l | tr -d ' ')" = 2
+          grep -F 'updated = teams.archiveTeam(context.tenantId(), context.userId(), teamId);' "$CONTROLLER"
+          grep -F 'async function archivePriorTemporaryTeams(' "$ACCEPTANCE"
+          grep -F 'team.code.startsWith("CRM008R-")' "$ACCEPTANCE"
+          grep -F 'priorTemporaryTeamsArchived,' "$ACCEPTANCE"
+
+      - name: Publish corrective implementation branch
+        id: publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="fix/crm-008r-archive-routing-${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add "$CONTROLLER" "$ACCEPTANCE"
+          git commit -m "fix(crm-008r): route archive transitions and clean temporary teams"
+          git push --set-upstream origin "$branch"
+          pr_url="$(gh pr create --base main --head "$branch" --draft \
+            --title "fix(crm-008r): route archive transitions and clean temporary teams" \
+            --body "Correct the proven Production cleanup failure by routing ARCHIVED PATCH transitions through SalesTeamUseCases.archiveTeam under the existing atomic If-Match transaction. Before the next acceptance run, archive only tenant-scoped ACTIVE teams whose code starts with CRM008R-. No manual SQL, migration, secret, timeout, retry, or acceptance-threshold change. Final closure remains unauthorized until the generated PR passes exact-head CI and a fresh complete Production gate succeeds.")"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+          gh issue comment 725 --repo "$GITHUB_REPOSITORY" --body "CRM-008R archive-routing correction materialized from ${GITHUB_SHA}: ${pr_url}. Proven failed run: 30191117497. Three ACTIVE CRM008R temporary teams remain and must be archived through the corrected API before closure. No closure is authorized."
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo "## CRM-008R archive routing materialization" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source main SHA: ${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Generated branch: ${{ steps.publish.outputs.branch }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Generated PR: ${{ steps.publish.outputs.pr_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Production closure: NO" >> "$GITHUB_STEP_SUMMARY"
