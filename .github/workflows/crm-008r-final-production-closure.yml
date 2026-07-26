@@ -250,7 +250,7 @@ jobs:
             local email="$1" fingerprint="$2" candidate="" matches=0 resolved=""
             while IFS= read -r candidate; do
               test -n "$candidate" || continue
-              echo "::add-mask::$candidate"
+              echo "::add-mask::$candidate" >&2
               if test "$(printf '%s' "$candidate" | sha256sum | awk '{print $1}')" = "$fingerprint"; then
                 resolved="$candidate"
                 matches=$((matches + 1))
