@@ -1,4 +1,4 @@
-name: CRM-008R Materialize Closure Workflow Fix
+name: CRM-008R Materialize Tenant Resolution Fix
 
 on:
   push:
@@ -13,18 +13,18 @@ permissions:
   issues: write
 
 concurrency:
-  group: crm-008r-materialize-closure-fix
+  group: crm-008r-materialize-tenant-resolution-fix
   cancel-in-progress: false
 
 jobs:
   materialize:
-    name: Materialize audited fixed workflow blob
+    name: Materialize audited tenant-resolution workflow fix
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       GH_TOKEN: ${{ github.token }}
       TARGET: .github/workflows/crm-008r-final-production-closure.yml
-      OUTPUT: generated/crm-008r-final-production-closure.fixed.yml
+      OUTPUT: generated/crm-008r-final-production-closure.tenant-resolution-fixed.yml
     steps:
       - name: Checkout exact main
         uses: actions/checkout@v4
@@ -32,7 +32,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Materialize exact governed replacement
+      - name: Materialize exact one-line correction
         shell: bash
         run: |
           set -euo pipefail
@@ -40,107 +40,76 @@ jobs:
           from pathlib import Path
 
           source = Path('.github/workflows/crm-008r-final-production-closure.yml')
-          output = Path('generated/crm-008r-final-production-closure.fixed.yml')
-          lines = source.read_text(encoding='utf-8').splitlines()
+          output = Path('generated/crm-008r-final-production-closure.tenant-resolution-fixed.yml')
+          text = source.read_text(encoding='utf-8')
 
-          permission = '  actions: read'
-          if lines.count(permission) != 1:
-              raise SystemExit(f'Expected exactly one {permission!r}, found {lines.count(permission)}')
-          lines[lines.index(permission)] = '  actions: write'
-
-          start_line = '          test -n "$RENDER_OWNER_ID" || { echo "::error::Render owner ID unavailable"; exit 1; }'
-          end_line = '            > "$EVIDENCE_DIR/runtime-error-summary.json"'
-          if lines.count(start_line) != 1:
-              raise SystemExit(f'Expected exactly one Render owner guard, found {lines.count(start_line)}')
-          start = lines.index(start_line)
-          ends = [i for i in range(start, len(lines)) if lines[i] == end_line]
-          if len(ends) != 1:
-              raise SystemExit(f'Expected exactly one runtime summary block end, found {len(ends)}')
-
-          replacement = [
-              '          if [ -z "$RENDER_OWNER_ID" ]; then',
-              '            jq -n \'{result:"SKIPPED_UPSTREAM_FAILURE",unexpected_crm_http_500:null}\' > "$EVIDENCE_DIR/runtime-error-summary.json"',
-              '          else',
-              '            curl --get --fail-with-body --silent --show-error --max-time 45 \\',
-              '              -H "Authorization: Bearer ${RENDER_API_KEY}" -H \'Accept: application/json\' \\',
-              '              --data-urlencode "ownerId=${RENDER_OWNER_ID}" \\',
-              '              --data-urlencode "resource=${RENDER_SERVICE_ID}" \\',
-              '              --data-urlencode "startTime=${CRM008R_STARTED_AT}" \\',
-              '              --data-urlencode "endTime=${END_TIME}" \\',
-              '              --data-urlencode "type=request" \\',
-              '              --data-urlencode "statusCode=500" \\',
-              '              --data-urlencode "limit=100" \\',
-              '              https://api.render.com/v1/logs > "$EVIDENCE_DIR/render-500-logs.json"',
-              '            CRM_500_COUNT="$(jq \'[if type=="array" then .[] else (.logs // .items // [])[] end | tostring | select(test("/api/v2/crm"))] | length\' "$EVIDENCE_DIR/render-500-logs.json")"',
-              '            test "$CRM_500_COUNT" = 0 || { echo "::error::Unexpected CRM HTTP 500 count: ${CRM_500_COUNT}"; exit 1; }',
-              '            jq -n --argjson count "$CRM_500_COUNT" \'{result:"PASS",unexpected_crm_http_500:$count}\' > "$EVIDENCE_DIR/runtime-error-summary.json"',
-              '          fi',
-          ]
-          expected_prefixes = [10, 12, 10, 12, 14, 14, 14, 14, 14, 14, 14, 14, 14, 12, 12, 12, 10]
-          actual_prefixes = [len(line) - len(line.lstrip(' ')) for line in replacement]
-          if actual_prefixes != expected_prefixes:
-              raise SystemExit(f'Explicit indentation mismatch: {actual_prefixes}')
-          end = ends[0]
-          lines[start:end + 1] = replacement
-
-          marker = 'CRM-008R Production FAILURE.'
-          if any(marker in line for line in lines):
-              raise SystemExit('Failure issue-comment block already exists')
-          tail = '          } >> "$GITHUB_STEP_SUMMARY"'
-          if lines[-1] != tail:
-              raise SystemExit(f'Unexpected workflow tail: {lines[-1]!r}')
-          lines.extend([
-              '          if [ "$STATUS" != "success" ]; then',
-              '            gh issue comment 725 --repo "$GITHUB_REPOSITORY" --body "CRM-008R Production FAILURE. Release: ${GITHUB_SHA}. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. Artifact: ${ARTIFACT_URL:-not-created}. Issue remains open; no closure is authorized."',
-              '          fi',
-          ])
-
-          result = '\n'.join(lines) + '\n'
-          checks = {
-              'actions_write': result.count('  actions: write') == 1,
-              'actions_read_removed': '  actions: read' not in result,
-              'guarded_runtime_logs': result.count('SKIPPED_UPSTREAM_FAILURE') == 1,
-              'failure_comment': result.count(marker) == 1,
-              'if_indent': replacement[0].startswith('          if '),
-              'body_indent': replacement[1].startswith('            jq '),
+          baseline_checks = {
+              'actions_write': text.count('  actions: write') == 1,
+              'actions_read_absent': '  actions: read' not in text,
+              'runtime_fail_safe': text.count('SKIPPED_UPSTREAM_FAILURE') == 1,
+              'failure_comment': text.count('CRM-008R Production FAILURE.') == 1,
+              'resolver_function': text.count('          resolve_tenant() {') == 1,
           }
-          if not all(checks.values()):
-              raise SystemExit(f'Post-materialization validation failed: {checks}')
+          if not all(baseline_checks.values()):
+              raise SystemExit(f'Unexpected protected workflow baseline: {baseline_checks}')
+
+          unsafe = '              echo "::add-mask::$candidate"'
+          safe = '              echo "::add-mask::$candidate" >&2'
+          if text.count(unsafe) != 1:
+              raise SystemExit(f'Expected exactly one stdout tenant mask command, found {text.count(unsafe)}')
+          if safe in text:
+              raise SystemExit('Tenant mask command is already redirected to stderr')
+
+          result = text.replace(unsafe, safe, 1)
+          post_checks = {
+              'unsafe_removed': unsafe not in result,
+              'safe_once': result.count(safe) == 1,
+              'actions_write_unchanged': result.count('  actions: write') == 1,
+              'runtime_fail_safe_unchanged': result.count('SKIPPED_UPSTREAM_FAILURE') == 1,
+              'failure_comment_unchanged': result.count('CRM-008R Production FAILURE.') == 1,
+              'resolver_output_only': result.count('            printf \'%s\' "$resolved"') == 1,
+          }
+          if not all(post_checks.values()):
+              raise SystemExit(f'Post-materialization validation failed: {post_checks}')
+
           output.parent.mkdir(parents=True, exist_ok=True)
           output.write_text(result, encoding='utf-8')
-          print(checks)
+          print({'baseline': baseline_checks, 'post': post_checks})
           PY
 
           git diff --exit-code -- "$TARGET"
           test -s "$OUTPUT"
-          grep -Fx '  actions: write' "$OUTPUT"
-          grep -Fx '          if [ -z "$RENDER_OWNER_ID" ]; then' "$OUTPUT"
-          grep -Fx '            jq -n '\''{result:"SKIPPED_UPSTREAM_FAILURE",unexpected_crm_http_500:null}'\'' > "$EVIDENCE_DIR/runtime-error-summary.json"' "$OUTPUT"
-          grep -F 'CRM-008R Production FAILURE.' "$OUTPUT"
+          grep -Fx '              echo "::add-mask::$candidate" >&2' "$OUTPUT"
+          if grep -Fx '              echo "::add-mask::$candidate"' "$OUTPUT"; then
+            echo '::error::Unsafe stdout masking command remains'
+            exit 1
+          fi
+          test "$(diff -U0 "$TARGET" "$OUTPUT" | grep -Ec '^[+-][^+-]')" = 2
 
       - name: Publish materialized blob branch
         id: publish
         shell: bash
         run: |
           set -euo pipefail
-          branch="generated/crm-008r-final-closure-fixed-${GITHUB_RUN_ID}"
+          branch="generated/crm-008r-tenant-resolution-fixed-${GITHUB_RUN_ID}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
           git add "$OUTPUT"
-          git commit -m "build(crm-008r): materialize corrected closure workflow blob"
+          git commit -m "build(crm-008r): materialize tenant resolution stdout fix"
           git push --set-upstream origin "$branch"
           pr_url="$(gh pr create --base main --head "$branch" --draft \
-            --title "build(crm-008r): materialized final-closure workflow blob" \
-            --body "Machine-materialized corrected workflow content with explicit block indentation for connector-controlled installation. This Draft PR must not be merged. Final Production closure remains unauthorized.")"
+            --title "build(crm-008r): materialized tenant-resolution workflow fix" \
+            --body "Machine-materialized one-line correction redirecting tenant masking output to stderr. This Draft staging PR must not be merged. Final Production closure remains unauthorized.")"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
-          gh issue comment 725 --repo "$GITHUB_REPOSITORY" --body "CRM-008R explicitly-indented workflow blob materialized on branch ${branch}: ${pr_url}. It is staging evidence only and must not be treated as closure."
+          gh issue comment 725 --repo "$GITHUB_REPOSITORY" --body "CRM-008R tenant-resolution workflow fix materialized on branch ${branch}: ${pr_url}. Staging evidence only; no Production closure is authorized. Failed Production run remains 30182326310."
 
       - name: Summary
         shell: bash
         run: |
-          echo "## CRM-008R materialized workflow fix" >> "$GITHUB_STEP_SUMMARY"
+          echo "## CRM-008R tenant-resolution materialization" >> "$GITHUB_STEP_SUMMARY"
           echo "- Source main SHA: ${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Root cause: add-mask command polluted command-substitution stdout" >> "$GITHUB_STEP_SUMMARY"
           echo "- Materialized branch: ${{ steps.publish.outputs.branch }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Staging PR: ${{ steps.publish.outputs.pr_url }}" >> "$GITHUB_STEP_SUMMARY"
