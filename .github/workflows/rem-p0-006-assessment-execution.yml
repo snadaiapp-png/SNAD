@@ -46,6 +46,7 @@ jobs:
           mkdir -p "$EVIDENCE_DIR/workflows" "$EVIDENCE_DIR/dast" "$EVIDENCE_DIR/crm"
           echo "TARGET_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
           echo "EVIDENCE_DIR=$EVIDENCE_DIR" >> "$GITHUB_ENV"
+          echo "FROZEN_MAIN_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
           jq -n \
             --arg schema "snad.rem-p0-006.technical-assessment.v1" \
             --arg target_sha "$TARGET_SHA" \
@@ -53,6 +54,18 @@ jobs:
             --arg started_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '{schema:$schema,status:"IN_PROGRESS",target_sha:$target_sha,orchestrator_run_id:($run_id|tonumber),started_at_utc:$started_at}' \
             > "$EVIDENCE_DIR/run-context.json"
+
+      - name: Verify SHA stability (pre-gate)
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_main="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.commit.sha')"
+          if [ "$current_main" != "$FROZEN_MAIN_SHA" ]; then
+            echo "::error::main moved before gate: expected=$FROZEN_MAIN_SHA current=$current_main"
+            jq -n               --arg expected "$FROZEN_MAIN_SHA"               --arg actual "$current_main"               '{status:"INVALIDATED",reason:"main moved before gate",expected_sha:$expected,actual_sha:$actual}'               > "$EVIDENCE_DIR/sha-stability-failure.json"
+            exit 1
+          fi
+          echo "SHA stability verified: $FROZEN_MAIN_SHA"
 
       - name: Dispatch and await exact-SHA governed workflows
         shell: bash
@@ -83,10 +96,21 @@ jobs:
             return 1
           }
 
+          verify_sha_stability() {
+            local gate_name="$1"
+            local current_main
+            current_main="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.commit.sha')"
+            if [ "$current_main" != "$FROZEN_MAIN_SHA" ]; then
+              echo "::error::main moved during ${gate_name}: expected=$FROZEN_MAIN_SHA current=$current_main"
+              return 1
+            fi
+          }
+
           dispatch_and_wait() {
             local key="$1"
             local workflow="$2"
             local label="$3"
+            verify_sha_stability "pre-${key}" || return 1
             local dispatched_at
             dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             gh workflow run "$workflow" --ref main
@@ -105,7 +129,7 @@ jobs:
               > "$EVIDENCE_DIR/workflows/${key}-artifacts.json"
             test "$(jq -r '.head_sha' "$EVIDENCE_DIR/workflows/${key}-run.json")" = "$TARGET_SHA"
             test "$(jq -r '.conclusion' "$EVIDENCE_DIR/workflows/${key}-run.json")" = success
-            test "$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.commit.sha')" = "$TARGET_SHA"
+            verify_sha_stability "post-${key}" || return 1
           }
 
           dispatch_and_wait crm crm-008r-final-production-closure.yml "CRM exact-SHA Production closure"
@@ -144,6 +168,17 @@ jobs:
             checks
           }' "$smoke" > "$EVIDENCE_DIR/crm/crm008r-production-smoke-sanitized.json"
           find "$EVIDENCE_DIR/crm" -type f ! -name crm008r-production-smoke-sanitized.json -delete
+
+      - name: Verify SHA stability (pre-DAST)
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_main="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.commit.sha')"
+          if [ "$current_main" != "$FROZEN_MAIN_SHA" ]; then
+            echo "::error::main moved before DAST: expected=$FROZEN_MAIN_SHA current=$current_main"
+            exit 1
+          fi
+          echo "SHA stability verified before DAST: $FROZEN_MAIN_SHA"
 
       - name: Execute non-destructive HTTP security checks
         shell: bash
