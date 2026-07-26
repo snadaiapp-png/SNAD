@@ -13,6 +13,9 @@ permissions:
   contents: read
   issues: write
 
+env:
+  GH_REPO: ${{ github.repository }}
+
 jobs:
   publish:
     name: Publish immutable root assessment identity
@@ -22,6 +25,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           gh issue comment 516 --body "REM-P0-006 main run introspection **STARTED** at commit \`${GITHUB_SHA}\`."
 
       - name: Resolve latest successful root assessment run and artifact
