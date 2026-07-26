@@ -3,7 +3,7 @@ name: REM-P0-006 Run Introspection
 on:
   push:
     branches:
-      - rem-p0-006-run-introspection
+      - main
     paths:
       - 'docs/security/independent-assurance/RUN-INTROSPECTION-TRIGGER.md'
   workflow_dispatch:
@@ -18,7 +18,13 @@ jobs:
     name: Publish immutable root assessment identity
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve successful root assessment run and artifact
+      - name: Announce introspection start
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment 516 --body "REM-P0-006 main run introspection **STARTED** at commit \`${GITHUB_SHA}\`."
+
+      - name: Resolve latest successful root assessment run and artifact
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -26,10 +32,9 @@ jobs:
           set -euo pipefail
           runs_json="$(gh run list \
             --workflow rem-p0-006-root-closure-assessment.yml \
-            --branch rem-p0-006-assessment-execution-v2 \
-            --limit 30 \
-            --json databaseId,status,conclusion,headSha,url,createdAt,updatedAt,event)"
-          run_json="$(jq -c '[.[] | select(.conclusion == "success" and .headSha == "c14f8883a2e03449ecbf7fd31776f0b00dc01954")] | first' <<< "$runs_json")"
+            --limit 50 \
+            --json databaseId,status,conclusion,headSha,headBranch,url,createdAt,updatedAt,event)"
+          run_json="$(jq -c '[.[] | select(.conclusion == "success" and .headBranch == "rem-p0-006-assessment-execution-v2")] | sort_by(.createdAt) | last' <<< "$runs_json")"
           test -n "$run_json" && test "$run_json" != null
           run_id="$(jq -r '.databaseId' <<< "$run_json")"
           artifact_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100")"
@@ -46,6 +51,7 @@ jobs:
           - Status: \`$(jq -r '.status' <<< "$run_json")\`
           - Conclusion: \`$(jq -r '.conclusion' <<< "$run_json")\`
           - Controller HEAD: \`$(jq -r '.headSha' <<< "$run_json")\`
+          - Controller branch: \`$(jq -r '.headBranch' <<< "$run_json")\`
           - Run URL: $(jq -r '.url' <<< "$run_json")
           - Artifact ID: \`${artifact_id}\`
           - Artifact name: \`${artifact_name}\`
