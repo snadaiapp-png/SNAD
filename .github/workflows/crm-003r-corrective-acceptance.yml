@@ -46,7 +46,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          ./mvnw -B -ntp \
+          mvn -B -ntp \
             -Dtest=CrmCoreKeysetPaginationPostgresTest,CrmOpenApiRuntimeSemanticParityTest \
             -DfailIfNoTests=true \
             test 2>&1 | tee crm-003r-maven.log
