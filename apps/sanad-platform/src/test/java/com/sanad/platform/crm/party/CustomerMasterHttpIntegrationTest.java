@@ -110,7 +110,7 @@ class CustomerMasterHttpIntegrationTest {
                         .with(authentication(auth(fixture))).contentType("application/json")
                         .content("{\"legalName\":\"No precondition\"}"))
                 .andExpect(status().isPreconditionRequired())
-                .andExpect(jsonPath("$.code").value("CRM_PRECONDITION_REQUIRED"));
+                .andExpect(jsonPath("$.error.code").value("CRM_PRECONDITION_REQUIRED"));
 
         jdbc.update("UPDATE crm_accounts SET version=2 WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", fixture.tenantId()).addValue("id", accountId));
@@ -121,7 +121,7 @@ class CustomerMasterHttpIntegrationTest {
                         .contentType("application/json")
                         .content("{\"expectedVersion\":2,\"legalName\":\"Stale Update\"}"))
                 .andExpect(status().isPreconditionFailed())
-                .andExpect(jsonPath("$.code").value("CRM_CONCURRENCY_CONFLICT"));
+                .andExpect(jsonPath("$.error.code").value("CRM_CONCURRENCY_CONFLICT"));
     }
 
     @Test
@@ -135,7 +135,7 @@ class CustomerMasterHttpIntegrationTest {
                         .contentType("application/json")
                         .content("{\"creditLimit\":1.001}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
     }
 
     @Test
@@ -214,7 +214,7 @@ class CustomerMasterHttpIntegrationTest {
                         .with(authentication(auth(fixture))).contentType("application/json")
                         .content("{\"addressType\":\"OFFICE\",\"line1\":\"Street\",\"city\":\"Riyadh\",\"countryCode\":\"SA\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("CRM_IDEMPOTENCY_KEY_REQUIRED"));
+                .andExpect(jsonPath("$.error.code").value("CRM_IDEMPOTENCY_KEY_REQUIRED"));
     }
 
     @Test
