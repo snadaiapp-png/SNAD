@@ -5,6 +5,7 @@ import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 /** Enforces the final CRM-004 modular boundaries on production classes. */
@@ -67,6 +68,18 @@ class CrmArchitectureTest {
             .that().haveSimpleNameEndingWith("Controller")
             .should().dependOnClassesThat().resideInAPackage("org.springframework.jdbc..")
             .because("CRM controllers must call application services");
+
+    @ArchTest
+    static final ArchRule commandAdaptersShouldNotAccessJdbcDirectly = noClasses()
+            .that().haveSimpleNameEndingWith("CommandAdapter")
+            .should().dependOnClassesThat().resideInAPackage("org.springframework.jdbc..")
+            .because("Command adapters orchestrate application ports; persistence belongs in repositories and stores");
+
+    @ArchTest
+    static final ArchRule jdbcNamedAdaptersMustResideInInfrastructure = classes()
+            .that().haveSimpleNameStartingWith("Jdbc")
+            .should().resideInAPackage("..infrastructure..")
+            .because("JDBC implementations are infrastructure adapters and must be classified accordingly");
 
     @ArchTest
     static final ArchRule partyMustNotDependOnLeadOpportunityOrActivity = noClasses()
