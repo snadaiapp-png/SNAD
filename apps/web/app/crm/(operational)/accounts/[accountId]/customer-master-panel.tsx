@@ -29,6 +29,7 @@ interface CustomerMasterProfile {
 
 interface AccountAddress {
   id: string;
+  version: number;
   addressType: string;
   label?: string | null;
   line1: string;
@@ -65,6 +66,18 @@ const root = "/api/v1/crm/accounts";
 function field(form: FormData, name: string): string | undefined {
   const value = form.get(name)?.toString().trim();
   return value ? value : undefined;
+}
+
+async function etag(entityType: string, id: string, version: number): Promise<string> {
+  const material = `${entityType.toLowerCase()}:${id}:${version}`;
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(material));
+  const hex = Array.from(new Uint8Array(digest).slice(0, 8))
+    .map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `"${entityType.toLowerCase()}-${id}-v${version}-${hex}"`;
+}
+
+function idempotencyHeaders(): Record<string, string> {
+  return { "Idempotency-Key": globalThis.crypto.randomUUID() };
 }
 
 export function CustomerMasterPanel({ accountId }: { accountId: string }) {
@@ -123,8 +136,7 @@ export function CustomerMasterPanel({ accountId }: { accountId: string }) {
     if (!profile) return;
     const form = new FormData(event.currentTarget);
     await execute(
-      () => apiClient.patch<CustomerMasterProfile, Record<string, unknown>>(`${root}/${accountId}/master`, {
-        expectedVersion: profile.version,
+      async () => apiClient.patch<CustomerMasterProfile, Record<string, unknown>>(`${root}/${accountId}/master`, {
         legalName: field(form, "legalName"),
         tradingName: field(form, "tradingName"),
         registrationNumber: field(form, "registrationNumber"),
@@ -139,6 +151,8 @@ export function CustomerMasterPanel({ accountId }: { accountId: string }) {
         riskRating: field(form, "riskRating"),
         creditLimit: field(form, "creditLimit") ? Number(field(form, "creditLimit")) : undefined,
         paymentTermsDays: field(form, "paymentTermsDays") ? Number(field(form, "paymentTermsDays")) : undefined,
+      }, {
+        context: { headers: { "If-Match": await etag("customer-master", accountId, profile.version) } },
       }),
       "تم تحديث ملف العميل المؤسسي.",
     );
@@ -157,7 +171,7 @@ export function CustomerMasterPanel({ accountId }: { accountId: string }) {
         postalCode: field(form, "postalCode"),
         countryCode: field(form, "addressCountry") ?? "SA",
         primaryAddress: form.get("primaryAddress") === "on",
-      }),
+      }, { context: { headers: idempotencyHeaders() } }),
       "تمت إضافة العنوان.",
     );
     element.reset();
@@ -174,7 +188,7 @@ export function CustomerMasterPanel({ accountId }: { accountId: string }) {
         issuerCountryCode: field(form, "issuerCountryCode") ?? "SA",
         primaryIdentifier: true,
         verified: form.get("verified") === "on",
-      }),
+      }, { context: { headers: idempotencyHeaders() } }),
       "تمت إضافة المعرّف المؤسسي.",
     );
     element.reset();
@@ -191,7 +205,7 @@ export function CustomerMasterPanel({ accountId }: { accountId: string }) {
         effectiveFrom: field(form, "effectiveFrom"),
         effectiveTo: field(form, "effectiveTo"),
         notes: field(form, "relationshipNotes"),
-      }),
+      }, { context: { headers: idempotencyHeaders() } }),
       "تمت إضافة علاقة الحساب.",
     );
     element.reset();
@@ -201,10 +215,14 @@ export function CustomerMasterPanel({ accountId }: { accountId: string }) {
     if (!profile || !window.confirm(`دمج السجل الحالي ${profile.displayName} داخل السجل الذهبي ${candidate.displayName}؟ لا يمكن التراجع عن العملية.`)) return;
     const target = await apiClient.get<CustomerMasterProfile>(`${root}/${candidate.accountId}/master`, { cache: "no-store" });
     await execute(
-      () => apiClient.post(`${root}/${accountId}/merge/${candidate.accountId}`, {
-        expectedSourceVersion: profile.version,
-        expectedTargetVersion: target.version,
+      async () => apiClient.post(`${root}/${accountId}/merge/${candidate.accountId}`, {
         reason: "Confirmed duplicate from Customer Master workspace",
+      }, {
+        context: { headers: {
+          ...idempotencyHeaders(),
+          "If-Match": await etag("customer-master", accountId, profile.version),
+          "X-Target-If-Match": await etag("customer-master", candidate.accountId, target.version),
+        } },
       }),
       "تم دمج سجل العميل بنجاح.",
     );
