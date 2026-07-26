@@ -468,7 +468,11 @@ jobs:
           find "$EVIDENCE_DIR" -type f ! -name SHA256SUMS.txt -print0 \
             | sort -z \
             | xargs -0 -r sha256sum \
-            > "$EVIDENCE_DIR/SHA256SUMS.txt"
+            | sed "s|$EVIDENCE_DIR/||g" \n            > "$EVIDENCE_DIR/SHA256SUMS.txt"
+          (
+            cd "$EVIDENCE_DIR"
+            sha256sum --check SHA256SUMS.txt
+          )
 
       - name: Upload immutable technical assessment evidence
         id: upload
