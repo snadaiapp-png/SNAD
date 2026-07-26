@@ -1,0 +1,30 @@
+# CRM-003R Exact-Head Acceptance Record
+
+```text
+CONTROL_ISSUE: #771
+PULL_REQUEST: PENDING
+EXACT_HEAD_SHA: PENDING
+MERGE_SHA: PENDING
+FINAL_DECISION: WITHHELD
+```
+
+This record is completed only after all required checks settle on one unchanged
+head. A merged implementation, an earlier SHA, or documentation-only checks do
+not satisfy this gate.
+
+## Required settled state
+
+```text
+REAL_KEYSET_PAGINATION: PASS
+PAGE_1_PAGE_2_OVERLAP: 0
+CURSOR_PROGRESS_FAILURES: 0
+STABLE_DATASET_GAPS: 0
+TENANT_ISOLATION: PASS
+ASC_DESC_TRAVERSAL: PASS
+FILTER_PRESERVATION: PASS
+OPENAPI_PARAMETER_DRIFT: 0
+POSTGRESQL_ACCEPTANCE: PASS
+FAILED_REQUIRED_WORKFLOWS: 0
+PENDING_REQUIRED_WORKFLOWS: 0
+SKIPPED_CRITICAL_TESTS: 0
+```
