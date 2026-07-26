@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       gate_mode:
-        description: 'readiness validates the package; closure requires the protected main-branch decision gate'
+        description: 'readiness validates the package; closure requires the environment-gated main-branch decision gate'
         required: true
         type: choice
         default: readiness
@@ -81,7 +81,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   closure:
-    name: REM-P0-006 Protected Closure Validation
+    name: REM-P0-006 Environment-Gated Closure Validation
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.gate_mode == 'closure' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -95,12 +95,14 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Enforce main branch and exact assessed release
+      - name: Enforce configured closure authority, main branch and exact release
         shell: bash
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
+          CLOSURE_AUTHORITY_TOKEN: ${{ secrets.REM_P0_006_CLOSURE_AUTHORITY_TOKEN }}
         run: |
           set -euo pipefail
+          [[ -n "$CLOSURE_AUTHORITY_TOKEN" ]] || { echo '::error::The rem-p0-006-closure environment authority secret is not configured'; exit 1; }
           [[ "$GITHUB_REF" == 'refs/heads/main' ]] || { echo '::error::Closure mode is allowed only on main'; exit 1; }
           [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::Closure requires an exact 40-character release SHA'; exit 1; }
           git cat-file -e "${RELEASE_SHA}^{commit}"
@@ -109,7 +111,7 @@ jobs:
       - name: Test fail-closed validator
         run: python3 -m unittest tests/ci/test_validate_independent_security_assurance.py -v
 
-      - name: Validate protected closure package
+      - name: Validate environment-gated closure package
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
         run: >-
@@ -121,11 +123,12 @@ jobs:
         if: always()
         run: |
           {
-            echo '## REM-P0-006 Protected Closure Validation'
+            echo '## REM-P0-006 Environment-Gated Closure Validation'
             echo ''
             echo "- Package SHA: ${{ github.sha }}"
             echo "- Assessed release SHA: ${{ inputs.release_sha }}"
-            echo '- This job is protected by the rem-p0-006-closure GitHub Environment.'
+            echo '- This job requires the rem-p0-006-closure GitHub Environment and its authority secret.'
+            echo '- Repository administrators must configure required reviewers/protection rules outside this workflow.'
             echo '- A successful run proves the committed package passed the machine gate; the governed closure record must still be published.'
             echo '- Broad commercial go-live remains governed separately by Issue #516.'
           } >> "$GITHUB_STEP_SUMMARY"
