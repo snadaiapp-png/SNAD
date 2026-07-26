@@ -1,4 +1,4 @@
-name: CRM-008R Bootstrap Closure Permission Fix
+name: CRM-008R Materialize Closure Workflow Fix
 
 on:
   push:
@@ -13,17 +13,18 @@ permissions:
   issues: write
 
 concurrency:
-  group: crm-008r-bootstrap-permission-fix
+  group: crm-008r-materialize-closure-fix
   cancel-in-progress: false
 
 jobs:
-  create-fix-pr:
-    name: Create audited CRM-008R closure workflow fix PR
+  materialize:
+    name: Materialize audited fixed workflow blob
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       GH_TOKEN: ${{ github.token }}
       TARGET: .github/workflows/crm-008r-final-production-closure.yml
+      OUTPUT: generated/crm-008r-final-production-closure.fixed.yml
     steps:
       - name: Checkout exact main
         uses: actions/checkout@v4
@@ -31,15 +32,16 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Apply exact governed replacements
+      - name: Materialize exact governed replacement
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          path = Path('.github/workflows/crm-008r-final-production-closure.yml')
-          lines = path.read_text(encoding='utf-8').splitlines()
+          source = Path('.github/workflows/crm-008r-final-production-closure.yml')
+          output = Path('generated/crm-008r-final-production-closure.fixed.yml')
+          lines = source.read_text(encoding='utf-8').splitlines()
 
           permission = '  actions: read'
           if lines.count(permission) != 1:
@@ -51,10 +53,9 @@ jobs:
           if lines.count(start_line) != 1:
               raise SystemExit(f'Expected exactly one Render owner guard, found {lines.count(start_line)}')
           start = lines.index(start_line)
-          end_candidates = [i for i in range(start, len(lines)) if lines[i] == end_line]
-          if len(end_candidates) != 1:
-              raise SystemExit(f'Expected exactly one runtime summary block end, found {len(end_candidates)}')
-          end = end_candidates[0]
+          ends = [i for i in range(start, len(lines)) if lines[i] == end_line]
+          if len(ends) != 1:
+              raise SystemExit(f'Expected exactly one runtime summary block end, found {len(ends)}')
 
           replacement = '''          if [ -z "$RENDER_OWNER_ID" ]; then
             jq -n '{result:"SKIPPED_UPSTREAM_FAILURE",unexpected_crm_http_500:null}' > "$EVIDENCE_DIR/runtime-error-summary.json"
@@ -73,13 +74,14 @@ jobs:
             test "$CRM_500_COUNT" = 0 || { echo "::error::Unexpected CRM HTTP 500 count: ${CRM_500_COUNT}"; exit 1; }
             jq -n --argjson count "$CRM_500_COUNT" '{result:"PASS",unexpected_crm_http_500:$count}' > "$EVIDENCE_DIR/runtime-error-summary.json"
           fi'''.splitlines()
+          end = ends[0]
           lines[start:end + 1] = replacement
 
-          failure_marker = 'CRM-008R Production FAILURE.'
-          if any(failure_marker in line for line in lines):
+          marker = 'CRM-008R Production FAILURE.'
+          if any(marker in line for line in lines):
               raise SystemExit('Failure issue-comment block already exists')
-          expected_tail = '          } >> "$GITHUB_STEP_SUMMARY"'
-          if lines[-1] != expected_tail:
+          tail = '          } >> "$GITHUB_STEP_SUMMARY"'
+          if lines[-1] != tail:
               raise SystemExit(f'Unexpected workflow tail: {lines[-1]!r}')
           lines.extend([
               '          if [ "$STATUS" != "success" ]; then',
@@ -92,38 +94,44 @@ jobs:
               'actions_write': result.count('  actions: write') == 1,
               'actions_read_removed': '  actions: read' not in result,
               'guarded_runtime_logs': result.count('SKIPPED_UPSTREAM_FAILURE') == 1,
-              'failure_comment': result.count(failure_marker) == 1,
+              'failure_comment': result.count(marker) == 1,
           }
           if not all(checks.values()):
-              raise SystemExit(f'Post-patch validation failed: {checks}')
-          path.write_text(result, encoding='utf-8')
+              raise SystemExit(f'Post-materialization validation failed: {checks}')
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(result, encoding='utf-8')
           print(checks)
           PY
 
-          git diff --check
-          git diff -- "$TARGET"
+          git diff --exit-code -- "$TARGET"
+          test -s "$OUTPUT"
+          grep -Fx '  actions: write' "$OUTPUT"
+          grep -F 'SKIPPED_UPSTREAM_FAILURE' "$OUTPUT"
+          grep -F 'CRM-008R Production FAILURE.' "$OUTPUT"
 
-      - name: Create fix branch and pull request
-        id: pr
+      - name: Publish materialized blob branch
+        id: publish
         shell: bash
         run: |
           set -euo pipefail
-          branch="fix/crm-008r-final-closure-actions-write-${GITHUB_RUN_ID}"
+          branch="generated/crm-008r-final-closure-fixed-${GITHUB_RUN_ID}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
-          git add "$TARGET"
-          git commit -m "fix(crm-008r): permit Render dispatch and preserve primary failure"
+          git add "$OUTPUT"
+          git commit -m "build(crm-008r): materialize corrected closure workflow blob"
           git push --set-upstream origin "$branch"
           pr_url="$(gh pr create --base main --head "$branch" --draft \
-            --title "fix(crm-008r): repair final Production closure dispatch" \
-            --body "Fix the proven CRM-008R closure blocker from run 30180587377: grant actions:write for exact-SHA Render workflow dispatch, avoid a secondary Render-log failure when upstream dispatch is unavailable, and publish an explicit failure comment while keeping #725 open. No Production closure is claimed by this PR.")"
+            --title "build(crm-008r): materialized final-closure workflow blob" \
+            --body "Machine-materialized corrected workflow content for connector-controlled installation. This Draft PR must not be merged; it contains the verified blob outside .github/workflows only. Final Production closure remains unauthorized.")"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
-          gh issue comment 725 --repo "$GITHUB_REPOSITORY" --body "CRM-008R workflow root-cause fix PR created: ${pr_url}. Proven failed run: 30180587377. Issue remains open; final closure is not authorized."
+          gh issue comment 725 --repo "$GITHUB_REPOSITORY" --body "CRM-008R corrected workflow blob materialized on branch ${branch}: ${pr_url}. It is staging evidence only and must not be treated as closure."
 
       - name: Summary
         shell: bash
         run: |
-          echo "## CRM-008R closure workflow fix" >> "$GITHUB_STEP_SUMMARY"
+          echo "## CRM-008R materialized workflow fix" >> "$GITHUB_STEP_SUMMARY"
           echo "- Source main SHA: ${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Fix PR: ${{ steps.pr.outputs.pr_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Materialized branch: ${{ steps.publish.outputs.branch }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Staging PR: ${{ steps.publish.outputs.pr_url }}" >> "$GITHUB_STEP_SUMMARY"
