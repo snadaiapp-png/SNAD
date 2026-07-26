@@ -57,23 +57,29 @@ jobs:
           if len(ends) != 1:
               raise SystemExit(f'Expected exactly one runtime summary block end, found {len(ends)}')
 
-          replacement = '''          if [ -z "$RENDER_OWNER_ID" ]; then
-            jq -n '{result:"SKIPPED_UPSTREAM_FAILURE",unexpected_crm_http_500:null}' > "$EVIDENCE_DIR/runtime-error-summary.json"
-          else
-            curl --get --fail-with-body --silent --show-error --max-time 45 \\
-              -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \\
-              --data-urlencode "ownerId=${RENDER_OWNER_ID}" \\
-              --data-urlencode "resource=${RENDER_SERVICE_ID}" \\
-              --data-urlencode "startTime=${CRM008R_STARTED_AT}" \\
-              --data-urlencode "endTime=${END_TIME}" \\
-              --data-urlencode "type=request" \\
-              --data-urlencode "statusCode=500" \\
-              --data-urlencode "limit=100" \\
-              https://api.render.com/v1/logs > "$EVIDENCE_DIR/render-500-logs.json"
-            CRM_500_COUNT="$(jq '[if type=="array" then .[] else (.logs // .items // [])[] end | tostring | select(test("/api/v2/crm"))] | length' "$EVIDENCE_DIR/render-500-logs.json")"
-            test "$CRM_500_COUNT" = 0 || { echo "::error::Unexpected CRM HTTP 500 count: ${CRM_500_COUNT}"; exit 1; }
-            jq -n --argjson count "$CRM_500_COUNT" '{result:"PASS",unexpected_crm_http_500:$count}' > "$EVIDENCE_DIR/runtime-error-summary.json"
-          fi'''.splitlines()
+          replacement = [
+              '          if [ -z "$RENDER_OWNER_ID" ]; then',
+              '            jq -n \'{result:"SKIPPED_UPSTREAM_FAILURE",unexpected_crm_http_500:null}\' > "$EVIDENCE_DIR/runtime-error-summary.json"',
+              '          else',
+              '            curl --get --fail-with-body --silent --show-error --max-time 45 \\',
+              '              -H "Authorization: Bearer ${RENDER_API_KEY}" -H \'Accept: application/json\' \\',
+              '              --data-urlencode "ownerId=${RENDER_OWNER_ID}" \\',
+              '              --data-urlencode "resource=${RENDER_SERVICE_ID}" \\',
+              '              --data-urlencode "startTime=${CRM008R_STARTED_AT}" \\',
+              '              --data-urlencode "endTime=${END_TIME}" \\',
+              '              --data-urlencode "type=request" \\',
+              '              --data-urlencode "statusCode=500" \\',
+              '              --data-urlencode "limit=100" \\',
+              '              https://api.render.com/v1/logs > "$EVIDENCE_DIR/render-500-logs.json"',
+              '            CRM_500_COUNT="$(jq \'[if type=="array" then .[] else (.logs // .items // [])[] end | tostring | select(test("/api/v2/crm"))] | length\' "$EVIDENCE_DIR/render-500-logs.json")"',
+              '            test "$CRM_500_COUNT" = 0 || { echo "::error::Unexpected CRM HTTP 500 count: ${CRM_500_COUNT}"; exit 1; }',
+              '            jq -n --argjson count "$CRM_500_COUNT" \'{result:"PASS",unexpected_crm_http_500:$count}\' > "$EVIDENCE_DIR/runtime-error-summary.json"',
+              '          fi',
+          ]
+          expected_prefixes = [10, 12, 10, 12, 14, 14, 14, 14, 14, 14, 14, 14, 14, 12, 12, 12, 10]
+          actual_prefixes = [len(line) - len(line.lstrip(' ')) for line in replacement]
+          if actual_prefixes != expected_prefixes:
+              raise SystemExit(f'Explicit indentation mismatch: {actual_prefixes}')
           end = ends[0]
           lines[start:end + 1] = replacement
 
@@ -95,6 +101,8 @@ jobs:
               'actions_read_removed': '  actions: read' not in result,
               'guarded_runtime_logs': result.count('SKIPPED_UPSTREAM_FAILURE') == 1,
               'failure_comment': result.count(marker) == 1,
+              'if_indent': replacement[0].startswith('          if '),
+              'body_indent': replacement[1].startswith('            jq '),
           }
           if not all(checks.values()):
               raise SystemExit(f'Post-materialization validation failed: {checks}')
@@ -106,7 +114,8 @@ jobs:
           git diff --exit-code -- "$TARGET"
           test -s "$OUTPUT"
           grep -Fx '  actions: write' "$OUTPUT"
-          grep -F 'SKIPPED_UPSTREAM_FAILURE' "$OUTPUT"
+          grep -Fx '          if [ -z "$RENDER_OWNER_ID" ]; then' "$OUTPUT"
+          grep -Fx '            jq -n '\''{result:"SKIPPED_UPSTREAM_FAILURE",unexpected_crm_http_500:null}'\'' > "$EVIDENCE_DIR/runtime-error-summary.json"' "$OUTPUT"
           grep -F 'CRM-008R Production FAILURE.' "$OUTPUT"
 
       - name: Publish materialized blob branch
@@ -123,10 +132,10 @@ jobs:
           git push --set-upstream origin "$branch"
           pr_url="$(gh pr create --base main --head "$branch" --draft \
             --title "build(crm-008r): materialized final-closure workflow blob" \
-            --body "Machine-materialized corrected workflow content for connector-controlled installation. This Draft PR must not be merged; it contains the verified blob outside .github/workflows only. Final Production closure remains unauthorized.")"
+            --body "Machine-materialized corrected workflow content with explicit block indentation for connector-controlled installation. This Draft PR must not be merged. Final Production closure remains unauthorized.")"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
-          gh issue comment 725 --repo "$GITHUB_REPOSITORY" --body "CRM-008R corrected workflow blob materialized on branch ${branch}: ${pr_url}. It is staging evidence only and must not be treated as closure."
+          gh issue comment 725 --repo "$GITHUB_REPOSITORY" --body "CRM-008R explicitly-indented workflow blob materialized on branch ${branch}: ${pr_url}. It is staging evidence only and must not be treated as closure."
 
       - name: Summary
         shell: bash
