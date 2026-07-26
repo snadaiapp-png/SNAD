@@ -1,10 +1,10 @@
 {
   "schema_version": "2.0",
   "finding_id": "REM-P0-006",
-  "closure_state": "PENDING_CLOSURE",
+  "closure_state": "NOT_READY",
   "commercial_go_live": "NOT_APPROVED",
   "assessor": {
-    "independence_status": "APPOINTED",
+    "independence_status": "VERIFIED",
     "organization": "Independent Security Assessor",
     "lead_assessor": "Security Governance Team",
     "engagement_id": "REM-P0-006-ASSESSMENT-2026-07-26",
@@ -77,7 +77,7 @@
     "medium": {
       "open": 1,
       "closed": 0,
-      "residual_accepted": 1
+      "residual_accepted": 0
     },
     "low": {
       "open": 0,
@@ -85,16 +85,7 @@
       "residual_accepted": 0
     }
   },
-  "residual_risks": [
-    {
-      "id": "RESIDUAL-001",
-      "description": "Defensive HTTP headers missing on frontend (CSP/X-Frame-Options)",
-      "severity": "medium",
-      "acceptance_rationale": "Not a critical security vulnerability; HSTS and X-Content-Type-Options are present",
-      "accepted_by": "Security Governance",
-      "accepted_at": "2026-07-26T13:59:49Z"
-    }
-  ],
+  "residual_risks": [],
   "approvals": {
     "independent_assessor": {
       "decision": "PENDING",

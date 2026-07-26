@@ -9,11 +9,11 @@
       "title": "Independent Assessor Appointment",
       "workstream": "governance",
       "coverage_case_ids": [],
-      "location": "artifact:rem-p0-006-technical-assessment-30203865532",
-      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "location": "external:artifact:rem-p0-006-technical-assessment-30203865532",
+      "sha256": "sha256:396c30e0ce45d0ee3e563518716a4accff6095b6f0d1289eca853918009f19f0",
       "created_at": "2026-07-26T13:59:49Z",
       "created_by": "Security Governance Team",
-      "classification": "INTERNAL",
+      "classification": "RESTRICTED_EXTERNAL_REFERENCE",
       "sanitized": true,
       "assessed_release_sha": "9d07042fbbb4d86d2ae8178d061d4b627edd385c"
     },
@@ -23,11 +23,11 @@
       "title": "Assessor Independence Attestation",
       "workstream": "governance",
       "coverage_case_ids": [],
-      "location": "artifact:rem-p0-006-technical-assessment-30203865532",
-      "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "location": "external:artifact:rem-p0-006-technical-assessment-30203865532",
+      "sha256": "sha256:396c30e0ce45d0ee3e563518716a4accff6095b6f0d1289eca853918009f19f0",
       "created_at": "2026-07-26T13:59:49Z",
       "created_by": "Independent Assessor",
-      "classification": "INTERNAL",
+      "classification": "RESTRICTED_EXTERNAL_REFERENCE",
       "sanitized": true,
       "assessed_release_sha": "9d07042fbbb4d86d2ae8178d061d4b627edd385c"
     },
@@ -41,11 +41,11 @@
         "PEN-02",
         "PEN-03"
       ],
-      "location": "artifact:rem-p0-006-technical-assessment-30203865532/dast/safe-http.json",
-      "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "location": "external:artifact:rem-p0-006-technical-assessment-30203865532/dast/safe-http.json",
+      "sha256": "sha256:79aeacc7a3c75aff81de3d67c44db52a8a5b1010dc5d61680e50056d60077503",
       "created_at": "2026-07-26T13:59:49Z",
       "created_by": "Assessment Workflow",
-      "classification": "INTERNAL",
+      "classification": "RESTRICTED_EXTERNAL_REFERENCE",
       "sanitized": true,
       "assessed_release_sha": "9d07042fbbb4d86d2ae8178d061d4b627edd385c"
     },
@@ -58,11 +58,11 @@
         "BUS-01",
         "BUS-02"
       ],
-      "location": "artifact:rem-p0-006-technical-assessment-30203865532/workflows/business_e2e-run.json",
-      "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "location": "external:artifact:rem-p0-006-technical-assessment-30203865532/workflows/business_e2e-run.json",
+      "sha256": "sha256:76a4416187ab189e4ce28a0311bdc1bc8b6ae97893f2d0ea107369e5a597ad78",
       "created_at": "2026-07-26T13:59:49Z",
       "created_by": "Assessment Workflow",
-      "classification": "INTERNAL",
+      "classification": "RESTRICTED_EXTERNAL_REFERENCE",
       "sanitized": true,
       "assessed_release_sha": "9d07042fbbb4d86d2ae8178d061d4b627edd385c"
     },
@@ -77,11 +77,11 @@
         "TEN-03",
         "TEN-04"
       ],
-      "location": "artifact:rem-p0-006-technical-assessment-30203865532/crm/crm008r-production-smoke-sanitized.json",
-      "sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "location": "external:artifact:rem-p0-006-technical-assessment-30203865532/crm/crm008r-production-smoke-sanitized.json",
+      "sha256": "sha256:452151a55cf1947026c3280cee8cd6849136cec2c7ffd4a3df7ad98276f8e15b",
       "created_at": "2026-07-26T13:59:49Z",
       "created_by": "Assessment Workflow",
-      "classification": "INTERNAL",
+      "classification": "RESTRICTED_EXTERNAL_REFERENCE",
       "sanitized": true,
       "assessed_release_sha": "9d07042fbbb4d86d2ae8178d061d4b627edd385c"
     },
@@ -96,11 +96,11 @@
         "CFG-03",
         "AUD-01"
       ],
-      "location": "artifact:rem-p0-006-technical-assessment-30203865532/workflows/security_baseline-run.json",
-      "sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "location": "external:artifact:rem-p0-006-technical-assessment-30203865532/workflows/security_baseline-run.json",
+      "sha256": "sha256:1f36c8f04bd1ce90f7122b1d29b59d2381f4858b35132564216140d4a6262483",
       "created_at": "2026-07-26T13:59:49Z",
       "created_by": "Assessment Workflow",
-      "classification": "INTERNAL",
+      "classification": "RESTRICTED_EXTERNAL_REFERENCE",
       "sanitized": true,
       "assessed_release_sha": "9d07042fbbb4d86d2ae8178d061d4b627edd385c"
     },
@@ -113,11 +113,11 @@
         "SUP-01",
         "SUP-02"
       ],
-      "location": "artifact:rem-p0-006-technical-assessment-30203865532/workflows/owasp-run.json",
-      "sha256": "sha256:1010101010101010101010101010101010101010101010101010101010101010",
+      "location": "external:artifact:rem-p0-006-technical-assessment-30203865532/workflows/owasp-run.json",
+      "sha256": "sha256:26e008f8c1683f40acf06669aa887c9bb58ec14817650bcbf24a59c00a0935b5",
       "created_at": "2026-07-26T13:59:49Z",
       "created_by": "Assessment Workflow",
-      "classification": "INTERNAL",
+      "classification": "RESTRICTED_EXTERNAL_REFERENCE",
       "sanitized": true,
       "assessed_release_sha": "9d07042fbbb4d86d2ae8178d061d4b627edd385c"
     },
@@ -130,13 +130,13 @@
         "PRI-01",
         "PRI-02"
       ],
-      "location": "docs/security/independent-assurance/THREAT-MODEL.md",
-      "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "location": "external:docs/security/independent-assurance/THREAT-MODEL.md",
       "created_at": "2026-07-26T13:59:49Z",
       "created_by": "Independent Assessor",
-      "classification": "INTERNAL",
-      "sanitized": true,
-      "assessed_release_sha": "9d07042fbbb4d86d2ae8178d061d4b627edd385c"
+      "classification": "RESTRICTED_EXTERNAL_REFERENCE",
+      "assessed_release_sha": "9d07042fbbb4d86d2ae8178d061d4b627edd385c",
+      "sha256": "sha256:86d4f7d84ef8fa5d92c8088549f46ac6aa6001f7df2afca3d8e827e60e33ccc7",
+      "sanitized": true
     },
     {
       "id": "EV-RET-001",
@@ -147,11 +147,11 @@
         "RET-01",
         "RET-02"
       ],
-      "location": "artifact:rem-p0-006-technical-assessment-30203865532/run-context.json",
-      "sha256": "sha256:1212121212121212121212121212121212121212121212121212121212121212",
+      "location": "external:artifact:rem-p0-006-technical-assessment-30203865532/run-context.json",
+      "sha256": "sha256:4b459337a4c6e58c6d832a62f137923223c6398f2ef797e867bc05e499cdd435",
       "created_at": "2026-07-26T13:59:49Z",
       "created_by": "Assessment Workflow",
-      "classification": "INTERNAL",
+      "classification": "RESTRICTED_EXTERNAL_REFERENCE",
       "sanitized": true,
       "assessed_release_sha": "9d07042fbbb4d86d2ae8178d061d4b627edd385c"
     }
