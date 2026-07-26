@@ -32,8 +32,9 @@ The validator rejects missing coverage, self-declared finding counts, reused cro
 1. Keep `closure_state=NOT_READY` during appointment, testing and remediation.
 2. Set `READY_FOR_APPROVAL` only after every required case passes, the findings register is complete, every workstream has dedicated evidence and all material findings pass independent retest.
 3. Obtain three separate approvals: independent assessor, Security Governance and Project Owner.
-4. Run workflow dispatch in `closure` mode on `main`, supplying the exact assessed release SHA. The job is bound to the protected `rem-p0-006-closure` GitHub Environment.
-5. Publish a separate dated closure decision. Only that governed change may set `ACCEPTED` and update current-status authorities.
+4. Configure the `rem-p0-006-closure` GitHub Environment outside the workflow with required reviewers/protection rules and the environment secret `REM_P0_006_CLOSURE_AUTHORITY_TOKEN`. Closure fails when the authority secret is absent.
+5. Run workflow dispatch in `closure` mode on `main`, supplying the exact assessed release SHA.
+6. Publish a separate dated closure decision. Only that governed change may set `ACCEPTED` and update current-status authorities.
 
 ## Validation commands
 
