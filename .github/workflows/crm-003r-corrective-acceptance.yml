@@ -78,3 +78,37 @@ jobs:
             apps/sanad-platform/target/surefire-reports
           if-no-files-found: error
           retention-days: 30
+
+  governance-drift:
+    name: CRM governance drift diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove checked-out SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          actual="$(git rev-parse HEAD)"
+          echo "expected=$expected actual=$actual"
+          test "$actual" = "$expected"
+
+      - name: Run governance drift check
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/crm/governance-drift-check.sh 2>&1 | tee crm-003r-governance.log
+
+      - name: Upload governance diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-003r-governance-${{ github.event.pull_request.head.sha || github.sha }}
+          path: crm-003r-governance.log
+          if-no-files-found: error
+          retention-days: 30
