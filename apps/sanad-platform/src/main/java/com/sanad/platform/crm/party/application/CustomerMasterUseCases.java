@@ -185,19 +185,19 @@ public class CustomerMasterUseCases {
 
     private UpdateCustomerMasterCommand normalizeProfile(UpdateCustomerMasterCommand command) {
         if (command == null) throw validation("Customer master payload is required.");
-        String legalName = clean(command.legalName(), 240);
-        String tradingName = clean(command.tradingName(), 240);
-        String registrationNumber = clean(command.registrationNumber(), 120);
-        String taxNumber = clean(command.taxNumber(), 120);
-        String industryCode = clean(command.industryCode(), 80);
-        String customerSegment = clean(command.customerSegment(), 80);
-        String tier = upper(clean(command.customerTier(), 40));
-        String website = clean(command.website(), 500);
-        String email = lower(clean(command.primaryEmail(), 255));
-        String phone = clean(command.primaryPhone(), 64);
-        String country = upper(clean(command.countryCode(), 2));
-        String risk = upper(clean(command.riskRating(), 24));
-        if (email != null && !EMAIL.matcher(email).matches()) {
+        String legalName = optional(command.legalName(), 240);
+        String tradingName = optional(command.tradingName(), 240);
+        String registrationNumber = optional(command.registrationNumber(), 120);
+        String taxNumber = optional(command.taxNumber(), 120);
+        String industryCode = optional(command.industryCode(), 80);
+        String customerSegment = optional(command.customerSegment(), 80);
+        String tier = upper(optional(command.customerTier(), 40));
+        String website = optional(command.website(), 500);
+        String email = lower(optional(command.primaryEmail(), 255));
+        String phone = optional(command.primaryPhone(), 64);
+        String country = upper(optional(command.countryCode(), 2));
+        String risk = upper(optional(command.riskRating(), 24));
+        if (email != null && !email.isBlank() && !EMAIL.matcher(email).matches()) {
             throw validation("primaryEmail is invalid.");
         }
         if (country != null && !country.matches("[A-Z]{2}")) {
@@ -291,11 +291,15 @@ public class CustomerMasterUseCases {
         if (value == null || value.isBlank()) throw validation(field + " is required.");
         return clean(value, max);
     }
-    private static String clean(String value, int max) {
+    private static String optional(String value, int max) {
         if (value == null) return null;
         String cleaned = value.trim();
         if (cleaned.length() > max) throw validation("Value exceeds maximum length " + max + ".");
-        return cleaned.isEmpty() ? null : cleaned;
+        return cleaned;
+    }
+    private static String clean(String value, int max) {
+        String cleaned = optional(value, max);
+        return cleaned == null || cleaned.isEmpty() ? null : cleaned;
     }
     private static CrmContractException validation(String message) {
         return new CrmContractException(CrmErrorCode.VALIDATION_ERROR, message);
