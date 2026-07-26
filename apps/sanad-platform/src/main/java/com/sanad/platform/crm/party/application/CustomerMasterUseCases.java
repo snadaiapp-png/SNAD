@@ -53,6 +53,10 @@ public class CustomerMasterUseCases {
         return repository.listAddresses(tenantId, accountId);
     }
 
+    public AccountAddress getAddress(UUID tenantId, UUID accountId, UUID addressId) {
+        return repository.findAddress(tenantId, accountId, addressId);
+    }
+
     public List<AccountIdentifier> listIdentifiers(UUID tenantId, UUID accountId) {
         return repository.listIdentifiers(tenantId, accountId);
     }
@@ -72,9 +76,10 @@ public class CustomerMasterUseCases {
             UUID accountId,
             UpdateCustomerMasterCommand command,
             long expectedVersion) {
-        validateProfile(command);
+        UpdateCustomerMasterCommand normalized = normalizeProfile(command);
         CustomerMasterProfile before = repository.findProfile(tenantId, accountId);
-        CustomerMasterProfile updated = repository.updateProfile(tenantId, actorId, accountId, command, expectedVersion);
+        CustomerMasterProfile updated = repository.updateProfile(
+                tenantId, actorId, accountId, normalized, expectedVersion);
         Instant now = Instant.now();
         audit.record(tenantId, actorId, "UPDATE_CUSTOMER_MASTER", "ACCOUNT", accountId,
                 new AuditChange(json(before), json(updated)), now);
@@ -86,8 +91,8 @@ public class CustomerMasterUseCases {
     @Transactional
     public AccountAddress addAddress(
             UUID tenantId, UUID actorId, UUID accountId, CreateAddressCommand command) {
-        validateAddress(command);
-        AccountAddress address = repository.addAddress(tenantId, actorId, accountId, command);
+        CreateAddressCommand normalized = normalizeAddress(command);
+        AccountAddress address = repository.addAddress(tenantId, actorId, accountId, normalized);
         Instant now = Instant.now();
         audit.record(tenantId, actorId, "CREATE_ADDRESS", "ACCOUNT_ADDRESS", address.id(),
                 new AuditChange(null, json(address)), now);
@@ -97,8 +102,13 @@ public class CustomerMasterUseCases {
     }
 
     @Transactional
-    public void deactivateAddress(UUID tenantId, UUID actorId, UUID accountId, UUID addressId) {
-        repository.deactivateAddress(tenantId, actorId, accountId, addressId);
+    public void deactivateAddress(
+            UUID tenantId,
+            UUID actorId,
+            UUID accountId,
+            UUID addressId,
+            long expectedVersion) {
+        repository.deactivateAddress(tenantId, actorId, accountId, addressId, expectedVersion);
         Instant now = Instant.now();
         audit.record(tenantId, actorId, "DEACTIVATE_ADDRESS", "ACCOUNT_ADDRESS", addressId,
                 new AuditChange(null, mapper.createObjectNode().put("active", false)), now);
@@ -109,8 +119,8 @@ public class CustomerMasterUseCases {
     @Transactional
     public AccountIdentifier addIdentifier(
             UUID tenantId, UUID actorId, UUID accountId, CreateIdentifierCommand command) {
-        validateIdentifier(command);
-        AccountIdentifier identifier = repository.addIdentifier(tenantId, actorId, accountId, command);
+        CreateIdentifierCommand normalized = normalizeIdentifier(command);
+        AccountIdentifier identifier = repository.addIdentifier(tenantId, actorId, accountId, normalized);
         Instant now = Instant.now();
         audit.record(tenantId, actorId, "CREATE_IDENTIFIER", "ACCOUNT_IDENTIFIER", identifier.id(),
                 new AuditChange(null, json(identifier)), now);
@@ -122,8 +132,8 @@ public class CustomerMasterUseCases {
     @Transactional
     public AccountRelationship addRelationship(
             UUID tenantId, UUID actorId, UUID accountId, CreateRelationshipCommand command) {
-        validateRelationship(command);
-        AccountRelationship relationship = repository.addRelationship(tenantId, actorId, accountId, command);
+        CreateRelationshipCommand normalized = normalizeRelationship(command);
+        AccountRelationship relationship = repository.addRelationship(tenantId, actorId, accountId, normalized);
         Instant now = Instant.now();
         audit.record(tenantId, actorId, "CREATE_RELATIONSHIP", "ACCOUNT_RELATIONSHIP", relationship.id(),
                 new AuditChange(null, json(relationship)), now);
@@ -144,10 +154,14 @@ public class CustomerMasterUseCases {
         if (sourceAccountId == null || targetAccountId == null) {
             throw validation("Source and target account IDs are required.");
         }
+        if (sourceAccountId.equals(targetAccountId)) {
+            throw validation("Source and target accounts must differ.");
+        }
+        String normalizedReason = required(reason, 500, "reason");
         CustomerMasterProfile sourceBefore = repository.findProfile(tenantId, sourceAccountId);
         CustomerMasterProfile targetBefore = repository.findProfile(tenantId, targetAccountId);
         MergeResult result = repository.mergeAccounts(tenantId, actorId, sourceAccountId, targetAccountId,
-                expectedSourceVersion, expectedTargetVersion, clean(reason, 500));
+                expectedSourceVersion, expectedTargetVersion, normalizedReason);
         Instant now = result.mergedAt();
         var mergeState = mapper.createObjectNode()
                 .put("sourceAccountId", sourceAccountId.toString())
@@ -169,79 +183,109 @@ public class CustomerMasterUseCases {
         return result;
     }
 
-    private void validateProfile(UpdateCustomerMasterCommand command) {
+    private UpdateCustomerMasterCommand normalizeProfile(UpdateCustomerMasterCommand command) {
         if (command == null) throw validation("Customer master payload is required.");
-        clean(command.legalName(), 240);
-        clean(command.tradingName(), 240);
-        clean(command.registrationNumber(), 120);
-        clean(command.taxNumber(), 120);
-        clean(command.industryCode(), 80);
-        clean(command.customerSegment(), 80);
-        clean(command.website(), 500);
-        clean(command.primaryPhone(), 64);
-        if (command.primaryEmail() != null && !command.primaryEmail().isBlank()
-                && !EMAIL.matcher(command.primaryEmail().trim()).matches()) {
+        String legalName = clean(command.legalName(), 240);
+        String tradingName = clean(command.tradingName(), 240);
+        String registrationNumber = clean(command.registrationNumber(), 120);
+        String taxNumber = clean(command.taxNumber(), 120);
+        String industryCode = clean(command.industryCode(), 80);
+        String customerSegment = clean(command.customerSegment(), 80);
+        String tier = upper(clean(command.customerTier(), 40));
+        String website = clean(command.website(), 500);
+        String email = lower(clean(command.primaryEmail(), 255));
+        String phone = clean(command.primaryPhone(), 64);
+        String country = upper(clean(command.countryCode(), 2));
+        String risk = upper(clean(command.riskRating(), 24));
+        if (email != null && !EMAIL.matcher(email).matches()) {
             throw validation("primaryEmail is invalid.");
         }
-        if (command.countryCode() != null && !command.countryCode().matches("(?i)[A-Z]{2}")) {
+        if (country != null && !country.matches("[A-Z]{2}")) {
             throw validation("countryCode must be an ISO 3166-1 alpha-2 code.");
         }
-        if (command.riskRating() != null && !RISK_RATINGS.contains(upper(command.riskRating()))) {
+        if (risk != null && !RISK_RATINGS.contains(risk)) {
             throw validation("riskRating is invalid.");
         }
-        if (command.customerTier() != null && !TIERS.contains(upper(command.customerTier()))) {
+        if (tier != null && !TIERS.contains(tier)) {
             throw validation("customerTier is invalid.");
         }
-        BigDecimal limit = command.creditLimit();
-        if (limit != null && limit.signum() < 0) throw validation("creditLimit cannot be negative.");
+        BigDecimal creditLimit = command.creditLimit();
+        if (creditLimit != null) {
+            if (creditLimit.signum() < 0) throw validation("creditLimit cannot be negative.");
+            int integerDigits = creditLimit.precision() - creditLimit.scale();
+            if (creditLimit.scale() > 2 || integerDigits > 16) {
+                throw validation("creditLimit must fit NUMERIC(18,2).");
+            }
+        }
         Integer terms = command.paymentTermsDays();
         if (terms != null && (terms < 0 || terms > 365)) {
             throw validation("paymentTermsDays must be between 0 and 365.");
         }
+        return new UpdateCustomerMasterCommand(
+                legalName, tradingName, registrationNumber, taxNumber, industryCode,
+                customerSegment, tier, website, email, phone, country, risk, creditLimit, terms);
     }
 
-    private void validateAddress(CreateAddressCommand command) {
+    private CreateAddressCommand normalizeAddress(CreateAddressCommand command) {
         if (command == null) throw validation("Address payload is required.");
-        if (!ADDRESS_TYPES.contains(upper(command.addressType()))) throw validation("addressType is invalid.");
-        required(command.line1(), 240, "line1");
-        required(command.city(), 120, "city");
-        if (command.countryCode() == null || !command.countryCode().matches("(?i)[A-Z]{2}")) {
+        String type = upper(required(command.addressType(), 24, "addressType"));
+        if (!ADDRESS_TYPES.contains(type)) throw validation("addressType is invalid.");
+        String line1 = required(command.line1(), 240, "line1");
+        String city = required(command.city(), 120, "city");
+        String country = upper(required(command.countryCode(), 2, "countryCode"));
+        if (!country.matches("[A-Z]{2}")) {
             throw validation("countryCode must be an ISO 3166-1 alpha-2 code.");
         }
-        clean(command.label(), 120);
-        clean(command.line2(), 240);
-        clean(command.stateRegion(), 120);
-        clean(command.postalCode(), 32);
+        return new CreateAddressCommand(
+                type,
+                clean(command.label(), 120),
+                line1,
+                clean(command.line2(), 240),
+                city,
+                clean(command.stateRegion(), 120),
+                clean(command.postalCode(), 32),
+                country,
+                command.primaryAddress());
     }
 
-    private void validateIdentifier(CreateIdentifierCommand command) {
+    private CreateIdentifierCommand normalizeIdentifier(CreateIdentifierCommand command) {
         if (command == null) throw validation("Identifier payload is required.");
-        if (!IDENTIFIER_TYPES.contains(upper(command.identifierType()))) {
+        String type = upper(required(command.identifierType(), 40, "identifierType"));
+        if (!IDENTIFIER_TYPES.contains(type)) {
             throw validation("identifierType is invalid.");
         }
-        required(command.identifierValue(), 180, "identifierValue");
-        if (command.issuerCountryCode() != null && !command.issuerCountryCode().matches("(?i)[A-Z]{2}")) {
+        String value = required(command.identifierValue(), 180, "identifierValue");
+        String country = upper(clean(command.issuerCountryCode(), 2));
+        if (country != null && !country.matches("[A-Z]{2}")) {
             throw validation("issuerCountryCode must be an ISO 3166-1 alpha-2 code.");
         }
+        return new CreateIdentifierCommand(type, value, country,
+                command.primaryIdentifier(), command.verified());
     }
 
-    private void validateRelationship(CreateRelationshipCommand command) {
+    private CreateRelationshipCommand normalizeRelationship(CreateRelationshipCommand command) {
         if (command == null || command.targetAccountId() == null) {
             throw validation("targetAccountId is required.");
         }
-        if (!RELATIONSHIP_TYPES.contains(upper(command.relationshipType()))) {
+        String type = upper(required(command.relationshipType(), 40, "relationshipType"));
+        if (!RELATIONSHIP_TYPES.contains(type)) {
             throw validation("relationshipType is invalid.");
         }
         if (command.effectiveFrom() != null && command.effectiveTo() != null
                 && command.effectiveTo().isBefore(command.effectiveFrom())) {
             throw validation("effectiveTo cannot precede effectiveFrom.");
         }
-        clean(command.notes(), 1000);
+        return new CreateRelationshipCommand(
+                command.targetAccountId(), type, command.effectiveFrom(), command.effectiveTo(),
+                clean(command.notes(), 1000));
     }
 
     private JsonNode json(Object value) { return value == null ? null : mapper.valueToTree(value); }
     private static String upper(String value) {
-        return value == null ? null : value.trim().toUpperCase(Locale.ROOT);
+        return value == null ? null : value.toUpperCase(Locale.ROOT);
+    }
+    private static String lower(String value) {
+        return value == null ? null : value.toLowerCase(Locale.ROOT);
     }
     private static String required(String value, int max, String field) {
         if (value == null || value.isBlank()) throw validation(field + " is required.");
