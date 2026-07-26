@@ -1,28 +1,7 @@
 {
   "schema_version": "2.0",
   "finding_id": "REM-P0-006",
-  "assessment_status": "COMPLETE",
+  "assessment_status": "NOT_STARTED",
   "severity_model": "CVSS-informed technical severity combined with tenant, financial, privacy, integrity and availability impact",
-  "findings": [
-    {
-      "id": "FIND-001",
-      "title": "Defensive HTTP headers missing on frontend",
-      "severity": "medium",
-      "affected_asset": "frontend",
-      "workstream": "production_configuration_and_secrets",
-      "coverage_case_ids": [
-        "CFG-01"
-      ],
-      "description": "Content-Security-Policy and X-Frame-Options headers not present on frontend. HSTS and X-Content-Type-Options are present.",
-      "reproduction_evidence_ids": [
-        "EV-CFG-001"
-      ],
-      "business_impact": "Low - existing HSTS and X-Content-Type-Options provide baseline browser protection",
-      "owner": "Security Governance",
-      "status": "OPEN",
-      "remediation_reference": "Add CSP and X-Frame-Options headers to frontend configuration",
-      "retest_status": "NOT_STARTED",
-      "retest_evidence_ids": []
-    }
-  ]
+  "findings": []
 }
