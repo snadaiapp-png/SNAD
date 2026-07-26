@@ -1,101 +1,122 @@
 package com.sanad.platform.crm.integration;
 
-import com.sanad.platform.crm.integration.application.CompositeConfirmedRecommendationCommandAdapter;
+import com.sanad.platform.crm.activity.application.ActivityUseCases;
 import com.sanad.platform.crm.integration.application.ConfirmedRecommendationCommandPort;
 import com.sanad.platform.crm.integration.application.CreateFollowUpActivityCommandAdapter;
 import com.sanad.platform.crm.integration.application.RequestOpportunityReviewCommandAdapter;
 import com.sanad.platform.crm.integration.application.ScheduleContactCommandAdapter;
-import com.sanad.platform.crm.integration.application.StubConfirmedRecommendationCommandAdapter;
+import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
+import com.sanad.platform.crm.task.application.TaskUseCases;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
-/**
- * CRM-009 unit test: real command adapters produce real side-effect
- * command references (not just {@code getById()} text references).
- *
- * <p>Verifies Item 5: each real adapter, when invoked, produces a
- * command reference that indicates a real artifact was created:</p>
- * <ul>
- *   <li>CREATE_FOLLOW_UP_ACTIVITY → "activity:..."</li>
- *   <li>SCHEDULE_CONTACT → "scheduled-activity:..."</li>
- *   <li>REQUEST_OPPORTUNITY_REVIEW → "review-task:..."</li>
- * </ul>
- *
- * <p>This is a static/contract test — it does NOT invoke the adapters
- * (which require a Spring context with real CRM repositories). It
- * verifies the command reference format by inspecting the adapter
- * source contracts and the stub's behaviour for comparison.</p>
- */
+/** Regression tests for CRM command adapter boundaries and rollback semantics. */
 class RealCommandAdaptersIntegrationTest {
 
-    @Test
-    void createFollowUpActivityAdapterProducesActivityReference() {
-        // The CreateFollowUpActivityCommandAdapter creates a real ActivityRepository
-        // record and returns "activity:<uuid>" as the command reference.
-        // We verify the format contract here.
-        String ref = "activity:" + UUID.randomUUID();
-        assertThat(ref).startsWith("activity:");
-        assertThat(UUID.fromString(ref.substring("activity:".length()))).isNotNull();
-    }
+    private static final List<Class<?>> ADAPTERS = List.of(
+            CreateFollowUpActivityCommandAdapter.class,
+            ScheduleContactCommandAdapter.class,
+            RequestOpportunityReviewCommandAdapter.class);
 
     @Test
-    void scheduleContactAdapterProducesScheduledActivityReference() {
-        // The ScheduleContactCommandAdapter creates a real SCHEDULED_CALL activity
-        // and returns "scheduled-activity:<uuid>".
-        String ref = "scheduled-activity:" + UUID.randomUUID();
-        assertThat(ref).startsWith("scheduled-activity:");
-        assertThat(UUID.fromString(ref.substring("scheduled-activity:".length()))).isNotNull();
-    }
+    void commandAdaptersDoNotDependOnJdbc() {
+        for (Class<?> adapter : ADAPTERS) {
+            assertThat(Arrays.stream(adapter.getDeclaredFields())
+                    .map(Field::getType)
+                    .map(Class::getName)
+                    .noneMatch(name -> name.startsWith("org.springframework.jdbc")))
+                    .as(adapter.getSimpleName() + " fields must not depend on JDBC")
+                    .isTrue();
 
-    @Test
-    void requestOpportunityReviewAdapterProducesReviewTaskReference() {
-        // The RequestOpportunityReviewCommandAdapter creates a real TaskRepository
-        // review task and returns "review-task:<uuid>".
-        String ref = "review-task:" + UUID.randomUUID();
-        assertThat(ref).startsWith("review-task:");
-        assertThat(UUID.fromString(ref.substring("review-task:".length()))).isNotNull();
-    }
-
-    @Test
-    void stubAdapterProducesGenericReference() {
-        // For comparison — the stub produces "CREATE_FOLLOW_UP_ACTIVITY:<uuid>"
-        // which is NOT a real artifact reference.
-        StubConfirmedRecommendationCommandAdapter stub = new StubConfirmedRecommendationCommandAdapter();
-        ConfirmedRecommendationCommandPort.ConfirmedRecommendation rec =
-                new ConfirmedRecommendationCommandPort.ConfirmedRecommendation(
-                        UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                        "CREATE_FOLLOW_UP_ACTIVITY", "ACCOUNT", UUID.randomUUID(),
-                        0L, "corr", UUID.randomUUID());
-        ConfirmedRecommendationCommandPort.CommandExecutionResult result = stub.execute(rec);
-        assertThat(result.success()).isTrue();
-        assertThat(result.commandReference()).startsWith("CREATE_FOLLOW_UP_ACTIVITY:");
-        // Note: this is a stub reference, NOT a real activity reference
-        assertThat(result.commandReference()).doesNotStartWith("activity:");
-    }
-
-    @Test
-    void realAdaptersHaveJdbcDependency() {
-        // Real adapters require JdbcTemplate + CrmIntegrationStore in their
-        // constructor — this is what enables them to perform atomic artifact
-        // idempotency via the crm_integration_command_artifacts table.
-        try {
-            CreateFollowUpActivityCommandAdapter.class.getConstructor(
-                    com.sanad.platform.crm.activity.application.ActivityUseCases.class,
-                    org.springframework.jdbc.core.JdbcTemplate.class,
-                    com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore.class);
-            ScheduleContactCommandAdapter.class.getConstructor(
-                    com.sanad.platform.crm.activity.application.ActivityUseCases.class,
-                    org.springframework.jdbc.core.JdbcTemplate.class,
-                    com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore.class);
-            RequestOpportunityReviewCommandAdapter.class.getConstructor(
-                    com.sanad.platform.crm.task.application.TaskUseCases.class,
-                    org.springframework.jdbc.core.JdbcTemplate.class,
-                    com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore.class);
-        } catch (NoSuchMethodException e) {
-            throw new AssertionError("Real adapter missing required constructor with JdbcTemplate + CrmIntegrationStore: " + e.getMessage(), e);
+            assertThat(Arrays.stream(adapter.getConstructors())
+                    .map(Constructor::getParameterTypes)
+                    .flatMap(Arrays::stream)
+                    .map(Class::getName)
+                    .noneMatch(name -> name.startsWith("org.springframework.jdbc")))
+                    .as(adapter.getSimpleName() + " constructor must not depend on JDBC")
+                    .isTrue();
         }
+    }
+
+    @Test
+    void commandExecutionMethodsOwnExplicitTransactionBoundaries() throws Exception {
+        for (Class<?> adapter : ADAPTERS) {
+            Method execute = adapter.getMethod("execute",
+                    ConfirmedRecommendationCommandPort.ConfirmedRecommendation.class);
+            assertThat(execute.getAnnotation(Transactional.class))
+                    .as(adapter.getSimpleName() + " execute must remain transactional")
+                    .isNotNull();
+        }
+    }
+
+    @Test
+    void followUpInfrastructureFailurePropagatesForRollback() {
+        CrmIntegrationStore store = mock(CrmIntegrationStore.class);
+        IllegalStateException failure = new IllegalStateException("reservation failed");
+        ConfirmedRecommendationCommandPort.ConfirmedRecommendation recommendation =
+                recommendation("CREATE_FOLLOW_UP_ACTIVITY", "ACCOUNT");
+        when(store.reserveOrGetArtifact(
+                recommendation.tenantId(), recommendation.decisionId(),
+                "CREATE_FOLLOW_UP_ACTIVITY", "ACTIVITY"))
+                .thenThrow(failure);
+
+        CreateFollowUpActivityCommandAdapter adapter =
+                new CreateFollowUpActivityCommandAdapter(mock(ActivityUseCases.class), store);
+
+        assertThatThrownBy(() -> adapter.execute(recommendation)).isSameAs(failure);
+    }
+
+    @Test
+    void scheduleInfrastructureFailurePropagatesForRollback() {
+        CrmIntegrationStore store = mock(CrmIntegrationStore.class);
+        IllegalStateException failure = new IllegalStateException("reservation failed");
+        ConfirmedRecommendationCommandPort.ConfirmedRecommendation recommendation =
+                recommendation("SCHEDULE_CONTACT", "CONTACT");
+        when(store.reserveOrGetArtifact(
+                recommendation.tenantId(), recommendation.decisionId(),
+                "SCHEDULE_CONTACT", "SCHEDULED_ACTIVITY"))
+                .thenThrow(failure);
+
+        ScheduleContactCommandAdapter adapter =
+                new ScheduleContactCommandAdapter(mock(ActivityUseCases.class), store);
+
+        assertThatThrownBy(() -> adapter.execute(recommendation)).isSameAs(failure);
+    }
+
+    @Test
+    void reviewInfrastructureFailurePropagatesForRollback() {
+        CrmIntegrationStore store = mock(CrmIntegrationStore.class);
+        IllegalStateException failure = new IllegalStateException("reservation failed");
+        ConfirmedRecommendationCommandPort.ConfirmedRecommendation recommendation =
+                recommendation("REQUEST_OPPORTUNITY_REVIEW", "OPPORTUNITY");
+        when(store.reserveOrGetArtifact(
+                recommendation.tenantId(), recommendation.decisionId(),
+                "REQUEST_OPPORTUNITY_REVIEW", "REVIEW_TASK"))
+                .thenThrow(failure);
+
+        RequestOpportunityReviewCommandAdapter adapter =
+                new RequestOpportunityReviewCommandAdapter(mock(TaskUseCases.class), store);
+
+        assertThatThrownBy(() -> adapter.execute(recommendation)).isSameAs(failure);
+    }
+
+    private static ConfirmedRecommendationCommandPort.ConfirmedRecommendation recommendation(
+            String actionCode, String entityType) {
+        return new ConfirmedRecommendationCommandPort.ConfirmedRecommendation(
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                actionCode, entityType, UUID.randomUUID(),
+                1L, "correlation", UUID.randomUUID());
     }
 }
