@@ -45,10 +45,7 @@ public class JdbcCustomerMasterRepository implements CustomerMasterRepository {
             UUID accountId,
             UpdateCustomerMasterCommand command,
             long expectedVersion) {
-        CustomerMasterProfile current = findProfile(tenantId, accountId);
-        if (current.mergedIntoAccountId() != null) {
-            throw new CrmContractException(CrmErrorCode.CONFLICT, "Merged customer records cannot be modified.");
-        }
+        CustomerMasterProfile current = requireMutableProfile(tenantId, accountId);
         String legalName = value(command.legalName(), current.legalName(), current.displayName());
         String tradingName = value(command.tradingName(), current.tradingName(), null);
         String registrationNumber = value(command.registrationNumber(), current.registrationNumber(), null);
@@ -72,7 +69,8 @@ public class JdbcCustomerMasterRepository implements CustomerMasterRepository {
                         "primary_phone=:phone,country_code=:country,risk_rating=:risk,credit_limit=:creditLimit," +
                         "payment_terms_days=:paymentTerms,data_quality_score=:quality,updated_by=:actorId," +
                         "updated_at=:now,version=version+1 " +
-                        "WHERE tenant_id=:tenantId AND id=:accountId AND version=:expectedVersion",
+                        "WHERE tenant_id=:tenantId AND id=:accountId AND version=:expectedVersion " +
+                        "AND lifecycle_status<>'ARCHIVED' AND merged_into_account_id IS NULL",
                 p().addValue("tenantId", tenantId).addValue("accountId", accountId)
                         .addValue("expectedVersion", expectedVersion).addValue("actorId", actorId)
                         .addValue("legalName", legalName).addValue("tradingName", tradingName)
@@ -97,11 +95,23 @@ public class JdbcCustomerMasterRepository implements CustomerMasterRepository {
     }
 
     @Override
+    public AccountAddress findAddress(UUID tenantId, UUID accountId, UUID addressId) {
+        try {
+            return mapAddress(jdbc.queryForMap(
+                    "SELECT * FROM crm_account_addresses WHERE tenant_id=:tenantId AND account_id=:accountId AND id=:id",
+                    p().addValue("tenantId", tenantId).addValue("accountId", accountId).addValue("id", addressId)));
+        } catch (org.springframework.dao.EmptyResultDataAccessException exception) {
+            throw new CrmContractException(CrmErrorCode.RESOURCE_NOT_FOUND, "Address not found.");
+        }
+    }
+
+    @Override
     public AccountAddress addAddress(UUID tenantId, UUID actorId, UUID accountId, CreateAddressCommand command) {
-        findProfile(tenantId, accountId);
+        requireMutableProfile(tenantId, accountId);
         Instant now = Instant.now();
         UUID id = UUID.randomUUID();
         if (command.primaryAddress()) {
+            lockAccount(tenantId, accountId);
             jdbc.update("UPDATE crm_account_addresses SET primary_address=FALSE,updated_by=:actorId,updated_at=:now," +
                             "version=version+1 WHERE tenant_id=:tenantId AND account_id=:accountId AND active=TRUE",
                     p().addValue("tenantId", tenantId).addValue("accountId", accountId)
@@ -123,14 +133,23 @@ public class JdbcCustomerMasterRepository implements CustomerMasterRepository {
     }
 
     @Override
-    public void deactivateAddress(UUID tenantId, UUID actorId, UUID accountId, UUID addressId) {
+    public void deactivateAddress(
+            UUID tenantId,
+            UUID actorId,
+            UUID accountId,
+            UUID addressId,
+            long expectedVersion) {
+        requireMutableProfile(tenantId, accountId);
         int updated = jdbc.update(
                 "UPDATE crm_account_addresses SET active=FALSE,primary_address=FALSE,updated_by=:actorId," +
                         "updated_at=:now,version=version+1 WHERE tenant_id=:tenantId AND account_id=:accountId " +
-                        "AND id=:addressId AND active=TRUE",
+                        "AND id=:addressId AND active=TRUE AND version=:expectedVersion",
                 p().addValue("tenantId", tenantId).addValue("accountId", accountId).addValue("addressId", addressId)
+                        .addValue("expectedVersion", expectedVersion)
                         .addValue("actorId", actorId).addValue("now", Timestamp.from(Instant.now())));
-        if (updated != 1) throw new CrmContractException(CrmErrorCode.RESOURCE_NOT_FOUND, "Address not found.");
+        if (updated == 1) return;
+        findAddress(tenantId, accountId, addressId);
+        throw new CrmContractException(CrmErrorCode.CRM_CONCURRENCY_CONFLICT);
     }
 
     @Override
@@ -146,7 +165,7 @@ public class JdbcCustomerMasterRepository implements CustomerMasterRepository {
     @Override
     public AccountIdentifier addIdentifier(
             UUID tenantId, UUID actorId, UUID accountId, CreateIdentifierCommand command) {
-        findProfile(tenantId, accountId);
+        requireMutableProfile(tenantId, accountId);
         String normalized = normalizeIdentity(command.identifierValue());
         Long duplicates = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_account_identifiers WHERE tenant_id=:tenantId AND identifier_type=:type " +
@@ -158,6 +177,7 @@ public class JdbcCustomerMasterRepository implements CustomerMasterRepository {
                     "The customer identifier is already assigned within this tenant.");
         }
         if (command.primaryIdentifier()) {
+            lockAccount(tenantId, accountId);
             jdbc.update("UPDATE crm_account_identifiers SET primary_identifier=FALSE WHERE tenant_id=:tenantId " +
                             "AND account_id=:accountId AND identifier_type=:type AND active=TRUE",
                     p().addValue("tenantId", tenantId).addValue("accountId", accountId)
@@ -191,8 +211,8 @@ public class JdbcCustomerMasterRepository implements CustomerMasterRepository {
     @Override
     public AccountRelationship addRelationship(
             UUID tenantId, UUID actorId, UUID accountId, CreateRelationshipCommand command) {
-        findProfile(tenantId, accountId);
-        findProfile(tenantId, command.targetAccountId());
+        requireMutableProfile(tenantId, accountId);
+        requireMutableProfile(tenantId, command.targetAccountId());
         if (accountId.equals(command.targetAccountId())) {
             throw new CrmContractException(CrmErrorCode.VALIDATION_ERROR, "An account cannot relate to itself.");
         }
@@ -250,11 +270,8 @@ public class JdbcCustomerMasterRepository implements CustomerMasterRepository {
         if (sourceAccountId.equals(targetAccountId)) {
             throw new CrmContractException(CrmErrorCode.VALIDATION_ERROR, "Source and target accounts must differ.");
         }
-        CustomerMasterProfile source = findProfile(tenantId, sourceAccountId);
-        CustomerMasterProfile target = findProfile(tenantId, targetAccountId);
-        if (source.mergedIntoAccountId() != null || target.mergedIntoAccountId() != null) {
-            throw new CrmContractException(CrmErrorCode.CONFLICT, "A merged account cannot participate in another merge.");
-        }
+        CustomerMasterProfile source = requireMutableProfile(tenantId, sourceAccountId);
+        CustomerMasterProfile target = requireMutableProfile(tenantId, targetAccountId);
         if (source.version() != expectedSourceVersion || target.version() != expectedTargetVersion) {
             throw new CrmContractException(CrmErrorCode.CRM_CONCURRENCY_CONFLICT);
         }
@@ -308,10 +325,11 @@ public class JdbcCustomerMasterRepository implements CustomerMasterRepository {
         int sourceUpdated = jdbc.update(
                 "UPDATE crm_accounts SET lifecycle_status='ARCHIVED',archived_at=:now,merged_into_account_id=:targetId," +
                         "updated_by=:actorId,updated_at=:now,version=version+1 WHERE tenant_id=:tenantId AND id=:sourceId " +
-                        "AND version=:sourceVersion",
+                        "AND version=:sourceVersion AND lifecycle_status<>'ARCHIVED' AND merged_into_account_id IS NULL",
                 params.addValue("sourceVersion", expectedSourceVersion));
         int targetUpdated = jdbc.update(
-                "UPDATE crm_accounts SET legal_name=COALESCE(legal_name,:sourceLegalName)," +
+                "UPDATE crm_accounts SET parent_account_id=CASE WHEN parent_account_id=:sourceId THEN NULL ELSE parent_account_id END," +
+                        "legal_name=COALESCE(legal_name,:sourceLegalName)," +
                         "trading_name=COALESCE(trading_name,:sourceTradingName)," +
                         "registration_number=COALESCE(registration_number,:sourceRegistrationNumber)," +
                         "tax_number=COALESCE(tax_number,:sourceTaxNumber)," +
@@ -324,7 +342,8 @@ public class JdbcCustomerMasterRepository implements CustomerMasterRepository {
                         "payment_terms_days=COALESCE(payment_terms_days,:sourcePaymentTerms)," +
                         "data_quality_score=CASE WHEN data_quality_score>:sourceQuality THEN data_quality_score ELSE :sourceQuality END," +
                         "updated_by=:actorId,updated_at=:now,version=version+1 " +
-                        "WHERE tenant_id=:tenantId AND id=:targetId AND version=:targetVersion",
+                        "WHERE tenant_id=:tenantId AND id=:targetId AND version=:targetVersion " +
+                        "AND lifecycle_status<>'ARCHIVED' AND merged_into_account_id IS NULL",
                 params.addValue("targetVersion", expectedTargetVersion));
         if (sourceUpdated != 1 || targetUpdated != 1) {
             throw new CrmContractException(CrmErrorCode.CRM_CONCURRENCY_CONFLICT);
@@ -349,14 +368,18 @@ public class JdbcCustomerMasterRepository implements CustomerMasterRepository {
                 addresses, identifiers, relationships, now);
     }
 
-    private AccountAddress findAddress(UUID tenantId, UUID accountId, UUID id) {
-        try {
-            return mapAddress(jdbc.queryForMap(
-                    "SELECT * FROM crm_account_addresses WHERE tenant_id=:tenantId AND account_id=:accountId AND id=:id",
-                    p().addValue("tenantId", tenantId).addValue("accountId", accountId).addValue("id", id)));
-        } catch (org.springframework.dao.EmptyResultDataAccessException exception) {
-            throw new CrmContractException(CrmErrorCode.RESOURCE_NOT_FOUND, "Address not found.");
+    private CustomerMasterProfile requireMutableProfile(UUID tenantId, UUID accountId) {
+        CustomerMasterProfile profile = findProfile(tenantId, accountId);
+        if (profile.mergedIntoAccountId() != null || "ARCHIVED".equals(profile.lifecycleStatus())) {
+            throw new CrmContractException(CrmErrorCode.CONFLICT, "Archived or merged customer records cannot be modified.");
         }
+        return profile;
+    }
+
+    private void lockAccount(UUID tenantId, UUID accountId) {
+        jdbc.queryForObject(
+                "SELECT version FROM crm_accounts WHERE tenant_id=:tenantId AND id=:accountId FOR UPDATE",
+                p().addValue("tenantId", tenantId).addValue("accountId", accountId), Long.class);
     }
 
     private AccountIdentifier findIdentifier(UUID tenantId, UUID accountId, UUID id) {
@@ -465,14 +488,15 @@ public class JdbcCustomerMasterRepository implements CustomerMasterRepository {
     private static int qualityScore(String legalName, String registrationNumber, String taxNumber, String email,
                                     String phone, String country, String industry, String segment) {
         int score = 0;
-        if (legalName != null) score += 20;
-        if (registrationNumber != null) score += 15;
-        if (taxNumber != null) score += 15;
-        if (email != null) score += 15;
-        if (phone != null) score += 10;
-        if (country != null) score += 10;
-        if (industry != null) score += 10;
-        if (segment != null) score += 5;
+        if (hasText(legalName)) score += 20;
+        if (hasText(registrationNumber)) score += 15;
+        if (hasText(taxNumber)) score += 15;
+        if (hasText(email)) score += 15;
+        if (hasText(phone)) score += 10;
+        if (hasText(country)) score += 10;
+        if (hasText(industry)) score += 10;
+        if (hasText(segment)) score += 5;
         return Math.min(score, 100);
     }
+    private static boolean hasText(String value) { return value != null && !value.isBlank(); }
 }
