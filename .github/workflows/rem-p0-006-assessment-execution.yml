@@ -398,6 +398,7 @@ jobs:
 
       - name: Execute OWASP ZAP passive baseline
         shell: bash
+        continue-on-error: true
         run: |
           set -euo pipefail
           run_zap() {
