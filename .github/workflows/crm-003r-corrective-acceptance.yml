@@ -47,7 +47,7 @@ jobs:
         run: |
           set -o pipefail
           mvn -B -ntp \
-            -Dtest=CrmCoreKeysetPaginationPostgresTest,CrmOpenApiRuntimeSemanticParityTest \
+            -Dtest=CrmCoreKeysetPaginationPostgresTest,CrmOpenApiRuntimeSemanticParityTest,CrmCustomFieldSortGuardAspectTest \
             -DfailIfNoTests=true \
             test 2>&1 | tee crm-003r-maven.log
 
@@ -63,7 +63,7 @@ jobs:
           errors=$(grep -h '<testsuite ' "${reports[@]}" | sed -E 's/.* errors="([0-9]+)".*/\1/' | awk '{sum += $1} END {print sum+0}')
           skipped=$(grep -h '<testsuite ' "${reports[@]}" | sed -E 's/.* skipped="([0-9]+)".*/\1/' | awk '{sum += $1} END {print sum+0}')
           echo "tests=$tests failures=$failures errors=$errors skipped=$skipped"
-          test "$tests" -ge 5
+          test "$tests" -ge 7
           test "$failures" -eq 0
           test "$errors" -eq 0
           test "$skipped" -eq 0
