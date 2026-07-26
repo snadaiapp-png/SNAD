@@ -1,0 +1,129 @@
+name: CRM-008R Bootstrap Closure Permission Fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/crm-008r-bootstrap-permission-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: crm-008r-bootstrap-permission-fix
+  cancel-in-progress: false
+
+jobs:
+  create-fix-pr:
+    name: Create audited CRM-008R closure workflow fix PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET: .github/workflows/crm-008r-final-production-closure.yml
+    steps:
+      - name: Checkout exact main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Apply exact governed replacements
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/crm-008r-final-production-closure.yml')
+          lines = path.read_text(encoding='utf-8').splitlines()
+
+          permission = '  actions: read'
+          if lines.count(permission) != 1:
+              raise SystemExit(f'Expected exactly one {permission!r}, found {lines.count(permission)}')
+          lines[lines.index(permission)] = '  actions: write'
+
+          start_line = '          test -n "$RENDER_OWNER_ID" || { echo "::error::Render owner ID unavailable"; exit 1; }'
+          end_line = '            > "$EVIDENCE_DIR/runtime-error-summary.json"'
+          if lines.count(start_line) != 1:
+              raise SystemExit(f'Expected exactly one Render owner guard, found {lines.count(start_line)}')
+          start = lines.index(start_line)
+          end_candidates = [i for i in range(start, len(lines)) if lines[i] == end_line]
+          if len(end_candidates) != 1:
+              raise SystemExit(f'Expected exactly one runtime summary block end, found {len(end_candidates)}')
+          end = end_candidates[0]
+
+          replacement = '''          if [ -z "$RENDER_OWNER_ID" ]; then
+            jq -n '{result:"SKIPPED_UPSTREAM_FAILURE",unexpected_crm_http_500:null}' > "$EVIDENCE_DIR/runtime-error-summary.json"
+          else
+            curl --get --fail-with-body --silent --show-error --max-time 45 \\
+              -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \\
+              --data-urlencode "ownerId=${RENDER_OWNER_ID}" \\
+              --data-urlencode "resource=${RENDER_SERVICE_ID}" \\
+              --data-urlencode "startTime=${CRM008R_STARTED_AT}" \\
+              --data-urlencode "endTime=${END_TIME}" \\
+              --data-urlencode "type=request" \\
+              --data-urlencode "statusCode=500" \\
+              --data-urlencode "limit=100" \\
+              https://api.render.com/v1/logs > "$EVIDENCE_DIR/render-500-logs.json"
+            CRM_500_COUNT="$(jq '[if type=="array" then .[] else (.logs // .items // [])[] end | tostring | select(test("/api/v2/crm"))] | length' "$EVIDENCE_DIR/render-500-logs.json")"
+            test "$CRM_500_COUNT" = 0 || { echo "::error::Unexpected CRM HTTP 500 count: ${CRM_500_COUNT}"; exit 1; }
+            jq -n --argjson count "$CRM_500_COUNT" '{result:"PASS",unexpected_crm_http_500:$count}' > "$EVIDENCE_DIR/runtime-error-summary.json"
+          fi'''.splitlines()
+          lines[start:end + 1] = replacement
+
+          failure_marker = 'CRM-008R Production FAILURE.'
+          if any(failure_marker in line for line in lines):
+              raise SystemExit('Failure issue-comment block already exists')
+          expected_tail = '          } >> "$GITHUB_STEP_SUMMARY"'
+          if lines[-1] != expected_tail:
+              raise SystemExit(f'Unexpected workflow tail: {lines[-1]!r}')
+          lines.extend([
+              '          if [ "$STATUS" != "success" ]; then',
+              '            gh issue comment 725 --repo "$GITHUB_REPOSITORY" --body "CRM-008R Production FAILURE. Release: ${GITHUB_SHA}. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. Artifact: ${ARTIFACT_URL:-not-created}. Issue remains open; no closure is authorized."',
+              '          fi',
+          ])
+
+          result = '\n'.join(lines) + '\n'
+          checks = {
+              'actions_write': result.count('  actions: write') == 1,
+              'actions_read_removed': '  actions: read' not in result,
+              'guarded_runtime_logs': result.count('SKIPPED_UPSTREAM_FAILURE') == 1,
+              'failure_comment': result.count(failure_marker) == 1,
+          }
+          if not all(checks.values()):
+              raise SystemExit(f'Post-patch validation failed: {checks}')
+          path.write_text(result, encoding='utf-8')
+          print(checks)
+          PY
+
+          git diff --check
+          git diff -- "$TARGET"
+
+      - name: Create fix branch and pull request
+        id: pr
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="fix/crm-008r-final-closure-actions-write-${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add "$TARGET"
+          git commit -m "fix(crm-008r): permit Render dispatch and preserve primary failure"
+          git push --set-upstream origin "$branch"
+          pr_url="$(gh pr create --base main --head "$branch" --draft \
+            --title "fix(crm-008r): repair final Production closure dispatch" \
+            --body "Fix the proven CRM-008R closure blocker from run 30180587377: grant actions:write for exact-SHA Render workflow dispatch, avoid a secondary Render-log failure when upstream dispatch is unavailable, and publish an explicit failure comment while keeping #725 open. No Production closure is claimed by this PR.")"
+          echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+          gh issue comment 725 --repo "$GITHUB_REPOSITORY" --body "CRM-008R workflow root-cause fix PR created: ${pr_url}. Proven failed run: 30180587377. Issue remains open; final closure is not authorized."
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo "## CRM-008R closure workflow fix" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source main SHA: ${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Fix PR: ${{ steps.pr.outputs.pr_url }}" >> "$GITHUB_STEP_SUMMARY"
