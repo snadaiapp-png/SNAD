@@ -143,7 +143,16 @@ CRM_G1_REPOSITORY_GATE: CLOSED
 NEXT_PROMPT_AUTHORIZED_HISTORICALLY: EXEC-PROMPT-CRM-003
 ```
 
-## 7. Governance boundary
+## 7. Known Limitations
+
+```text
+NONE for CRM-G1 requirements
+```
+
+This declaration is limited to the accepted CRM-G1 repository requirements and
+does not waive later-stage requirements or commercial release controls.
+
+## 8. Governance boundary
 
 This evidence closes the CRM-002 repository-delivery stage. It does not by
 itself grant commercial go-live approval and does not replace later production
