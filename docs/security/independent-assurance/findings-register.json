@@ -1,0 +1,7 @@
+{
+  "schema_version": "2.0",
+  "finding_id": "REM-P0-006",
+  "assessment_status": "NOT_STARTED",
+  "severity_model": "CVSS-informed technical severity combined with tenant, financial, privacy, integrity and availability impact",
+  "findings": []
+}
