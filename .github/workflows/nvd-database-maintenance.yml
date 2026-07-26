@@ -51,30 +51,23 @@ jobs:
           python scripts/security/verify_nvd_snapshot.py --help >/dev/null
 
       - name: Discover NVD snapshot contract tests
-        id: discover
         run: |
           set -euo pipefail
-          mapfile -t tests < <(
-            find tests/security scripts/security \
-              -type f \
-              \( -name 'test_*nvd*.py' -o -name 'test_*snapshot*.py' \) \
-              -print | sort -u
-          )
-          if [ "${#tests[@]}" -eq 0 ]; then
+          find tests/security scripts/security \
+            -type f \
+            \( -name 'test_*nvd*.py' -o -name 'test_*snapshot*.py' \) \
+            -print | sort -u > nvd-contract-tests.txt
+          test -s nvd-contract-tests.txt || {
             echo 'No NVD snapshot contract tests were found.' >&2
             exit 1
-          fi
-          printf '%s\n' "${tests[@]}" | tee nvd-contract-tests.txt
-          {
-            echo 'tests<<EOF'
-            printf '%s\n' "${tests[@]}"
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+          }
+          cat nvd-contract-tests.txt
 
       - name: Run NVD snapshot contract tests
         run: |
           set -euo pipefail
-          mapfile -t tests <<< "${{ steps.discover.outputs.tests }}"
+          mapfile -t tests < nvd-contract-tests.txt
+          test "${#tests[@]}" -gt 0
           pytest -q --maxfail=1 --junitxml=nvd-contract-results.xml "${tests[@]}"
 
       - name: Validate Dependency-Check integration
