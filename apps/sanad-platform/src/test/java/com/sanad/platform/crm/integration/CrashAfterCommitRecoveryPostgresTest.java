@@ -73,7 +73,7 @@ class CrashAfterCommitRecoveryPostgresTest {
         store = new CrmIntegrationStore(jdbc, mapper);
         JdbcActivityRepository activityRepo = new JdbcActivityRepository(new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(ds));
         ActivityUseCases activityUseCases = new ActivityUseCases(activityRepo, null);
-        realAdapter = new CreateFollowUpActivityCommandAdapter(activityUseCases, jdbc, store);
+        realAdapter = new CreateFollowUpActivityCommandAdapter(activityUseCases, store);
     }
 
     @BeforeEach
