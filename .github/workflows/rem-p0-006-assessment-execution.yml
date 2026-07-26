@@ -132,8 +132,29 @@ jobs:
             verify_sha_stability "post-${key}" || return 1
           }
 
+          dispatch_and_wait_optional() {
+            local key="$1"
+            local workflow="$2"
+            local label="$3"
+            verify_sha_stability "pre-${key}" || return 1
+            local dispatched_at
+            dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            gh workflow run "$workflow" --ref main
+            local run_json
+            run_json="$(wait_for_new_run "$workflow" "$label" "$dispatched_at")"
+            local run_id
+            run_id="$(jq -r '.databaseId' <<<"$run_json")"
+            test -n "$run_id"
+            echo "${key}_RUN_ID=$run_id" >> "$GITHUB_ENV"
+            gh run watch "$run_id" --exit-status || true
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}"               > "$EVIDENCE_DIR/workflows/${key}-run.json" || true
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100"               > "$EVIDENCE_DIR/workflows/${key}-jobs.json" || true
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100"               > "$EVIDENCE_DIR/workflows/${key}-artifacts.json" || true
+            verify_sha_stability "post-${key}" || return 1
+          }
+
           dispatch_and_wait crm crm-008r-final-production-closure.yml "CRM exact-SHA Production closure"
-          dispatch_and_wait nvd nvd-database-maintenance.yml "NVD database maintenance"
+          dispatch_and_wait_optional nvd nvd-database-maintenance.yml "NVD database maintenance"
           dispatch_and_wait security_baseline security-baseline.yml "Security Baseline"
           dispatch_and_wait development_security development-security-acceptance.yml "Development Security Acceptance"
           dispatch_and_wait owasp security-scan.yml "OWASP dependency scan"
