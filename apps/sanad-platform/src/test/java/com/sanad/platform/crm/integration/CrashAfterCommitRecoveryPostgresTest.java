@@ -71,8 +71,14 @@ class CrashAfterCommitRecoveryPostgresTest {
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         jdbc = new JdbcTemplate(ds);
         store = new CrmIntegrationStore(jdbc, mapper);
-        JdbcActivityRepository activityRepo = new JdbcActivityRepository(new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(ds));
-        ActivityUseCases activityUseCases = new ActivityUseCases(activityRepo, null);
+        JdbcActivityRepository activityRepo = new JdbcActivityRepository(
+                new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(ds));
+        ActivityUseCases activityUseCases = new ActivityUseCases(
+                activityRepo,
+                (tenantId, subjectType, subjectId, eventType, summary,
+                 sourceType, sourceId, actorId, occurredAt) -> {
+                    // Timeline publishing is outside this test's assertion surface.
+                });
         realAdapter = new CreateFollowUpActivityCommandAdapter(activityUseCases, store);
     }
 
@@ -119,7 +125,6 @@ class CrashAfterCommitRecoveryPostgresTest {
 
     @Test
     void crashAfterCommandBeforeFinalizeDoesNotDuplicateArtifact() throws Exception {
-        // Create an executor with a fault injector that throws after the first command commit
         Set<UUID> injectedDecisions = new HashSet<>();
         AfterCommandCommitFaultInjector faultInjector = decisionId -> {
             if (injectedDecisions.add(decisionId)) {
@@ -134,86 +139,73 @@ class CrashAfterCommitRecoveryPostgresTest {
                 new TransactionTemplate(new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds)),
                 faultInjector, "test-worker", 60, 30);
 
-        // Enqueue the execution event
         executor.enqueueExecution(tenantId, requestId, decisionId,
                 actorId, "corr-crash", 0L);
 
-        // First attempt: should crash after command commit (fault injected)
         var claimed1 = claimOurEvent(executor);
         assertThat(claimed1).isPresent();
         executor.processSingleExecutionEvent(claimed1.get());
 
-        // Verify the activity was created (side effect committed)
         Integer activityCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_activities WHERE tenant_id = ? AND subject LIKE ?",
                 Integer.class, tenantId, "%" + decisionId + "%");
         assertThat(activityCount).isEqualTo(1);
 
-        // Verify the artifact idempotency row exists
         Integer artifactCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_integration_command_artifacts WHERE tenant_id = ? AND decision_id = ?",
                 Integer.class, tenantId, decisionId);
         assertThat(artifactCount).isEqualTo(1);
 
-        // Verify request is still EXECUTING (Transaction B did not complete)
         String reqStatus = jdbc.queryForObject(
                 "SELECT status FROM crm_integration_requests WHERE id = ?",
                 String.class, requestId);
         assertThat(reqStatus).isEqualTo("EXECUTING");
 
-        // Force claim expiry so the second worker can reclaim
         jdbc.update("UPDATE crm_integration_outbox SET claim_expires_at = CURRENT_TIMESTAMP - INTERVAL '1 hour' " +
                 "WHERE integration_request_id = ?", requestId);
 
-        // Second attempt: recovery — findExisting should return the original artifact
         var claimed2 = claimOurEvent(executor);
         assertThat(claimed2).isPresent();
         executor.processSingleExecutionEvent(claimed2.get());
 
-        // Verify request reached EXECUTED
         reqStatus = jdbc.queryForObject(
                 "SELECT status FROM crm_integration_requests WHERE id = ?",
                 String.class, requestId);
         assertThat(reqStatus).isEqualTo("EXECUTED");
 
-        // Verify decision reached EXECUTED
         String decStatus = jdbc.queryForObject(
                 "SELECT decision_status FROM crm_integration_decisions WHERE id = ?",
                 String.class, decisionId);
         assertThat(decStatus).isEqualTo("EXECUTED");
 
-        // Verify ledger reached EXECUTED
         String ledStatus = jdbc.queryForObject(
                 "SELECT execution_status FROM crm_integration_command_executions WHERE decision_id = ?",
                 String.class, decisionId);
         assertThat(ledStatus).isEqualTo("EXECUTED");
 
-        // Verify outbox is COMPLETED
         String outboxStatus = jdbc.queryForObject(
                 "SELECT dispatch_status FROM crm_integration_outbox WHERE integration_request_id = ?",
                 String.class, requestId);
         assertThat(outboxStatus).isEqualTo("COMPLETED");
 
-        // CRITICAL: verify only ONE activity exists (no duplicate)
         activityCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_activities WHERE tenant_id = ? AND subject LIKE ?",
                 Integer.class, tenantId, "%" + decisionId + "%");
         assertThat(activityCount).isEqualTo(1);
 
-        // CRITICAL: verify only ONE artifact row exists
         artifactCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_integration_command_artifacts WHERE tenant_id = ? AND decision_id = ?",
                 Integer.class, tenantId, decisionId);
         assertThat(artifactCount).isEqualTo(1);
 
-        // CRITICAL: verify only ONE ledger row exists
         Integer ledgerCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_integration_command_executions WHERE decision_id = ?",
                 Integer.class, decisionId);
         assertThat(ledgerCount).isEqualTo(1);
     }
 
-    private java.util.Optional<CrmIntegrationStore.OutboxEvent> claimOurEvent(ConfirmedRecommendationExecutor executor) {
+    private java.util.Optional<CrmIntegrationStore.OutboxEvent> claimOurEvent(
+            ConfirmedRecommendationExecutor executor) {
         while (true) {
             var claimed = store.claimNextOutboxEvent("test-worker", 60,
                     ConfirmedRecommendationExecutor.ACCEPTED_EVENT_TYPES);
