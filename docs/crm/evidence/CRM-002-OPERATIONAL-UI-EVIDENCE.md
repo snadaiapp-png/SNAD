@@ -1,244 +1,150 @@
-# CRM-002: Operational UI Evidence
+# CRM-002 — Operational UI Evidence
 
-## Starting SHA
-dd29d0e7c39f4c704b5e6968c24fdafe5b03165e
+## Authoritative status
 
-## Branch
-crm/002d-authenticated-acceptance-environment
-
-## Routes Implemented (15 total)
-| Route | Type | Status |
-|---|---|---|
-| /crm | Server redirect → /crm/overview | ✅ |
-| /crm/overview | Dashboard with real KPIs | ✅ |
-| /crm/accounts | List + create + archive | ✅ |
-| /crm/accounts/[accountId] | Customer 360 | ✅ |
-| /crm/contacts | List + create + archive | ✅ |
-| /crm/contacts/[contactId] | Contact detail | ✅ |
-| /crm/leads | List + create + status + convert | ✅ |
-| /crm/leads/[leadId] | Lead detail + convert dialog | ✅ |
-| /crm/pipelines | List + create + stages | ✅ |
-| /crm/opportunities | List + pipeline board | ✅ |
-| /crm/opportunities/[opportunityId] | Opportunity detail + stage move | ✅ |
-| /crm/activities | List + create + complete | ✅ |
-| /crm/imports | Upload + mapping builder + job list + errors | ✅ |
-| /crm/settings/custom-fields | Admin UI | ✅ |
-| /crm/command-center | Governance shell | ✅ |
-
-## Backend Endpoints Connected (45+)
-All /api/v1/crm/* endpoints connected via crmApi client.
-
-## E2E Test Files
-
-### Unauthenticated (existing)
-- `apps/web/e2e/crm-operational.spec.ts` — Route smoke tests (unauthenticated, soft assertions)
-- `apps/web/e2e/visual-regression.spec.ts` — Visual baseline comparison (auth surfaces)
-- `apps/web/e2e/bilingual-theme-matrix.spec.ts` — RTL/LTR + theme matrix
-
-### Authenticated acceptance (new — branch crm/002d)
-- `apps/web/e2e/crm-authenticated-acceptance.spec.ts`
-  - Login as Tenant A CRM Admin via BFF
-  - Dashboard KPI verification
-  - Account create + Customer 360 open
-  - Contact create + detail open
-  - Lead create + status change + convert
-  - Pipeline create
-  - Opportunity create + stage move + detail open
-  - Activity create + complete
-  - Timeline verification
-  - Deep-link test (direct URL to account)
-  - Refresh preserves route + auth
-  - Back/forward navigation
-  - No console errors during navigation sweep
-
-- `apps/web/e2e/crm-tenant-isolation.spec.ts`
-  - Login as Tenant B admin
-  - Cross-tenant account/contact/lead/opportunity API fetches → 4xx
-  - Cross-tenant detail-page navigation → entity names never surface
-  - Tenant B list pages contain no Tenant A data
-  - Tenant B dashboard KPIs reflect only Tenant B data
-
-- `apps/web/e2e/crm-rbac-acceptance.spec.ts`
-  - CRM_READ_ONLY user: create form disabled, POST /accounts → 403, GET /accounts → 200
-  - CRM_LEAD_WRITER user: PATCH /leads/{id}/status → 200, POST /leads/{id}/convert → 403, GET /accounts → 403
-  - CRM_IMPORT_READER user: upload button hidden, POST /imports/upload → 403, GET /imports → 200
-
-- `apps/web/e2e/crm-accessibility.spec.ts`
-  - @axe-core/playwright against 7 CRM routes
-  - 0 critical violations
-  - 0 serious violations
-  - Routes covered: /crm/overview, /crm/accounts, /crm/contacts, /crm/leads, /crm/opportunities, /crm/imports, /crm/settings/custom-fields
-
-- `apps/web/e2e/crm-route-smoke.spec.ts` (strict assertions restored)
-  - Hydration error detection (pageerror + console.error + hydration warnings)
-  - Exact redirect URL: /crm → /crm/overview (string equality, not regex)
-  - Exact back/forward URL preservation
-  - Refresh preserves exact route
-  - Meaningful page content: body bounding-box height > 80px
-  - No console errors across full navigation sweep
-
-## Frontend Component Files
-- `apps/web/app/crm/components/crm-custom-field-values-editor.tsx` (new)
-  - Reusable per-entity custom-field editor
-  - Fetches definitions + values via crmApi
-  - Renders inputs by data type (TEXT/NUMBER/BOOLEAN/DATE/DATETIME/EMAIL/URL)
-  - Shows [REDACTED] for sensitive fields without CRM.ADMIN
-  - Required-field validation + email/URL/number format validation
-  - Pending/success/error states via ARIA roles
-  - Never sends [REDACTED] as a value (dirty redacted rows are skipped)
-
-- `apps/web/app/crm/(operational)/imports/page.tsx` (updated)
-  - Client-side CSV header parsing via FileReader
-  - Column preview (first 5 rows)
-  - Per-column target-field dropdown (with ignore option)
-  - Required-field validation (per entity type)
-  - Duplicate-mapping prevention (already-mapped targets disabled)
-  - Mapping summary (mapped count / ignored count / required remaining)
-  - Mapping JSON sent with the upload request
-  - XLSX files are NOT parsed client-side (mapping builder hidden; backend parses)
-
-## Frontend Tests
-- 393+ tests across 35+ files (all passing)
-- Includes crm-rbac.test.tsx and crm-routes.test.tsx
-
-## Workflow Architecture
-
-### `.github/workflows/crm-authenticated-acceptance.yml`
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ ubuntu-latest runner                                            │
-│                                                                 │
-│  ┌───────────────────────────┐    ┌──────────────────────────┐  │
-│  │ PostgreSQL 16-alpine      │    │ JDK 21 (Maven cache)     │  │
-│  │ (service container)       │    │ Node 24 (npm cache)      │  │
-│  │ POSTGRES_USER=sanad_test  │    │                          │  │
-│  │ POSTGRES_PASSWORD=****    │    │ Steps:                   │  │
-│  │ POSTGRES_DB=sanad_test    │    │  1. checkout             │  │
-│  │ Port 5432 ←→ 127.0.0.1    │    │  2. generate secrets     │  │
-│  └───────────────────────────┘    │  3. setup JDK 21         │  │
-│                                   │  4. setup Node 24        │  │
-│  ┌───────────────────────────┐    │  5. mvn clean package    │  │
-│  │ Spring Boot backend       │    │  6. flyway:migrate       │  │
-│  │ (java -jar, port 8080)    │    │  7. psql seed SQL        │  │
-│  │ SPRING_PROFILES_ACTIVE=   │    │  8. start backend        │  │
-│  │   prod                    │    │  9. smoke-test login     │  │
-│  │ DATABASE_URL=jdbc:        │    │ 10. npm ci               │  │
-│  │   postgresql://127.0.0.1: │    │ 11. install axe-core     │  │
-│  │   5432/sanad_test         │    │ 12. playwright install   │  │
-│  │ JWT_SECRET=<generated>    │    │ 13. next build           │  │
-│  │ SANAD_CONTROL_PLANE_      │    │ 14. start frontend       │  │
-│  │   TENANT_ID=<generated>   │    │ 15. playwright test      │  │
-│  └───────────────────────────┘    │ 16. stop services        │  │
-│                                   │ 17. upload artifacts     │  │
-│  ┌───────────────────────────┐    │ 18. publish summary      │  │
-│  │ Next.js frontend          │    └──────────────────────────┘  │
-│  │ (next start, port 3001)   │                                  │
-│  │ BACKEND_API_BASE_URL=     │                                  │
-│  │   http://127.0.0.1:8080   │                                  │
-│  │ BFF route /api/platform/  │                                  │
-│  │   [...path] proxies to    │                                  │
-│  │   backend                 │                                  │
-│  └───────────────────────────┘                                  │
-│                                                                 │
-│  Playwright run (project=en-ltr-light)                          │
-│    e2e/crm-authenticated-acceptance.spec.ts                     │
-│    e2e/crm-tenant-isolation.spec.ts                             │
-│    e2e/crm-rbac-acceptance.spec.ts                              │
-│    e2e/crm-accessibility.spec.ts                                │
-│    e2e/crm-route-smoke.spec.ts                                  │
-└─────────────────────────────────────────────────────────────────┘
+```text
+CRM_002: CLOSED_COMPLETED
+CRM_002A: CLOSED_COMPLETED
+CRM_002B: CLOSED_COMPLETED
+CRM_002G: ACCEPTED
+CRM_G1_REPOSITORY_GATE: CLOSED
+FINAL_VALIDATED_HEAD_SHA: dc1cc61a4e7505a6c4ad76c3644c1a8f25dc40f0
+FINAL_GATE_MERGE_SHA: 89761eb9397e922b21917551299e2a2b9d478a86
+FORMAL_RECONCILIATION_DATE: 2026-07-26
 ```
 
-### Secrets
-All secrets are generated inside the workflow — no externally provisioned
-GitHub secrets are required:
-- `JWT_SECRET` — `openssl rand -base64 48` per run
-- `SANAD_CONTROL_PLANE_TENANT_ID` — `uuidgen` per run
-- `DATABASE_PASSWORD` — hard-coded `sanad_test_pass` (ephemeral container)
-- Test credentials — `TestPass123!` for every seeded user (see seed SQL)
+This record supersedes the former statement that CRM-002G was pending. The
+terminal gate completed successfully on the exact PR head and was merged to
+`main` on 2026-07-12.
 
-### Artifacts (uploaded on failure AND success)
-- `crm-playwright-report-{run_id}` — HTML report
-- `crm-playwright-traces-{run_id}` — per-test traces, screenshots, videos
-- `crm-backend-log-{run_id}` — Spring Boot stdout/stderr
-- `crm-frontend-log-{run_id}` — Next.js stdout/stderr
+The dedicated closure report is:
 
-## Seed Data Description
+- [`CRM-002-FINAL-CLOSURE.md`](./CRM-002-FINAL-CLOSURE.md)
 
-### File
-`apps/sanad-platform/src/test/resources/sql/crm-acceptance-seed.sql`
+## 1. Governed implementation chain
 
-### Tenants (2)
-| Tenant | UUID | Subdomain |
+| Stage | Pull request | Head SHA | Merge SHA | Result |
+|---|---:|---|---|---|
+| CRM-002 | #490 | `d6a56d8c6a34853ccd37c07d170cfefba68389bc` | `18aa875819f41de34d972c56a9d2e15695c50eb8` | Merged |
+| CRM-002A | #492 | `983fa969dcf6f3103fcbaec26345d3ed67e97e4a` | `5c975079a1a22d003460fbef0dfbe9b36890dbf7` | Merged |
+| CRM-002B | #493 | `eb93d6d4c77f71df96b350c4924189ab7f2da232` | `dd29d0e7c39f4c704b5e6968c24fdafe5b03165e` | Merged |
+| CRM-002G | #501 | `dc1cc61a4e7505a6c4ad76c3644c1a8f25dc40f0` | `89761eb9397e922b21917551299e2a2b9d478a86` | Accepted and merged |
+
+## 2. Operational UI delivered
+
+CRM-002 restored the operational CRM experience and separated the operational
+workspace from the governance command center. CRM-002A completed URL-based
+routing and per-route data loading. CRM-002B added strict acceptance and E2E
+coverage. CRM-002G repaired and executed the terminal acceptance matrix.
+
+### Route inventory
+
+| Route | Delivered behavior | Status |
 |---|---|---|
-| Tenant A (Acceptance) | `11111111-1111-4111-8111-111111111111` | tenant-a-acceptance |
-| Tenant B (Acceptance) | `22222222-2222-4222-8222-222222222222` | tenant-b-acceptance |
+| `/crm` | Server redirect to `/crm/overview` | Pass |
+| `/crm/overview` | KPI dashboard backed by CRM APIs | Pass |
+| `/crm/accounts` | List, create, archive and restore | Pass |
+| `/crm/accounts/[accountId]` | Customer 360 detail | Pass |
+| `/crm/contacts` | List, create and archive | Pass |
+| `/crm/contacts/[contactId]` | Contact detail | Pass |
+| `/crm/leads` | List, create, qualify, disqualify and convert | Pass |
+| `/crm/leads/[leadId]` | Lead detail and conversion | Pass |
+| `/crm/pipelines` | Pipeline and stage administration | Pass |
+| `/crm/opportunities` | Pipeline board and list | Pass |
+| `/crm/opportunities/[opportunityId]` | Opportunity detail and stage movement | Pass |
+| `/crm/activities` | List, create and complete | Pass |
+| `/crm/imports` | Upload, mapping, jobs and error download | Pass |
+| `/crm/settings/custom-fields` | Custom-field administration | Pass |
+| `/crm/command-center` | Independent governance shell | Pass |
 
-### Users (5 — all with password `TestPass123!`)
-| Email | Tenant | Role | Capabilities |
-|---|---|---|---|
-| tenant-a-admin@snad-crm-acceptance.example | A | ADMIN | All CRM.* (full access) |
-| tenant-a-readonly@snad-crm-acceptance.example | A | CRM_READ_ONLY | CRM.*.READ only |
-| tenant-a-lead-writer@snad-crm-acceptance.example | A | CRM_LEAD_WRITER | CRM.LEAD.READ + WRITE (no CONVERT) |
-| tenant-a-import-reader@snad-crm-acceptance.example | A | CRM_IMPORT_READER | CRM.IMPORT.READ only |
-| tenant-b-admin@snad-crm-acceptance.example | B | ADMIN | All CRM.* (full access) |
+The frontend consumes the governed `/api/v1/crm/*` boundary through the
+existing `crmApi` client. No mock CRM dataset, parallel G1 schema, or replacement
+backend API was introduced by CRM-002.
 
-### Organizations (1 per tenant)
-- Tenant A Org (`aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`)
-- Tenant B Org (`bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`)
+## 3. Acceptance coverage
 
-### Memberships
-Each user is linked to their tenant's organization via `organization_memberships`.
+The accepted package includes:
 
-### Tenant A sample entities (for isolation tests)
-- Account `aa00aa00-aa00-4aa0-8aa0-aa00aa00aa01` — "Tenant A Sample Account"
-- Contact `cc00cc00-cc00-4cc0-8cc0-cc00cc00cc01` — "Aisha Al-Saud"
-- Lead `ee964f6d-cff1-502b-a687-ae61611761de` — "Tenant A Sample Lead"
-- Pipeline `pp00pp00-pp00-4pp0-8pp0-pp00pp00pp01` — "Tenant A Default Pipeline"
-- Stages (2): New, Won
-- Opportunity `5ff572da-a04a-5893-be50-d50e5ea64165` — "Tenant A Sample Opportunity"
-- Activity `c296c51d-fc46-5076-8f59-599ef2aaaa97` — "Tenant A Sample Follow-up"
+- Authenticated CRM happy-path acceptance.
+- Two-tenant isolation and cross-tenant denial.
+- Capability-based RBAC acceptance.
+- Strict route, redirect, refresh and browser-history checks.
+- Hydration and console-error detection.
+- Accessibility checks on operational CRM routes.
+- Import mapping and custom-field value workflows.
+- Reproducible PostgreSQL seed data.
+- Separate standard and authenticated Playwright configurations.
+- Failure and success artifact publication from the authenticated workflow.
 
-### Password hashing
-`crypt('TestPass123!', gen_salt('bf', 10))` produces a `$2a$10$...` bcrypt
-hash that is directly verifiable by Spring's `BCryptPasswordEncoder(10)`.
+The final standard Playwright report recorded:
 
-### Idempotency
-Every INSERT uses `ON CONFLICT (id) DO NOTHING` or `WHERE NOT EXISTS` guards,
-so the seed is safe to re-run.
+```text
+EXPECTED: 174
+UNEXPECTED: 0
+FLAKY: 0
+SKIPPED: 0
+```
 
-## CRM-G1 Requirements Coverage
+## 4. CRM-002G exact-head gate matrix
 
-| CRM-G1 Requirement | Coverage | Status |
-|---|---|---|
-| Authenticated acceptance (happy path) | crm-authenticated-acceptance.spec.ts | ✅ PASS — no limitations |
-| Tenant isolation (cross-tenant access blocked) | crm-tenant-isolation.spec.ts | ✅ PASS — no limitations |
-| RBAC enforcement (per-capability) | crm-rbac-acceptance.spec.ts | ✅ PASS — no limitations |
-| Accessibility (Axe automated) | crm-accessibility.spec.ts | ✅ PASS — no limitations |
-| Strict route smoke (hydration + URLs + console) | crm-route-smoke.spec.ts | ✅ PASS — no limitations |
-| Custom field values editing | crm-custom-field-values-editor.tsx | ✅ PASS — no limitations |
-| Import mapping builder | imports/page.tsx | ✅ PASS — no limitations |
-| Seed data reproducibility | crm-acceptance-seed.sql | ✅ PASS — no limitations |
-| CI workflow (PostgreSQL + Spring + Next + Playwright) | crm-authenticated-acceptance.yml | ✅ PASS — no limitations |
+All required workflows completed successfully on exact head
+`dc1cc61a4e7505a6c4ad76c3644c1a8f25dc40f0`.
 
-## Known Limitations
-NONE for CRM-G1 requirements.
+| Gate | Run | Conclusion |
+|---|---:|---|
+| CRM Authenticated Acceptance | `29205033967` | success |
+| Playwright E2E & Visual Regression | `29205034002` | success |
+| CRM Deployment Readiness | `29205034027` | success |
+| Backup Restore Validation | `29205034004` | success |
+| Security Scan (OWASP) | `29205034003` | success |
+| Security Baseline | `29205034007` | success |
+| Development Security Acceptance | `29205034025` | success |
+| Web CI | `29205033984` | success |
+| CI | `29205033995` | success |
+| Performance Baseline | `29205033979` | success |
 
-The previous known limitations (authenticated E2E requires live backend,
-tenant isolation E2E requires multi-tenant test environment, RBAC tests
-require backend with test users, import mapping UI needs backend testing,
-custom field values editing needs authenticated verification) are now
-fully resolved by the crm/002d-authenticated-acceptance-environment branch.
+Additional terminal conditions recorded on PR #501:
 
-## Next Prompt
-EXEC-PROMPT-CRM-003
+```text
+FAILED_WORKFLOWS_ON_EXACT_HEAD: 0
+IN_PROGRESS_WORKFLOWS_ON_EXACT_HEAD: 0
+VERCEL_ON_FINAL_PR_HEAD: success
+VERCEL_ON_MERGE_SHA: success
+```
 
+## 5. Current-main non-regression review
 
-## CRM-002G Repository Delivery
+A formal reconciliation review was performed on 2026-07-26 against `main` SHA
+`59a199dab80fa1b57e2b6e020bda8f58f852305d`.
 
-- Workflow YAML repaired and validated.
-- All UUID-shaped seed literals are validated before PostgreSQL execution.
-- Standard and authenticated Playwright matrices use separate explicit configs.
-- Anonymous and authenticated CRM route contracts are distinct.
-- Gate status remains pending until all required workflows complete successfully on the exact PR head SHA.
+Verified current state:
+
+- `apps/web/app/crm/page.tsx` still performs a server-side redirect to
+  `/crm/overview`.
+- `apps/web/app/crm/(operational)/layout.tsx` still wraps operational routes in
+  `CrmShell`, which retains authentication gating and URL-aware navigation.
+- `/crm/command-center` remains outside the operational route-group shell.
+- The current `main` Vercel status is `success`.
+- The CRM-002G merge remains an ancestor of current `main`; the repository has
+  advanced without removing the accepted CRM-002 foundation.
+
+Later CRM stages substantially extend the backend, workflows, production
+acceptance and ownership model. Those later changes do not reopen CRM-002.
+
+## 6. Closure decision
+
+```text
+EXEC_PROMPT_CRM_002: ACCEPTED
+EXEC_PROMPT_CRM_002A: ACCEPTED
+EXEC_PROMPT_CRM_002B: ACCEPTED
+EXEC_PROMPT_CRM_002G: ACCEPTED
+CRM_002_STAGE: CLOSED_COMPLETED
+CRM_G1_REPOSITORY_GATE: CLOSED
+NEXT_PROMPT_AUTHORIZED_HISTORICALLY: EXEC-PROMPT-CRM-003
+```
+
+## 7. Governance boundary
+
+This evidence closes the CRM-002 repository-delivery stage. It does not by
+itself grant commercial go-live approval and does not replace later production
+closure evidence, including the CRM-G1 and CRM-007 production records.
