@@ -1,0 +1,242 @@
+name: REM-P0-006 Root Closure Assessment
+
+on:
+  push:
+    branches:
+      - rem-p0-006-assessment-execution-v2
+    paths:
+      - '.github/workflows/rem-p0-006-root-closure-assessment.yml'
+      - 'docs/security/independent-assurance/ASSESSMENT-TRIGGER.md'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+
+concurrency:
+  group: rem-p0-006-root-closure-assessment
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[run-assessment]')
+    name: Execute fail-closed exact-SHA security assessment
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      WEB_BASE_URL: https://snad-app.vercel.app
+      BACKEND_BASE_URL: https://sanad-backend-mcrj.onrender.com
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout assessment controller
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Freeze current main and initialize evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          target_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.commit.sha')"
+          test "$target_sha" = "$(git rev-parse origin/main)"
+          evidence_dir="$RUNNER_TEMP/rem-p0-006-root-assessment"
+          rm -rf "$evidence_dir"
+          mkdir -p "$evidence_dir/workflows" "$evidence_dir/crm" "$evidence_dir/dast"
+          echo "TARGET_SHA=$target_sha" >> "$GITHUB_ENV"
+          echo "FROZEN_MAIN_SHA=$target_sha" >> "$GITHUB_ENV"
+          echo "EVIDENCE_DIR=$evidence_dir" >> "$GITHUB_ENV"
+          jq -n --arg target_sha "$target_sha" --arg run_id "$GITHUB_RUN_ID" --arg started_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{schema:"snad.rem-p0-006.root-assessment.v2",status:"IN_PROGRESS",target_sha:$target_sha,orchestrator_run_id:($run_id|tonumber),started_at_utc:$started_at}' \
+            > "$evidence_dir/run-context.json"
+
+      - name: Dispatch and require exact-SHA governed workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify_main() {
+            local current
+            current="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.commit.sha')"
+            test "$current" = "$FROZEN_MAIN_SHA" || {
+              echo "::error::main moved at $1: expected=$FROZEN_MAIN_SHA current=$current"
+              return 1
+            }
+          }
+          wait_for_run() {
+            local workflow="$1" dispatched_at="$2" result=''
+            for _ in $(seq 1 120); do
+              result="$(gh run list --workflow "$workflow" --branch main --event workflow_dispatch --limit 50 \
+                --json databaseId,headSha,status,conclusion,createdAt,url \
+                | jq -c --arg sha "$TARGET_SHA" --arg started "$dispatched_at" \
+                  '[.[] | select(.headSha == $sha and .createdAt >= $started)] | sort_by(.createdAt) | first // empty')"
+              if [ -n "$result" ]; then printf '%s' "$result"; return 0; fi
+              sleep 10
+            done
+            return 1
+          }
+          dispatch_required() {
+            local key="$1" workflow="$2" label="$3"
+            verify_main "pre-${key}"
+            local dispatched_at run_json run_id
+            dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            gh workflow run "$workflow" --ref main
+            run_json="$(wait_for_run "$workflow" "$dispatched_at")" || {
+              echo "::error::No exact-SHA run appeared for ${label}"
+              return 1
+            }
+            run_id="$(jq -r '.databaseId' <<< "$run_json")"
+            echo "${key}_RUN_ID=$run_id" >> "$GITHUB_ENV"
+            gh run watch "$run_id" --exit-status
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" > "$EVIDENCE_DIR/workflows/${key}-run.json"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" > "$EVIDENCE_DIR/workflows/${key}-jobs.json"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" > "$EVIDENCE_DIR/workflows/${key}-artifacts.json"
+            test "$(jq -r '.head_sha' "$EVIDENCE_DIR/workflows/${key}-run.json")" = "$TARGET_SHA"
+            test "$(jq -r '.conclusion' "$EVIDENCE_DIR/workflows/${key}-run.json")" = success
+            verify_main "post-${key}"
+          }
+          dispatch_required crm crm-008r-final-production-closure.yml 'CRM exact-SHA Production closure'
+          dispatch_required nvd nvd-database-maintenance.yml 'NVD snapshot contract validation'
+          dispatch_required security_baseline security-baseline.yml 'Security Baseline'
+          dispatch_required development_security development-security-acceptance.yml 'Development Security Acceptance'
+          dispatch_required owasp security-scan.yml 'OWASP dependency scan'
+          dispatch_required provenance stage07-provenance.yml 'Artifact provenance'
+          dispatch_required business_e2e business-process-e2e-validation.yml 'Business-process E2E'
+
+      - name: Validate authenticated two-tenant Production evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download "$crm_RUN_ID" --dir "$EVIDENCE_DIR/crm"
+          smoke="$(find "$EVIDENCE_DIR/crm" -type f -name crm008r-production-smoke.json -print -quit)"
+          test -n "$smoke"
+          jq -e --arg sha "$TARGET_SHA" '
+            .result == "PASS" and .releaseSha == $sha
+            and .checks.authenticatedTwoTenantLogin == "PASS"
+            and .checks.crossTenantCursorRejected400 == "PASS"
+            and .checks.crossTenantEntityReadRejected404 == "PASS"
+            and .checks.sameEtagRaceExactlyOneWinner == "PASS"
+            and .checks.missingIfMatchRejected428 == "PASS"
+            and .checks.temporaryDataArchived == "PASS"
+          ' "$smoke" >/dev/null
+          jq '{schema,result,releaseSha,completedAt,createdAndArchivedTeamCount,priorTemporaryTeamsArchived,checks}' "$smoke" \
+            > "$EVIDENCE_DIR/crm/crm008r-production-smoke-sanitized.json"
+          find "$EVIDENCE_DIR/crm" -type f ! -name crm008r-production-smoke-sanitized.json -delete
+
+      - name: Execute fail-closed non-destructive HTTP checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$TARGET_SHA" "$WEB_BASE_URL" "$BACKEND_BASE_URL" "$EVIDENCE_DIR/dast/safe-http.json" <<'PY'
+          import hashlib, json, sys, urllib.error, urllib.request
+          from datetime import datetime, timezone
+          target_sha, web, backend, output = sys.argv[1:]
+          def request(url, method="GET", headers=None):
+              req = urllib.request.Request(url, method=method, headers=headers or {})
+              try:
+                  with urllib.request.urlopen(req, timeout=45) as response:
+                      return response.status, {str(k).lower(): str(v) for k, v in response.headers.items()}, response.read(1_000_000), None
+              except urllib.error.HTTPError as exc:
+                  return exc.code, {str(k).lower(): str(v) for k, v in exc.headers.items()}, exc.read(1_000_000), None
+              except Exception as exc:
+                  return 0, {}, b"", f"{type(exc).__name__}: {exc}"
+          def clean(check_id, url, method, result):
+              status, headers, body, error = result
+              allowed = {"access-control-allow-origin","access-control-allow-credentials","cache-control","content-security-policy","content-type","permissions-policy","referrer-policy","strict-transport-security","vary","x-content-type-options","x-frame-options"}
+              return {"id":check_id,"url":url,"method":method,"status":status,"headers":{k:v for k,v in headers.items() if k in allowed},"body_size_bytes":len(body),"body_sha256":"sha256:"+hashlib.sha256(body).hexdigest(),"error":error}
+          checks, findings = [], []
+          release_url=f"{web}/api/system/release"; release=request(release_url); checks.append(clean("release_identity",release_url,"GET",release))
+          try: observed=json.loads(release[2].decode()).get("commitSha","")
+          except Exception: observed=""
+          if release[0] != 200 or observed != target_sha: findings.append({"id":"CFG-HIGH-RELEASE","severity":"high","case_ids":["CFG-01"],"title":"Release identity mismatch","detail":f"status={release[0]} observed={observed or 'unparseable'}"})
+          for suffix in ("/actuator/health","/actuator/health/liveness","/actuator/health/readiness"):
+              url=backend+suffix; result=request(url); checks.append(clean("health_"+suffix.rsplit("/",1)[-1],url,"GET",result))
+              try: healthy=result[0]==200 and json.loads(result[2].decode()).get("status")=="UP"
+              except Exception: healthy=False
+              if not healthy: findings.append({"id":"CFG-HIGH-HEALTH","severity":"high","case_ids":["CFG-01"],"title":"Backend health failed","detail":f"path={suffix} status={result[0]}"})
+          protected_url=f"{web}/api/platform/api/v2/crm/teams?pageSize=1"; protected=request(protected_url); checks.append(clean("unauthenticated_protected_api",protected_url,"GET",protected))
+          if protected[0] not in {401,403,404}: findings.append({"id":"PEN-CRITICAL-UNAUTH","severity":"critical","case_ids":["PEN-01","PEN-02"],"title":"Unauthenticated CRM access","detail":f"status={protected[0]}"})
+          evil="https://attacker.invalid"
+          for name,url in (("frontend_bff",f"{web}/api/platform/api/v2/crm/teams"),("backend_api",f"{backend}/api/v2/crm/teams")):
+              result=request(url,"OPTIONS",{"Origin":evil,"Access-Control-Request-Method":"GET","Access-Control-Request-Headers":"authorization,content-type"}); checks.append(clean("cors_"+name,url,"OPTIONS",result))
+              if result[1].get("access-control-allow-origin") in {"*",evil} or result[1].get("access-control-allow-credentials","").lower()=="true": findings.append({"id":"CFG-HIGH-CORS","severity":"high","case_ids":["CFG-01"],"title":"Untrusted cross-origin allowed","detail":name})
+          web_result=request(web); checks.append(clean("headers_frontend",web,"GET",web_result))
+          required={"content-security-policy","x-frame-options","x-content-type-options","referrer-policy","permissions-policy","strict-transport-security"}; missing=sorted(required-set(web_result[1]))
+          if web_result[0] != 200 or missing: findings.append({"id":"CFG-MEDIUM-HEADERS","severity":"medium","case_ids":["CFG-01"],"title":"Required frontend headers missing","detail":",".join(missing) or f"status={web_result[0]}"})
+          for path in ("/.env","/.git/config","/actuator/env","/actuator/configprops","/actuator/heapdump"):
+              base=web if path.startswith("/.") else backend; url=base+path; result=request(url); checks.append(clean("sensitive_"+path.strip("/").replace("/","_").replace(".","_"),url,"GET",result))
+              if result[0]==200: findings.append({"id":"PEN-HIGH-SENSITIVE","severity":"high","case_ids":["PEN-01"],"title":"Sensitive endpoint exposed","detail":path})
+          for name,url in (("frontend",web),("backend",backend)):
+              result=request(url,"TRACE"); checks.append(clean("trace_"+name,url,"TRACE",result))
+              if 200 <= result[0] < 300: findings.append({"id":"PEN-MEDIUM-TRACE","severity":"medium","case_ids":["PEN-01"],"title":"TRACE enabled","detail":name})
+          doc={"schema":"snad.rem-p0-006.safe-http-assessment.v2","target_sha":target_sha,"completed_at_utc":datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00","Z"),"checks":checks,"findings":findings}
+          with open(output,"w",encoding="utf-8") as handle: json.dump(doc,handle,indent=2,sort_keys=True); handle.write("\n")
+          if findings: print(json.dumps(findings,indent=2),file=sys.stderr); raise SystemExit(1)
+          PY
+
+      - name: Execute complete passive ZAP evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod 0777 "$EVIDENCE_DIR/dast"
+          run_zap() {
+            local target="$1" prefix="$2"
+            set +e
+            docker run --rm --user 0:0 -v "$EVIDENCE_DIR/dast:/zap/wrk/:rw" ghcr.io/zaproxy/zaproxy:stable \
+              zap-baseline.py -t "$target" -J "${prefix}.json" -r "${prefix}.html" -w "${prefix}.md" -m 3 -I \
+              > "$EVIDENCE_DIR/dast/${prefix}.log" 2>&1
+            local exit_code=$?
+            set -e
+            jq -n --arg target "$target" --argjson exit_code "$exit_code" '{target:$target,container_exit_code:$exit_code}' > "$EVIDENCE_DIR/dast/${prefix}-execution.json"
+            for extension in json html md log; do test -s "$EVIDENCE_DIR/dast/${prefix}.${extension}"; done
+            ! grep -q 'AccessDeniedException' "$EVIDENCE_DIR/dast/${prefix}.log"
+            local fail_new warn_new
+            fail_new="$(grep -Eo 'FAIL-NEW: [0-9]+' "$EVIDENCE_DIR/dast/${prefix}.log" | tail -1 | awk '{print $2}')"
+            warn_new="$(grep -Eo 'WARN-NEW: [0-9]+' "$EVIDENCE_DIR/dast/${prefix}.log" | tail -1 | awk '{print $2}')"
+            test -n "$fail_new" && test "$fail_new" -eq 0
+            jq -n --arg target "$target" --argjson fail_new "$fail_new" --argjson warn_new "${warn_new:-0}" '{target:$target,fail_new:$fail_new,warn_new:$warn_new}' > "$EVIDENCE_DIR/dast/${prefix}-summary.json"
+          }
+          run_zap "$WEB_BASE_URL" zap-web
+          run_zap "$BACKEND_BASE_URL" zap-backend
+          if grep -E 'WARN-NEW: .*\[(10020|10021|10038|10063|10098)\]' "$EVIDENCE_DIR/dast/zap-web.log"; then
+            echo '::error::Material frontend ZAP header or cross-origin warning remains.'
+            exit 1
+          fi
+
+      - name: Finalize portable immutable evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_main="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.commit.sha')"
+          test "$current_main" = "$TARGET_SHA"
+          completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          jq --arg status "${{ job.status }}" --arg completed_at "$completed_at" '.status=$status | .completed_at_utc=$completed_at' "$EVIDENCE_DIR/run-context.json" > "$EVIDENCE_DIR/run-context.tmp.json"
+          mv "$EVIDENCE_DIR/run-context.tmp.json" "$EVIDENCE_DIR/run-context.json"
+          jq -n --arg target_sha "$TARGET_SHA" --arg crm "${crm_RUN_ID:-0}" --arg nvd "${nvd_RUN_ID:-0}" --arg baseline "${security_baseline_RUN_ID:-0}" --arg development "${development_security_RUN_ID:-0}" --arg owasp "${owasp_RUN_ID:-0}" --arg provenance "${provenance_RUN_ID:-0}" --arg business "${business_e2e_RUN_ID:-0}" \
+            '{target_sha:$target_sha,workflow_runs:{crm:($crm|tonumber),nvd:($nvd|tonumber),security_baseline:($baseline|tonumber),development_security:($development|tonumber),owasp:($owasp|tonumber),provenance:($provenance|tonumber),business_e2e:($business|tonumber)}}' > "$EVIDENCE_DIR/workflow-run-index.json"
+          (cd "$EVIDENCE_DIR"; find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS.txt; sha256sum --check SHA256SUMS.txt)
+
+      - name: Upload immutable root-assessment evidence
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rem-p0-006-root-assessment-${{ github.run_id }}
+          path: ${{ runner.temp }}/rem-p0-006-root-assessment
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish truthful assessment boundary
+        if: always()
+        shell: bash
+        run: |
+          gh issue comment 516 --body "REM-P0-006 root technical assessment completed with status **${{ job.status }}**.
+
+          Frozen assessed SHA: \`${TARGET_SHA:-unavailable}\`
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          Artifact: ${{ steps.upload.outputs.artifact-url }}
+
+          This is technical evidence only. Closure remains blocked until real digests are reconciled, assessor independence is verified, and all three approvals pass the protected closure gate."
