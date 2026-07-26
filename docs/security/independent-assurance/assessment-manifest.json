@@ -4,107 +4,39 @@
   "closure_state": "NOT_READY",
   "commercial_go_live": "NOT_APPROVED",
   "assessor": {
-    "independence_status": "VERIFIED",
-    "organization": "Independent Security Assessor",
-    "lead_assessor": "Security Governance Team",
-    "engagement_id": "REM-P0-006-ASSESSMENT-2026-07-26",
-    "appointment_evidence_id": "EV-APPOINTMENT-001",
-    "independence_evidence_id": "EV-INDEPENDENCE-001"
+    "independence_status": "NOT_APPOINTED",
+    "organization": "",
+    "lead_assessor": "",
+    "engagement_id": "",
+    "appointment_evidence_id": "",
+    "independence_evidence_id": ""
   },
   "assessed_release": {
-    "repository_sha": "9d07042fbbb4d86d2ae8178d061d4b627edd385c",
-    "deployment_id": "30203865532",
-    "environment": "production",
-    "started_at": "2026-07-26T13:35:12Z",
-    "completed_at": "2026-07-26T13:59:49Z"
+    "repository_sha": "",
+    "deployment_id": "",
+    "environment": "",
+    "started_at": "",
+    "completed_at": ""
   },
   "workstreams": [
-    {
-      "id": "penetration_testing",
-      "status": "PASS",
-      "evidence_ids": [
-        "EV-PEN-001",
-        "EV-PEN-002"
-      ]
-    },
-    {
-      "id": "tenant_boundary_and_object_authorization",
-      "status": "PASS",
-      "evidence_ids": [
-        "EV-TEN-001"
-      ]
-    },
-    {
-      "id": "production_configuration_and_secrets",
-      "status": "PASS",
-      "evidence_ids": [
-        "EV-CFG-001"
-      ]
-    },
-    {
-      "id": "dependency_and_supply_chain",
-      "status": "PASS",
-      "evidence_ids": [
-        "EV-SUP-001"
-      ]
-    },
-    {
-      "id": "privacy_and_threat_model",
-      "status": "PASS",
-      "evidence_ids": [
-        "EV-PRI-001"
-      ]
-    },
-    {
-      "id": "remediation_retest",
-      "status": "PASS",
-      "evidence_ids": [
-        "EV-RET-001"
-      ]
-    }
+    {"id": "penetration_testing", "status": "NOT_STARTED", "evidence_ids": []},
+    {"id": "tenant_boundary_and_object_authorization", "status": "NOT_STARTED", "evidence_ids": []},
+    {"id": "production_configuration_and_secrets", "status": "NOT_STARTED", "evidence_ids": []},
+    {"id": "dependency_and_supply_chain", "status": "NOT_STARTED", "evidence_ids": []},
+    {"id": "privacy_and_threat_model", "status": "NOT_STARTED", "evidence_ids": []},
+    {"id": "remediation_retest", "status": "NOT_STARTED", "evidence_ids": []}
   ],
   "findings_summary": {
-    "critical": {
-      "open": 0,
-      "closed": 0,
-      "residual_accepted": 0
-    },
-    "high": {
-      "open": 0,
-      "closed": 0,
-      "residual_accepted": 0
-    },
-    "medium": {
-      "open": 1,
-      "closed": 0,
-      "residual_accepted": 0
-    },
-    "low": {
-      "open": 0,
-      "closed": 0,
-      "residual_accepted": 0
-    }
+    "critical": {"open": 0, "closed": 0, "residual_accepted": 0},
+    "high": {"open": 0, "closed": 0, "residual_accepted": 0},
+    "medium": {"open": 0, "closed": 0, "residual_accepted": 0},
+    "low": {"open": 0, "closed": 0, "residual_accepted": 0}
   },
   "residual_risks": [],
   "approvals": {
-    "independent_assessor": {
-      "decision": "PENDING",
-      "name": "",
-      "approved_at": "",
-      "evidence_id": ""
-    },
-    "security_governance": {
-      "decision": "PENDING",
-      "name": "",
-      "approved_at": "",
-      "evidence_id": ""
-    },
-    "project_owner": {
-      "decision": "PENDING",
-      "name": "",
-      "approved_at": "",
-      "evidence_id": ""
-    }
+    "independent_assessor": {"decision": "PENDING", "name": "", "approved_at": "", "evidence_id": ""},
+    "security_governance": {"decision": "PENDING", "name": "", "approved_at": "", "evidence_id": ""},
+    "project_owner": {"decision": "PENDING", "name": "", "approved_at": "", "evidence_id": ""}
   },
   "closure_decision_evidence_id": ""
 }
