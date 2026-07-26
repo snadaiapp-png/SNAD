@@ -2,10 +2,12 @@ package com.sanad.platform.crm.party;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sanad.platform.crm.concurrency.ETagService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -27,6 +29,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -36,19 +39,23 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Transactional
 class CustomerMasterHttpIntegrationTest {
     private static final List<String> CAPABILITIES = List.of("CRM.ACCOUNT.READ", "CRM.ACCOUNT.WRITE");
+    private static final String MASTER_ETAG_TYPE = "customer-master";
+    private static final String ADDRESS_ETAG_TYPE = "customer-master-address";
 
     @Autowired MockMvc mockMvc;
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
+    @Autowired ETagService etags;
 
     @Test
-    void readsGoldenRecordAndEnforcesTenantIsolation() throws Exception {
+    void readsGoldenRecordEnforcesTenantIsolationAndEmitsStrongEtag() throws Exception {
         Fixture owner = fixture("master-owner");
         Fixture outsider = fixture("master-outsider");
         UUID accountId = account(owner, "Acme Arabia");
 
         mockMvc.perform(get("/api/v1/crm/accounts/{id}/master", accountId).with(authentication(auth(owner))))
                 .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ETAG, etag(MASTER_ETAG_TYPE, accountId, 0)))
                 .andExpect(jsonPath("$.accountId").value(accountId.toString()))
                 .andExpect(jsonPath("$.legalName").value("Acme Arabia"))
                 .andExpect(jsonPath("$.version").value(0));
@@ -58,22 +65,26 @@ class CustomerMasterHttpIntegrationTest {
     }
 
     @Test
-    void updatesIdentityClassificationRiskCreditAuditAndTimeline() throws Exception {
+    void updatesIdentityClassificationRiskCreditAuditTimelineAndNormalizesValues() throws Exception {
         Fixture fixture = fixture("master-update");
         UUID accountId = account(fixture, "SNAD Customer");
 
         mockMvc.perform(patch("/api/v1/crm/accounts/{id}/master", accountId)
                         .with(authentication(auth(fixture)))
+                        .header(HttpHeaders.IF_MATCH, etag(MASTER_ETAG_TYPE, accountId, 0))
                         .contentType("application/json")
                         .content("""
-                                {"expectedVersion":0,"legalName":"SNAD Customer Company","tradingName":"SNAD Customer",
+                                {"legalName":"  SNAD Customer Company  ","tradingName":"SNAD Customer",
                                  "registrationNumber":"CR-101010","taxNumber":"VAT-3100000000","industryCode":"SOFTWARE",
-                                 "customerSegment":"ENTERPRISE","customerTier":"STRATEGIC","website":"https://customer.example",
-                                 "primaryEmail":"finance@customer.example","primaryPhone":"+966500000000","countryCode":"SA",
-                                 "riskRating":"LOW","creditLimit":250000,"paymentTermsDays":45}
+                                 "customerSegment":"ENTERPRISE","customerTier":"strategic","website":"https://customer.example",
+                                 "primaryEmail":"finance@customer.example","primaryPhone":"+966500000000","countryCode":"sa",
+                                 "riskRating":"low","creditLimit":250000.00,"paymentTermsDays":45}
                                 """))
                 .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ETAG, etag(MASTER_ETAG_TYPE, accountId, 1)))
                 .andExpect(jsonPath("$.version").value(1))
+                .andExpect(jsonPath("$.legalName").value("SNAD Customer Company"))
+                .andExpect(jsonPath("$.countryCode").value("SA"))
                 .andExpect(jsonPath("$.customerTier").value("STRATEGIC"))
                 .andExpect(jsonPath("$.riskRating").value("LOW"))
                 .andExpect(jsonPath("$.dataQualityScore").value(100));
@@ -91,38 +102,72 @@ class CustomerMasterHttpIntegrationTest {
     }
 
     @Test
-    void rejectsStaleMasterVersion() throws Exception {
+    void rejectsMissingAndStaleMasterPreconditions() throws Exception {
         Fixture fixture = fixture("master-stale");
         UUID accountId = account(fixture, "Versioned Customer");
+
+        mockMvc.perform(patch("/api/v1/crm/accounts/{id}/master", accountId)
+                        .with(authentication(auth(fixture))).contentType("application/json")
+                        .content("{\"legalName\":\"No precondition\"}"))
+                .andExpect(status().isPreconditionRequired())
+                .andExpect(jsonPath("$.code").value("CRM_PRECONDITION_REQUIRED"));
+
         jdbc.update("UPDATE crm_accounts SET version=2 WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", fixture.tenantId()).addValue("id", accountId));
 
         mockMvc.perform(patch("/api/v1/crm/accounts/{id}/master", accountId)
-                        .with(authentication(auth(fixture))).contentType("application/json")
-                        .content("{\"expectedVersion\":0,\"legalName\":\"Stale Update\"}"))
-                .andExpect(status().isPreconditionFailed());
+                        .with(authentication(auth(fixture)))
+                        .header(HttpHeaders.IF_MATCH, etag(MASTER_ETAG_TYPE, accountId, 0))
+                        .contentType("application/json")
+                        .content("{\"expectedVersion\":2,\"legalName\":\"Stale Update\"}"))
+                .andExpect(status().isPreconditionFailed())
+                .andExpect(jsonPath("$.code").value("CRM_CONCURRENCY_CONFLICT"));
     }
 
     @Test
-    void managesAddressesAndIdentifiers() throws Exception {
+    void rejectsCreditLimitOutsideDatabasePrecision() throws Exception {
+        Fixture fixture = fixture("master-credit");
+        UUID accountId = account(fixture, "Credit Customer");
+
+        mockMvc.perform(patch("/api/v1/crm/accounts/{id}/master", accountId)
+                        .with(authentication(auth(fixture)))
+                        .header(HttpHeaders.IF_MATCH, etag(MASTER_ETAG_TYPE, accountId, 0))
+                        .contentType("application/json")
+                        .content("{\"creditLimit\":1.001}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void managesAddressesAndIdentifiersWithGovernedHeaders() throws Exception {
         Fixture fixture = fixture("master-attributes");
         UUID accountId = account(fixture, "Attribute Customer");
 
         JsonNode address = perform(post("/api/v1/crm/accounts/{id}/addresses", accountId)
-                .with(authentication(auth(fixture))).contentType("application/json")
+                .with(authentication(auth(fixture)))
+                .header("Idempotency-Key", UUID.randomUUID())
+                .contentType("application/json")
                 .content("""
-                        {"addressType":"REGISTERED","label":"Head Office","line1":"King Fahd Road",
-                         "city":"Riyadh","postalCode":"12345","countryCode":"SA","primaryAddress":true}
+                        {"addressType":"REGISTERED","label":"Head Office","line1":"  King Fahd Road  ",
+                         "city":"  Riyadh  ","postalCode":"12345","countryCode":"sa","primaryAddress":true}
                         """), 201);
         UUID addressId = UUID.fromString(address.path("id").asText());
+        long addressVersion = address.path("version").asLong();
+        assertThat(address.path("line1").asText()).isEqualTo("King Fahd Road");
+        assertThat(address.path("city").asText()).isEqualTo("Riyadh");
+        assertThat(address.path("countryCode").asText()).isEqualTo("SA");
 
         mockMvc.perform(post("/api/v1/crm/accounts/{id}/identifiers", accountId)
-                        .with(authentication(auth(fixture))).contentType("application/json")
+                        .with(authentication(auth(fixture)))
+                        .header("Idempotency-Key", UUID.randomUUID())
+                        .contentType("application/json")
                         .content("""
-                                {"identifierType":"COMMERCIAL_REGISTRATION","identifierValue":"1010-2020",
-                                 "issuerCountryCode":"SA","primaryIdentifier":true,"verified":true}
+                                {"identifierType":"commercial_registration","identifierValue":"  1010-2020  ",
+                                 "issuerCountryCode":"sa","primaryIdentifier":true,"verified":true}
                                 """))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.identifierValue").value("1010-2020"))
+                .andExpect(jsonPath("$.issuerCountryCode").value("SA"))
                 .andExpect(jsonPath("$.verified").value(true));
 
         mockMvc.perform(get("/api/v1/crm/accounts/{id}/addresses", accountId).with(authentication(auth(fixture))))
@@ -131,8 +176,45 @@ class CustomerMasterHttpIntegrationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$[0].identifierValue").value("1010-2020"));
 
         mockMvc.perform(delete("/api/v1/crm/accounts/{accountId}/addresses/{addressId}", accountId, addressId)
-                        .with(authentication(auth(fixture))))
+                        .with(authentication(auth(fixture)))
+                        .header(HttpHeaders.IF_MATCH, etag(ADDRESS_ETAG_TYPE, addressId, addressVersion)))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void replaysAddressCreationWithoutDuplicateWrite() throws Exception {
+        Fixture fixture = fixture("master-idempotency");
+        UUID accountId = account(fixture, "Idempotent Customer");
+        String key = UUID.randomUUID().toString();
+        String body = """
+                {"addressType":"OFFICE","line1":"First Street","city":"Riyadh",
+                 "countryCode":"SA","primaryAddress":false}
+                """;
+
+        JsonNode first = perform(post("/api/v1/crm/accounts/{id}/addresses", accountId)
+                .with(authentication(auth(fixture))).header("Idempotency-Key", key)
+                .contentType("application/json").content(body), 201);
+        JsonNode replay = perform(post("/api/v1/crm/accounts/{id}/addresses", accountId)
+                .with(authentication(auth(fixture))).header("Idempotency-Key", key)
+                .contentType("application/json").content(body), 201);
+
+        assertThat(replay).isEqualTo(first);
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM crm_account_addresses WHERE tenant_id=:tenantId AND account_id=:accountId",
+                p().addValue("tenantId", fixture.tenantId()).addValue("accountId", accountId), Integer.class);
+        assertThat(count).isEqualTo(1);
+    }
+
+    @Test
+    void rejectsMissingIdempotencyKeyForCreate() throws Exception {
+        Fixture fixture = fixture("master-idempotency-required");
+        UUID accountId = account(fixture, "Key Required Customer");
+
+        mockMvc.perform(post("/api/v1/crm/accounts/{id}/addresses", accountId)
+                        .with(authentication(auth(fixture))).contentType("application/json")
+                        .content("{\"addressType\":\"OFFICE\",\"line1\":\"Street\",\"city\":\"Riyadh\",\"countryCode\":\"SA\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("CRM_IDEMPOTENCY_KEY_REQUIRED"));
     }
 
     @Test
@@ -145,13 +227,16 @@ class CustomerMasterHttpIntegrationTest {
         String body = "{\"identifierType\":\"COMMERCIAL_REGISTRATION\",\"identifierValue\":\"1010-2020\",\"issuerCountryCode\":\"SA\",\"primaryIdentifier\":true,\"verified\":true}";
 
         mockMvc.perform(post("/api/v1/crm/accounts/{id}/identifiers", first)
-                        .with(authentication(auth(tenantA))).contentType("application/json").content(body))
+                        .with(authentication(auth(tenantA))).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType("application/json").content(body))
                 .andExpect(status().isCreated());
         mockMvc.perform(post("/api/v1/crm/accounts/{id}/identifiers", second)
-                        .with(authentication(auth(tenantA))).contentType("application/json").content(body))
+                        .with(authentication(auth(tenantA))).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType("application/json").content(body))
                 .andExpect(status().isConflict());
         mockMvc.perform(post("/api/v1/crm/accounts/{id}/identifiers", otherTenant)
-                        .with(authentication(auth(tenantB))).contentType("application/json").content(body))
+                        .with(authentication(auth(tenantB))).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType("application/json").content(body))
                 .andExpect(status().isCreated());
     }
 
@@ -170,19 +255,32 @@ class CustomerMasterHttpIntegrationTest {
     }
 
     @Test
-    void mergesCustomerRecordsAndRecordsHistoryAtomically() throws Exception {
+    void mergesCustomerRecordsWithDualPreconditionsIdempotencyAndHistory() throws Exception {
         Fixture fixture = fixture("master-merge");
         UUID source = account(fixture, "Duplicate Customer");
         UUID target = account(fixture, "Golden Customer");
+        String key = UUID.randomUUID().toString();
+        String body = "{\"reason\":\"Verified duplicate\"}";
 
-        mockMvc.perform(post("/api/v1/crm/accounts/{source}/merge/{target}", source, target)
-                        .with(authentication(auth(fixture))).contentType("application/json")
-                        .content("{\"expectedSourceVersion\":0,\"expectedTargetVersion\":0,\"reason\":\"Verified duplicate\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.sourceAccountId").value(source.toString()))
-                .andExpect(jsonPath("$.targetAccountId").value(target.toString()))
-                .andExpect(jsonPath("$.sourceVersion").value(1))
-                .andExpect(jsonPath("$.targetVersion").value(1));
+        JsonNode result = perform(post("/api/v1/crm/accounts/{source}/merge/{target}", source, target)
+                .with(authentication(auth(fixture)))
+                .header("Idempotency-Key", key)
+                .header(HttpHeaders.IF_MATCH, etag(MASTER_ETAG_TYPE, source, 0))
+                .header("X-Target-If-Match", etag(MASTER_ETAG_TYPE, target, 0))
+                .contentType("application/json").content(body), 200);
+
+        assertThat(result.path("sourceAccountId").asText()).isEqualTo(source.toString());
+        assertThat(result.path("targetAccountId").asText()).isEqualTo(target.toString());
+        assertThat(result.path("sourceVersion").asLong()).isEqualTo(1);
+        assertThat(result.path("targetVersion").asLong()).isEqualTo(1);
+
+        JsonNode replay = perform(post("/api/v1/crm/accounts/{source}/merge/{target}", source, target)
+                .with(authentication(auth(fixture)))
+                .header("Idempotency-Key", key)
+                .header(HttpHeaders.IF_MATCH, etag(MASTER_ETAG_TYPE, source, 0))
+                .header("X-Target-If-Match", etag(MASTER_ETAG_TYPE, target, 0))
+                .contentType("application/json").content(body), 200);
+        assertThat(replay).isEqualTo(result);
 
         Map<String, Object> sourceRow = jdbc.queryForMap(
                 "SELECT lifecycle_status,merged_into_account_id FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id",
@@ -198,8 +296,10 @@ class CustomerMasterHttpIntegrationTest {
     private void updateIdentity(Fixture fixture, UUID accountId, String legalName, String registration,
                                 String tax, String email) throws Exception {
         mockMvc.perform(patch("/api/v1/crm/accounts/{id}/master", accountId)
-                        .with(authentication(auth(fixture))).contentType("application/json")
-                        .content("{\"expectedVersion\":0,\"legalName\":\"" + legalName +
+                        .with(authentication(auth(fixture)))
+                        .header(HttpHeaders.IF_MATCH, etag(MASTER_ETAG_TYPE, accountId, 0))
+                        .contentType("application/json")
+                        .content("{\"legalName\":\"" + legalName +
                                 "\",\"registrationNumber\":\"" + registration +
                                 "\",\"taxNumber\":\"" + tax +
                                 "\",\"primaryEmail\":\"" + email + "\",\"countryCode\":\"SA\"}"))
@@ -211,6 +311,10 @@ class CustomerMasterHttpIntegrationTest {
         String body = mockMvc.perform(request).andExpect(status().is(expectedStatus))
                 .andReturn().getResponse().getContentAsString();
         return mapper.readTree(body);
+    }
+
+    private String etag(String entityType, UUID id, long version) {
+        return etags.etag(entityType, id, version);
     }
 
     private Fixture fixture(String key) {
