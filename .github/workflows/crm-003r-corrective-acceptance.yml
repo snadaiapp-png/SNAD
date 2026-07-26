@@ -30,12 +30,15 @@ jobs:
           cache: maven
 
       - name: Run CRM-003R corrective acceptance
+        id: acceptance
         working-directory: apps/sanad-platform
-        run: >-
-          ./mvnw -B -ntp
-          -Dtest=CrmCoreKeysetPaginationPostgresTest,CrmOpenApiRuntimeSemanticParityTest
-          -DfailIfNoTests=true
-          test
+        shell: bash
+        run: |
+          set -o pipefail
+          ./mvnw -B -ntp \
+            -Dtest=CrmCoreKeysetPaginationPostgresTest,CrmOpenApiRuntimeSemanticParityTest \
+            -DfailIfNoTests=true \
+            test 2>&1 | tee crm-003r-maven.log
 
       - name: Assert tests actually executed
         working-directory: apps/sanad-platform
@@ -54,11 +57,13 @@ jobs:
           test "$errors" -eq 0
           test "$skipped" -eq 0
 
-      - name: Upload immutable acceptance reports
+      - name: Upload immutable acceptance diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: crm-003r-corrective-acceptance-${{ github.event.pull_request.head.sha || github.sha }}
-          path: apps/sanad-platform/target/surefire-reports
+          path: |
+            apps/sanad-platform/crm-003r-maven.log
+            apps/sanad-platform/target/surefire-reports
           if-no-files-found: error
           retention-days: 30
