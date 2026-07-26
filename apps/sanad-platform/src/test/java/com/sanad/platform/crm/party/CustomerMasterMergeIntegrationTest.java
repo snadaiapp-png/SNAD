@@ -1,5 +1,6 @@
 package com.sanad.platform.crm.party;
 
+import com.sanad.platform.crm.error.CrmContractException;
 import com.sanad.platform.crm.integration.domain.AuditPort;
 import com.sanad.platform.crm.party.application.CustomerMasterUseCases;
 import com.sanad.platform.crm.party.domain.CustomerMasterRepository.CreateAddressCommand;
@@ -113,6 +114,37 @@ class CustomerMasterMergeIntegrationTest {
         assertThat(((Number) history.get("addresses_moved")).intValue()).isEqualTo(1);
         assertThat(((Number) history.get("identifiers_moved")).intValue()).isEqualTo(1);
         assertThat(((Number) history.get("relationships_moved")).intValue()).isEqualTo(1);
+    }
+
+    @Test
+    void clearsTargetParentWhenTargetWasChildOfMergedSource() {
+        Fixture fixture = fixture("merge-parent-cycle");
+        UUID source = account(fixture, "Parent Duplicate");
+        UUID target = account(fixture, "Golden Child");
+        jdbc.update("UPDATE crm_accounts SET parent_account_id=:sourceId WHERE tenant_id=:tenantId AND id=:targetId",
+                p().addValue("tenantId", fixture.tenantId()).addValue("sourceId", source).addValue("targetId", target));
+
+        useCases.merge(fixture.tenantId(), fixture.userId(), source, target,
+                0, 0, "Remove archived parent reference");
+
+        UUID parent = jdbc.queryForObject(
+                "SELECT parent_account_id FROM crm_accounts WHERE tenant_id=:tenantId AND id=:targetId",
+                p().addValue("tenantId", fixture.tenantId()).addValue("targetId", target), UUID.class);
+        assertThat(parent).isNull();
+    }
+
+    @Test
+    void rejectsWritesToArchivedCustomerRecords() {
+        Fixture fixture = fixture("archived-master");
+        UUID accountId = account(fixture, "Archived Customer");
+        jdbc.update("UPDATE crm_accounts SET lifecycle_status='ARCHIVED',archived_at=:now WHERE tenant_id=:tenantId AND id=:id",
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", accountId).addValue("now", Instant.now()));
+
+        assertThatThrownBy(() -> useCases.addAddress(fixture.tenantId(), fixture.userId(), accountId,
+                new CreateAddressCommand("OFFICE", null, "Street", null, "Riyadh",
+                        null, null, "SA", false)))
+                .isInstanceOf(CrmContractException.class)
+                .hasMessageContaining("Archived or merged customer records cannot be modified");
     }
 
     @Test
