@@ -13,7 +13,9 @@
 - Reconciled finding counts against the findings register.
 - Prohibited critical/high residual-risk acceptance.
 - Required evidence digests, valid UTC timestamps and non-duplicated approval evidence.
-- Added a protected main-branch closure job using the `rem-p0-006-closure` GitHub Environment.
+- Added a main-only closure job using the `rem-p0-006-closure` GitHub Environment.
+- Made closure fail when the environment authority secret `REM_P0_006_CLOSURE_AUTHORITY_TOKEN` is absent.
+- Explicitly requires repository administrators to configure required reviewers/protection rules outside the workflow; the workflow does not claim those settings already exist.
 - Added negative controls for tampering, missing scope, SHA mismatch, open material findings and approval defects.
 
 ## Validation completed
