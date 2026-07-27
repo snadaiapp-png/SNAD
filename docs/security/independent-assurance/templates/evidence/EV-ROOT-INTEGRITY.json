@@ -1,0 +1,16 @@
+{
+  "artifact_digest": "sha256:498a73abd97436a4c818ae7b331cfbfca533ea5121cfd598e20f3174b747f396",
+  "artifact_download_api": "https://api.github.com/repos/snadaiapp-png/SNAD/actions/artifacts/8633624630/zip",
+  "artifact_expires_at": "2026-10-24T15:06:24Z",
+  "artifact_id": 8633624630,
+  "artifact_name": "rem-p0-006-root-assessment-30207495249",
+  "assessed_release_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+  "boundary": "Automated technical evidence; not independent certification.",
+  "controller_sha": "c14f8883a2e03449ecbf7fd31776f0b00dc01954",
+  "internal_sha256sums_file_digest": "sha256:9a6cd578c806caa024b76d9f83d760edb1939dec3442a2da460b18ed77caab4e",
+  "internal_sha256sums_verified": true,
+  "root_run_id": 30207495249,
+  "root_run_url": "https://github.com/snadaiapp-png/SNAD/actions/runs/30207495249",
+  "schema": "snad.rem-p0-006.root-artifact-integrity.v1",
+  "verified_at": "2026-07-27T01:33:39Z"
+}
