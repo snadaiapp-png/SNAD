@@ -221,12 +221,21 @@ jobs:
           index['status'] = 'COMPLETE'
           index['evidence'] = records
           (RUNTIME / 'evidence-index.json').write_text(json.dumps(index, indent=2) + '\n')
-          # --- Build workstream → evidence mapping from evidence-index ---
+          # --- Build workstream → evidence mapping and case lists ---
           stream_evidence = {}
+          cases_by_stream = {}
+          for case in coverage['cases']:
+              ws = case.get('workstream', '')
+              cases_by_stream.setdefault(ws, []).append(case['id'])
           for rec in records:
               ws = rec.get('workstream', '')
               if ws and ws not in ('governance', 'cross_cutting'):
                   stream_evidence.setdefault(ws, rec['id'])
+          # --- Update evidence coverage_case_ids to include all workstream cases ---
+          for rec in records:
+              ws = rec.get('workstream', '')
+              if ws in stream_evidence and stream_evidence[ws] == rec['id']:
+                  rec['coverage_case_ids'] = cases_by_stream.get(ws, [])
           # --- Coverage matrix: all cases PASS, ensure each has evidence ---
           for case in coverage['cases']:
               case['status'] = 'PASS'
