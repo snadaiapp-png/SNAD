@@ -147,6 +147,7 @@ jobs:
           # Write trust context to file
           python3 -c "
           import json, os
+          from pathlib import Path
           ctx = {
               'oidc_issuer': os.environ.get('ACTIONS_ID_TOKEN_REQUEST_URL', ''),
               'oidc_subject': 'repo:${{ github.repository }}:ref:${{ github.ref }}',
