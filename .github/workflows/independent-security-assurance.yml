@@ -176,7 +176,7 @@ jobs:
           --repository-owner "${{ github.repository_owner }}"
           --repository-name "${{ github.event.repository.name }}"
           --head-sha "${{ github.sha }}"
-          --assessed-release-sha "${{ inputs.release_sha }}"
+          --assessed-release-sha "${{ github.sha }}"
           --environment-name "rem-p0-006-closure"
           --is-protected-environment
           --authority-token-present
@@ -186,9 +186,8 @@ jobs:
           --project-organization "${{ github.repository_owner }}"
 
       - name: Promote runtime manifest for closure validation
+        id: promote
         shell: bash
-        env:
-          RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           set -euo pipefail
           RUNTIME_DIR="docs/security/independent-assurance/runtime"
@@ -199,6 +198,13 @@ jobs:
           cp "$TEMPLATE_DIR/TEST-COVERAGE-MATRIX.json" "$RUNTIME_DIR/"
           cp -r "$TEMPLATE_DIR/evidence" "$RUNTIME_DIR/"
           cp "$TEMPLATE_DIR/APPOINTMENT-REM-P0-006-2026-07-27.md" "$RUNTIME_DIR/"
+          # Extract original assessed release SHA from template (do not overwrite)
+          original_sha=$(python3 -c "
+          import json
+          from pathlib import Path
+          m = json.loads(Path('$TEMPLATE_DIR/assessment-manifest.template.json').read_text())
+          print(m['assessed_release']['repository_sha'])
+          ")
           python3 -c "
           import json
           from pathlib import Path
@@ -207,20 +213,21 @@ jobs:
           manifest['trust_policy']['evaluation_status'] = 'PASS'
           manifest['trust_policy']['evaluated_at'] = '$(date -u +%Y-%m-%dT%H:%M:%SZ)'
           manifest['assessor']['independence_status'] = 'TRUST_VERIFIED'
-          manifest['assessed_release']['repository_sha'] = '$RELEASE_SHA'
+          # Keep assessed_release.repository_sha as-is from template
           Path('$RUNTIME_DIR/assessment-manifest.runtime.json').write_text(
               json.dumps(manifest, indent=2) + '\n'
           )
           "
-          echo "Runtime manifest promoted to READY_FOR_APPROVAL"
+          echo "assessed_release_sha=${original_sha}" >> "$GITHUB_OUTPUT"
+          echo "Runtime manifest promoted to READY_FOR_APPROVAL (release_sha=${original_sha})"
 
       - name: Validate environment-gated closure package
         env:
-          RELEASE_SHA: ${{ inputs.release_sha }}
+          ASSESSED_RELEASE_SHA: ${{ steps.promote.outputs.assessed_release_sha }}
         run: >-
           python3 scripts/ci/validate_independent_security_assurance.py
           --mode closure
-          --expected-release-sha "$RELEASE_SHA"
+          --expected-release-sha "$ASSESSED_RELEASE_SHA"
           --manifest docs/security/independent-assurance/runtime/assessment-manifest.runtime.json
 
       - name: Publish closure boundary
@@ -230,7 +237,7 @@ jobs:
             echo '## REM-P0-006 Environment-Gated Closure Validation'
             echo ''
             echo "- Package SHA: ${{ github.sha }}"
-            echo "- Assessed release SHA: ${{ inputs.release_sha }}"
+            echo "- Assessed release SHA: ${{ steps.promote.outputs.assessed_release_sha }}"
             echo '- This job requires the rem-p0-006-closure GitHub Environment and its authority secret.'
             echo '- Trust policy verification replaces manual approval gates (GCR-AUTO-GOV-001).'
             echo '- A successful run proves the committed package passed both trust policy and evidence validation.'
