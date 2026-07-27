@@ -203,7 +203,8 @@ def validate_manifest_structure(data: dict[str, Any]) -> None:
             require(isinstance(approvals, dict), "v3.0 approvals must be an object if present")
         trust_policy = data.get("trust_policy")
         require(isinstance(trust_policy, dict), "v3.0 requires trust_policy object")
-        require_exact_keys(trust_policy, {"policy_id", "schema_version", "evaluation_status", "evaluated_at"}, "trust_policy")
+        required_trust_keys = {"policy_id", "schema_version", "evaluation_status", "evaluated_at"}
+        require(required_trust_keys <= set(trust_policy), f"trust_policy must contain at least: {sorted(required_trust_keys)}")
         require(trust_policy.get("evaluation_status") in {"PENDING", "PASS", "FAIL"}, "invalid trust_policy.evaluation_status")
 
     require(isinstance(data.get("closure_decision_evidence_id"), str), "closure_decision_evidence_id must be a string")

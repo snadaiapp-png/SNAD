@@ -59,6 +59,9 @@ def add_local_evidence(package: Path, evidence_id: str, evidence_type: str, work
 
 def complete_candidate(package: Path, approve: bool = True) -> None:
     manifest = read_json(package / "assessment-manifest.json")
+    # Ensure v2.0 schema for v2.0 test helpers (template may be v3.0)
+    manifest["schema_version"] = "2.0"
+    manifest.pop("trust_policy", None)
     coverage = read_json(package / "TEST-COVERAGE-MATRIX.json")
     findings = read_json(package / "findings-register.json")
     index = read_json(package / "evidence-index.json")
@@ -333,10 +336,13 @@ class IndependentSecurityAssuranceValidatorTest(unittest.TestCase):
         temporary, package = self.package()
         self.addCleanup(temporary.cleanup)
         complete_candidate(package, approve=False)
+        # Write the v2.0 manifest first (complete_candidate doesn't write back)
+        manifest = read_json(package / "assessment-manifest.json")
+        write_json(package / "assessment-manifest.json", manifest)
+        # Now re-read, upgrade to v3.0, and remove trust_policy
         manifest = read_json(package / "assessment-manifest.json")
         manifest["schema_version"] = "3.0"
-        # Remove trust_policy to trigger validation error
-        del manifest["trust_policy"]
+        manifest.pop("trust_policy", None)
         write_json(package / "assessment-manifest.json", manifest)
         with self.assertRaisesRegex(validator.ValidationError, "trust_policy"):
             validator.validate_package(package / "assessment-manifest.json", "readiness", RELEASE_SHA)
