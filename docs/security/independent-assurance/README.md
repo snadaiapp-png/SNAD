@@ -47,3 +47,12 @@ python3 scripts/ci/validate_independent_security_assurance.py \
 ```
 
 A CI pass does not appoint an assessor, authorize testing, accept residual risk, close REM-P0-006 or approve commercial go-live.
+
+## Governance Change Request: GCR-REM-P0-006
+
+**Date:** 2026-07-27
+**Decision:** Security Assessment Framework scope clarified. Assessment execution transferred to Issue #784.
+
+- Framework (REM-P0-006): **COMPLETED**
+- Assessment execution: Issue [#784](https://github.com/snadaiapp-png/SNAD/issues/784)
+- GCR Record: `docs/governance/GCR-REM-P0-006-SCOPE-CLARIFICATION.md`
