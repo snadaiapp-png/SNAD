@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -73,9 +74,28 @@ def _verify_oidc_identity(ctx: TrustContext) -> str | None:
     return None
 
 
+def _verify_head_commit_signature() -> str | None:
+    """Verify the HEAD commit itself is signed via git verify-commit."""
+    try:
+        result = subprocess.run(
+            ["git", "verify-commit", "HEAD"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            return None
+        return f"HEAD commit is not signed: {result.stderr.strip()}"
+    except FileNotFoundError:
+        return "git binary not available for signature verification"
+    except subprocess.TimeoutExpired:
+        return "git verify-commit timed out"
+
+
 def _verify_git_signatures(ctx: TrustContext) -> str | None:
     """Verify all commits in assessed range are signed."""
     if not ctx.commit_signatures:
+        # Zero-commit range (release_sha == HEAD): verify the HEAD commit directly
+        if ctx.head_sha and ctx.assessed_release_sha and ctx.head_sha == ctx.assessed_release_sha:
+            return _verify_head_commit_signature()
         return "No commit signature data provided"
     unsigned = [sha for sha, signed in ctx.commit_signatures.items() if not signed]
     if unsigned:

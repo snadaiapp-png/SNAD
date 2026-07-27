@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = ROOT / "scripts/ci/validate_trust_policy.py"
@@ -160,6 +162,54 @@ class TrustPolicyValidatorTest(unittest.TestCase):
         result = trust_validator.validate_trust_policy(POLICY_PATH, "readiness", ctx)
         self.assertEqual(len(result["rules"]), 1)
         self.assertEqual(result["rules"][0]["rule_id"], "RULE-002")
+
+    def test_zero_range_diff_sha_uses_commit_signatures(self):
+        """Case A: release_sha != head_sha with commit_signatures dict works as before."""
+        sha_a = "a" * 40
+        sha_b = "b" * 40
+        ctx = make_context(
+            head_sha=sha_a,
+            assessed_release_sha=sha_b,
+            commit_signatures={sha_b: True},
+        )
+        result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
+        sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
+        self.assertTrue(sig["passed"])
+
+    def test_zero_range_same_sha_signed_head_passes(self):
+        """Case B: release_sha == head_sha, HEAD commit is signed → PASS."""
+        sha = "c" * 40
+        ctx = make_context(
+            head_sha=sha,
+            assessed_release_sha=sha,
+            commit_signatures={},
+        )
+        mock_result = subprocess.CompletedProcess(
+            args=["git", "verify-commit", "HEAD"],
+            returncode=0, stdout="", stderr="",
+        )
+        with patch("trust_policy_validator.subprocess.run", return_value=mock_result):
+            result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
+        sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
+        self.assertTrue(sig["passed"])
+
+    def test_zero_range_same_sha_unsigned_head_fails(self):
+        """Case C: release_sha == head_sha, HEAD commit is unsigned → FAIL."""
+        sha = "d" * 40
+        ctx = make_context(
+            head_sha=sha,
+            assessed_release_sha=sha,
+            commit_signatures={},
+        )
+        mock_result = subprocess.CompletedProcess(
+            args=["git", "verify-commit", "HEAD"],
+            returncode=1, stdout="", stderr="error: no signature found",
+        )
+        with patch("trust_policy_validator.subprocess.run", return_value=mock_result):
+            result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
+        sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
+        self.assertFalse(sig["passed"])
+        self.assertIn("not signed", sig["error"])
 
 
 if __name__ == "__main__":
