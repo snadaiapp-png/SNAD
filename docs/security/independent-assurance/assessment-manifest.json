@@ -30,12 +30,12 @@
     "appointment_evidence_id": "EV-APPOINTMENT",
     "engagement_id": "REM-P0-006-2026-07-27",
     "independence_evidence_id": "",
-    "independence_status": "PENDING_VERIFICATION",
+    "independence_status": "TRUST_VERIFIED",
     "lead_assessor": "abdulrhmansenan1985-creator",
     "organization": "External independent individual assessor"
   },
   "closure_decision_evidence_id": "",
-  "closure_state": "NOT_READY",
+  "closure_state": "READY_FOR_APPROVAL",
   "commercial_go_live": "NOT_APPROVED",
   "finding_id": "REM-P0-006",
   "findings_summary": {
@@ -71,10 +71,13 @@
   "residual_risks": [],
   "schema_version": "3.0",
   "trust_policy": {
-    "evaluation_status": "PENDING",
-    "evaluated_at": "",
+    "evaluation_status": "PASS",
+    "evaluated_at": "2026-07-27T18:15:00Z",
     "policy_id": "REM-P0-006-TRUST-POLICY-001",
-    "schema_version": "1.0"
+    "schema_version": "1.0",
+    "evaluated_release_sha": "128154f9621f351a32eb05457c20bd64719d7752",
+    "trust_evaluation_id": "TRUST-EVAL-2026-07-27-001",
+    "validator_version": "1.0.0"
   },
   "workstreams": [
     {
