@@ -218,9 +218,6 @@ jobs:
                       rec['sha256'] = 'sha256:' + hashlib.sha256(fpath.read_bytes()).hexdigest()
               rec['assessed_release_sha'] = release_sha
               records.append(rec)
-          index['status'] = 'COMPLETE'
-          index['evidence'] = records
-          (RUNTIME / 'evidence-index.json').write_text(json.dumps(index, indent=2) + '\n')
           # --- Build workstream → evidence mapping and case lists ---
           stream_evidence = {}
           cases_by_stream = {}
@@ -236,6 +233,9 @@ jobs:
               ws = rec.get('workstream', '')
               if ws in stream_evidence and stream_evidence[ws] == rec['id']:
                   rec['coverage_case_ids'] = cases_by_stream.get(ws, [])
+          index['status'] = 'COMPLETE'
+          index['evidence'] = records
+          (RUNTIME / 'evidence-index.json').write_text(json.dumps(index, indent=2) + '\n')
           # --- Coverage matrix: all cases PASS, ensure each has evidence ---
           for case in coverage['cases']:
               case['status'] = 'PASS'
