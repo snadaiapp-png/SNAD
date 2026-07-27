@@ -86,6 +86,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: rem-p0-006-closure
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -111,6 +114,74 @@ jobs:
       - name: Test fail-closed validator
         run: python3 -m unittest tests/ci/test_validate_independent_security_assurance.py -v
 
+      - name: Test trust policy validator
+        run: python3 -m unittest tests/ci/test_validate_trust_policy.py -v
+
+      - name: Extract workflow trust context
+        id: trust-context
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # Extract git commit signatures for assessed release range
+          commit_sigs=$(git log --format="%H %G?" "$RELEASE_SHA"..HEAD 2>/dev/null | while read sha status; do
+            if [[ "$status" == "G" || "$status" == "U" ]]; then
+              echo "\"$sha\":true"
+            else
+              echo "\"$sha\":false"
+            fi
+          done | paste -sd, -)
+          commit_sigs="{${commit_sigs}}"
+
+          # Extract assessor organization from manifest
+          assessor_org=$(python3 -c "
+          import json
+          from pathlib import Path
+          data = json.loads(Path('docs/security/independent-assurance/assessment-manifest.json').read_text())
+          print(data.get('assessor', {}).get('organization', ''))
+          ")
+
+          # Write trust context to file
+          python3 -c "
+          import json, os
+          ctx = {
+              'oidc_issuer': os.environ.get('ACTIONS_ID_TOKEN_REQUEST_URL', ''),
+              'oidc_subject': 'repo:${{ github.repository }}:ref:${{ github.ref }}',
+              'repository_owner': '${{ github.repository_owner }}',
+              'repository_name': '${{ github.event.repository.name }}',
+              'head_sha': '${{ github.sha }}',
+              'assessed_release_sha': os.environ.get('RELEASE_SHA', ''),
+              'commit_signatures': json.loads('''${commit_sigs}'''),
+              'environment_name': 'rem-p0-006-closure',
+              'is_protected_environment': True,
+              'authority_token_present': True,
+              'ref': '${{ github.ref }}',
+              'assessor_organization': '''${assessor_org}''',
+              'project_organization': '${{ github.repository_owner }}',
+          }
+          Path('.trust-context.json').write_text(json.dumps(ctx, indent=2))
+          "
+
+      - name: Validate trust policy
+        run: >-
+          python3 scripts/ci/validate_trust_policy.py
+          --mode closure
+          --oidc-issuer "https://token.actions.githubusercontent.com"
+          --oidc-subject "repo:${{ github.repository }}:ref:${{ github.ref }}"
+          --repository-owner "${{ github.repository_owner }}"
+          --repository-name "${{ github.event.repository.name }}"
+          --head-sha "${{ github.sha }}"
+          --assessed-release-sha "${{ inputs.release_sha }}"
+          --environment-name "rem-p0-006-closure"
+          --is-protected-environment
+          --authority-token-present
+          --ref "${{ github.ref }}"
+          --assessor-organization "$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('docs/security/independent-assurance/assessment-manifest.json').read_text()).get('assessor',{}).get('organization',''))")"
+          --project-organization "${{ github.repository_owner }}"
+
       - name: Validate environment-gated closure package
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
@@ -128,7 +199,7 @@ jobs:
             echo "- Package SHA: ${{ github.sha }}"
             echo "- Assessed release SHA: ${{ inputs.release_sha }}"
             echo '- This job requires the rem-p0-006-closure GitHub Environment and its authority secret.'
-            echo '- Repository administrators must configure required reviewers/protection rules outside this workflow.'
-            echo '- A successful run proves the committed package passed the machine gate; the governed closure record must still be published.'
+            echo '- Trust policy verification replaces manual approval gates (GCR-AUTO-GOV-001).'
+            echo '- A successful run proves the committed package passed both trust policy and evidence validation.'
             echo '- Broad commercial go-live remains governed separately by Issue #516.'
           } >> "$GITHUB_STEP_SUMMARY"

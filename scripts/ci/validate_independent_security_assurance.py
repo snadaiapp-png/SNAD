@@ -134,7 +134,8 @@ def require_unique(values: Iterable[str], label: str) -> None:
 
 
 def validate_manifest_structure(data: dict[str, Any]) -> None:
-    require(data.get("schema_version") == "2.0", "assessment-manifest schema_version must be 2.0")
+    schema_version = data.get("schema_version")
+    require(schema_version in {"2.0", "3.0"}, "assessment-manifest schema_version must be 2.0 or 3.0")
     require(data.get("finding_id") == "REM-P0-006", "finding_id must be REM-P0-006")
     require(data.get("closure_state") in {"NOT_READY", "READY_FOR_APPROVAL", "ACCEPTED"}, "invalid closure_state")
     require(data.get("commercial_go_live") == "NOT_APPROVED", "this package cannot approve commercial go-live")
@@ -153,7 +154,10 @@ def validate_manifest_structure(data: dict[str, Any]) -> None:
         },
         "assessor",
     )
-    require(assessor.get("independence_status") in {"NOT_APPOINTED", "PENDING_VERIFICATION", "VERIFIED"}, "invalid assessor independence_status")
+    valid_statuses = {"NOT_APPOINTED", "PENDING_VERIFICATION", "VERIFIED"}
+    if schema_version == "3.0":
+        valid_statuses.add("TRUST_VERIFIED")
+    require(assessor.get("independence_status") in valid_statuses, "invalid assessor independence_status")
 
     release = data.get("assessed_release")
     require(isinstance(release, dict), "assessed_release must be an object")
@@ -185,13 +189,22 @@ def validate_manifest_structure(data: dict[str, Any]) -> None:
     require(isinstance(residual_risks, list), "residual_risks must be a list")
     require(all(isinstance(item, dict) for item in residual_risks), "every residual risk must be an object")
 
-    approvals = data.get("approvals")
-    require(isinstance(approvals, dict), "approvals must be an object")
-    require(set(approvals) == APPROVAL_ROLES, "exactly three approval roles are required")
-    for role, approval in approvals.items():
-        require(isinstance(approval, dict), f"approval must be an object: {role}")
-        require_exact_keys(approval, {"decision", "name", "approved_at", "evidence_id"}, f"approval {role}")
-        require(approval.get("decision") in {"PENDING", "APPROVE", "REJECT"}, f"invalid approval decision: {role}")
+    if schema_version == "2.0":
+        approvals = data.get("approvals")
+        require(isinstance(approvals, dict), "approvals must be an object")
+        require(set(approvals) == APPROVAL_ROLES, "exactly three approval roles are required")
+        for role, approval in approvals.items():
+            require(isinstance(approval, dict), f"approval must be an object: {role}")
+            require_exact_keys(approval, {"decision", "name", "approved_at", "evidence_id"}, f"approval {role}")
+            require(approval.get("decision") in {"PENDING", "APPROVE", "REJECT"}, f"invalid approval decision: {role}")
+    elif schema_version == "3.0":
+        approvals = data.get("approvals")
+        if approvals is not None:
+            require(isinstance(approvals, dict), "v3.0 approvals must be an object if present")
+        trust_policy = data.get("trust_policy")
+        require(isinstance(trust_policy, dict), "v3.0 requires trust_policy object")
+        require_exact_keys(trust_policy, {"policy_id", "schema_version", "evaluation_status", "evaluated_at"}, "trust_policy")
+        require(trust_policy.get("evaluation_status") in {"PENDING", "PASS", "FAIL"}, "invalid trust_policy.evaluation_status")
 
     require(isinstance(data.get("closure_decision_evidence_id"), str), "closure_decision_evidence_id must be a string")
 
@@ -436,7 +449,18 @@ def validate_assessor_and_release(
         require(started_at < completed_at, "assessment completed_at must be after started_at")
 
         assessor = manifest["assessor"]
-        require(assessor["independence_status"] == "VERIFIED", "assessor independence must be VERIFIED")
+        schema_version = manifest.get("schema_version", "2.0")
+        if schema_version == "3.0":
+            trust_policy = manifest.get("trust_policy", {})
+            if trust_policy.get("evaluation_status") == "PASS":
+                require(
+                    assessor["independence_status"] in {"VERIFIED", "TRUST_VERIFIED"},
+                    "assessor independence must be VERIFIED or TRUST_VERIFIED",
+                )
+            else:
+                require(assessor["independence_status"] == "VERIFIED", "assessor independence must be VERIFIED")
+        else:
+            require(assessor["independence_status"] == "VERIFIED", "assessor independence must be VERIFIED")
         for field in ("organization", "lead_assessor", "engagement_id"):
             require(nonempty(assessor.get(field)), f"assessor.{field} is required")
         appointment_id = assessor["appointment_evidence_id"]
@@ -495,8 +519,14 @@ def validate_findings_summary(manifest: dict[str, Any], derived: dict[str, dict[
 def validate_approvals(
     manifest: dict[str, Any], evidence: dict[str, dict[str, Any]], strict: bool, completed_at: datetime | None
 ) -> None:
+    # v3.0 with trust-based governance replaces manual approvals
+    schema_version = manifest.get("schema_version", "2.0")
+    if schema_version == "3.0":
+        trust_policy = manifest.get("trust_policy")
+        if trust_policy and trust_policy.get("evaluation_status") == "PASS":
+            return  # trust-based governance replaces manual approvals
     approval_evidence_ids: list[str] = []
-    for role, approval in manifest["approvals"].items():
+    for role, approval in manifest.get("approvals", {}).items():
         if approval["decision"] == "PENDING":
             require(not approval["name"] and not approval["approved_at"] and not approval["evidence_id"], f"pending approval must not contain approval claims: {role}")
             continue
