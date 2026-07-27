@@ -14,7 +14,7 @@ SPEC = importlib.util.spec_from_file_location("assurance_validator", MODULE_PATH
 assert SPEC and SPEC.loader
 validator = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(validator)
-TEMPLATE_DIR = ROOT / "docs/security/independent-assurance"
+TEMPLATE_DIR = ROOT / "docs/security/independent-assurance/templates"
 RELEASE_SHA = "a" * 40
 
 
@@ -27,13 +27,21 @@ def write_json(path: Path, value: dict) -> None:
 
 
 def copy_package(target: Path) -> None:
+    shutil.copy2(TEMPLATE_DIR / "assessment-manifest.template.json", target / "assessment-manifest.json")
     for name in (
-        "assessment-manifest.json",
         "evidence-index.json",
         "findings-register.json",
         "TEST-COVERAGE-MATRIX.json",
     ):
         shutil.copy2(TEMPLATE_DIR / name, target / name)
+    # Copy evidence files referenced by evidence-index.json
+    evidence_src = TEMPLATE_DIR / "evidence"
+    if evidence_src.is_dir():
+        evidence_dst = target / "evidence"
+        shutil.copytree(evidence_src, evidence_dst, dirs_exist_ok=True)
+    appointment = TEMPLATE_DIR / "APPOINTMENT-REM-P0-006-2026-07-27.md"
+    if appointment.is_file():
+        shutil.copy2(appointment, target / appointment.name)
 
 
 def add_local_evidence(package: Path, evidence_id: str, evidence_type: str, workstream: str, case_ids: list[str], created_by: str) -> dict:
@@ -144,11 +152,13 @@ class IndependentSecurityAssuranceValidatorTest(unittest.TestCase):
         return temporary, path
 
     def test_readiness_template_passes_without_closure_claim(self):
-        validator.validate_package(TEMPLATE_DIR / "assessment-manifest.json", "readiness")
+        temporary, package = self.package()
+        self.addCleanup(temporary.cleanup)
+        validator.validate_package(package / "assessment-manifest.json", "readiness")
 
     def test_closure_rejects_not_ready_state(self):
         with self.assertRaisesRegex(validator.ValidationError, "READY_FOR_APPROVAL"):
-            validator.validate_package(TEMPLATE_DIR / "assessment-manifest.json", "closure", RELEASE_SHA)
+            validator.validate_package(TEMPLATE_DIR / "assessment-manifest.template.json", "closure", RELEASE_SHA)
 
     def test_complete_candidate_passes_readiness_with_pending_approvals(self):
         temporary, package = self.package()
