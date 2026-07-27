@@ -9,7 +9,7 @@
       "id": "EV-APPOINTMENT",
       "location": "file:APPOINTMENT-REM-P0-006-2026-07-27.md",
       "sanitized": true,
-      "sha256": "sha256:09b0b3bf09bdc57e60d9cfdb3b2dc15a2115468e03d470f390a5f7851b5ad588",
+      "sha256": "sha256:06c516ffb1acd67c66c5d49dc298a653ca588e856edcda7d830736dd147c9364",
       "title": "Independent assessor appointment",
       "type": "APPOINTMENT",
       "workstream": "governance"
@@ -23,7 +23,7 @@
       "id": "EV-ROOT-INTEGRITY",
       "location": "file:evidence/EV-ROOT-INTEGRITY.json",
       "sanitized": true,
-      "sha256": "sha256:7dff5fde7cc55d0302ce570c0f8c3bd0bd070dc75653750e766d3a434c486145",
+      "sha256": "sha256:61b98c3c642c6f5551dfbbd69a1842dc951e8ee1f3b7227a054ab3ed71d099b9",
       "title": "Immutable root Artifact identity and checksum verification",
       "type": "REPORT",
       "workstream": "cross_cutting"
@@ -40,7 +40,7 @@
       "id": "EV-PEN-AUTOMATED",
       "location": "file:evidence/EV-ROOT-ZAP.json",
       "sanitized": true,
-      "sha256": "sha256:566ce20c2f9f0c1abadb2d824ca18ab4be1e20582f182fa1ad80d16ed1143e84",
+      "sha256": "sha256:5b9935e57949153d5966a06142621845ce8e32c41acb9dd18e915bd342ea2b31",
       "title": "Automated safe-HTTP and passive DAST evidence",
       "type": "TEST_OUTPUT",
       "workstream": "penetration_testing"
@@ -57,7 +57,7 @@
       "id": "EV-TENANT-CRM",
       "location": "file:evidence/EV-ROOT-TENANT-CRM.json",
       "sanitized": true,
-      "sha256": "sha256:45d04f31782ab8896a1c769e1ddd6f5e977f8a1b087ace6e0428e6fe6e78a5d1",
+      "sha256": "sha256:fe3ac01cfd78ceb49e8733b286b4247d180452203ca3f925f8d19360c0d154fb",
       "title": "Authenticated two-tenant CRM Production evidence",
       "type": "TEST_OUTPUT",
       "workstream": "tenant_boundary_and_object_authorization"
@@ -73,7 +73,7 @@
       "id": "EV-CONFIG-HTTP",
       "location": "file:evidence/EV-ROOT-SAFE-HTTP.json",
       "sanitized": true,
-      "sha256": "sha256:0e1fd512965dc1d4d4500c827f18903b2a0086aaab786b3d6e6a1a36be90ee93",
+      "sha256": "sha256:b597530417e49f80a56d87b78b04368a56d74231482eafb1aeb4586b770d5834",
       "title": "Production release identity, health, CORS and header checks",
       "type": "TEST_OUTPUT",
       "workstream": "production_configuration_and_secrets"
@@ -90,7 +90,7 @@
       "id": "EV-SUPPLY-CHAIN",
       "location": "file:evidence/EV-ROOT-WORKFLOWS.json",
       "sanitized": true,
-      "sha256": "sha256:f9fbe82ad3cb35c93387198b34c55a34e09f2122e13e940b9a57889a8fc55ec5",
+      "sha256": "sha256:169e4811acb09a4c2f98f9d9475635724fb94124efae38afd8aa5a9b578ad16e",
       "title": "NVD, OWASP, baseline and provenance workflow results",
       "type": "TEST_OUTPUT",
       "workstream": "dependency_and_supply_chain"
@@ -107,7 +107,7 @@
       "id": "EV-PRIVACY-GAP",
       "location": "file:evidence/EV-ROOT-GAP-ANALYSIS.json",
       "sanitized": true,
-      "sha256": "sha256:d4b66080ea8ef30f0f99a3acb98f07fc23977a2645f4ef32f675db4146ea6095",
+      "sha256": "sha256:78a4a8c86610bed11d665f2b5e44c03a9e19cb597cd977f4fb35c3fd945292aa",
       "title": "Privacy and threat-model independent evidence gap",
       "type": "REPORT",
       "workstream": "privacy_and_threat_model"
@@ -123,7 +123,7 @@
       "id": "EV-RETEST-AUTOMATED",
       "location": "file:evidence/EV-ROOT-INTEGRITY.json",
       "sanitized": true,
-      "sha256": "sha256:7dff5fde7cc55d0302ce570c0f8c3bd0bd070dc75653750e766d3a434c486145",
+      "sha256": "sha256:61b98c3c642c6f5551dfbbd69a1842dc951e8ee1f3b7227a054ab3ed71d099b9",
       "title": "Automated exact-release regression and retest input",
       "type": "RETEST_STATEMENT",
       "workstream": "remediation_retest"
