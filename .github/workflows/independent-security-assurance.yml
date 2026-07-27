@@ -135,6 +135,7 @@ jobs:
             fi
           done | paste -sd, -)
           commit_sigs="{${commit_sigs}}"
+          echo "commit_signatures=${commit_sigs}" >> "$GITHUB_OUTPUT"
 
           # Extract assessor organization from manifest
           assessor_org=$(python3 -c "
@@ -180,6 +181,7 @@ jobs:
           --is-protected-environment
           --authority-token-present
           --ref "${{ github.ref }}"
+          --commit-signatures-json '${{ steps.trust-context.outputs.commit_signatures }}'
           --assessor-organization "$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('docs/security/independent-assurance/assessment-manifest.json').read_text()).get('assessor',{}).get('organization',''))")"
           --project-organization "${{ github.repository_owner }}"
 
