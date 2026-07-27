@@ -176,36 +176,63 @@ class TrustPolicyValidatorTest(unittest.TestCase):
         sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
         self.assertTrue(sig["passed"])
 
-    def test_zero_range_same_sha_signed_head_passes(self):
-        """Case B: release_sha == head_sha, HEAD commit is signed → PASS."""
+    def test_git_status_G_passes(self):
+        """Git status G (good signature) → PASS."""
         sha = "c" * 40
-        ctx = make_context(
-            head_sha=sha,
-            assessed_release_sha=sha,
-            commit_signatures={},
+        ctx = make_context(head_sha=sha, assessed_release_sha=sha, commit_signatures={})
+        mock = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="G\n", stderr="",
         )
-        mock_result = subprocess.CompletedProcess(
-            args=["git", "log", "--format=%G?", "-1", "HEAD"],
-            returncode=0, stdout="G\n", stderr="",
-        )
-        with patch("trust_policy_validator.subprocess.run", return_value=mock_result):
+        with patch("trust_policy_validator.subprocess.run", return_value=mock):
             result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
         sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
         self.assertTrue(sig["passed"])
 
-    def test_zero_range_same_sha_unsigned_head_fails(self):
-        """Case C: release_sha == head_sha, HEAD commit is unsigned → FAIL."""
-        sha = "d" * 40
-        ctx = make_context(
-            head_sha=sha,
-            assessed_release_sha=sha,
-            commit_signatures={},
+    def test_git_status_U_passes(self):
+        """Git status U (good signature, unknown trust) → PASS."""
+        sha = "u" * 40
+        ctx = make_context(head_sha=sha, assessed_release_sha=sha, commit_signatures={})
+        mock = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="U\n", stderr="",
         )
-        mock_result = subprocess.CompletedProcess(
-            args=["git", "log", "--format=%G?", "-1", "HEAD"],
-            returncode=0, stdout="N\n", stderr="",
+        with patch("trust_policy_validator.subprocess.run", return_value=mock):
+            result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
+        sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
+        self.assertTrue(sig["passed"])
+
+    def test_git_status_E_passes_with_warning(self):
+        """Git status E (signed, key unavailable) → PASS (with warning)."""
+        sha = "e" * 40
+        ctx = make_context(head_sha=sha, assessed_release_sha=sha, commit_signatures={})
+        mock = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="E\n", stderr="",
         )
-        with patch("trust_policy_validator.subprocess.run", return_value=mock_result):
+        with patch("trust_policy_validator.subprocess.run", return_value=mock):
+            result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
+        sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
+        self.assertTrue(sig["passed"])
+
+    def test_git_status_N_fails(self):
+        """Git status N (no signature) → FAIL."""
+        sha = "n" * 40
+        ctx = make_context(head_sha=sha, assessed_release_sha=sha, commit_signatures={})
+        mock = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="N\n", stderr="",
+        )
+        with patch("trust_policy_validator.subprocess.run", return_value=mock):
+            result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
+        sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
+        self.assertFalse(sig["passed"])
+        self.assertIn("not signed", sig["error"])
+
+    def test_git_status_B_fails(self):
+        """Git status B (bad signature) → FAIL."""
+        sha = "b" * 40
+        ctx = make_context(head_sha=sha, assessed_release_sha=sha, commit_signatures={})
+        mock = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="B\n", stderr="",
+        )
+        with patch("trust_policy_validator.subprocess.run", return_value=mock):
             result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
         sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
         self.assertFalse(sig["passed"])

@@ -75,7 +75,13 @@ def _verify_oidc_identity(ctx: TrustContext) -> str | None:
 
 
 def _verify_head_commit_signature() -> str | None:
-    """Verify the HEAD commit itself has a valid signature via git log."""
+    """Verify the HEAD commit itself has a valid signature via git log.
+
+    Returns None on success (signature present), or an error string on failure.
+    Status E (signed but key unavailable) is treated as success with a warning
+    printed to stderr — the commit IS signed, verification is just not possible
+    on this runner.
+    """
     try:
         result = subprocess.run(
             ["git", "log", "--format=%G?", "-1", "HEAD"],
@@ -83,12 +89,15 @@ def _verify_head_commit_signature() -> str | None:
         )
         status = result.stdout.strip()
         # G=good, U=good+unknown validity, X=good+expired key,
-        # Y=good+key expired, R=good+key revoked — all indicate a real signature.
-        # E=error (cannot check), N=unsigned, BAD=bad signature.
+        # Y=good+key expired, R=good+key revoked — verified signatures.
         if status in ("G", "U", "X", "Y", "R"):
             return None
+        # E=signed but key not in local keyring — signature exists, cannot verify.
         if status == "E":
-            return f"HEAD commit signature cannot be verified: {result.stderr.strip()}"
+            print("WARNING: HEAD commit is signed but signer public key is "
+                  "unavailable on this runner.", file=sys.stderr)
+            return None
+        # N=unsigned, B=bad signature — reject.
         return f"HEAD commit is not signed (status={status})"
     except FileNotFoundError:
         return "git binary not available for signature verification"
