@@ -295,3 +295,4 @@ jobs:
             echo '- A successful run proves the committed package passed both trust policy and evidence validation.'
             echo '- Broad commercial go-live remains governed separately by Issue #516.'
           } >> "$GITHUB_STEP_SUMMARY"
+# Signed fix
