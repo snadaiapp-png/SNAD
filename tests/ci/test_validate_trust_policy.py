@@ -185,8 +185,8 @@ class TrustPolicyValidatorTest(unittest.TestCase):
             commit_signatures={},
         )
         mock_result = subprocess.CompletedProcess(
-            args=["git", "verify-commit", "HEAD"],
-            returncode=0, stdout="", stderr="",
+            args=["git", "log", "--format=%G?", "-1", "HEAD"],
+            returncode=0, stdout="G\n", stderr="",
         )
         with patch("trust_policy_validator.subprocess.run", return_value=mock_result):
             result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
@@ -202,8 +202,8 @@ class TrustPolicyValidatorTest(unittest.TestCase):
             commit_signatures={},
         )
         mock_result = subprocess.CompletedProcess(
-            args=["git", "verify-commit", "HEAD"],
-            returncode=1, stdout="", stderr="error: no signature found",
+            args=["git", "log", "--format=%G?", "-1", "HEAD"],
+            returncode=0, stdout="N\n", stderr="",
         )
         with patch("trust_policy_validator.subprocess.run", return_value=mock_result):
             result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)

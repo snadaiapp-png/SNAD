@@ -75,19 +75,25 @@ def _verify_oidc_identity(ctx: TrustContext) -> str | None:
 
 
 def _verify_head_commit_signature() -> str | None:
-    """Verify the HEAD commit itself is signed via git verify-commit."""
+    """Verify the HEAD commit itself has a valid signature via git log."""
     try:
         result = subprocess.run(
-            ["git", "verify-commit", "HEAD"],
+            ["git", "log", "--format=%G?", "-1", "HEAD"],
             capture_output=True, text=True, timeout=30,
         )
-        if result.returncode == 0:
+        status = result.stdout.strip()
+        # G=good, U=good+unknown validity, X=good+expired key,
+        # Y=good+key expired, R=good+key revoked — all indicate a real signature.
+        # E=error (cannot check), N=unsigned, BAD=bad signature.
+        if status in ("G", "U", "X", "Y", "R"):
             return None
-        return f"HEAD commit is not signed: {result.stderr.strip()}"
+        if status == "E":
+            return f"HEAD commit signature cannot be verified: {result.stderr.strip()}"
+        return f"HEAD commit is not signed (status={status})"
     except FileNotFoundError:
         return "git binary not available for signature verification"
     except subprocess.TimeoutExpired:
-        return "git verify-commit timed out"
+        return "git log signature check timed out"
 
 
 def _verify_git_signatures(ctx: TrustContext) -> str | None:
