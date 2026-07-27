@@ -288,6 +288,59 @@ class IndependentSecurityAssuranceValidatorTest(unittest.TestCase):
         with self.assertRaisesRegex(validator.ValidationError, "duplicate JSON key"):
             validator.validate_package(package / "assessment-manifest.json", "readiness")
 
+    # --- v3.0 schema tests ---
+
+    def _upgrade_to_v30(self, package: Path, trust_status: str = "PENDING") -> None:
+        """Upgrade a v2.0 package to v3.0 schema."""
+        manifest = read_json(package / "assessment-manifest.json")
+        manifest["schema_version"] = "3.0"
+        manifest["trust_policy"] = {
+            "policy_id": "REM-P0-006-TRUST-POLICY-001",
+            "schema_version": "1.0",
+            "evaluation_status": trust_status,
+            "evaluated_at": "2026-07-27T12:00:00Z" if trust_status == "PASS" else "",
+        }
+        if trust_status == "PASS":
+            manifest["approvals"] = None
+        write_json(package / "assessment-manifest.json", manifest)
+
+    def test_v30_readiness_template_passes(self):
+        temporary, package = self.package()
+        self.addCleanup(temporary.cleanup)
+        complete_candidate(package, approve=False)
+        self._upgrade_to_v30(package, "PENDING")
+        validator.validate_package(package / "assessment-manifest.json", "readiness", RELEASE_SHA)
+
+    def test_v30_trust_verified_assessor_accepted(self):
+        temporary, package = self.package()
+        self.addCleanup(temporary.cleanup)
+        complete_candidate(package)
+        self._upgrade_to_v30(package, "PASS")
+        manifest = read_json(package / "assessment-manifest.json")
+        manifest["assessor"]["independence_status"] = "TRUST_VERIFIED"
+        write_json(package / "assessment-manifest.json", manifest)
+        validator.validate_package(package / "assessment-manifest.json", "closure", RELEASE_SHA)
+
+    def test_v30_trust_policy_replaces_approvals(self):
+        temporary, package = self.package()
+        self.addCleanup(temporary.cleanup)
+        complete_candidate(package, approve=False)
+        self._upgrade_to_v30(package, "PASS")
+        # No approvals set, but trust_policy=PASS should allow closure
+        validator.validate_package(package / "assessment-manifest.json", "closure", RELEASE_SHA)
+
+    def test_v30_missing_trust_policy_rejected(self):
+        temporary, package = self.package()
+        self.addCleanup(temporary.cleanup)
+        complete_candidate(package, approve=False)
+        manifest = read_json(package / "assessment-manifest.json")
+        manifest["schema_version"] = "3.0"
+        # Remove trust_policy to trigger validation error
+        del manifest["trust_policy"]
+        write_json(package / "assessment-manifest.json", manifest)
+        with self.assertRaisesRegex(validator.ValidationError, "trust_policy"):
+            validator.validate_package(package / "assessment-manifest.json", "readiness", RELEASE_SHA)
+
 
 if __name__ == "__main__":
     unittest.main()

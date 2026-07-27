@@ -69,7 +69,13 @@
     "id": "GCR-REM-P0-006"
   },
   "residual_risks": [],
-  "schema_version": "2.0",
+  "schema_version": "3.0",
+  "trust_policy": {
+    "evaluation_status": "PENDING",
+    "evaluated_at": "",
+    "policy_id": "REM-P0-006-TRUST-POLICY-001",
+    "schema_version": "1.0"
+  },
   "workstreams": [
     {
       "evidence_ids": [

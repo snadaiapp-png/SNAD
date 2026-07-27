@@ -1,0 +1,61 @@
+{
+  "policy_id": "REM-P0-006-TRUST-POLICY-001",
+  "schema_version": "1.0",
+  "finding_id": "REM-P0-006",
+  "description": "Automated trust-based governance policy replacing manual approval gates for REM-P0-006 closure",
+  "version": "1.0.0",
+  "effective_date": "2026-07-27",
+  "controls": [
+    {
+      "id": "OIDC-IDENTITY",
+      "type": "OIDC_IDENTITY_VERIFICATION",
+      "description": "Workflow must authenticate via GitHub Actions OIDC token from the expected repository",
+      "severity": "critical",
+      "required": true
+    },
+    {
+      "id": "GIT-SIGNATURES",
+      "type": "GIT_SIGNATURE_VERIFICATION",
+      "description": "All commits in the assessed release range must be signed (GPG, SSH, or S/MIME)",
+      "severity": "critical",
+      "required": true
+    },
+    {
+      "id": "ENVIRONMENT-PROTECTION",
+      "type": "ENVIRONMENT_PROTECTION",
+      "description": "Closure workflow must execute in a GitHub Environment with required reviewers",
+      "severity": "critical",
+      "required": true
+    },
+    {
+      "id": "RELEASE-SHA-AUTH",
+      "type": "RELEASE_SHA_AUTHORIZATION",
+      "description": "The assessed release SHA must be a direct ancestor of the workflow HEAD",
+      "severity": "critical",
+      "required": true
+    },
+    {
+      "id": "ASSESSOR-TRUST",
+      "type": "ASSESSOR_INDEPENDENCE",
+      "description": "Assessor organization must differ from project organization; independence verified by workflow context",
+      "severity": "critical",
+      "required": true
+    }
+  ],
+  "rules": [
+    {
+      "id": "RULE-001",
+      "description": "All critical controls must pass for closure",
+      "trigger": "CLOSURE",
+      "control_ids": ["OIDC-IDENTITY", "GIT-SIGNATURES", "ENVIRONMENT-PROTECTION", "RELEASE-SHA-AUTH", "ASSESSOR-TRUST"],
+      "effect": "ALL_MUST_PASS"
+    },
+    {
+      "id": "RULE-002",
+      "description": "Readiness mode requires OIDC identity verification only",
+      "trigger": "READINESS",
+      "control_ids": ["OIDC-IDENTITY"],
+      "effect": "ALL_MUST_PASS"
+    }
+  ]
+}
