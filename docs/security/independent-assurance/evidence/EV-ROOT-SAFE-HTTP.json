@@ -1,0 +1,278 @@
+{
+  "checks": [
+    {
+      "body_sha256": "sha256:4860a889fa0c1a6a891d523a8592e214c6e584479f45703c2af132b5d5ebd3fe",
+      "body_size_bytes": 145,
+      "error": null,
+      "headers": {
+        "access-control-allow-origin": "https://snad-app.vercel.app",
+        "cache-control": "no-store, no-cache, must-revalidate, max-age=0",
+        "content-security-policy": "base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; upgrade-insecure-requests",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "id": "release_identity",
+      "method": "GET",
+      "status": 200,
+      "url": "https://snad-app.vercel.app/api/system/release"
+    },
+    {
+      "body_sha256": "sha256:b9613659d8f4412c778e34293d5b865fb188c5814379ee3bfb8c819432e70020",
+      "body_size_bytes": 49,
+      "error": null,
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-type": "application/vnd.spring-boot.actuator.v3+json",
+        "strict-transport-security": "max-age=31536000 ; includeSubDomains",
+        "vary": "Access-Control-Request-Headers",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "id": "health_health",
+      "method": "GET",
+      "status": 200,
+      "url": "https://sanad-backend-mcrj.onrender.com/actuator/health"
+    },
+    {
+      "body_sha256": "sha256:647a83cca85203d6d4eb07eea84ef6eb91d5c6482eaff2ac8bb65a342b9f2946",
+      "body_size_bytes": 15,
+      "error": null,
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-type": "application/vnd.spring-boot.actuator.v3+json",
+        "strict-transport-security": "max-age=31536000 ; includeSubDomains",
+        "vary": "Access-Control-Request-Headers",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "id": "health_liveness",
+      "method": "GET",
+      "status": 200,
+      "url": "https://sanad-backend-mcrj.onrender.com/actuator/health/liveness"
+    },
+    {
+      "body_sha256": "sha256:647a83cca85203d6d4eb07eea84ef6eb91d5c6482eaff2ac8bb65a342b9f2946",
+      "body_size_bytes": 15,
+      "error": null,
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-type": "application/vnd.spring-boot.actuator.v3+json",
+        "strict-transport-security": "max-age=31536000 ; includeSubDomains",
+        "vary": "Access-Control-Request-Headers",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "id": "health_readiness",
+      "method": "GET",
+      "status": 200,
+      "url": "https://sanad-backend-mcrj.onrender.com/actuator/health/readiness"
+    },
+    {
+      "body_sha256": "sha256:7058e188e6f43b3d42e5a9cf7721d06197e95d737ec106c4e01a8488c5f5b381",
+      "body_size_bytes": 73,
+      "error": null,
+      "headers": {
+        "access-control-allow-origin": "https://snad-app.vercel.app",
+        "cache-control": "no-store",
+        "content-security-policy": "base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; upgrade-insecure-requests",
+        "content-type": "application/json;charset=ISO-8859-1",
+        "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Cookie",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "id": "unauthenticated_protected_api",
+      "method": "GET",
+      "status": 401,
+      "url": "https://snad-app.vercel.app/api/platform/api/v2/crm/teams?pageSize=1"
+    },
+    {
+      "body_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "body_size_bytes": 0,
+      "error": null,
+      "headers": {
+        "access-control-allow-origin": "https://snad-app.vercel.app",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; upgrade-insecure-requests",
+        "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "id": "cors_frontend_bff",
+      "method": "OPTIONS",
+      "status": 204,
+      "url": "https://snad-app.vercel.app/api/platform/api/v2/crm/teams"
+    },
+    {
+      "body_sha256": "sha256:492899553d985cc0122cc53bb3502fea1f837b37763efd5920fda903c3553ad8",
+      "body_size_bytes": 20,
+      "error": null,
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-type": "text/plain; charset=utf-8",
+        "strict-transport-security": "max-age=31536000 ; includeSubDomains",
+        "vary": "Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "id": "cors_backend_api",
+      "method": "OPTIONS",
+      "status": 403,
+      "url": "https://sanad-backend-mcrj.onrender.com/api/v2/crm/teams"
+    },
+    {
+      "body_sha256": "sha256:d88fbf46859d0c86736e76ae249760e56044886987b115c24855a70fcda32427",
+      "body_size_bytes": 15966,
+      "error": null,
+      "headers": {
+        "access-control-allow-origin": "https://snad-app.vercel.app",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "id": "headers_frontend",
+      "method": "GET",
+      "status": 200,
+      "url": "https://snad-app.vercel.app"
+    },
+    {
+      "body_sha256": "sha256:1f811576b8e7961c848e033ce14270faacd07d5b729622e084e7a5052ec6ec38",
+      "body_size_bytes": 11893,
+      "error": null,
+      "headers": {
+        "access-control-allow-origin": "https://snad-app.vercel.app",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "id": "sensitive__env",
+      "method": "GET",
+      "status": 404,
+      "url": "https://snad-app.vercel.app/.env"
+    },
+    {
+      "body_sha256": "sha256:1f811576b8e7961c848e033ce14270faacd07d5b729622e084e7a5052ec6ec38",
+      "body_size_bytes": 11893,
+      "error": null,
+      "headers": {
+        "access-control-allow-origin": "https://snad-app.vercel.app",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "id": "sensitive__git_config",
+      "method": "GET",
+      "status": 404,
+      "url": "https://snad-app.vercel.app/.git/config"
+    },
+    {
+      "body_sha256": "sha256:12a0506ce0c058646fe9800416e9da56043176b08b23b6bd4eacb46ddc3f97ad",
+      "body_size_bytes": 101,
+      "error": null,
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-type": "application/json",
+        "strict-transport-security": "max-age=31536000 ; includeSubDomains",
+        "vary": "Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "id": "sensitive_actuator_env",
+      "method": "GET",
+      "status": 404,
+      "url": "https://sanad-backend-mcrj.onrender.com/actuator/env"
+    },
+    {
+      "body_sha256": "sha256:28b2dbb581000ecc190834c89fbc7df82a07e8dbee38f3f937edc7d80b4b1374",
+      "body_size_bytes": 109,
+      "error": null,
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-type": "application/json",
+        "strict-transport-security": "max-age=31536000 ; includeSubDomains",
+        "vary": "Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "id": "sensitive_actuator_configprops",
+      "method": "GET",
+      "status": 404,
+      "url": "https://sanad-backend-mcrj.onrender.com/actuator/configprops"
+    },
+    {
+      "body_sha256": "sha256:16b1dc65386029a918b66e259ba92d08ac031ea164ce29c6cc34d64a152bd4da",
+      "body_size_bytes": 106,
+      "error": null,
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-type": "application/json",
+        "strict-transport-security": "max-age=31536000 ; includeSubDomains",
+        "vary": "Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "id": "sensitive_actuator_heapdump",
+      "method": "GET",
+      "status": 404,
+      "url": "https://sanad-backend-mcrj.onrender.com/actuator/heapdump"
+    },
+    {
+      "body_sha256": "sha256:31b87bf6ddccd05f172075d473a985acc66e4fe8e87c64042cf9f5883d4067f7",
+      "body_size_bytes": 40,
+      "error": null,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain; charset=utf-8",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload"
+      },
+      "id": "trace_frontend",
+      "method": "TRACE",
+      "status": 405,
+      "url": "https://snad-app.vercel.app"
+    },
+    {
+      "body_sha256": "sha256:c230ff18e2faaf6a81be393d4427c451390b1802db7c688cdf401f1bcf1b43a5",
+      "body_size_bytes": 155,
+      "error": null,
+      "headers": {
+        "content-type": "text/html"
+      },
+      "id": "trace_backend",
+      "method": "TRACE",
+      "status": 405,
+      "url": "https://sanad-backend-mcrj.onrender.com"
+    }
+  ],
+  "completed_at_utc": "2026-07-26T15:19:25Z",
+  "findings": [],
+  "schema": "snad.rem-p0-006.safe-http-assessment.v2",
+  "target_sha": "f34f2dd71743e6361a49e86643944c089622bd4c"
+}

@@ -1,0 +1,29 @@
+{
+  "assessed_release_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+  "decision": "Do not set READY_FOR_APPROVAL until every required case has independent PASS evidence.",
+  "not_proven_by_automation": [
+    "PEN-03 injection, SSRF, unsafe parsing, import and stored-content testing",
+    "TEN-03 horizontal and vertical privilege escalation across platform scope",
+    "TEN-04 revoked, stale and conflicting role/capability behavior",
+    "CFG-03 Production IAM, break-glass and audit configuration review",
+    "PRI-01 personal-data inventory, minimization, retention and deletion",
+    "PRI-02 independent threat-model challenge and abuse-case review",
+    "RET-01 independent retest or explicit no-material-findings statement"
+  ],
+  "partially_evidenced_cases_require_independent_judgment": [
+    "PEN-01",
+    "PEN-02",
+    "TEN-01",
+    "TEN-02",
+    "CFG-01",
+    "CFG-02",
+    "SUP-01",
+    "SUP-02",
+    "BUS-01",
+    "BUS-02",
+    "AUD-01",
+    "RET-02"
+  ],
+  "schema": "snad.rem-p0-006.independent-gap-analysis.v1",
+  "status": "INDEPENDENT_ASSESSMENT_REQUIRED"
+}

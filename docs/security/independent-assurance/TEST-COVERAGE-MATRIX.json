@@ -1,26 +1,160 @@
 {
-  "schema_version": "2.0",
-  "finding_id": "REM-P0-006",
-  "status": "NOT_STARTED",
   "cases": [
-    {"id":"PEN-01","workstream":"penetration_testing","objective":"Unauthenticated attack-surface and information-disclosure review","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"PEN-02","workstream":"penetration_testing","objective":"Authenticated web, BFF and API testing","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"PEN-03","workstream":"penetration_testing","objective":"Injection, SSRF, unsafe parsing, import and stored-content testing","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"TEN-01","workstream":"tenant_boundary_and_object_authorization","objective":"Cross-tenant read denial across direct and nested objects","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"TEN-02","workstream":"tenant_boundary_and_object_authorization","objective":"Cross-tenant create, update, delete, import and export denial","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"TEN-03","workstream":"tenant_boundary_and_object_authorization","objective":"Horizontal and vertical privilege-escalation denial","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"TEN-04","workstream":"tenant_boundary_and_object_authorization","objective":"Revoked, stale and conflicting role or capability behavior","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"CFG-01","workstream":"production_configuration_and_secrets","objective":"Identity, session, cookie, CORS, CSRF, headers and TLS configuration","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"CFG-02","workstream":"production_configuration_and_secrets","objective":"Secrets in repository history, artifacts, logs, images and client bundles","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"CFG-03","workstream":"production_configuration_and_secrets","objective":"Production IAM, least privilege, break-glass and audit configuration","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"SUP-01","workstream":"dependency_and_supply_chain","objective":"Backend, frontend and container vulnerability review","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"SUP-02","workstream":"dependency_and_supply_chain","objective":"Lockfiles, provenance, build actions and deployment-chain integrity","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"PRI-01","workstream":"privacy_and_threat_model","objective":"Personal-data inventory, purpose, minimization, retention and deletion","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"PRI-02","workstream":"privacy_and_threat_model","objective":"Threat-model challenge and missing-abuse-case identification","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"BUS-01","workstream":"penetration_testing","objective":"Workflow approval, state-transition and direct-API bypass testing","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"BUS-02","workstream":"penetration_testing","objective":"Financial idempotency, replay, concurrency and reconciliation testing","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"AUD-01","workstream":"production_configuration_and_secrets","objective":"Audit completeness, authorization, correlation and tamper resistance","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"RET-01","workstream":"remediation_retest","objective":"Independent retest or explicit no-material-findings statement","status":"NOT_STARTED","evidence_ids":[]},
-    {"id":"RET-02","workstream":"remediation_retest","objective":"Regression retest of security invariants on the final candidate release","status":"NOT_STARTED","evidence_ids":[]}
-  ]
+    {
+      "evidence_ids": [
+        "EV-PEN-AUTOMATED"
+      ],
+      "id": "PEN-01",
+      "objective": "Unauthenticated attack-surface and information-disclosure review",
+      "status": "IN_PROGRESS",
+      "workstream": "penetration_testing"
+    },
+    {
+      "evidence_ids": [
+        "EV-PEN-AUTOMATED"
+      ],
+      "id": "PEN-02",
+      "objective": "Authenticated web, BFF and API testing",
+      "status": "IN_PROGRESS",
+      "workstream": "penetration_testing"
+    },
+    {
+      "evidence_ids": [],
+      "id": "PEN-03",
+      "objective": "Injection, SSRF, unsafe parsing, import and stored-content testing",
+      "status": "NOT_STARTED",
+      "workstream": "penetration_testing"
+    },
+    {
+      "evidence_ids": [
+        "EV-TENANT-CRM"
+      ],
+      "id": "TEN-01",
+      "objective": "Cross-tenant read denial across direct and nested objects",
+      "status": "IN_PROGRESS",
+      "workstream": "tenant_boundary_and_object_authorization"
+    },
+    {
+      "evidence_ids": [
+        "EV-TENANT-CRM"
+      ],
+      "id": "TEN-02",
+      "objective": "Cross-tenant create, update, delete, import and export denial",
+      "status": "IN_PROGRESS",
+      "workstream": "tenant_boundary_and_object_authorization"
+    },
+    {
+      "evidence_ids": [],
+      "id": "TEN-03",
+      "objective": "Horizontal and vertical privilege-escalation denial",
+      "status": "NOT_STARTED",
+      "workstream": "tenant_boundary_and_object_authorization"
+    },
+    {
+      "evidence_ids": [],
+      "id": "TEN-04",
+      "objective": "Revoked, stale and conflicting role or capability behavior",
+      "status": "NOT_STARTED",
+      "workstream": "tenant_boundary_and_object_authorization"
+    },
+    {
+      "evidence_ids": [
+        "EV-CONFIG-HTTP"
+      ],
+      "id": "CFG-01",
+      "objective": "Identity, session, cookie, CORS, CSRF, headers and TLS configuration",
+      "status": "IN_PROGRESS",
+      "workstream": "production_configuration_and_secrets"
+    },
+    {
+      "evidence_ids": [],
+      "id": "CFG-02",
+      "objective": "Secrets in repository history, artifacts, logs, images and client bundles",
+      "status": "NOT_STARTED",
+      "workstream": "production_configuration_and_secrets"
+    },
+    {
+      "evidence_ids": [],
+      "id": "CFG-03",
+      "objective": "Production IAM, least privilege, break-glass and audit configuration",
+      "status": "NOT_STARTED",
+      "workstream": "production_configuration_and_secrets"
+    },
+    {
+      "evidence_ids": [
+        "EV-SUPPLY-CHAIN"
+      ],
+      "id": "SUP-01",
+      "objective": "Backend, frontend and container vulnerability review",
+      "status": "IN_PROGRESS",
+      "workstream": "dependency_and_supply_chain"
+    },
+    {
+      "evidence_ids": [
+        "EV-SUPPLY-CHAIN"
+      ],
+      "id": "SUP-02",
+      "objective": "Lockfiles, provenance, build actions and deployment-chain integrity",
+      "status": "IN_PROGRESS",
+      "workstream": "dependency_and_supply_chain"
+    },
+    {
+      "evidence_ids": [
+        "EV-PRIVACY-GAP"
+      ],
+      "id": "PRI-01",
+      "objective": "Personal-data inventory, purpose, minimization, retention and deletion",
+      "status": "NOT_STARTED",
+      "workstream": "privacy_and_threat_model"
+    },
+    {
+      "evidence_ids": [
+        "EV-PRIVACY-GAP"
+      ],
+      "id": "PRI-02",
+      "objective": "Threat-model challenge and missing-abuse-case identification",
+      "status": "NOT_STARTED",
+      "workstream": "privacy_and_threat_model"
+    },
+    {
+      "evidence_ids": [],
+      "id": "BUS-01",
+      "objective": "Workflow approval, state-transition and direct-API bypass testing",
+      "status": "NOT_STARTED",
+      "workstream": "penetration_testing"
+    },
+    {
+      "evidence_ids": [],
+      "id": "BUS-02",
+      "objective": "Financial idempotency, replay, concurrency and reconciliation testing",
+      "status": "NOT_STARTED",
+      "workstream": "penetration_testing"
+    },
+    {
+      "evidence_ids": [],
+      "id": "AUD-01",
+      "objective": "Audit completeness, authorization, correlation and tamper resistance",
+      "status": "NOT_STARTED",
+      "workstream": "production_configuration_and_secrets"
+    },
+    {
+      "evidence_ids": [],
+      "id": "RET-01",
+      "objective": "Independent retest or explicit no-material-findings statement",
+      "status": "NOT_STARTED",
+      "workstream": "remediation_retest"
+    },
+    {
+      "evidence_ids": [
+        "EV-RETEST-AUTOMATED"
+      ],
+      "id": "RET-02",
+      "objective": "Regression retest of security invariants on the final candidate release",
+      "status": "IN_PROGRESS",
+      "workstream": "remediation_retest"
+    }
+  ],
+  "finding_id": "REM-P0-006",
+  "schema_version": "2.0",
+  "status": "IN_PROGRESS"
 }

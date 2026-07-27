@@ -1,42 +1,109 @@
 {
-  "schema_version": "2.0",
-  "finding_id": "REM-P0-006",
-  "closure_state": "NOT_READY",
-  "commercial_go_live": "NOT_APPROVED",
-  "assessor": {
-    "independence_status": "NOT_APPOINTED",
-    "organization": "",
-    "lead_assessor": "",
-    "engagement_id": "",
-    "appointment_evidence_id": "",
-    "independence_evidence_id": ""
+  "approvals": {
+    "independent_assessor": {
+      "approved_at": "",
+      "decision": "PENDING",
+      "evidence_id": "",
+      "name": ""
+    },
+    "project_owner": {
+      "approved_at": "",
+      "decision": "PENDING",
+      "evidence_id": "",
+      "name": ""
+    },
+    "security_governance": {
+      "approved_at": "",
+      "decision": "PENDING",
+      "evidence_id": "",
+      "name": ""
+    }
   },
   "assessed_release": {
-    "repository_sha": "",
-    "deployment_id": "",
-    "environment": "",
-    "started_at": "",
-    "completed_at": ""
+    "completed_at": "2026-07-26T15:21:13Z",
+    "deployment_id": "snad-production-vercel-render-f34f2dd7",
+    "environment": "production",
+    "repository_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+    "started_at": "2026-07-26T15:06:33Z"
   },
-  "workstreams": [
-    {"id": "penetration_testing", "status": "NOT_STARTED", "evidence_ids": []},
-    {"id": "tenant_boundary_and_object_authorization", "status": "NOT_STARTED", "evidence_ids": []},
-    {"id": "production_configuration_and_secrets", "status": "NOT_STARTED", "evidence_ids": []},
-    {"id": "dependency_and_supply_chain", "status": "NOT_STARTED", "evidence_ids": []},
-    {"id": "privacy_and_threat_model", "status": "NOT_STARTED", "evidence_ids": []},
-    {"id": "remediation_retest", "status": "NOT_STARTED", "evidence_ids": []}
-  ],
+  "assessor": {
+    "appointment_evidence_id": "EV-APPOINTMENT",
+    "engagement_id": "REM-P0-006-2026-07-27",
+    "independence_evidence_id": "",
+    "independence_status": "PENDING_VERIFICATION",
+    "lead_assessor": "abdulrhmansenan1985-creator",
+    "organization": "External independent individual assessor"
+  },
+  "closure_decision_evidence_id": "",
+  "closure_state": "NOT_READY",
+  "commercial_go_live": "NOT_APPROVED",
+  "finding_id": "REM-P0-006",
   "findings_summary": {
-    "critical": {"open": 0, "closed": 0, "residual_accepted": 0},
-    "high": {"open": 0, "closed": 0, "residual_accepted": 0},
-    "medium": {"open": 0, "closed": 0, "residual_accepted": 0},
-    "low": {"open": 0, "closed": 0, "residual_accepted": 0}
+    "critical": {
+      "closed": 0,
+      "open": 0,
+      "residual_accepted": 0
+    },
+    "high": {
+      "closed": 0,
+      "open": 0,
+      "residual_accepted": 0
+    },
+    "low": {
+      "closed": 0,
+      "open": 0,
+      "residual_accepted": 0
+    },
+    "medium": {
+      "closed": 0,
+      "open": 0,
+      "residual_accepted": 0
+    }
   },
   "residual_risks": [],
-  "approvals": {
-    "independent_assessor": {"decision": "PENDING", "name": "", "approved_at": "", "evidence_id": ""},
-    "security_governance": {"decision": "PENDING", "name": "", "approved_at": "", "evidence_id": ""},
-    "project_owner": {"decision": "PENDING", "name": "", "approved_at": "", "evidence_id": ""}
-  },
-  "closure_decision_evidence_id": ""
+  "schema_version": "2.0",
+  "workstreams": [
+    {
+      "evidence_ids": [
+        "EV-PEN-AUTOMATED"
+      ],
+      "id": "penetration_testing",
+      "status": "IN_PROGRESS"
+    },
+    {
+      "evidence_ids": [
+        "EV-TENANT-CRM"
+      ],
+      "id": "tenant_boundary_and_object_authorization",
+      "status": "IN_PROGRESS"
+    },
+    {
+      "evidence_ids": [
+        "EV-CONFIG-HTTP"
+      ],
+      "id": "production_configuration_and_secrets",
+      "status": "IN_PROGRESS"
+    },
+    {
+      "evidence_ids": [
+        "EV-SUPPLY-CHAIN"
+      ],
+      "id": "dependency_and_supply_chain",
+      "status": "IN_PROGRESS"
+    },
+    {
+      "evidence_ids": [
+        "EV-PRIVACY-GAP"
+      ],
+      "id": "privacy_and_threat_model",
+      "status": "IN_PROGRESS"
+    },
+    {
+      "evidence_ids": [
+        "EV-RETEST-AUTOMATED"
+      ],
+      "id": "remediation_retest",
+      "status": "IN_PROGRESS"
+    }
+  ]
 }
