@@ -1,0 +1,21 @@
+{
+  "checks": {
+    "authenticatedTwoTenantLogin": "PASS",
+    "boundedFirstAndNextPage": "PASS",
+    "crossTenantCursorRejected400": "PASS",
+    "crossTenantEntityReadRejected404": "PASS",
+    "filterMismatchCursorRejected400": "PASS",
+    "missingIfMatchRejected428": "PASS",
+    "priorTemporaryDataArchived": "PASS",
+    "sameEtagRaceExactlyOneWinner": "PASS",
+    "staleEtagRejected412": "PASS",
+    "tamperedCursorRejected400": "PASS",
+    "temporaryDataArchived": "PASS"
+  },
+  "completedAt": "2026-07-26T15:11:04.266Z",
+  "createdAndArchivedTeamCount": 3,
+  "priorTemporaryTeamsArchived": 0,
+  "releaseSha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+  "result": "PASS",
+  "schema": "snad.crm008r.production-closure.v1"
+}

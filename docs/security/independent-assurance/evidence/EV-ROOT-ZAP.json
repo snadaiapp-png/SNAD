@@ -1,0 +1,27 @@
+{
+  "assessed_release_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+  "backend": {
+    "execution": {
+      "container_exit_code": 0,
+      "target": "https://sanad-backend-mcrj.onrender.com"
+    },
+    "summary": {
+      "fail_new": 0,
+      "target": "https://sanad-backend-mcrj.onrender.com",
+      "warn_new": 1
+    }
+  },
+  "boundary": "Complete passive ZAP summaries; manual penetration testing remains required.",
+  "schema": "snad.rem-p0-006.zap-summary.v1",
+  "web": {
+    "execution": {
+      "container_exit_code": 0,
+      "target": "https://snad-app.vercel.app"
+    },
+    "summary": {
+      "fail_new": 0,
+      "target": "https://snad-app.vercel.app",
+      "warn_new": 7
+    }
+  }
+}
