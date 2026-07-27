@@ -328,3 +328,4 @@ jobs:
             echo '- Broad commercial go-live remains governed separately by Issue #516.'
           } >> "$GITHUB_STEP_SUMMARY"
 # Signed fix
+# attestation fix
