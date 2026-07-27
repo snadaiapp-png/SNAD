@@ -1,13 +1,15 @@
 # CRM-006 Final Production Release Marker
 
-This file intentionally changes the backend project root to request a fresh immutable backend image build and Render Production deployment from the eventual protected `main` merge commit.
+This marker requests the governed final CRM-006 Production closure release. The eventual protected `main` merge commit must produce the immutable backend image, deploy it to Render, retain forward-only Flyway semantics, and pass the production closure workflow on the same release.
 
 ```text
 STAGE: CRM-006
-ACTION: FINAL_PRODUCTION_REDEPLOY
+RELEASE_ATTEMPT: 20260727-FINAL-CLOSURE
+ACTION: EXACT_SHA_PRODUCTION_DEPLOY_AND_VERIFY
 TARGET: GHCR_AND_RENDER_PRODUCTION
 SOURCE_AUTHORITY: protected main merge commit
 FLYWAY_MODE: forward-only
+REQUIRED_PROOF: image identity, health, Flyway, Contact acceptance, tenant isolation
 CLOSURE_ASSERTED_BY_THIS_FILE: NO
 ```
 
