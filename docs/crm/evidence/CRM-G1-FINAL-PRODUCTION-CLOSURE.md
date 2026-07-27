@@ -3,18 +3,17 @@
 | Field | Evidence |
 |---|---|
 | Result | PASS |
-| Release SHA | 4cedf631a3e61f39039615d93cd03c3111213eb9 |
+| Release SHA | 6ead976d36e25f0414958c75715658207cd1bcbc |
 | Flyway | 20260721.1 / SQL / true |
 | Database execution | Read-only; no migrate, repair, history edit, or manual SQL |
 | Contact Create | HTTP 201 |
 | Contact Detail | HTTP 200 |
 | Tenant B isolation | HTTP 404 |
-| Vercel deployment | dpl_FtG7Pj4MUBNjEFjahPopscqKn7b9 |
-| Render deployment | dep-d9gartok1i2s7388lprg |
-| Render image | ghcr.io/snadaiapp-png/snad-backend:4cedf631a3e61f39039615d93cd03c3111213eb9 |
-| Render image digest | not returned by the CRM-G1 API snapshot |
-| Workflow | https://github.com/snadaiapp-png/SNAD/actions/runs/29917230857 |
-| Artifact | https://github.com/snadaiapp-png/SNAD/actions/runs/29917230857/artifacts/8528404489 |
-| Artifact digest | 7c714b35ed8d64824dec15561615dc5176d4688f67df03a6ca51612098baaedb |
+| Vercel deployment | dpl_DDVnCWxML7SA1qCrBSqou3eLGSbL |
+| Render deployment | dep-d9jaogjeo5us73b413ng |
+| Render image digest | not-returned-by-api |
+| Workflow | https://github.com/snadaiapp-png/SNAD/actions/runs/30228507697 |
+| Artifact | https://github.com/snadaiapp-png/SNAD/actions/runs/30228507697/artifacts/8639327273 |
+| Artifact digest | fa619c7607cd026ba8e2a1847dde14b0476ad61d3f29840cbea8bdcb740809c6 |
 
-CRM-007 passed subsequently in workflow run 29917314330 on the same release SHA; its evidence is tracked separately.
+CRM-007 remains open until its final workflow and evidence PR both succeed.
