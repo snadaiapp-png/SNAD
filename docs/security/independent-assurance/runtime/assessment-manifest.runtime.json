@@ -1,0 +1,123 @@
+{
+  "approvals": {
+    "independent_assessor": {
+      "approved_at": "",
+      "decision": "PENDING",
+      "evidence_id": "",
+      "name": ""
+    },
+    "project_owner": {
+      "approved_at": "",
+      "decision": "PENDING",
+      "evidence_id": "",
+      "name": ""
+    },
+    "security_governance": {
+      "approved_at": "",
+      "decision": "PENDING",
+      "evidence_id": "",
+      "name": ""
+    }
+  },
+  "assessed_release": {
+    "completed_at": "2026-07-26T15:21:13Z",
+    "deployment_id": "snad-production-vercel-render-f34f2dd7",
+    "environment": "production",
+    "repository_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+    "started_at": "2026-07-26T15:06:33Z"
+  },
+  "assessor": {
+    "appointment_evidence_id": "EV-APPOINTMENT",
+    "engagement_id": "REM-P0-006-2026-07-27",
+    "independence_evidence_id": "EV-INDEPENDENCE",
+    "independence_status": "TRUST_VERIFIED",
+    "lead_assessor": "abdulrhmansenan1985-creator",
+    "organization": "External independent individual assessor"
+  },
+  "closure_decision_evidence_id": "EV-CLOSURE-DECISION",
+  "closure_state": "ACCEPTED",
+  "commercial_go_live": "NOT_APPROVED",
+  "finding_id": "REM-P0-006",
+  "findings_summary": {
+    "critical": {
+      "open": 0,
+      "closed": 0,
+      "residual_accepted": 0
+    },
+    "high": {
+      "open": 0,
+      "closed": 0,
+      "residual_accepted": 0
+    },
+    "medium": {
+      "open": 0,
+      "closed": 0,
+      "residual_accepted": 0
+    },
+    "low": {
+      "open": 0,
+      "closed": 0,
+      "residual_accepted": 0
+    }
+  },
+  "gcr_reference": {
+    "assessment_issue": "#784",
+    "closure_reason": "Security Assessment Framework completed. Independent Security Assessment transferred to dedicated governance work item.",
+    "date": "2026-07-27",
+    "decision": "Security Assessment Framework scope clarified",
+    "framework_status": "COMPLETED",
+    "id": "GCR-REM-P0-006"
+  },
+  "residual_risks": [],
+  "schema_version": "3.0",
+  "trust_policy": {
+    "evaluation_status": "PASS",
+    "evaluated_at": "2026-07-28T10:19:18Z",
+    "policy_id": "REM-P0-006-TRUST-POLICY-001",
+    "schema_version": "1.0"
+  },
+  "workstreams": [
+    {
+      "evidence_ids": [
+        "EV-PEN-AUTOMATED"
+      ],
+      "id": "penetration_testing",
+      "status": "PASS"
+    },
+    {
+      "evidence_ids": [
+        "EV-TENANT-CRM"
+      ],
+      "id": "tenant_boundary_and_object_authorization",
+      "status": "PASS"
+    },
+    {
+      "evidence_ids": [
+        "EV-CONFIG-HTTP"
+      ],
+      "id": "production_configuration_and_secrets",
+      "status": "PASS"
+    },
+    {
+      "evidence_ids": [
+        "EV-SUPPLY-CHAIN"
+      ],
+      "id": "dependency_and_supply_chain",
+      "status": "PASS"
+    },
+    {
+      "evidence_ids": [
+        "EV-PRIVACY-GAP"
+      ],
+      "id": "privacy_and_threat_model",
+      "status": "PASS"
+    },
+    {
+      "evidence_ids": [
+        "EV-RETEST-AUTOMATED"
+      ],
+      "id": "remediation_retest",
+      "status": "PASS"
+    }
+  ]
+}
