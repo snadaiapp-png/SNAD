@@ -85,7 +85,7 @@ jobs:
     name: REM-P0-006 Environment-Gated Closure Validation
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.gate_mode == 'closure' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     environment: rem-p0-006-closure
     permissions:
       contents: write
