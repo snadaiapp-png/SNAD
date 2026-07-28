@@ -350,8 +350,9 @@ jobs:
           sed -i '/^# CI-generated runtime assessment manifest/d' .gitignore
           sed -i '/^docs\/security\/independent-assurance\/runtime\//d' .gitignore
 
-          # Create persistence branch
+          # Create persistence branch (delete if exists from previous run)
           BRANCH="rem-p0-006-governance-persist"
+          git branch -D "$BRANCH" 2>/dev/null || true
           git checkout -b "$BRANCH"
 
           # Rename runtime files to .runtime.json suffix
