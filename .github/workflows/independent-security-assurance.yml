@@ -337,7 +337,7 @@ jobs:
         if: success()
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.REM_P0_006_CLOSURE_AUTHORITY_TOKEN }}
         run: |
           set -euo pipefail
           RUNTIME_DIR="docs/security/independent-assurance/runtime"
