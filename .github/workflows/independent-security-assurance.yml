@@ -359,7 +359,7 @@ jobs:
           mv findings-register.json findings-register.runtime.json
           mv TEST-COVERAGE-MATRIX.json TEST-COVERAGE-MATRIX.runtime.json
           # assessment-manifest.runtime.json already has correct name
-          cd ../../..
+          cd "$GITHUB_WORKSPACE"
 
           # Stage ONLY governance artifacts
           git add .gitignore
