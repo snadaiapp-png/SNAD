@@ -412,27 +412,28 @@ jobs:
 
           echo "PR created: $PR_URL"
 
-          # Wait for status checks to complete
-          echo "Waiting for status checks to pass..."
-          MAX_WAIT=300
+          # Wait for required status checks (Build Next.js Web, provenance)
+          echo "Waiting for required status checks to pass..."
+          REQUIRED_CHECKS="Build Next.js Web|provenance"
+          MAX_WAIT=600
           ELAPSED=0
           while [ $ELAPSED -lt $MAX_WAIT ]; do
-            CHECKS_JSON=$(gh pr checks "$PR_URL" --json name,state 2>/dev/null || echo '{"state":"PENDING"}')
-            COMPLETED=$(echo "$CHECKS_JSON" | python3 -c "import sys,json; data=json.load(sys.stdin); print(sum(1 for c in data if c.get('state') in ('SUCCESS','FAILURE','SKIPPED','NEUTRAL')))" 2>/dev/null || echo "0")
-            TOTAL=$(echo "$CHECKS_JSON" | python3 -c "import sys,json; data=json.load(sys.stdin); print(len(data))" 2>/dev/null || echo "0")
+            CHECKS_JSON=$(gh pr checks "$PR_URL" --json name,state 2>/dev/null || echo '[]')
+            BUILD_OK=$(echo "$CHECKS_JSON" | python3 -c "import sys,json; data=json.load(sys.stdin); print('yes' if any(c.get('name')=='Build Next.js Web' and c.get('state')=='SUCCESS' for c in data) else 'no')" 2>/dev/null || echo "no")
+            PROV_OK=$(echo "$CHECKS_JSON" | python3 -c "import sys,json; data=json.load(sys.stdin); print('yes' if any(c.get('name')=='provenance' and c.get('state')=='SUCCESS' for c in data) else 'no')" 2>/dev/null || echo "no")
 
-            if [ "$TOTAL" -gt 0 ] && [ "$COMPLETED" -eq "$TOTAL" ]; then
-              echo "All $TOTAL checks completed ($COMPLETED successful)"
+            if [ "$BUILD_OK" = "yes" ] && [ "$PROV_OK" = "yes" ]; then
+              echo "Required checks passed: Build Next.js Web=SUCCESS, provenance=SUCCESS"
               break
             fi
 
-            echo "Checks: $COMPLETED/$TOTAL completed, waiting..."
-            sleep 10
-            ELAPSED=$((ELAPSED + 10))
+            echo "Build Next.js Web=$BUILD_OK, provenance=$PROV_OK, waiting..."
+            sleep 15
+            ELAPSED=$((ELAPSED + 15))
           done
 
           if [ $ELAPSED -ge $MAX_WAIT ]; then
-            echo "ERROR: Timed out waiting for checks"
+            echo "ERROR: Timed out waiting for required checks"
             echo "persist_status=failure" >> "$GITHUB_OUTPUT"
             exit 1
           fi
