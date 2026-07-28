@@ -359,8 +359,9 @@ jobs:
           # assessment-manifest.runtime.json already has correct name
           cd "$GITHUB_WORKSPACE"
 
-          # Delete stale branch if it exists
+          # Delete stale branch if it exists (local and remote)
           git branch -D "$BRANCH" 2>/dev/null || true
+          git push origin --delete "$BRANCH" 2>/dev/null || true
 
           # Create persistence branch
           git checkout -b "$BRANCH"
