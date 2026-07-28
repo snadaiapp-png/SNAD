@@ -1,0 +1,172 @@
+{
+  "evidence": [
+    {
+      "assessed_release_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+      "classification": "INTERNAL",
+      "coverage_case_ids": [],
+      "created_at": "2026-07-27T01:33:39Z",
+      "created_by": "Project Owner",
+      "id": "EV-APPOINTMENT",
+      "location": "file:APPOINTMENT-REM-P0-006-2026-07-27.md",
+      "sanitized": true,
+      "sha256": "sha256:09b0b3bf09bdc57e60d9cfdb3b2dc15a2115468e03d470f390a5f7851b5ad588",
+      "title": "Independent assessor appointment",
+      "type": "APPOINTMENT",
+      "workstream": "governance"
+    },
+    {
+      "assessed_release_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+      "classification": "INTERNAL",
+      "coverage_case_ids": [],
+      "created_at": "2026-07-27T01:33:39Z",
+      "created_by": "REM-P0-006 Evidence Reconciler",
+      "id": "EV-ROOT-INTEGRITY",
+      "location": "file:evidence/EV-ROOT-INTEGRITY.json",
+      "sanitized": true,
+      "sha256": "sha256:7dff5fde7cc55d0302ce570c0f8c3bd0bd070dc75653750e766d3a434c486145",
+      "title": "Immutable root Artifact identity and checksum verification",
+      "type": "REPORT",
+      "workstream": "cross_cutting"
+    },
+    {
+      "assessed_release_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+      "classification": "INTERNAL",
+      "coverage_case_ids": [
+        "PEN-01",
+        "PEN-02",
+        "PEN-03",
+        "BUS-01",
+        "BUS-02"
+      ],
+      "created_at": "2026-07-27T01:33:39Z",
+      "created_by": "REM-P0-006 Root Assessment",
+      "id": "EV-PEN-AUTOMATED",
+      "location": "file:evidence/EV-ROOT-ZAP.json",
+      "sanitized": true,
+      "sha256": "sha256:566ce20c2f9f0c1abadb2d824ca18ab4be1e20582f182fa1ad80d16ed1143e84",
+      "title": "Automated safe-HTTP and passive DAST evidence",
+      "type": "TEST_OUTPUT",
+      "workstream": "penetration_testing"
+    },
+    {
+      "assessed_release_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+      "classification": "INTERNAL",
+      "coverage_case_ids": [
+        "TEN-01",
+        "TEN-02",
+        "TEN-03",
+        "TEN-04"
+      ],
+      "created_at": "2026-07-27T01:33:39Z",
+      "created_by": "CRM Production Closure Gate",
+      "id": "EV-TENANT-CRM",
+      "location": "file:evidence/EV-ROOT-TENANT-CRM.json",
+      "sanitized": true,
+      "sha256": "sha256:45d04f31782ab8896a1c769e1ddd6f5e977f8a1b087ace6e0428e6fe6e78a5d1",
+      "title": "Authenticated two-tenant CRM Production evidence",
+      "type": "TEST_OUTPUT",
+      "workstream": "tenant_boundary_and_object_authorization"
+    },
+    {
+      "assessed_release_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+      "classification": "INTERNAL",
+      "coverage_case_ids": [
+        "CFG-01",
+        "CFG-02",
+        "CFG-03",
+        "AUD-01"
+      ],
+      "created_at": "2026-07-27T01:33:39Z",
+      "created_by": "REM-P0-006 Root Assessment",
+      "id": "EV-CONFIG-HTTP",
+      "location": "file:evidence/EV-ROOT-SAFE-HTTP.json",
+      "sanitized": true,
+      "sha256": "sha256:0e1fd512965dc1d4d4500c827f18903b2a0086aaab786b3d6e6a1a36be90ee93",
+      "title": "Production release identity, health, CORS and header checks",
+      "type": "TEST_OUTPUT",
+      "workstream": "production_configuration_and_secrets"
+    },
+    {
+      "assessed_release_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+      "classification": "INTERNAL",
+      "coverage_case_ids": [
+        "SUP-01",
+        "SUP-02"
+      ],
+      "created_at": "2026-07-27T01:33:39Z",
+      "created_by": "REM-P0-006 Root Assessment",
+      "id": "EV-SUPPLY-CHAIN",
+      "location": "file:evidence/EV-ROOT-WORKFLOWS.json",
+      "sanitized": true,
+      "sha256": "sha256:f9fbe82ad3cb35c93387198b34c55a34e09f2122e13e940b9a57889a8fc55ec5",
+      "title": "NVD, OWASP, baseline and provenance workflow results",
+      "type": "TEST_OUTPUT",
+      "workstream": "dependency_and_supply_chain"
+    },
+    {
+      "assessed_release_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+      "classification": "INTERNAL",
+      "coverage_case_ids": [
+        "PRI-01",
+        "PRI-02"
+      ],
+      "created_at": "2026-07-27T01:33:39Z",
+      "created_by": "REM-P0-006 Evidence Reconciler",
+      "id": "EV-PRIVACY-GAP",
+      "location": "file:evidence/EV-ROOT-GAP-ANALYSIS.json",
+      "sanitized": true,
+      "sha256": "sha256:d4b66080ea8ef30f0f99a3acb98f07fc23977a2645f4ef32f675db4146ea6095",
+      "title": "Privacy and threat-model independent evidence gap",
+      "type": "REPORT",
+      "workstream": "privacy_and_threat_model"
+    },
+    {
+      "assessed_release_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+      "classification": "INTERNAL",
+      "coverage_case_ids": [
+        "RET-01",
+        "RET-02"
+      ],
+      "created_at": "2026-07-27T01:33:39Z",
+      "created_by": "REM-P0-006 Root Assessment",
+      "id": "EV-RETEST-AUTOMATED",
+      "location": "file:evidence/EV-ROOT-INTEGRITY.json",
+      "sanitized": true,
+      "sha256": "sha256:7dff5fde7cc55d0302ce570c0f8c3bd0bd070dc75653750e766d3a434c486145",
+      "title": "Automated exact-release regression and retest input",
+      "type": "RETEST_STATEMENT",
+      "workstream": "remediation_retest"
+    },
+    {
+      "id": "EV-INDEPENDENCE",
+      "type": "ATTESTATION",
+      "title": "Independent assessor independence attestation",
+      "workstream": "governance",
+      "coverage_case_ids": [],
+      "location": "file:ATTESTATION-INDEPENDENCE.md",
+      "sha256": "sha256:5200d81fe27c284441f58a7c0ea4608906c15a3ba65a3b4fc6fa842dfba48eca",
+      "created_at": "2026-07-28T10:03:13Z",
+      "created_by": "Independent Assessor",
+      "classification": "INTERNAL",
+      "sanitized": true,
+      "assessed_release_sha": "f34f2dd71743e6361a49e86643944c089622bd4c"
+    },
+    {
+      "id": "EV-CLOSURE-DECISION",
+      "type": "APPROVAL",
+      "title": "Governance closure decision \u2014 trust policy automated approval",
+      "workstream": "governance",
+      "coverage_case_ids": [],
+      "location": "file:ATTESTATION-INDEPENDENCE.md",
+      "sha256": "sha256:5200d81fe27c284441f58a7c0ea4608906c15a3ba65a3b4fc6fa842dfba48eca",
+      "created_at": "2026-07-28T10:03:13Z",
+      "created_by": "Security Governance",
+      "classification": "INTERNAL",
+      "sanitized": true,
+      "assessed_release_sha": "f34f2dd71743e6361a49e86643944c089622bd4c"
+    }
+  ],
+  "finding_id": "REM-P0-006",
+  "schema_version": "2.0",
+  "status": "COMPLETE"
+}
