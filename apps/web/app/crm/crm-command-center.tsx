@@ -8,6 +8,11 @@ import { CrmI18nProvider, useCrmI18n } from "./crm-i18n";
 import { CrmEmptyState } from "./crm-empty-state";
 import { CrmOverview } from "./crm-overview";
 import { CrmExecutionBoard } from "./crm-execution-board";
+import { LeadsTab } from "./components/leads-tab";
+import { CustomersTab } from "./components/customers-tab";
+import { ContactsTab } from "./components/contacts-tab";
+import { OpportunitiesTab } from "./components/opportunities-tab";
+import { PipelineTab } from "./components/pipeline-tab";
 import styles from "./crm-command-center.module.css";
 
 /* ============================================================================
@@ -308,6 +313,16 @@ function CrmCommandCenterInner() {
     switch (tab) {
       case "overview":
         return <CrmOverview />;
+      case "leads":
+        return <LeadsTab />;
+      case "customers":
+        return <CustomersTab />;
+      case "contacts":
+        return <ContactsTab />;
+      case "opportunities":
+        return <OpportunitiesTab />;
+      case "pipeline":
+        return <PipelineTab />;
       case "executionBoard":
         return <CrmExecutionBoard />;
       default:

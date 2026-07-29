@@ -141,6 +141,12 @@
 }
 .pipelineColumn > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .pipelineColumn > header span { display: grid; place-items: center; min-width: 28px; height: 28px; border-radius: 50%; background: var(--snad-color-surface-secondary); font-weight: 800; }
+.pipelineColumn > header div { display: flex; flex-direction: column; gap: 2px; }
+.stageProbability { font-size: .72rem; font-weight: 600; color: var(--snad-color-text-secondary); }
+.columnTotalRow { display: flex; justify-content: space-between; align-items: center; padding: 6px 4px; margin-bottom: 8px; font-size: .8rem; color: var(--snad-color-text-primary); border-bottom: 1px solid var(--snad-color-border-default); }
+.columnWeightedLabel { color: var(--snad-color-text-secondary); font-size: .76rem; }
+.pipelineSummary { display: flex; gap: 18px; align-items: center; font-size: .84rem; color: var(--snad-color-text-secondary); }
+.pipelineSummary strong { color: var(--snad-color-text-primary); }
 .pipelineCards { display: flex; flex-direction: column; gap: 10px; }
 .opportunityCard {
   display: grid;
@@ -153,6 +159,8 @@
 }
 .opportunityCard[draggable="true"] { cursor: grab; }
 .opportunityCard > span { color: var(--snad-color-text-secondary); font-size: .84rem; }
+.opportunityCard .cardProbability { font-weight: 600; color: var(--snad-color-info, #3b82f6); }
+.opportunityCard .cardWeighted { font-size: .76rem; opacity: .85; }
 .cardMoveActions { display: flex; gap: 6px; margin-top: 4px; }
 .cardMoveActions button { flex: 1; padding: 7px 8px; font-size: .78rem; }
 .pipelineEmpty { margin: 0; padding: 26px 8px; border: 1px dashed var(--snad-color-border-default); border-radius: 10px; text-align: center; color: var(--snad-color-text-secondary); }

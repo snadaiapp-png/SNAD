@@ -1,6 +1,20 @@
 package com.sanad.platform.crm.ownership.infrastructure;
 
 import com.sanad.platform.crm.ownership.domain.*;
+import com.sanad.platform.crm.ownership.domain.availability.AvailabilityType;
+import com.sanad.platform.crm.ownership.domain.availability.StaffAvailability;
+import com.sanad.platform.crm.ownership.domain.capacity.CapacityPlan;
+import com.sanad.platform.crm.ownership.domain.capacity.CapacityStatus;
+import com.sanad.platform.crm.ownership.domain.scheduling.ShiftAssignment;
+import com.sanad.platform.crm.ownership.domain.scheduling.ShiftAssignmentStatus;
+import com.sanad.platform.crm.ownership.domain.scheduling.ShiftTemplate;
+import com.sanad.platform.crm.ownership.domain.scheduling.ShiftTemplateStatus;
+import com.sanad.platform.crm.ownership.domain.service.ServiceAssignment;
+import com.sanad.platform.crm.ownership.domain.service.ServiceAssignmentStatus;
+import com.sanad.platform.crm.ownership.domain.skills.SkillLevel;
+import com.sanad.platform.crm.ownership.domain.skills.StaffSkill;
+import com.sanad.platform.crm.ownership.domain.workload.WorkloadAssignment;
+import com.sanad.platform.crm.ownership.domain.workload.WorkloadStatus;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.SqlParameterSource;
@@ -324,5 +338,154 @@ public final class OwnershipJdbcSupport {
 
     static SqlParameterSource tenantParam(UUID tenantId) {
         return new MapSqlParameterSource("tenantId", tenantId);
+    }
+
+    // ============================================================
+    // CRM-008 RowMappers
+    // ============================================================
+
+    public static RowMapper<ShiftTemplate> shiftTemplateMapper() {
+        return (rs, rowNum) -> new ShiftTemplate(
+                getUuid(rs, "id"),
+                getUuid(rs, "tenant_id"),
+                rs.getString("name"),
+                rs.getObject("start_time", java.time.LocalTime.class),
+                rs.getObject("end_time", java.time.LocalTime.class),
+                parseDayOfWeekArray(rs.getString("days_of_week")),
+                ShiftTemplateStatus.valueOf(rs.getString("status")),
+                getUuid(rs, "created_by"),
+                getUuid(rs, "updated_by"),
+                getInstant(rs, "created_at"),
+                getInstant(rs, "updated_at"),
+                rs.getLong("version")
+        );
+    }
+
+    public static RowMapper<ShiftAssignment> shiftAssignmentMapper() {
+        return (rs, rowNum) -> new ShiftAssignment(
+                getUuid(rs, "id"),
+                getUuid(rs, "tenant_id"),
+                getUuid(rs, "team_id"),
+                getUuid(rs, "staff_id"),
+                getUuid(rs, "shift_template_id"),
+                rs.getObject("start_date", java.time.LocalDate.class),
+                rs.getObject("end_date", java.time.LocalDate.class),
+                ShiftAssignmentStatus.valueOf(rs.getString("status")),
+                getUuid(rs, "created_by"),
+                getUuid(rs, "updated_by"),
+                getInstant(rs, "created_at"),
+                getInstant(rs, "updated_at"),
+                rs.getLong("version")
+        );
+    }
+
+    public static RowMapper<StaffAvailability> staffAvailabilityMapper() {
+        return (rs, rowNum) -> new StaffAvailability(
+                getUuid(rs, "id"),
+                getUuid(rs, "tenant_id"),
+                getUuid(rs, "staff_id"),
+                AvailabilityType.valueOf(rs.getString("type")),
+                rs.getObject("start_date", java.time.LocalDate.class),
+                rs.getObject("end_date", java.time.LocalDate.class),
+                rs.getObject("start_time", java.time.LocalTime.class),
+                rs.getObject("end_time", java.time.LocalTime.class),
+                rs.getString("reason"),
+                getUuid(rs, "created_by"),
+                getUuid(rs, "updated_by"),
+                getInstant(rs, "created_at"),
+                getInstant(rs, "updated_at"),
+                rs.getLong("version")
+        );
+    }
+
+    public static RowMapper<StaffSkill> staffSkillMapper() {
+        return (rs, rowNum) -> new StaffSkill(
+                getUuid(rs, "id"),
+                getUuid(rs, "tenant_id"),
+                getUuid(rs, "staff_id"),
+                rs.getString("skill_name"),
+                SkillLevel.valueOf(rs.getString("level")),
+                rs.getInt("proficiency"),
+                getUuid(rs, "created_by"),
+                getUuid(rs, "updated_by"),
+                getInstant(rs, "created_at"),
+                getInstant(rs, "updated_at"),
+                rs.getLong("version")
+        );
+    }
+
+    public static RowMapper<CapacityPlan> capacityPlanMapper() {
+        return (rs, rowNum) -> new CapacityPlan(
+                getUuid(rs, "id"),
+                getUuid(rs, "tenant_id"),
+                getUuid(rs, "team_id"),
+                rs.getObject("period_start", java.time.LocalDate.class),
+                rs.getObject("period_end", java.time.LocalDate.class),
+                rs.getInt("max_capacity"),
+                rs.getInt("allocated_capacity"),
+                CapacityStatus.valueOf(rs.getString("status")),
+                getUuid(rs, "created_by"),
+                getUuid(rs, "updated_by"),
+                getInstant(rs, "created_at"),
+                getInstant(rs, "updated_at"),
+                rs.getLong("version")
+        );
+    }
+
+    public static RowMapper<WorkloadAssignment> workloadAssignmentMapper() {
+        return (rs, rowNum) -> new WorkloadAssignment(
+                getUuid(rs, "id"),
+                getUuid(rs, "tenant_id"),
+                getUuid(rs, "staff_id"),
+                getUuid(rs, "service_id"),
+                getUuid(rs, "job_id"),
+                rs.getInt("estimated_hours"),
+                getInteger(rs, "actual_hours"),
+                WorkloadStatus.valueOf(rs.getString("status")),
+                rs.getObject("start_date", java.time.LocalDate.class),
+                rs.getObject("end_date", java.time.LocalDate.class),
+                getUuid(rs, "created_by"),
+                getUuid(rs, "updated_by"),
+                getInstant(rs, "created_at"),
+                getInstant(rs, "updated_at"),
+                rs.getLong("version")
+        );
+    }
+
+    public static RowMapper<ServiceAssignment> serviceAssignmentMapper() {
+        return (rs, rowNum) -> new ServiceAssignment(
+                getUuid(rs, "id"),
+                getUuid(rs, "tenant_id"),
+                getUuid(rs, "team_id"),
+                getUuid(rs, "service_id"),
+                ServiceAssignmentStatus.valueOf(rs.getString("status")),
+                getUuid(rs, "created_by"),
+                getUuid(rs, "updated_by"),
+                getInstant(rs, "created_at"),
+                getInstant(rs, "updated_at"),
+                rs.getLong("version")
+        );
+    }
+
+    // ============================================================
+    // CRM-008 Helpers
+    // ============================================================
+
+    static java.util.List<java.time.DayOfWeek> parseDayOfWeekArray(String csv) {
+        if (csv == null || csv.isBlank()) return java.util.List.of();
+        return java.util.Arrays.stream(csv.split(","))
+                .map(String::trim)
+                .map(Integer::parseInt)
+                .map(java.time.DayOfWeek::of)
+                .toList();
+    }
+
+    static String toDayOfWeekCsv(java.util.List<java.time.DayOfWeek> days) {
+        if (days == null || days.isEmpty()) return "";
+        return days.stream()
+                .map(java.time.DayOfWeek::getValue)
+                .map(String::valueOf)
+                .reduce((a, b) -> a + "," + b)
+                .orElse("");
     }
 }

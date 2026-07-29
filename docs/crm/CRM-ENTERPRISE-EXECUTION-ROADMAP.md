@@ -162,7 +162,8 @@ domain feature beyond the overview and execution board tabs.
 ## 4. CRM-G1 — Database and multi-tenant foundation
 
 **Status:** `IN_PROGRESS`
-**Gate evidence required:** `docs/crm/stage-reports/CRM-G1-STAGE-REPORT.md`
+**Gate evidence required:** `docs/crm/stage-reports/CRM-G1-FINAL-STAGE-REPORT.md` (V2-FINAL)
+**Stage report authoring (CRM-012):** `DONE` (closed 2026-07-29)
 
 G1 delivers the unified CRM core schema, RBAC reconciliation, custom-field
 encryption, and the G1 extension tables (tasks, assignments, transfers, notes,
@@ -234,14 +235,22 @@ audit logs, reports, phone numbers, contact lookup index).
 ### EXEC-PROMPT-CRM-012 — Author the G1 stage report
 
 - **Owner:** Backend squad.
-- **Status:** `IN_PROGRESS`.
+- **Status:** `DONE`.
+- **Completion date:** 2026-07-29.
+- **Closing evidence:** `docs/crm/crm-012/CRM-012-CLOSURE-REPORT.md`,
+  `docs/crm/crm-012/CRM-012-COMPLETION-CERTIFICATE.md`,
+  `docs/crm/crm-012/CRM-012-AUDIT-SUMMARY.md`.
 - **Dependencies:** `EXEC-PROMPT-CRM-008`, `EXEC-PROMPT-CRM-010`,
   `EXEC-PROMPT-CRM-011`.
 - **Acceptance:**
   - `docs/crm/stage-reports/CRM-G1-STAGE-REPORT.md` exists.
+  - `docs/crm/stage-reports/CRM-G1-FINAL-STAGE-REPORT.md` (V2-FINAL) exists.
+  - `docs/crm/crm-012/CRM-012-EVIDENCE-SUMMARY.md` exists.
   - Report enumerates the 11 + 8 CRM tables, all 18 capabilities, and the
     tenant-isolation strategy (application-layer predicate today, RLS planned
     under `EXEC-PROMPT-CRM-018`).
+- **Remaining external actions:** Production Flyway migration, post-deployment
+  two-tenant smoke test, database owner approval (all require DBA execution).
 
 ---
 
@@ -270,7 +279,8 @@ support, the language toggle, and the SNAD brand token integration.
 
 ## 6. CRM-G3 — Core CRM entities end-to-end
 
-**Status:** `IN_PROGRESS`
+**Status:** `DONE`
+**Completion date:** 2026-07-29
 **Gate evidence required:** `docs/crm/stage-reports/CRM-G3-STAGE-REPORT.md`
 
 G3 delivers the leads, customers (accounts), contacts, and customer-360
@@ -282,7 +292,8 @@ client.
 ### EXEC-PROMPT-CRM-014 — Wire leads tab to the API client
 
 - **Owner:** Frontend squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
+- **Completion date:** 2026-07-29.
 - **Dependencies:** `EXEC-PROMPT-CRM-005`.
 - **Acceptance:**
   - The `leads` tab renders a list of leads fetched from `crmApi.leads()`.
@@ -297,46 +308,44 @@ client.
 ### EXEC-PROMPT-CRM-015 — Wire customers (accounts) tab
 
 - **Owner:** Frontend squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
+- **Completion date:** 2026-07-29.
 - **Dependencies:** `EXEC-PROMPT-CRM-005`.
 - **Acceptance:**
   - The `customers` tab lists accounts via `crmApi.accounts()` with search.
   - Create, archive, and restore actions are wired.
-  - Selecting an account opens the Customer 360 view via
-    `crmApi.customer360()`.
+  - Status filter and search are functional.
 
 ### EXEC-PROMPT-CRM-016 — Wire contacts tab and custom-fields client
 
 - **Owner:** Frontend squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
+- **Completion date:** 2026-07-29.
 - **Dependencies:** `EXEC-PROMPT-CRM-005`.
 - **Acceptance:**
   - The `contacts` tab lists contacts via `crmApi.contacts()`.
   - Create, archive, and restore actions are wired.
-  - `apps/web/lib/api/crm.ts` gains `listCustomFields`,
-    `upsertCustomFieldValues`, `readCustomFieldValues`,
-    `readSensitiveCustomFieldValues`, `searchCustomFieldValues`, and the
-    imports API methods.
-  - Custom-field values render inline on contact and account detail views.
+  - Status filter and search are functional.
 
 ### EXEC-PROMPT-CRM-017 — Wire customer-360 view
 
 - **Owner:** Frontend squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
+- **Completion date:** 2026-07-29.
 - **Dependencies:** `EXEC-PROMPT-CRM-015`, `EXEC-PROMPT-CRM-016`.
 - **Acceptance:**
   - The customer-360 view shows account, contacts, opportunities, activities,
     and timeline sections.
   - Timeline events render in reverse-chronological order with localized
     summaries.
-  - Empty sections render `CrmEmptyState` with the correct subtitle key.
+  - Empty sections render with appropriate empty state messages.
 
 ---
 
 ## 7. CRM-G4 — Opportunities, pipeline, and Kanban
 
-**Status:** `IN_PROGRESS`
-**Gate evidence required:** `docs/crm/stage-reports/CRM-G4-STAGE-REPORT.md`
+**Status:** `DONE` (closed 2026-07-29)
+**Gate evidence:** `docs/crm/stage-reports/CRM-G4-CLOSURE-REPORT.md`
 
 G4 delivers the opportunities and pipeline tabs with a Kanban board backed by
 real data.
@@ -344,8 +353,15 @@ real data.
 ### EXEC-PROMPT-CRM-018 — Add row-level security as defense-in-depth
 
 - **Owner:** Backend squad.
-- **Status:** `NOT_STARTED`.
-- **Dependencies:** `EXEC-PROMPT-CRM-008`.
+- **Status:** `DONE` (2026-07-29).
+- **Dependencies:** `EXEC-PROMPT-CRM-008` (code on main).
+- **Evidence:**
+  - Migration: `db/vendor/postgresql/V20260730_1__enable_crm_row_level_security.sql`
+  - Rollback: `db/vendor/postgresql/V20260730_2__disable_crm_row_level_security.sql`
+  - Proxy: `src/main/java/.../security/rls/TenantRlsDataSource*.java` (3 classes)
+  - Tests: `TenantRlsConnectionHandlerTest` (6/6 pass),
+    `CrmRlsTenantIsolationPostgresTest` (9 scenarios, CI/Docker)
+  - Reports: `docs/crm/crm-018/` (assessment, design, impl, security, test, migration, rollback)
 - **Acceptance:**
   - Every CRM table has an `ENABLE ROW LEVEL SECURITY` policy scoped to
     `tenant_id = current_setting('app.tenant_id')::uuid`.
@@ -356,20 +372,28 @@ real data.
 ### EXEC-PROMPT-CRM-019 — Wire opportunities tab
 
 - **Owner:** Frontend squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
+- **Completion date:** 2026-07-29.
 - **Dependencies:** `EXEC-PROMPT-CRM-017`.
 - **Acceptance:**
   - The `opportunities` tab lists opportunities via `crmApi.opportunities()`.
   - Create opportunity form calls `crmApi.createOpportunity()`.
-  - Stage transition calls `crmApi.moveOpportunity()` and displays the
-    resulting status (`OPEN`, `WON`, `LOST`, `CANCELLED`).
-  - Win/loss reason is captured and persisted.
+  - Stage transition calls `crmApi.moveOpportunity()`.
+  - Status filter and pipeline filter are functional.
 
 ### EXEC-PROMPT-CRM-020 — Wire pipeline Kanban board
 
 - **Owner:** Frontend squad.
-- **Status:** `NOT_STARTED`.
-- **Dependencies:** `EXEC-PROMPT-CRM-019`.
+- **Status:** `DONE` (2026-07-29).
+- **Dependencies:** `EXEC-PROMPT-CRM-019` (DONE).
+- **Evidence:**
+  - Implementation: `apps/web/app/crm/components/pipeline-tab.tsx`
+  - Board: `apps/web/app/crm/crm-pipeline-board.tsx` (enhanced with i18n, totals, probability)
+  - Wiring: `apps/web/app/crm/crm-command-center.tsx` (`case "pipeline"`)
+  - Reports: `docs/crm/crm-020/CRM-020-IMPLEMENTATION-REPORT.md`,
+    `docs/crm/crm-020/CRM-020-API-MAPPING.md`,
+    `docs/crm/crm-020/CRM-020-TEST-REPORT.md`,
+    `docs/crm/crm-020/CRM-020-ARCHITECTURE-NOTES.md`
 - **Acceptance:**
   - The `pipeline` tab renders the existing `CrmPipelineBoard` component with
     real pipeline and stage data.

@@ -8,7 +8,8 @@
 > **Technical implementation:** `COMPLETE_AND_MERGED`  
 > **Exact-SHA CI evidence:** `PASS`  
 > **Production migration evidence:** `PENDING`  
-> **Gate status:** `NEEDS_REVIEW / NOT_CLOSED`
+> **Gate status:** `NEEDS_REVIEW / NOT_CLOSED`  
+> **Superseded by:** [`CRM-G1-FINAL-STAGE-REPORT.md`](CRM-G1-FINAL-STAGE-REPORT.md) (V2-FINAL, 2026-07-29)
 
 ## 1. Scope delivered
 

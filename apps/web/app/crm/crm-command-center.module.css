@@ -1268,6 +1268,366 @@
   .emptyTitle {
     font-size: 1.05rem;
   }
+
+  /* Leads tab responsive */
+  .tabContent {
+    padding: 14px;
+  }
+
+  .tabHeader {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .formRow {
+    grid-template-columns: 1fr;
+  }
+
+  .dataTable {
+    font-size: 0.8rem;
+  }
+
+  .dataTable th,
+  .dataTable td {
+    padding: 8px 8px;
+  }
+
+  .filterBar {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 4px;
+  }
+
+  .filterChip {
+    white-space: nowrap;
+  }
+}
+
+/* ============================================================================
+ *  Leads Tab (CRM-014)
+ * ============================================================================ */
+
+.tabContent {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  background: var(--snad-surface-primary);
+  border: 1px solid var(--snad-border-default);
+  border-radius: 14px;
+  box-shadow: var(--snad-shadow-sm);
+}
+
+.tabHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tabTitle {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--snad-text-primary);
+}
+
+.primaryButton {
+  padding: 8px 18px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--snad-text-inverse, #fff);
+  background: var(--snad-brand-primary);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.primaryButton:hover {
+  opacity: 0.88;
+}
+
+.primaryButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.filterBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filterChip {
+  padding: 5px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--snad-text-secondary);
+  background: var(--snad-surface-secondary);
+  border: 1px solid var(--snad-border-subtle);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.filterChip:hover {
+  border-color: var(--snad-brand-primary);
+  color: var(--snad-brand-primary);
+}
+
+.filterChipActive {
+  background: var(--snad-brand-primary);
+  color: var(--snad-text-inverse, #fff);
+  border-color: var(--snad-brand-primary);
+}
+
+.errorBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-size: 0.88rem;
+  color: var(--snad-error, #ef4444);
+  background: color-mix(in srgb, var(--snad-error, #ef4444) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--snad-error, #ef4444) 30%, transparent);
+  border-radius: 8px;
+}
+
+.dismissButton {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: var(--snad-error, #ef4444);
+}
+
+.loadingState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px;
+  color: var(--snad-text-secondary);
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--snad-border-default);
+  border-top-color: var(--snad-brand-primary);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.emptyLeads {
+  text-align: center;
+  padding: 40px;
+  color: var(--snad-text-secondary);
+}
+
+.tableWrapper {
+  overflow-x: auto;
+}
+
+.dataTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.dataTable th {
+  text-align: start;
+  padding: 10px 12px;
+  font-weight: 700;
+  color: var(--snad-text-secondary);
+  border-bottom: 2px solid var(--snad-border-default);
+  white-space: nowrap;
+}
+
+.dataTable td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--snad-border-subtle);
+  color: var(--snad-text-primary);
+}
+
+.dataTable tbody tr:hover {
+  background: var(--snad-surface-secondary);
+}
+
+.cellPrimary {
+  font-weight: 600;
+}
+
+.statusBadge {
+  display: inline-block;
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fff;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.actionGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.statusSelect {
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  border: 1px solid var(--snad-border-default);
+  border-radius: 6px;
+  background: var(--snad-surface-primary);
+  color: var(--snad-text-primary);
+  cursor: pointer;
+}
+
+.convertButton {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--snad-brand-primary);
+  background: color-mix(in srgb, var(--snad-brand-primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--snad-brand-primary) 30%, transparent);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.convertButton:hover {
+  background: color-mix(in srgb, var(--snad-brand-primary) 15%, transparent);
+}
+
+/* ── Modal ─────────────────────────────────────────────────────────── */
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+}
+
+.modalContent {
+  background: var(--snad-surface-primary);
+  border: 1px solid var(--snad-border-default);
+  border-radius: 14px;
+  padding: 24px;
+  width: 90%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: var(--snad-shadow-lg, 0 8px 30px rgba(0, 0, 0, 0.15));
+}
+
+.modalTitle {
+  margin: 0 0 16px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--snad-text-primary);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.formGroup label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--snad-text-secondary);
+}
+
+.formInput {
+  padding: 8px 12px;
+  font-size: 0.88rem;
+  border: 1px solid var(--snad-border-default);
+  border-radius: 8px;
+  background: var(--snad-surface-primary);
+  color: var(--snad-text-primary);
+  transition: border-color 0.15s;
+}
+
+.formInput:focus {
+  outline: none;
+  border-color: var(--snad-brand-primary);
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.formError {
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  color: var(--snad-error, #ef4444);
+  background: color-mix(in srgb, var(--snad-error, #ef4444) 8%, transparent);
+  border-radius: 6px;
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.cancelButton {
+  padding: 8px 16px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--snad-text-secondary);
+  background: var(--snad-surface-secondary);
+  border: 1px solid var(--snad-border-default);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cancelButton:hover {
+  border-color: var(--snad-text-secondary);
+}
+
+.convertSummary {
+  padding: 12px;
+  background: var(--snad-surface-secondary);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.convertSummary p {
+  margin: 4px 0;
+  font-size: 0.88rem;
+  color: var(--snad-text-primary);
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--snad-text-primary);
+  cursor: pointer;
 }
 
 /* ============================================================================
