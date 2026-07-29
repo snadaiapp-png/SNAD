@@ -9,6 +9,8 @@ import com.sanad.platform.crm.integration.application.CrmEntitySnapshotPort;
 import com.sanad.platform.crm.integration.application.CrmIntegrationUseCases;
 import com.sanad.platform.crm.integration.application.StubConfirmedRecommendationCommandAdapter;
 import com.sanad.platform.crm.integration.application.AfterCommandCommitFaultInjector;
+import com.sanad.platform.crm.integration.domain.AuditPort;
+import com.sanad.platform.crm.integration.domain.TimelineEventPort;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
@@ -75,7 +77,9 @@ class ConfirmedRecommendationEnqueuePostgresTest {
                 new TransactionTemplate(new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds)),
                 AfterCommandCommitFaultInjector.NO_OP,
                 "test-worker", 60, 30);
-        useCases = new CrmIntegrationUseCases(store, stubSnapshot, executor, mapper);
+        AuditPort audit = (tenant, actor, action, type, id, change, at) -> {};
+        TimelineEventPort timeline = (tenant, type, id, event, summary, source, sourceId, actor, at) -> {};
+        useCases = new CrmIntegrationUseCases(store, stubSnapshot, executor, mapper, audit, timeline);
     }
 
     @BeforeEach

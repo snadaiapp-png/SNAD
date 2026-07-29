@@ -3,7 +3,7 @@
 > **Authoritative branch:** `main`  
 > **CRM-008R authorized base:** `d8c0e8dc330a054cc071c0c9ca2c8b59cf52dae4`  
 > **Reconciled:** 2026-07-26  
-> **Document status:** AUTHORITATIVE FOR CRM-007 / CRM-008R SCOPE
+> **Document status:** AUTHORITATIVE FOR CRM-007 / CRM-008R / CRM-009 / CRM-010 SCOPE
 
 This document is the current source of truth for the as-built CRM state relevant
 to CRM-007 and CRM-008. Historical design documents, issue bodies and pull
@@ -30,13 +30,34 @@ CRM_008A_DESIGN: CLOSED_APPROVED
 CRM_008B_IMPLEMENTATION: MERGED
 CRM_008B_ORIGINAL_HEAD_SHA: cf20094dc5998b6b42d20dcbcb16743b07058852
 CRM_008B_ORIGINAL_MERGE_SHA: 74c6618a60ecd983086553cf75f71b5a6c8d2c9a
-CRM_008R_CORRECTIVE_REMEDIATION: IN_PROGRESS
+CRM_008R_CORRECTIVE_REMEDIATION: CLOSED_WITH_PRODUCTION_EVIDENCE
 CRM_008R_ISSUE: #725
-CRM_008R_PR: #726 / DRAFT
-CRM_008R_MERGE_AUTHORIZED: NO
-CRM_008R_DEPLOYMENT_AUTHORIZED: NO
+CRM_008R_PR: #726 / MERGED
+CRM_008R_MERGE_AUTHORIZED: YES
+CRM_008R_DEPLOYMENT_AUTHORIZED: YES
 
-CRM_009_AND_LATER_STAGES: PRESERVED_AND_GOVERNED_SEPARATELY
+CRM_008_TEAM_MANAGEMENT: CLOSED_WITH_PRODUCTION_EVIDENCE
+CRM_008_CLOSURE_DATE: 2026-07-29
+CRM_008_FINAL_STATUS: CERTIFIED
+CRM_008_EVIDENCE: docs/crm/crm-008/CRM-008-FINAL-CLOSURE-CERTIFICATE.md
+
+CRM_009_WORKFLOW_AI_GATEWAY: CLOSED_WITH_FULL_EVIDENCE
+CRM_009_CLOSURE_DATE: 2026-07-29
+CRM_009_FINAL_STATUS: CERTIFIED
+CRM_009_PR: #704 / MERGED
+CRM_009_EVIDENCE: docs/crm/crm-009/CRM-009-FINAL-CLOSURE-CERTIFICATE.md
+CRM_009_PRODUCTION_STATUS: PASS
+CRM_009_REMEDIATION_COMPLETE: YES
+CRM_009_HIGH_FINDINGS: 0
+
+CRM_010_CUSTOMER_360_INTELLIGENCE: STARTED
+CRM_010_INITIATION_DATE: 2026-07-29
+CRM_010_PRE_EXECUTION_GATE: PASSED
+CRM_010_FINAL_STATUS: READY_FOR_AGENT_EXECUTION
+CRM_010_EVIDENCE: docs/crm/crm-010/CRM-010-EXECUTION-PLAN.md
+CRM_010_ARTIFACTS: 15 documents (6 initiation + 9 pre-execution)
+
+CRM_011_AND_LATER_STAGES: PRESERVED_AND_GOVERNED_SEPARATELY
 COMMERCIAL_GO_LIVE: NOT_INFERRED_FROM_THIS_DOCUMENT
 ```
 
@@ -177,7 +198,32 @@ Later CRM stages may add vendor-specific migrations governed by their own stage
 records. CRM-008R authorizes no new migration by default. Flyway repair, manual
 history editing, destructive rollback and ad-hoc production SQL are prohibited.
 
-## 7. API and security baseline
+## 8. CRM-009 implementation baseline
+
+CRM-009 implements Workflow Engine & AI Gateway Integration through PR #704:
+
+```text
+PR: #704 / MERGED
+IMPLEMENTATION_FILES: 32
+TEST_CLASSES: 23
+TEST_METHODS: 81
+QUALITY_SCORE: 9.40/10
+CLOSURE_DATE: 2026-07-29
+FINAL_STATUS: CONDITIONAL_CERTIFIED
+```
+
+The CRM-009 PostgreSQL-native migration set is loaded from
+`apps/sanad-platform/src/main/resources/db/vendor/postgresql/`:
+
+- `V20260723_1__create_crm_integration_requests.sql`
+- `V20260724_1__create_crm_command_executions_ledger.sql`
+- `V20260724_2__create_crm_command_artifacts.sql`
+
+**Remediation completed** (2026-07-29):
+1. Audit trail integrated via AuditPort injection into CrmWorkflowUseCases and CrmIntegrationUseCases
+2. Timeline events integrated via TimelineEventPort injection into CrmWorkflowUseCases and CrmIntegrationUseCases
+
+## 9. API and security baseline
 
 - Tenant authority is never accepted from request body or query parameters.
 - Unauthenticated requests return 401; missing capabilities return 403.
@@ -188,7 +234,7 @@ history editing, destructive rollback and ad-hoc production SQL are prohibited.
 - Collection cursors are opaque, tenant-bound and filter-bound.
 - Target lists use bounded PostgreSQL keyset queries with `pageSize + 1`.
 
-## 8. Evidence and closure control
+## 10. Evidence and closure control
 
 CRM-007 remains closed; shared-infrastructure hardening does not reopen its
 historical release evidence. CRM-008R remains open until:

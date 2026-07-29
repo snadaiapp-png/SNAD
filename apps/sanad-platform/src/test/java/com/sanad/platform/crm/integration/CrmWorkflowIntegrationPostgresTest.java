@@ -7,6 +7,9 @@ import com.sanad.platform.crm.integration.application.CrmEntitySnapshotPort;
 import com.sanad.platform.crm.integration.application.CrmWorkflowOutboxWorker;
 import com.sanad.platform.crm.integration.application.CrmWorkflowStore;
 import com.sanad.platform.crm.integration.application.CrmWorkflowUseCases;
+import com.sanad.platform.crm.integration.domain.AuditPort;
+import com.sanad.platform.crm.integration.domain.TimelineEventPort;
+import com.sanad.platform.crm.integration.domain.CorrelationContextPort;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import com.sanad.platform.crm.integration.orchestration.IntegrationEnvelope;
 import com.sanad.platform.crm.integration.orchestration.WorkflowIntegrationPort;
@@ -70,8 +73,11 @@ class CrmWorkflowIntegrationPostgresTest {
         CrmEntitySnapshotPort snapshots = (tenantId, entityType, entityId) ->
                 new CrmEntitySnapshotPort.CrmEntitySnapshot(
                         tenantId, entityType, entityId, 7L, "ACTIVE", true);
+        AuditPort audit = (tenant, actor, action, type, id, change, at) -> {};
+        TimelineEventPort timeline = (tenant, type, id, event, summary, source, sourceId, actor, at) -> {};
+        CorrelationContextPort correlationContext = () -> UUID.randomUUID().toString();
         useCases = new CrmWorkflowUseCases(
-                store, workflowStore, snapshots, workflowPort, mapper);
+                store, workflowStore, snapshots, workflowPort, mapper, audit, timeline, correlationContext);
         transactions = new TransactionTemplate(new DataSourceTransactionManager(ds));
         worker = new CrmWorkflowOutboxWorker(
                 store, workflowStore, workflowPort, mapper, transactions,

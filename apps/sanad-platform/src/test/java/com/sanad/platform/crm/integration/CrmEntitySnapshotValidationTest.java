@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.crm.integration.application.CrmIntegrationUseCases;
 import com.sanad.platform.crm.integration.application.ConfirmedRecommendationExecutor;
 import com.sanad.platform.crm.integration.application.CrmEntitySnapshotPort;
+import com.sanad.platform.crm.integration.domain.AuditPort;
+import com.sanad.platform.crm.integration.domain.TimelineEventPort;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import com.sanad.platform.crm.integration.orchestration.IntegrationErrorCode;
 import com.sanad.platform.crm.integration.orchestration.IntegrationException;
@@ -124,7 +126,9 @@ class CrmEntitySnapshotValidationTest {
         } catch (Exception e) {
             // If executor construction fails, tests that need it will fail explicitly
         }
-        useCases = new CrmIntegrationUseCases(store, stubSnapshot, noopExecutor, new ObjectMapper());
+        AuditPort audit = (tenant, actor, action, type, id, change, at) -> {};
+        TimelineEventPort timeline = (tenant, type, id, event, summary, source, sourceId, actor, at) -> {};
+        useCases = new CrmIntegrationUseCases(store, stubSnapshot, noopExecutor, new ObjectMapper(), audit, timeline);
 
         tenantId = UUID.randomUUID();
         requestId = UUID.randomUUID();

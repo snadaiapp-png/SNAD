@@ -129,6 +129,17 @@ snad:
       bearer-token: ${SECURITY_NOTIFICATION_BEARER_TOKEN:}
       resend-api-key: ${SECURITY_NOTIFICATION_RESEND_API_KEY:}
 
+  # CRM-008 remediation: Operational alerting configuration
+  ops:
+    alerting:
+      enabled: ${ALERTING_ENABLED:false}
+      provider: ${ALERTING_PROVIDER:disabled}
+      webhook-url: ${ALERTING_WEBHOOK_URL:}
+      bearer-token: ${ALERTING_BEARER_TOKEN:}
+      minimum-severity: ${ALERTING_MINIMUM_SEVERITY:WARN}
+      environment: ${ALERTING_ENVIRONMENT:production}
+      deduplication-window-seconds: ${ALERTING_DEDUP_WINDOW:300}
+
 logging:
   level:
     root: ${LOG_LEVEL_ROOT:INFO}

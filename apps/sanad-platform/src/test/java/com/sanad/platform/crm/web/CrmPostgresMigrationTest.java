@@ -57,6 +57,8 @@ class CrmPostgresMigrationTest {
     private static final String CRM_009_INTEGRATION_VERSION = "20260723.1";
     private static final String CRM_009_COMMAND_EXECUTIONS_VERSION = "20260724.1";
     private static final String CRM_009_COMMAND_ARTIFACTS_VERSION = "20260724.2";
+    private static final String CRM_010_INTELLIGENCE_VERSION = "20260729.1";
+    private static final String CRM_010_SCORING_MODELS_VERSION = "20260729.2";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -100,6 +102,11 @@ class CrmPostgresMigrationTest {
     private static final List<String> CRM_009_NEW_TABLES = List.of(
             "crm_integration_requests", "crm_integration_outbox", "crm_integration_decisions",
             "crm_integration_command_executions", "crm_integration_command_artifacts");
+
+    private static final List<String> CRM_010_NEW_TABLES = List.of(
+            "crm_customer_scores", "crm_customer_score_history", "crm_scoring_models",
+            "crm_customer_segments", "crm_segment_memberships",
+            "crm_next_best_actions");
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
@@ -163,7 +170,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_008B_COUNTERS_VERSION),
                         MigrationVersion.fromVersion(CRM_009_INTEGRATION_VERSION),
                         MigrationVersion.fromVersion(CRM_009_COMMAND_EXECUTIONS_VERSION),
-                        MigrationVersion.fromVersion(CRM_009_COMMAND_ARTIFACTS_VERSION));
+                        MigrationVersion.fromVersion(CRM_009_COMMAND_ARTIFACTS_VERSION),
+                        MigrationVersion.fromVersion(CRM_010_INTELLIGENCE_VERSION),
+                        MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -215,7 +224,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_008B_COUNTERS_VERSION),
                         MigrationVersion.fromVersion(CRM_009_INTEGRATION_VERSION),
                         MigrationVersion.fromVersion(CRM_009_COMMAND_EXECUTIONS_VERSION),
-                        MigrationVersion.fromVersion(CRM_009_COMMAND_ARTIFACTS_VERSION));
+                        MigrationVersion.fromVersion(CRM_009_COMMAND_ARTIFACTS_VERSION),
+                        MigrationVersion.fromVersion(CRM_010_INTELLIGENCE_VERSION),
+                        MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -329,8 +340,10 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_009_INTEGRATION_VERSION, "SQL", "create crm integration requests");
         assertMigration(jdbc, CRM_009_COMMAND_EXECUTIONS_VERSION, "SQL", "create crm command executions ledger");
         assertMigration(jdbc, CRM_009_COMMAND_ARTIFACTS_VERSION, "SQL", "create crm command artifacts");
+        assertMigration(jdbc, CRM_010_INTELLIGENCE_VERSION, "SQL", "create crm customer intelligence");
+        assertMigration(jdbc, CRM_010_SCORING_MODELS_VERSION, "SQL", "seed default scoring models");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(CRM_009_COMMAND_ARTIFACTS_VERSION);
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_010_SCORING_MODELS_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 
@@ -467,7 +480,7 @@ class CrmPostgresMigrationTest {
 
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.%' AND status='ACTIVE'",
-                Long.class)).isEqualTo(58L); // 55 CRM-008B + 3 CRM-009 (CRM.WORKFLOW.EXECUTE, CRM.AI.READ)
+                Long.class)).isEqualTo(63L); // 55 CRM-008B + 3 CRM-009 + 5 CRM-010
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'BUSINESS_PROCESS.%' AND status='ACTIVE'",
                 Long.class)).isEqualTo(2L);
@@ -486,7 +499,8 @@ class CrmPostgresMigrationTest {
                         CRM_CONTACT_RELATIONSHIP_TABLES,
                         CRM_ADDRESS_COMMUNICATION_TABLES,
                         CRM_008B_NEW_TABLES,
-                        CRM_009_NEW_TABLES)
+                        CRM_009_NEW_TABLES,
+                        CRM_010_NEW_TABLES)
                 .flatMap(List::stream)
                 .sorted()
                 .toList();
