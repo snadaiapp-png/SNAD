@@ -129,6 +129,18 @@ This document provides formal risk justification for Critical and High findings 
 | Waiver Condition | Correct test counts in documentation update |
 | Residual Risk | NEGLIGIBLE — CI provides authoritative test results |
 
+### W-10: Missing Use Cases in Status Doc
+
+| Field | Value |
+|-------|-------|
+| Finding ID | HIGH #23 |
+| Description | `CRM-010-AGENT-002-STATUS.md` use case catalog is incomplete — 7 use cases missing from the status document |
+| Risk | Incomplete documentation may mislead developers about functional coverage |
+| Impact | Low — all 16 use cases are implemented and tested; the gap is in documentation only, not in code or behavior |
+| Compensating Control | `CRM-010-USECASE-CATALOG.md` contains the complete use case list with service method mappings. `CRM-010-AGENT-002-STATUS.md` is an agent status report, not the authoritative use case document. CI tests verify all use cases pass. |
+| Waiver Condition | Update `CRM-010-AGENT-002-STATUS.md` to include all 16 use cases in next documentation sprint |
+| Residual Risk | LOW — functional coverage is complete; documentation gap is operational convenience, not functional risk |
+
 ---
 
 ## Waiver Summary
@@ -144,6 +156,7 @@ This document provides formal risk justification for Critical and High findings 
 | W-07 | Correlation ID convention | HIGH | LOW | Standardize prefixes in next sprint | ⬜ PENDING |
 | W-08 | Incomplete dependency docs | HIGH | LOW | Complete docs in next sprint | ⬜ PENDING |
 | W-09 | Wrong test counts | HIGH | NEGLIGIBLE | Correct counts in docs | ⬜ PENDING |
+| W-10 | Missing use cases in status doc | HIGH | LOW | Update status doc in next sprint | ⬜ PENDING |
 
 ---
 

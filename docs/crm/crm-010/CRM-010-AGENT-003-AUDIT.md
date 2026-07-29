@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-**Verdict: APPROVED FOR MERGE** (with remaining LOW/MEDIUM items for future sprints)
+**Verdict: READY FOR GOVERNANCE REVIEW** (with remaining LOW/MEDIUM items for future sprints)
 
 The CRM-010 implementation demonstrates strong fundamentals: 134 tests all pass, security is solid, domain modeling is clean, and AI integration is well-designed with fail-closed patterns. All CRITICAL and HIGH issues identified during audit have been fixed:
 
@@ -122,7 +122,7 @@ See companion documents:
 
 ## Final Verdict
 
-**APPROVED FOR MERGE**
+**READY FOR GOVERNANCE REVIEW**
 
 All CRITICAL and HIGH issues have been fixed. Remaining LOW/MEDIUM items are documented as tech debt for future sprints:
 - Missing API layer (REST controllers) — services are internal, not directly HTTP-exposed
