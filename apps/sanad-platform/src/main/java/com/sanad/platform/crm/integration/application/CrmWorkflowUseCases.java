@@ -3,6 +3,10 @@ package com.sanad.platform.crm.integration.application;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.sanad.platform.crm.integration.domain.AuditPort;
+import com.sanad.platform.crm.integration.domain.AuditPort.AuditChange;
+import com.sanad.platform.crm.integration.domain.CorrelationContextPort;
+import com.sanad.platform.crm.integration.domain.TimelineEventPort;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import com.sanad.platform.crm.integration.orchestration.IntegrationEnvelope;
 import com.sanad.platform.crm.integration.orchestration.IntegrationErrorCode;
@@ -36,18 +40,27 @@ public class CrmWorkflowUseCases {
     private final CrmEntitySnapshotPort entitySnapshotPort;
     private final WorkflowIntegrationPort workflowPort;
     private final ObjectMapper mapper;
+    private final AuditPort audit;
+    private final TimelineEventPort timeline;
+    private final CorrelationContextPort correlationContext;
 
     public CrmWorkflowUseCases(
             CrmIntegrationStore store,
             CrmWorkflowStore workflowStore,
             CrmEntitySnapshotPort entitySnapshotPort,
             WorkflowIntegrationPort workflowPort,
-            ObjectMapper mapper) {
+            ObjectMapper mapper,
+            AuditPort audit,
+            TimelineEventPort timeline,
+            CorrelationContextPort correlationContext) {
         this.store = store;
         this.workflowStore = workflowStore;
         this.entitySnapshotPort = entitySnapshotPort;
         this.workflowPort = workflowPort;
         this.mapper = mapper;
+        this.audit = audit;
+        this.timeline = timeline;
+        this.correlationContext = correlationContext;
     }
 
     @Transactional
@@ -139,6 +152,22 @@ public class CrmWorkflowUseCases {
                 "WORKFLOW_DISPATCH",
                 idempotencyKey,
                 minimizedPayload);
+
+        // Audit trail for workflow dispatch
+        ObjectNode auditAfter = mapper.createObjectNode();
+        auditAfter.put("workflowType", workflowType.name());
+        auditAfter.put("sourceEntityType", sourceEntityType);
+        auditAfter.put("sourceEntityId", sourceEntityId.toString());
+        auditAfter.put("status", "PENDING");
+        audit.record(tenantId, actorId, "WORKFLOW_DISPATCHED", "INTEGRATION_REQUEST",
+                created.request().id(), new AuditChange(null, auditAfter), now);
+
+        // Timeline event for workflow started
+        timeline.record(tenantId, sourceEntityType, sourceEntityId,
+                "crm.workflow.dispatched",
+                "Workflow " + workflowType.name() + " dispatched",
+                "CRM_INTEGRATION", created.request().id(), actorId, now);
+
         return created.request();
     }
 
@@ -202,6 +231,21 @@ public class CrmWorkflowUseCases {
                     IntegrationErrorCode.INTEGRATION_VERSION_MISMATCH,
                     "Workflow changed while cancellation was being processed");
         }
+
+        // Audit trail for workflow cancellation
+        Instant cancelTime = Instant.now();
+        ObjectNode cancelAudit = mapper.createObjectNode();
+        cancelAudit.put("status", "CANCELLED");
+        cancelAudit.put("reason", reason != null ? reason : "Cancelled by CRM user");
+        audit.record(tenantId, request.actorId(), "WORKFLOW_CANCELLED", "INTEGRATION_REQUEST",
+                requestId, new AuditChange(null, cancelAudit), cancelTime);
+
+        // Timeline event for workflow cancelled
+        timeline.record(tenantId, request.sourceEntityType(), request.sourceEntityId(),
+                "crm.workflow.cancelled",
+                "Workflow cancelled",
+                "CRM_INTEGRATION", requestId, request.actorId(), cancelTime);
+
         return transition.request();
     }
 
@@ -246,6 +290,11 @@ public class CrmWorkflowUseCases {
                         IntegrationErrorCode.STATE_TRANSITION_FAILED,
                         "Workflow RUNNING callback transition conflict");
             }
+            // Timeline event for workflow running
+            timeline.record(tenantId, request.sourceEntityType(), request.sourceEntityId(),
+                    "crm.workflow.running",
+                    "Workflow is running",
+                    "CRM_INTEGRATION", request.id(), request.actorId(), Instant.now());
             return transition.request();
         }
 
@@ -272,6 +321,26 @@ public class CrmWorkflowUseCases {
                     IntegrationErrorCode.STATE_TRANSITION_FAILED,
                     "Workflow terminal callback transition conflict");
         }
+
+        // Audit trail for terminal workflow callback
+        Instant callbackTime = occurredAt != null ? occurredAt : Instant.now();
+        ObjectNode callbackAudit = mapper.createObjectNode();
+        callbackAudit.put("status", targetStatus);
+        callbackAudit.put("workflowRunId", workflowRunId.toString());
+        if (errorCode != null && !errorCode.isBlank()) callbackAudit.put("errorCode", errorCode);
+        audit.record(tenantId, request.actorId(), "WORKFLOW_" + targetStatus, "INTEGRATION_REQUEST",
+                request.id(), new AuditChange(null, callbackAudit), callbackTime);
+
+        // Timeline event for workflow terminal state
+        String timelineEventType = "COMPLETED".equals(targetStatus)
+                ? "crm.workflow.completed"
+                : "REJECTED".equals(targetStatus) ? "crm.workflow.rejected"
+                : "crm.workflow.terminated";
+        String timelineSummary = "Workflow " + targetStatus.toLowerCase(Locale.ROOT);
+        timeline.record(tenantId, request.sourceEntityType(), request.sourceEntityId(),
+                timelineEventType, timelineSummary,
+                "CRM_INTEGRATION", request.id(), request.actorId(), callbackTime);
+
         return transition.request();
     }
 
