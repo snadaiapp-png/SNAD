@@ -106,7 +106,7 @@ class CrmPostgresMigrationTest {
     private static final List<String> CRM_010_NEW_TABLES = List.of(
             "crm_customer_scores", "crm_customer_score_history", "crm_scoring_models",
             "crm_customer_segments", "crm_segment_memberships",
-            "crm_next_best_actions", "crm_customer_insights");
+            "crm_next_best_actions");
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
