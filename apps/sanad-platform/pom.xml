@@ -137,6 +137,13 @@
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
 
+        <!-- Logstash Logback Encoder for structured JSON logging (CRM-008 remediation) -->
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>8.0</version>
+        </dependency>
+
         <!-- Resilience4j for circuit breakers, rate limiting, retry (ST8-S1-003/006/007) -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>
