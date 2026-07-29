@@ -340,7 +340,7 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_009_INTEGRATION_VERSION, "SQL", "create crm integration requests");
         assertMigration(jdbc, CRM_009_COMMAND_EXECUTIONS_VERSION, "SQL", "create crm command executions ledger");
         assertMigration(jdbc, CRM_009_COMMAND_ARTIFACTS_VERSION, "SQL", "create crm command artifacts");
-        assertMigration(jdbc, CRM_010_INTELLIGENCE_VERSION, "SQL", "create crm customer intelligence tables");
+        assertMigration(jdbc, CRM_010_INTELLIGENCE_VERSION, "SQL", "create crm customer intelligence");
         assertMigration(jdbc, CRM_010_SCORING_MODELS_VERSION, "SQL", "seed default scoring models");
 
         assertThat(latestVersion(jdbc)).isEqualTo(CRM_010_SCORING_MODELS_VERSION);
