@@ -13,6 +13,7 @@ import { CustomersTab } from "./components/customers-tab";
 import { ContactsTab } from "./components/contacts-tab";
 import { OpportunitiesTab } from "./components/opportunities-tab";
 import { PipelineTab } from "./components/pipeline-tab";
+import { TasksTab } from "./components/tasks-tab";
 import styles from "./crm-command-center.module.css";
 
 /* ============================================================================
@@ -321,6 +322,8 @@ function CrmCommandCenterInner() {
         return <ContactsTab />;
       case "opportunities":
         return <OpportunitiesTab />;
+      case "tasks":
+        return <TasksTab />;
       case "pipeline":
         return <PipelineTab />;
       case "executionBoard":
