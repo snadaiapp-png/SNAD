@@ -2,10 +2,13 @@
 # SANAD Platform — CI Pipeline
 # DEFECT-010: API Regression Automation
 # Gate 8F Item 3: Backend Docker/Testcontainers CI
+# CRM-022: CRM Integration Tests job (required status check)
 # ============================================================
 # Runs on every push to main and on pull requests.
 # Executes Maven tests (including Testcontainers tests that require Docker)
 # and reports results.
+# The `crm` job runs the CRM integration test classes in isolation and is
+# intended as a required status check on main.
 # ============================================================
 
 name: CI
@@ -90,6 +93,92 @@ jobs:
           echo "## Test Results" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           mvn test -q -DskipTests -Dmaven.test.skip=true 2>/dev/null || echo "Maven test summary not available"
+          # Parse surefire reports for summary
+          find target/surefire-reports -name "*.txt" -exec grep -H "Tests run:" {} \; 2>/dev/null | \
+            awk -F'[, ]' '{runs+=$4; fail+=$6; err+=$8; skip+=$10} END {print "Total: "runs" tests, "fail" failures, "err" errors, "skip" skipped"}' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================
+  # CRM-022 — CRM-specific test gate.
+  # Runs the CRM integration test classes (package
+  # com.sanad.platform.crm.**) in isolation from the full Maven
+  # suite. Intended as a required status check on main.
+  # Reference: docs/crm/CRM-ENTERPRISE-EXECUTION-ROADMAP.md
+  #            (EXEC-PROMPT-CRM-022)
+  # ============================================================
+  crm:
+    name: CRM Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify Docker availability (for Testcontainers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Docker version ==="
+          docker --version
+          echo "=== Docker daemon status ==="
+          docker info --format '{{.ServerVersion}}' || {
+            echo "::error::Docker daemon not available — Testcontainers tests will fail"
+            exit 1
+          }
+          echo "Docker is ready for Testcontainers"
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Run CRM integration tests
+        env:
+          # Testcontainers reads these to connect to Docker
+          TESTCONTAINERS_RYUK_DISABLED: 'false'
+          TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
+        # -Dsurefire.useFile=true emits per-class JUnit XML (TEST-*.xml)
+        # under target/surefire-reports/ for the artifact upload below.
+        # -DfailIfNoTests=true fails loudly if the CRM package scope ever
+        # drifts to zero matching tests (guard against silent no-ops).
+        run: |
+          mvn test -B -ntp \
+            -Dsurefire.useFile=true \
+            -DfailIfNoTests=true \
+            -Dtest='com.sanad.platform.crm.**.*IntegrationTest'
+
+      - name: Upload CRM test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-surefire-reports
+          path: apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload CRM Testcontainers logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-testcontainers-logs
+          path: |
+            apps/sanad-platform/target/surefire-reports/**/TEST-*.xml
+            /tmp/testcontainers*
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: CRM test summary
+        if: always()
+        run: |
+          echo "## CRM Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
           # Parse surefire reports for summary
           find target/surefire-reports -name "*.txt" -exec grep -H "Tests run:" {} \; 2>/dev/null | \
             awk -F'[, ]' '{runs+=$4; fail+=$6; err+=$8; skip+=$10} END {print "Total: "runs" tests, "fail" failures, "err" errors, "skip" skipped"}' >> $GITHUB_STEP_SUMMARY

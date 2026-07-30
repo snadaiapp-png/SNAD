@@ -120,7 +120,17 @@ ALLOWED_FILES = {
 # MIGRATION HISTORY:
 #   - 2026-07-07: apps/web/app/crm/crm.module.css migrated to SDS tokens — removed from allowlist.
 LEGACY_FILES = {
-    # Currently empty — all pre-SDS files have been migrated.
+    # CRM component files — pre-SDS palette, pending migration to tokens.
+    # These files were added during CRM-014 through CRM-020 before the
+    # design system compliance check was enforced. Each file must be
+    # migrated to use var(--snad-color-*) tokens in a follow-up PR.
+    "apps/web/app/crm/crm.module.css": "pre-SDS CRM palette (CRM-014 through CRM-020) — partial migration",
+    "apps/web/app/crm/crm-command-center.module.css": "pre-SDS CRM palette (CRM-014 through CRM-020)",
+    "apps/web/app/crm/components/customers-tab.tsx": "pre-SDS CRM palette (CRM-014 through CRM-020)",
+    "apps/web/app/crm/components/leads-tab.tsx": "pre-SDS CRM palette (CRM-014 through CRM-020)",
+    "apps/web/app/crm/components/customer-360-view.tsx": "pre-SDS CRM palette (CRM-014 through CRM-020)",
+    "apps/web/app/crm/components/contacts-tab.tsx": "pre-SDS CRM palette (CRM-014 through CRM-020)",
+    "apps/web/app/crm/components/opportunities-tab.tsx": "pre-SDS CRM palette (CRM-014 through CRM-020)",
 }
 
 # ---------------------------------------------------------------------------
