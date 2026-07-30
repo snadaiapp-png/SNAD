@@ -1,80 +1,58 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import {
-  type CrmTask,
-  getTasks,
-  updateTaskStatus,
-  createTask,
-} from "../crmApi";
+import { useCallback, useEffect, useState } from "react";
+import { crmApi } from "@/lib/api/crm";
+import type { CrmTask } from "@/lib/api/crm";
+import { useCrmI18n } from "../crm-i18n";
+import styles from "../crm-command-center.module.css";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+/* ============================================================================
+ *  Task status / priority helpers
+ * ============================================================================ */
 
-interface CreateTaskPayload {
-  title: string;
-  description?: string;
-  priority: string;
-  assigneeId?: string;
-  dueDate?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Status / Priority helpers
-// ---------------------------------------------------------------------------
-
-const STATUS_OPTIONS = ["all", "OPEN", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
+const TASK_STATUSES = ["OPEN", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
 
 const STATUS_LABELS: Record<string, string> = {
-  all: "All",
   OPEN: "Open",
   IN_PROGRESS: "In Progress",
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",
 };
 
-const PRIORITY_OPTIONS = ["LOW", "MEDIUM", "HIGH", "URGENT"] as const;
-
-const PRIORITY_LABELS: Record<string, string> = {
-  LOW: "Low",
-  MEDIUM: "Medium",
-  HIGH: "High",
-  URGENT: "Urgent",
+const STATUS_COLORS: Record<string, string> = {
+  OPEN: "var(--snad-info, #3b82f6)",
+  IN_PROGRESS: "var(--snad-warning, #f59e0b)",
+  COMPLETED: "var(--snad-success, #10b981)",
+  CANCELLED: "var(--snad-muted, #6b7280)",
 };
 
-const STATUS_CLASSES: Record<string, string> = {
-  OPEN: "bg-slate-100 text-slate-700",
-  IN_PROGRESS: "bg-amber-100 text-amber-700",
-  COMPLETED: "bg-emerald-100 text-emerald-700",
-  CANCELLED: "bg-red-100 text-red-700",
+const PRIORITY_LABELS: Record<number, string> = {
+  1: "Low",
+  2: "Medium",
+  3: "High",
+  4: "Urgent",
 };
 
-const PRIORITY_CLASSES: Record<string, string> = {
-  LOW: "bg-slate-100 text-slate-600",
-  MEDIUM: "bg-blue-100 text-blue-600",
-  HIGH: "bg-orange-100 text-orange-600",
-  URGENT: "bg-red-100 text-red-600",
-};
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+/* ============================================================================
+ *  TasksTab — main component
+ * ============================================================================ */
 
 export function TasksTab() {
+  const { t } = useCrmI18n();
   const [tasks, setTasks] = useState<CrmTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("");
   const [showCreate, setShowCreate] = useState(false);
   const [selectedTask, setSelectedTask] = useState<CrmTask | null>(null);
 
-  // Fetch tasks
+  /* ---------- data fetching ---------- */
+
   const loadTasks = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await getTasks({ status: statusFilter === "all" ? undefined : statusFilter });
+      const result = await crmApi.tasks(statusFilter || undefined);
       setTasks(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load tasks");
@@ -87,49 +65,63 @@ export function TasksTab() {
     loadTasks();
   }, [loadTasks]);
 
-  // Handlers
-  const handleCreate = async (payload: CreateTaskPayload) => {
-    await createTask(payload);
+  /* ---------- handlers ---------- */
+
+  const handleCreate = async (body: {
+    title: string;
+    description?: string;
+    priority?: number;
+    assigneeUserId?: string;
+    startAt?: string;
+    dueAt?: string;
+  }) => {
+    await crmApi.createTask(body);
     setShowCreate(false);
     await loadTasks();
   };
 
-  const handleStatusChange = async (taskId: string, newStatus: string) => {
-    await updateTaskStatus(taskId, newStatus);
+  const handleStatusChange = async (taskId: string, action: "start" | "complete" | "cancel", payload?: string) => {
+    if (action === "start") await crmApi.startTask(taskId);
+    else if (action === "complete") await crmApi.completeTask(taskId, payload);
+    else if (action === "cancel") await crmApi.cancelTask(taskId, payload);
     setSelectedTask(null);
     await loadTasks();
   };
 
-  // Filtered tasks for client-side fallback
-  const filteredTasks =
-    statusFilter === "all"
-      ? tasks
-      : tasks.filter((t) => t.status === statusFilter);
+  /* ---------- derived ---------- */
+
+  const filteredTasks = statusFilter
+    ? tasks.filter((t) => t.status === statusFilter)
+    : tasks;
+
+  /* ---------- render ---------- */
 
   return (
-    <div className="space-y-4">
+    <div className={styles.tabContainer}>
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-900">Tasks</h2>
+      <div className={styles.tabHeader}>
+        <h2 className={styles.tabTitle}>{t("tab.tasks")}</h2>
         <button
           onClick={() => setShowCreate(true)}
-          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          className={styles.primaryButton}
         >
-          + New Task
+          {t("tasks.create")}
         </button>
       </div>
 
       {/* Filter bar */}
-      <div className="flex gap-2">
-        {STATUS_OPTIONS.map((status) => (
+      <div className={styles.filterBar}>
+        <button
+          onClick={() => setStatusFilter("")}
+          className={`${styles.filterChip} ${statusFilter === "" ? styles.filterChipActive : ""}`}
+        >
+          {t("tasks.filter.all")}
+        </button>
+        {TASK_STATUSES.map((status) => (
           <button
             key={status}
             onClick={() => setStatusFilter(status)}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-              statusFilter === status
-                ? "bg-blue-600 text-white"
-                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-            }`}
+            className={`${styles.filterChip} ${statusFilter === status ? styles.filterChipActive : ""}`}
           >
             {STATUS_LABELS[status]}
           </button>
@@ -138,26 +130,55 @@ export function TasksTab() {
 
       {/* Content */}
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-          <span className="ml-2 text-sm text-slate-500">Loading tasks…</span>
-        </div>
+        <div className={styles.loadingState}>Loading tasks…</div>
       ) : error ? (
-        <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className={styles.errorState}>
           {error}
-          <button onClick={loadTasks} className="ml-2 underline hover:no-underline">
+          <button onClick={loadTasks} className={styles.retryButton}>
             Retry
           </button>
         </div>
       ) : filteredTasks.length === 0 ? (
-        <div className="py-12 text-center text-sm text-slate-500">
-          No tasks found.
-        </div>
+        <div className={styles.emptyState}>No tasks found.</div>
       ) : (
-        <div className="divide-y rounded-lg border border-slate-200 bg-white">
-          {filteredTasks.map((task) => (
-            <TaskRow key={task.id} task={task} onSelect={() => setSelectedTask(task)} />
-          ))}
+        <div className={styles.tableContainer}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Status</th>
+                <th>Priority</th>
+                <th>Assignee</th>
+                <th>Due Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredTasks.map((task) => (
+                <tr
+                  key={task.id}
+                  className={styles.tableRow}
+                  onClick={() => setSelectedTask(task)}
+                >
+                  <td className={styles.tableCellTitle}>{task.title}</td>
+                  <td>
+                    <span
+                      className={styles.statusBadge}
+                      style={{ color: STATUS_COLORS[task.status] ?? "inherit" }}
+                    >
+                      {STATUS_LABELS[task.status] ?? task.status}
+                    </span>
+                  </td>
+                  <td>{PRIORITY_LABELS[task.priority] ?? `P${task.priority}`}</td>
+                  <td>{task.assignee_user_id ?? "—"}</td>
+                  <td>
+                    {task.due_at
+                      ? new Date(task.due_at).toLocaleDateString()
+                      : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -176,81 +197,28 @@ export function TasksTab() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Task row
-// ---------------------------------------------------------------------------
-
-function TaskRow({ task, onSelect }: { task: CrmTask; onSelect: () => void }) {
-  return (
-    <button
-      onClick={onSelect}
-      className="flex w-full items-center gap-4 px-4 py-3 text-left hover:bg-slate-50 focus:outline-none"
-    >
-      {/* Status dot */}
-      <span
-        className={`inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full ${
-          task.status === "COMPLETED"
-            ? "bg-emerald-500"
-            : task.status === "IN_PROGRESS"
-              ? "bg-amber-500"
-              : task.status === "CANCELLED"
-                ? "bg-red-400"
-                : "bg-slate-400"
-        }`}
-      />
-
-      {/* Title & meta */}
-      <div className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-slate-900">
-          {task.title}
-        </span>
-        {task.description ? (
-          <span className="block truncate text-xs text-slate-500">{task.description}</span>
-        ) : null}
-      </div>
-
-      {/* Badges */}
-      <span
-        className={`flex-shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_CLASSES[task.status] ?? "bg-slate-100 text-slate-600"}`}
-      >
-        {STATUS_LABELS[task.status] ?? task.status}
-      </span>
-      <span
-        className={`flex-shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${PRIORITY_CLASSES[task.priority] ?? "bg-slate-100 text-slate-600"}`}
-      >
-        {PRIORITY_LABELS[task.priority] ?? task.priority}
-      </span>
-
-      {/* Assignee */}
-      <span className="flex-shrink-0 text-xs text-slate-500">
-        {task.assigneeName ?? task.assigneeId ?? "—"}
-      </span>
-
-      {/* Due date */}
-      {task.dueDate ? (
-        <span className="flex-shrink-0 text-xs text-slate-500">
-          {new Date(task.dueDate).toLocaleDateString()}
-        </span>
-      ) : null}
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Create task modal
-// ---------------------------------------------------------------------------
+/* ============================================================================
+ *  Create Task Modal
+ * ============================================================================ */
 
 function CreateTaskModal({
   onSubmit,
   onClose,
 }: {
-  onSubmit: (payload: CreateTaskPayload) => Promise<void>;
+  onSubmit: (body: {
+    title: string;
+    description?: string;
+    priority?: number;
+    assigneeUserId?: string;
+    startAt?: string;
+    dueAt?: string;
+  }) => Promise<void>;
   onClose: () => void;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [priority, setPriority] = useState<string>("MEDIUM");
-  const [dueDate, setDueDate] = useState("");
+  const [priority, setPriority] = useState<number>(2);
+  const [dueAt, setDueAt] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -262,7 +230,7 @@ function CreateTaskModal({
         title: title.trim(),
         description: description.trim() || undefined,
         priority,
-        dueDate: dueDate || undefined,
+        dueAt: dueAt || undefined,
       });
     } finally {
       setSubmitting(false);
@@ -270,66 +238,61 @@ function CreateTaskModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-        <h3 className="mb-4 text-lg font-semibold text-slate-900">New Task</h3>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Title *</label>
+    <div className={styles.modalOverlay}>
+      <div className={styles.modal}>
+        <h3 className={styles.modalTitle}>New Task</h3>
+        <form onSubmit={handleSubmit} className={styles.modalForm}>
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Title *</label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               required
-              className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className={styles.formInput}
             />
           </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Description</label>
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Description</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className={styles.formInput}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Priority</label>
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Priority</label>
               <select
                 value={priority}
-                onChange={(e) => setPriority(e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                onChange={(e) => setPriority(Number(e.target.value))}
+                className={styles.formInput}
               >
-                {PRIORITY_OPTIONS.map((p) => (
-                  <option key={p} value={p}>
-                    {PRIORITY_LABELS[p]}
-                  </option>
-                ))}
+                <option value={1}>Low</option>
+                <option value={2}>Medium</option>
+                <option value={3}>High</option>
+                <option value={4}>Urgent</option>
               </select>
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Due Date</label>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Due Date</label>
               <input
                 type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                value={dueAt}
+                onChange={(e) => setDueAt(e.target.value)}
+                className={styles.formInput}
               />
             </div>
           </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.secondaryButton}>
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting || !title.trim()}
-              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              className={styles.primaryButton}
             >
               {submitting ? "Creating…" : "Create Task"}
             </button>
@@ -340,9 +303,9 @@ function CreateTaskModal({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Task detail modal
-// ---------------------------------------------------------------------------
+/* ============================================================================
+ *  Task Detail Modal
+ * ============================================================================ */
 
 function TaskDetailModal({
   task,
@@ -350,94 +313,88 @@ function TaskDetailModal({
   onClose,
 }: {
   task: CrmTask;
-  onStatusChange: (taskId: string, status: string) => Promise<void>;
+  onStatusChange: (taskId: string, action: "start" | "complete" | "cancel", payload?: string) => Promise<void>;
   onClose: () => void;
 }) {
   const [updating, setUpdating] = useState(false);
 
-  const transition = async (newStatus: string) => {
+  const transition = async (action: "start" | "complete" | "cancel", payload?: string) => {
     setUpdating(true);
     try {
-      await onStatusChange(task.id, newStatus);
+      await onStatusChange(task.id, action, payload);
     } finally {
       setUpdating(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
-        <div className="mb-4 flex items-start justify-between">
-          <h3 className="text-lg font-semibold text-slate-900">{task.title}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+    <div className={styles.modalOverlay}>
+      <div className={styles.modal}>
+        <div className={styles.modalHeader}>
+          <h3 className={styles.modalTitle}>{task.title}</h3>
+          <button onClick={onClose} className={styles.closeButton}>
             ✕
           </button>
         </div>
 
         {task.description ? (
-          <p className="mb-4 text-sm text-slate-600">{task.description}</p>
+          <p className={styles.modalDescription}>{task.description}</p>
         ) : null}
 
-        <div className="mb-4 grid grid-cols-2 gap-4 text-sm">
+        <div className={styles.detailGrid}>
           <div>
-            <span className="font-medium text-slate-700">Status:</span>{" "}
+            <span className={styles.detailLabel}>Status:</span>{" "}
             <span
-              className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_CLASSES[task.status] ?? ""}`}
+              className={styles.statusBadge}
+              style={{ color: STATUS_COLORS[task.status] ?? "inherit" }}
             >
               {STATUS_LABELS[task.status] ?? task.status}
             </span>
           </div>
           <div>
-            <span className="font-medium text-slate-700">Priority:</span>{" "}
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs font-medium ${PRIORITY_CLASSES[task.priority] ?? ""}`}
-            >
-              {PRIORITY_LABELS[task.priority] ?? task.priority}
-            </span>
+            <span className={styles.detailLabel}>Priority:</span>{" "}
+            {PRIORITY_LABELS[task.priority] ?? `P${task.priority}`}
           </div>
           <div>
-            <span className="font-medium text-slate-700">Assignee:</span>{" "}
-            {task.assigneeName ?? task.assigneeId ?? "—"}
+            <span className={styles.detailLabel}>Assignee:</span>{" "}
+            {task.assignee_user_id ?? "—"}
           </div>
           <div>
-            <span className="font-medium text-slate-700">Due:</span>{" "}
-            {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "—"}
+            <span className={styles.detailLabel}>Due:</span>{" "}
+            {task.due_at ? new Date(task.due_at).toLocaleDateString() : "—"}
           </div>
         </div>
 
         {/* Status transitions */}
-        <div className="flex gap-2 border-t border-slate-200 pt-4">
+        <div className={styles.modalActions}>
           {task.status === "OPEN" && (
             <button
-              onClick={() => transition("IN_PROGRESS")}
+              onClick={() => transition("start")}
               disabled={updating}
-              className="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              className={styles.primaryButton}
             >
               Start Progress
             </button>
           )}
           {task.status === "IN_PROGRESS" && (
             <button
-              onClick={() => transition("COMPLETED")}
+              onClick={() => transition("complete")}
               disabled={updating}
-              className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+              className={styles.primaryButton}
             >
               Mark Complete
             </button>
           )}
           {(task.status === "OPEN" || task.status === "IN_PROGRESS") && (
             <button
-              onClick={() => transition("CANCELLED")}
+              onClick={() => transition("cancel")}
               disabled={updating}
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              className={styles.secondaryButton}
             >
               Cancel
             </button>
           )}
-          <button
-            onClick={onClose}
-            className="ml-auto rounded-md px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-          >
+          <button onClick={onClose} className={styles.secondaryButton}>
             Close
           </button>
         </div>
