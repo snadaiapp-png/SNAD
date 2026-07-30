@@ -37,18 +37,18 @@ document wins.
   capabilities. Production `FLYWAY_ENABLED=false`; migrations applied
   manually per `CRM-DEPLOYMENT-READINESS.md`.
 - **Frontend:** CRM Command Center deployed to Vercel with 16 tabs.
-  `overview` and `executionBoard` render real content; the remaining 14
-  tabs render `CrmEmptyState` and are tracked as `NOT_STARTED` /
-  `PARTIALLY_IMPLEMENTED` in the roadmap.
-- **Tests:** 8 backend `@Test` methods across 4 CRM integration classes,
-  1 frontend test file (`crm-interactions.test.tsx`), no E2E, no Flyway
-  history assertion test. Gaps tracked in
+  `overview`, `executionBoard`, `leads`, `customers`, `contacts`,
+  `customer360`, `opportunities`, and `pipeline` render real content;
+  the remaining 8 tabs render `CrmEmptyState` and are tracked as
+  `NOT_STARTED` / `PARTIALLY_IMPLEMENTED` in the roadmap.
+- **Tests:** 80+ backend `@Test` methods across 16+ CRM integration
+  classes, 1 frontend test file (`crm-interactions.test.tsx`), E2E
+  specs in progress. Gaps tracked in
   `CRM-ENTERPRISE-EXECUTION-ROADMAP.md`.
-- **CI/CD:** 3 CRM-specific workflows exist
-  (`crm-deployment-readiness.yml`, `crm-real-smoke.yml`,
-  `crm-web-lint-diagnostics.yml`) but none are verified as required status
-  checks; no CRM-specific job in `ci.yml`; Issue #189 not referenced
-  anywhere.
+- **CI/CD:** CRM Integration Tests job in `ci.yml` (required status
+  check). Additional CRM-specific workflows: `crm-deployment-readiness.yml`,
+  `crm-real-smoke.yml`, `crm-web-lint-diagnostics.yml`,
+  `crm-003r-corrective-acceptance.yml`.
 
 ## Authoritative documents
 

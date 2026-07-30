@@ -658,18 +658,18 @@ pull request that marks a prompt `DONE` while a dependency is not `DONE`.
 
 ```text
 Total prompts:    34
-DONE:             10  (001, 003, 004, 005, 006, 007, 009, 010, 011, 013)
-IN_PROGRESS:       5  (002, 012, G3 group, G4 group, G7 group)
-NOT_STARTED:      19
-BLOCKED:           0
+DONE:             18  (001, 003, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020)
+IN_PROGRESS:       2  (002, 022)
+NOT_STARTED:      12
+BLOCKED:           2  (021, 023)
 DEPRECATED:        0
 SUPERSEDED:        0
 
-Closed milestones:   CRM-G0, CRM-G2
-Open milestones:     CRM-G1, CRM-G3, CRM-G4, CRM-G7
+Closed milestones:   CRM-G0, CRM-G1, CRM-G2, CRM-G3, CRM-G4
+Open milestones:     CRM-G7
 Future milestones:   CRM-G5, CRM-G6, CRM-G8
 
-Critical-path next prompt: EXEC-PROMPT-CRM-008 (G1 extension tables migration)
+Critical-path next prompt: EXEC-PROMPT-CRM-021 (Wire tasks tab)
 ```
 
 ---
