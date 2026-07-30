@@ -22,7 +22,7 @@ The CRM Command Center (`apps/web/app/crm/crm-command-center.tsx`) renders 16 ta
 
 ### 2.2 Backend API (Already Implemented)
 
-The leads API is fully implemented in the backend:
+The leads API is available in the backend:
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|

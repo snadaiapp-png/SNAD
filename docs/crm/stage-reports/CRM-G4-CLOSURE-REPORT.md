@@ -10,7 +10,7 @@
 
 ## 1. Milestone Scope
 
-G4 delivered the opportunities management and pipeline Kanban board features,
+G4 includes the opportunities management and pipeline Kanban board features,
 plus a critical defense-in-depth security layer:
 
 | Prompt | Title | Squad | Deliverable |
