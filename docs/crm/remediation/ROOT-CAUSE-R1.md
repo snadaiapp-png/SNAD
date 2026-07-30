@@ -1,162 +1,139 @@
-# ROOT-CAUSE-R1 — Maven Migration Test Failure
+# ROOT-CAUSE-R1 — CRM Migration / RLS Test Failures (CORRECTED)
 
 | Field | Value |
 |-------|-------|
 | Workstream | R1 — Maven Migration Contract (RECOVERY-CRM-022) |
 | Date | 2026-07-31 |
 | Repo | `snadaiapp-png/SNAD` |
-| Base SHA | `61cf9a5b13473c131b4ed43f7cb6442499917d56` (CRM-022 failed-gate tip) |
-| Failing check | `Maven Test Suite`, `CRM G1 Schema Isolation`, `Post-Merge Verification` |
-| Failing class | `com.sanad.platform.crm.web.CrmPostgresMigrationTest` (3 of 4 tests) |
-| Disposition | **Test expectation was incorrect (introduced by PR #826). Migrations are correct.** |
+| Base SHA | `61cf9a5b13473c131b4ed43f7cb6442499917d56` |
+| Status | **CORRECTED.** Initial hypothesis disproven by CI. Real root cause below. |
+| Security impact | **Yes — tenant isolation (RLS) is silently defeated in full-migrate.** |
+
+> **Correction notice (2026-07-31):** The first version of this document
+> concluded "the test expectation is incorrect; the migrations are correct"
+> and proposed reverting a version constant to `20260729.2`. CI on the
+> resulting PR (#831) **disproved** that: the test still failed 3/4, and
+> additionally surfaced `CrmRlsTenantIsolationPostgresTest` failing 7/9 with
+> tenant-isolation assertions (`expected: 1L but was: 2L`). The real root
+> cause is a migration-sequence defect, not a constant value. This document
+> supersedes the earlier analysis. The constant-revert change in #831 is
+> **withdrawn** (PR marked DO NOT MERGE).
 
 ---
 
-## 1. Symptom (evidence)
+## 1. Symptom (evidence from CI)
 
-From CI run `30578916574` (Post-Merge Verification) and run `30578916619`
-(CRM G1 Schema Isolation), the same single class fails:
+On `main` @ `61cf9a5b`, three test classes fail:
 
-```
-[ERROR] Tests run: 4, Failures: 3, Errors: 0 … <<< FAILURE! -- in
-        com.sanad.platform.crm.web.CrmPostgresMigrationTest
-[ERROR] CrmPostgresMigrationTest.installsCompletedCrmOnCleanPostgresDatabase:241
-        -> assertCompletedSchema:344 -> assertMigration:530
-        org.opentest4j.AssertionFailedError:
-        expected: 1L
-         but was: 0L
-```
+| Class | Result | Root failure |
+|-------|--------|--------------|
+| `CrmPostgresMigrationTest` | 3 of 4 fail | version/list assertions |
+| `Crm008bFoundationAcceptanceTest` | 1 of 11 fails | version assertion |
+| `CrmRlsTenantIsolationPostgresTest` | **7 of 9 fail** | **`expected: 1L but was: 2L` — isolation not enforced** |
 
-Failing sub-tests:
-- `installsCompletedCrmOnCleanPostgresDatabase`
-- `upgradesExistingPlatformThroughCrmRbacAndCompletion`
-- `upgradesUnifiedCrmCoreThroughReconciliationAndCompletion`
+The migration-version failures are a *symptom*. The RLS isolation failures
+are the *substantive defect*.
 
-The 4th test (`jsonbColumnsHaveExactPostgresCatalogValues`) passes.
+## 2. The real root cause — enable→disable RLS on the forward path
 
-## 2. The assertion under test
+Two CRM-018 migrations exist in `db/vendor/postgresql/`:
 
-`CrmPostgresMigrationTest.assertMigration` (line ~530):
+| File | Version | Effect |
+|------|---------|--------|
+| `V20260730_1__enable_crm_row_level_security.sql` | `20260730.1` | **ENABLE** RLS + create `tenant_isolation` policy on every `crm_*` table with `tenant_id` |
+| `V20260730_2__disable_crm_row_level_security.sql` | `20260730.2` | **DISABLE** RLS + drop the policy. Self-described as "Rollback migration for V20260730_1." |
 
-```java
-private void assertMigration(JdbcTemplate jdbc, String version, String type, String description) {
-    assertThat(jdbc.queryForObject(
-            "SELECT COUNT(*) FROM flyway_schema_history WHERE version=? AND type=? AND description=? AND success=TRUE",
-            Long.class, version, type, description)).isOne();
-}
-```
-
-`assertCompletedSchema` calls it (line 344):
-
-```java
-assertMigration(jdbc, CRM_010_SCORING_MODELS_VERSION, "SQL", "seed default scoring models");
-assertThat(latestVersion(jdbc)).isEqualTo(CRM_010_SCORING_MODELS_VERSION);
-```
-
-So the test demands that **one** row exist with
-`(version = CRM_010_SCORING_MODELS_VERSION, type='SQL', description='seed default scoring models', success=TRUE)`,
-and that this same version be the latest applied. `expected: 1L / but was: 0L` means **no row matched** that triple.
-
-## 3. Migration inventory on disk (evidence)
-
-| File | Flyway version | `description` (from filename) |
-|------|----------------|-------------------------------|
-| `V20260729_1__create_crm_customer_intelligence.sql` | `20260729.1` | create crm customer intelligence |
-| `V20260729_2__seed_default_scoring_models.sql` | **`20260729.2`** | **seed default scoring models** |
-| `V20260730_1__enable_crm_row_level_security.sql` | `20260730.1` | enable crm row level security |
-| `V20260730_2__disable_crm_row_level_security.sql` | **`20260730.2`** | disable crm row level security |
-
-**The migration that matches `(description='seed default scoring models')` is version `20260729.2`, NOT `20260730.2`.** Version `20260730.2` is the unrelated CRM-018 RLS-disable rollback migration.
-
-## 4. Expected vs actual version mapping
-
-| What the test needs | Required version | Constant value at base SHA | Match? |
-|---------------------|------------------|----------------------------|--------|
-| `description='seed default scoring models'` | `20260729.2` | `CRM_010_SCORING_MODELS_VERSION = "20260730.2"` | ❌ NO |
-| `latestVersion == scoring models` | `20260729.2` | `20260730.2` | ❌ NO (latest scoring seed is 20260729.2; 20260730.2 is RLS-disable) |
-
-Because the constant points at `20260730.2`, `assertMigration` finds zero rows
-with `(20260730.2, SQL, 'seed default scoring models')` → `0L` → failure.
-
-## 5. Root cause — proven via git history
-
-The constant `CRM_010_SCORING_MODELS_VERSION` was introduced by the CRM-010
-feature commit `c59bcd21` (`feat(crm-010): Customer 360 & Unified Customer
-Intelligence (#818)`) with the **correct** value:
+Flyway runs migrations in version order. Under `flyway.migrate()` with **no
+target** — which is how `installsCompletedCrmOnCleanPostgresDatabase`,
+`CrmRlsTenantIsolationPostgresTest.migrateAndSeed`, **and production** all
+run — both execute in the same pass:
 
 ```
-c59bcd212dc33e07f893b3c4e1101453888e5cdb:
-    private static final String CRM_010_SCORING_MODELS_VERSION = "20260729.2";
+... 20260729.2 (seed scoring models) → 20260730.1 (ENABLE RLS) → 20260730.2 (DISABLE RLS)
 ```
 
-PR #826 ("Workstream 2 — Fix Maven Test Suite failures", merge `a12b73da`)
-changed it — in BOTH `CrmPostgresMigrationTest.java` and
-`Crm008bFoundationAcceptanceTest.java` — from `20260729.2` to `20260730.2`.
+**Net effect: RLS is enabled and then immediately disabled. Tenant isolation
+ends up OFF.** This is why:
 
-PR #826's own remediation report table claims:
+1. `CrmRlsTenantIsolationPostgresTest.selectWithTenantContextReturnsOnlyOwnRows:123`
+   sees **2 rows** (both tenants) instead of 1 — RLS is not filtering.
+2. `latestVersion(...)` returns `20260730.2` (the disable runs last) — so the
+   migration test's terminal-version assumption (`latest == scoring models`)
+   breaks.
+3. The `containsExactly` pending-list assertions (which enumerate every
+   expected pending migration and end at the scoring-models version) now have
+   two extra entries (`20260730.1`, `20260730.2`) → "some elements were not
+   expected."
 
-> `CrmPostgresMigrationTest.java` — Hardcoded version `20260729.2` → Updated to `20260730.2`
+## 3. Why PR #826 and my #831 both failed
 
-That change is the defect. The version was not "hardcoded wrongly" — `20260729.2`
-is the correct location of the scoring-models seed. #826 misidentified the
-target and moved the constant onto an unrelated migration. The same wrong
-value was applied to `Crm008bFoundationAcceptanceTest.java`, which even
-contains a self-contradicting comment at line 510
-(`// Latest version is 20260729.2 (CRM-010 added scoring models seed)`)
-next to the now-wrong constant.
+| Attempt | Change | Effect on the 3 assertions |
+|---------|--------|----------------------------|
+| Original (CRM-010 era) | constant = `20260729.2` | Worked **before** CRM-018 RLS migrations existed. Broke once `V20260730_1/2` were added (pending-list + latestVersion). |
+| PR #826 | constant → `20260730.2` | Fixed `latestVersion` and pending-list (20260730.2 is genuinely last) **but** broke `assertMigration(version, "seed default scoring models")` because 20260730.2's description is "disable crm row level security". |
+| PR #831 (this author, withdrawn) | constant → `20260729.2` | Fixed `assertMigration` description match **but** broke `latestVersion` (full-migrate still reaches 20260730.2) and the pending-list. Did **not** touch the real RLS defect. |
 
-## 6. Conclusion — migration vs test expectation?
+**No single value of the constant can satisfy all three assertions**, because
+the constant is overloaded: it is simultaneously "the scoring-models
+migration" (description match) and "the terminal migration" (latestVersion).
+After CRM-018, those are two different versions.
 
-**The migration is correct. The test expectation is incorrect.**
+## 4. The substantive defect (security)
 
-- Migration `V20260729_2__seed_default_scoring_models.sql` is a valid,
-  self-consistent Flyway migration at version `20260729.2` with the
-  description the test expects.
-- The test constant was corrupted by PR #826 to point at `20260730.2`
-  (the RLS-disable migration), so no migration row can satisfy the
-  `(version, type, description)` triple the assertion queries for.
+A **disable-RLS migration must not sit on the forward migration path.** As
+written, any environment that runs `flyway.migrate()` to head — including
+production — ends up with RLS disabled and tenant isolation inactive, while
+the codebase believes CRM-018 delivered "defense-in-depth tenant isolation"
+(see the enable migration's header comment). This is a silent,
+security-significant regression that predates CRM-022.
 
-## 7. Fix (one-line-per-file, two files)
+The `CrmRlsTenantIsolationPostgresTest` was written to *prove* RLS works; its
+7/9 failure is the test correctly catching that it does not.
 
-Revert the constant to its proven-correct value in both files:
+## 5. Why this is an architecture decision, not a constant fix
 
-- `apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java`
-  `CRM_010_SCORING_MODELS_VERSION = "20260730.2"` → `"20260729.2"`
-- `apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/Crm008bFoundationAcceptanceTest.java`
-  `CRM_010_SCORING_MODELS_VERSION = "20260730.2"` → `"20260729.2"`
+Candidate remediations all have trade-offs that are **not mine to choose
+unilaterally** in a recovery operation with a "no production changes without
+verified cause / do not guess" mandate, especially given the security angle:
 
-A guard comment is added beside each constant explaining why it must not be
-`20260730.2`, to prevent regression.
+- **Option A — Remove `V20260730_2` (disable) from the forward path.** RLS
+  stays enabled; isolation works; the migration test's terminal version
+  becomes `20260730.1`. Cleanest for security, but deletes a migration others
+  may depend on (rollback tooling, other envs) and changes Flyway history.
+- **Option B — Relabel/disable-RLS as a non-Flyway rollback script** (move out
+  of `db/vendor/postgresql/`). Keeps it available for manual rollback without
+  running on every migrate.
+- **Option C — Keep both migrations but re-target the migration tests** so
+  they stop at `20260730.1`, and accept that production full-migrate leaves
+  RLS disabled (i.e., accept the isolation gap — NOT recommended).
+- **Option D — Add `FORCE ROW LEVEL SECURITY` / owner handling** so the
+  disable is benign — does not address the enable→disable ordering.
 
-## 8. Why this single root cause breaks three workflows
+Each option needs a human decision because it changes production migration
+behavior and/or security posture.
 
-`CrmPostgresMigrationTest` is invoked by three independent gating workflows:
+## 6. Disposition
 
-1. **Maven Test Suite** (`CI` workflow) — runs the class directly.
-2. **CRM G1 Schema Isolation** — runs
-   `mvn -Dtest=CrmPostgresMigrationTest,CrmG1TenantIsolationPostgresTest test`
-   in one invocation. `CrmG1TenantIsolationPostgresTest` itself PASSES
-   (1 test, 0 failures); the workflow fails only because the migration test
-   in the same Maven run fails. **This is not a tenant-isolation regression.**
-3. **Post-Merge Verification** — runs the full backend unit-test suite, which
-   includes the migration test; the resulting manifest is `FAIL`, so the
-   workflow's final gate refuses to close.
+- **R1 (as originally scoped: "fix the Maven migration constant") is not
+  achievable by a constant change.** The premise was wrong.
+- The real defect spans R1 (migration test) **and** tenant isolation (RLS),
+  and has security impact.
+- PR #831 is **DO NOT MERGE** (constant-revert is incorrect; would not fix
+  isolation and would not pass CI).
+- A corrected fix requires the architecture decision in §5 and likely a new
+  PR (e.g., remove/relocate `V20260730_2`) **plus** corresponding test
+  updates. This must be authorized before code changes.
 
-Fixing the constant fixes all three.
+## 7. Evidence index
 
-## 9. Acceptance criteria for R1
-
-- [ ] `CrmPostgresMigrationTest` — 4/4 tests pass (Maven).
-- [ ] `Crm008bFoundationAcceptanceTest` — passes.
-- [ ] `Maven Test Suite` workflow GREEN.
-- [ ] `CRM G1 Schema Isolation` workflow GREEN.
-- [ ] `Post-Merge Verification` backend-unit-tests step no longer fails on
-      this class (full workflow GREEN contingent on R2 clearing drift).
-
-## 10. Evidence index
-
-- `gh run view 30578916574 --log-failed` — `expected: 1L but was: 0L` at `assertMigration:530`.
-- `gh run view 30578916619 --log-failed` — same class; `CrmG1TenantIsolationPostgresTest` passes.
-- `git show c59bcd21:…/CrmPostgresMigrationTest.java` — original constant `20260729.2`.
-- `git log -S CRM_010_SCORING_MODELS_VERSION` — only #818 (introduce) and #826 (corrupt) touched it.
-- Filesystem: `V20260729_2__seed_default_scoring_models.sql` is the sole "seed default scoring models" migration.
+- CI run on PR #831 (`30589421585`): `CrmPostgresMigrationTest` 3/4 fail,
+  `Crm008bFoundationAcceptanceTest` 1/11 fail, `CrmRlsTenantIsolationPostgresTest` 7/9 fail.
+- `installsCompletedCrmOnCleanPostgresDatabase:243 -> assertCompletedSchema:348`:
+  `expected: "20260729.2" but was: "20260730.2"`.
+- `CrmRlsTenantIsolationPostgresTest.selectWithTenantContextReturnsOnlyOwnRows:123`:
+  `expected: 1L but was: 2L`.
+- `V20260730_1__enable_crm_row_level_security.sql` — ENABLE RLS + policy.
+- `V20260730_2__disable_crm_row_level_security.sql` — DISABLE RLS + drop policy,
+  header: "Rollback migration for V20260730_1".
+- `CrmRlsTenantIsolationPostgresTest.migrateAndSeed` (line 64-74) uses
+  `flyway.migrate()` with no target → both RLS migrations run.
