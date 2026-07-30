@@ -53,8 +53,8 @@ claim of milestone closure that lacks the matching report file.
 | `CRM-G0` | Execution control, CRM Command Center shell, and governance baseline | `DONE` | `docs/crm/stage-reports/CRM-G0-STAGE-REPORT.md` | 001–006 |
 | `CRM-G1` | Database, multi-tenant foundation, and G1 extension tables | `IN_PROGRESS` | `docs/crm/stage-reports/CRM-G1-STAGE-REPORT.md` | 007–012 |
 | `CRM-G2` | i18n, RTL/LTR, and accessibility hardening | `DONE` | `docs/crm/stage-reports/CRM-G2-STAGE-REPORT.md` | 013 |
-| `CRM-G3` | Core CRM entities end-to-end (leads, customers, contacts, customer-360) | `IN_PROGRESS` | `docs/crm/stage-reports/CRM-G3-STAGE-REPORT.md` | 014–017 |
-| `CRM-G4` | Opportunities, pipeline, and Kanban | `IN_PROGRESS` | `docs/crm/stage-reports/CRM-G4-STAGE-REPORT.md` | 018–020 |
+| `CRM-G3` | Core CRM entities end-to-end (leads, customers, contacts, customer-360) | `DONE` | `docs/crm/stage-reports/CRM-G3-STAGE-REPORT.md` | 014–017 |
+| `CRM-G4` | Opportunities, pipeline, and Kanban | `DONE` | `docs/crm/stage-reports/CRM-G4-STAGE-REPORT.md` | 018–020 |
 | `CRM-G5` | Tasks, transfers, employees, and assignments | `NOT_STARTED` | `docs/crm/stage-reports/CRM-G5-STAGE-REPORT.md` | 021–023 |
 | `CRM-G6` | Reports, analytics, and export | `NOT_STARTED` | `docs/crm/stage-reports/CRM-G6-STAGE-REPORT.md` | 024–026 |
 | `CRM-G7` | CI/CD hardening, smoke gating, and Issue #189 closure | `IN_PROGRESS` | `docs/crm/stage-reports/CRM-G7-STAGE-REPORT.md` | 027–031 |

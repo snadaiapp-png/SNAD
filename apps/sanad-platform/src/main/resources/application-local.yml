@@ -58,6 +58,12 @@ sanad:
     # CRM_CUSTOM_FIELD_ENCRYPTION_KEY secret through the deployment secret manager.
     custom-field-encryption-key: ${CRM_CUSTOM_FIELD_ENCRYPTION_KEY:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
 
+# CRM-018: Row-Level Security — disabled in local/H2 profile because SET LOCAL
+# is PostgreSQL-specific and not supported by H2's PostgreSQL compatibility mode.
+snad:
+  rls:
+    enabled: false
+
 logging:
   level:
     root: INFO
