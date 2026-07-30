@@ -23,7 +23,6 @@ const translations: Record<string, { ar: string; en: string }> = {
   "tab.opportunities": { ar: "الفرص البيعية", en: "Opportunities" },
   "tab.pipeline": { ar: "خط الأنابيب", en: "Pipeline" },
   "tab.tasks": { ar: "المهام", en: "Tasks" },
-  "tab.tasks": { ar: "المهام", en: "Tasks" },
   "tab.transfers": { ar: "التحويلات", en: "Transfers" },
   "tab.employees": { ar: "الموظفون", en: "Employees" },
   "tab.reports": { ar: "التقارير", en: "Reports" },
