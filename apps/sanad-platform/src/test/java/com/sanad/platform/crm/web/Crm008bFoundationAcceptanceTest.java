@@ -58,7 +58,7 @@ class Crm008bFoundationAcceptanceTest {
     private static final String CRM_009_INTEGRATION_VERSION = "20260723.1";
     private static final String CRM_009_COMMAND_EXECUTIONS_VERSION = "20260724.1";
     private static final String CRM_009_COMMAND_ARTIFACTS_VERSION = "20260724.2";
-    private static final String CRM_010_SCORING_MODELS_VERSION = "20260729.2";
+    private static final String CRM_010_SCORING_MODELS_VERSION = "20260730.2";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
