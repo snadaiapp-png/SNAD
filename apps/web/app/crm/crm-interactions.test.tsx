@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CrmPipelineBoard, adjacentStageId } from "./crm-pipeline-board";
+import { CrmI18nProvider } from "./crm-i18n";
 import { CrmVirtualTable, visibleWindow } from "./crm-virtual-table";
 import type { CrmOpportunity, CrmPipeline, CrmStage } from "@/lib/api/crm";
 
@@ -46,6 +47,7 @@ describe("CRM pipeline accessibility", () => {
     const onMove = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(
+      <CrmI18nProvider>
       <CrmPipelineBoard
         pipelines={[pipeline]}
         stages={{ [pipeline.id]: stages }}
@@ -53,7 +55,8 @@ describe("CRM pipeline accessibility", () => {
         accountNames={new Map([["account-1", "Acme"]])}
         busy={false}
         onMove={onMove}
-      />,
+      />
+      </CrmI18nProvider>,
     );
 
     await user.click(screen.getByRole("button", { name: "نقل ERP rollout إلى المرحلة التالية" }));
@@ -63,6 +66,7 @@ describe("CRM pipeline accessibility", () => {
   it("moves an opportunity with Alt plus arrow keys", () => {
     const onMove = vi.fn().mockResolvedValue(undefined);
     render(
+      <CrmI18nProvider>
       <CrmPipelineBoard
         pipelines={[pipeline]}
         stages={{ [pipeline.id]: stages }}
@@ -70,7 +74,8 @@ describe("CRM pipeline accessibility", () => {
         accountNames={new Map([["account-1", "Acme"]])}
         busy={false}
         onMove={onMove}
-      />,
+      />
+      </CrmI18nProvider>,
     );
 
     fireEvent.keyDown(screen.getByRole("article"), { key: "ArrowLeft", altKey: true });
