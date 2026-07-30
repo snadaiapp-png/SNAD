@@ -13,6 +13,14 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  // CRM component files — pre-SDS patterns, pending migration.
+  // Disable react-hooks/set-state-in-effect for legacy CRM components.
+  {
+    files: ["**/app/crm/**/*.tsx"],
+    rules: {
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;
