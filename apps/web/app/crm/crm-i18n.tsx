@@ -115,6 +115,15 @@ const translations: Record<string, { ar: string; en: string }> = {
   "leads.filter.all": { ar: "الكل", en: "All" },
   "tasks.create": { ar: "مهمة جديدة", en: "New Task" },
   "tasks.filter.all": { ar: "الكل", en: "All" },
+  // ── Transfers tab (CRM-023)
+  "transfers.filter.all": { ar: "الكل", en: "All" },
+  "transfers.state.submitted": { ar: "مقدم", en: "Submitted" },
+  "transfers.state.underReview": { ar: "قيد المراجعة", en: "Under Review" },
+  "transfers.state.approved": { ar: "موافق عليه", en: "Approved" },
+  "transfers.state.rejected": { ar: "مرفوض", en: "Rejected" },
+  // ── Employees tab (CRM-023)
+  "employees.team": { ar: "الفريق", en: "Team" },
+  "employees.members": { ar: "الأعضاء", en: "Members" },
   "leads.column.name": { ar: "الاسم", en: "Name" },
   "leads.column.company": { ar: "الشركة", en: "Company" },
   "leads.column.email": { ar: "البريد الإلكتروني", en: "Email" },

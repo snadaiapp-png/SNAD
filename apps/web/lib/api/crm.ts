@@ -362,6 +362,20 @@ export const crmApi = {
   completeTask: (id: string, result?: string) => apiClient.patch<CrmTask, { result?: string }>(`${root}/tasks/${id}/complete`, { result }),
   cancelTask: (id: string, reason?: string) => apiClient.patch<CrmTask, { reason?: string }>(`${root}/tasks/${id}/cancel`, { reason }),
 
+  // ── Transfers (CRM.TRANSFER.READ / REQUEST / APPROVE) — feature/crm-023 ──
+  transfers: (state?: string) =>
+    apiClient.get<CrmTransfer[]>(`/api/v2/crm/transfers`, { query: { state, pageSize: 200 }, cache: "no-store" }),
+  approveTransfer: (id: string, comment?: string) =>
+    apiClient.post<CrmTransfer, { decision: string; comment?: string }>(`/api/v2/crm/transfers/${id}/approve`, { decision: "APPROVED", comment }),
+  rejectTransfer: (id: string, comment?: string) =>
+    apiClient.post<CrmTransfer, { decision: string; comment?: string }>(`/api/v2/crm/transfers/${id}/approve`, { decision: "REJECTED", comment }),
+
+  // ── Teams & Memberships (CRM.TEAM.READ) — feature/crm-023 ──────────────
+  teams: () =>
+    apiClient.get<CrmTeam[]>(`/api/v2/crm/teams`, { cache: "no-store" }),
+  teamMemberships: (teamId: string) =>
+    apiClient.get<CrmTeamMembership[]>(`/api/v2/crm/teams/${teamId}/memberships`, { cache: "no-store" }),
+
   // ── Reports (CRM.ACCOUNT.READ) — feature/crm-reports ──────────────────
   reports: () => apiClient.get<Record<string, unknown>>(`${root}/reports/dashboard`, { cache: "no-store" }),
 
@@ -383,6 +397,65 @@ export const crmApi = {
   downloadLeadsCsv: (search?: string) =>
     apiClient.getBlob(`${root}/export/leads`, { query: { search }, cache: "no-store" }),
 };
+
+/**
+ * CRM Transfer Request — ownership transfer between users/teams.
+ * Backend: CrmOwnershipTransferController at /api/v2/crm/transfers
+ */
+export interface CrmTransfer {
+  id: string;
+  tenantId: string;
+  recordType: string;
+  recordIds: string[];
+  requesterUserId: string;
+  currentOwnerUserId: string;
+  proposedOwnerUserId?: string | null;
+  proposedOwnerTeamId?: string | null;
+  transferType: string;
+  temporaryEndDate?: string | null;
+  reason: string;
+  policy: string;
+  state: string;
+  currentApprovalStep?: number | null;
+  executedAt?: string | null;
+  executedByUserId?: string | null;
+  failureReason?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * CRM Sales Team — ownership team for record assignment.
+ * Backend: CrmOwnershipResourceController at /api/v2/crm/teams
+ */
+export interface CrmTeam {
+  id: string;
+  tenantId: string;
+  code: string;
+  nameAr?: string | null;
+  nameEn?: string | null;
+  description?: string | null;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * CRM Team Membership — user membership in a sales team.
+ * Backend: CrmOwnershipResourceController at /api/v2/crm/teams/{id}/memberships
+ */
+export interface CrmTeamMembership {
+  id: string;
+  tenantId: string;
+  teamId: string;
+  teamCode?: string | null;
+  userId: string;
+  role: string;
+  primary: boolean;
+  active: boolean;
+  joinedAt: string;
+  updatedAt: string;
+}
 
 /**
  * CRM cross-entity search result.
