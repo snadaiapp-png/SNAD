@@ -27,6 +27,8 @@
 #    12. apps/web/app/crm/page.tsx regresses to render CrmCommandCenterPage
 #        instead of the operational CrmWorkspaceV2 component, or the
 #        /crm/command-center route is missing. (crm/002-restore-operational-ui)
+#    16. CRM-031: Production GO decision record (CRM-PRODUCTION-GO.md) is
+#        missing, empty, or lacks required evidence references.
 #
 # Exit codes:
 #   0 — no drift detected
@@ -665,7 +667,50 @@ if [[ -s "$BASELINE_FILE" ]]; then
 fi
 
 # ----------------------------------------------------------------------------
-# 16. Summary and exit
+# 16. CRM-031: Verify Production GO decision record exists and is valid
+# ----------------------------------------------------------------------------
+#
+# CRM-031 requires a formal production GO decision record at
+# docs/release/CRM-PRODUCTION-GO.md. The drift check fails if:
+#   (a) The file does not exist or is empty.
+#   (b) The file does not reference the production SHA from release-sha.json.
+#   (c) The file does not reference the smoke evidence artifact.
+#   (d) The file does not reference the Flyway-history assertion evidence.
+
+PRODUCTION_GO_FILE="${DOCS_RELEASE_DIR}/CRM-PRODUCTION-GO.md"
+RELEASE_SHA_FILE="${REPO_ROOT}/evidence/release-sha.json"
+
+# (a) Verify GO record exists and is non-empty
+if [[ ! -s "$PRODUCTION_GO_FILE" ]]; then
+  add_violation "CRM-031 drift: docs/release/CRM-PRODUCTION-GO.md is missing or empty. CRM-031 requires a formal production GO decision record."
+fi
+
+# If the file exists, verify it contains required references
+if [[ -s "$PRODUCTION_GO_FILE" ]]; then
+  # (b) Verify production SHA reference
+  # Extract the SHA from release-sha.json using sed (POSIX-compatible)
+  if [[ -s "$RELEASE_SHA_FILE" ]]; then
+    release_sha=$(sed -n 's/.*"releaseSha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$RELEASE_SHA_FILE" 2>/dev/null | head -1)
+    if [[ -n "$release_sha" ]]; then
+      if ! grep -q "$release_sha" "$PRODUCTION_GO_FILE" 2>/dev/null; then
+        add_violation "CRM-031 drift: CRM-PRODUCTION-GO.md does not reference production SHA ${release_sha} from release-sha.json."
+      fi
+    fi
+  fi
+
+  # (c) Verify smoke evidence reference
+  if ! grep -qi 'REMEDIATION-EVIDENCE\|smoke.*evidence\|production.*smoke' "$PRODUCTION_GO_FILE" 2>/dev/null; then
+    add_violation "CRM-031 drift: CRM-PRODUCTION-GO.md does not reference the smoke evidence artifact."
+  fi
+
+  # (d) Verify Flyway-history assertion reference
+  if ! grep -qi 'CrmFlywayHistoryAssertionTest\|flyway.*history\|flyway.*assertion' "$PRODUCTION_GO_FILE" 2>/dev/null; then
+    add_violation "CRM-031 drift: CRM-PRODUCTION-GO.md does not reference the Flyway-history assertion evidence."
+  fi
+fi
+
+# ----------------------------------------------------------------------------
+# 17. Summary and exit
 # ----------------------------------------------------------------------------
 
 if (( ${#VIOLATIONS[@]} == 0 )); then
@@ -677,6 +722,7 @@ if (( ${#VIOLATIONS[@]} == 0 )); then
   echo "  capability count: 18 (reconciled)"
   echo "  002d acceptance: workflow + 5 specs + editor + seed SQL present"
   echo "  002d evidence:   no 'ACCEPTED WITH LIMITATIONS', no 'DOCUMENTED' for CRM-G1"
+  echo "  production GO:   CRM-PRODUCTION-GO.md present with required references"
   exit 0
 fi
 
