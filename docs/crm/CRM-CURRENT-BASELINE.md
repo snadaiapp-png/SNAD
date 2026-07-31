@@ -59,6 +59,12 @@ CRM_010_ARTIFACTS: 15 documents (6 initiation + 9 pre-execution)
 
 CRM_011_AND_LATER_STAGES: PRESERVED_AND_GOVERNED_SEPARATELY
 COMMERCIAL_GO_LIVE: NOT_INFERRED_FROM_THIS_DOCUMENT
+
+# CRM-029: Issue #189 traceability
+ISSUE_189: CI-PLATFORM-01 — Restore GitHub Actions execution
+ISSUE_189_STATUS: OPEN
+ISSUE_189_WORKFLOW_REFERENCE: .github/workflows/crm-deployment-readiness.yml
+ISSUE_189_GOVERNANCE: docs/crm/CRM-ENTERPRISE-EXECUTION-ROADMAP.md (CRM-029)
 ```
 
 ## 2. Architectural baseline
