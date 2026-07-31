@@ -29,6 +29,8 @@
 #        /crm/command-center route is missing. (crm/002-restore-operational-ui)
 #    16. CRM-031: Production GO decision record (CRM-PRODUCTION-GO.md) is
 #        missing, empty, or lacks required evidence references.
+#    17. CRM-032: Penetration test report (CRM-PENTEST-REPORT.md) is
+#        missing, empty, or contains open Critical findings.
 #
 # Exit codes:
 #   0 — no drift detected
@@ -710,7 +712,31 @@ if [[ -s "$PRODUCTION_GO_FILE" ]]; then
 fi
 
 # ----------------------------------------------------------------------------
-# 17. Summary and exit
+# 17. CRM-032: Verify penetration test report exists and has no open Critical findings
+# ----------------------------------------------------------------------------
+#
+# CRM-032 requires a penetration test report at docs/audit/CRM-PENTEST-REPORT.md.
+# The drift check fails if:
+#   (a) The file does not exist or is empty.
+#   (b) The report contains open Critical findings.
+
+PENTEST_REPORT="${REPO_ROOT}/docs/audit/CRM-PENTEST-REPORT.md"
+
+# (a) Verify pentest report exists and is non-empty
+if [[ ! -s "$PENTEST_REPORT" ]]; then
+  add_violation "CRM-032 drift: docs/audit/CRM-PENTEST-REPORT.md is missing or empty. CRM-032 requires a penetration test report."
+fi
+
+# If the report exists, verify it contains no open Critical findings
+if [[ -s "$PENTEST_REPORT" ]]; then
+  # Check for open Critical findings (case-insensitive)
+  if grep -qiE 'CRITICAL.*OPEN|OPEN.*CRITICAL|Severity.*CRITICAL.*Status.*OPEN' "$PENTEST_REPORT" 2>/dev/null; then
+    add_violation "CRM-032 drift: CRM-PENTEST-REPORT.md contains open Critical findings. All Critical findings must be remediated or risk-accepted before commercial go-live."
+  fi
+fi
+
+# ----------------------------------------------------------------------------
+# 18. Summary and exit
 # ----------------------------------------------------------------------------
 
 if (( ${#VIOLATIONS[@]} == 0 )); then
