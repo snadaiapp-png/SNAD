@@ -58,7 +58,12 @@ class Crm008bFoundationAcceptanceTest {
     private static final String CRM_009_INTEGRATION_VERSION = "20260723.1";
     private static final String CRM_009_COMMAND_EXECUTIONS_VERSION = "20260724.1";
     private static final String CRM_009_COMMAND_ARTIFACTS_VERSION = "20260724.2";
-    private static final String CRM_010_SCORING_MODELS_VERSION = "20260730.2";
+    // Scoring-models seed lives at V20260729_2 (version 20260729.2). The
+    // disable-RLS migration (formerly V20260730_2) was removed from the
+    // forward path under RECOVERY-CRM-022 R1, so the terminal migration is
+    // now V20260730_1 (RLS enable). See CrmPostgresMigrationTest.
+    private static final String CRM_010_SCORING_MODELS_VERSION = "20260729.2";
+    private static final String CRM_018_RLS_ENABLE_VERSION = "20260730.1";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
@@ -507,11 +512,12 @@ class Crm008bFoundationAcceptanceTest {
 
         JdbcTemplate jdbc = jdbc();
 
-        // Latest version is 20260729.2 (CRM-010 added scoring models seed)
+        // Terminal migration is V20260730_1 (CRM-018 RLS enable). The
+        // disable-RLS rollback was removed from the forward path (R1).
         String latest = jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success=TRUE " +
                 "ORDER BY installed_rank DESC LIMIT 1", String.class);
-        assertThat(latest).isEqualTo(CRM_010_SCORING_MODELS_VERSION);
+        assertThat(latest).isEqualTo(CRM_018_RLS_ENABLE_VERSION);
 
         // All 13 new CRM-008B tables exist
         List<String> expectedTables = List.of(

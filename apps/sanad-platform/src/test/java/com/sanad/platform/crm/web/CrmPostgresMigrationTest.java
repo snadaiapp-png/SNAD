@@ -58,7 +58,15 @@ class CrmPostgresMigrationTest {
     private static final String CRM_009_COMMAND_EXECUTIONS_VERSION = "20260724.1";
     private static final String CRM_009_COMMAND_ARTIFACTS_VERSION = "20260724.2";
     private static final String CRM_010_INTELLIGENCE_VERSION = "20260729.1";
-    private static final String CRM_010_SCORING_MODELS_VERSION = "20260730.2";
+    // CRM-010 scoring-models seed lives at V20260729_2 (Flyway version 20260729.2,
+    // description "seed default scoring models"). assertMigration matches on that
+    // description, so this constant MUST stay 20260729.2.
+    private static final String CRM_010_SCORING_MODELS_VERSION = "20260729.2";
+    // CRM-018 RLS enable is now the terminal migration. The disable-RLS script
+    // (formerly V20260730_2) was removed from the forward path under
+    // RECOVERY-CRM-022 R1 — running enable+disable in one migrate left RLS off.
+    // See docs/runbooks/CRM-018-RLS-DISABLE-rollback.sql for manual rollback.
+    static final String CRM_018_RLS_ENABLE_VERSION = "20260730.1";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -172,7 +180,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_009_COMMAND_EXECUTIONS_VERSION),
                         MigrationVersion.fromVersion(CRM_009_COMMAND_ARTIFACTS_VERSION),
                         MigrationVersion.fromVersion(CRM_010_INTELLIGENCE_VERSION),
-                        MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION));
+                        MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION),
+                        MigrationVersion.fromVersion(CRM_018_RLS_ENABLE_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -226,7 +235,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_009_COMMAND_EXECUTIONS_VERSION),
                         MigrationVersion.fromVersion(CRM_009_COMMAND_ARTIFACTS_VERSION),
                         MigrationVersion.fromVersion(CRM_010_INTELLIGENCE_VERSION),
-                        MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION));
+                        MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION),
+                        MigrationVersion.fromVersion(CRM_018_RLS_ENABLE_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -342,8 +352,11 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_009_COMMAND_ARTIFACTS_VERSION, "SQL", "create crm command artifacts");
         assertMigration(jdbc, CRM_010_INTELLIGENCE_VERSION, "SQL", "create crm customer intelligence");
         assertMigration(jdbc, CRM_010_SCORING_MODELS_VERSION, "SQL", "seed default scoring models");
+        assertMigration(jdbc, CRM_018_RLS_ENABLE_VERSION, "SQL", "enable crm row level security");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(CRM_010_SCORING_MODELS_VERSION);
+        // CRM_018_RLS_ENABLE_VERSION is the terminal migration on the forward
+        // path (the disable-RLS rollback was removed from Flyway under R1).
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_018_RLS_ENABLE_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 
