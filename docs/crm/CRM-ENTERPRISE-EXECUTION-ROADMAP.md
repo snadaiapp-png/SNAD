@@ -509,13 +509,14 @@ deployment on a real smoke run, and resolves Issue #189.
 ### EXEC-PROMPT-CRM-027 — Gate `crm-real-smoke.yml` on every production deploy
 
 - **Owner:** Platform CI squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
 - **Dependencies:** `EXEC-PROMPT-CRM-022`.
 - **Acceptance:**
   - `crm-real-smoke.yml` triggers automatically after a successful
     `production-release.yml` run.
   - The smoke workflow fails the release if any check returns `FAIL`.
   - Evidence artifact is uploaded and retained for 90 days.
+- **Closed by:** `940496d2` — feat(crm-027): gate crm-real-smoke on production deploy
 
 ### EXEC-PROMPT-CRM-028 — Add Flyway-history assertion test for production
 Supabase
