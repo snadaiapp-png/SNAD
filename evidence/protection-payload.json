@@ -1,0 +1,46 @@
+{
+  "required_status_checks": {
+    "strict": true,
+    "contexts": [
+      "Build Next.js Web",
+      "provenance",
+      "CRM Integration Tests",
+      "Maven Test Suite",
+      "CRM Deployment Readiness",
+      "CRM Real API Smoke",
+      "CRM Web Lint Diagnostics",
+      "CI / crm",
+      "Post-Merge Verification",
+      "Verify 8 tables, 26 indexes, and tenant isolation"
+    ]
+  },
+  "required_pull_request_reviews": {
+    "dismiss_stale_reviews": true,
+    "require_code_owner_reviews": false,
+    "required_approving_review_count": 0
+  },
+  "enforce_admins": {
+    "enabled": false
+  },
+  "required_linear_history": {
+    "enabled": false
+  },
+  "allow_force_pushes": {
+    "enabled": false
+  },
+  "allow_deletions": {
+    "enabled": false
+  },
+  "block_creations": {
+    "enabled": false
+  },
+  "required_conversation_resolution": {
+    "enabled": false
+  },
+  "lock_branch": {
+    "enabled": false
+  },
+  "allow_fork_syncing": {
+    "enabled": false
+  }
+}

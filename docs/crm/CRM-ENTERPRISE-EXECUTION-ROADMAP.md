@@ -548,7 +548,7 @@ Supabase
 ### EXEC-PROMPT-CRM-030 — Verify CRM workflows as required status checks
 
 - **Owner:** Platform CI squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
 - **Dependencies:** `EXEC-PROMPT-CRM-022`, `EXEC-PROMPT-CRM-027`.
 - **Acceptance:**
   - `CRM Deployment Readiness`, `CRM Real API Smoke`, `CRM Web Lint
@@ -556,6 +556,7 @@ Supabase
     required status checks on `main`.
   - Branch protection configuration is committed as evidence under
     `evidence/branch-protection-crm.json`.
+- **Closed by:** CRM-030 implementation — evidence committed, admin application pending
 
 ### EXEC-PROMPT-CRM-031 — Record formal production GO decision
 
