@@ -534,7 +534,7 @@ Supabase
 ### EXEC-PROMPT-CRM-029 — Reference Issue #189 in workflows and docs
 
 - **Owner:** CRM governance squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
 - **Dependencies:** `EXEC-PROMPT-CRM-001`.
 - **Acceptance:**
   - Issue #189 is referenced in at least one workflow `run-name` or step
@@ -543,6 +543,7 @@ Supabase
     roadmap.
   - The drift check fails if Issue #189 is mentioned in a commit message but
     not in any workflow.
+- **Closed by:** `4197c0e0` — Merge pull request #835 from feature/crm-029-issue189-deployment-readiness
 
 ### EXEC-PROMPT-CRM-030 — Verify CRM workflows as required status checks
 
