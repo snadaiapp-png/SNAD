@@ -55,8 +55,8 @@ claim of milestone closure that lacks the matching report file.
 | `CRM-G2` | i18n, RTL/LTR, and accessibility hardening | `DONE` | `docs/crm/stage-reports/CRM-G2-STAGE-REPORT.md` | 013 |
 | `CRM-G3` | Core CRM entities end-to-end (leads, customers, contacts, customer-360) | `DONE` | `docs/crm/stage-reports/CRM-G3-STAGE-REPORT.md` | 014–017 |
 | `CRM-G4` | Opportunities, pipeline, and Kanban | `DONE` | `docs/crm/stage-reports/CRM-G4-STAGE-REPORT.md` | 018–020 |
-| `CRM-G5` | Tasks, transfers, employees, and assignments | `NOT_STARTED` | `docs/crm/stage-reports/CRM-G5-STAGE-REPORT.md` | 021–023 |
-| `CRM-G6` | Reports, analytics, and export | `NOT_STARTED` | `docs/crm/stage-reports/CRM-G6-STAGE-REPORT.md` | 024–026 |
+| `CRM-G5` | Tasks, transfers, employees, and assignments | `DONE` | `docs/crm/stage-reports/CRM-G5-STAGE-REPORT.md` | 021–023 |
+| `CRM-G6` | Reports, analytics, and export | `IN_PROGRESS` | `docs/crm/stage-reports/CRM-G6-STAGE-REPORT.md` | 024–026 |
 | `CRM-G7` | CI/CD hardening, smoke gating, and Issue #189 closure | `IN_PROGRESS` | `docs/crm/stage-reports/CRM-G7-STAGE-REPORT.md` | 027–031 |
 | `CRM-G8` | Quality, security, and formal commercial GO | `NOT_STARTED` | `docs/crm/stage-reports/CRM-G8-STAGE-REPORT.md` | 032–034 |
 
@@ -414,18 +414,19 @@ extension tables.
 ### EXEC-PROMPT-CRM-021 — Wire tasks tab
 
 - **Owner:** Frontend squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
 - **Dependencies:** `EXEC-PROMPT-CRM-008`, `EXEC-PROMPT-CRM-017`.
 - **Acceptance:**
   - The `tasks` tab lists CRM tasks (`crm_tasks`) with status, priority, and
     assignee.
   - Create, assign, reassign, and complete actions are wired.
   - The tab no longer renders `CrmEmptyState`.
+- **Closed by:** `7ccfa806` — feat(crm-021): add assign/reassign UI to tasks tab
 
 ### EXEC-PROMPT-CRM-022 — Add a CRM-specific job to `ci.yml`
 
 - **Owner:** Platform CI squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
 - **Dependencies:** `EXEC-PROMPT-CRM-001`.
 - **Acceptance:**
   - `.github/workflows/ci.yml` contains a named `crm` job that runs the four
@@ -433,11 +434,12 @@ extension tables.
     on `main`.
   - The job fails the workflow if any CRM test fails.
   - The job is listed as a required check in branch protection.
+- **Closed by:** CRM-022 production verification completed
 
 ### EXEC-PROMPT-CRM-023 — Wire transfers and employees tabs
 
 - **Owner:** Frontend squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
 - **Dependencies:** `EXEC-PROMPT-CRM-021`.
 - **Acceptance:**
   - The `transfers` tab lists account/opportunity transfer requests
@@ -445,6 +447,7 @@ extension tables.
   - The `employees` tab lists CRM-assigned employees per tenant with role and
     capability summary.
   - Neither tab renders `CrmEmptyState`.
+- **Closed by:** `6bb5f9ce` — feat(crm-023): add transfers and employees tabs
 
 ---
 
@@ -459,22 +462,24 @@ G6 delivers the reports tab, analytics dashboards, and CSV/Excel export.
 `crm-web-lint-diagnostics.yml`
 
 - **Owner:** Platform CI squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
 - **Dependencies:** `EXEC-PROMPT-CRM-001`.
 - **Acceptance:**
   - `crm-web-lint-diagnostics.yml` fails the workflow on any lint error.
   - The workflow summary lists the failing rules.
+- **Closed by:** `bf5e0665` — feat(crm-024): add lint summary step to workflow
 
 ### EXEC-PROMPT-CRM-025 — Wire reports tab
 
 - **Owner:** Frontend squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
 - **Dependencies:** `EXEC-PROMPT-CRM-019`, `EXEC-PROMPT-CRM-021`.
 - **Acceptance:**
   - The `reports` tab renders at least three reports: pipeline velocity,
     lead conversion rate, and activity throughput.
   - Reports are backed by aggregation queries on existing CRM tables.
   - Date-range filter is wired.
+- **Closed by:** `9c5c660c` — feat(crm-025): add reports tab with pipeline, leads, and activity reports
 
 ### EXEC-PROMPT-CRM-026 — Add CRM E2E test
 
