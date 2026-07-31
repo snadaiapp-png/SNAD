@@ -522,13 +522,14 @@ deployment on a real smoke run, and resolves Issue #189.
 Supabase
 
 - **Owner:** Backend squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
 - **Dependencies:** `EXEC-PROMPT-CRM-010`.
 - **Acceptance:**
   - A new Testcontainers test asserts the Flyway history table contains
     exactly the expected CRM versions in the expected order.
   - The test fails if any CRM version is missing or out of order.
   - The test is listed in the `crm` job added by `EXEC-PROMPT-CRM-022`.
+- **Closed by:** `98631548` — Merge pull request #834 from feature/crm-028-flyway-history-verification
 
 ### EXEC-PROMPT-CRM-029 — Reference Issue #189 in workflows and docs
 
