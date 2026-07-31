@@ -484,7 +484,7 @@ G6 delivers the reports tab, analytics dashboards, and CSV/Excel export.
 ### EXEC-PROMPT-CRM-026 — Add CRM E2E test
 
 - **Owner:** Quality squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
 - **Dependencies:** `EXEC-PROMPT-CRM-017`, `EXEC-PROMPT-CRM-019`,
   `EXEC-PROMPT-CRM-021`.
 - **Acceptance:**
@@ -494,6 +494,7 @@ G6 delivers the reports tab, analytics dashboards, and CSV/Excel export.
     and asserts the dashboard counts update.
   - The spec is wired into `playwright-ci.yml` and runs on every pull
     request that touches `apps/web/app/crm/**`.
+- **Closed by:** `9bf84bf5` — feat(crm-026): add CRM lifecycle E2E test
 
 ---
 
