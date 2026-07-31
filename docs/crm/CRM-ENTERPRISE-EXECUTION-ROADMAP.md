@@ -588,7 +588,7 @@ decision.
 ### EXEC-PROMPT-CRM-032 — Penetration test closure for CRM surface
 
 - **Owner:** Security squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
 - **Dependencies:** `EXEC-PROMPT-CRM-018`, `EXEC-PROMPT-CRM-026`.
 - **Acceptance:**
   - A penetration test report covering the CRM API and UI is committed under
@@ -597,6 +597,7 @@ decision.
     by the project owner.
   - The drift check fails commercial go-live claims if any Critical finding
     is open.
+- **Closed by:** CRM-032 implementation PR #839 (`94555117`)
 
 ### EXEC-PROMPT-CRM-033 — Performance baseline for CRM
 
@@ -669,9 +670,9 @@ pull request that marks a prompt `DONE` while a dependency is not `DONE`.
 
 ```text
 Total prompts:    34
-DONE:             19  (001, 003, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020, 027, 028, 029, 030, 031)
+DONE:             20  (001, 003, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020, 027, 028, 029, 030, 031, 032)
 IN_PROGRESS:       2  (002, 022)
-NOT_STARTED:      11
+NOT_STARTED:      10
 BLOCKED:           2  (021, 023)
 DEPRECATED:        0
 SUPERSEDED:        0
