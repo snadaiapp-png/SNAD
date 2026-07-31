@@ -376,8 +376,12 @@ export const crmApi = {
   teamMemberships: (teamId: string) =>
     apiClient.get<CrmTeamMembership[]>(`/api/v2/crm/teams/${teamId}/memberships`, { cache: "no-store" }),
 
-  // ── Reports (CRM.ACCOUNT.READ) — feature/crm-reports ──────────────────
-  reports: () => apiClient.get<Record<string, unknown>>(`${root}/reports/dashboard`, { cache: "no-store" }),
+  // ── Reports (CRM.ACCOUNT.READ) — feature/crm-025 ──────────────────────
+  reports: () => apiClient.get<CrmDashboardReport>(`${root}/reports/dashboard`, { cache: "no-store" }),
+  salesPipeline: () => apiClient.get<CrmSalesPipelineReport>(`${root}/reports/sales-pipeline`, { cache: "no-store" }),
+  leadConversion: () => apiClient.get<CrmLeadConversionReport>(`${root}/reports/lead-conversion`, { cache: "no-store" }),
+  activitySummary: () => apiClient.get<CrmActivitySummaryReport>(`${root}/reports/activity-summary`, { cache: "no-store" }),
+  accountGrowth: () => apiClient.get<CrmAccountGrowthReport>(`${root}/reports/account-growth`, { cache: "no-store" }),
 
   // ── Search (CRM.ACCOUNT.READ) — feature/crm-search-export ─────────────
   search: (q: string, limit?: number) =>
@@ -397,6 +401,86 @@ export const crmApi = {
   downloadLeadsCsv: (search?: string) =>
     apiClient.getBlob(`${root}/export/leads`, { query: { search }, cache: "no-store" }),
 };
+
+/**
+ * CRM Sales Pipeline Report — pipeline velocity by stage.
+ * Backend: ReportsController at /api/v1/crm/reports/sales-pipeline
+ */
+export interface CrmSalesPipelineReport {
+  stages: Array<{
+    stage_name: string;
+    stage_id: string;
+    opportunity_count: number;
+    total_amount: string;
+    avg_probability: string;
+  }>;
+  total_pipeline_value: string;
+  total_opportunities: number;
+  weighted_pipeline_value: string;
+}
+
+/**
+ * CRM Lead Conversion Report — lead funnel and conversion rates.
+ * Backend: ReportsController at /api/v1/crm/reports/lead-conversion
+ */
+export interface CrmLeadConversionReport {
+  total_leads: number;
+  converted_leads: number;
+  qualified_leads: number;
+  disqualified_leads: number;
+  new_leads: number;
+  conversion_rate: number;
+  by_source: Array<{
+    source: string;
+    count: number;
+    converted: number;
+  }>;
+}
+
+/**
+ * CRM Activity Summary Report — activity throughput by type.
+ * Backend: ReportsController at /api/v1/crm/reports/activity-summary
+ */
+export interface CrmActivitySummaryReport {
+  total_activities: number;
+  open_activities: number;
+  completed_activities: number;
+  total_tasks: number;
+  open_tasks: number;
+  completed_tasks: number;
+  activities_by_type: Array<{
+    activity_type: string;
+    count: number;
+    open_count: number;
+  }>;
+}
+
+/**
+ * CRM Account Growth Report — account growth over time.
+ * Backend: ReportsController at /api/v1/crm/reports/account-growth
+ */
+export interface CrmAccountGrowthReport {
+  total_accounts: number;
+  active_accounts: number;
+  new_this_month: number;
+  new_this_quarter: number;
+  monthly_growth: Array<{
+    month: string;
+    new_accounts: number;
+    cumulative: number;
+  }>;
+}
+
+/**
+ * CRM Dashboard Report — combined report data.
+ * Backend: ReportsController at /api/v1/crm/reports/dashboard
+ */
+export interface CrmDashboardReport {
+  salesPipeline: CrmSalesPipelineReport;
+  leadConversion: CrmLeadConversionReport;
+  activitySummary: CrmActivitySummaryReport;
+  accountGrowth: CrmAccountGrowthReport;
+}
 
 /**
  * CRM Transfer Request — ownership transfer between users/teams.

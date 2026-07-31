@@ -124,6 +124,10 @@ const translations: Record<string, { ar: string; en: string }> = {
   // ── Employees tab (CRM-023)
   "employees.team": { ar: "الفريق", en: "Team" },
   "employees.members": { ar: "الأعضاء", en: "Members" },
+  // ── Reports tab (CRM-025)
+  "reports.pipeline": { ar: "سرعة خط الأنابيب", en: "Pipeline Velocity" },
+  "reports.leads": { ar: "معدل تحويل العملاء المحتملين", en: "Lead Conversion" },
+  "reports.activities": { ar: "سرعة الأنشطة", en: "Activity Throughput" },
   "leads.column.name": { ar: "الاسم", en: "Name" },
   "leads.column.company": { ar: "الشركة", en: "Company" },
   "leads.column.email": { ar: "البريد الإلكتروني", en: "Email" },
