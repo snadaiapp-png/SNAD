@@ -113,6 +113,8 @@ const translations: Record<string, { ar: string; en: string }> = {
   "leads.loading": { ar: "جاري تحميل العملاء المحتملين...", en: "Loading leads..." },
   "leads.empty": { ar: "لا يوجد عملاء محتملون", en: "No leads found" },
   "leads.filter.all": { ar: "الكل", en: "All" },
+  "tasks.create": { ar: "مهمة جديدة", en: "New Task" },
+  "tasks.filter.all": { ar: "الكل", en: "All" },
   "leads.column.name": { ar: "الاسم", en: "Name" },
   "leads.column.company": { ar: "الشركة", en: "Company" },
   "leads.column.email": { ar: "البريد الإلكتروني", en: "Email" },
