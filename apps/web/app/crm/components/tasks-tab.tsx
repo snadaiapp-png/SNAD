@@ -88,6 +88,12 @@ export function TasksTab() {
     await loadTasks();
   };
 
+  const handleReassign = async (taskId: string, assigneeUserId: string) => {
+    await crmApi.updateTask(taskId, { assigneeUserId });
+    setSelectedTask(null);
+    await loadTasks();
+  };
+
   /* ---------- derived ---------- */
 
   const filteredTasks = statusFilter
@@ -190,6 +196,7 @@ export function TasksTab() {
         <TaskDetailModal
           task={selectedTask}
           onStatusChange={handleStatusChange}
+          onReassign={handleReassign}
           onClose={() => setSelectedTask(null)}
         />
       )}
@@ -218,6 +225,7 @@ function CreateTaskModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<number>(2);
+  const [assigneeUserId, setAssigneeUserId] = useState("");
   const [dueAt, setDueAt] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -230,6 +238,7 @@ function CreateTaskModal({
         title: title.trim(),
         description: description.trim() || undefined,
         priority,
+        assigneeUserId: assigneeUserId.trim() || undefined,
         dueAt: dueAt || undefined,
       });
     } finally {
@@ -285,6 +294,16 @@ function CreateTaskModal({
               />
             </div>
           </div>
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Assignee User ID</label>
+            <input
+              type="text"
+              value={assigneeUserId}
+              onChange={(e) => setAssigneeUserId(e.target.value)}
+              placeholder="Enter user ID to assign"
+              className={styles.formInput}
+            />
+          </div>
           <div className={styles.modalActions}>
             <button type="button" onClick={onClose} className={styles.secondaryButton}>
               Cancel
@@ -311,17 +330,32 @@ function TaskDetailModal({
   task,
   onStatusChange,
   onClose,
+  onReassign,
 }: {
   task: CrmTask;
   onStatusChange: (taskId: string, action: "start" | "complete" | "cancel", payload?: string) => Promise<void>;
+  onReassign: (taskId: string, assigneeUserId: string) => Promise<void>;
   onClose: () => void;
 }) {
   const [updating, setUpdating] = useState(false);
+  const [showReassign, setShowReassign] = useState(false);
+  const [newAssigneeId, setNewAssigneeId] = useState(task.assignee_user_id ?? "");
 
   const transition = async (action: "start" | "complete" | "cancel", payload?: string) => {
     setUpdating(true);
     try {
       await onStatusChange(task.id, action, payload);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleReassign = async () => {
+    if (!newAssigneeId.trim()) return;
+    setUpdating(true);
+    try {
+      await onReassign(task.id, newAssigneeId.trim());
+      setShowReassign(false);
     } finally {
       setUpdating(false);
     }
@@ -358,12 +392,45 @@ function TaskDetailModal({
           <div>
             <span className={styles.detailLabel}>Assignee:</span>{" "}
             {task.assignee_user_id ?? "—"}
+            {(task.status === "OPEN" || task.status === "IN_PROGRESS") && (
+              <button
+                onClick={() => setShowReassign(!showReassign)}
+                className={styles.secondaryButton}
+                style={{ marginLeft: "0.5rem", fontSize: "0.75rem", padding: "0.25rem 0.5rem" }}
+              >
+                {showReassign ? "Cancel" : "Reassign"}
+              </button>
+            )}
           </div>
           <div>
             <span className={styles.detailLabel}>Due:</span>{" "}
             {task.due_at ? new Date(task.due_at).toLocaleDateString() : "—"}
           </div>
         </div>
+
+        {/* Reassignment inline form */}
+        {showReassign && (
+          <div className={styles.formGroup} style={{ marginTop: "0.75rem" }}>
+            <label className={styles.formLabel}>New Assignee User ID</label>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <input
+                type="text"
+                value={newAssigneeId}
+                onChange={(e) => setNewAssigneeId(e.target.value)}
+                placeholder="Enter user ID"
+                className={styles.formInput}
+                style={{ flex: 1 }}
+              />
+              <button
+                onClick={handleReassign}
+                disabled={updating || !newAssigneeId.trim()}
+                className={styles.primaryButton}
+              >
+                {updating ? "Assigning…" : "Assign"}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Status transitions */}
         <div className={styles.modalActions}>
