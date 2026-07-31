@@ -10,17 +10,33 @@ on:
       expected_sha:
         description: 'Deployed application commit SHA'
         required: true
+  workflow_run:
+    workflows: ["SANAD Production Release"]
+    types:
+      - completed
 
 permissions:
   contents: read
+
+concurrency:
+  group: crm-real-smoke-${{ github.event_name }}
+  cancel-in-progress: false
 
 jobs:
   real-smoke:
     name: Authenticated two-tenant CRM API smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Only run if:
+    # - Manual dispatch, OR
+    # - Auto-triggered after successful production release
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success')
     env:
       CRM_BASE_URL: ${{ inputs.base_url || 'https://sanad-backend-mcrj.onrender.com' }}
+      EXPECTED_SHA: ${{ inputs.expected_sha || github.event.workflow_run.head_sha || '' }}
 
     steps:
       - name: Checkout repository
@@ -45,7 +61,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${{ inputs.expected_sha }}"
+          test -n "${EXPECTED_SHA}"
           curl --fail --silent --show-error --location --max-time 30 \
             "${CRM_BASE_URL%/}/actuator/health" >/dev/null
 
@@ -55,14 +71,14 @@ jobs:
         env:
           CRM_BEARER_TOKEN: ${{ secrets.CRM_SMOKE_BEARER_TOKEN }}
           CRM_SECOND_TENANT_BEARER_TOKEN: ${{ secrets.CRM_SMOKE_SECOND_TENANT_BEARER_TOKEN }}
-          CRM_TESTED_SHA: ${{ inputs.expected_sha }}
+          CRM_TESTED_SHA: ${{ env.EXPECTED_SHA }}
           CRM_SMOKE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
           CRM_SMOKE_EVIDENCE_FILE: crm-smoke-evidence.json
 
       - name: Validate evidence schema and tested SHA
         shell: bash
         env:
-          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          EXPECTED_SHA: ${{ env.EXPECTED_SHA }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -85,4 +101,4 @@ jobs:
             crm-smoke-evidence.json
             crm-smoke.log
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
