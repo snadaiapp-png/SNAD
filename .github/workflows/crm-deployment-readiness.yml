@@ -47,3 +47,13 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/crm/governance-drift-check.sh
+
+      # CRM-029: Reference Issue #189 (CI-PLATFORM-01) in workflow evidence.
+      # This step ensures Issue #189 is traceable from CI to governance docs.
+      - name: Issue #189 traceability — CI-PLATFORM-01
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "## Issue #189 — CI-PLATFORM-01" >> "$GITHUB_STEP_SUMMARY"
+          echo "Traceability: This workflow references Issue #189 per CRM-029." >> "$GITHUB_STEP_SUMMARY"
+          echo "Status: OPEN — Restore GitHub Actions execution" >> "$GITHUB_STEP_SUMMARY"

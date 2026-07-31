@@ -629,7 +629,43 @@ if [[ -s "$CRM_002_EVIDENCE" ]]; then
 fi
 
 # ----------------------------------------------------------------------------
-# 15. Summary and exit
+# 15. CRM-029: Verify Issue #189 traceability
+# ----------------------------------------------------------------------------
+
+# If any commit message references #189, at least one workflow file must also
+# reference #189.  This prevents silent governance drift where Issue #189 is
+# mentioned in commits but not traceable from CI.
+
+ISSUE_189_WORKFLOWS=()
+while IFS= read -r -d '' wf; do
+  if grep -q '#189\|Issue #189\|ISSUE_189' "$wf" 2>/dev/null; then
+    ISSUE_189_WORKFLOWS+=("$wf")
+  fi
+done < <(find "${REPO_ROOT}/.github/workflows" -type f -name '*.yml' -print0 2>/dev/null)
+
+if (( ${#ISSUE_189_WORKFLOWS[@]} == 0 )); then
+  # No workflow references Issue #189 — check if any doc or commit references it.
+  issue_189_doc_refs=0
+  while IFS= read -r -d '' doc_file; do
+    if grep -q '#189\|Issue #189\|ISSUE_189' "$doc_file" 2>/dev/null; then
+      issue_189_doc_refs=$((issue_189_doc_refs + 1))
+    fi
+  done < <(find "$DOCS_CRM_DIR" -type f -name '*.md' -print0 2>/dev/null)
+
+  if (( issue_189_doc_refs > 0 )); then
+    add_violation "CRM-029 drift: Issue #189 is referenced in ${issue_189_doc_refs} doc(s) but no workflow file references it. Add a workflow reference per CRM-029 acceptance criterion #1."
+  fi
+fi
+
+# Also verify the baseline doc includes Issue #189 reference.
+if [[ -s "$BASELINE_FILE" ]]; then
+  if ! grep -q '#189\|Issue #189\|ISSUE_189' "$BASELINE_FILE" 2>/dev/null; then
+    add_violation "CRM-029 drift: CRM-CURRENT-BASELINE.md does not reference Issue #189. Add an ISSUE_189 entry per CRM-029 acceptance criterion #2."
+  fi
+fi
+
+# ----------------------------------------------------------------------------
+# 16. Summary and exit
 # ----------------------------------------------------------------------------
 
 if (( ${#VIOLATIONS[@]} == 0 )); then
