@@ -253,3 +253,45 @@ historical release evidence. CRM-008R remains open until:
 - the exact merge SHA deploys and production smoke has zero unexplained 5xx;
 - `docs/crm/crm-008/evidence/CRM-008B-FINAL-CLOSURE.md` is finalized;
 - Issue #597 and PR #691 receive current-status blocks while preserving history.
+
+## 11. CRM-031: Production GO Decision Record
+
+CRM-031 records the formal production GO decision:
+
+```text
+TICKET: CRM-031
+STATUS: COMPLETE
+FEATURE_COMMIT: e81f78d6
+MERGE_COMMIT: 2e2064d08328cf1487069d18c287b944b9da9860
+PR: #838 / MERGED
+PRODUCTION_GO_RECORD: docs/release/CRM-PRODUCTION-GO.md
+DRIFT_CHECK_SECTION: 16
+CLOSURE_DATE: 2026-07-31
+FINAL_STATUS: CERTIFIED
+```
+
+### Evidence References
+
+| Evidence | Location | Status |
+|----------|----------|--------|
+| Production SHA | `evidence/release-sha.json` | `beb6e18c` |
+| Smoke evidence | `evidence/fullstack-remediation-010/REMEDIATION-EVIDENCE.md` | PASS |
+| Flyway assertion | `CrmFlywayHistoryAssertionTest.java` | 5/5 PASS |
+| Branch protection | `evidence/branch-protection-crm.json` | Configured |
+| External approver | `docs/governance/SINGLE-EXTERNAL-APPROVER-AUTHORITY.md` | EXISTS |
+
+### GO Decision Status
+
+The production GO record is currently `NO-GO (DRAFT)`. The actual GO/NO-GO
+decision requires explicit signatures from:
+1. Project owner (account: `snadaiapp-png`)
+2. Single external approver per `SINGLE-EXTERNAL-APPROVER-AUTHORITY.md`
+
+### Issue #189 Traceability
+
+```text
+ISSUE_189: CI-PLATFORM-01 — Restore GitHub Actions execution
+ISSUE_189_STATUS: OPEN
+ISSUE_189_WORKFLOW_REFERENCE: .github/workflows/crm-deployment-readiness.yml
+ISSUE_189_GOVERNANCE: docs/crm/CRM-ENTERPRISE-EXECUTION-ROADMAP.md (CRM-029)
+```

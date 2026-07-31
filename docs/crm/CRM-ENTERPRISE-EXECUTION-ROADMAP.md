@@ -572,7 +572,7 @@ Supabase
     artifact, and the Flyway-history assertion evidence.
   - The drift check fails any claim of "commercial go-live" that lacks this
     record.
-- **Closed by:** CRM-031 execution gate — AUTHORIZED TO IMPLEMENT, PR #837 merged at `b05fe409`
+- **Closed by:** CRM-031 execution gate PR #837 (`b05fe409`) + implementation PR #838 (`2e2064d0`)
 
 ---
 
