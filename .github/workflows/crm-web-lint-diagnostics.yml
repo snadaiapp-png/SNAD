@@ -42,6 +42,21 @@ jobs:
           path: apps/web/lint.log
           if-no-files-found: error
           retention-days: 1
+      - name: Write failing rules to workflow summary
+        if: always() && steps.lint.outputs.exit_code != '0'
+        working-directory: apps/web
+        shell: bash
+        run: |
+          echo "## ❌ CRM Web Lint Failures" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "The following lint errors were detected:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "^\s*(error|warning)" lint.log | head -50 >> "$GITHUB_STEP_SUMMARY" || echo "(see full log in artifact)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Total errors:** $(grep -c 'error' lint.log || echo 0)" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Total warnings:** $(grep -c 'warning' lint.log || echo 0)" >> "$GITHUB_STEP_SUMMARY"
       - name: Enforce lint result
         if: steps.lint.outputs.exit_code != '0'
         run: exit 1
