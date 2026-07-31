@@ -561,7 +561,7 @@ Supabase
 ### EXEC-PROMPT-CRM-031 — Record formal production GO decision
 
 - **Owner:** Project owner + external approver.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE`.
 - **Dependencies:** `EXEC-PROMPT-CRM-027`, `EXEC-PROMPT-CRM-028`,
   `EXEC-PROMPT-CRM-030`.
 - **Acceptance:**
@@ -572,6 +572,7 @@ Supabase
     artifact, and the Flyway-history assertion evidence.
   - The drift check fails any claim of "commercial go-live" that lacks this
     record.
+- **Closed by:** CRM-031 execution gate — AUTHORIZED TO IMPLEMENT, PR #837 merged at `b05fe409`
 
 ---
 
@@ -668,9 +669,9 @@ pull request that marks a prompt `DONE` while a dependency is not `DONE`.
 
 ```text
 Total prompts:    34
-DONE:             18  (001, 003, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020)
+DONE:             19  (001, 003, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020, 027, 028, 029, 030, 031)
 IN_PROGRESS:       2  (002, 022)
-NOT_STARTED:      12
+NOT_STARTED:      11
 BLOCKED:           2  (021, 023)
 DEPRECATED:        0
 SUPERSEDED:        0
