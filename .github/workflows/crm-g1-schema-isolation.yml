@@ -107,11 +107,11 @@ jobs:
             -f scripts/crm/verify-g1-tenant-isolation.sql \
             2>&1 | tee "$RUNNER_TEMP/crm-g1-evidence/catalog-verification.txt"
 
-      - name: Run migration and behavioral tenant-isolation tests
+      - name: Run migration, history assertion, and behavioral tenant-isolation tests
         working-directory: apps/sanad-platform
         run: >-
           mvn --batch-mode --no-transfer-progress
-          -Dtest=CrmPostgresMigrationTest,CrmG1TenantIsolationPostgresTest test
+          -Dtest=CrmPostgresMigrationTest,CrmFlywayHistoryAssertionTest,CrmG1TenantIsolationPostgresTest test
 
       - name: Record immutable schema evidence
         shell: bash
