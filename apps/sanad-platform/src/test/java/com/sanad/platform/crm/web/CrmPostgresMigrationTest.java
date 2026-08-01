@@ -175,9 +175,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_009_INTEGRATION_VERSION),
                         MigrationVersion.fromVersion(CRM_009_COMMAND_EXECUTIONS_VERSION),
                         MigrationVersion.fromVersion(CRM_009_COMMAND_ARTIFACTS_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_TEAM_MGMT_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(CRM_010_INTELLIGENCE_VERSION),
                         MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION),
-                        MigrationVersion.fromVersion(CRM_008B_TEAM_MGMT_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(CRM_RLS_ENABLE_VERSION),
                         MigrationVersion.fromVersion(CRM_RLS_DISABLE_VERSION),
                         MigrationVersion.fromVersion(CRM_RLS_RE_ENABLE_VERSION));
@@ -233,9 +233,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_009_INTEGRATION_VERSION),
                         MigrationVersion.fromVersion(CRM_009_COMMAND_EXECUTIONS_VERSION),
                         MigrationVersion.fromVersion(CRM_009_COMMAND_ARTIFACTS_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_TEAM_MGMT_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(CRM_010_INTELLIGENCE_VERSION),
                         MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION),
-                        MigrationVersion.fromVersion(CRM_008B_TEAM_MGMT_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(CRM_RLS_ENABLE_VERSION),
                         MigrationVersion.fromVersion(CRM_RLS_DISABLE_VERSION),
                         MigrationVersion.fromVersion(CRM_RLS_RE_ENABLE_VERSION));
