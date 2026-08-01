@@ -1,0 +1,33 @@
+{
+  "timestamp": "2026-08-01T16:15:21.653Z",
+  "test": "CRM-033 Performance Baseline",
+  "configuration": {
+    "target_rps": 50,
+    "duration": "10m",
+    "endpoints": [
+      "dashboard",
+      "accounts-list",
+      "customer-360",
+      "lead-conversion"
+    ],
+    "authenticated": true,
+    "authentication": "perf-test profile / /api/v1/auth/login (automatic)"
+  },
+  "results": {
+    "total_requests": 29642,
+    "throughput_rps": 49.02,
+    "failed_requests": 4,
+    "failure_rate": 0.0001,
+    "avg_duration_ms": 170.8653684839062,
+    "median_duration_ms": 6.00775,
+    "p95_duration_ms": 1128.7116999999994,
+    "p99_duration_ms": 3131.809364,
+    "max_duration_ms": 10808.7055
+  },
+  "thresholds": {
+    "p95_below_500ms": false,
+    "p99_below_1000ms": false,
+    "failure_rate_below_1pct": true
+  },
+  "status": "FAIL"
+}

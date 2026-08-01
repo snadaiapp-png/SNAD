@@ -378,3 +378,62 @@ REMEDIATION_COMMIT: 34a3bb47cd87154c69346169202c20b043fcf57b
 CLOSURE_DATE: 2026-08-01
 FINAL_STATUS: GOVERNANCE COMPLETE
 ```
+
+## 14. CRM-033: Performance Baseline — Infrastructure Blocker Removal
+
+CRM-033's infrastructure blocker — no automated path to a valid JWT in a
+clean environment for performance testing — was removed via a permanent,
+production-safe, profile-gated authentication strategy. The benchmark now
+executes end-to-end automatically (k6 self-authenticates via the real
+`/api/v1/auth/login` pipeline; no manual intervention, no H2 console, no
+manual SQL).
+
+```text
+TICKET: CRM-033
+STATUS: INFRASTRUCTURE BLOCKER REMOVED — PERMANENT AUTH STRATEGY VERIFIED
+EXECUTION_GATE: docs/crm/crm-033/CRM-033-EXECUTION-GATE-AUTHORIZATION.md
+BLOCKER_REPORT: docs/crm/crm-033/CRM-033-BLOCKER-REPORT.md
+PERFORMANCE_REPORT: docs/crm/crm-033/CRM-033-PERFORMANCE-REPORT.md
+CERTIFICATION: docs/crm/crm-033/CRM-033-FINAL-CERTIFICATION.md
+EVIDENCE: evidence/crm-perf-baseline.json
+BENCHMARK_RUNS: 2 × 10 min @ 50 RPS (2026-08-01)
+THROUGHPUT: 49.02 RPS (29,642 requests, run 2)
+ERROR_RATE: 0.0135% (< 1% target — PASS)
+P95: 1,128.7 ms (run 2) — NOT MET (< 500 ms target) on local 2-core hardware
+P99: 3,131.8 ms (run 2) — NOT MET (< 1000 ms target) on local 2-core hardware
+AUTH_FAILURES: 0 — automatic login verified 2/2 runs
+CI_GATE: .github/workflows/performance-baseline.yml (crm-033-authenticated-benchmark)
+CRM_034_AUTHORIZATION: NOT_AUTHORIZED — withheld until CI gate certifies thresholds
+FINAL_DECISION: ✅ CRM-033 COMPLETE (infrastructure deliverable)
+```
+
+### Authentication Strategy (permanent fix)
+
+- `apps/sanad-platform/src/main/resources/application-perf-test.yml` — `perf-test`
+  profile: H2 in-memory (`MODE=PostgreSQL`), deterministic JWT secret from
+  environment (`${PERF_TEST_JWT_SECRET:${JWT_SECRET:}}`), INFO logging, no H2
+  console, RLS/import-worker disabled, actuator metrics exposed.
+- `apps/sanad-platform/src/main/java/com/sanad/platform/security/config/PerfTestBootstrapConfig.java`
+  — `@Profile("perf-test")`; fails fast on blank secrets; seeds deterministic
+  tenant/organization/admin user (`must_change_password=FALSE`) + role with all
+  active capabilities + CRM reference data (account, contact, pipeline,
+  stages, opportunity, CONVERTED lead) in one transaction.
+- `performance/k6/crm-performance-baseline.js` — k6 `setup()` performs the
+  login; 50 RPS constant-arrival-rate for 10 min across dashboard, accounts
+  list, customer-360, and lead-conversion (idempotent replay path).
+- `.github/workflows/performance-baseline.yml` — `crm-033-authenticated-benchmark`
+  job: starts the app under `perf-test`, waits for health, runs k6 in Docker,
+  publishes summary/artifacts, fails on threshold breaches (p95 < 500 ms,
+  p99 < 1000 ms, error rate < 1%).
+
+### Verification
+
+- Build + tests: 136 test classes / 935 testcases — 0 failures, 0 errors,
+  11 skipped (38 Docker/Testcontainers-dependent classes excluded, documented
+  in the performance report).
+- Benchmarks: run 1 (29,574 req, 49.2 RPS, p95 978.4 ms), run 2 authoritative
+  (29,642 req, 49.02 RPS, p95 1,128.7 ms, p99 3,131.8 ms, 0.0135% errors).
+- Latency targets NOT met on the local 2-core reference hardware (Pentium B960
+  @ 2.2 GHz); the 4-vCPU CI gate is the authoritative threshold certification
+  path. All metrics recorded verbatim from evidence; k6-native verdict `FAIL`
+  is preserved in `evidence/crm-perf-baseline.json` (honesty requirement).
