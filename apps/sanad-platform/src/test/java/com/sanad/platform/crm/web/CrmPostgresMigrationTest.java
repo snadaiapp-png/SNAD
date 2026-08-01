@@ -355,7 +355,7 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_010_INTELLIGENCE_VERSION, "SQL", "create crm customer intelligence");
         assertMigration(jdbc, CRM_010_SCORING_MODELS_VERSION, "SQL", "seed default scoring models");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(CRM_010_SCORING_MODELS_VERSION);
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_RLS_RE_ENABLE_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 
