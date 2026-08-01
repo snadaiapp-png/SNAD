@@ -25,6 +25,14 @@ spring:
     username: sa
     password:
     driver-class-name: org.h2.Driver
+    hikari:
+      # Sized for the CRM-033 benchmark: 50 RPS with a per-request DB round-trip
+      # (session-version check) plus per-endpoint queries. The default pool of
+      # 10 starves under this concurrency (measured: 98 threads pending, acquire
+      # avg 137ms / max 5.9s). Env-overridable so CI can tune it.
+      maximum-pool-size: ${PERF_TEST_DB_POOL_MAX:40}
+      minimum-idle: ${PERF_TEST_DB_POOL_MIN:10}
+      connection-timeout: 30000
 
   jpa:
     show-sql: false

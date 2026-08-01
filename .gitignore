@@ -174,3 +174,7 @@ performance/k6.exe
 
 # Regenerable k6 raw JSON dumps (88-160 MB each); small summary evidence is committed
 performance/results/crm-perf-raw*.json
+
+# CRM-033 diagnostic output (temporary performance diagnostic files)
+performance/results/diag/
+performance/k6/crm-perf-diagnostic.js

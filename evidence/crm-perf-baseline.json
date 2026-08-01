@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-08-01T16:15:21.653Z",
+  "timestamp": "2026-08-01T20:06:35.117Z",
   "test": "CRM-033 Performance Baseline",
   "configuration": {
     "target_rps": 50,
@@ -11,23 +11,58 @@
       "lead-conversion"
     ],
     "authenticated": true,
-    "authentication": "perf-test profile / /api/v1/auth/login (automatic)"
+    "authentication": "perf-test profile / /api/v1/auth/login (automatic)",
+    "profile": "perf-test (H2 in-memory, MODE=PostgreSQL, deterministic seed)",
+    "fix": "SessionVersionCache (5s TTL Caffeine cache for JWT session-version lookup) + HikariCP pool sized to 40 for perf-test profile"
   },
   "results": {
+    "total_requests": 30002,
+    "throughput_rps": 49.95,
+    "failed_requests": 0,
+    "failure_rate": 0,
+    "avg_duration_ms": 15.834624935004364,
+    "median_duration_ms": 6.5717,
+    "p95_duration_ms": 51.7144,
+    "p99_duration_ms": 121.05211099999886,
+    "max_duration_ms": 953.6254
+  },
+  "resource_profile": {
+    "source": "Spring Boot Actuator Micrometer, sampled every 25s across the 10m run",
+    "process_cpu_usage_avg": 0.065,
+    "process_cpu_usage_max": 0.188,
+    "system_cpu_usage_avg": 0.756,
+    "system_cpu_count": 2,
+    "jvm_threads_live_avg": 37,
+    "jvm_gc_pause_events": 136,
+    "jvm_gc_pause_total_seconds": 0.58,
+    "jvm_gc_pause_max_seconds": 0.002,
+    "jvm_heap_used_mb_avg": 145,
+    "jvm_heap_used_mb_max": 180,
+    "hikaricp_connections_max": 40,
+    "hikaricp_connections_pending_max": 0,
+    "hikaricp_acquire_avg_ms": 0.001,
+    "hikaricp_acquire_max_seconds": 0.002
+  },
+  "thresholds": {
+    "p95_below_500ms": true,
+    "p99_below_1000ms": true,
+    "failure_rate_below_1pct": true
+  },
+  "status": "PASS",
+  "prior_baseline_before_fix": {
+    "timestamp": "2026-08-01T16:15:21.653Z",
+    "commit": "84dc131c (clean HEAD, no SessionVersionCache, HikariCP pool=10)",
     "total_requests": 29642,
     "throughput_rps": 49.02,
     "failed_requests": 4,
     "failure_rate": 0.0001,
-    "avg_duration_ms": 170.8653684839062,
     "median_duration_ms": 6.00775,
     "p95_duration_ms": 1128.7116999999994,
     "p99_duration_ms": 3131.809364,
-    "max_duration_ms": 10808.7055
-  },
-  "thresholds": {
-    "p95_below_500ms": false,
-    "p99_below_1000ms": false,
-    "failure_rate_below_1pct": true
-  },
-  "status": "FAIL"
+    "max_duration_ms": 10808.7055,
+    "hikaricp_acquire_avg_ms": 141,
+    "hikaricp_acquire_max_seconds": 4.30,
+    "status": "FAIL",
+    "root_cause": "Per-request DB session-version lookup (findSessionVersionByTenantIdAndId) in JwtAuthenticationFilter serialized on an undersized HikariCP pool (max=10); threads blocked up to 4.30s acquiring a connection, producing the p95=1128ms / p99=3131ms tail."
+  }
 }
