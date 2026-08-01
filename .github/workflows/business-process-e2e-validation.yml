@@ -73,6 +73,8 @@ jobs:
       - name: Execute complete governed process suite
         working-directory: apps/sanad-platform
         shell: bash
+        env:
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: 'El3BbUMQ882dQYiAqNEEMxfTr3CVlf0FTbrCOrIKKsw='
         run: |
           set -o pipefail
           mvn --batch-mode --no-transfer-progress \

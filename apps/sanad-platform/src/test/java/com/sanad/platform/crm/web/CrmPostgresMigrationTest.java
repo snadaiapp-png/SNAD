@@ -58,7 +58,11 @@ class CrmPostgresMigrationTest {
     private static final String CRM_009_COMMAND_EXECUTIONS_VERSION = "20260724.1";
     private static final String CRM_009_COMMAND_ARTIFACTS_VERSION = "20260724.2";
     private static final String CRM_010_INTELLIGENCE_VERSION = "20260729.1";
-    private static final String CRM_010_SCORING_MODELS_VERSION = "20260730.2";
+    private static final String CRM_010_SCORING_MODELS_VERSION = "20260729.2";
+    private static final String CRM_008B_TEAM_MGMT_CAPABILITIES_VERSION = "20260728.1";
+    private static final String CRM_RLS_ENABLE_VERSION = "20260730.1";
+    private static final String CRM_RLS_DISABLE_VERSION = "20260730.2";
+    private static final String CRM_RLS_RE_ENABLE_VERSION = "20260802.1";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -172,7 +176,11 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_009_COMMAND_EXECUTIONS_VERSION),
                         MigrationVersion.fromVersion(CRM_009_COMMAND_ARTIFACTS_VERSION),
                         MigrationVersion.fromVersion(CRM_010_INTELLIGENCE_VERSION),
-                        MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION));
+                        MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_TEAM_MGMT_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_RLS_ENABLE_VERSION),
+                        MigrationVersion.fromVersion(CRM_RLS_DISABLE_VERSION),
+                        MigrationVersion.fromVersion(CRM_RLS_RE_ENABLE_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -226,7 +234,11 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_009_COMMAND_EXECUTIONS_VERSION),
                         MigrationVersion.fromVersion(CRM_009_COMMAND_ARTIFACTS_VERSION),
                         MigrationVersion.fromVersion(CRM_010_INTELLIGENCE_VERSION),
-                        MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION));
+                        MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION),
+                        MigrationVersion.fromVersion(CRM_008B_TEAM_MGMT_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_RLS_ENABLE_VERSION),
+                        MigrationVersion.fromVersion(CRM_RLS_DISABLE_VERSION),
+                        MigrationVersion.fromVersion(CRM_RLS_RE_ENABLE_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

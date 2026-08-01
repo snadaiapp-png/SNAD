@@ -22,14 +22,14 @@ const STATE_LABELS: Record<string, string> = {
 };
 
 const STATE_COLORS: Record<string, string> = {
-  DRAFT: "var(--snad-muted, #6b7280)",
-  SUBMITTED: "var(--snad-info, #3b82f6)",
-  UNDER_REVIEW: "var(--snad-warning, #f59e0b)",
-  APPROVED: "var(--snad-success, #10b981)",
-  REJECTED: "var(--snad-error, #ef4444)",
-  CANCELLED: "var(--snad-muted, #6b7280)",
-  COMPLETED: "var(--snad-success, #10b981)",
-  FAILED: "var(--snad-error, #ef4444)",
+  DRAFT: "var(--snad-color-text-muted)",
+  SUBMITTED: "var(--snad-color-info)",
+  UNDER_REVIEW: "var(--snad-color-warning)",
+  APPROVED: "var(--snad-color-success)",
+  REJECTED: "var(--snad-color-error)",
+  CANCELLED: "var(--snad-color-text-muted)",
+  COMPLETED: "var(--snad-color-success)",
+  FAILED: "var(--snad-color-error)",
 };
 
 const TRANSFER_TYPE_LABELS: Record<string, string> = {
@@ -280,7 +280,7 @@ function TransferDetailModal({
                 onClick={() => { setAction("approve"); }}
                 disabled={submitting}
                 className={styles.primaryButton}
-                style={{ background: "var(--snad-success, #10b981)" }}
+                style={{ background: "var(--snad-color-success)" }}
               >
                 {submitting && action === "approve" ? "Approving…" : "Approve"}
               </button>
@@ -288,7 +288,7 @@ function TransferDetailModal({
                 onClick={() => { setAction("reject"); }}
                 disabled={submitting}
                 className={styles.secondaryButton}
-                style={{ color: "var(--snad-error, #ef4444)" }}
+                style={{ color: "var(--snad-color-error)" }}
               >
                 {submitting && action === "reject" ? "Rejecting…" : "Reject"}
               </button>

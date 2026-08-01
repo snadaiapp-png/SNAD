@@ -65,6 +65,8 @@ jobs:
           # Testcontainers reads these to connect to Docker
           TESTCONTAINERS_RYUK_DISABLED: 'false'
           TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
+          # Required by ProductionSecurityGuard (prod profile) — must not be the test default
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: 'El3BbUMQ882dQYiAqNEEMxfTr3CVlf0FTbrCOrIKKsw='
         run: mvn test -B -ntp -Dsurefire.useFile=false
 
       - name: Upload test reports

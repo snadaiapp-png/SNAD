@@ -20,10 +20,10 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  OPEN: "var(--snad-info, #3b82f6)",
-  IN_PROGRESS: "var(--snad-warning, #f59e0b)",
-  COMPLETED: "var(--snad-success, #10b981)",
-  CANCELLED: "var(--snad-muted, #6b7280)",
+  OPEN: "var(--snad-color-info)",
+  IN_PROGRESS: "var(--snad-color-warning)",
+  COMPLETED: "var(--snad-color-success)",
+  CANCELLED: "var(--snad-color-text-muted)",
 };
 
 const PRIORITY_LABELS: Record<number, string> = {

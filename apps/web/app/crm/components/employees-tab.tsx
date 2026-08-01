@@ -127,9 +127,9 @@ export function EmployeesTab() {
                 <div className={styles.emptyState}>No active members in this team.</div>
               ) : (
                 <>
-                  <div style={{ padding: "0.75rem", borderBottom: "1px solid var(--snad-border, #e5e7eb)" }}>
+                  <div style={{ padding: "0.75rem", borderBottom: "1px solid var(--snad-color-border-default)" }}>
                     <strong>{selectedTeam.nameEn ?? selectedTeam.nameAr ?? selectedTeam.code}</strong>
-                    <span style={{ marginLeft: "0.5rem", color: "var(--snad-muted, #6b7280)" }}>
+                    <span style={{ marginLeft: "0.5rem", color: "var(--snad-color-text-muted)" }}>
                       ({memberships.length} member{memberships.length !== 1 ? "s" : ""})
                     </span>
                   </div>

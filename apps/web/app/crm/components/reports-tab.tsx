@@ -168,10 +168,10 @@ function LeadConversionReport({ data }: { data: CrmLeadConversionReport }) {
       {/* Funnel visualization */}
       <div style={{ marginBottom: "1.5rem" }}>
         <h3 style={{ fontSize: "0.875rem", fontWeight: 600, marginBottom: "0.75rem" }}>Lead Funnel</h3>
-        <FunnelBar label="New" count={data.new_leads} total={data.total_leads} color="var(--snad-info, #3b82f6)" />
-        <FunnelBar label="Qualified" count={data.qualified_leads} total={data.total_leads} color="var(--snad-warning, #f59e0b)" />
-        <FunnelBar label="Converted" count={data.converted_leads} total={data.total_leads} color="var(--snad-success, #10b981)" />
-        <FunnelBar label="Disqualified" count={data.disqualified_leads} total={data.total_leads} color="var(--snad-muted, #6b7280)" />
+        <FunnelBar label="New" count={data.new_leads} total={data.total_leads} color="var(--snad-color-info)" />
+        <FunnelBar label="Qualified" count={data.qualified_leads} total={data.total_leads} color="var(--snad-color-warning)" />
+        <FunnelBar label="Converted" count={data.converted_leads} total={data.total_leads} color="var(--snad-color-success)" />
+        <FunnelBar label="Disqualified" count={data.disqualified_leads} total={data.total_leads} color="var(--snad-color-text-muted)" />
       </div>
 
       {/* By source table */}
@@ -221,8 +221,8 @@ function ActivityThroughputReport({ data }: { data: CrmActivitySummaryReport }) 
       {/* Tasks breakdown */}
       <div style={{ marginBottom: "1.5rem" }}>
         <h3 style={{ fontSize: "0.875rem", fontWeight: 600, marginBottom: "0.75rem" }}>Task Status</h3>
-        <FunnelBar label="Open Tasks" count={data.open_tasks} total={data.total_tasks || 1} color="var(--snad-info, #3b82f6)" />
-        <FunnelBar label="Completed Tasks" count={data.completed_tasks} total={data.total_tasks || 1} color="var(--snad-success, #10b981)" />
+        <FunnelBar label="Open Tasks" count={data.open_tasks} total={data.total_tasks || 1} color="var(--snad-color-info)" />
+        <FunnelBar label="Completed Tasks" count={data.completed_tasks} total={data.total_tasks || 1} color="var(--snad-color-success)" />
       </div>
 
       {/* By type table */}
@@ -264,12 +264,12 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
       style={{
         flex: 1,
         padding: "1rem",
-        border: "1px solid var(--snad-border, #e5e7eb)",
+        border: "1px solid var(--snad-color-border-default)",
         borderRadius: "0.5rem",
-        background: "var(--snad-surface, #fff)",
+        background: "var(--snad-color-surface-primary)",
       }}
     >
-      <div style={{ fontSize: "0.75rem", color: "var(--snad-muted, #6b7280)", marginBottom: "0.25rem" }}>
+      <div style={{ fontSize: "0.75rem", color: "var(--snad-color-text-muted)", marginBottom: "0.25rem" }}>
         {label}
       </div>
       <div style={{ fontSize: "1.25rem", fontWeight: 700 }}>{value}</div>
@@ -285,7 +285,7 @@ function FunnelBar({ label, count, total, color }: { label: string; count: numbe
         <span>{label}</span>
         <span>{count}</span>
       </div>
-      <div style={{ height: "8px", background: "var(--snad-border, #e5e7eb)", borderRadius: "4px", overflow: "hidden" }}>
+      <div style={{ height: "8px", background: "var(--snad-color-border-default)", borderRadius: "4px", overflow: "hidden" }}>
         <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: "4px" }} />
       </div>
     </div>
