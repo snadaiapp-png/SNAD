@@ -356,3 +356,25 @@ BLOCKER: RESOLVED — HIGH-01, HIGH-02 remediated (0 HIGH, 0 CRITICAL)
 | File Upload Security | ✅ PASS |
 | XXE Prevention | ✅ PASS |
 | Rate Limiting | ✅ PASS |
+
+---
+
+## 13. CRM-022: Governance Remediation Closure
+
+CRM-022 (CRM-specific CI job) reached governance closure on 2026-08-01 after
+a repository-wide Governance Drift Check PASS. All governance drift
+violations originating from CRM-022 were remediated; no risk acceptance was
+used and the drift rule was not modified.
+
+```text
+TICKET: CRM-022
+STATUS: GOVERNANCE COMPLETE
+REPOSITORY_DRIFT: PASS
+DRIFT_SCRIPT: scripts/crm/governance-drift-check.sh
+REMEDIATION_CERT: docs/crm/crm-022/CRM-022-REMEDIATION-CERTIFICATION.md
+CLOSURE_RECORD: docs/crm/crm-022/CRM-022-GOVERNANCE-CLOSURE.md
+EVIDENCE_DOC: docs/crm/crm-022/CRM-022-GOVERNANCE-EVIDENCE.md
+REMEDIATION_COMMIT: 34a3bb47cd87154c69346169202c20b043fcf57b
+CLOSURE_DATE: 2026-08-01
+FINAL_STATUS: GOVERNANCE COMPLETE
+```

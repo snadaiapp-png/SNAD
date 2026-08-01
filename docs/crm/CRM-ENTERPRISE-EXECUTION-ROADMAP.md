@@ -426,7 +426,9 @@ extension tables.
 ### EXEC-PROMPT-CRM-022 — Add a CRM-specific job to `ci.yml`
 
 - **Owner:** Platform CI squad.
-- **Status:** `DONE`.
+- **Status:** `GOVERNANCE COMPLETE` (2026-08-01) — see
+  `docs/crm/crm-022/CRM-022-REMEDIATION-CERTIFICATION.md` and
+  `docs/crm/crm-022/CRM-022-GOVERNANCE-CLOSURE.md`.
 - **Dependencies:** `EXEC-PROMPT-CRM-001`.
 - **Acceptance:**
   - `.github/workflows/ci.yml` contains a named `crm` job that runs the four
@@ -435,6 +437,9 @@ extension tables.
   - The job fails the workflow if any CRM test fails.
   - The job is listed as a required check in branch protection.
 - **Closed by:** CRM-022 production verification completed
+- **Governance closure:** all drift violations originating from CRM-022
+  remediated; repository-wide drift check PASS (`EXIT_CODE=0`); evidence in
+  `docs/crm/crm-022/CRM-022-GOVERNANCE-EVIDENCE.md`.
 
 ### EXEC-PROMPT-CRM-023 — Wire transfers and employees tabs
 
@@ -609,8 +614,9 @@ decision.
 ### EXEC-PROMPT-CRM-033 — Performance baseline for CRM
 
 - **Owner:** Platform squad.
-- **Status:** `READY_FOR_AGENT_EXECUTION` (authorized — CRM-032 governance closed 2026-07-31).
-- **Dependencies:** `EXEC-PROMPT-CRM-027` (BLOCKED by CRM-032 governance).
+- **Status:** `READY_FOR_AGENT_EXECUTION` (authorized — CRM-032 governance closed 2026-07-31; execution gate
+  `docs/crm/crm-033/CRM-033-EXECUTION-GATE-AUTHORIZATION.md` issued 2026-08-01).
+- **Dependencies:** `EXEC-PROMPT-CRM-027`.
 - **Acceptance:**
   - A load test exercises the dashboard, accounts list, customer-360, and
     lead-conversion endpoints at 50 RPS for 10 minutes.
@@ -677,9 +683,9 @@ pull request that marks a prompt `DONE` while a dependency is not `DONE`.
 
 ```text
 Total prompts:    34
-DONE:             20  (001, 003, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020, 027, 028, 029, 030, 031, 032)
+DONE:             21  (001, 003, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020, 022, 027, 028, 029, 030, 031, 032)
 GOVERNANCE_BLOCKED: 0
-IN_PROGRESS:       2  (002, 022)
+IN_PROGRESS:       1  (002)
 NOT_STARTED:      10
 BLOCKED:           2  (021, 023)
 NOT_AUTHORIZED:    0

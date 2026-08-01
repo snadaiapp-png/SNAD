@@ -48,6 +48,16 @@
 set -euo pipefail
 
 # ----------------------------------------------------------------------------
+# Portable find wrapper
+# ----------------------------------------------------------------------------
+# On Git Bash / MSYS2, the ZCode harness overrides `find` with a Node.js
+# implementation that does not correctly expand glob patterns in -name on
+# Windows paths.  `command find` bypasses the wrapper and invokes the system
+# GNU find (findutils), which behaves identically on Linux, macOS, and Git Bash.
+
+FIND="command find"
+
+# ----------------------------------------------------------------------------
 # 0. Locate the repository root and define paths
 # ----------------------------------------------------------------------------
 
@@ -124,7 +134,7 @@ if [[ "$crm_code_exists" == "yes" ]]; then
     ' "$doc_file"; then
       add_violation "Doc claims 'CRM_PRODUCT_BUILD: NOT STARTED' while CRM code is merged: ${doc_file#${REPO_ROOT}/}"
     fi
-  done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
+  done < <($FIND "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
 fi
 
 # ----------------------------------------------------------------------------
@@ -152,7 +162,7 @@ done
 # platform-wide migrations (e.g. user mobile contact, tenant quota) are out
 # of scope for the CRM baseline reconciliation.
 mapfile -t actual_crm_migrations < <(
-  find "$MIGRATION_DIR" -maxdepth 1 -type f -name 'V2026*.sql' -printf '%f\n' 2>/dev/null \
+  $FIND "$MIGRATION_DIR" -maxdepth 1 -type f -name 'V2026*.sql' -printf '%f\n' 2>/dev/null \
     | awk 'tolower($0) ~ /crm/ { print }' | sort
 )
 
@@ -229,7 +239,7 @@ scan_doc_for_empty_tab_presentation() {
 
 while IFS= read -r -d '' doc_file; do
   scan_doc_for_empty_tab_presentation "$doc_file"
-done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
+done < <($FIND "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
 
 # ----------------------------------------------------------------------------
 # 5. Detect AI CRM described as merged if only present in unmerged PRs
@@ -253,7 +263,7 @@ while IFS= read -r -d '' doc_file; do
       add_violation "Doc claims AI CRM is merged/deployed but it only renders CrmEmptyState in the Command Center: ${doc_file#${REPO_ROOT}/} (matched: '${phrase}')"
     fi
   done
-done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
+done < <($FIND "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
 
 # ----------------------------------------------------------------------------
 # 6. Detect production GO / commercial go-live claims without a decision record
@@ -286,7 +296,7 @@ while IFS= read -r -d '' doc_file; do
       fi
     fi
   done
-done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" "$DOCS_RELEASE_DIR" -type f -name '*.md' -print0 2>/dev/null)
+done < <($FIND "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" "$DOCS_RELEASE_DIR" -type f -name '*.md' -print0 2>/dev/null)
 
 # Also fail any doc that uses the exact upper-case phrase
 # "COMMERCIAL GO-LIVE: AUTHORIZED" without the decision record.
@@ -301,7 +311,7 @@ if [[ ! -s "$PRODUCTION_GO_RECORD" ]]; then
     if grep -Eq 'COMMERCIAL GO-LIVE:[[:space:]]*AUTHORIZED' "$doc_file" 2>/dev/null; then
       add_violation "Doc claims COMMERCIAL GO-LIVE: AUTHORIZED without a formal decision record: ${doc_file#${REPO_ROOT}/}"
     fi
-  done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" "$DOCS_RELEASE_DIR" -type f -name '*.md' -print0 2>/dev/null)
+  done < <($FIND "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" "$DOCS_RELEASE_DIR" -type f -name '*.md' -print0 2>/dev/null)
 fi
 
 # ----------------------------------------------------------------------------
@@ -338,7 +348,7 @@ while IFS= read -r -d '' doc_file; do
   ' "$doc_file" 2>/dev/null; then
     add_violation "Doc hard-codes stale CRM RBAC capability count (14 or 15); reconciled count is 18: ${doc_file#${REPO_ROOT}/}"
   fi
-done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
+done < <($FIND "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
 
 # ----------------------------------------------------------------------------
 # 8. Verify docs/crm/README.md status block matches the baseline
@@ -420,12 +430,12 @@ while IFS= read -r -d '' doc_file; do
     # Match "CRM-Gn: CLOSED" or "CRM-Gn — CLOSED" or "CRM-Gn is CLOSED".
     if grep -Eq "${milestone}[^[:alnum:]]+(is[[:space:]]+)?CLOSED" "$doc_file" 2>/dev/null; then
       if [[ ! -f "${DOCS_CRM_DIR}/stage-reports/${report}" ]] \
-        && ! find "$DOCS_CRM_DIR" -type f -name "$report" -print0 2>/dev/null | grep -q .; then
+        && ! $FIND "$DOCS_CRM_DIR" -type f -name "$report" -print0 2>/dev/null | grep -q .; then
         add_violation "Doc claims ${milestone} is CLOSED but stage report ${report} is missing: ${doc_file#${REPO_ROOT}/}"
       fi
     fi
   done
-done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
+done < <($FIND "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
 
 # ----------------------------------------------------------------------------
 # 12. Verify /crm page redirects to /crm/overview (CRM-002a route migration)
@@ -645,7 +655,7 @@ while IFS= read -r -d '' wf; do
   if grep -q '#189\|Issue #189\|ISSUE_189' "$wf" 2>/dev/null; then
     ISSUE_189_WORKFLOWS+=("$wf")
   fi
-done < <(find "${REPO_ROOT}/.github/workflows" -type f -name '*.yml' -print0 2>/dev/null)
+done < <($FIND "${REPO_ROOT}/.github/workflows" -type f -name '*.yml' -print0 2>/dev/null)
 
 if (( ${#ISSUE_189_WORKFLOWS[@]} == 0 )); then
   # No workflow references Issue #189 — check if any doc or commit references it.
@@ -654,7 +664,7 @@ if (( ${#ISSUE_189_WORKFLOWS[@]} == 0 )); then
     if grep -q '#189\|Issue #189\|ISSUE_189' "$doc_file" 2>/dev/null; then
       issue_189_doc_refs=$((issue_189_doc_refs + 1))
     fi
-  done < <(find "$DOCS_CRM_DIR" -type f -name '*.md' -print0 2>/dev/null)
+  done < <($FIND "$DOCS_CRM_DIR" -type f -name '*.md' -print0 2>/dev/null)
 
   if (( issue_189_doc_refs > 0 )); then
     add_violation "CRM-029 drift: Issue #189 is referenced in ${issue_189_doc_refs} doc(s) but no workflow file references it. Add a workflow reference per CRM-029 acceptance criterion #1."
