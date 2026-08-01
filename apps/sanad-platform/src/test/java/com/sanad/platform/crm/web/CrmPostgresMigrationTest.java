@@ -379,13 +379,13 @@ class CrmPostgresMigrationTest {
             assertThat(columnExists(jdbc, table, "owner_team_id")).as(table + " owner_team_id").isTrue();
             assertThat(columnExists(jdbc, table, "owner_queue_id")).as(table + " owner_queue_id").isTrue();
         }
-        // Verify 17 CRM-008B capabilities were seeded
+        // Verify 20 CRM-008B capabilities were seeded (17 from V20260722.8 + 3 from V20260728.1)
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.ASSIGNMENT.%' " +
                 "OR code LIKE 'CRM.TRANSFER.%' OR code LIKE 'CRM.TEAM.%' OR code LIKE 'CRM.QUEUE.%' " +
                 "OR code LIKE 'CRM.TERRITORY.%' OR code LIKE 'CRM.ASSIGNMENT_RULE.%' " +
                 "OR code = 'CRM.OWNERSHIP_HISTORY.READ'",
-                Long.class)).isEqualTo(17L);
+                Long.class)).isEqualTo(20L);
 
         // CRM-008B JSONB column assertions (PostgreSQL-native invariants)
         assertThat(jsonbColumnExists(jdbc, "crm_team_memberships", "metadata")).isTrue();
