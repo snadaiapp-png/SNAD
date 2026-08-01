@@ -164,3 +164,7 @@ download/
 *.token
 *.secrets
 SNAD-https/
+.env*
+# Transient GitHub branch-protection API dumps (tooling artifacts, never commit)
+protection.json
+protection_update.json

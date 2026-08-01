@@ -588,7 +588,7 @@ decision.
 ### EXEC-PROMPT-CRM-032 — Penetration test closure for CRM surface
 
 - **Owner:** Security squad.
-- **Status:** `DONE`.
+- **Status:** `COMPLETE` — GOVERNANCE CLOSED (2026-07-31).
 - **Dependencies:** `EXEC-PROMPT-CRM-018`, `EXEC-PROMPT-CRM-026`.
 - **Acceptance:**
   - A penetration test report covering the CRM API and UI is committed under
@@ -598,12 +598,19 @@ decision.
   - The drift check fails commercial go-live claims if any Critical finding
     is open.
 - **Closed by:** CRM-032 implementation PR #839 (`94555117`)
+- **Governance Blocker:** RESOLVED — HIGH-01 and HIGH-02 remediated by
+  engineering (2026-07-31). 0 HIGH, 0 CRITICAL. No risk acceptance used.
+- **Remediation Evidence:** `ProductionSecurityGuard.java`,
+  `CrmEncryptionKeyValidator.java`, `ProductionSecurityGuardTest` (8/8),
+  `CrmEncryptionKeyValidatorTest` (8/8)
+- **Blocker Report:** `docs/crm/crm-032/CRM-032-GOVERNANCE-BLOCKER-REPORT.md` (superseded)
+- **Risk Acceptance Register:** `docs/security/OWNER-RISK-ACCEPTANCE-REGISTER.md` (closed — SUPERSEDED)
 
 ### EXEC-PROMPT-CRM-033 — Performance baseline for CRM
 
 - **Owner:** Platform squad.
-- **Status:** `NOT_STARTED`.
-- **Dependencies:** `EXEC-PROMPT-CRM-027`.
+- **Status:** `READY_FOR_AGENT_EXECUTION` (authorized — CRM-032 governance closed 2026-07-31).
+- **Dependencies:** `EXEC-PROMPT-CRM-027` (BLOCKED by CRM-032 governance).
 - **Acceptance:**
   - A load test exercises the dashboard, accounts list, customer-360, and
     lead-conversion endpoints at 50 RPS for 10 minutes.
@@ -671,9 +678,11 @@ pull request that marks a prompt `DONE` while a dependency is not `DONE`.
 ```text
 Total prompts:    34
 DONE:             20  (001, 003, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020, 027, 028, 029, 030, 031, 032)
+GOVERNANCE_BLOCKED: 0
 IN_PROGRESS:       2  (002, 022)
 NOT_STARTED:      10
 BLOCKED:           2  (021, 023)
+NOT_AUTHORIZED:    0
 DEPRECATED:        0
 SUPERSEDED:        0
 
@@ -682,6 +691,7 @@ Open milestones:     CRM-G7
 Future milestones:   CRM-G5, CRM-G6, CRM-G8
 
 Critical-path next prompt: EXEC-PROMPT-CRM-021 (Wire tasks tab)
+GOVERNANCE BLOCKER: NONE — CRM-032 closed (HIGH-01, HIGH-02 remediated 2026-07-31)
 ```
 
 ---

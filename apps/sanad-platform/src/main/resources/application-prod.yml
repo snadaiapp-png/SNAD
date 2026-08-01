@@ -35,6 +35,10 @@ sanad:
       admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:}
       admin-display-name: ${BOOTSTRAP_ADMIN_DISPLAY_NAME:SANAD Admin}
       audit-actor: ${BOOTSTRAP_AUDIT_ACTOR:credential-bootstrap}
+  crm:
+    # CRM-032 HIGH-01: Production encryption key is REQUIRED.
+    # ProductionSecurityGuard validates this is not the test default.
+    custom-field-encryption-key: ${CRM_CUSTOM_FIELD_ENCRYPTION_KEY:}
 
 spring:
   main:

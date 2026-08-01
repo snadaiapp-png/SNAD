@@ -298,28 +298,47 @@ ISSUE_189_GOVERNANCE: docs/crm/CRM-ENTERPRISE-EXECUTION-ROADMAP.md (CRM-029)
 
 ## 12. CRM-032: Penetration Test Closure
 
-CRM-032 completes penetration testing for the CRM surface:
+CRM-032 completes penetration testing for the CRM surface. HIGH-01 and
+HIGH-02 were remediated by engineering changes (CRM-032 Engineering
+Remediation, Security-by-Design) on 2026-07-31. No Risk Acceptance was used.
 
 ```text
 TICKET: CRM-032
-STATUS: COMPLETE
+STATUS: GOVERNANCE COMPLETE
+REMEDIATION: ENGINEERING (Security-by-Design), 2026-07-31
 FEATURE_COMMIT: 1022b563
 MERGE_COMMIT: 9455511727335244d7fb9dd8c4242a495785790a
 PR: #839 / MERGED
 PENTEST_REPORT: docs/audit/CRM-PENTEST-REPORT.md
+RISK_ACCEPTANCE_REGISTER: docs/security/OWNER-RISK-ACCEPTANCE-REGISTER.md
 DRIFT_CHECK_SECTION: 17
 CLOSURE_DATE: 2026-07-31
-FINAL_STATUS: CERTIFIED
+FINAL_STATUS: GOVERNANCE COMPLETE
+BLOCKER: RESOLVED — HIGH-01, HIGH-02 remediated (0 HIGH, 0 CRITICAL)
 ```
+
+### Remediation Evidence
+
+| Finding | Remediation | Evidence |
+|---------|-------------|----------|
+| HIGH-01: Test Encryption Key Hardcoded as Default | Startup guard + shared crypto validator + config hardening (test key default removed) | `ProductionSecurityGuard.java`, `CrmEncryptionKeyValidator.java`, `application-local.yml`, `ProductionSecurityGuardTest` 8/8, `CrmEncryptionKeyValidatorTest` 8/8 |
+| HIGH-02: No Startup Guard for Production-Critical Security Features | `EnvironmentPostProcessor` validating encryption key, RLS, actuator exposure in prod | `ProductionSecurityGuard.java`, `META-INF/spring.factories`, `ProductionSecurityGuardTest` 8/8 |
 
 ### Security Findings
 
 | Severity | Count | Status |
 |----------|-------|--------|
 | CRITICAL | 0 | ✅ None |
-| HIGH | 2 | ⚠️ Risk-acceptable |
-| MEDIUM | 7 | 📋 Documented |
+| HIGH | 0 | ✅ All remediated |
+| MEDIUM | 7 | 📋 Documented (2 remediated, 5 tracked) |
 | LOW | 4 | 📋 Informational |
+
+### High Finding Status
+
+| Finding | Risk ID | Status | Resolution |
+|---------|---------|--------|------------|
+| HIGH-01: Test Encryption Key | RISK-CRM-032-001 | ✅ REMEDIATED | Engineering — risk acceptance SUPERSEDED |
+| HIGH-02: No Startup Guard | RISK-CRM-032-002 | ✅ REMEDIATED | Engineering — risk acceptance SUPERSEDED |
 
 ### Positive Security Controls Verified
 
