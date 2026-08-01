@@ -492,7 +492,7 @@ class CrmPostgresMigrationTest {
 
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.%' AND status='ACTIVE'",
-                Long.class)).isEqualTo(63L); // 55 CRM-008B + 3 CRM-009 + 5 CRM-010
+                Long.class)).isEqualTo(76L); // 55 CRM-008B + 13 CRM-008B team mgmt + 3 CRM-009 + 5 CRM-010
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'BUSINESS_PROCESS.%' AND status='ACTIVE'",
                 Long.class)).isEqualTo(2L);
