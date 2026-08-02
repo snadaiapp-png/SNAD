@@ -82,6 +82,7 @@
   --snad-color-text-secondary:              #525252;  /* warm gray */
   --snad-color-text-muted:                  #8A8A8A;
   --snad-color-text-inverse:                #FFFFFF;  /* text on dark bg */
+  --snad-color-text-on-brand:               #FFFFFF;  /* text on brand-primary buttons */
   --snad-color-text-brand:                  #0E3D38;  /* petroleum green for brand text */
   --snad-color-border-default:              #E5E2DA;
   --snad-color-border-subtle:               #F0EDE5;
@@ -266,6 +267,7 @@
   --snad-color-text-secondary:              #BDD0CD;
   --snad-color-text-muted:                  #9DB1AE;
   --snad-color-text-inverse:                #0E2927;
+  --snad-color-text-on-brand:               #FFFFFF;  /* always white on brand buttons */
   --snad-color-text-brand:                  #66C7C0;
   --snad-color-border-default:              #294744;
   --snad-color-border-subtle:               #1F403D;
@@ -315,6 +317,7 @@
     --snad-color-text-secondary:              #BDD0CD;
     --snad-color-text-muted:                  #9DB1AE;
     --snad-color-text-inverse:                #0E2927;
+    --snad-color-text-on-brand:               #FFFFFF;  /* always white on brand buttons */
     --snad-color-text-brand:                  #66C7C0;
     --snad-color-border-default:              #294744;
     --snad-color-border-subtle:               #1F403D;

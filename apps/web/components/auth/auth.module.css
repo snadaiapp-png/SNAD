@@ -368,14 +368,9 @@
   outline-offset: 2px;
 }
 
-/* ── Dark mode: ensure white text on brand-primary button for WCAG AA contrast ── */
-@media (prefers-color-scheme: dark) {
-  .authSubmit {
-    color: #FFFFFF;
-  }
-}
-[data-theme="dark"] .authSubmit {
-  color: #FFFFFF;
+/* ── Ensure white text on brand-primary button for WCAG AA contrast ── */
+.authSubmit {
+  color: var(--snad-color-text-on-brand);
 }
 
 /* ── Loading State ── */
