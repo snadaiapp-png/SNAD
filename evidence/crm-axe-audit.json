@@ -1,0 +1,12 @@
+{
+  "ticket": "CRM-034",
+  "timestamp": "2026-08-02T11:17:57.099Z",
+  "route": "/crm (login page)",
+  "wcagLevel": "wcag2a, wcag2aa, wcag21a, wcag21aa",
+  "totalViolations": 0,
+  "criticalViolations": 0,
+  "seriousViolations": 0,
+  "violations": [],
+  "passes": 21,
+  "inapplicable": 41
+}
