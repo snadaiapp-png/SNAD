@@ -368,6 +368,16 @@
   outline-offset: 2px;
 }
 
+/* ── Dark mode: ensure white text on brand-primary button for WCAG AA contrast ── */
+@media (prefers-color-scheme: dark) {
+  .authSubmit {
+    color: #FFFFFF;
+  }
+}
+[data-theme="dark"] .authSubmit {
+  color: #FFFFFF;
+}
+
 /* ── Loading State ── */
 
 .authLoadingRoot {
