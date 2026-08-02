@@ -22,6 +22,9 @@ export default defineConfig({
     "**/crm-rbac-acceptance.spec.ts",
     "**/crm-accessibility.spec.ts",
     "**/crm-route-smoke.spec.ts",
+    // Requires authentication + CRM leads data to verify terminal status UX.
+    // Runs in CRM acceptance workflow only.
+    "**/crm-035-terminal-leads.spec.ts",
     // Requires CRM_TENANT_A_EMAIL/PASSWORD env vars (authenticated acceptance).
     // Runs in production closure workflows only.
     "**/crm-lifecycle.spec.ts",
