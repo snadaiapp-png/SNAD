@@ -13,6 +13,9 @@ import styles from "../crm-command-center.module.css";
 const LEAD_STATUSES = ["NEW", "ASSIGNED", "CONTACTED", "QUALIFIED", "DISQUALIFIED", "ARCHIVED"] as const;
 type LeadStatus = (typeof LEAD_STATUSES)[number];
 
+/* Terminal statuses — leads in these states cannot transition */
+const TERMINAL_STATUSES = new Set<string>(["CONVERTED", "ARCHIVED"]);
+
 const STATUS_COLORS: Record<string, string> = {
   NEW: "var(--snad-info, #3b82f6)",
   ASSIGNED: "var(--snad-warning, #f59e0b)",
@@ -20,6 +23,7 @@ const STATUS_COLORS: Record<string, string> = {
   QUALIFIED: "var(--snad-success, #10b981)",
   DISQUALIFIED: "var(--snad-error, #ef4444)",
   ARCHIVED: "var(--snad-muted, #6b7280)",
+  CONVERTED: "var(--snad-success, #10b981)",
 };
 
 /* ============================================================================
@@ -52,7 +56,9 @@ export function LeadsTab() {
     fetchLeads();
   }, [fetchLeads]);
 
-  const handleStatusChange = useCallback(async (leadId: string, newStatus: string) => {
+  const handleStatusChange = useCallback(async (leadId: string, newStatus: string, currentStatus: string) => {
+    /* Prevent PATCH request for terminal leads */
+    if (TERMINAL_STATUSES.has(currentStatus)) return;
     try {
       await crmApi.changeLeadStatus(leadId, newStatus);
       await fetchLeads();
@@ -164,19 +170,29 @@ export function LeadsTab() {
                   <td>{new Date(lead.updated_at).toLocaleDateString()}</td>
                   <td>
                     <div className={styles.actionGroup}>
-                      <select
-                        className={styles.statusSelect}
-                        value={lead.status}
-                        onChange={(e) => handleStatusChange(lead.id, e.target.value)}
-                        aria-label={t("leads.action.changeStatus")}
-                      >
-                        {LEAD_STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {t(`leads.status.${s.toLowerCase()}`)}
-                          </option>
-                        ))}
-                      </select>
-                      {lead.status !== "ARCHIVED" && lead.status !== "DISQUALIFIED" && (
+                      {TERMINAL_STATUSES.has(lead.status) ? (
+                        <span
+                          className={styles.statusBadge}
+                          style={{ backgroundColor: STATUS_COLORS[lead.status] ?? "var(--snad-muted)" }}
+                          aria-label={t("leads.action.terminalState")}
+                        >
+                          {t(`leads.status.${lead.status.toLowerCase()}`)}
+                        </span>
+                      ) : (
+                        <select
+                          className={styles.statusSelect}
+                          value={lead.status}
+                          onChange={(e) => handleStatusChange(lead.id, e.target.value, lead.status)}
+                          aria-label={t("leads.action.changeStatus")}
+                        >
+                          {LEAD_STATUSES.map((s) => (
+                            <option key={s} value={s}>
+                              {t(`leads.status.${s.toLowerCase()}`)}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {!TERMINAL_STATUSES.has(lead.status) && lead.status !== "DISQUALIFIED" && (
                         <button
                           type="button"
                           className={styles.convertButton}
