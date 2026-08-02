@@ -60,6 +60,9 @@ class CrmRlsTenantIsolationPostgresTest {
                         + "Run on a CI runner with Docker to exercise PostgreSQL RLS.");
     }
 
+    private static final String RLS_USER = "crm_rls_test_user";
+    private static final String RLS_PASSWORD = "rls_test_pass";
+
     @BeforeEach
     void migrateAndSeed() {
         // Run all migrations including V20260730_1 (RLS enable).
@@ -75,6 +78,26 @@ class CrmRlsTenantIsolationPostgresTest {
         flyway.validate();
 
         jdbc = jdbc();
+
+        // Create a non-superuser for RLS testing — superusers bypass RLS by default.
+        try {
+            jdbc.execute("DROP OWNED BY crm_rls_test_user");
+        } catch (Exception ignored) {
+            // Role may not exist yet
+        }
+        try {
+            jdbc.execute("DROP ROLE IF EXISTS crm_rls_test_user");
+        } catch (Exception ignored) {
+            // Role may not exist
+        }
+        jdbc.execute("CREATE ROLE " + RLS_USER + " WITH LOGIN PASSWORD '" + RLS_PASSWORD + "'");
+        jdbc.execute("GRANT CONNECT ON DATABASE test TO " + RLS_USER);
+        jdbc.execute("GRANT USAGE ON SCHEMA public TO " + RLS_USER);
+        jdbc.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO " + RLS_USER);
+        jdbc.execute("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO " + RLS_USER);
+        // Grant usage on sequences needed for INSERT
+        jdbc.execute("GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO " + RLS_USER);
+        jdbc.execute("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE ON SEQUENCES TO " + RLS_USER);
 
         // Seed two tenants.
         insertTenant(UUID.randomUUID(), "Tenant A", "rls-a");
@@ -294,8 +317,9 @@ class CrmRlsTenantIsolationPostgresTest {
     }
 
     private Connection rawConnection() throws SQLException {
+        // Use non-superuser to verify RLS — superusers bypass RLS by default.
         return java.sql.DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                POSTGRES.getJdbcUrl(), RLS_USER, RLS_PASSWORD);
     }
 
     private void insertTenant(UUID id, String name, String subdomain) {
