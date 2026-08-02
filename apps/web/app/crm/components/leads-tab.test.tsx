@@ -7,6 +7,7 @@
  * - No PATCH request sent for terminal leads
  * - Valid transitions for non-terminal leads
  */
+import { describe, it, expect } from "vitest";
 
 /* ============================================================================
  *  Terminal status constants (mirrors leads-tab.tsx)
