@@ -21,7 +21,7 @@ const LEAD_STATUSES = ["NEW", "ASSIGNED", "CONTACTED", "QUALIFIED", "DISQUALIFIE
  *  Transition validation (mirrors backend state machine)
  * ============================================================================ */
 
-function leadTransitionAllowed(current, next) {
+function leadTransitionAllowed(current: string, next: string) {
   if (current === next) return true;
   switch (current) {
     case "NEW":
