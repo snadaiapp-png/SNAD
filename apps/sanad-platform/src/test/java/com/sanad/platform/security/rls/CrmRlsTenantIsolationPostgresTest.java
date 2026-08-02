@@ -107,9 +107,10 @@ class CrmRlsTenantIsolationPostgresTest {
     @Test
     void rlsIsEnabledOnCrmTables() {
         // Verify RLS is actually enabled on CRM tables.
+        // NOTE: 'crm\\_%' in raw string → SQL LIKE 'crm\_%' where \ escapes the _.
         Long enabledCount = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM pg_tables
-                WHERE tablename LIKE 'crm\\\\_%'
+                WHERE tablename LIKE 'crm\\_%'
                   AND rowsecurity = true
                 """, Long.class);
         assertThat(enabledCount)
@@ -121,7 +122,7 @@ class CrmRlsTenantIsolationPostgresTest {
     void rlsPolicyExistsOnCrmTables() {
         Long policyCount = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM pg_policies
-                WHERE tablename LIKE 'crm\\\\_%'
+                WHERE tablename LIKE 'crm\\_%'
                   AND policyname = 'tenant_isolation'
                 """, Long.class);
         assertThat(policyCount)
@@ -263,21 +264,10 @@ class CrmRlsTenantIsolationPostgresTest {
         seedAccount(tenantA, "Account A");
         seedAccount(tenantB, "Account B");
 
-        // Apply the rollback migration
-        Flyway flyway = Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-                .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
-                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
-                .cleanDisabled(false)
-                .validateOnMigrate(true)
-                .load();
-
-        // Clean and re-migrate up to just before RLS enable, then apply rollback
-        flyway.clean();
-        // Re-run all migrations (RLS will be re-enabled by V20260730_1)
-        flyway.migrate();
-
-        // Now manually run the rollback migration SQL
+        // Simulate the rollback migration: disable RLS on all CRM tables
+        // (mirrors V20260730_2__disable_crm_row_level_security.sql).
+        // We disable RLS directly rather than re-running flyway.clean()+migrate()
+        // because clean() drops tables and wipes the crm_rls_test_user grants.
         jdbc.execute("""
                 DO $$
                 DECLARE tbl record;
@@ -286,7 +276,7 @@ class CrmRlsTenantIsolationPostgresTest {
                         SELECT c.table_name FROM information_schema.columns c
                         JOIN information_schema.tables t ON t.table_name = c.table_name AND t.table_schema = c.table_schema
                         WHERE c.table_schema = 'public' AND c.column_name = 'tenant_id'
-                          AND c.table_name LIKE 'crm_%' AND t.table_type = 'BASE TABLE'
+                          AND c.table_name LIKE 'crm\\_%' AND t.table_type = 'BASE TABLE'
                     LOOP
                         EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', tbl.table_name);
                         EXECUTE format('ALTER TABLE %I DISABLE ROW LEVEL SECURITY', tbl.table_name);
