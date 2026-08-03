@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "validate:integrity": "npx tsx ../../scripts/validate-execution-integrity.ts",
+    "validate:integrity": "tsx ../../scripts/validate-execution-integrity.ts",
     "prebuild": "npm run validate:integrity",
     "brand:check": "python3 ../../scripts/quality/check_snad_identity.py",
     "crm:generate-api-types": "bash ../../scripts/crm/generate-crm-api-types.sh"
@@ -37,6 +37,7 @@
     "jsdom": "^29.1.1",
     "openapi-typescript": "^7.13.0",
     "tailwindcss": "^4",
+    "tsx": "^4.23.5",
     "typescript": "^5.9.3",
     "vitest": "^4.1.9"
   },
