@@ -16,16 +16,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Testcontainers PostgreSQL integration tests for {@link JdbcPipelineRepository} (TD-003-S2).
+ * Testcontainers PostgreSQL integration tests for {@link JdbcPipelineRepository} (TD-003-S2 + REM-1).
  *
  * <p>Covers pipeline create, findById/findAll round-trip, and stage auto-derivation (terminal
- * "Won" stage + probability scaling). The {@code update(...)} method is deliberately NOT tested
- * here because it references an {@code updated_by} column that is absent from the
- * {@code crm_pipelines} schema (see TD-003-S2-IMPLEMENTATION-REPORT.md, Defect A2) — exercising
- * it would throw {@code BadSqlGrammarException}. That schema gap is a production defect to be
- * resolved separately, not worked around inside this story.
+ * "Won" stage + probability scaling).
  *
- * <p>Branch: crm/td-003-s2-repo-tests
+ * <p>The {@code update(...)} path (optimistic-lock version bump + concurrency conflict) was
+ * deferred by TD-003-S2 because it references an {@code updated_by} column absent from
+ * {@code crm_pipelines} (Defect A2). Epic REM-1 reconciled that schema drift (migration
+ * {@code V20260804_1}), so {@code update()} is now covered below.
+ *
+ * <p>Branch: fix/rem-1-crm-schema-drift (Epic REM-1)
  */
 class JdbcPipelineRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
@@ -101,5 +102,42 @@ class JdbcPipelineRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 .isInstanceOf(CrmContractException.class)
                 .satisfies(ex -> assertThat(((CrmContractException) ex).code())
                         .isEqualTo(CrmErrorCode.CRM_PIPELINE_NOT_FOUND));
+    }
+
+    // --- update() path (added by Epic REM-1; was deferred under Defect A2) ---
+
+    @Test
+    void update_bumpsVersionAndMutatesProvidedFields() {
+        PipelineRecord saved = inTransaction(() -> pipelines.create(tenantId, actorId,
+                new CreatePipelineCommand("Original " + tenantId.toString().substring(0, 6),
+                        "SAR", List.of("New", "Won"))));
+
+        PipelineRecord updated = inTransaction(() -> pipelines.update(tenantId, actorId, saved.id(),
+                "Renamed " + tenantId.toString().substring(0, 6), "USD", saved.version()));
+
+        assertThat(updated.version()).isEqualTo(saved.version() + 1);   // optimistic-lock bump
+        assertThat(updated.name()).startsWith("Renamed ");
+        assertThat(updated.currencyCode()).isEqualTo("USD");
+    }
+
+    @Test
+    void update_withStaleVersionThrowsConcurrencyConflict() {
+        PipelineRecord saved = inTransaction(() -> pipelines.create(tenantId, actorId,
+                new CreatePipelineCommand("Conflict " + tenantId.toString().substring(0, 6),
+                        "SAR", List.of("New", "Won"))));
+
+        // The UPDATE ... WHERE version=:expectedVersion matches 0 rows when the presented
+        // version is stale; the repository maps that to CRM_CONCURRENCY_CONFLICT.
+        long staleVersion = saved.version() + 7;
+        assertThatThrownBy(() -> inTransaction(() -> pipelines.update(tenantId, actorId, saved.id(),
+                "Stale", "USD", staleVersion)))
+                .isInstanceOf(CrmContractException.class)
+                .satisfies(ex -> assertThat(((CrmContractException) ex).code())
+                        .isEqualTo(CrmErrorCode.CRM_CONCURRENCY_CONFLICT));
+
+        // The row itself is untouched by the failed update.
+        PipelineRecord unchanged = pipelines.findById(tenantId, saved.id());
+        assertThat(unchanged.version()).isEqualTo(saved.version());
+        assertThat(unchanged.name()).startsWith("Conflict ");
     }
 }
