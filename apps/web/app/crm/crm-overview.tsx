@@ -1,7 +1,9 @@
 "use client";
 
+import { useMemo } from "react";
 import { useCrmI18n } from "./crm-i18n";
-import { getOverallProgress } from "./crm-execution-data";
+import { calculateProgramProgress, type ExecutionGroup, type ExecutionTask } from "../../lib/execution";
+import { CRM_GROUP_DATA, CRM_TASKS } from "./crm-execution-data";
 import styles from "./crm-command-center.module.css";
 
 /**
@@ -10,12 +12,75 @@ import styles from "./crm-command-center.module.css";
  * Shows KPI placeholders (value "—" because no live CRM data is connected yet)
  * and a project execution summary derived from the static execution registry.
  *
- * The execution summary pulls real progress numbers from crm-execution-data
+ * The execution summary pulls real progress numbers from the shared framework
  * so leadership can see at-a-glance how the CRM build is tracking.
  */
 export function CrmOverview() {
   const { t } = useCrmI18n();
-  const overall = getOverallProgress();
+
+  // Build program from business data
+  const program = useMemo(() => {
+    const groups: ExecutionGroup[] = CRM_GROUP_DATA.map((groupData) => ({
+      id: `GROUP-${groupData.code}`,
+      code: groupData.code,
+      titleAr: groupData.titleAr,
+      titleEn: groupData.titleEn,
+      purposeAr: groupData.purposeAr,
+      purposeEn: groupData.purposeEn,
+      status: groupData.status,
+      dependencies: groupData.dependencies,
+      canParallelizeWith: groupData.canParallelizeWith,
+      stageReport: groupData.stageReport,
+      milestones: [],
+      tasks: CRM_TASKS
+        .filter((t) => t.groupCode === groupData.code)
+        .map((task): ExecutionTask => ({
+          id: task.id,
+          number: task.number,
+          nameAr: task.nameAr,
+          nameEn: task.nameEn,
+          groupCode: task.groupCode,
+          descriptionAr: task.descriptionAr,
+          descriptionEn: task.descriptionEn,
+          type: task.type,
+          priority: task.priority,
+          status: task.status,
+          dependencies: task.dependencies,
+          acceptanceCriteriaAr: task.acceptanceCriteriaAr,
+          implementationNotesAr: task.implementationNotesAr,
+          evidence: [],
+        })),
+    }));
+
+    return {
+      id: "CRM-PROGRAM",
+      code: "CRM",
+      titleAr: "نظام إدارة علاقات العملاء",
+      titleEn: "Customer Relationship Management",
+      descriptionAr: "نظام CRM شامل لإدارة العملاء والفرص البيعية والتقارير",
+      descriptionEn: "Comprehensive CRM system for managing customers, opportunities, and reports",
+      status: "IN_PROGRESS" as const,
+      groups,
+    };
+  }, []);
+
+  // Calculate progress using the shared framework
+  const overall = useMemo(() => {
+    const progress = calculateProgramProgress(program);
+    const totalGroups = program.groups.length;
+    const completedTasks = progress.done + progress.approved;
+    const blockedTasks = progress.blocked;
+    const inProgressGroups = program.groups.filter((g) => g.status === "IN_PROGRESS").length;
+
+    return {
+      totalGroups,
+      totalTasks: progress.total,
+      completedTasks,
+      blockedTasks,
+      inProgressGroups,
+      overallPercentage: progress.percentage,
+    };
+  }, [program]);
 
   // KPI cards — placeholders only, no mock numbers.
   // Value is "—" until live CRM data is connected in G3-G5.
@@ -49,7 +114,7 @@ export function CrmOverview() {
         </div>
       </section>
 
-      {/* Execution summary — real numbers from the static execution registry */}
+      {/* Execution summary — real numbers from the shared framework */}
       <section className={styles.overviewSection} aria-label={t("overview.executionSummary")}>
         <h2 className={styles.overviewSectionTitle}>{t("overview.executionSummary")}</h2>
 

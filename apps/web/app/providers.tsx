@@ -6,14 +6,18 @@ import { AuthProvider, useAuth } from "@/lib/auth/auth-provider";
 import { TenantContextProvider } from "@/lib/auth/tenant-context";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 import { ThemeProvider } from "@/lib/theme/ThemeProvider";
+import { CRM_ROOT_ENTRY_COOKIE } from "../proxy";
 
 const PROTECTED_ROOTS = ["/workspace", "/crm", "/control-plane"];
-const CRM_ROOT_ENTRY_COOKIE = "snad_crm_root_entry";
 
 function hasCrmRootEntryMarker(): boolean {
   return document.cookie
     .split(";")
     .some((cookie) => cookie.trim() === `${CRM_ROOT_ENTRY_COOKIE}=1`);
+}
+
+function setCrmRootEntryMarker(): void {
+  document.cookie = `${CRM_ROOT_ENTRY_COOKIE}=1; Path=/; Max-Age=60; SameSite=Lax`;
 }
 
 function clearCrmRootEntryMarker(): void {
@@ -30,6 +34,12 @@ function AuthRouteRecovery({ children }: { children: ReactNode }) {
       (root) => pathname === root || pathname.startsWith(`${root}/`),
     );
     if (!protectedRoute) return;
+
+    // Set the CRM root entry marker when navigating to /crm/overview
+    // (replaces the cookie that was previously set by middleware.ts)
+    if (pathname === "/crm/overview" && !hasCrmRootEntryMarker()) {
+      setCrmRootEntryMarker();
+    }
 
     const crmRootEntry = pathname === "/crm/overview" && hasCrmRootEntryMarker();
     const sessionGone = ["ANONYMOUS", "ERROR", "EXPIRED", "CREDENTIAL_ROTATION_REQUIRED"].includes(state);
