@@ -7,8 +7,11 @@ import { NextResponse } from "next/server";
  * Cold starts take 30-60+ seconds, which exceeds the BFF's upstream
  * timeout budget and produces HTTP 504 on auth refresh.
  *
- * A Vercel cron job calls this endpoint every 10 minutes. The endpoint
- * pings the backend health check to keep the Render service awake.
+ * Schedule an external cron service (cron-job.org, UptimeRobot, etc.)
+ * to GET this endpoint every 10 minutes to keep the backend awake.
+ *
+ * Vercel Hobby plan limits crons to once/day, so external scheduling
+ * is required for sub-daily keepalive pings.
  *
  * This endpoint is excluded from the platform BFF catch-all by its
  * path (/api/keepalive vs /api/platform/...).
