@@ -41,6 +41,7 @@ public class CustomerIntelligenceProperties {
     public static class ExternalProvider {
         private String provider = "mock";
         private String baseUrl = "";
+        private long timeoutMs = 5000;
 
         public ExternalProvider() {}
 
@@ -53,6 +54,9 @@ public class CustomerIntelligenceProperties {
 
         public String getBaseUrl() { return baseUrl; }
         public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+
+        public long getTimeoutMs() { return timeoutMs; }
+        public void setTimeoutMs(long timeoutMs) { this.timeoutMs = timeoutMs; }
 
         public boolean isMock() { return "mock".equalsIgnoreCase(provider); }
         public boolean isDisabled() { return "disabled".equalsIgnoreCase(provider); }
