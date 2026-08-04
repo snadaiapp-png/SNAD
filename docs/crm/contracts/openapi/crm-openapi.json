@@ -4793,6 +4793,680 @@
         ]
       }
     },
+    "/intelligence/nba/{actionId}/accept": {
+      "post": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "acceptRecommendation",
+        "parameters": [
+          {
+            "name": "actionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NbaResolutionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseNextBestActionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/nba/{actionId}/reject": {
+      "post": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "rejectRecommendation",
+        "parameters": [
+          {
+            "name": "actionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NbaResolutionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseNextBestActionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/segments": {
+      "get": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "listSegments",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseSegmentResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "createSegment",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SegmentCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseSegmentResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/segments/{segmentId}/members": {
+      "post": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "addSegmentMember",
+        "parameters": [
+          {
+            "name": "segmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddSegmentMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseSegmentMembershipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/segments/{segmentId}/members/{accountId}": {
+      "delete": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "removeSegmentMember",
+        "parameters": [
+          {
+            "name": "segmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/insights": {
+      "get": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "getInsights",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseInsightResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/nba": {
+      "get": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "getNextBestActions",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseNextBestActionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/scores": {
+      "get": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "listScores",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseScoreResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/scores/churn": {
+      "post": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "predictChurn",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChurnIndicatorsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseScoreResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/scores/clv": {
+      "post": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "calculateCLV",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClvIndicatorsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseScoreResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/scores/health": {
+      "post": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "calculateHealth",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerHealthIndicatorsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseScoreResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/scores/{scoreType}": {
+      "get": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "getScore",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "scoreType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseScoreResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/scores/{scoreType}/history": {
+      "get": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "getScoreHistory",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "scoreType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseScoreHistoryResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/segments": {
+      "get": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "getAccountSegments",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseSegmentMembershipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/leads": {
       "get": {
         "tags": [
@@ -7053,378 +7727,6 @@
           }
         ]
       }
-    },
-    "/intelligence/{accountId}/scores": {
-      "get": {
-        "summary": "Get all scores for an account",
-        "tags": [
-          "Intelligence"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/AccountId"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/intelligence/{accountId}/scores/{scoreType}": {
-      "get": {
-        "summary": "Get a specific score type",
-        "tags": [
-          "Intelligence"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/AccountId"
-          },
-          {
-            "name": "scoreType",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/intelligence/{accountId}/scores/{scoreType}/history": {
-      "get": {
-        "summary": "Get score history",
-        "tags": [
-          "Intelligence"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/AccountId"
-          },
-          {
-            "name": "scoreType",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/intelligence/{accountId}/scores/health": {
-      "post": {
-        "summary": "Calculate health score",
-        "tags": [
-          "Intelligence"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/AccountId"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/intelligence/{accountId}/scores/clv": {
-      "post": {
-        "summary": "Calculate CLV score",
-        "tags": [
-          "Intelligence"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/AccountId"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/intelligence/{accountId}/scores/churn": {
-      "post": {
-        "summary": "Calculate churn score",
-        "tags": [
-          "Intelligence"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/AccountId"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/intelligence/{accountId}/insights": {
-      "get": {
-        "summary": "Get customer insights",
-        "tags": [
-          "Intelligence"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/AccountId"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/intelligence/{accountId}/segments": {
-      "get": {
-        "summary": "Get segments for an account",
-        "tags": [
-          "Intelligence"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/AccountId"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/intelligence/segments": {
-      "get": {
-        "summary": "List all segments",
-        "tags": [
-          "Intelligence"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      },
-      "post": {
-        "summary": "Create a segment",
-        "tags": [
-          "Intelligence"
-        ],
-        "responses": {
-          "201": {
-            "description": "Created"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/intelligence/segments/{segmentId}/members": {
-      "post": {
-        "summary": "Add member to segment",
-        "tags": [
-          "Intelligence"
-        ],
-        "parameters": [
-          {
-            "name": "segmentId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "Created"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/intelligence/segments/{segmentId}/members/{accountId}": {
-      "delete": {
-        "summary": "Remove member from segment",
-        "tags": [
-          "Intelligence"
-        ],
-        "parameters": [
-          {
-            "name": "segmentId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "$ref": "#/components/parameters/AccountId"
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/intelligence/{accountId}/nba": {
-      "get": {
-        "summary": "Get next best actions",
-        "tags": [
-          "Intelligence"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/AccountId"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/intelligence/nba/{actionId}/accept": {
-      "post": {
-        "summary": "Accept a next best action",
-        "tags": [
-          "Intelligence"
-        ],
-        "parameters": [
-          {
-            "name": "actionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/intelligence/nba/{actionId}/reject": {
-      "post": {
-        "summary": "Reject a next best action",
-        "tags": [
-          "Intelligence"
-        ],
-        "parameters": [
-          {
-            "name": "actionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
     }
   },
   "components": {
@@ -7564,6 +7866,18 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "AddSegmentMemberRequest": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "membershipType": {
+            "type": "string"
           }
         }
       },
@@ -8326,6 +8640,27 @@
           "reason"
         ]
       },
+      "ChurnIndicatorsRequest": {
+        "type": "object",
+        "properties": {
+          "daysSinceLastActivity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "engagementDeclinePct": {
+            "type": "number",
+            "format": "double"
+          },
+          "tenureDays": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "supportIssuesLast90d": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "ClaimQueueItemRequest": {
         "type": "object",
         "properties": {
@@ -8353,6 +8688,31 @@
           },
           "replayed": {
             "type": "boolean"
+          }
+        }
+      },
+      "ClvIndicatorsRequest": {
+        "type": "object",
+        "properties": {
+          "totalRevenue": {
+            "type": "number",
+            "format": "double"
+          },
+          "transactionCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "avgDealSize": {
+            "type": "number",
+            "format": "double"
+          },
+          "customerSinceMonths": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "growthRate": {
+            "type": "number",
+            "format": "double"
           }
         }
       },
@@ -9683,6 +10043,34 @@
           }
         }
       },
+      "CustomerHealthIndicatorsRequest": {
+        "type": "object",
+        "properties": {
+          "daysSinceLastActivity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "openOpportunities": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPipeline": {
+            "type": "number",
+            "format": "double"
+          },
+          "meetingFreq30d": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "responseTimeAvgHours": {
+            "type": "number",
+            "format": "double"
+          },
+          "lifecycleStatus": {
+            "type": "string"
+          }
+        }
+      },
       "DecideTransferRequest": {
         "type": "object",
         "properties": {
@@ -9916,6 +10304,37 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "InsightResponse": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scores": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "nextBestActions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NextBestActionResponse"
+            }
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SegmentMembershipResponse"
+            }
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         }
       },
@@ -10253,6 +10672,23 @@
           }
         }
       },
+      "ListResponseNextBestActionResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NextBestActionResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
       "ListResponseOpportunityResponse": {
         "type": "object",
         "properties": {
@@ -10328,6 +10764,74 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/RelationshipRoleResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ListResponseScoreHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScoreHistoryResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ListResponseScoreResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScoreResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ListResponseSegmentMembershipResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SegmentMembershipResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ListResponseSegmentResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SegmentResponse"
             }
           },
           "page": {
@@ -10415,6 +10919,67 @@
           "activeQueueClaims": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "NbaResolutionRequest": {
+        "type": "object",
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "NextBestActionResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "actionCode": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "format": "double"
+          },
+          "reasoning": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "humanConfirmationRequired": {
+            "type": "boolean"
+          },
+          "resolvedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolvedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -11556,6 +12121,157 @@
           }
         }
       },
+      "ScoreHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "scoreType": {
+            "type": "string"
+          },
+          "previousValue": {
+            "type": "number",
+            "format": "double"
+          },
+          "previousBand": {
+            "type": "string"
+          },
+          "newValue": {
+            "type": "number",
+            "format": "double"
+          },
+          "newBand": {
+            "type": "string"
+          },
+          "delta": {
+            "type": "number",
+            "format": "double"
+          },
+          "changedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "triggerReason": {
+            "type": "string"
+          }
+        }
+      },
+      "ScoreResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scoreType": {
+            "type": "string"
+          },
+          "scoreValue": {
+            "type": "number",
+            "format": "double"
+          },
+          "scoreBand": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "format": "double"
+          },
+          "calculatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "triggerReason": {
+            "type": "string"
+          },
+          "components": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        }
+      },
+      "SegmentCreateRequest": {
+        "type": "object",
+        "properties": {
+          "segmentCode": {
+            "type": "string"
+          },
+          "segmentName": {
+            "type": "string"
+          },
+          "segmentType": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "criteriaJson": {
+            "type": "string"
+          }
+        }
+      },
+      "SegmentMembershipResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "segmentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "membershipType": {
+            "type": "string"
+          },
+          "assignedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SegmentResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "segmentCode": {
+            "type": "string"
+          },
+          "segmentName": {
+            "type": "string"
+          },
+          "segmentType": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "criteria": {},
+          "active": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "SimulateRuleRequest": {
         "type": "object",
         "properties": {
@@ -11751,6 +12467,17 @@
           }
         }
       },
+      "SingleResponseInsightResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/InsightResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
       "SingleResponseLeadConversionResponse": {
         "type": "object",
         "properties": {
@@ -11767,6 +12494,17 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/LeadResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseNextBestActionResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/NextBestActionResponse"
           },
           "meta": {
             "$ref": "#/components/schemas/Meta"
@@ -11800,6 +12538,39 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/RelationshipRoleResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseScoreResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ScoreResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseSegmentMembershipResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SegmentMembershipResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseSegmentResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SegmentResponse"
           },
           "meta": {
             "$ref": "#/components/schemas/Meta"
@@ -13173,10 +13944,5 @@
         "bearerFormat": "JWT"
       }
     }
-  },
-  "security": [
-    {
-      "BearerAuth": []
-    }
-  ]
+  }
 }
