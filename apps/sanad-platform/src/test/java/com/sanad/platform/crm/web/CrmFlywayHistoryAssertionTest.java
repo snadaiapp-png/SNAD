@@ -106,6 +106,14 @@ class CrmFlywayHistoryAssertionTest {
             "20260730.1",   // enable crm row level security
             "20260730.2",   // disable crm row level security
             "20260802.1",   // re-enable crm row level security
+            "20260804.1",   // reconcile crm custom field and pipeline audit columns
+            "20260804.2",   // create crm shift templates
+            "20260804.3",   // create crm shift assignments
+            "20260804.4",   // create crm staff availability
+            "20260804.5",   // create crm staff skills
+            "20260804.6",   // create crm capacity plans
+            "20260804.7",   // create crm workload assignments
+            "20260804.8",   // create crm service assignments
             "20260804.9"    // create crm cases
     );
 
