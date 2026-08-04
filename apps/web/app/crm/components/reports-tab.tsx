@@ -8,7 +8,7 @@ import type {
   CrmActivitySummaryReport,
 } from "@/lib/api/crm";
 import { useCrmI18n } from "../crm-i18n";
-import styles from "../crm-command-center.module.css";
+import styles from "../crm-shared-styles.module.css";
 
 /* ============================================================================
  *  Report type helpers

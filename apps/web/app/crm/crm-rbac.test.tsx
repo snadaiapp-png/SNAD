@@ -94,7 +94,7 @@ function bootstrap(effectiveRoleGrants = adminRoles): AuthResponse {
     effectiveRoleGrants,
     defaultOrganizationId: null,
     defaultDestination: "/crm",
-    availableDestinations: ["/workspace", "/crm", "/crm/command-center"],
+    availableDestinations: ["/workspace", "/crm"],
     tenantContext: { tenantId: defaultUser.tenantId, defaultOrganizationId: null },
   };
 }
@@ -109,7 +109,6 @@ const EXPECTED_NAV_HREFS = [
   "/crm/activities",
   "/crm/imports",
   "/crm/settings/custom-fields",
-  "/crm/command-center",
 ] as const;
 
 function setSessionHint(): void {

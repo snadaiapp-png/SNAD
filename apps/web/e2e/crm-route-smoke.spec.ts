@@ -35,7 +35,6 @@ const CRM_ROUTES = [
   "/crm/activities",
   "/crm/imports",
   "/crm/settings/custom-fields",
-  "/crm/command-center",
 ] as const;
 
 
@@ -88,10 +87,7 @@ function severeErrors(errors: string[]): string[] {
 }
 
 async function waitForCrmShell(page: Page): Promise<void> {
-  const contentSelector = new URL(page.url()).pathname === "/crm/command-center"
-    ? "#crm-command-center-content"
-    : "#crm-operational-content";
-  await page.waitForSelector(contentSelector, { timeout: 30_000 });
+  await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
   await page.waitForLoadState("networkidle");
 }
 

@@ -5,7 +5,7 @@ import { crmApi } from "@/lib/api/crm";
 import type { CrmAccount } from "@/lib/api/crm";
 import { useCrmI18n } from "../crm-i18n";
 import { Customer360View } from "./customer-360-view";
-import styles from "../crm-command-center.module.css";
+import styles from "../crm-shared-styles.module.css";
 
 /* ============================================================================
  *  Account constants
