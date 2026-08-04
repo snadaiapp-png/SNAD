@@ -1806,6 +1806,383 @@
         ]
       }
     },
+    "/cases": {
+      "get": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "listCases",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "assigneeUserId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "customerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "createCase",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/cases/{caseId}": {
+      "get": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "getCase",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "updateCase",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/cases/{caseId}/assign": {
+      "post": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "assignCase",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/cases/{caseId}/close": {
+      "post": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "closeCase",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/cases/{caseId}/reopen": {
+      "post": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "reopenCase",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/cases/{caseId}/resolve": {
+      "post": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "resolveCase",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/cases/{caseId}/start": {
+      "post": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "startCase",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/communication-methods/export": {
       "get": {
         "tags": [
@@ -7727,385 +8104,6 @@
           }
         ]
       }
-    },
-    "/cases": {
-      "get": {
-        "tags": [
-          "crm-contract-controller"
-        ],
-        "operationId": "listCases",
-        "parameters": [
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "default": 50,
-              "maximum": 200,
-              "minimum": 1
-            }
-          },
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "assigneeUserId",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "customerId",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListResponseCaseResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      },
-      "post": {
-        "tags": [
-          "crm-contract-controller"
-        ],
-        "operationId": "createCase",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateCaseRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SingleResponseCaseResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/cases/{caseId}": {
-      "get": {
-        "tags": [
-          "crm-contract-controller"
-        ],
-        "operationId": "getCase",
-        "parameters": [
-          {
-            "name": "caseId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SingleResponseCaseResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      },
-      "put": {
-        "tags": [
-          "crm-contract-controller"
-        ],
-        "operationId": "updateCase",
-        "parameters": [
-          {
-            "name": "caseId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateCaseRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SingleResponseCaseResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/cases/{caseId}/start": {
-      "post": {
-        "tags": [
-          "crm-contract-controller"
-        ],
-        "operationId": "startCase",
-        "parameters": [
-          {
-            "name": "caseId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SingleResponseCaseResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/cases/{caseId}/resolve": {
-      "post": {
-        "tags": [
-          "crm-contract-controller"
-        ],
-        "operationId": "resolveCase",
-        "parameters": [
-          {
-            "name": "caseId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ResolveRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SingleResponseCaseResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/cases/{caseId}/close": {
-      "post": {
-        "tags": [
-          "crm-contract-controller"
-        ],
-        "operationId": "closeCase",
-        "parameters": [
-          {
-            "name": "caseId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SingleResponseCaseResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/cases/{caseId}/reopen": {
-      "post": {
-        "tags": [
-          "crm-contract-controller"
-        ],
-        "operationId": "reopenCase",
-        "parameters": [
-          {
-            "name": "caseId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SingleResponseCaseResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/cases/{caseId}/assign": {
-      "post": {
-        "tags": [
-          "crm-contract-controller"
-        ],
-        "operationId": "assignCase",
-        "parameters": [
-          {
-            "name": "caseId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AssignRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SingleResponseCaseResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
     }
   },
   "components": {
@@ -8576,6 +8574,15 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "AssignRequest": {
+        "type": "object",
+        "properties": {
+          "assigneeUserId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -9805,6 +9812,50 @@
           "city",
           "countryCode",
           "line1"
+        ]
+      },
+      "CreateCaseRequest": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 0
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 0
+          },
+          "caseType": {
+            "type": "string",
+            "pattern": "BUG|FEATURE|QUESTION|SUPPORT"
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 0
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assigneeUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "relatedId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dueAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "subject"
         ]
       },
       "CreateCommunicationMethodRequest": {
@@ -11041,6 +11092,24 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/LeadResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ListResponseMapStringObject": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {}
             }
           },
           "page": {
@@ -12393,6 +12462,16 @@
           "recordType"
         ]
       },
+      "ResolveRequest": {
+        "type": "object",
+        "properties": {
+          "resolution": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 0
+          }
+        }
+      },
       "RowResult": {
         "type": "object",
         "properties": {
@@ -12873,6 +12952,18 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/LeadResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseMapStringObject": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": {}
           },
           "meta": {
             "$ref": "#/components/schemas/Meta"
@@ -13644,6 +13735,39 @@
           }
         }
       },
+      "UpdateCaseRequest": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 0
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 0
+          },
+          "caseType": {
+            "type": "string",
+            "pattern": "BUG|FEATURE|QUESTION|SUPPORT"
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 0
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dueAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "UpdateCommunicationMethodRequest": {
         "type": "object",
         "properties": {
@@ -14311,180 +14435,6 @@
           "overdueTasks": {
             "type": "integer",
             "format": "int64"
-          }
-        }
-      },
-      "CaseResponse": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "version": {
-            "type": "integer"
-          },
-          "subject": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "case_type": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "priority": {
-            "type": "integer"
-          },
-          "customer_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "assignee_user_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "owner_user_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "related_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "due_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "resolved_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "closed_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "CreateCaseRequest": {
-        "type": "object",
-        "required": [
-          "subject"
-        ],
-        "properties": {
-          "subject": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "case_type": {
-            "type": "string"
-          },
-          "priority": {
-            "type": "integer"
-          },
-          "customer_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "assignee_user_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "related_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "due_at": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "UpdateCaseRequest": {
-        "type": "object",
-        "properties": {
-          "subject": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "case_type": {
-            "type": "string"
-          },
-          "priority": {
-            "type": "integer"
-          },
-          "customer_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "due_at": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "ResolveRequest": {
-        "type": "object",
-        "properties": {
-          "resolution": {
-            "type": "string"
-          }
-        }
-      },
-      "AssignRequest": {
-        "type": "object",
-        "required": [
-          "assigneeUserId"
-        ],
-        "properties": {
-          "assigneeUserId": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
-      "SingleResponseCaseResponse": {
-        "type": "object",
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/CaseResponse"
-          },
-          "requestId": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
-      "ListResponseCaseResponse": {
-        "type": "object",
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/CaseResponse"
-            }
-          },
-          "page": {
-            "$ref": "#/components/schemas/Page"
-          },
-          "requestId": {
-            "type": "string",
-            "format": "uuid"
           }
         }
       }
