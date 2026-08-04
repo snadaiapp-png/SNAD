@@ -165,7 +165,9 @@ public class SecurityConfig {
                         "X-Control-Plane-Bootstrap-Token"));
 
         configuration.setExposedHeaders(
-                List.of("X-SANAD-Refresh-Token", "Location"));
+                List.of("X-SANAD-Refresh-Token", "Location",
+                        // TD-002-1: RFC 8594 deprecation signaling for V1 CRM API.
+                        "Deprecation", "Sunset", "Link"));
 
         // CRM-009 security boundary: Browser → Vercel BFF → Render Backend.
         // No direct browser-to-backend cross-origin access. The BFF makes
