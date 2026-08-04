@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | Created | 2026-07-30 |
-| Last Updated | 2026-07-30 |
+| Last Updated | 2026-08-04 |
 | Maintainer | CRM Engineering Team |
 
 ---
@@ -18,7 +18,8 @@
 | Workflow Debt | 1 | 0 | 1 | 0 |
 | Legacy Suppressions | 1 | 0 | 1 | 0 |
 | Build Debt | 1 | 0 | 1 | 0 |
-| **Total** | **12** | **2** | **9** | **1** |
+| API Deprecation Debt | 2 | 1 | 1 | 0 |
+| **Total** | **14** | **3** | **10** | **1** |
 
 ---
 
@@ -76,6 +77,15 @@
 
 ---
 
+## API Deprecation Debt (TD-002 / TD-006)
+
+| ID | Description | Severity | Owner | Proposed Resolution | Target Milestone | Status |
+|----|-------------|----------|-------|---------------------|------------------|--------|
+| TD-002 | V1 CRM API deprecation — Phase 1: Deprecation/Sunset headers added; 30/42 frontend `crm.ts` methods migrated to V2; 12 methods remain on V1 (dashboard, createPipeline, tags, notes, tasks, reports, search, export, custom-field sensitive read, customer-master-panel) | Medium | CRM Team | ✅ Phase 1 complete (2026-08-04). 12 methods retained on V1 until TD-006 builds V2 equivalents | Sprint 38 | PARTIALLY RESOLVED |
+| TD-006 | V1 CRM API removal — Phase 2: Build V2 equivalents for 15 V1-only controllers (Export, Note, Task, Tag, Search, Reports, 8 ownership, CustomerMaster) + 3 core endpoints (dashboard, pipeline create, sensitive CF read); then remove V1 controllers, V1-only DTOs/use cases, shared CrmService + LegacyCrmInfrastructureService | High | CRM Team | ~25 SP. Build V2 surface, migrate remaining 12 frontend methods, remove V1. See `TD-006-EPIC-STUB.md` | Sprint 40+ | NOT STARTED |
+
+---
+
 ## Resolved Items (This Remediation Cycle)
 
 | ID | Workstream | PR | Resolved Date |
@@ -99,6 +109,8 @@
 | WF-001 | Audit and archive 29 unused CRM workflow files | Medium | CRM-023 |
 | LS-001 | Refactor CRM components to remove ESLint suppression | Medium | CRM-023 |
 | BD-001 | Add vendor migration path to 6 test files | Low | CRM-023 |
+| TD-002 | V1 CRM API deprecation Phase 1 complete; 12 methods remain on V1 | Medium | TD-006 |
+| TD-006 | V2 feature completion + V1 controller removal (~25 SP) | High | Sprint 40+ |
 
 ---
 

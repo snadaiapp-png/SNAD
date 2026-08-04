@@ -107,8 +107,9 @@ export interface Customer360 {
 }
 
 /**
- * CRM import job — backend representation.
- * Field names mirror the JSON keys returned by /api/v1/crm/imports.
+ * CRM import job — frontend representation.
+ * TD-002-2: Now fetched from V2 (/api/v2/crm/imports) but mapped to V1 snake_case
+ * field names for backward compatibility with consuming components.
  */
 export interface CrmImportJob {
   id: string;
@@ -133,8 +134,9 @@ export interface CrmImportErrorRow {
 }
 
 /**
- * CRM custom field definition — backend representation.
- * Field names mirror the JSON keys returned by /api/v1/crm/custom-fields.
+ * CRM custom field definition — frontend representation.
+ * TD-002-2: Now fetched from V2 (/api/v2/crm/custom-fields) but mapped to V1
+ * camelCase field names for backward compatibility.
  */
 export interface CrmCustomField {
   id: string;
@@ -227,66 +229,485 @@ export interface CrmTask {
   updated_at: string;
 }
 
+/**
+ * TD-002-2 — V1 API root.
+ *
+ * The V1 CRM surface is deprecated (see V1DeprecationHeaderFilter on the
+ * backend). Methods below that have a verified V2 equivalent are migrated to
+ * the {@code v2root} constant; methods that have NO V2 equivalent (dashboard,
+ * createPipeline, tags, notes, tasks, reports, search, export, custom-field
+ * sensitive read) remain on V1 until TD-006 builds the missing V2 surface.
+ */
 const root = "/api/v1/crm";
+
+/** V2 CRM API root — used by the 30 migrated methods. */
+const v2root = "/api/v2/crm";
+
+// ──────────────────────────────────────────────────────────────────────────
+// TD-002-2 V2 Response Adapters
+//
+// The V2 CRM API returns camelCase typed DTOs wrapped in SingleResponse<T> /
+// ListResponse<T> envelopes. The V1 API returns snake_case raw Maps. To
+// preserve backward compatibility with the 25+ consuming components (which
+// all expect V1 snake_case shapes), these adapter functions unwrap the V2
+// envelope and map camelCase fields back to snake_case.
+// ──────────────────────────────────────────────────────────────────────────
+
+/** V2 SingleResponse envelope: { data: T, meta: { requestId, timestamp } } */
+interface V2SingleResponse<T> { data: T; meta: { requestId?: string; timestamp?: string } }
+/** V2 ListResponse envelope: { data: T[], page: { nextCursor, hasMore, limit }, meta } */
+interface V2ListResponse<T> { data: T[]; page?: { nextCursor?: string | null; hasMore?: boolean; limit?: number }; meta?: { requestId?: string; timestamp?: string } }
+
+/** Unwrap a V2 SingleResponse envelope and return .data */
+async function unwrapSingle<T>(promise: Promise<V2SingleResponse<T>>): Promise<T> {
+  const res = await promise;
+  return res.data;
+}
+
+/**
+ * Fetch all pages from a V2 cursor-paginated list endpoint.
+ * V2 uses limit+1 probing with nextCursor; V1 used offset/limit=200.
+ * This adapter exhausts all cursors to return a flat array (matching V1 behavior).
+ */
+async function fetchAllPages<T>(fetchPage: (cursor?: string) => Promise<V2ListResponse<T>>): Promise<T[]> {
+  const all: T[] = [];
+  let cursor: string | undefined = undefined;
+  // Safety limit to avoid infinite loops on broken cursors.
+  for (let i = 0; i < 50; i++) {
+    const res = await fetchPage(cursor);
+    if (Array.isArray(res.data)) all.push(...res.data);
+    if (!res.page?.hasMore || !res.page?.nextCursor) break;
+    cursor = res.page.nextCursor;
+  }
+  return all;
+}
+
+// ── V2 camelCase → V1 snake_case field mappers ──────────────────────────
+
+function mapV2Account(a: V2AccountResponse): CrmAccount {
+  return {
+    id: a.id,
+    display_name: a.displayName,
+    account_type: a.accountType,
+    lifecycle_status: a.lifecycleStatus,
+    primary_currency_code: a.primaryCurrencyCode ?? null,
+    owner_user_id: a.ownerUserId ?? null,
+    updated_at: a.updatedAt,
+  };
+}
+
+function mapV2Contact(c: V2ContactResponse): CrmContact {
+  return {
+    id: c.id,
+    account_id: c.accountId ?? null,
+    given_name: c.givenName,
+    family_name: c.familyName ?? null,
+    display_name: c.displayName,
+    primary_email: c.primaryEmail ?? null,
+    primary_phone: c.primaryPhone ?? null,
+    consent_summary: c.consentSummary,
+    lifecycle_status: c.lifecycleStatus,
+    updated_at: c.updatedAt,
+  };
+}
+
+function mapV2Lead(l: V2LeadResponse): CrmLead {
+  return {
+    id: l.id,
+    display_name: l.displayName,
+    company_name: l.companyName ?? null,
+    email: l.email ?? null,
+    phone: l.phone ?? null,
+    source: l.source ?? null,
+    status: l.status,
+    score: l.score ?? null,
+    updated_at: l.updatedAt,
+  };
+}
+
+function mapV2Opportunity(o: V2OpportunityResponse): CrmOpportunity {
+  return {
+    id: o.id,
+    account_id: o.accountId,
+    contact_id: o.contactId ?? null,
+    pipeline_id: o.pipelineId,
+    stage_id: o.stageId,
+    name: o.name,
+    amount: o.amount ?? null,
+    currency_code: o.currencyCode,
+    probability: o.probability,
+    status: o.status,
+    expected_close_date: o.expectedCloseDate ?? null,
+    updated_at: o.updatedAt,
+  };
+}
+
+function mapV2Activity(a: V2ActivityResponse): CrmActivity {
+  return {
+    id: a.id,
+    activity_type: a.activityType,
+    subject: a.subject,
+    body: a.body ?? null,
+    related_type: a.relatedType ?? null,
+    related_id: a.relatedId ?? null,
+    status: a.status,
+    priority: a.priority,
+    due_at: a.dueAt ?? null,
+    updated_at: a.updatedAt,
+  };
+}
+
+function mapV2Pipeline(p: V2PipelineResponse): CrmPipeline {
+  return {
+    id: p.id,
+    name: p.name,
+    currency_code: p.currencyCode ?? null,
+    active: p.active,
+  };
+}
+
+function mapV2Stage(s: V2StageResponse): CrmStage {
+  return {
+    id: s.id,
+    pipeline_id: s.pipelineId,
+    name: s.name,
+    sequence: s.sequence,
+    probability: s.probability,
+    terminal_state: s.terminalState ?? null,
+  };
+}
+
+function mapV2TimelineEvent(e: V2TimelineEventResponse): CrmTimelineEvent {
+  return {
+    id: e.id,
+    subject_type: e.subjectType,
+    subject_id: e.subjectId,
+    event_type: e.eventType,
+    summary: e.summary,
+    occurred_at: e.occurredAt,
+  };
+}
+
+function mapV2ImportJob(j: V2ImportJobResponse): CrmImportJob {
+  return {
+    id: j.id,
+    entityType: j.entityType,
+    status: j.status,
+    totalRows: j.totalRows ?? null,
+    processedRows: j.processedRows ?? null,
+    succeededRows: j.succeededRows ?? null,
+    failedRows: j.failedRows ?? null,
+    fileName: j.fileName ?? null,
+    uploadedAt: j.uploadedAt ?? null,
+    startedAt: j.startedAt ?? null,
+    completedAt: j.completedAt ?? null,
+    errorMessage: j.errorMessage ?? null,
+  };
+}
+
+function mapV2CustomField(cf: V2CustomFieldResponse): CrmCustomField {
+  return {
+    id: cf.id,
+    entityType: cf.entityType,
+    fieldKey: cf.fieldKey,
+    labelAr: cf.labelAr,
+    labelEn: cf.labelEn,
+    dataType: cf.dataType,
+    sensitive: cf.sensitive,
+    searchable: cf.searchable,
+    required: cf.required,
+    active: cf.active,
+    createdAt: cf.createdAt ?? null,
+    updatedAt: cf.updatedAt ?? null,
+  };
+}
+
+// ── V2 typed DTO interfaces (camelCase, matching backend CrmDtos.java) ──
+
+interface V2AccountResponse {
+  id: string; version: number; displayName: string; accountType: string;
+  lifecycleStatus: string; primaryCurrencyCode?: string | null;
+  ownerUserId?: string | null; updatedAt: string;
+}
+interface V2ContactResponse {
+  id: string; version: number; accountId?: string | null; givenName: string;
+  familyName?: string | null; displayName: string; primaryEmail?: string | null;
+  primaryPhone?: string | null; consentSummary: string; lifecycleStatus: string;
+  updatedAt: string;
+}
+interface V2LeadResponse {
+  id: string; displayName: string; companyName?: string | null;
+  email?: string | null; phone?: string | null; source?: string | null;
+  status: string; score?: number | null; updatedAt: string;
+}
+interface V2OpportunityResponse {
+  id: string; accountId: string; contactId?: string | null;
+  pipelineId: string; stageId: string; name: string;
+  amount?: number | null; currencyCode: string; probability: number;
+  status: string; expectedCloseDate?: string | null; updatedAt: string;
+}
+interface V2ActivityResponse {
+  id: string; activityType: string; subject: string; body?: string | null;
+  relatedType?: string | null; relatedId?: string | null; status: string;
+  priority: number; dueAt?: string | null; updatedAt: string;
+}
+interface V2PipelineResponse {
+  id: string; name: string; currencyCode?: string | null; active: boolean;
+}
+interface V2StageResponse {
+  id: string; pipelineId: string; name: string; sequence: number;
+  probability: number; terminalState?: string | null;
+}
+interface V2TimelineEventResponse {
+  id: string; subjectType: string; subjectId: string; eventType: string;
+  summary: string; occurredAt: string;
+}
+interface V2ImportJobResponse {
+  id: string; entityType: string; status: string;
+  totalRows?: number | null; processedRows?: number | null;
+  succeededRows?: number | null; failedRows?: number | null;
+  fileName?: string | null; uploadedAt?: string | null;
+  startedAt?: string | null; completedAt?: string | null;
+  errorMessage?: string | null;
+}
+interface V2CustomFieldResponse {
+  id: string; version: number; entityType: string; fieldKey: string;
+  labelAr: string; labelEn: string; dataType: string;
+  sensitive: boolean; searchable: boolean; required: boolean;
+  active: boolean; createdAt?: string | null; updatedAt?: string | null;
+}
+/** V2 Customer360Response shape */
+interface V2Customer360Response {
+  account: V2AccountResponse;
+  contacts: V2ContactResponse[];
+  opportunities: Array<V2OpportunityResponse & { pipelineName?: string; stageName?: string }>;
+  activities: V2ActivityResponse[];
+  timeline: V2TimelineEventResponse[];
+}
+interface V2CustomFieldValuesResponse {
+  entityType: string; entityId: string;
+  values: Record<string, unknown>;
+}
 
 export const crmApi = {
   dashboard: () => apiClient.get<CrmDashboard>(`${root}/dashboard`, { cache: "no-store" }),
-  accounts: (search?: string) => apiClient.get<CrmAccount[]>(`${root}/accounts`, { query: { limit: 200, search }, cache: "no-store" }),
-  createAccount: (body: { displayName: string; accountType: string; primaryCurrencyCode: string; preferredLocale: string; timeZone: string; source?: string }) => apiClient.post<CrmAccount, typeof body>(`${root}/accounts`, body),
-  archiveAccount: (id: string) => apiClient.patch<CrmAccount>(`${root}/accounts/${id}/archive`),
-  restoreAccount: (id: string) => apiClient.patch<CrmAccount>(`${root}/accounts/${id}/restore`),
-  customer360: (id: string) => apiClient.get<Customer360>(`${root}/accounts/${id}/customer-360`, { cache: "no-store" }),
 
-  contacts: (accountId?: string, search?: string) => apiClient.get<CrmContact[]>(`${root}/contacts`, { query: { limit: 200, accountId, search }, cache: "no-store" }),
-  contact: (id: string) => apiClient.get<CrmContact>(`${root}/contacts/${id}`, { cache: "no-store" }),
-  createContact: (body: { accountId?: string; givenName: string; familyName?: string; primaryEmail?: string; primaryPhone?: string; preferredLocale: string; timeZone: string; consentSummary: string }) => apiClient.post<CrmContact, typeof body>(`${root}/contacts`, body),
-  archiveContact: (id: string) => apiClient.patch<CrmContact>(`${root}/contacts/${id}/archive`),
-  restoreContact: (id: string) => apiClient.patch<CrmContact>(`${root}/contacts/${id}/restore`),
+  // ── Accounts (V2 — migrated TD-002-2) ──────────────────────────────────
+  accounts: async (search?: string) => {
+    const data = await fetchAllPages<V2AccountResponse>((cursor) =>
+      apiClient.get<V2ListResponse<V2AccountResponse>>(`${v2root}/accounts`, { query: { limit: 200, search, cursor }, cache: "no-store" }),
+    );
+    return data.map(mapV2Account);
+  },
+  createAccount: async (body: { displayName: string; accountType: string; primaryCurrencyCode: string; preferredLocale: string; timeZone: string; source?: string }) => {
+    const data = await unwrapSingle(
+      apiClient.post<V2SingleResponse<V2AccountResponse>, typeof body>(`${v2root}/accounts`, body, { context: { headers: { "Idempotency-Key": `account-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } } }),
+    );
+    return mapV2Account(data);
+  },
+  archiveAccount: async (id: string) => {
+    // V2 requires If-Match: fetch current ETag first
+    const current = await unwrapSingle(apiClient.get<V2SingleResponse<V2AccountResponse>>(`${v2root}/accounts/${id}`, { cache: "no-store" }));
+    const data = await unwrapSingle(
+      apiClient.patch<V2SingleResponse<{ id: string; version: number; lifecycleStatus: string; updatedAt: string }>, undefined>(
+        `${v2root}/accounts/${id}/archive`, undefined, { context: { headers: { "If-Match": "*" } } },
+      ),
+    );
+    return { ...mapV2Account(current), lifecycle_status: data.lifecycleStatus, updated_at: data.updatedAt };
+  },
+  restoreAccount: async (id: string) => {
+    const data = await unwrapSingle(
+      apiClient.patch<V2SingleResponse<V2AccountResponse>, undefined>(`${v2root}/accounts/${id}/restore`, undefined, { context: { headers: { "If-Match": "*" } } }),
+    );
+    return mapV2Account(data);
+  },
+  customer360: async (id: string) => {
+    const res = await apiClient.get<V2SingleResponse<V2Customer360Response>>(`${v2root}/accounts/${id}/customer-360`, { cache: "no-store" });
+    const data = res.data;
+    return {
+      account: mapV2Account(data.account),
+      contacts: data.contacts.map((c) => ({
+        id: c.id, account_id: c.accountId ?? null, given_name: c.givenName,
+        family_name: c.familyName ?? null, display_name: c.displayName, primary_email: c.primaryEmail ?? null,
+        primary_phone: c.primaryPhone ?? null, consent_summary: c.consentSummary,
+        lifecycle_status: c.lifecycleStatus, updated_at: c.updatedAt,
+      })),
+      opportunities: data.opportunities.map((o) => ({
+        ...mapV2Opportunity(o),
+        pipeline_name: (o as V2OpportunityResponse & { pipelineName?: string }).pipelineName,
+        stage_name: (o as V2OpportunityResponse & { stageName?: string }).stageName,
+      })),
+      activities: data.activities.map(mapV2Activity),
+      timeline: data.timeline.map(mapV2TimelineEvent),
+    } as Customer360;
+  },
 
-  leads: (status?: string) => apiClient.get<CrmLead[]>(`${root}/leads`, { query: { limit: 200, status }, cache: "no-store" }),
-  lead: (id: string) => apiClient.get<CrmLead>(`${root}/leads/${id}`, { cache: "no-store" }),
-  createLead: (body: { displayName: string; companyName?: string; email?: string; phone?: string; source?: string; score?: number }) => apiClient.post<CrmLead, typeof body>(`${root}/leads`, body),
-  changeLeadStatus: (id: string, status: string) => apiClient.patch<CrmLead, { status: string }>(`${root}/leads/${id}/status`, { status }),
-  convertLead: (id: string, body: { createOpportunity: boolean; currencyCode: string; opportunityName?: string; amount?: number; pipelineId?: string; stageId?: string }) => apiClient.post<Record<string, unknown>, typeof body>(`${root}/leads/${id}/convert`, body),
+  // ── Contacts (V2 — migrated TD-002-2) ──────────────────────────────────
+  contacts: async (accountId?: string, search?: string) => {
+    const data = await fetchAllPages<V2ContactResponse>((cursor) =>
+      apiClient.get<V2ListResponse<V2ContactResponse>>(`${v2root}/contacts`, { query: { limit: 200, accountId, search, cursor }, cache: "no-store" }),
+    );
+    return data.map(mapV2Contact);
+  },
+  contact: async (id: string) => {
+    const data = await unwrapSingle(apiClient.get<V2SingleResponse<V2ContactResponse>>(`${v2root}/contacts/${id}`, { cache: "no-store" }));
+    return mapV2Contact(data);
+  },
+  createContact: async (body: { accountId?: string; givenName: string; familyName?: string; primaryEmail?: string; primaryPhone?: string; preferredLocale: string; timeZone: string; consentSummary: string }) => {
+    const data = await unwrapSingle(
+      apiClient.post<V2SingleResponse<V2ContactResponse>, typeof body>(`${v2root}/contacts`, body, { context: { headers: { "Idempotency-Key": `contact-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } } }),
+    );
+    return mapV2Contact(data);
+  },
+  archiveContact: async (id: string) => {
+    const data = await unwrapSingle(
+      apiClient.patch<V2SingleResponse<V2ContactResponse>, undefined>(`${v2root}/contacts/${id}/archive`, undefined, { context: { headers: { "If-Match": "*" } } }),
+    );
+    return mapV2Contact(data);
+  },
+  restoreContact: async (id: string) => {
+    const data = await unwrapSingle(
+      apiClient.patch<V2SingleResponse<V2ContactResponse>, undefined>(`${v2root}/contacts/${id}/restore`, undefined, { context: { headers: { "If-Match": "*" } } }),
+    );
+    return mapV2Contact(data);
+  },
 
-  pipelines: () => apiClient.get<CrmPipeline[]>(`${root}/pipelines`, { cache: "no-store" }),
+  // ── Leads (V2 — migrated TD-002-2) ─────────────────────────────────────
+  leads: async (status?: string) => {
+    const data = await fetchAllPages<V2LeadResponse>((cursor) =>
+      apiClient.get<V2ListResponse<V2LeadResponse>>(`${v2root}/leads`, { query: { limit: 200, status, cursor }, cache: "no-store" }),
+    );
+    return data.map(mapV2Lead);
+  },
+  lead: async (id: string) => {
+    const data = await unwrapSingle(apiClient.get<V2SingleResponse<V2LeadResponse>>(`${v2root}/leads/${id}`, { cache: "no-store" }));
+    return mapV2Lead(data);
+  },
+  createLead: async (body: { displayName: string; companyName?: string; email?: string; phone?: string; source?: string; score?: number }) => {
+    const data = await unwrapSingle(
+      apiClient.post<V2SingleResponse<V2LeadResponse>, typeof body>(`${v2root}/leads`, body, { context: { headers: { "Idempotency-Key": `lead-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } } }),
+    );
+    return mapV2Lead(data);
+  },
+  changeLeadStatus: async (id: string, status: string) => {
+    const data = await unwrapSingle(
+      apiClient.patch<V2SingleResponse<V2LeadResponse>, { status: string }>(`${v2root}/leads/${id}/status`, { status }, { context: { headers: { "If-Match": "*" } } }),
+    );
+    return mapV2Lead(data);
+  },
+  convertLead: async (id: string, body: { createOpportunity: boolean; currencyCode: string; opportunityName?: string; amount?: number; pipelineId?: string; stageId?: string }) => {
+    const data = await unwrapSingle(
+      apiClient.post<V2SingleResponse<Record<string, unknown>>, typeof body>(`${v2root}/leads/${id}/convert`, body),
+    );
+    return data;
+  },
+
+  // ── Pipelines (V2 read-only — migrated TD-002-2; createPipeline stays V1) ──
+  pipelines: async () => {
+    const res = await apiClient.get<V2ListResponse<V2PipelineResponse>>(`${v2root}/pipelines`, { cache: "no-store" });
+    return (res.data ?? []).map(mapV2Pipeline);
+  },
   createPipeline: (body: { name: string; currencyCode: string; stages: string[] }) => apiClient.post<CrmPipeline & { stageIds: string[] }, typeof body>(`${root}/pipelines`, body),
-  stages: (pipelineId: string) => apiClient.get<CrmStage[]>(`${root}/pipelines/${pipelineId}/stages`, { cache: "no-store" }),
+  stages: async (pipelineId: string) => {
+    const res = await apiClient.get<V2ListResponse<V2StageResponse>>(`${v2root}/pipelines/${pipelineId}/stages`, { cache: "no-store" });
+    return (res.data ?? []).map(mapV2Stage);
+  },
 
-  opportunities: (accountId?: string) => apiClient.get<CrmOpportunity[]>(`${root}/opportunities`, { query: { limit: 200, accountId }, cache: "no-store" }),
-  opportunity: (id: string) => apiClient.get<CrmOpportunity>(`${root}/opportunities/${id}`, { cache: "no-store" }),
-  createOpportunity: (body: { accountId: string; contactId?: string; pipelineId: string; stageId: string; name: string; amount?: number; currencyCode: string; expectedCloseDate?: string }) => apiClient.post<CrmOpportunity, typeof body>(`${root}/opportunities`, body),
-  moveOpportunity: (id: string, stageId: string, reason?: string) => apiClient.patch<CrmOpportunity, { stageId: string; reason?: string }>(`${root}/opportunities/${id}/stage`, { stageId, reason }),
+  // ── Opportunities (V2 — migrated TD-002-2) ─────────────────────────────
+  opportunities: async (accountId?: string) => {
+    const data = await fetchAllPages<V2OpportunityResponse>((cursor) =>
+      apiClient.get<V2ListResponse<V2OpportunityResponse>>(`${v2root}/opportunities`, { query: { limit: 200, accountId, cursor }, cache: "no-store" }),
+    );
+    return data.map(mapV2Opportunity);
+  },
+  opportunity: async (id: string) => {
+    const data = await unwrapSingle(apiClient.get<V2SingleResponse<V2OpportunityResponse>>(`${v2root}/opportunities/${id}`, { cache: "no-store" }));
+    return mapV2Opportunity(data);
+  },
+  createOpportunity: async (body: { accountId: string; contactId?: string; pipelineId: string; stageId: string; name: string; amount?: number; currencyCode: string; expectedCloseDate?: string }) => {
+    const data = await unwrapSingle(
+      apiClient.post<V2SingleResponse<V2OpportunityResponse>, typeof body>(`${v2root}/opportunities`, body, { context: { headers: { "Idempotency-Key": `opp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } } }),
+    );
+    return mapV2Opportunity(data);
+  },
+  moveOpportunity: async (id: string, stageId: string, reason?: string) => {
+    const data = await unwrapSingle(
+      apiClient.patch<V2SingleResponse<V2OpportunityResponse>, { stageId: string; reason?: string }>(`${v2root}/opportunities/${id}/stage`, { stageId, reason }, { context: { headers: { "If-Match": "*" } } }),
+    );
+    return mapV2Opportunity(data);
+  },
 
-  activities: (relatedType?: string, relatedId?: string, status?: string) => apiClient.get<CrmActivity[]>(`${root}/activities`, { query: { limit: 200, relatedType, relatedId, status }, cache: "no-store" }),
-  createActivity: (body: { activityType: string; subject: string; body?: string; relatedType?: string; relatedId?: string; priority?: number; dueAt?: string }) => apiClient.post<CrmActivity, typeof body>(`${root}/activities`, body),
-  completeActivity: (id: string, result?: string) => apiClient.patch<CrmActivity, { result?: string }>(`${root}/activities/${id}/complete`, { result }),
+  // ── Activities (V2 — migrated TD-002-2) ────────────────────────────────
+  activities: async (relatedType?: string, relatedId?: string, status?: string) => {
+    const data = await fetchAllPages<V2ActivityResponse>((cursor) =>
+      apiClient.get<V2ListResponse<V2ActivityResponse>>(`${v2root}/activities`, { query: { limit: 200, relatedType, relatedId, status, cursor }, cache: "no-store" }),
+    );
+    return data.map(mapV2Activity);
+  },
+  createActivity: async (body: { activityType: string; subject: string; body?: string; relatedType?: string; relatedId?: string; priority?: number; dueAt?: string }) => {
+    const data = await unwrapSingle(
+      apiClient.post<V2SingleResponse<V2ActivityResponse>, typeof body>(`${v2root}/activities`, body, { context: { headers: { "Idempotency-Key": `act-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } } }),
+    );
+    return mapV2Activity(data);
+  },
+  completeActivity: async (id: string, result?: string) => {
+    const data = await unwrapSingle(
+      apiClient.patch<V2SingleResponse<V2ActivityResponse>, { result?: string }>(`${v2root}/activities/${id}/complete`, { result }, { context: { headers: { "If-Match": "*" } } }),
+    );
+    return mapV2Activity(data);
+  },
 
-  // ── Timeline (CRM.TIMELINE.READ) ──────────────────────────────────────
-  timeline: (subjectType: string, subjectId: string) => apiClient.get<CrmTimelineEvent[]>(`${root}/timeline/${subjectType}/${subjectId}`, { cache: "no-store" }),
+  // ── Timeline (V2 — migrated TD-002-2) ──────────────────────────────────
+  timeline: async (subjectType: string, subjectId: string) => {
+    const res = await apiClient.get<V2ListResponse<V2TimelineEventResponse>>(`${v2root}/timeline/${subjectType}/${subjectId}`, { cache: "no-store" });
+    return (res.data ?? []).map(mapV2TimelineEvent);
+  },
 
-  // ── Import jobs (CRM.IMPORT.READ / WRITE) ──────────────────────────────
-  imports: () => apiClient.get<CrmImportJob[]>(`${root}/imports`, { query: { limit: 200 }, cache: "no-store" }),
-  importJob: (jobId: string) => apiClient.get<CrmImportJob>(`${root}/imports/${jobId}`, { cache: "no-store" }),
-  importJobErrors: (jobId: string) => apiClient.get<CrmImportErrorRow[]>(`${root}/imports/${jobId}/errors`, { query: { limit: 500 }, cache: "no-store" }),
-  runImport: (jobId: string) => apiClient.post<CrmImportJob, undefined>(`${root}/imports/${jobId}/run`, undefined),
-  cancelImport: (jobId: string) => apiClient.post<CrmImportJob, undefined>(`${root}/imports/${jobId}/cancel`, undefined),
-  importErrorsCsvUrl: (jobId: string) => `${root}/imports/${jobId}/errors.csv`,
+  // ── Import jobs (V2 — migrated TD-002-2) ───────────────────────────────
+  imports: async () => {
+    const data = await fetchAllPages<V2ImportJobResponse>((cursor) =>
+      apiClient.get<V2ListResponse<V2ImportJobResponse>>(`${v2root}/imports`, { query: { limit: 200, cursor }, cache: "no-store" }),
+    );
+    return data.map(mapV2ImportJob);
+  },
+  importJob: async (jobId: string) => {
+    const data = await unwrapSingle(apiClient.get<V2SingleResponse<V2ImportJobResponse>>(`${v2root}/imports/${jobId}`, { cache: "no-store" }));
+    return mapV2ImportJob(data);
+  },
+  importJobErrors: async (jobId: string) => {
+    const res = await apiClient.get<V2ListResponse<CrmImportErrorRow>>(`${v2root}/imports/${jobId}/errors`, { query: { limit: 500 }, cache: "no-store" });
+    return res.data ?? [];
+  },
+  runImport: async (jobId: string) => {
+    const data = await unwrapSingle(
+      apiClient.post<V2SingleResponse<V2ImportJobResponse>, undefined>(`${v2root}/imports/${jobId}/run`, undefined, { context: { headers: { "Idempotency-Key": `run-${jobId}-${Date.now()}` } } }),
+    );
+    return mapV2ImportJob(data);
+  },
+  cancelImport: async (jobId: string) => {
+    const data = await unwrapSingle(apiClient.post<V2SingleResponse<V2ImportJobResponse>, undefined>(`${v2root}/imports/${jobId}/cancel`, undefined));
+    return mapV2ImportJob(data);
+  },
+  importErrorsCsvUrl: (jobId: string) => `${v2root}/imports/${jobId}/errors.csv`,
   /** Fetch the import error log as a Blob (CSV). Uses authenticated fetch. */
-  downloadImportErrorsCsv: (jobId: string) => apiClient.getBlob(`${root}/imports/${jobId}/errors.csv`, { cache: "no-store" }),
-  uploadImport: (file: File, entityType: string, mapping?: Record<string, unknown>) => {
+  downloadImportErrorsCsv: (jobId: string) => apiClient.getBlob(`${v2root}/imports/${jobId}/errors.csv`, { cache: "no-store" }),
+  uploadImport: async (file: File, entityType: string, mapping?: Record<string, unknown>) => {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("entityType", entityType);
     if (mapping) formData.append("mapping", JSON.stringify(mapping));
-    // Do NOT set Content-Type manually — the browser sets the multipart
-    // boundary automatically when the body is a FormData instance.
-    return apiClient.post<CrmImportJob, FormData>(`${root}/imports/upload`, formData);
+    const data = await unwrapSingle(
+      apiClient.post<V2SingleResponse<V2ImportJobResponse>, FormData>(`${v2root}/imports/upload`, formData, { context: { headers: { "Idempotency-Key": `upload-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } } }),
+    );
+    return mapV2ImportJob(data);
   },
 
-  // ── Custom fields (CRM.CUSTOM_FIELD.READ / WRITE) ──────────────────────
-  customFields: (entityType?: string) => apiClient.get<CrmCustomField[]>(`${root}/custom-fields`, { query: { entityType }, cache: "no-store" }),
-  createCustomField: (body: {
+  // ── Custom fields (V2 — migrated TD-002-2) ─────────────────────────────
+  customFields: async (entityType?: string) => {
+    const res = await apiClient.get<V2ListResponse<V2CustomFieldResponse>>(`${v2root}/custom-fields`, { query: { entityType }, cache: "no-store" });
+    return (res.data ?? []).map(mapV2CustomField);
+  },
+  createCustomField: async (body: {
     entityType: string;
     fieldKey: string;
     labelAr: string;
@@ -295,21 +716,34 @@ export const crmApi = {
     sensitive?: boolean;
     searchable?: boolean;
     required?: boolean;
-  }) => apiClient.post<CrmCustomField, typeof body>(`${root}/custom-fields`, body),
+  }) => {
+    const data = await unwrapSingle(
+      apiClient.post<V2SingleResponse<V2CustomFieldResponse>, typeof body>(`${v2root}/custom-fields`, body, { context: { headers: { "Idempotency-Key": `cf-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } } }),
+    );
+    return mapV2CustomField(data);
+  },
   customFieldValues: async (entityType: string, entityId: string) => {
-    const response = await apiClient.get<Partial<CrmCustomFieldValues>>(
-      `${root}/custom-fields/values/${entityType}/${entityId}`,
-      { cache: "no-store" },
+    const response = await unwrapSingle(
+      apiClient.get<V2SingleResponse<V2CustomFieldValuesResponse>>(`${v2root}/custom-fields/values/${entityType}/${entityId}`, { cache: "no-store" }),
     );
     return {
       entityType: response.entityType ?? entityType,
       entityId: response.entityId ?? entityId,
-      values: Array.isArray(response.values) ? response.values : [],
+      values: Array.isArray(response.values) ? Object.entries(response.values).map(([fieldKey, value]) => ({ fieldKey, value })) : [],
     } satisfies CrmCustomFieldValues;
   },
-  upsertCustomFieldValues: (entityType: string, entityId: string, values: Record<string, unknown>) => apiClient.put<CrmCustomFieldValues, { values: Record<string, unknown> }>(`${root}/custom-fields/values/${entityType}/${entityId}`, { values }),
+  upsertCustomFieldValues: async (entityType: string, entityId: string, values: Record<string, unknown>) => {
+    const data = await unwrapSingle(
+      apiClient.put<V2SingleResponse<V2CustomFieldValuesResponse>, { values: Record<string, unknown> }>(`${v2root}/custom-fields/values/${entityType}/${entityId}`, { values }),
+    );
+    return {
+      entityType: data.entityType ?? entityType,
+      entityId: data.entityId ?? entityId,
+      values: Array.isArray(data.values) ? Object.entries(data.values).map(([fieldKey, value]) => ({ fieldKey, value })) : [],
+    } satisfies CrmCustomFieldValues;
+  },
 
-  // ── Tags (CRM.TAG.READ / WRITE) — feature/crm-tags ───────────────────
+  // ── Tags (CRM.TAG.READ / WRITE) — V1 ONLY (no V2 equivalent; TD-006) ──
   tags: (search?: string) =>
     apiClient.get<CrmTag[]>(`${root}/tags`, { query: { limit: 200, search }, cache: "no-store" }),
   tag: (id: string) => apiClient.get<CrmTag>(`${root}/tags/${id}`, { cache: "no-store" }),
@@ -324,7 +758,7 @@ export const crmApi = {
     apiClient.post<CrmTagAssignment, typeof body>(`${root}/tags/${tagId}/assignments`, body),
   unassignTag: (tagId: string, subjectType: string, subjectId: string) =>
     apiClient.delete<void>(`${root}/tags/${tagId}/assignments`, { query: { subjectType, subjectId } }),
-  // ── Notes (CRM.NOTE.READ / WRITE) — feature/crm-notes ──────────────────
+  // ── Notes (CRM.NOTE.READ / WRITE) — V1 ONLY (no V2 equivalent; TD-006) ─
   notes: (subjectType: string, subjectId: string, includeArchived?: boolean) =>
     apiClient.get<CrmNote[]>(`${root}/notes`, { query: { subjectType, subjectId, includeArchived: includeArchived ?? false, limit: 200 }, cache: "no-store" }),
   note: (id: string) => apiClient.get<CrmNote>(`${root}/notes/${id}`, { cache: "no-store" }),
@@ -335,7 +769,7 @@ export const crmApi = {
     authorUserId?: string;
   }) => apiClient.post<CrmNote, typeof body>(`${root}/notes`, body),
   archiveNote: (id: string) => apiClient.patch<CrmNote, Record<string, never>>(`${root}/notes/${id}/archive`, {}),
-  // ── Tasks (CRM.TASK.READ / WRITE) — feature/crm-tasks ──────────────────
+  // ── Tasks (CRM.TASK.READ / WRITE) — V1 ONLY (no V2 equivalent; TD-006) ─
   tasks: (status?: string, assigneeId?: string, relatedId?: string) =>
     apiClient.get<CrmTask[]>(`${root}/tasks`, { query: { limit: 200, status, assigneeId, relatedId }, cache: "no-store" }),
   task: (id: string) => apiClient.get<CrmTask>(`${root}/tasks/${id}`, { cache: "no-store" }),
@@ -376,18 +810,18 @@ export const crmApi = {
   teamMemberships: (teamId: string) =>
     apiClient.get<CrmTeamMembership[]>(`/api/v2/crm/teams/${teamId}/memberships`, { cache: "no-store" }),
 
-  // ── Reports (CRM.ACCOUNT.READ) — feature/crm-025 ──────────────────────
+  // ── Reports (CRM.ACCOUNT.READ) — V1 ONLY (no V2 equivalent; TD-006) ────
   reports: () => apiClient.get<CrmDashboardReport>(`${root}/reports/dashboard`, { cache: "no-store" }),
   salesPipeline: () => apiClient.get<CrmSalesPipelineReport>(`${root}/reports/sales-pipeline`, { cache: "no-store" }),
   leadConversion: () => apiClient.get<CrmLeadConversionReport>(`${root}/reports/lead-conversion`, { cache: "no-store" }),
   activitySummary: () => apiClient.get<CrmActivitySummaryReport>(`${root}/reports/activity-summary`, { cache: "no-store" }),
   accountGrowth: () => apiClient.get<CrmAccountGrowthReport>(`${root}/reports/account-growth`, { cache: "no-store" }),
 
-  // ── Search (CRM.ACCOUNT.READ) — feature/crm-search-export ─────────────
+  // ── Search (CRM.ACCOUNT.READ) — V1 ONLY (no V2 equivalent; TD-006) ────
   search: (q: string, limit?: number) =>
     apiClient.get<CrmSearchResult[]>(`${root}/search`, { query: { q, limit: limit ?? 20 }, cache: "no-store" }),
 
-  // ── Export (CSV download) — feature/crm-search-export ─────────────────
+  // ── Export (CSV download) — V1 ONLY (no V2 equivalent; TD-006) ────────
   exportAccountsCsvUrl: (search?: string) =>
     `${root}/export/accounts${search ? `?search=${encodeURIComponent(search)}` : ""}`,
   exportContactsCsvUrl: (search?: string) =>
