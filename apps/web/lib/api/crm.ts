@@ -229,6 +229,25 @@ export interface CrmTask {
   updated_at: string;
 }
 
+export interface CrmCase {
+  id: string;
+  version: number;
+  subject: string;
+  description?: string | null;
+  case_type?: string | null;
+  status: string;
+  priority: number;
+  customer_id?: string | null;
+  assignee_user_id?: string | null;
+  owner_user_id?: string | null;
+  related_id?: string | null;
+  due_at?: string | null;
+  resolved_at?: string | null;
+  closed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /**
  * TD-002-2 — V1 API root.
  *
@@ -795,6 +814,40 @@ export const crmApi = {
   startTask: (id: string) => apiClient.patch<CrmTask, Record<string, never>>(`${root}/tasks/${id}/start`, {}),
   completeTask: (id: string, result?: string) => apiClient.patch<CrmTask, { result?: string }>(`${root}/tasks/${id}/complete`, { result }),
   cancelTask: (id: string, reason?: string) => apiClient.patch<CrmTask, { reason?: string }>(`${root}/tasks/${id}/cancel`, { reason }),
+
+  // ── Cases (CRM.CASE.READ / WRITE) — MOD-001 ────────────────────────────
+  cases: (status?: string, assigneeUserId?: string, customerId?: string) =>
+    apiClient.get<CrmCase[]>(`/api/v2/crm/cases`, { query: { limit: 200, status, assigneeUserId, customerId }, cache: "no-store" }),
+  case: (id: string) =>
+    apiClient.get<CrmCase>(`/api/v2/crm/cases/${id}`, { cache: "no-store" }),
+  createCase: (body: {
+    subject: string;
+    description?: string;
+    caseType?: string;
+    priority?: number;
+    customerId?: string;
+    assigneeUserId?: string;
+    relatedId?: string;
+    dueAt?: string;
+  }) => apiClient.post<CrmCase, typeof body>(`/api/v2/crm/cases`, body),
+  updateCase: (id: string, body: {
+    subject?: string;
+    description?: string;
+    caseType?: string;
+    priority?: number;
+    customerId?: string;
+    dueAt?: string;
+  }) => apiClient.put<CrmCase, typeof body>(`/api/v2/crm/cases/${id}`, body),
+  startCase: (id: string) =>
+    apiClient.post<CrmCase, Record<string, never>>(`/api/v2/crm/cases/${id}/start`, {}),
+  resolveCase: (id: string, resolution?: string) =>
+    apiClient.post<CrmCase, { resolution?: string }>(`/api/v2/crm/cases/${id}/resolve`, { resolution }),
+  closeCase: (id: string) =>
+    apiClient.post<CrmCase, Record<string, never>>(`/api/v2/crm/cases/${id}/close`, {}),
+  reopenCase: (id: string) =>
+    apiClient.post<CrmCase, Record<string, never>>(`/api/v2/crm/cases/${id}/reopen`, {}),
+  assignCase: (id: string, assigneeUserId: string) =>
+    apiClient.post<CrmCase, { assigneeUserId: string }>(`/api/v2/crm/cases/${id}/assign`, { assigneeUserId }),
 
   // ── Transfers (CRM.TRANSFER.READ / REQUEST / APPROVE) — feature/crm-023 ──
   transfers: (state?: string) =>

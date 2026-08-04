@@ -138,6 +138,15 @@ function TasksIcon() {
   );
 }
 
+function CasesIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="1" width="12" height="14" rx="2" />
+      <path d="M5 5h6M5 8h6M5 11h3" />
+    </svg>
+  );
+}
+
 function IntelligenceIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -197,6 +206,7 @@ const MAIN_NAV: NavItem[] = [
   { href: "/crm/reports", labelKey: "crm.nav.reports", Icon: ReportsIcon },
   { href: "/crm/notes", labelKey: "crm.nav.notes", Icon: NotesIcon },
   { href: "/crm/tasks", labelKey: "crm.nav.tasks", Icon: TasksIcon },
+  { href: "/crm/cases", labelKey: "crm.nav.cases", Icon: CasesIcon },
   { href: "/crm/intelligence", labelKey: "crm.nav.intelligence", Icon: IntelligenceIcon },
 ];
 
