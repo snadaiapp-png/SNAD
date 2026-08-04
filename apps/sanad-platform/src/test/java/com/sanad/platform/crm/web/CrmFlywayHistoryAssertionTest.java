@@ -105,7 +105,8 @@ class CrmFlywayHistoryAssertionTest {
             "20260729.2",   // seed default scoring models
             "20260730.1",   // enable crm row level security
             "20260730.2",   // disable crm row level security
-            "20260802.1"    // re-enable crm row level security
+            "20260802.1",   // re-enable crm row level security
+            "20260804.9"    // create crm cases
     );
 
     @Container
