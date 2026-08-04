@@ -72,7 +72,16 @@ public enum CrmErrorCode {
     RATE_LIMITED(429, "Too many requests. Please slow down.", true),
 
     // ── Catch-all (HTTP 500) ─────────────────────────────────────────────
-    INTERNAL_ERROR(500, "An internal server error occurred. Please try again later.", true);
+    INTERNAL_ERROR(500, "An internal server error occurred. Please try again later.", true),
+
+    // ── Intelligence codes ─────────────────────────────────────────────
+    CRM_SCORE_NOT_FOUND(404, "The requested score was not found.", false),
+    CRM_SEGMENT_NOT_FOUND(404, "The requested segment was not found.", false),
+    CRM_SEGMENT_MEMBER_NOT_FOUND(404, "The segment membership was not found.", false),
+    CRM_NBA_NOT_FOUND(404, "The requested next best action was not found.", false),
+    CRM_NBA_EXPIRED(409, "The next best action has expired.", false),
+    CRM_NBA_VERSION_CONFLICT(409, "The next best action has been modified by another request.", false),
+    CRM_SCORE_CALCULATION_FAILED(500, "Score calculation failed.", true);
 
     private final int httpStatus;
     private final String defaultMessage;

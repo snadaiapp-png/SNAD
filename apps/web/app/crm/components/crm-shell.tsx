@@ -138,6 +138,16 @@ function TasksIcon() {
   );
 }
 
+function IntelligenceIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.5" />
+      <circle cx="8" cy="8" r="2" />
+      <path d="M8 2.5V5M8 11v2.5M2.5 8H5M11 8h2.5" />
+    </svg>
+  );
+}
+
 function ImportsIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -187,6 +197,7 @@ const MAIN_NAV: NavItem[] = [
   { href: "/crm/reports", labelKey: "crm.nav.reports", Icon: ReportsIcon },
   { href: "/crm/notes", labelKey: "crm.nav.notes", Icon: NotesIcon },
   { href: "/crm/tasks", labelKey: "crm.nav.tasks", Icon: TasksIcon },
+  { href: "/crm/intelligence", labelKey: "crm.nav.intelligence", Icon: IntelligenceIcon },
 ];
 
 const ADMIN_NAV: NavItem[] = [
