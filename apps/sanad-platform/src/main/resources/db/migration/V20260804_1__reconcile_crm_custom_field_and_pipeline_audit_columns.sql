@@ -1,0 +1,99 @@
+-- ============================================================
+-- SNAD Platform — Reconcile CRM custom-field & pipeline audit columns
+-- ------------------------------------------------------------
+-- Branch: fix/rem-1-crm-schema-drift
+-- Epic:   REM-1 — Schema Drift Remediation
+-- Defects: A1 + A2 (PRODUCTION-DEFECT-ASSESSMENT.md)
+--
+-- Background
+-- ----------
+-- Two live v2 mutation paths throw BadSqlGrammarException because the SQL
+-- they execute references audit/version columns that no migration ever
+-- created:
+--
+--   * PATCH /api/v2/crm/custom-fields/{id}
+--       LegacyCrmInfrastructureService.updateCustomField (line ~2018) and
+--       JdbcCustomFieldRepository.update() (line ~33) execute:
+--         UPDATE crm_custom_field_definitions
+--            SET version = version + 1, updated_by = :actorId, updated_at = :now
+--       but the table (V20260702_1__create_unified_crm_core.sql) ends its
+--       column list at `created_at`. The columns `version`, `created_by`,
+--       `updated_by` and `updated_at` are absent. V20260702_3 only adds
+--       UNIQUE/CHECK constraints to this table — no columns.
+--
+--   * PATCH /api/v2/crm/pipelines/{id}
+--       LegacyCrmInfrastructureService.updatePipeline (line ~1991) and
+--       JdbcPipelineRepository.update() (line ~51) execute:
+--         UPDATE crm_pipelines
+--            SET version = version + 1, updated_by = :actorId, updated_at = :now
+--       V20260713_2 added `version` but NOT `updated_by`, even though its
+--       own header comment claimed pipelines was "the only editable CRM
+--       entity missing the column". That comment is also inaccurate about
+--       custom_field_definitions, which never had `version` either (fixed
+--       below).
+--
+-- This migration adds only the columns confirmed missing by repository
+-- evidence. It introduces no speculative schema changes and alters no
+-- business behavior. It is the schema reconciliation required by REM-1.
+--
+-- Portability
+-- -----------
+-- Each column is added with its own `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+-- statement. This is the portable subset common to PostgreSQL (>= 9.6) and to
+-- H2 in PostgreSQL compatibility mode (the `local` test profile DB). H2 does
+-- NOT accept the comma-separated multiple-ADD-COLUMN form that PostgreSQL
+-- allows, so one statement per column is required. The migration lives in the
+-- shared `db/migration/` location — the same convention used by the directly
+-- analogous V20260713_2__add_pipeline_version_column.sql — keeping the
+-- H2-backed MockMvc tests and the Testcontainers PostgreSQL tests in sync.
+--
+-- Idempotency
+-- -----------
+-- Every statement uses ADD COLUMN IF NOT EXISTS, so re-running against an
+-- already-reconciled database is a no-op (safe for re-baseline / replay).
+--
+-- Backward compatibility
+-- ----------------------
+-- * `version` defaults to 0 — matches the optimistic-lock initial value
+--   every repository expects on a freshly inserted row. Existing rows
+--   backfilled to 0 will fail an update only if a caller presents
+--   expectedVersion != 0, which is impossible for rows created before any
+--   version was tracked (no caller can hold a stale ETag for them).
+-- * `created_by` / `updated_by` are nullable UUID — pre-existing rows have
+--   no known actor; the application reads them via null-tolerant accessors
+--   (`asLong`/`asInstant` equivalents). LegacyCrmInfrastructureService
+--   .createCustomField inserts only up to `created_at` and does not set
+--   `created_by`, so NULL must remain permitted.
+-- * `updated_at` is nullable for the custom-field table (legacy rows have
+--   no last-update timestamp); for crm_pipelines `updated_at` already
+--   exists and is NOT touched here.
+--
+-- Rollback guidance
+-- -----------------
+-- This migration is reversible. To roll back (PostgreSQL):
+--     ALTER TABLE crm_custom_field_definitions
+--         DROP COLUMN IF EXISTS updated_at,
+--         DROP COLUMN IF EXISTS updated_by,
+--         DROP COLUMN IF EXISTS created_by,
+--         DROP COLUMN IF EXISTS version;
+--     ALTER TABLE crm_pipelines
+--         DROP COLUMN IF EXISTS updated_by;
+-- Rolling back re-introduces defects A1/A2 (the v2 PATCH endpoints will
+-- throw again), so rollback should only accompany reverting the dependent
+-- application behaviour. H2 (test) databases are ephemeral and need no
+-- manual rollback — they are recreated from the migration chain.
+-- ============================================================
+
+-- Defect A1: crm_custom_field_definitions — add version + audit columns.
+-- NOTE: each column is added in its own ALTER TABLE statement because H2 (the
+-- `local` test profile DB, in PostgreSQL compatibility mode) does not parse the
+-- comma-separated multiple-ADD-COLUMN form that PostgreSQL accepts. One column
+-- per ALTER is the portable subset of the syntax common to both databases — the
+-- same single-column form used by the directly analogous V20260713_2.
+ALTER TABLE crm_custom_field_definitions ADD COLUMN IF NOT EXISTS version    BIGINT                   NOT NULL DEFAULT 0;
+ALTER TABLE crm_custom_field_definitions ADD COLUMN IF NOT EXISTS created_by UUID;
+ALTER TABLE crm_custom_field_definitions ADD COLUMN IF NOT EXISTS updated_by UUID;
+ALTER TABLE crm_custom_field_definitions ADD COLUMN IF NOT EXISTS updated_at  TIMESTAMP WITH TIME ZONE;
+
+-- Defect A2: crm_pipelines — add updated_by (version already exists via V20260713_2)
+ALTER TABLE crm_pipelines ADD COLUMN IF NOT EXISTS updated_by UUID;
