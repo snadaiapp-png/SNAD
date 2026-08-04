@@ -446,6 +446,118 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/cases": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["listCases"];
+        readonly put?: never;
+        readonly post: operations["createCase"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/cases/{caseId}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["getCase"];
+        readonly put: operations["updateCase"];
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/cases/{caseId}/assign": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["assignCase"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/cases/{caseId}/close": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["closeCase"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/cases/{caseId}/reopen": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["reopenCase"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/cases/{caseId}/resolve": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["resolveCase"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/cases/{caseId}/start": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["startCase"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/communication-methods/export": {
         readonly parameters: {
             readonly query?: never;
@@ -2136,6 +2248,10 @@ export type components = {
             /** Format: date-time */
             readonly updatedAt?: string;
         };
+        readonly AssignRequest: {
+            /** Format: uuid */
+            readonly assigneeUserId?: string;
+        };
         readonly AssignTerritoryRequest: {
             /** @enum {string} */
             readonly assigneeType: "USER" | "TEAM";
@@ -2578,6 +2694,21 @@ export type components = {
             /** Format: date */
             readonly validTo?: string;
         };
+        readonly CreateCaseRequest: {
+            readonly subject: string;
+            readonly description?: string;
+            readonly caseType?: string;
+            /** Format: int32 */
+            readonly priority?: number;
+            /** Format: uuid */
+            readonly customerId?: string;
+            /** Format: uuid */
+            readonly assigneeUserId?: string;
+            /** Format: uuid */
+            readonly relatedId?: string;
+            /** Format: date-time */
+            readonly dueAt?: string;
+        };
         readonly CreateCommunicationMethodRequest: {
             readonly methodType: string;
             readonly rawValue: string;
@@ -2990,6 +3121,13 @@ export type components = {
         };
         readonly ListResponseLeadResponse: {
             readonly data?: readonly components["schemas"]["LeadResponse"][];
+            readonly page?: components["schemas"]["Page"];
+            readonly meta?: components["schemas"]["Meta"];
+        };
+        readonly ListResponseMapStringObject: {
+            readonly data?: readonly {
+                readonly [key: string]: unknown;
+            }[];
             readonly page?: components["schemas"]["Page"];
             readonly meta?: components["schemas"]["Meta"];
         };
@@ -3482,6 +3620,9 @@ export type components = {
             readonly recordType: "ACCOUNT" | "CONTACT" | "LEAD" | "OPPORTUNITY" | "ACTIVITY" | "TASK";
             readonly reason: string;
         };
+        readonly ResolveRequest: {
+            readonly resolution?: string;
+        };
         readonly RowResult: {
             /** Format: int32 */
             readonly rowNumber?: number;
@@ -3668,6 +3809,12 @@ export type components = {
         };
         readonly SingleResponseLeadResponse: {
             readonly data?: components["schemas"]["LeadResponse"];
+            readonly meta?: components["schemas"]["Meta"];
+        };
+        readonly SingleResponseMapStringObject: {
+            readonly data?: {
+                readonly [key: string]: unknown;
+            };
             readonly meta?: components["schemas"]["Meta"];
         };
         readonly SingleResponseNextBestActionResponse: {
@@ -3946,6 +4093,17 @@ export type components = {
             readonly validFrom?: string;
             /** Format: date */
             readonly validTo?: string;
+        };
+        readonly UpdateCaseRequest: {
+            readonly subject?: string;
+            readonly description?: string;
+            readonly caseType?: string;
+            /** Format: int32 */
+            readonly priority?: number;
+            /** Format: uuid */
+            readonly customerId?: string;
+            /** Format: date-time */
+            readonly dueAt?: string;
         };
         readonly UpdateCommunicationMethodRequest: {
             readonly rawValue?: string;
@@ -5067,6 +5225,221 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["OwnershipResponseAssignment"];
+                };
+            };
+        };
+    };
+    readonly listCases: {
+        readonly parameters: {
+            readonly query?: {
+                readonly limit?: number;
+                readonly status?: string;
+                readonly assigneeUserId?: string;
+                readonly customerId?: string;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ListResponseMapStringObject"];
+                };
+            };
+        };
+    };
+    readonly createCase: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["CreateCaseRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                };
+            };
+        };
+    };
+    readonly getCase: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly caseId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                };
+            };
+        };
+    };
+    readonly updateCase: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly caseId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["UpdateCaseRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                };
+            };
+        };
+    };
+    readonly assignCase: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly caseId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["AssignRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                };
+            };
+        };
+    };
+    readonly closeCase: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly caseId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                };
+            };
+        };
+    };
+    readonly reopenCase: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly caseId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                };
+            };
+        };
+    };
+    readonly resolveCase: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly caseId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["ResolveRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                };
+            };
+        };
+    };
+    readonly startCase: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly caseId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
                 };
             };
         };
