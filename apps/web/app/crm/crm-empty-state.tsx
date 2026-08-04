@@ -1,7 +1,7 @@
 "use client";
 import type { ReactNode } from "react";
 import { useCrmI18n } from "./crm-i18n";
-import styles from "./crm-command-center.module.css";
+import styles from "./crm-shared-styles.module.css";
 
 interface EmptyStateProps {
   icon?: ReactNode; titleKey?: string; subtitleKey?: string; hintKey?: string;

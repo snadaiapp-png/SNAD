@@ -10,7 +10,6 @@ const CRM_ROUTES = [
   "/crm/activities",
   "/crm/imports",
   "/crm/settings/custom-fields",
-  "/crm/command-center",
 ] as const;
 
 function collectHydrationErrors(page: Page): string[] {

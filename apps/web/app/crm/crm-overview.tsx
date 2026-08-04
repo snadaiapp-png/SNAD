@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { useCrmI18n } from "./crm-i18n";
 import { calculateProgramProgress, type ExecutionGroup, type ExecutionTask } from "../../lib/execution";
 import { CRM_GROUP_DATA, CRM_TASKS } from "./crm-execution-data";
-import styles from "./crm-command-center.module.css";
+import styles from "./crm-shared-styles.module.css";
 
 /**
  * CRM Overview Page

@@ -125,7 +125,7 @@ LEGACY_FILES = {
     # design system compliance check was enforced. Each file must be
     # migrated to use var(--snad-color-*) tokens in a follow-up PR.
     "apps/web/app/crm/crm.module.css": "pre-SDS CRM palette (CRM-014 through CRM-020) — partial migration",
-    "apps/web/app/crm/crm-command-center.module.css": "pre-SDS CRM palette (CRM-014 through CRM-020)",
+    "apps/web/app/crm/crm-shared-styles.module.css": "pre-SDS CRM palette (CRM-014 through CRM-020)",
     "apps/web/app/crm/components/customers-tab.tsx": "pre-SDS CRM palette (CRM-014 through CRM-020)",
     "apps/web/app/crm/components/leads-tab.tsx": "pre-SDS CRM palette (CRM-014 through CRM-020)",
     "apps/web/app/crm/components/customer-360-view.tsx": "pre-SDS CRM palette (CRM-014 through CRM-020)",

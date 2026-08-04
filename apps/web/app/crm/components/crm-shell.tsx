@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useI18n } from "@/lib/i18n/I18nProvider";
-import styles from "../crm-command-center.module.css";
+import styles from "../crm-shared-styles.module.css";
 
 interface NavItem {
   href: string;
@@ -156,16 +156,6 @@ function CustomFieldsIcon() {
   );
 }
 
-function CommandCenterIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2" y="2.5" width="12" height="11" rx="1" />
-      <path d="M5 2.5v-1h6v1" />
-      <path d="M5 7h6M5 9.5h6M5 12h4" />
-    </svg>
-  );
-}
-
 function LangIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -202,10 +192,6 @@ const MAIN_NAV: NavItem[] = [
 const ADMIN_NAV: NavItem[] = [
   { href: "/crm/imports", labelKey: "crm.nav.imports", Icon: ImportsIcon },
   { href: "/crm/settings/custom-fields", labelKey: "crm.nav.customFields", Icon: CustomFieldsIcon },
-];
-
-const GOVERNANCE_NAV: NavItem[] = [
-  { href: "/crm/command-center", labelKey: "crm.nav.commandCenter", Icon: CommandCenterIcon },
 ];
 
 interface CrmShellProps {
@@ -333,12 +319,6 @@ export function CrmShell({ children }: CrmShellProps) {
               <SidebarLink key={item.href} item={item} active={isActive(item.href)} label={t(item.labelKey)} />
             ))}
 
-            <div className={styles.sidebarDivider} />
-
-            <span className={styles.sidebarSectionLabel}>{t("crm.shell.sidebar.governance")}</span>
-            {GOVERNANCE_NAV.map((item) => (
-              <SidebarLink key={item.href} item={item} active={isActive(item.href)} label={t(item.labelKey)} />
-            ))}
           </nav>
         </aside>
 

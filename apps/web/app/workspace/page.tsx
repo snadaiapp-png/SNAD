@@ -27,7 +27,6 @@ export default function WorkspacePage() {
 
   const displayName = me?.displayName || user?.email || t("workspace.defaultUser");
   const canOpenCrm = availableDestinations.includes("/crm");
-  const canOpenCommandCenter = availableDestinations.includes("/crm/command-center");
   const canOpenControlPlane = availableDestinations.includes("/control-plane");
 
   return (
@@ -54,15 +53,6 @@ export default function WorkspacePage() {
                   <p className={styles.appDescription}>{t("crm.shell.subtitle")}</p>
                 </div>
                 <span className={styles.appAction}>{t("workspace.openCrm")}</span>
-              </Link>
-            )}
-            {canOpenCommandCenter && (
-              <Link className={styles.appCard} href="/crm/command-center" prefetch>
-                <div>
-                  <div className={styles.appName}>{t("workspace.openCrmCommandCenter")}</div>
-                  <p className={styles.appDescription}>{t("workspace.overview")}</p>
-                </div>
-                <span className={styles.appAction}>{t("workspace.openCrmCommandCenter")}</span>
               </Link>
             )}
             {canOpenControlPlane && (

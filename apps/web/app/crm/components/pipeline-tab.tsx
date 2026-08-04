@@ -5,7 +5,7 @@ import { crmApi } from "@/lib/api/crm";
 import type { CrmAccount, CrmOpportunity, CrmPipeline, CrmStage } from "@/lib/api/crm";
 import { CrmPipelineBoard } from "../crm-pipeline-board";
 import { useCrmI18n } from "../crm-i18n";
-import styles from "../crm-command-center.module.css";
+import styles from "../crm-shared-styles.module.css";
 
 /* ============================================================================
  *  PipelineTab — data-fetching wrapper for the Kanban board

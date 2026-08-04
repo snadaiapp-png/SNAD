@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { crmApi } from "@/lib/api/crm";
 import type { CrmTeam, CrmTeamMembership } from "@/lib/api/crm";
 import { useCrmI18n } from "../crm-i18n";
-import styles from "../crm-command-center.module.css";
+import styles from "../crm-shared-styles.module.css";
 
 /* ============================================================================
  *  Employee status helpers

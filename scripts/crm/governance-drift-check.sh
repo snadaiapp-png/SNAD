@@ -25,8 +25,7 @@
 #    10. A doc claims a milestone is CLOSED without a stage report.
 #    11. (summary)
 #    12. apps/web/app/crm/page.tsx regresses to render CrmCommandCenterPage
-#        instead of the operational CrmWorkspaceV2 component, or the
-#        /crm/command-center route is missing. (crm/002-restore-operational-ui)
+#        instead of the operational CRM route-based pages.
 #    16. CRM-031: Production GO decision record (CRM-PRODUCTION-GO.md) is
 #        missing, empty, or lacks required evidence references.
 #    17. CRM-032: Penetration test report (CRM-PENTEST-REPORT.md) is
@@ -76,10 +75,8 @@ GAP_FILE="${REPO_ROOT}/docs/crm-gap-analysis.md"
 READINESS_FILE="${REPO_ROOT}/docs/crm-readiness-assessment.md"
 MIGRATION_DIR="${REPO_ROOT}/apps/sanad-platform/src/main/resources/db/migration"
 CRM_CONTROLLER="${REPO_ROOT}/apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmController.java"
-CRM_COMMAND_CENTER="${REPO_ROOT}/apps/web/app/crm/crm-command-center.tsx"
 CRM_EXECUTION_DATA="${REPO_ROOT}/apps/web/app/crm/crm-execution-data.ts"
 CRM_PAGE="${REPO_ROOT}/apps/web/app/crm/page.tsx"
-CRM_COMMAND_CENTER_ROUTE="${REPO_ROOT}/apps/web/app/crm/command-center/page.tsx"
 PRODUCTION_GO_RECORD="${DOCS_RELEASE_DIR}/CRM-PRODUCTION-GO.md"
 
 VIOLATIONS=()
@@ -104,7 +101,7 @@ fi
 # ----------------------------------------------------------------------------
 
 crm_code_exists="no"
-if [[ -f "$CRM_CONTROLLER" && -f "$CRM_COMMAND_CENTER" ]]; then
+if [[ -f "$CRM_CONTROLLER" ]]; then
   crm_code_exists="yes"
 fi
 
@@ -242,31 +239,7 @@ while IFS= read -r -d '' doc_file; do
 done < <($FIND "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
 
 # ----------------------------------------------------------------------------
-# 5. Detect AI CRM described as merged if only present in unmerged PRs
-# ----------------------------------------------------------------------------
-
-# The AI CRM tab renders CrmEmptyState in crm-command-center.tsx. Any doc that
-# claims AI CRM is merged, deployed, or in production is drift.
-ai_crm_merged_phrases=(
-  "AI CRM is merged"
-  "AI CRM is deployed"
-  "AI CRM is live"
-  "AI CRM is in production"
-  "AI CRM is available"
-  "ai crm has shipped"
-  "ai crm capability is delivered"
-)
-
-while IFS= read -r -d '' doc_file; do
-  for phrase in "${ai_crm_merged_phrases[@]}"; do
-    if grep -qi -- "$phrase" "$doc_file" 2>/dev/null; then
-      add_violation "Doc claims AI CRM is merged/deployed but it only renders CrmEmptyState in the Command Center: ${doc_file#${REPO_ROOT}/} (matched: '${phrase}')"
-    fi
-  done
-done < <($FIND "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
-
-# ----------------------------------------------------------------------------
-# 6. Detect production GO / commercial go-live claims without a decision record
+# 5. Detect production GO / commercial go-live claims without a decision record
 # ----------------------------------------------------------------------------
 
 # Any doc (excluding the production GO record itself and the baseline which
@@ -377,29 +350,7 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-# 9. Verify the Command Center does not silently render empty states for tabs
-#    that docs claim are wired (cross-check the source against the registry)
-# ----------------------------------------------------------------------------
-
-# If the Execution Board data registry lists a group as DONE or APPROVED, the
-# matching Command Center tab must not fall through to the empty-state branch.
-# (Today G0 is DONE and overview+executionBoard are wired; we do not assert
-# anything stronger because G1-G10 are intentionally not yet wired.)
-if [[ -s "$CRM_EXECUTION_DATA" ]]; then
-  if grep -q 'status: "APPROVED"' "$CRM_EXECUTION_DATA" \
-    && grep -q 'code: "G0"' "$CRM_EXECUTION_DATA"; then
-    # G0 must have its overview + executionBoard tabs wired.
-    if ! grep -q 'case "overview":' "$CRM_COMMAND_CENTER"; then
-      add_violation "Execution Board marks G0 as APPROVED but crm-command-center.tsx does not render the overview tab."
-    fi
-    if ! grep -q 'case "executionBoard":' "$CRM_COMMAND_CENTER"; then
-      add_violation "Execution Board marks G0 as APPROVED but crm-command-center.tsx does not render the executionBoard tab."
-    fi
-  fi
-fi
-
-# ----------------------------------------------------------------------------
-# 10. Detect any doc that claims a milestone is CLOSED without a stage report
+# 9. Detect any doc that claims a milestone is CLOSED without a stage report
 # ----------------------------------------------------------------------------
 
 if [[ -d "${DOCS_CRM_DIR}/stage-reports" ]]; then
@@ -450,11 +401,6 @@ done < <($FIND "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md
 #   (c) /crm/(operational)/accounts/page.tsx is missing.
 #   (d) /crm/(operational)/imports/page.tsx is missing.
 #   (e) /crm/(operational)/settings/custom-fields/page.tsx is missing.
-#   (f) /crm/command-center/page.tsx still renders CrmCommandCenterPage.
-#
-# The deprecated CrmWorkspaceV2 / CrmAdvancedView components are kept for
-# reference and may still be imported (e.g. by tests), so we no longer assert
-# that /crm/page.tsx imports CrmWorkspaceV2.
 
 CRM_OVERVIEW_ROUTE="${REPO_ROOT}/apps/web/app/crm/(operational)/overview/page.tsx"
 CRM_ACCOUNTS_ROUTE="${REPO_ROOT}/apps/web/app/crm/(operational)/accounts/page.tsx"
@@ -469,13 +415,6 @@ CRM_E2E_SPEC="${REPO_ROOT}/apps/web/e2e/crm-operational.spec.ts"
 if [[ -f "$CRM_PAGE" ]]; then
   if ! grep -Eq 'redirect\([[:space:]]*["'\'']/crm/overview["'\'']' "$CRM_PAGE"; then
     add_violation "apps/web/app/crm/page.tsx no longer redirects to /crm/overview; the operational CRM route migration has regressed."
-  fi
-  # If the page imports CrmCommandCenterPage as its default content (the
-  # pre-002 shape), that is a regression even if the redirect is also
-  # present — the Command Center must only be mounted at /crm/command-center.
-  if grep -Eq 'import[[:space:]]+CrmCommandCenterPage[[:space:]]+from[[:space:]]+["'\'']\.\/crm-command-center["'\'']' "$CRM_PAGE" \
-    && grep -Eq '<CrmCommandCenterPage[[:space:]]*/?>' "$CRM_PAGE"; then
-    add_violation "apps/web/app/crm/page.tsx renders CrmCommandCenterPage directly; move it to /crm/command-center/page.tsx."
   fi
 else
   add_violation "apps/web/app/crm/page.tsx is missing."
@@ -497,14 +436,8 @@ if [[ ! -f "$CRM_CUSTOM_FIELDS_ROUTE" ]]; then
   add_violation "apps/web/app/crm/(operational)/settings/custom-fields/page.tsx is missing; the custom fields admin route must exist."
 fi
 
-if [[ ! -f "$CRM_COMMAND_CENTER_ROUTE" ]]; then
-  add_violation "apps/web/app/crm/command-center/page.tsx is missing; the Command Center + Execution Board must remain accessible at /crm/command-center."
-elif ! grep -Eq 'CrmCommandCenterPage' "$CRM_COMMAND_CENTER_ROUTE"; then
-  add_violation "apps/web/app/crm/command-center/page.tsx does not render CrmCommandCenterPage."
-fi
-
 # ----------------------------------------------------------------------------
-# 13. Verify CRM-002b detail routes and E2E spec exist
+# 12. Verify CRM-002b detail routes and E2E spec exist
 # -----------------------------------------------------------------------------
 #
 # Branch crm/002b-final-operational-acceptance added the three missing

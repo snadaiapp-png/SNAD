@@ -11,7 +11,7 @@ import {
   type GroupStatus,
 } from "../../lib/execution";
 import { CRM_GROUP_DATA, CRM_TASKS } from "./crm-execution-data";
-import styles from "./crm-command-center.module.css";
+import styles from "./crm-shared-styles.module.css";
 
 /**
  * Computes parallel execution waves by topological sort.
