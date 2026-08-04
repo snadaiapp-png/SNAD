@@ -26,9 +26,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { loginThroughUi } from "./crm-auth-session";
-
-const TENANT_B_EMAIL = process.env.CRM_TENANT_B_EMAIL ?? "";
-const TENANT_B_PASSWORD = process.env.CRM_TENANT_B_PASSWORD ?? "";
+import { TENANT_B_EMAIL, TENANT_B_PASSWORD, waitForCrmReady } from "./crm-helpers";
 
 // Stable Tenant A entity UUIDs from the seed SQL.
 const TENANT_A_ACCOUNT_ID = "aa00aa00-aa00-4aa0-8aa0-aa00aa00aa01";
@@ -43,12 +41,6 @@ const TENANT_A_OPPORTUNITY_NAME = "Tenant A Sample Opportunity";
 const TENANT_A_ORG_NAME = "Tenant A Org";
 
 
-
-async function waitForCrmReady(page: Page, route: string): Promise<void> {
-  await page.goto(route);
-  await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
-  await page.waitForLoadState("networkidle");
-}
 
 test.describe("CRM Tenant Isolation — Tenant B cannot see Tenant A data", () => {
   test.describe.configure({ mode: "serial" });

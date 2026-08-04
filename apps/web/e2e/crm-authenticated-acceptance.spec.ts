@@ -38,26 +38,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { loginThroughUi as loginViaBFF } from "./crm-auth-session";
-
-const TENANT_A_EMAIL = process.env.CRM_TENANT_A_EMAIL ?? "";
-const TENANT_A_PASSWORD = process.env.CRM_TENANT_A_PASSWORD ?? "";
-
-
-
-/**
- * Wait for the SPA to finish bootstrapping and reach the AUTHENTICATED
- * state. The CRM shell renders `<main id="crm-operational-content">`
- * once auth is ready, so we wait for that element to appear.
- */
-async function waitForCrmReady(page: Page, route = "/crm/overview"): Promise<void> {
-  await page.goto(route);
-  // The shell shows an AuthLoadingState ("Verifying your session…")
-  // during the silent refresh. Wait for the main content slot to
-  // appear, which only happens after AUTHENTICATED.
-  await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
-  // Give the page's data fetches a beat to settle.
-  await page.waitForLoadState("networkidle");
-}
+import { TENANT_A_EMAIL, TENANT_A_PASSWORD, waitForCrmReady } from "./crm-helpers";
 
 test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () => {
   test.describe.configure({ mode: "serial" });

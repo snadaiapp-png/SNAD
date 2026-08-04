@@ -16,6 +16,10 @@ export default defineConfig({
     "**/crm-accessibility.spec.ts",
     "**/crm-route-smoke.spec.ts",
     "**/crm-035-terminal-leads.spec.ts",
+    // TD-004: New E2E specs for transfer, import, pipeline, export workflows.
+    "**/crm-transfer-workflow.spec.ts",
+    "**/crm-import-workflow.spec.ts",
+    "**/crm-pipeline-export.spec.ts",
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
