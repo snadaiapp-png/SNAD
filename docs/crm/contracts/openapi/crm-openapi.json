@@ -7053,6 +7053,303 @@
           }
         ]
       }
+    },
+    "/intelligence/{accountId}/scores": {
+      "get": {
+        "summary": "Get all scores for an account",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AccountId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/intelligence/{accountId}/scores/{scoreType}": {
+      "get": {
+        "summary": "Get a specific score type",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AccountId"
+          },
+          {
+            "name": "scoreType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/intelligence/{accountId}/scores/{scoreType}/history": {
+      "get": {
+        "summary": "Get score history",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AccountId"
+          },
+          {
+            "name": "scoreType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/intelligence/{accountId}/scores/health": {
+      "post": {
+        "summary": "Calculate health score",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AccountId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/intelligence/{accountId}/scores/clv": {
+      "post": {
+        "summary": "Calculate CLV score",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AccountId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/intelligence/{accountId}/scores/churn": {
+      "post": {
+        "summary": "Calculate churn score",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AccountId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/intelligence/{accountId}/insights": {
+      "get": {
+        "summary": "Get customer insights",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AccountId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/intelligence/{accountId}/segments": {
+      "get": {
+        "summary": "Get segments for an account",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AccountId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/intelligence/segments": {
+      "get": {
+        "summary": "List all segments",
+        "tags": [
+          "Intelligence"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a segment",
+        "tags": [
+          "Intelligence"
+        ],
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
+    },
+    "/intelligence/segments/{segmentId}/members": {
+      "post": {
+        "summary": "Add member to segment",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "name": "segmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
+    },
+    "/intelligence/segments/{segmentId}/members/{accountId}": {
+      "delete": {
+        "summary": "Remove member from segment",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "name": "segmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/AccountId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/intelligence/{accountId}/nba": {
+      "get": {
+        "summary": "Get next best actions",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AccountId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/intelligence/nba/{actionId}/accept": {
+      "post": {
+        "summary": "Accept a next best action",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "name": "actionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/intelligence/nba/{actionId}/reject": {
+      "post": {
+        "summary": "Reject a next best action",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "name": "actionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
     }
   },
   "components": {
