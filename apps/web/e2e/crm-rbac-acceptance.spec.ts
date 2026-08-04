@@ -38,6 +38,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { loginThroughUi } from "./crm-auth-session";
+import { waitForCrmReady } from "./crm-helpers";
 
 const READONLY_EMAIL = process.env.CRM_READONLY_EMAIL ?? "";
 const READONLY_PASSWORD = process.env.CRM_READONLY_PASSWORD ?? "";
@@ -49,12 +50,6 @@ const IMPORT_READER_PASSWORD = process.env.CRM_IMPORT_READER_PASSWORD ?? "TestPa
 
 async function login(page: Page, email: string, password: string): Promise<string> {
   return (await loginThroughUi(page, email, password)).accessToken;
-}
-
-async function waitForCrmReady(page: Page, route: string): Promise<void> {
-  await page.goto(route);
-  await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
-  await page.waitForLoadState("networkidle");
 }
 
 /**
