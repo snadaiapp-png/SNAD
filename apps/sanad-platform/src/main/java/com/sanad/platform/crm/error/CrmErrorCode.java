@@ -32,6 +32,7 @@ public enum CrmErrorCode {
     CRM_STAGE_NOT_FOUND(404, "The requested CRM pipeline stage was not found.", false),
     CRM_IMPORT_NOT_FOUND(404, "The requested CRM import job was not found.", false),
     CRM_CUSTOM_FIELD_NOT_FOUND(404, "The requested CRM custom field was not found.", false),
+    CRM_EMAIL_NOT_FOUND(404, "The requested email log entry was not found.", false),
     RESOURCE_NOT_FOUND(404, "The requested resource was not found.", false),
 
     // ── Duplicate / state-conflict codes (HTTP 409) ──────────────────────
@@ -83,7 +84,10 @@ public enum CrmErrorCode {
     CRM_NBA_NOT_FOUND(404, "The requested next best action was not found.", false),
     CRM_NBA_EXPIRED(409, "The next best action has expired.", false),
     CRM_NBA_VERSION_CONFLICT(409, "The next best action has been modified by another request.", false),
-    CRM_SCORE_CALCULATION_FAILED(500, "Score calculation failed.", true);
+    CRM_SCORE_CALCULATION_FAILED(500, "Score calculation failed.", true),
+
+    // ── Email codes ──────────────────────────────────────────────────────
+    CRM_EMAIL_SEND_FAILED(500, "Failed to send email via the configured provider.", true);
 
     private final int httpStatus;
     private final String defaultMessage;

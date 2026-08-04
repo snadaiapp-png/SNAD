@@ -114,7 +114,9 @@ class CrmFlywayHistoryAssertionTest {
             "20260804.6",   // create crm capacity plans
             "20260804.7",   // create crm workload assignments
             "20260804.8",   // create crm service assignments
-            "20260804.9"    // create crm cases
+            "20260804.9",    // create crm cases
+            // MOD-002 — Email Integration
+            "20260805.1"     // create crm email logs
     );
 
     @Container
