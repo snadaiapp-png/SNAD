@@ -1,5 +1,7 @@
 package com.sanad.platform.security;
 
+import com.sanad.platform.access.AccessDecisionResponse;
+import com.sanad.platform.access.evaluation.CapabilityEvaluationService;
 import com.sanad.platform.security.authorization.CapabilityAuthorizationBypass;
 import com.sanad.platform.security.service.JwtTokenProvider;
 import org.mockito.Mockito;
@@ -14,6 +16,8 @@ import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+
+import java.util.UUID;
 
 /** Test-only boundary for integration suites that predate authentication. */
 @TestConfiguration
@@ -40,6 +44,23 @@ public class SecurityPermitAllTestConfig {
     @Primary
     public JwtTokenProvider testJwtTokenProvider() {
         return Mockito.mock(JwtTokenProvider.class);
+    }
+
+    /**
+     * Always-allow RBAC evaluation so that {@code @RequireCapability} methods
+     * are reachable in integration tests without seeding roles/capabilities.
+     */
+    @Bean
+    @Primary
+    public CapabilityEvaluationService testCapabilityEvaluationService() {
+        CapabilityEvaluationService mock = Mockito.mock(CapabilityEvaluationService.class);
+        Mockito.when(mock.evaluate(Mockito.any(UUID.class), Mockito.any(UUID.class),
+                        Mockito.anyString(), Mockito.any()))
+                .thenAnswer(invocation -> new AccessDecisionResponse(
+                        invocation.getArgument(0), invocation.getArgument(1),
+                        invocation.getArgument(3), invocation.getArgument(2),
+                        true, "ALLOW", UUID.randomUUID(), "TEST_ROLE"));
+        return mock;
     }
 
     /** Exists only in test sources; no production bean can silently enable it. */
