@@ -63,6 +63,7 @@ class CrmPostgresMigrationTest {
     private static final String CRM_RLS_ENABLE_VERSION = "20260730.1";
     private static final String CRM_RLS_DISABLE_VERSION = "20260730.2";
     private static final String CRM_RLS_RE_ENABLE_VERSION = "20260802.1";
+    private static final String CRM_CASES_VERSION = "20260804.9";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -111,6 +112,8 @@ class CrmPostgresMigrationTest {
             "crm_customer_scores", "crm_customer_score_history", "crm_scoring_models",
             "crm_customer_segments", "crm_segment_memberships",
             "crm_next_best_actions");
+
+    private static final List<String> CRM_CASES_TABLES = List.of("crm_cases");
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
@@ -180,7 +183,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION),
                         MigrationVersion.fromVersion(CRM_RLS_ENABLE_VERSION),
                         MigrationVersion.fromVersion(CRM_RLS_DISABLE_VERSION),
-                        MigrationVersion.fromVersion(CRM_RLS_RE_ENABLE_VERSION));
+                        MigrationVersion.fromVersion(CRM_RLS_RE_ENABLE_VERSION),
+                        MigrationVersion.fromVersion(CRM_CASES_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -238,7 +242,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION),
                         MigrationVersion.fromVersion(CRM_RLS_ENABLE_VERSION),
                         MigrationVersion.fromVersion(CRM_RLS_DISABLE_VERSION),
-                        MigrationVersion.fromVersion(CRM_RLS_RE_ENABLE_VERSION));
+                        MigrationVersion.fromVersion(CRM_RLS_RE_ENABLE_VERSION),
+                        MigrationVersion.fromVersion(CRM_CASES_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -354,8 +359,9 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_009_COMMAND_ARTIFACTS_VERSION, "SQL", "create crm command artifacts");
         assertMigration(jdbc, CRM_010_INTELLIGENCE_VERSION, "SQL", "create crm customer intelligence");
         assertMigration(jdbc, CRM_010_SCORING_MODELS_VERSION, "SQL", "seed default scoring models");
+        assertMigration(jdbc, CRM_CASES_VERSION, "SQL", "create crm cases");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(CRM_RLS_RE_ENABLE_VERSION);
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_CASES_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 
@@ -512,7 +518,8 @@ class CrmPostgresMigrationTest {
                         CRM_ADDRESS_COMMUNICATION_TABLES,
                         CRM_008B_NEW_TABLES,
                         CRM_009_NEW_TABLES,
-                        CRM_010_NEW_TABLES)
+                        CRM_010_NEW_TABLES,
+                        CRM_CASES_TABLES)
                 .flatMap(List::stream)
                 .sorted()
                 .toList();
