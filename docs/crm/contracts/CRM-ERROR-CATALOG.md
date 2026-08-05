@@ -101,6 +101,7 @@ This is enforced by `CrmExceptionHandler` and verified by
 | Code | Message | Retryable | When used |
 |---|---|---|---|
 | `VALIDATION_ERROR` | The request contains invalid fields. | No | Bean-validation failure. The `fieldErrors` array lists each offending field with a per-field code and message. |
+| `CRM_REPORT_TYPE_INVALID` | The specified report type is not supported. | No | POST `/crm/reports/generate` with an invalid `reportType` value. |
 
 ### Per-field codes (in `fieldErrors[].code`)
 
@@ -139,6 +140,7 @@ This is enforced by `CrmExceptionHandler` and verified by
 |---|---|---|---|
 | `CRM_SCORE_CALCULATION_FAILED` | Score calculation failed. | Yes | POST `/intelligence/accounts/{id}/scores/calculate` — the scoring algorithm threw an exception. The client MAY retry. |
 | `CRM_EMAIL_SEND_FAILED` | Failed to send email via the configured provider. | Yes | POST `/crm/email/send` — the email provider (Resend, SMTP, HTTP proxy) returned an error or the connection failed. The client MAY retry. |
+| `CRM_REPORT_GENERATION_FAILED` | Failed to generate the requested report. | Yes | POST `/crm/reports/generate` — the report generation process encountered an error. The client MAY retry. |
 | `INTERNAL_ERROR` | An internal server error occurred. Please try again later. | Yes | Any uncaught exception. The full stack trace is logged at ERROR with the `requestId` so operators can correlate. The body NEVER contains the stack trace, SQL, table name, or package name. |
 
 ## Forbidden in error bodies

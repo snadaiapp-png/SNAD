@@ -1966,6 +1966,54 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/reports/generate": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["generateReport"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/reports/summary": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["getSummary"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/reports/types": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["listReportTypes"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/teams": {
         readonly parameters: {
             readonly query?: never;
@@ -3025,6 +3073,16 @@ export type components = {
             readonly decision: "APPROVED" | "REJECTED" | "EXPIRED" | "CANCELLED";
             readonly comment?: string;
         };
+        readonly GenerateReportRequest: {
+            readonly reportType: string;
+            /** Format: date-time */
+            readonly dateFrom: string;
+            /** Format: date-time */
+            readonly dateTo: string;
+            readonly filters?: {
+                readonly [key: string]: string;
+            };
+        };
         readonly ImportErrorResponse: {
             /** Format: uuid */
             readonly id?: string;
@@ -3732,6 +3790,31 @@ export type components = {
             readonly recordType: "ACCOUNT" | "CONTACT" | "LEAD" | "OPPORTUNITY" | "ACTIVITY" | "TASK";
             readonly reason: string;
         };
+        readonly ReportChart: {
+            readonly title?: string;
+            readonly chartType?: string;
+            readonly labels?: readonly string[];
+            readonly values?: readonly number[];
+        };
+        readonly ReportData: {
+            /** Format: uuid */
+            readonly reportId?: string;
+            /** @enum {string} */
+            readonly reportType?: "LEAD_PIPELINE" | "OPPORTUNITY_PIPELINE" | "ACTIVITY_SUMMARY" | "EMAIL_ENGAGEMENT" | "CONVERSION_FUNNEL" | "SALES_FORECAST";
+            /** Format: date-time */
+            readonly generatedAt?: string;
+            /** Format: date-time */
+            readonly dateFrom?: string;
+            /** Format: date-time */
+            readonly dateTo?: string;
+            readonly rows?: readonly {
+                readonly [key: string]: unknown;
+            }[];
+            readonly summary?: {
+                readonly [key: string]: unknown;
+            };
+            readonly charts?: readonly components["schemas"]["ReportChart"][];
+        };
         readonly ResolveRequest: {
             readonly resolution?: string;
         };
@@ -3964,6 +4047,10 @@ export type components = {
             readonly data?: components["schemas"]["RelationshipRoleResponse"];
             readonly meta?: components["schemas"]["Meta"];
         };
+        readonly SingleResponseReportData: {
+            readonly data?: components["schemas"]["ReportData"];
+            readonly meta?: components["schemas"]["Meta"];
+        };
         readonly SingleResponseScoreResponse: {
             readonly data?: components["schemas"]["ScoreResponse"];
             readonly meta?: components["schemas"]["Meta"];
@@ -3974,6 +4061,10 @@ export type components = {
         };
         readonly SingleResponseSegmentResponse: {
             readonly data?: components["schemas"]["SegmentResponse"];
+            readonly meta?: components["schemas"]["Meta"];
+        };
+        readonly "SingleResponseString[]": {
+            readonly data?: readonly string[];
             readonly meta?: components["schemas"]["Meta"];
         };
         readonly StageResponse: {
@@ -8244,6 +8335,73 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseRelationshipRoleResponse"];
+                };
+            };
+        };
+    };
+    readonly generateReport: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["GenerateReportRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseReportData"];
+                };
+            };
+        };
+    };
+    readonly getSummary: {
+        readonly parameters: {
+            readonly query: {
+                readonly dateFrom: string;
+                readonly dateTo: string;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                };
+            };
+        };
+    };
+    readonly listReportTypes: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseString[]"];
                 };
             };
         };
