@@ -8292,7 +8292,12 @@
           "200": {
             "description": "Tracking pixel"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/email/track/click/{logId}": {
@@ -8317,7 +8322,12 @@
           "302": {
             "description": "Redirect to target URL"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     }
   },
