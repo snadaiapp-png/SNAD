@@ -87,7 +87,11 @@ public enum CrmErrorCode {
     CRM_SCORE_CALCULATION_FAILED(500, "Score calculation failed.", true),
 
     // ── Email codes ──────────────────────────────────────────────────────
-    CRM_EMAIL_SEND_FAILED(500, "Failed to send email via the configured provider.", true);
+    CRM_EMAIL_SEND_FAILED(500, "Failed to send email via the configured provider.", true),
+
+    // ── Reporting codes ──────────────────────────────────────────────────
+    CRM_REPORT_GENERATION_FAILED(500, "Failed to generate the requested report.", true),
+    CRM_REPORT_TYPE_INVALID(400, "The specified report type is not supported.", false);
 
     private final int httpStatus;
     private final String defaultMessage;
