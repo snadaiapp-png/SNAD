@@ -5,6 +5,7 @@ import com.sanad.platform.crm.email.domain.EmailAddress;
 import com.sanad.platform.crm.email.domain.EmailLogPort.EmailLogEntry;
 import com.sanad.platform.crm.email.domain.EmailMessage;
 import com.sanad.platform.crm.email.domain.EmailSendResult;
+import com.sanad.platform.crm.email.domain.TemplateVariables;
 import com.sanad.platform.crm.pagination.CrmEnvelopes;
 import com.sanad.platform.security.authorization.RequireCapability;
 import jakarta.validation.Valid;
@@ -55,7 +56,7 @@ public class EmailController {
                 .textBody(request.textBody())
                 .htmlBody(request.htmlBody())
                 .templateName(request.templateName())
-                .templateVariables(request.templateVariables() != null ? request.templateVariables() : Map.of())
+                .templateVariables(request.templateVariables() != null ? TemplateVariables.of(request.templateVariables()) : TemplateVariables.EMPTY)
                 .tenantId(tenantId.toString())
                 .relatedEntityType(request.relatedEntityType())
                 .relatedEntityId(request.relatedEntityId() != null ? request.relatedEntityId().toString() : null)
