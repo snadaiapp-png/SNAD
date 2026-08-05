@@ -2,6 +2,7 @@ package com.sanad.platform.crm.email.infrastructure;
 
 import com.sanad.platform.crm.email.domain.EmailTemplatePort;
 import com.sanad.platform.crm.email.domain.EmailTemplatePort.RenderedEmail;
+import com.sanad.platform.crm.email.domain.TemplateVariables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -28,7 +29,7 @@ public class MustacheTemplateEngine implements EmailTemplatePort {
     }
 
     @Override
-    public RenderedEmail render(String templateName, Map<String, Object> variables, String locale) {
+    public RenderedEmail render(String templateName, TemplateVariables variables, String locale) {
         TemplateDefinition template = templates.get(templateName);
         if (template == null) {
             throw new IllegalArgumentException("Template not found: " + templateName);
@@ -58,10 +59,10 @@ public class MustacheTemplateEngine implements EmailTemplatePort {
     /**
      * Simple Mustache-like variable rendering: replaces {{key}} with value.
      */
-    private String renderString(String template, Map<String, Object> variables) {
+    private String renderString(String template, TemplateVariables variables) {
         if (template == null) return "";
         String result = template;
-        for (Map.Entry<String, Object> entry : variables.entrySet()) {
+        for (Map.Entry<String, Object> entry : variables.values().entrySet()) {
             String placeholder = "{{" + entry.getKey() + "}}";
             String value = entry.getValue() != null ? entry.getValue().toString() : "";
             result = result.replace(placeholder, value);

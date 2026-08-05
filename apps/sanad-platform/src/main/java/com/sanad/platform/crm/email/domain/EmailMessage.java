@@ -1,6 +1,7 @@
 package com.sanad.platform.crm.email.domain;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -19,11 +20,11 @@ public record EmailMessage(
         String textBody,
         String htmlBody,
         String templateName,
-        java.util.Map<String, Object> templateVariables,
+        TemplateVariables templateVariables,
         String tenantId,
         String relatedEntityType,
         String relatedEntityId,
-        java.util.Map<String, String> metadata
+        Map<String, String> metadata
 ) {
 
     /** Compact constructor with defaults. */
@@ -35,11 +36,11 @@ public record EmailMessage(
         textBody = textBody != null ? textBody : "";
         htmlBody = htmlBody != null ? htmlBody : "";
         templateName = templateName != null ? templateName : "";
-        templateVariables = templateVariables != null ? templateVariables : java.util.Map.of();
+        templateVariables = templateVariables != null ? templateVariables : TemplateVariables.EMPTY;
         tenantId = tenantId != null ? tenantId : "";
         relatedEntityType = relatedEntityType != null ? relatedEntityType : "";
         relatedEntityId = relatedEntityId != null ? relatedEntityId : "";
-        metadata = metadata != null ? metadata : java.util.Map.of();
+        metadata = metadata != null ? metadata : Map.of();
     }
 
     /** Builder for fluent construction. */
@@ -56,11 +57,11 @@ public record EmailMessage(
         private String textBody;
         private String htmlBody;
         private String templateName;
-        private java.util.Map<String, Object> templateVariables;
+        private TemplateVariables templateVariables;
         private String tenantId;
         private String relatedEntityType;
         private String relatedEntityId;
-        private java.util.Map<String, String> metadata;
+        private Map<String, String> metadata;
 
         public Builder from(EmailAddress from) { this.from = from; return this; }
         public Builder to(EmailAddress... to) { this.to = List.of(to); return this; }
@@ -71,11 +72,11 @@ public record EmailMessage(
         public Builder textBody(String textBody) { this.textBody = textBody; return this; }
         public Builder htmlBody(String htmlBody) { this.htmlBody = htmlBody; return this; }
         public Builder templateName(String templateName) { this.templateName = templateName; return this; }
-        public Builder templateVariables(java.util.Map<String, Object> vars) { this.templateVariables = vars; return this; }
+        public Builder templateVariables(TemplateVariables vars) { this.templateVariables = vars; return this; }
         public Builder tenantId(String tenantId) { this.tenantId = tenantId; return this; }
         public Builder relatedEntityType(String type) { this.relatedEntityType = type; return this; }
         public Builder relatedEntityId(String id) { this.relatedEntityId = id; return this; }
-        public Builder metadata(java.util.Map<String, String> metadata) { this.metadata = metadata; return this; }
+        public Builder metadata(Map<String, String> metadata) { this.metadata = metadata; return this; }
 
         public EmailMessage build() {
             return new EmailMessage(from, to, cc, bcc, subject, textBody, htmlBody,

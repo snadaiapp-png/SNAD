@@ -42,6 +42,7 @@ a code is a BREAKING change and must follow the deprecation policy in
 | `CRM_STAGE_NOT_FOUND` | The requested CRM pipeline stage was not found. | No | Yes | GET `/pipelines/{id}/stages/{stageId}` — same rules. |
 | `CRM_IMPORT_NOT_FOUND` | The requested CRM import job was not found. | No | Yes | GET `/imports/{jobId}` — same rules. |
 | `CRM_CUSTOM_FIELD_NOT_FOUND` | The requested CRM custom field was not found. | No | Yes | GET `/custom-fields/{id}` — same rules. |
+| `CRM_EMAIL_NOT_FOUND` | The requested email log entry was not found. | No | Yes | GET `/crm/email/logs/{logId}` or GET `/crm/email/logs/entity/{type}/{id}` — the email log does not exist or belongs to another tenant. |
 | `CRM_SCORE_NOT_FOUND` | The requested score was not found. | No | Yes | GET `/intelligence/accounts/{id}/scores` — the account has no scores of the requested type. |
 | `CRM_SEGMENT_NOT_FOUND` | The requested segment was not found. | No | Yes | GET/DELETE `/intelligence/segments/{id}` — the segment does not exist or belongs to another tenant. |
 | `CRM_SEGMENT_MEMBER_NOT_FOUND` | The segment membership was not found. | No | Yes | DELETE `/intelligence/segments/{id}/memberships/{membershipId}` — the membership does not exist. |
@@ -137,6 +138,7 @@ This is enforced by `CrmExceptionHandler` and verified by
 | Code | Message | Retryable | When used |
 |---|---|---|---|
 | `CRM_SCORE_CALCULATION_FAILED` | Score calculation failed. | Yes | POST `/intelligence/accounts/{id}/scores/calculate` — the scoring algorithm threw an exception. The client MAY retry. |
+| `CRM_EMAIL_SEND_FAILED` | Failed to send email via the configured provider. | Yes | POST `/crm/email/send` — the email provider (Resend, SMTP, HTTP proxy) returned an error or the connection failed. The client MAY retry. |
 | `INTERNAL_ERROR` | An internal server error occurred. Please try again later. | Yes | Any uncaught exception. The full stack trace is logged at ERROR with the `requestId` so operators can correlate. The body NEVER contains the stack trace, SQL, table name, or package name. |
 
 ## Forbidden in error bodies

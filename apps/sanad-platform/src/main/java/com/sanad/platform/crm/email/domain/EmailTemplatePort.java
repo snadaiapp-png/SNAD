@@ -1,7 +1,5 @@
 package com.sanad.platform.crm.email.domain;
 
-import java.util.Map;
-
 /**
  * Email template port — bounded context for email template rendering.
  * <p>
@@ -18,7 +16,7 @@ public interface EmailTemplatePort {
      * @param locale       the locale for i18n (e.g., "en", "ar")
      * @return the rendered email content with subject, textBody, htmlBody
      */
-    RenderedEmail render(String templateName, Map<String, Object> variables, String locale);
+    RenderedEmail render(String templateName, TemplateVariables variables, String locale);
 
     /**
      * Check if a template exists.
