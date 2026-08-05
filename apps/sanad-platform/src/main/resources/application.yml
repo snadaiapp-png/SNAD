@@ -129,6 +129,24 @@ snad:
       bearer-token: ${SECURITY_NOTIFICATION_BEARER_TOKEN:}
       resend-api-key: ${SECURITY_NOTIFICATION_RESEND_API_KEY:}
 
+  # CRM Email Integration (MOD-002)
+  crm:
+    email:
+      provider: ${CRM_EMAIL_PROVIDER:local}
+      from-address: ${CRM_EMAIL_FROM:CRM <noreply@localhost>}
+      application-base-url: ${APPLICATION_BASE_URL:https://snad-app.vercel.app}
+      resend-api-key: ${CRM_EMAIL_RESEND_API_KEY:}
+      proxy-endpoint: ${CRM_EMAIL_PROXY_ENDPOINT:}
+      proxy-bearer-token: ${CRM_EMAIL_PROXY_BEARER_TOKEN:}
+      smtp-host: ${CRM_EMAIL_SMTP_HOST:}
+      smtp-port: ${CRM_EMAIL_SMTP_PORT:587}
+      smtp-username: ${CRM_EMAIL_SMTP_USERNAME:}
+      smtp-password: ${CRM_EMAIL_SMTP_PASSWORD:}
+      smtp-tls: ${CRM_EMAIL_SMTP_TLS:true}
+      tracking-base-url: ${CRM_EMAIL_TRACKING_BASE_URL:}
+      tracking-enabled: ${CRM_EMAIL_TRACKING_ENABLED:true}
+      click-tracking-enabled: ${CRM_EMAIL_CLICK_TRACKING_ENABLED:true}
+
   # CRM-008 remediation: Operational alerting configuration
   ops:
     alerting:

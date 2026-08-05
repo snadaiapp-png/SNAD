@@ -48,7 +48,8 @@ echo ""
 echo "Checking domain ports for Map<String,Object> leakage..."
 MAP_VIOLATIONS=0
 for d in $DOMAIN_DIRS; do
-  hits=$(grep -rn "Map<String, Object>" "$d" 2>/dev/null || true)
+  # Exclude TemplateVariables.java — it is the typed wrapper that encapsulates Map
+  hits=$(grep -rn "Map<String, Object>" "$d" 2>/dev/null | grep -v "TemplateVariables.java" || true)
   count=$(echo "$hits" | grep -c "." || true)
   MAP_VIOLATIONS=$((MAP_VIOLATIONS + count))
 done
