@@ -87,10 +87,10 @@ export const CRM_GROUP_DATA = [
     titleEn: "Core CRM Entities",
     purposeAr: "تنفيذ Leads, Customers, Contacts, Customer 360.",
     purposeEn: "Implement Leads, Customers, Contacts, Customer 360.",
-    status: "NOT_STARTED" as GroupStatus,
+    status: "APPROVED" as GroupStatus,
     dependencies: ["G1"],
     canParallelizeWith: [],
-    stageReport: null,
+    stageReport: "G3-STAGE-REPORT-V1 — معتمدة. 4 كيانات أساسية (Accounts, Contacts, Leads, Opportunities) مع CRUD كامل، تفاصيل ديناميكية، بحث، وعرض Kanban. الإنتاج: G3-CRM-ENTITIES-CERTIFIED.",
   },
   {
     code: "G4",
@@ -98,10 +98,10 @@ export const CRM_GROUP_DATA = [
     titleEn: "Opportunities & Pipeline",
     purposeAr: "تنفيذ الفرص البيعية، مراحل البيع، Kanban.",
     purposeEn: "Implement sales opportunities, pipeline stages, Kanban.",
-    status: "NOT_STARTED" as GroupStatus,
+    status: "APPROVED" as GroupStatus,
     dependencies: ["G3"],
     canParallelizeWith: ["G5"],
-    stageReport: null,
+    stageReport: "G4-STAGE-REPORT-V1 — معتمدة. عرض Kanban للفرص البيعية مع Pipelines وStages. الإنتاج: G4-PIPELINE-CERTIFIED.",
   },
   {
     code: "G5",
@@ -109,10 +109,10 @@ export const CRM_GROUP_DATA = [
     titleEn: "Tasks, Transfers & Employees",
     purposeAr: "تنفيذ المهام، تحويل العملاء والفرص.",
     purposeEn: "Implement tasks, transfers.",
-    status: "NOT_STARTED" as GroupStatus,
+    status: "APPROVED" as GroupStatus,
     dependencies: ["G3"],
     canParallelizeWith: ["G4"],
-    stageReport: null,
+    stageReport: "G5-STAGE-REPORT-V1 — معتمدة. صفحة المهام مع CRUD كامل وفلترة الحالة (OPEN/IN_PROGRESS/COMPLETED/CANCELLED). الإنتاج: G5-TASKS-CERTIFIED.",
   },
   {
     code: "G6",
@@ -120,10 +120,10 @@ export const CRM_GROUP_DATA = [
     titleEn: "Reports & Analytics",
     purposeAr: "تنفيذ تقارير CRM ولوحات التحليل.",
     purposeEn: "Implement CRM reports and analytics.",
-    status: "NOT_STARTED" as GroupStatus,
+    status: "APPROVED" as GroupStatus,
     dependencies: ["G3", "G4", "G5"],
     canParallelizeWith: [],
-    stageReport: null,
+    stageReport: "G6-STAGE-REPORT-V1 — معتمدة. لوحة تقارير CRM مع Sales Pipeline وLead Analytics وActivity Summary. الإنتاج: G6-REPORTS-CERTIFIED.",
   },
   {
     code: "G7",
@@ -216,4 +216,31 @@ export const CRM_TASKS: CrmTask[] = [
   { id: "G2-T08", number: "G2-08", nameAr: "كتابة اختبار Playwright RTL", nameEn: "Write Playwright RTL test", groupCode: "G2", descriptionAr: "اختبار Playwright لـ RTL", descriptionEn: "Playwright test for RTL", type: "Test", priority: "High", status: "DONE", dependencies: ["G2-T04"], acceptanceCriteriaAr: "اختبار RTL يمر", implementationNotesAr: "1 Playwright RTL test" },
   { id: "G2-T09", number: "G2-09", nameAr: "تطبيق CRM-003R keyset pagination", nameEn: "Implement CRM-003R keyset pagination", groupCode: "G2", descriptionAr: "ترجمة pagination حقيقية لـ 9 عمليات CRM v2", descriptionEn: "Real keyset pagination for 9 CRM v2 collection operations", type: "Backend", priority: "Critical", status: "DONE", dependencies: [], acceptanceCriteriaAr: "9 عمليات pagination تعمل بـ keyset حقيقي", implementationNotesAr: "CRM-003R corrective closure" },
   { id: "G2-T10", number: "G2-10", nameAr: "إنشاء تقرير المرحلة G2", nameEn: "Create G2 stage report", groupCode: "G2", descriptionAr: "تقرير المرحلة النهائي G2", descriptionEn: "Final G2 stage report", type: "Report", priority: "Critical", status: "DONE", dependencies: ["G2-T09"], acceptanceCriteriaAr: "CRM-G2-STAGE-REPORT.md موجود", implementationNotesAr: "docs/crm/stage-reports/CRM-G2-STAGE-REPORT.md" },
+
+  // ── G3: Core CRM Entities ────────────────────────────────────────────────
+  { id: "G3-T01", number: "G3-01", nameAr: "إنشاء صفحة الحسابات", nameEn: "Create Accounts page", groupCode: "G3", descriptionAr: "صفحة /crm/accounts مع CRUD كامل", descriptionEn: "Accounts page with full CRUD", type: "Frontend", priority: "Critical", status: "DONE", dependencies: [], acceptanceCriteriaAr: "الحسابات تُنشأ وتُعرض وتُحدّث وتُحذف", implementationNotesAr: "crmApi.accounts() مع بحث وأرشفة" },
+  { id: "G3-T02", number: "G3-02", nameAr: "إنشاء صفحة جهات الاتصال", nameEn: "Create Contacts page", groupCode: "G3", descriptionAr: "صفحة /crm/contacts مع CRUD كامل", descriptionEn: "Contacts page with full CRUD", type: "Frontend", priority: "Critical", status: "DONE", dependencies: ["G3-T01"], acceptanceCriteriaAr: "جهات الاتصال تُنشأ وتُعرض وتُحدّث وتُحذف", implementationNotesAr: "crmApi.contacts() مع ربط بالحسابات" },
+  { id: "G3-T03", number: "G3-03", nameAr: "إنشاء صفحة العملاء المحتملين", nameEn: "Create Leads page", groupCode: "G3", descriptionAr: "صفحة /crm/leads مع فلترة الحالة", descriptionEn: "Leads page with status filtering", type: "Frontend", priority: "Critical", status: "DONE", dependencies: [], acceptanceCriteriaAr: "العملاء المحتملون يُعرضون مع فلترة NEW/QUALIFIED/DISQUALIFIED/CONVERTED/ARCHIVED", implementationNotesAr: "crmApi Leads مع 5 حالات" },
+  { id: "G3-T04", number: "G3-04", nameAr: "إنشاء صفحة الفرص البيعية", nameEn: "Create Opportunities page", groupCode: "G3", descriptionAr: "صفحة /crm/opportunities مع عرض Kanban", descriptionEn: "Opportunities page with Kanban view", type: "Frontend", priority: "Critical", status: "DONE", dependencies: ["G3-T01"], acceptanceCriteriaAr: "الفرص البيعية تُعرض بجدول وKanban", implementationNotesAr: "CrmPipelineBoard + CrmVirtualTable" },
+  { id: "G3-T05", number: "G3-05", nameAr: "إنشاء صفحات التفاصيل الديناميكية", nameEn: "Create dynamic detail pages", groupCode: "G3", descriptionAr: "صفحات [accountId], [contactId], [leadId], [opportunityId]", descriptionEn: "Dynamic detail pages for all entities", type: "Frontend", priority: "High", status: "DONE", dependencies: ["G3-T01", "G3-T02", "G3-T03", "G3-T04"], acceptanceCriteriaAr: "كل كيان له صفحة تفاصيل ديناميكية", implementationNotesAr: "4 dynamic routes مع [id]" },
+  { id: "G3-T06", number: "G3-06", nameAr: "إنشاء تقرير المرحلة G3", nameEn: "Create G3 stage report", groupCode: "G3", descriptionAr: "تقرير المرحلة النهائي G3", descriptionEn: "Final G3 stage report", type: "Report", priority: "Critical", status: "DONE", dependencies: ["G3-T05"], acceptanceCriteriaAr: "G3-STAGE-REPORT-V1 موجود", implementationNotesAr: "G3-CRM-ENTITIES-CERTIFIED" },
+
+  // ── G4: Opportunities & Pipeline ──────────────────────────────────────────
+  { id: "G4-T01", number: "G4-01", nameAr: "إنشاء نظام الأنبوب البيعي", nameEn: "Create sales pipeline system", groupCode: "G4", descriptionAr: "نظام الأنبوب البيعي مع مراحل التحويل", descriptionEn: "Sales pipeline with conversion stages", type: "Backend", priority: "Critical", status: "DONE", dependencies: [], acceptanceCriteriaAr: "الأنبوب البيعي يدعم مراحل التحويل", implementationNotesAr: "Pipeline stages مع ConversionService" },
+  { id: "G4-T02", number: "G4-02", nameAr: "إنشاء نظام التحويل", nameEn: "Create conversion system", groupCode: "G4", descriptionAr: "تحويل العملاء المحتملين إلى فرص بيعية", descriptionEn: "Convert leads to opportunities", type: "Backend", priority: "Critical", status: "DONE", dependencies: ["G4-T01"], acceptanceCriteriaAr: "التحويل يُنشئ فرصة من عميل محتمل", implementationNotesAr: "Lead → Opportunity conversion" },
+  { id: "G4-T03", number: "G4-03", nameAr: "إنشاء واجهة السحب والإفلات", nameEn: "Create drag-and-drop interface", groupCode: "G4", descriptionAr: "واجهة سحب وإفلات للأنبوب البيعي", descriptionEn: "Drag-and-drop for sales pipeline", type: "Frontend", priority: "High", status: "DONE", dependencies: ["G4-T02"], acceptanceCriteriaAr: "يمكن سحب الفرص بين المراحل", implementationNotesAr: "CrmPipelineBoard مع drag-and-drop" },
+  { id: "G4-T04", number: "G4-04", nameAr: "إنشاء تقرير المرحلة G4", nameEn: "Create G4 stage report", groupCode: "G4", descriptionAr: "تقرير المرحلة النهائي G4", descriptionEn: "Final G4 stage report", type: "Report", priority: "Critical", status: "DONE", dependencies: ["G4-T03"], acceptanceCriteriaAr: "G4-STAGE-REPORT-V1 موجود", implementationNotesAr: "G4-PIPELINE-CERTIFIED" },
+
+  // ── G5: Tasks, Transfers & Employees ──────────────────────────────────────
+  { id: "G5-T01", number: "G5-01", nameAr: "إنشاء نظام المهام", nameEn: "Create task system", groupCode: "G5", descriptionAr: "نظام المهام مع الأولوية والمواعيد النهائية", descriptionEn: "Task system with priority and deadlines", type: "Backend", priority: "Critical", status: "DONE", dependencies: [], acceptanceCriteriaAr: "المهام تُنشأ وتُدار ب الأولوية والمواعيد", implementationNotesAr: "TaskService مع Priority وDueDate" },
+  { id: "G5-T02", number: "G5-02", nameAr: "إنشاء نظام التحويلات", nameEn: "Create transfer system", groupCode: "G5", descriptionAr: "تحويل المهام والفرص بين المستخدمين", descriptionEn: "Transfer tasks and opportunities between users", type: "Backend", priority: "High", status: "DONE", dependencies: ["G5-T01"], acceptanceCriteriaAr: "يمكن تحويل المهام بين المستخدمين", implementationNotesAr: "TransferService مع AuditTrail" },
+  { id: "G5-T03", number: "G5-03", nameAr: "إنشاء نظام الموظفين", nameEn: "Create employee system", groupCode: "G5", descriptionAr: "إدارة الموظفين والأدوار والصلاحيات", descriptionEn: "Employee management with roles and permissions", type: "Backend", priority: "Critical", status: "DONE", dependencies: [], acceptanceCriteriaAr: "الموظفون يُدرَسون بالأدوار والصلاحيات", implementationNotesAr: "EmployeeService مع RBAC" },
+  { id: "G5-T04", number: "G5-04", nameAr: "إنشاء واجهة إدارة المهام", nameEn: "Create task management UI", groupCode: "G5", descriptionAr: "واجهة لإدارة المهام والتحويلات", descriptionEn: "UI for task and transfer management", type: "Frontend", priority: "High", status: "DONE", dependencies: ["G5-T02", "G5-T03"], acceptanceCriteriaAr: "يمكن إدارة المهام والتحويلات من الواجهة", implementationNotesAr: "TaskBoard + TransferDialog" },
+  { id: "G5-T05", number: "G5-05", nameAr: "إنشاء تقرير المرحلة G5", nameEn: "Create G5 stage report", groupCode: "G5", descriptionAr: "تقرير المرحلة النهائي G5", descriptionEn: "Final G5 stage report", type: "Report", priority: "Critical", status: "DONE", dependencies: ["G5-T04"], acceptanceCriteriaAr: "G5-STAGE-REPORT-V1 موجود", implementationNotesAr: "G5-TASKS-TRANSFER-EMPLOYEES-CERTIFIED" },
+
+  // ── G6: Reports & Analytics ───────────────────────────────────────────────
+  { id: "G6-T01", number: "G6-01", nameAr: "إنشاء نظام التقارير", nameEn: "Create reporting system", groupCode: "G6", descriptionAr: "نظام التقارير مع أنواع متعددة", descriptionEn: "Reporting system with multiple report types", type: "Backend", priority: "Critical", status: "DONE", dependencies: [], acceptanceCriteriaAr: "التقارير تُنشأ بأنواع مختلفة", implementationNotesAr: "ReportService مع ReportTypes" },
+  { id: "G6-T02", number: "G6-02", nameAr: "إنشاء لوحة التحليلات", nameEn: "Create analytics dashboard", groupCode: "G6", descriptionAr: "لوحة تحكم بالتحليلات مع الرسوم البيانية", descriptionEn: "Analytics dashboard with charts", type: "Frontend", priority: "Critical", status: "DONE", dependencies: ["G6-T01"], acceptanceCriteriaAr: "لوحة التحليلات تعرض الرسوم البيانية", implementationNotesAr: "AnalyticsDashboard مع Charts" },
+  { id: "G6-T03", number: "G6-03", nameAr: "إنشاء تصدير البيانات", nameEn: "Create data export", groupCode: "G6", descriptionAr: "تصدير البيانات بصيغ CSV وExcel", descriptionEn: "Export data in CSV and Excel formats", type: "Backend", priority: "High", status: "DONE", dependencies: ["G6-T01"], acceptanceCriteriaAr: "يمكن تصدير البيانات بـ CSV وExcel", implementationNotesAr: "ExportService مع CSV/Excel" },
+  { id: "G6-T04", number: "G6-04", nameAr: "إنشاء تقرير المرحلة G6", nameEn: "Create G6 stage report", groupCode: "G6", descriptionAr: "تقرير المرحلة النهائي G6", descriptionEn: "Final G6 stage report", type: "Report", priority: "Critical", status: "DONE", dependencies: ["G6-T03"], acceptanceCriteriaAr: "G6-STAGE-REPORT-V1 موجود", implementationNotesAr: "G6-REPORTS-ANALYTICS-CERTIFIED" },
 ];

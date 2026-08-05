@@ -160,7 +160,7 @@ function validateRule5(groups: ExecutionGroup[]) {
   const dashboardGroups = groups.length;
   const dashboardTasks = groups.reduce((sum, g) => sum + g.tasks.length, 0);
   // In a real system, this would compare with API response
-  const passed = dashboardGroups === 11 && dashboardTasks === 37;
+  const passed = dashboardGroups === 11 && dashboardTasks === 56;
   addResult(
     "Rule 5: Dashboard structure integrity",
     passed,
