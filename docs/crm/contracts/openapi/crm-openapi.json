@@ -4460,6 +4460,260 @@
         ]
       }
     },
+    "/email/logs": {
+      "get": {
+        "tags": [
+          "email-controller"
+        ],
+        "operationId": "listLogs",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/email/logs/entity/{entityType}/{entityId}": {
+      "get": {
+        "tags": [
+          "email-controller"
+        ],
+        "operationId": "listLogsByEntity",
+        "parameters": [
+          {
+            "name": "entityType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entityId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/email/logs/{logId}": {
+      "get": {
+        "tags": [
+          "email-controller"
+        ],
+        "operationId": "getLog",
+        "parameters": [
+          {
+            "name": "logId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/email/send": {
+      "post": {
+        "tags": [
+          "email-controller"
+        ],
+        "operationId": "sendEmail",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendEmailRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/email/status": {
+      "get": {
+        "tags": [
+          "email-controller"
+        ],
+        "operationId": "getProviderStatus",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/email/track/click/{logId}": {
+      "get": {
+        "tags": [
+          "tracking-controller"
+        ],
+        "operationId": "trackClick",
+        "parameters": [
+          {
+            "name": "logId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "url",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "/"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/email/track/open/{logId}": {
+      "get": {
+        "tags": [
+          "tracking-controller"
+        ],
+        "operationId": "trackOpen",
+        "parameters": [
+          {
+            "name": "logId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "format": "byte"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/imports": {
       "get": {
         "tags": [
@@ -8096,231 +8350,6 @@
                 }
               }
             }
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/email/send": {
-      "post": {
-        "tags": [
-          "crm-email-controller"
-        ],
-        "operationId": "sendEmail",
-        "summary": "Send email (template or raw)",
-        "parameters": [
-          {
-            "name": "CRM.WRITE",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "CRM.EMAIL.WRITE capability required"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SendEmailRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Email sent successfully"
-          },
-          "500": {
-            "description": "CRM_EMAIL_SEND_FAILED"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/email/logs": {
-      "get": {
-        "tags": [
-          "crm-email-controller"
-        ],
-        "operationId": "listLogs",
-        "summary": "List email logs",
-        "parameters": [
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 50,
-              "maximum": 200,
-              "minimum": 1
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "List of email log entries"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/email/logs/{logId}": {
-      "get": {
-        "tags": [
-          "crm-email-controller"
-        ],
-        "operationId": "getLog",
-        "summary": "Get single email log",
-        "parameters": [
-          {
-            "name": "logId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Email log entry"
-          },
-          "404": {
-            "description": "CRM_EMAIL_NOT_FOUND"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/email/logs/entity/{entityType}/{entityId}": {
-      "get": {
-        "tags": [
-          "crm-email-controller"
-        ],
-        "operationId": "listLogsByEntity",
-        "summary": "List logs by related entity",
-        "parameters": [
-          {
-            "name": "entityType",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "entityId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "List of email log entries"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/email/status": {
-      "get": {
-        "tags": [
-          "crm-email-controller"
-        ],
-        "operationId": "getProviderStatus",
-        "summary": "Provider availability status",
-        "responses": {
-          "200": {
-            "description": "Provider status"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/email/track/open/{logId}": {
-      "get": {
-        "tags": [
-          "crm-tracking-controller"
-        ],
-        "operationId": "trackOpen",
-        "summary": "Open pixel tracking (public)",
-        "parameters": [
-          {
-            "name": "logId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Tracking pixel"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/email/track/click/{logId}": {
-      "get": {
-        "tags": [
-          "crm-tracking-controller"
-        ],
-        "operationId": "trackClick",
-        "summary": "Click redirect tracking (public)",
-        "parameters": [
-          {
-            "name": "logId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "302": {
-            "description": "Redirect to target URL"
           }
         },
         "security": [
@@ -12955,6 +12984,72 @@
           }
         }
       },
+      "SendEmailRequest": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "minLength": 1
+          },
+          "to": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "email"
+            },
+            "minItems": 1
+          },
+          "cc": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "bcc": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1
+          },
+          "textBody": {
+            "type": "string"
+          },
+          "htmlBody": {
+            "type": "string"
+          },
+          "templateName": {
+            "type": "string"
+          },
+          "templateVariables": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "relatedEntityType": {
+            "type": "string"
+          },
+          "relatedEntityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "from",
+          "subject",
+          "to"
+        ]
+      },
       "SimulateRuleRequest": {
         "type": "object",
         "properties": {
@@ -14660,66 +14755,6 @@
           "overdueTasks": {
             "type": "integer",
             "format": "int64"
-          }
-        }
-      },
-      "SendEmailRequest": {
-        "type": "object",
-        "required": [
-          "from",
-          "to",
-          "subject"
-        ],
-        "properties": {
-          "from": {
-            "type": "string",
-            "format": "email"
-          },
-          "to": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "format": "email"
-            }
-          },
-          "cc": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "format": "email"
-            }
-          },
-          "bcc": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "format": "email"
-            }
-          },
-          "subject": {
-            "type": "string"
-          },
-          "textBody": {
-            "type": "string"
-          },
-          "htmlBody": {
-            "type": "string"
-          },
-          "templateName": {
-            "type": "string"
-          },
-          "templateVariables": {
-            "type": "object"
-          },
-          "relatedEntityType": {
-            "type": "string"
-          },
-          "relatedEntityId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "metadata": {
-            "type": "object"
           }
         }
       }
