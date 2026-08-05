@@ -61,15 +61,13 @@ WHERE NOT EXISTS (
 );
 
 -- 4. Grant CRM.EMAIL.* capabilities to ADMIN roles in every tenant
-INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, granted_at, granted_by, status)
+INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
 SELECT
     gen_random_uuid(),
     role.tenant_id,
     role.id,
     capability.id,
-    NOW(),
-    NULL,
-    'ACTIVE'
+    NOW()
 FROM roles role
 JOIN access_capabilities capability ON (
     capability.code IN ('CRM.EMAIL.READ', 'CRM.EMAIL.WRITE')
@@ -82,5 +80,4 @@ WHERE role.code = 'ADMIN'
     WHERE rc.tenant_id = role.tenant_id
       AND rc.role_id = role.id
       AND rc.capability_id = capability.id
-      AND rc.status = 'ACTIVE'
-);
+  );
