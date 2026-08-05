@@ -47,6 +47,8 @@ a code is a BREAKING change and must follow the deprecation policy in
 | `CRM_SEGMENT_NOT_FOUND` | The requested segment was not found. | No | Yes | GET/DELETE `/intelligence/segments/{id}` — the segment does not exist or belongs to another tenant. |
 | `CRM_SEGMENT_MEMBER_NOT_FOUND` | The segment membership was not found. | No | Yes | DELETE `/intelligence/segments/{id}/memberships/{membershipId}` — the membership does not exist. |
 | `CRM_NBA_NOT_FOUND` | The requested next best action was not found. | No | Yes | GET/PUT `/intelligence/accounts/{id}/nba` — the NBA does not exist or has been resolved. |
+| `CRM_PORTAL_PROFILE_NOT_FOUND` | The customer portal profile was not found. | No | Yes | GET `/crm/portal/profile` — the customer profile does not exist or belongs to another tenant. |
+| `CRM_PORTAL_TICKET_NOT_FOUND` | The support ticket was not found. | No | Yes | GET `/crm/portal/tickets/{ticketId}` — the ticket does not exist or belongs to another customer. |
 | `RESOURCE_NOT_FOUND` | The requested resource was not found. | No | Yes | Generic 404 fallback. |
 
 **Cross-tenant access:** when Tenant B requests an entity owned by Tenant A,

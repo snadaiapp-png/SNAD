@@ -3834,7 +3834,7 @@
         "tags": [
           "crm-contact-relationship-controller"
         ],
-        "operationId": "updateProfile",
+        "operationId": "updateProfile_1",
         "parameters": [
           {
             "name": "contactId",
@@ -3888,7 +3888,7 @@
         "tags": [
           "crm-contact-relationship-versioned-mutation-controller"
         ],
-        "operationId": "updateProfile_1",
+        "operationId": "updateProfile_2",
         "parameters": [
           {
             "name": "contactId",
@@ -6814,6 +6814,183 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListResponseStageResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/portal/opportunities": {
+      "get": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "getOpportunities",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/portal/profile": {
+      "get": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "getProfile",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "updateProfile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/portal/tickets": {
+      "get": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "getTickets",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "createTicket",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTicketRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/portal/tickets/{ticketId}": {
+      "get": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "getTicket",
+        "parameters": [
+          {
+            "name": "ticketId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
                 }
               }
             }
@@ -10660,6 +10837,23 @@
           "code",
           "displayName",
           "ruleType"
+        ]
+      },
+      "CreateTicketRequest": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "description",
+          "subject"
         ]
       },
       "CreateTransferRequest": {
@@ -14579,6 +14773,27 @@
             "pattern": "[A-Za-z]{3}"
           }
         }
+      },
+      "UpdateProfileRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "email": {
+            "type": "string"
+          },
+          "company": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayName"
+        ]
       },
       "UpdateQueueRequest": {
         "type": "object",
