@@ -91,7 +91,11 @@ public enum CrmErrorCode {
 
     // ── Reporting codes ──────────────────────────────────────────────────
     CRM_REPORT_GENERATION_FAILED(500, "Failed to generate the requested report.", true),
-    CRM_REPORT_TYPE_INVALID(400, "The specified report type is not supported.", false);
+    CRM_REPORT_TYPE_INVALID(400, "The specified report type is not supported.", false),
+
+    // ── Portal codes ─────────────────────────────────────────────────────
+    CRM_PORTAL_PROFILE_NOT_FOUND(404, "The customer portal profile was not found.", false),
+    CRM_PORTAL_TICKET_NOT_FOUND(404, "The support ticket was not found.", false);
 
     private final int httpStatus;
     private final String defaultMessage;
