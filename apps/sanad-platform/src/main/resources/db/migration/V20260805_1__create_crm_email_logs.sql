@@ -47,7 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_crm_email_logs_tenant_to
     ON crm_email_logs (tenant_id, to_address);
 
 CREATE INDEX IF NOT EXISTS idx_crm_email_logs_provider_message
-    ON crm_email_logs (provider_message_id) WHERE provider_message_id IS NOT NULL;
+    ON crm_email_logs (provider_message_id);
 
 -- 3. Seed CRM.EMAIL.READ and CRM.EMAIL.WRITE capabilities
 INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at)
