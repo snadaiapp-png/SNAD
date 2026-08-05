@@ -8104,6 +8104,196 @@
           }
         ]
       }
+    },
+    "/email/send": {
+      "post": {
+        "tags": [
+          "crm-email-controller"
+        ],
+        "operationId": "sendEmail",
+        "summary": "Send email (template or raw)",
+        "parameters": [
+          {
+            "name": "CRM.WRITE",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "CRM.EMAIL.WRITE capability required"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendEmailRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Email sent successfully"
+          },
+          "500": {
+            "description": "CRM_EMAIL_SEND_FAILED"
+          }
+        }
+      }
+    },
+    "/email/logs": {
+      "get": {
+        "tags": [
+          "crm-email-controller"
+        ],
+        "operationId": "listLogs",
+        "summary": "List email logs",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of email log entries"
+          }
+        }
+      }
+    },
+    "/email/logs/{logId}": {
+      "get": {
+        "tags": [
+          "crm-email-controller"
+        ],
+        "operationId": "getLog",
+        "summary": "Get single email log",
+        "parameters": [
+          {
+            "name": "logId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Email log entry"
+          },
+          "404": {
+            "description": "CRM_EMAIL_NOT_FOUND"
+          }
+        }
+      }
+    },
+    "/email/logs/entity/{entityType}/{entityId}": {
+      "get": {
+        "tags": [
+          "crm-email-controller"
+        ],
+        "operationId": "listLogsByEntity",
+        "summary": "List logs by related entity",
+        "parameters": [
+          {
+            "name": "entityType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entityId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of email log entries"
+          }
+        }
+      }
+    },
+    "/email/status": {
+      "get": {
+        "tags": [
+          "crm-email-controller"
+        ],
+        "operationId": "getProviderStatus",
+        "summary": "Provider availability status",
+        "responses": {
+          "200": {
+            "description": "Provider status"
+          }
+        }
+      }
+    },
+    "/email/track/open/{logId}": {
+      "get": {
+        "tags": [
+          "crm-tracking-controller"
+        ],
+        "operationId": "trackOpen",
+        "summary": "Open pixel tracking (public)",
+        "parameters": [
+          {
+            "name": "logId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tracking pixel"
+          }
+        }
+      }
+    },
+    "/email/track/click/{logId}": {
+      "get": {
+        "tags": [
+          "crm-tracking-controller"
+        ],
+        "operationId": "trackClick",
+        "summary": "Click redirect tracking (public)",
+        "parameters": [
+          {
+            "name": "logId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to target URL"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -14435,6 +14625,66 @@
           "overdueTasks": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "SendEmailRequest": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "subject"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "email"
+          },
+          "to": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "cc": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "bcc": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "subject": {
+            "type": "string"
+          },
+          "textBody": {
+            "type": "string"
+          },
+          "htmlBody": {
+            "type": "string"
+          },
+          "templateName": {
+            "type": "string"
+          },
+          "templateVariables": {
+            "type": "object"
+          },
+          "relatedEntityType": {
+            "type": "string"
+          },
+          "relatedEntityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "metadata": {
+            "type": "object"
           }
         }
       }
