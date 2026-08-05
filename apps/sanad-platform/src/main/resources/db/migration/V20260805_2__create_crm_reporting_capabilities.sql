@@ -1,27 +1,31 @@
 -- MOD-003: Reporting Dashboard
 -- Adds CRM.REPORTS.READ capability for reporting access.
 
--- Add reporting capability
-INSERT INTO access_capabilities (id, tenant_id, code, description, created_at)
-SELECT gen_random_uuid(), t.id, 'CRM.REPORTS.READ', 'View CRM reports and analytics', NOW()
-FROM tenants t
+-- 1. Add reporting capability
+INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at)
+SELECT gen_random_uuid(), 'CRM.REPORTS.READ', 'Read CRM Reports', 'View CRM reports and analytics', 'ACTIVE', NOW(), NOW()
 WHERE NOT EXISTS (
-    SELECT 1 FROM access_capabilities ac
-    WHERE ac.tenant_id = t.id AND ac.code = 'CRM.REPORTS.READ'
+    SELECT 1 FROM access_capabilities ac WHERE ac.code = 'CRM.REPORTS.READ'
 );
 
--- Grant to ADMIN role
+-- 2. Grant CRM.REPORTS.READ to ADMIN roles in every tenant
 INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
 SELECT
     gen_random_uuid(),
-    t.id,
-    r.id,
-    ac.id,
+    role.tenant_id,
+    role.id,
+    capability.id,
     NOW()
-FROM tenants t
-JOIN access_roles r ON r.tenant_id = t.id AND r.code = 'ADMIN'
-JOIN access_capabilities ac ON ac.tenant_id = t.id AND ac.code = 'CRM.REPORTS.READ'
-WHERE NOT EXISTS (
+FROM roles role
+JOIN access_capabilities capability ON (
+    capability.code = 'CRM.REPORTS.READ'
+    AND capability.status = 'ACTIVE'
+)
+WHERE role.code = 'ADMIN'
+  AND role.status = 'ACTIVE'
+  AND NOT EXISTS (
     SELECT 1 FROM role_capabilities rc
-    WHERE rc.tenant_id = t.id AND rc.role_id = r.id AND rc.capability_id = ac.id
-);
+    WHERE rc.tenant_id = role.tenant_id
+      AND rc.role_id = role.id
+      AND rc.capability_id = capability.id
+  );
