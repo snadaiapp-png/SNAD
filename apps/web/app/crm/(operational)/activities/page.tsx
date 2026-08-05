@@ -4,6 +4,7 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { crmApi, type CrmAccount, type CrmActivity } from "@/lib/api/crm";
 import { toUserFacingError } from "@/lib/api/user-facing-errors";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import { useAuth } from "@/lib/auth/auth-provider";
 import { formValue, optionalValue, formatDate } from "../../crm-view-utils";
 import { CrmLoading } from "../../components/crm-loading";
 import { CrmEmpty } from "../../components/crm-empty";
@@ -23,6 +24,7 @@ const ACTIVITY_STATUS_FILTERS = ["", "OPEN", "IN_PROGRESS", "DONE", "CANCELLED"]
  */
 export default function CrmActivitiesPage() {
   const { t } = useI18n();
+  const { me } = useAuth();
   const [activities, setActivities] = useState<CrmActivity[]>([]);
   const [accounts, setAccounts] = useState<CrmAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,6 +86,7 @@ export default function CrmActivitiesPage() {
           relatedId,
           priority: 50,
           dueAt,
+          ownerUserId: me?.id,
         }),
       t("crm.activities.created"),
     );

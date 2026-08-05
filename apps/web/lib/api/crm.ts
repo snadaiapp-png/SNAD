@@ -643,7 +643,7 @@ export const crmApi = {
     const data = await unwrapSingle(apiClient.get<V2SingleResponse<V2OpportunityResponse>>(`${v2root}/opportunities/${id}`, { cache: "no-store" }));
     return mapV2Opportunity(data);
   },
-  createOpportunity: async (body: { accountId: string; contactId?: string; pipelineId: string; stageId: string; name: string; amount?: number; currencyCode: string; expectedCloseDate?: string }) => {
+  createOpportunity: async (body: { accountId?: string; contactId?: string; pipelineId: string; stageId: string; name: string; amount?: number; currencyCode: string; expectedCloseDate?: string }) => {
     const data = await unwrapSingle(
       apiClient.post<V2SingleResponse<V2OpportunityResponse>, typeof body>(`${v2root}/opportunities`, body, { context: { headers: { "Idempotency-Key": `opp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } } }),
     );
@@ -663,7 +663,7 @@ export const crmApi = {
     );
     return data.map(mapV2Activity);
   },
-  createActivity: async (body: { activityType: string; subject: string; body?: string; relatedType?: string; relatedId?: string; priority?: number; dueAt?: string }) => {
+  createActivity: async (body: { activityType: string; subject: string; body?: string; relatedType?: string; relatedId?: string; priority?: number; dueAt?: string; ownerUserId?: string }) => {
     const data = await unwrapSingle(
       apiClient.post<V2SingleResponse<V2ActivityResponse>, typeof body>(`${v2root}/activities`, body, { context: { headers: { "Idempotency-Key": `act-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } } }),
     );

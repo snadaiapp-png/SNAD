@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { crmApi } from "@/lib/api/crm";
 import type { CrmAccount, CrmOpportunity, CrmPipeline, CrmStage } from "@/lib/api/crm";
 import { CrmPipelineBoard } from "../crm-pipeline-board";
@@ -37,6 +37,10 @@ export function PipelineTab() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter | "">("");
   const [busy, setBusy] = useState(false);
+
+  // Ref to track latest opportunities for rollback (avoids stale closure)
+  const opportunitiesRef = useRef(opportunities);
+  opportunitiesRef.current = opportunities;
 
   /* ── Data fetching ────────────────────────────────────────────────────── */
 
@@ -101,7 +105,8 @@ export function PipelineTab() {
   const handleMove = useCallback(
     async (opportunityId: string, stageId: string) => {
       // Optimistic update: move the card immediately, roll back on failure.
-      const previous = opportunities;
+      // Use ref to capture latest state (avoids stale closure on rapid moves).
+      const previous = opportunitiesRef.current;
       setOpportunities((prev) =>
         prev.map((o) => (o.id === opportunityId ? { ...o, stage_id: stageId } : o)),
       );
@@ -118,7 +123,7 @@ export function PipelineTab() {
         setBusy(false);
       }
     },
-    [opportunities],
+    [],
   );
 
   /* ── Render ───────────────────────────────────────────────────────────── */

@@ -291,7 +291,7 @@ function OpportunitiesCreateForm({
     setError(null);
     try {
       await crmApi.createOpportunity({
-        accountId: accountId || "00000000-0000-0000-0000-000000000000",
+        accountId: accountId || undefined,
         pipelineId,
         stageId,
         name: name.trim(),
