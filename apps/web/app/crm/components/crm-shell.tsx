@@ -175,6 +175,15 @@ function CustomFieldsIcon() {
   );
 }
 
+function ExecutionIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 4v4l3 2" />
+    </svg>
+  );
+}
+
 function LangIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -213,6 +222,10 @@ const MAIN_NAV: NavItem[] = [
 const ADMIN_NAV: NavItem[] = [
   { href: "/crm/imports", labelKey: "crm.nav.imports", Icon: ImportsIcon },
   { href: "/crm/settings/custom-fields", labelKey: "crm.nav.customFields", Icon: CustomFieldsIcon },
+];
+
+const EXECUTION_NAV: NavItem[] = [
+  { href: "/crm/execution", labelKey: "crm.nav.execution", Icon: ExecutionIcon },
 ];
 
 interface CrmShellProps {
@@ -337,6 +350,13 @@ export function CrmShell({ children }: CrmShellProps) {
 
             <span className={styles.sidebarSectionLabel}>{t("crm.shell.sidebar.admin")}</span>
             {ADMIN_NAV.map((item) => (
+              <SidebarLink key={item.href} item={item} active={isActive(item.href)} label={t(item.labelKey)} />
+            ))}
+
+            <div className={styles.sidebarDivider} />
+
+            <span className={styles.sidebarSectionLabel}>{t("crm.shell.sidebar.execution")}</span>
+            {EXECUTION_NAV.map((item) => (
               <SidebarLink key={item.href} item={item} active={isActive(item.href)} label={t(item.labelKey)} />
             ))}
 

@@ -242,6 +242,7 @@ export const en: TranslationDictionary = {
   "crm.shell.sidebar.main": "Main",
   "crm.shell.sidebar.admin": "Administration",
   "crm.shell.sidebar.governance": "Governance",
+  "crm.shell.sidebar.execution": "Execution",
   "crm.shell.user": "User",
 
   "crm.nav.overview": "Overview",
@@ -810,6 +811,7 @@ export const en: TranslationDictionary = {
 
   // ── Reports (feature/crm-reports) ─────────────────────────────────────
   "crm.nav.reports": "Reports",
+  "crm.nav.execution": "Execution Board",
   "crm.reports.title": "Reports",
   "crm.reports.description": "Analytical dashboards for sales pipeline, lead conversion, activities, and account growth.",
   "crm.reports.kpi.totalAccounts": "Total Accounts",

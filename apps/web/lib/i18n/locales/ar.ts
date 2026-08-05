@@ -246,6 +246,7 @@ export const ar: TranslationDictionary = {
   "crm.shell.sidebar.main": "الرئيسي",
   "crm.shell.sidebar.admin": "الإدارة",
   "crm.shell.sidebar.governance": "الحوكمة",
+  "crm.shell.sidebar.execution": "التنفيذ",
   "crm.shell.user": "المستخدم",
 
   "crm.nav.overview": "النظرة العامة",
@@ -814,6 +815,7 @@ export const ar: TranslationDictionary = {
 
   // ── Reports (feature/crm-reports) ─────────────────────────────────────
   "crm.nav.reports": "التقارير",
+  "crm.nav.execution": "لوحة التنفيذ",
   "crm.reports.title": "التقارير",
   "crm.reports.description": "لوحات تحكم تحليلية لتقارير المبيعات والتحويلات والأنشطة ونمو الحسابات.",
   "crm.reports.kpi.totalAccounts": "إجمالي الحسابات",
