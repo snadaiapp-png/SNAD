@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { crmApi } from "@/lib/api/crm";
 import type { CrmAccount } from "@/lib/api/crm";
 import { useCrmI18n } from "../crm-i18n";
+import { useAuth } from "@/lib/auth/auth-provider";
 import { Customer360View } from "./customer-360-view";
 import styles from "../crm-shared-styles.module.css";
 
@@ -11,7 +12,7 @@ import styles from "../crm-shared-styles.module.css";
  *  Account constants
  * ============================================================================ */
 
-const ACCOUNT_TYPES = ["CUSTOMER", "PARTNER", "VENDOR", "COMPETITOR", "OTHER"] as const;
+const ACCOUNT_TYPES = ["BUSINESS", "PERSON", "PARTNER", "PROSPECT", "OTHER"] as const;
 type AccountType = (typeof ACCOUNT_TYPES)[number];
 
 const LIFECYCLE_STATUSES = ["ACTIVE", "INACTIVE", "ARCHIVED"] as const;
@@ -248,8 +249,9 @@ function CustomersCreateForm({
   onCancel: () => void;
 }) {
   const { t } = useCrmI18n();
+  const { me } = useAuth();
   const [displayName, setDisplayName] = useState("");
-  const [accountType, setAccountType] = useState<AccountType>("CUSTOMER");
+  const [accountType, setAccountType] = useState<AccountType>("BUSINESS");
   const [currencyCode, setCurrencyCode] = useState("SAR");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -269,6 +271,7 @@ function CustomersCreateForm({
         primaryCurrencyCode: currencyCode,
         preferredLocale: "ar",
         timeZone: "Asia/Riyadh",
+        ownerUserId: me?.id,
       });
       onCreated();
     } catch (err) {

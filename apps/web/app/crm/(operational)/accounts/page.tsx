@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { crmApi, type CrmAccount } from "@/lib/api/crm";
 import { toUserFacingError } from "@/lib/api/user-facing-errors";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import { useAuth } from "@/lib/auth/auth-provider";
 import { formValue, formatDate } from "../../crm-view-utils";
 import { CrmLoading } from "../../components/crm-loading";
 import { CrmEmpty } from "../../components/crm-empty";
@@ -23,6 +24,7 @@ import styles from "../../crm.module.css";
  */
 export default function CrmAccountsPage() {
   const { t } = useI18n();
+  const { me } = useAuth();
   const router = useRouter();
   const [accounts, setAccounts] = useState<CrmAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,6 +81,7 @@ export default function CrmAccountsPage() {
           preferredLocale: "ar-SA",
           timeZone: "Asia/Riyadh",
           source: "CRM_WEB",
+          ownerUserId: me?.id,
         }),
       t("crm.accounts.created"),
     );

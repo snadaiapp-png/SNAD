@@ -518,7 +518,7 @@ export const crmApi = {
     );
     return data.map(mapV2Account);
   },
-  createAccount: async (body: { displayName: string; accountType: string; primaryCurrencyCode: string; preferredLocale: string; timeZone: string; source?: string }) => {
+  createAccount: async (body: { displayName: string; accountType: string; primaryCurrencyCode: string; preferredLocale: string; timeZone: string; source?: string; ownerUserId?: string }) => {
     const data = await unwrapSingle(
       apiClient.post<V2SingleResponse<V2AccountResponse>, typeof body>(`${v2root}/accounts`, body, { context: { headers: { "Idempotency-Key": `account-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } } }),
     );
