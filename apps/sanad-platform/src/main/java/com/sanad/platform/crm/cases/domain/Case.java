@@ -25,7 +25,7 @@ public record Case(
         UUID customerId,
         UUID assigneeUserId,
         UUID ownerUserId,
-        UUID relatedType,
+        String relatedType,
         UUID relatedId,
         OffsetDateTime dueAt,
         OffsetDateTime resolvedAt,

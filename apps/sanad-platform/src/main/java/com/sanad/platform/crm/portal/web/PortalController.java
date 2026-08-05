@@ -163,6 +163,14 @@ public class PortalController {
         return context(authentication, "tenant_id");
     }
 
+    /**
+     * Extract customer ID from authentication context.
+     *
+     * <p>IMPORTANT: In the customer portal scenario, the authenticated user IS the customer.
+     * The {@code user_id} claim in the JWT token IS the CRM contact/customer ID.
+     * This is by design — portal users are mapped 1:1 to CRM contacts during registration.
+     * If a portal user is not a CRM contact, the profile lookup returns 404.
+     */
     private static UUID customerId(Authentication authentication) {
         return context(authentication, "user_id");
     }

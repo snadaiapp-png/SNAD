@@ -45,6 +45,7 @@ public class IntelligenceController {
     private final CrmOwnershipHttpSupport http;
     private final CrmIdempotencyHttpSupport idempotency;
     private final ETagService etags;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     public IntelligenceController(
             CustomerIntelligenceQueryPortAdapter queryAdapter,
@@ -57,7 +58,8 @@ public class IntelligenceController {
             CustomerScoringService scoringService,
             CrmOwnershipHttpSupport http,
             CrmIdempotencyHttpSupport idempotency,
-            ETagService etags) {
+            ETagService etags,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.queryAdapter = queryAdapter;
         this.healthService = healthService;
         this.clvService = clvService;
@@ -69,6 +71,7 @@ public class IntelligenceController {
         this.http = http;
         this.idempotency = idempotency;
         this.etags = etags;
+        this.objectMapper = objectMapper;
     }
 
     // =====================================================================
@@ -471,8 +474,7 @@ public class IntelligenceController {
         if (score.componentsJson() != null && !score.componentsJson().isBlank()) {
             try {
                 @SuppressWarnings("unchecked")
-                Map<String, Object> parsed = new com.fasterxml.jackson.databind.ObjectMapper()
-                        .readValue(score.componentsJson(), Map.class);
+                Map<String, Object> parsed = objectMapper.readValue(score.componentsJson(), Map.class);
                 components = parsed;
             } catch (Exception ignored) {
                 // Return empty components on parse failure

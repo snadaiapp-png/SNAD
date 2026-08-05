@@ -135,15 +135,30 @@ public class CustomerScoringService {
 
     /**
      * Refresh all scores for a customer.
+     *
+     * <p>NOTE: In v1, we recalculate health as the primary score using cached
+     * component values. The hardcoded defaults below represent neutral/unknown
+     * states. A future v2 implementation should query actual customer metrics
+     * from the database (last activity date, open opportunities, pipeline value,
+     * meeting frequency, response time) before recalculating.
      */
     @Transactional
     public List<StoredScore> refreshAllScores(UUID tenantId, UUID accountId, UUID actorId) {
         validator.validateCustomer(tenantId, accountId);
         log.info("Refreshing all scores for account {}", accountId);
-        // In v1, we recalculate health as the primary score.
-        // Other score types will be added incrementally.
+
+        // Fetch the latest stored score to use previous component values as defaults
+        Optional<StoredScore> latest = queryAdapter.findLatestScore(tenantId, accountId, "HEALTH");
+        int daysSinceLastActivity = 7;   // default: assume 1 week since last activity
+        int openOpportunities = 0;       // default: no open opportunities
+        double totalPipeline = 0.0;      // default: no pipeline value
+        int meetingFreq30d = 0;          // default: no meetings in last 30 days
+        double responseTimeAvgHours = 24.0; // default: 24h average response
+        String lifecycleStatus = "ACTIVE";   // default: active customer
+
         calculateHealthScore(tenantId, accountId, actorId,
-                7, 2, 50000, 3, 8, "ACTIVE");
+                daysSinceLastActivity, openOpportunities, totalPipeline,
+                meetingFreq30d, responseTimeAvgHours, lifecycleStatus);
         cache.invalidateAll(tenantId, accountId);
         return queryAdapter.findLatestScores(tenantId, accountId);
     }

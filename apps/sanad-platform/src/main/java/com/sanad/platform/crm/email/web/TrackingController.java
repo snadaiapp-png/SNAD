@@ -7,6 +7,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.net.URI;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -21,6 +23,13 @@ import java.util.UUID;
 public class TrackingController {
 
     private final EmailUseCases emailUseCases;
+
+    /** Allowed redirect hosts — only first-party paths are permitted. */
+    private static final Set<String> ALLOWED_REDIRECT_HOSTS = Set.of(
+            "snad-app.vercel.app",
+            "snad.vercel.app",
+            "localhost"
+    );
 
     public TrackingController(EmailUseCases emailUseCases) {
         this.emailUseCases = emailUseCases;
@@ -61,12 +70,49 @@ public class TrackingController {
         if (entry == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Email log not found");
         }
-        emailUseCases.recordClick(entry.tenantId(), logId, url);
 
-        // Redirect to original URL
+        // Validate redirect URL to prevent open redirect attacks
+        String safeUrl = sanitizeRedirectUrl(url);
+        emailUseCases.recordClick(entry.tenantId(), logId, safeUrl);
+
+        // Redirect to validated URL
         return ResponseEntity.status(HttpStatus.FOUND)
-                .header("Location", url)
+                .header("Location", safeUrl)
                 .header("Cache-Control", "no-cache, no-store, must-revalidate")
                 .build();
+    }
+
+    /**
+     * Sanitize redirect URL to prevent open redirect attacks.
+     * Only allows relative paths or URLs pointing to allowed hosts.
+     */
+    private String sanitizeRedirectUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return "/";
+        }
+
+        // Allow relative paths (starting with /)
+        if (url.startsWith("/") && !url.startsWith("//")) {
+            return url;
+        }
+
+        // Block protocol-relative URLs (//evil.com)
+        if (url.startsWith("//")) {
+            return "/";
+        }
+
+        // Validate absolute URLs against allowlist
+        try {
+            URI uri = URI.create(url);
+            String host = uri.getHost();
+            if (host != null && ALLOWED_REDIRECT_HOSTS.contains(host.toLowerCase())) {
+                return url;
+            }
+        } catch (IllegalArgumentException e) {
+            // Invalid URL — fallback to root
+        }
+
+        // Default: redirect to root to prevent phishing
+        return "/";
     }
 }

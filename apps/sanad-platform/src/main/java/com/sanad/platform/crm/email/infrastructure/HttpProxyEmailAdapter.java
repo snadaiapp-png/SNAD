@@ -16,6 +16,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -107,17 +108,48 @@ public class HttpProxyEmailAdapter implements EmailPort {
 
     private String payload(EmailMessage message) {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("destination", message.to().get(0).value());
+
+        // Include ALL recipients (to, cc, bcc) — not just the first "to" address
+        List<String> allRecipients = new java.util.ArrayList<>();
+        if (message.to() != null) {
+            message.to().forEach(addr -> allRecipients.add(addr.value()));
+        }
+        if (message.cc() != null) {
+            message.cc().forEach(addr -> allRecipients.add(addr.value()));
+        }
+        if (message.bcc() != null) {
+            message.bcc().forEach(addr -> allRecipients.add(addr.value()));
+        }
+
+        if (!allRecipients.isEmpty()) {
+            payload.put("destination", String.join(",", allRecipients));
+        }
+
         payload.put("subject", message.subject());
+
         if (message.htmlBody() != null && !message.htmlBody().isBlank()) {
             payload.put("htmlBody", message.htmlBody());
         } else if (message.textBody() != null && !message.textBody().isBlank()) {
-            payload.put("htmlBody", "<p>" + message.textBody() + "</p>");
+            // Escape HTML entities to prevent injection in outbound emails
+            payload.put("htmlBody", "<p>" + escapeHtml(message.textBody()) + "</p>");
         }
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Unable to serialize email payload", exception);
         }
+    }
+
+    /**
+     * Escape HTML special characters to prevent HTML injection in outbound emails.
+     */
+    private static String escapeHtml(String text) {
+        if (text == null) return "";
+        return text
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 }

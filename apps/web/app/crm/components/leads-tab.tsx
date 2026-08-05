@@ -10,7 +10,7 @@ import styles from "../crm-shared-styles.module.css";
  *  Lead status constants
  * ============================================================================ */
 
-const LEAD_STATUSES = ["NEW", "ASSIGNED", "CONTACTED", "QUALIFIED", "DISQUALIFIED", "ARCHIVED"] as const;
+const LEAD_STATUSES = ["NEW", "ASSIGNED", "CONTACTED", "QUALIFIED", "DISQUALIFIED", "CONVERTED", "ARCHIVED"] as const;
 type LeadStatus = (typeof LEAD_STATUSES)[number];
 
 /* Terminal statuses — leads in these states cannot transition */
