@@ -3834,7 +3834,7 @@
         "tags": [
           "crm-contact-relationship-controller"
         ],
-        "operationId": "updateProfile",
+        "operationId": "updateProfile_1",
         "parameters": [
           {
             "name": "contactId",
@@ -3888,7 +3888,7 @@
         "tags": [
           "crm-contact-relationship-versioned-mutation-controller"
         ],
-        "operationId": "updateProfile_1",
+        "operationId": "updateProfile_2",
         "parameters": [
           {
             "name": "contactId",
@@ -6826,6 +6826,183 @@
         ]
       }
     },
+    "/portal/opportunities": {
+      "get": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "getOpportunities",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/portal/profile": {
+      "get": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "getProfile",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "updateProfile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/portal/tickets": {
+      "get": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "getTickets",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "createTicket",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTicketRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/portal/tickets/{ticketId}": {
+      "get": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "getTicket",
+        "parameters": [
+          {
+            "name": "ticketId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/queues": {
       "get": {
         "tags": [
@@ -8452,195 +8629,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OwnershipResponseTransferRequest"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/portal/profile": {
-      "get": {
-        "tags": [
-          "portal-controller"
-        ],
-        "operationId": "getPortalProfile",
-        "summary": "Get customer portal profile",
-        "responses": {
-          "200": {
-            "description": "Profile returned",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SingleResponsePortalProfile"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Profile not found"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      },
-      "put": {
-        "tags": [
-          "portal-controller"
-        ],
-        "operationId": "updatePortalProfile",
-        "summary": "Update customer portal profile",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateProfileRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Profile updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SingleResponsePortalProfile"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/portal/tickets": {
-      "get": {
-        "tags": [
-          "portal-controller"
-        ],
-        "operationId": "getPortalTickets",
-        "summary": "Get customer support tickets",
-        "responses": {
-          "200": {
-            "description": "Tickets returned",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListResponsePortalTicket"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      },
-      "post": {
-        "tags": [
-          "portal-controller"
-        ],
-        "operationId": "createPortalTicket",
-        "summary": "Create a support ticket",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateTicketRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Ticket created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SingleResponsePortalTicket"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/portal/tickets/{ticketId}": {
-      "get": {
-        "tags": [
-          "portal-controller"
-        ],
-        "operationId": "getPortalTicket",
-        "summary": "Get ticket by ID",
-        "parameters": [
-          {
-            "name": "ticketId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Ticket returned",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SingleResponsePortalTicket"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Ticket not found"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/portal/opportunities": {
-      "get": {
-        "tags": [
-          "portal-controller"
-        ],
-        "operationId": "getPortalOpportunities",
-        "summary": "Get customer opportunities",
-        "responses": {
-          "200": {
-            "description": "Opportunities returned",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListResponseObject"
                 }
               }
             }
@@ -10849,6 +10837,23 @@
           "code",
           "displayName",
           "ruleType"
+        ]
+      },
+      "CreateTicketRequest": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "description",
+          "subject"
         ]
       },
       "CreateTransferRequest": {
@@ -14769,6 +14774,27 @@
           }
         }
       },
+      "UpdateProfileRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "email": {
+            "type": "string"
+          },
+          "company": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayName"
+        ]
+      },
       "UpdateQueueRequest": {
         "type": "object",
         "properties": {
@@ -15174,147 +15200,6 @@
           "overdueTasks": {
             "type": "integer",
             "format": "int64"
-          }
-        }
-      },
-      "UpdateProfileRequest": {
-        "type": "object",
-        "properties": {
-          "displayName": {
-            "type": "string"
-          },
-          "email": {
-            "type": "string"
-          },
-          "company": {
-            "type": "string"
-          },
-          "phone": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "displayName"
-        ]
-      },
-      "CreateTicketRequest": {
-        "type": "object",
-        "properties": {
-          "subject": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "subject",
-          "description"
-        ]
-      },
-      "PortalProfile": {
-        "type": "object",
-        "properties": {
-          "customerId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "displayName": {
-            "type": "string"
-          },
-          "email": {
-            "type": "string"
-          },
-          "company": {
-            "type": "string"
-          },
-          "phone": {
-            "type": "string"
-          }
-        }
-      },
-      "PortalTicket": {
-        "type": "object",
-        "properties": {
-          "ticketId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "subject": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "priority": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updatedAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "SingleResponsePortalProfile": {
-        "type": "object",
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/PortalProfile"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
-          }
-        }
-      },
-      "SingleResponsePortalTicket": {
-        "type": "object",
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/PortalTicket"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
-          }
-        }
-      },
-      "ListResponsePortalTicket": {
-        "type": "object",
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PortalTicket"
-            }
-          },
-          "page": {
-            "$ref": "#/components/schemas/Page"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
-          }
-        }
-      },
-      "ListResponseObject": {
-        "type": "object",
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "page": {
-            "$ref": "#/components/schemas/Page"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
           }
         }
       }

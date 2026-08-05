@@ -987,7 +987,7 @@ export type paths = {
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
-        readonly patch: operations["updateProfile"];
+        readonly patch: operations["updateProfile_1"];
         readonly trace?: never;
     };
     readonly "/contacts/{contactId}/profile-versioned": {
@@ -1003,7 +1003,7 @@ export type paths = {
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
-        readonly patch: operations["updateProfile_1"];
+        readonly patch: operations["updateProfile_2"];
         readonly trace?: never;
     };
     readonly "/contacts/{contactId}/relationships": {
@@ -1846,6 +1846,70 @@ export type paths = {
             readonly cookie?: never;
         };
         readonly get: operations["listPipelineStages"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/portal/opportunities": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["getOpportunities"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/portal/profile": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["getProfile"];
+        readonly put: operations["updateProfile"];
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/portal/tickets": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["getTickets"];
+        readonly put?: never;
+        readonly post: operations["createTicket"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/portal/tickets/{ticketId}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["getTicket"];
         readonly put?: never;
         readonly post?: never;
         readonly delete?: never;
@@ -3001,6 +3065,10 @@ export type components = {
             readonly ruleDefinition?: string;
             /** Format: int32 */
             readonly priority?: number;
+        };
+        readonly CreateTicketRequest: {
+            readonly subject: string;
+            readonly description: string;
         };
         readonly CreateTransferRequest: {
             /** @enum {string} */
@@ -4411,6 +4479,12 @@ export type components = {
         readonly UpdatePipelineRequest: {
             readonly name?: string;
             readonly currencyCode?: string;
+        };
+        readonly UpdateProfileRequest: {
+            readonly displayName: string;
+            readonly email?: string;
+            readonly company?: string;
+            readonly phone?: string;
         };
         readonly UpdateQueueRequest: {
             readonly displayName?: string;
@@ -6516,7 +6590,7 @@ export interface operations {
             };
         };
     };
-    readonly updateProfile: {
+    readonly updateProfile_1: {
         readonly parameters: {
             readonly query?: never;
             readonly header: {
@@ -6544,7 +6618,7 @@ export interface operations {
             };
         };
     };
-    readonly updateProfile_1: {
+    readonly updateProfile_2: {
         readonly parameters: {
             readonly query?: never;
             readonly header?: never;
@@ -8085,6 +8159,136 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["ListResponseStageResponse"];
+                };
+            };
+        };
+    };
+    readonly getOpportunities: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ListResponseMapStringObject"];
+                };
+            };
+        };
+    };
+    readonly getProfile: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                };
+            };
+        };
+    };
+    readonly updateProfile: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["UpdateProfileRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                };
+            };
+        };
+    };
+    readonly getTickets: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ListResponseMapStringObject"];
+                };
+            };
+        };
+    };
+    readonly createTicket: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["CreateTicketRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                };
+            };
+        };
+    };
+    readonly getTicket: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly ticketId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
                 };
             };
         };
