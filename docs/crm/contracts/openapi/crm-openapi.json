@@ -8140,7 +8140,12 @@
           "500": {
             "description": "CRM_EMAIL_SEND_FAILED"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/email/logs": {
@@ -8167,7 +8172,12 @@
           "200": {
             "description": "List of email log entries"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/email/logs/{logId}": {
@@ -8195,7 +8205,12 @@
           "404": {
             "description": "CRM_EMAIL_NOT_FOUND"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/email/logs/entity/{entityType}/{entityId}": {
@@ -8228,7 +8243,12 @@
           "200": {
             "description": "List of email log entries"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/email/status": {
@@ -8242,7 +8262,12 @@
           "200": {
             "description": "Provider status"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/email/track/open/{logId}": {
@@ -14697,10 +14722,5 @@
         "bearerFormat": "JWT"
       }
     }
-  },
-  "security": [
-    {
-      "BearerAuth": []
-    }
-  ]
+  }
 }
