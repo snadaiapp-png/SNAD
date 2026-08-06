@@ -1,7 +1,7 @@
 # MASTER EXECUTION MANIFEST
 
 **Generated**: 2026-08-06
-**Repository HEAD**: 87c77668639c2fd2912fc779f67a851580771935
+**Repository HEAD**: 91c6c2ea0954df4a0f8f0866a642f6fb0d7c809b
 **Authority**: `docs/crm/CRM-ENTERPRISE-EXECUTION-ROADMAP.md`
 
 ---
@@ -40,9 +40,9 @@
 | CRM-G3 | Core CRM entities (leads, customers, contacts, customer-360) | DONE | `docs/crm/stage-reports/CRM-G3-STAGE-REPORT.md` | 014–017 |
 | CRM-G4 | Opportunities, pipeline, Kanban | DONE | `docs/crm/stage-reports/CRM-G4-STAGE-REPORT.md` | 018–020 |
 | CRM-G5 | Tasks, transfers, employees, assignments | DONE | `docs/crm/stage-reports/CRM-G5-STAGE-REPORT.md` | 021–023 |
-| CRM-G6 | Reports, analytics, export | IN_PROGRESS | `docs/crm/stage-reports/CRM-G6-STAGE-REPORT.md` | 024–026 |
-| CRM-G7 | CI/CD hardening, smoke gating, Issue #189 | IN_PROGRESS | `docs/crm/stage-reports/CRM-G7-STAGE-REPORT.md` | 027–031 |
-| CRM-G8 | Quality, security, formal commercial GO | NOT_STARTED | `docs/crm/stage-reports/CRM-G8-STAGE-REPORT.md` | 032–034 |
+| CRM-G6 | Reports, analytics, export | DONE | `docs/crm/stage-reports/CRM-G6-STAGE-REPORT.md` | 024–026 |
+| CRM-G7 | CI/CD hardening, smoke gating, Issue #189 | DONE | `docs/crm/stage-reports/CRM-G7-STAGE-REPORT.md` | 027–031 |
+| CRM-G8 | Quality, security, formal commercial GO | IN_PROGRESS | `docs/crm/stage-reports/CRM-G8-STAGE-REPORT.md` | 032–034 |
 
 ---
 

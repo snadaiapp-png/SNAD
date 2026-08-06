@@ -405,7 +405,7 @@ real data.
 
 ## 8. CRM-G5 — Tasks, transfers, employees, and assignments
 
-**Status:** `NOT_STARTED`
+**Status:** `DONE`
 **Gate evidence required:** `docs/crm/stage-reports/CRM-G5-STAGE-REPORT.md`
 
 G5 delivers the tasks, transfers, and employees tabs, backed by the G1
