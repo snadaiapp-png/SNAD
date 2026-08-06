@@ -1,7 +1,7 @@
 package com.sanad.platform.executive.api;
 
 import com.sanad.platform.admin.api.AdminDtos;
-import com.sanad.platform.admin.service.AdminPlatformService;
+import com.sanad.platform.executive.service.ExecutivePlatformService;
 import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.authorization.RequireCapability;
 import org.springframework.http.ResponseEntity;
@@ -17,32 +17,32 @@ import org.springframework.web.bind.annotation.RestController;
 public class PlatformOperationsQueryController {
 
     private final ControlPlaneAccessGuard accessGuard;
-    private final AdminPlatformService adminService;
+    private final ExecutivePlatformService adminService;
 
     public PlatformOperationsQueryController(
             ControlPlaneAccessGuard accessGuard,
-            AdminPlatformService adminService
+            ExecutivePlatformService adminService
     ) {
         this.accessGuard = accessGuard;
         this.adminService = adminService;
     }
 
     @GetMapping("/dashboard")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<AdminDtos.DashboardResponse> dashboard(Authentication authentication) {
         accessGuard.require(authentication);
         return ResponseEntity.ok(adminService.dashboard());
     }
 
     @GetMapping("/tenants")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<java.util.List<AdminDtos.TenantResponse>> tenants(Authentication authentication) {
         accessGuard.require(authentication);
         return ResponseEntity.ok(adminService.listTenants());
     }
 
     @GetMapping("/tenants/{tenantId}")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<AdminDtos.TenantResponse> tenant(
             Authentication authentication,
             @PathVariable String tenantId
@@ -52,23 +52,23 @@ public class PlatformOperationsQueryController {
     }
 
     @GetMapping("/systems")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<java.util.List<AdminDtos.SystemServiceResponse>> systems(Authentication authentication) {
         accessGuard.require(authentication);
         return ResponseEntity.ok(adminService.listSystems());
     }
 
     @GetMapping("/audit")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<java.util.List<com.sanad.platform.admin.service.PlatformAuditService.AuditEntry>> audit(
             Authentication authentication
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(adminService.listAuditEntries());
+        return ResponseEntity.ok(jdbcTemplate.query("SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 100", (rs, row) -> new com.sanad.platform.admin.api.AdminDtos.AuditEntryResponse(rs.getString("id"), rs.getString("actor"), rs.getString("action"), rs.getString("target"), rs.getString("details"), rs.getString("created_at"))));
     }
 
     @GetMapping("/access-check")
-    public ResponseEntity<AdminPlatformService.AccessCheck> accessCheck(Authentication authentication) {
+    public ResponseEntity<ExecutivePlatformService.AccessCheck> accessCheck(Authentication authentication) {
         return ResponseEntity.ok(adminService.accessCheck(authentication));
     }
 }

@@ -1,7 +1,7 @@
 package com.sanad.platform.executive.api;
 
 import com.sanad.platform.admin.api.AdminDtos;
-import com.sanad.platform.admin.service.AdminPlatformService;
+import com.sanad.platform.executive.service.ExecutivePlatformService;
 import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.authorization.RequireCapability;
 import jakarta.validation.Valid;
@@ -20,18 +20,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class PlatformOperationsCommandController {
 
     private final ControlPlaneAccessGuard accessGuard;
-    private final AdminPlatformService adminService;
+    private final ExecutivePlatformService adminService;
 
     public PlatformOperationsCommandController(
             ControlPlaneAccessGuard accessGuard,
-            AdminPlatformService adminService
+            ExecutivePlatformService adminService
     ) {
         this.accessGuard = accessGuard;
         this.adminService = adminService;
     }
 
     @PostMapping("/tenants")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<AdminDtos.TenantResponse> createTenant(
             Authentication authentication,
             @Valid @RequestBody AdminDtos.CreateTenantRequest request
@@ -41,7 +41,7 @@ public class PlatformOperationsCommandController {
     }
 
     @PatchMapping("/tenants/{tenantId}/status")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<AdminDtos.TenantResponse> changeTenantStatus(
             Authentication authentication,
             @PathVariable String tenantId,
@@ -51,14 +51,4 @@ public class PlatformOperationsCommandController {
         return ResponseEntity.ok(adminService.changeTenantStatus(tenantId, request));
     }
 
-    @PatchMapping("/systems/{serviceId}/status")
-    @RequireCapability("ROLE.WRITE")
-    public ResponseEntity<AdminDtos.SystemServiceResponse> updateSystemStatus(
-            Authentication authentication,
-            @PathVariable String serviceId,
-            @Valid @RequestBody AdminDtos.UpdateSystemStatusRequest request
-    ) {
-        accessGuard.require(authentication);
-        return ResponseEntity.ok(adminService.updateSystemStatus(serviceId, request));
-    }
 }

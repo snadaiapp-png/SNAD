@@ -28,28 +28,28 @@ public class SaasAdministrationQueryController {
     }
 
     @GetMapping("/plans")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<List<SaasAdminDtos.PlanResponse>> plans(Authentication authentication) {
         accessGuard.require(authentication);
         return ResponseEntity.ok(saasService.listPlans());
     }
 
     @GetMapping("/subscriptions")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<List<SaasAdminDtos.SubscriptionResponse>> subscriptions(Authentication authentication) {
         accessGuard.require(authentication);
         return ResponseEntity.ok(saasService.listSubscriptions());
     }
 
     @GetMapping("/billing/invoices")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<List<SaasAdminDtos.InvoiceResponse>> invoices(Authentication authentication) {
         accessGuard.require(authentication);
         return ResponseEntity.ok(saasService.listInvoices());
     }
 
     @GetMapping("/tenants/{tenantId}/organizations")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<List<SaasAdminDtos.OrganizationResponse>> organizations(
             Authentication authentication,
             @org.springframework.web.bind.annotation.PathVariable String tenantId
@@ -59,7 +59,7 @@ public class SaasAdministrationQueryController {
     }
 
     @GetMapping("/tenants/{tenantId}/organizations/{organizationId}/memberships")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<List<SaasAdminDtos.MembershipResponse>> memberships(
             Authentication authentication,
             @org.springframework.web.bind.annotation.PathVariable String tenantId,

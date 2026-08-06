@@ -27,7 +27,7 @@ public class SaasAdministrationCommandController {
     }
 
     @PostMapping("/plans")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_BILLING")
     public ResponseEntity<SaasAdminDtos.PlanResponse> createPlan(
             Authentication authentication,
             @Valid @RequestBody SaasAdminDtos.CreatePlanRequest request
@@ -37,7 +37,7 @@ public class SaasAdministrationCommandController {
     }
 
     @PutMapping("/plans/{planId}")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<SaasAdminDtos.PlanResponse> updatePlan(
             Authentication authentication,
             @PathVariable String planId,
@@ -48,7 +48,7 @@ public class SaasAdministrationCommandController {
     }
 
     @PatchMapping("/plans/{planId}/status")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<SaasAdminDtos.PlanResponse> changePlanStatus(
             Authentication authentication,
             @PathVariable String planId,
@@ -59,7 +59,7 @@ public class SaasAdministrationCommandController {
     }
 
     @PostMapping("/subscriptions")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<SaasAdminDtos.SubscriptionResponse> createSubscription(
             Authentication authentication,
             @Valid @RequestBody SaasAdminDtos.CreateSubscriptionRequest request
@@ -69,7 +69,7 @@ public class SaasAdministrationCommandController {
     }
 
     @PatchMapping("/subscriptions/{subscriptionId}/change-plan")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<SaasAdminDtos.SubscriptionResponse> changeSubscriptionPlan(
             Authentication authentication,
             @PathVariable String subscriptionId,
@@ -80,7 +80,7 @@ public class SaasAdministrationCommandController {
     }
 
     @PatchMapping("/subscriptions/{subscriptionId}/seats")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<SaasAdminDtos.SubscriptionResponse> changeSubscriptionSeats(
             Authentication authentication,
             @PathVariable String subscriptionId,
@@ -91,7 +91,7 @@ public class SaasAdministrationCommandController {
     }
 
     @PatchMapping("/subscriptions/{subscriptionId}/cancel")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<SaasAdminDtos.SubscriptionResponse> cancelSubscription(
             Authentication authentication,
             @PathVariable String subscriptionId,
@@ -102,7 +102,7 @@ public class SaasAdministrationCommandController {
     }
 
     @PatchMapping("/subscriptions/{subscriptionId}/resume")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<SaasAdminDtos.SubscriptionResponse> resumeSubscription(
             Authentication authentication,
             @PathVariable String subscriptionId
@@ -112,7 +112,7 @@ public class SaasAdministrationCommandController {
     }
 
     @PostMapping("/subscriptions/{subscriptionId}/renew")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<SaasAdminDtos.SubscriptionResponse> renewSubscription(
             Authentication authentication,
             @PathVariable String subscriptionId
@@ -122,7 +122,7 @@ public class SaasAdministrationCommandController {
     }
 
     @PostMapping("/billing/invoices/{invoiceId}/mark-paid")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<SaasAdminDtos.InvoiceResponse> markInvoicePaid(
             Authentication authentication,
             @PathVariable String invoiceId,
@@ -133,7 +133,7 @@ public class SaasAdministrationCommandController {
     }
 
     @PostMapping("/tenants/{tenantId}/organizations")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<SaasAdminDtos.OrganizationResponse> createOrganization(
             Authentication authentication,
             @PathVariable String tenantId,
@@ -144,7 +144,7 @@ public class SaasAdministrationCommandController {
     }
 
     @PutMapping("/tenants/{tenantId}/organizations/{organizationId}")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<SaasAdminDtos.OrganizationResponse> updateOrganization(
             Authentication authentication,
             @PathVariable String tenantId,
@@ -156,7 +156,7 @@ public class SaasAdministrationCommandController {
     }
 
     @PatchMapping("/tenants/{tenantId}/organizations/{organizationId}/status")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<SaasAdminDtos.OrganizationResponse> changeOrganizationStatus(
             Authentication authentication,
             @PathVariable String tenantId,
@@ -168,7 +168,7 @@ public class SaasAdministrationCommandController {
     }
 
     @PostMapping("/tenants/{tenantId}/organizations/{organizationId}/memberships")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<SaasAdminDtos.MembershipResponse> createMembership(
             Authentication authentication,
             @PathVariable String tenantId,
@@ -180,7 +180,7 @@ public class SaasAdministrationCommandController {
     }
 
     @PatchMapping("/tenants/{tenantId}/organizations/{organizationId}/memberships/{membershipId}")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<SaasAdminDtos.MembershipResponse> updateMembership(
             Authentication authentication,
             @PathVariable String tenantId,
