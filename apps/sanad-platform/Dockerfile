@@ -29,6 +29,13 @@ WORKDIR /app
 
 COPY --from=builder /workspace/target/sanad-platform-*.jar app.jar
 
+# Create logs directory and grant sanad user write access.
+# logback-spring.xml configures RollingFileAppenders with relative paths
+# (logs/sanad-platform.log, logs/sanad-platform-error.log, logs/sanad-platform-audit.log).
+# These resolve to /app/logs/ inside the container. Without this directory,
+# the sanad user (non-root) cannot create log files and the appender fails.
+RUN mkdir -p /app/logs && chown -R sanad:sanad /app
+
 # Memory optimization for Render 512MB free tier
 # SerialGC: lowest memory overhead GC
 # 128MB heap: sufficient for Spring Boot with CRM-009
