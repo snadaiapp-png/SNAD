@@ -56,9 +56,9 @@ claim of milestone closure that lacks the matching report file.
 | `CRM-G3` | Core CRM entities end-to-end (leads, customers, contacts, customer-360) | `DONE` | `docs/crm/stage-reports/CRM-G3-STAGE-REPORT.md` | 014–017 |
 | `CRM-G4` | Opportunities, pipeline, and Kanban | `DONE` | `docs/crm/stage-reports/CRM-G4-STAGE-REPORT.md` | 018–020 |
 | `CRM-G5` | Tasks, transfers, employees, and assignments | `DONE` | `docs/crm/stage-reports/CRM-G5-STAGE-REPORT.md` | 021–023 |
-| `CRM-G6` | Reports, analytics, and export | `IN_PROGRESS` | `docs/crm/stage-reports/CRM-G6-STAGE-REPORT.md` | 024–026 |
-| `CRM-G7` | CI/CD hardening, smoke gating, and Issue #189 closure | `IN_PROGRESS` | `docs/crm/stage-reports/CRM-G7-STAGE-REPORT.md` | 027–031 |
-| `CRM-G8` | Quality, security, and formal commercial GO | `NOT_STARTED` | `docs/crm/stage-reports/CRM-G8-STAGE-REPORT.md` | 032–034 |
+| `CRM-G6` | Reports, analytics, and export | `DONE` | `docs/crm/stage-reports/CRM-G6-STAGE-REPORT.md` | 024–026 |
+| `CRM-G7` | CI/CD hardening, smoke gating, and Issue #189 closure | `DONE` | `docs/crm/stage-reports/CRM-G7-STAGE-REPORT.md` | 027–031 |
+| `CRM-G8` | Quality, security, and formal commercial GO | `IN_PROGRESS` | `docs/crm/stage-reports/CRM-G8-STAGE-REPORT.md` | 032–034 |
 
 ### 2.1 Parallelization
 
@@ -458,7 +458,7 @@ extension tables.
 
 ## 9. CRM-G6 — Reports, analytics, and export
 
-**Status:** `NOT_STARTED`
+**Status:** `DONE`
 **Gate evidence required:** `docs/crm/stage-reports/CRM-G6-STAGE-REPORT.md`
 
 G6 delivers the reports tab, analytics dashboards, and CSV/Excel export.
@@ -505,7 +505,7 @@ G6 delivers the reports tab, analytics dashboards, and CSV/Excel export.
 
 ## 10. CRM-G7 — CI/CD hardening, smoke gating, and Issue #189 closure
 
-**Status:** `IN_PROGRESS`
+**Status:** `DONE`
 **Gate evidence required:** `docs/crm/stage-reports/CRM-G7-STAGE-REPORT.md`
 
 G7 closes the CI/CD gaps surfaced by the CRM inventory findings, gates every
@@ -583,7 +583,7 @@ Supabase
 
 ## 11. CRM-G8 — Quality, security, and formal commercial GO
 
-**Status:** `NOT_STARTED`
+**Status:** `IN_PROGRESS`
 **Gate evidence required:** `docs/crm/stage-reports/CRM-G8-STAGE-REPORT.md`
 
 G8 is the final gate before commercial launch. It bundles penetration-test
