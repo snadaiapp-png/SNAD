@@ -4,6 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.crm.integration.domain.AuditPort;
 import com.sanad.platform.crm.integration.domain.TimelineEventPort;
 import com.sanad.platform.crm.ownership.domain.*;
+import com.sanad.platform.crm.ownership.domain.availability.AvailabilityRepository;
+import com.sanad.platform.crm.ownership.domain.capacity.CapacityRepository;
+import com.sanad.platform.crm.ownership.domain.scheduling.ShiftAssignmentRepository;
+import com.sanad.platform.crm.ownership.domain.scheduling.ShiftTemplateRepository;
+import com.sanad.platform.crm.ownership.domain.service.ServiceAssignmentRepository;
+import com.sanad.platform.crm.ownership.domain.skills.SkillRepository;
+import com.sanad.platform.crm.ownership.domain.workload.WorkloadRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -115,5 +122,77 @@ public class OwnershipModuleConfiguration {
     public TransferQueryUseCases transferQueryUseCases(
             TransferRequestRepository transferRequestRepository) {
         return new TransferQueryUseCases(transferRequestRepository);
+    }
+
+    // ── CRM-008 Team Management Use Cases ────────────────────────────────
+
+    @Bean
+    public TeamManagementUseCases teamManagementUseCases(
+            SalesTeamRepository salesTeamRepository,
+            AuditPort auditPort,
+            TimelineEventPort timelineEventPort,
+            ObjectMapper objectMapper) {
+        return new TeamManagementUseCases(salesTeamRepository, auditPort, timelineEventPort, objectMapper);
+    }
+
+    @Bean
+    public ShiftManagementUseCases shiftManagementUseCases(
+            ShiftTemplateRepository shiftTemplateRepository,
+            ShiftAssignmentRepository shiftAssignmentRepository,
+            SalesTeamRepository salesTeamRepository,
+            AuditPort auditPort,
+            TimelineEventPort timelineEventPort,
+            ObjectMapper objectMapper) {
+        return new ShiftManagementUseCases(shiftTemplateRepository, shiftAssignmentRepository,
+                salesTeamRepository, auditPort, timelineEventPort, objectMapper);
+    }
+
+    @Bean
+    public AvailabilityManagementUseCases availabilityManagementUseCases(
+            AvailabilityRepository availabilityRepository,
+            AuditPort auditPort,
+            TimelineEventPort timelineEventPort,
+            ObjectMapper objectMapper) {
+        return new AvailabilityManagementUseCases(availabilityRepository, auditPort, timelineEventPort, objectMapper);
+    }
+
+    @Bean
+    public SkillManagementUseCases skillManagementUseCases(
+            SkillRepository skillRepository,
+            AuditPort auditPort,
+            TimelineEventPort timelineEventPort,
+            ObjectMapper objectMapper) {
+        return new SkillManagementUseCases(skillRepository, auditPort, timelineEventPort, objectMapper);
+    }
+
+    @Bean
+    public CapacityManagementUseCases capacityManagementUseCases(
+            CapacityRepository capacityRepository,
+            SalesTeamRepository salesTeamRepository,
+            AuditPort auditPort,
+            TimelineEventPort timelineEventPort,
+            ObjectMapper objectMapper) {
+        return new CapacityManagementUseCases(capacityRepository, salesTeamRepository,
+                auditPort, timelineEventPort, objectMapper);
+    }
+
+    @Bean
+    public WorkloadManagementUseCases workloadManagementUseCases(
+            WorkloadRepository workloadRepository,
+            AuditPort auditPort,
+            TimelineEventPort timelineEventPort,
+            ObjectMapper objectMapper) {
+        return new WorkloadManagementUseCases(workloadRepository, auditPort, timelineEventPort, objectMapper);
+    }
+
+    @Bean
+    public ServiceAssignmentUseCases serviceAssignmentUseCases(
+            ServiceAssignmentRepository serviceAssignmentRepository,
+            SalesTeamRepository salesTeamRepository,
+            AuditPort auditPort,
+            TimelineEventPort timelineEventPort,
+            ObjectMapper objectMapper) {
+        return new ServiceAssignmentUseCases(serviceAssignmentRepository, salesTeamRepository,
+                auditPort, timelineEventPort, objectMapper);
     }
 }

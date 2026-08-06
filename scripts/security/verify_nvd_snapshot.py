@@ -283,9 +283,27 @@ def _run_smoke_test(extract_dir: Path, manifest: dict, maven_path: str) -> tuple
     dc_version = manifest["dependency_check_version"]
     smoke_log = extract_dir.parent / "offline-smoke-test.log"
     output_dir = extract_dir / "smoke-output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Maven dependency-check:check requires a POM.  Create a minimal
+    # standalone POM with NO dependencies — the smoke test verifies the
+    # NVD database is usable, not the actual project.
+    pom_dir = output_dir / "smoke-pom"
+    pom_dir.mkdir(parents=True, exist_ok=True)
+    (pom_dir / "pom.xml").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<project xmlns="http://maven.apache.org/POM/4.0.0">\n'
+        '  <modelVersion>4.0.0</modelVersion>\n'
+        '  <groupId>com.snad.smoke</groupId>\n'
+        '  <artifactId>smoke-test</artifactId>\n'
+        '  <version>1.0.0</version>\n'
+        '  <packaging>jar</packaging>\n'
+        '</project>\n',
+        encoding="utf-8",
+    )
 
     cmd = [
-        maven_path, "--batch-mode", "--no-transfer-progress",
+        maven_path, "--batch-mode", "--no-transfer-progress", "-e",
         f"org.owasp:dependency-check-maven:{dc_version}:check",
         f"-DdataDirectory={data_dir}",
         "-DautoUpdate=false",
@@ -298,7 +316,10 @@ def _run_smoke_test(extract_dir: Path, manifest: dict, maven_path: str) -> tuple
     ]
     try:
         with smoke_log.open("w") as log:
-            result = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, timeout=1800)
+            result = subprocess.run(
+                cmd, stdout=log, stderr=subprocess.STDOUT, timeout=1800,
+                cwd=str(pom_dir),
+            )
     except subprocess.TimeoutExpired:
         return 9, "timeout"
     except FileNotFoundError:

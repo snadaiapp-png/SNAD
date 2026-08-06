@@ -25,12 +25,14 @@ public enum CrmErrorCode {
     CRM_OPPORTUNITY_NOT_FOUND(404, "The requested CRM opportunity was not found.", false),
     CRM_ACTIVITY_NOT_FOUND(404, "The requested CRM activity was not found.", false),
     CRM_TASK_NOT_FOUND(404, "The requested CRM task was not found.", false),
+    CRM_CASE_NOT_FOUND(404, "The requested CRM case was not found.", false),
     CRM_NOTE_NOT_FOUND(404, "The requested CRM note was not found.", false),
     CRM_TAG_NOT_FOUND(404, "The requested CRM tag was not found.", false),
     CRM_PIPELINE_NOT_FOUND(404, "The requested CRM pipeline was not found.", false),
     CRM_STAGE_NOT_FOUND(404, "The requested CRM pipeline stage was not found.", false),
     CRM_IMPORT_NOT_FOUND(404, "The requested CRM import job was not found.", false),
     CRM_CUSTOM_FIELD_NOT_FOUND(404, "The requested CRM custom field was not found.", false),
+    CRM_EMAIL_NOT_FOUND(404, "The requested email log entry was not found.", false),
     RESOURCE_NOT_FOUND(404, "The requested resource was not found.", false),
 
     // ── Duplicate / state-conflict codes (HTTP 409) ──────────────────────
@@ -47,6 +49,7 @@ public enum CrmErrorCode {
     CRM_INVALID_LEAD_TRANSITION(422, "The requested lead status transition is not allowed.", false),
     CRM_INVALID_OPPORTUNITY_STAGE(422, "The requested opportunity stage move is not allowed.", false),
     CRM_INVALID_TASK_TRANSITION(422, "The requested task status transition is not allowed.", false),
+    CRM_INVALID_CASE_TRANSITION(422, "The requested case status transition is not allowed.", false),
     CRM_IMPORT_MAPPING_INVALID(422, "The import mapping is invalid or incomplete.", false),
     CRM_CUSTOM_FIELD_VALIDATION_FAILED(422, "One or more custom field values failed validation.", false),
 
@@ -72,7 +75,27 @@ public enum CrmErrorCode {
     RATE_LIMITED(429, "Too many requests. Please slow down.", true),
 
     // ── Catch-all (HTTP 500) ─────────────────────────────────────────────
-    INTERNAL_ERROR(500, "An internal server error occurred. Please try again later.", true);
+    INTERNAL_ERROR(500, "An internal server error occurred. Please try again later.", true),
+
+    // ── Intelligence codes ─────────────────────────────────────────────
+    CRM_SCORE_NOT_FOUND(404, "The requested score was not found.", false),
+    CRM_SEGMENT_NOT_FOUND(404, "The requested segment was not found.", false),
+    CRM_SEGMENT_MEMBER_NOT_FOUND(404, "The segment membership was not found.", false),
+    CRM_NBA_NOT_FOUND(404, "The requested next best action was not found.", false),
+    CRM_NBA_EXPIRED(409, "The next best action has expired.", false),
+    CRM_NBA_VERSION_CONFLICT(409, "The next best action has been modified by another request.", false),
+    CRM_SCORE_CALCULATION_FAILED(500, "Score calculation failed.", true),
+
+    // ── Email codes ──────────────────────────────────────────────────────
+    CRM_EMAIL_SEND_FAILED(500, "Failed to send email via the configured provider.", true),
+
+    // ── Reporting codes ──────────────────────────────────────────────────
+    CRM_REPORT_GENERATION_FAILED(500, "Failed to generate the requested report.", true),
+    CRM_REPORT_TYPE_INVALID(400, "The specified report type is not supported.", false),
+
+    // ── Portal codes ─────────────────────────────────────────────────────
+    CRM_PORTAL_PROFILE_NOT_FOUND(404, "The customer portal profile was not found.", false),
+    CRM_PORTAL_TICKET_NOT_FOUND(404, "The support ticket was not found.", false);
 
     private final int httpStatus;
     private final String defaultMessage;

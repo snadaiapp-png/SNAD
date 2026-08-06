@@ -25,8 +25,11 @@
 #    10. A doc claims a milestone is CLOSED without a stage report.
 #    11. (summary)
 #    12. apps/web/app/crm/page.tsx regresses to render CrmCommandCenterPage
-#        instead of the operational CrmWorkspaceV2 component, or the
-#        /crm/command-center route is missing. (crm/002-restore-operational-ui)
+#        instead of the operational CRM route-based pages.
+#    16. CRM-031: Production GO decision record (CRM-PRODUCTION-GO.md) is
+#        missing, empty, or lacks required evidence references.
+#    17. CRM-032: Penetration test report (CRM-PENTEST-REPORT.md) is
+#        missing, empty, or contains open Critical findings.
 #
 # Exit codes:
 #   0 — no drift detected
@@ -42,6 +45,16 @@
 # =============================================================================
 
 set -euo pipefail
+
+# ----------------------------------------------------------------------------
+# Portable find wrapper
+# ----------------------------------------------------------------------------
+# On Git Bash / MSYS2, the ZCode harness overrides `find` with a Node.js
+# implementation that does not correctly expand glob patterns in -name on
+# Windows paths.  `command find` bypasses the wrapper and invokes the system
+# GNU find (findutils), which behaves identically on Linux, macOS, and Git Bash.
+
+FIND="command find"
 
 # ----------------------------------------------------------------------------
 # 0. Locate the repository root and define paths
@@ -62,10 +75,8 @@ GAP_FILE="${REPO_ROOT}/docs/crm-gap-analysis.md"
 READINESS_FILE="${REPO_ROOT}/docs/crm-readiness-assessment.md"
 MIGRATION_DIR="${REPO_ROOT}/apps/sanad-platform/src/main/resources/db/migration"
 CRM_CONTROLLER="${REPO_ROOT}/apps/sanad-platform/src/main/java/com/sanad/platform/crm/web/CrmController.java"
-CRM_COMMAND_CENTER="${REPO_ROOT}/apps/web/app/crm/crm-command-center.tsx"
 CRM_EXECUTION_DATA="${REPO_ROOT}/apps/web/app/crm/crm-execution-data.ts"
 CRM_PAGE="${REPO_ROOT}/apps/web/app/crm/page.tsx"
-CRM_COMMAND_CENTER_ROUTE="${REPO_ROOT}/apps/web/app/crm/command-center/page.tsx"
 PRODUCTION_GO_RECORD="${DOCS_RELEASE_DIR}/CRM-PRODUCTION-GO.md"
 
 VIOLATIONS=()
@@ -90,7 +101,7 @@ fi
 # ----------------------------------------------------------------------------
 
 crm_code_exists="no"
-if [[ -f "$CRM_CONTROLLER" && -f "$CRM_COMMAND_CENTER" ]]; then
+if [[ -f "$CRM_CONTROLLER" ]]; then
   crm_code_exists="yes"
 fi
 
@@ -120,7 +131,7 @@ if [[ "$crm_code_exists" == "yes" ]]; then
     ' "$doc_file"; then
       add_violation "Doc claims 'CRM_PRODUCT_BUILD: NOT STARTED' while CRM code is merged: ${doc_file#${REPO_ROOT}/}"
     fi
-  done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
+  done < <($FIND "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
 fi
 
 # ----------------------------------------------------------------------------
@@ -148,7 +159,7 @@ done
 # platform-wide migrations (e.g. user mobile contact, tenant quota) are out
 # of scope for the CRM baseline reconciliation.
 mapfile -t actual_crm_migrations < <(
-  find "$MIGRATION_DIR" -maxdepth 1 -type f -name 'V2026*.sql' -printf '%f\n' 2>/dev/null \
+  $FIND "$MIGRATION_DIR" -maxdepth 1 -type f -name 'V2026*.sql' -printf '%f\n' 2>/dev/null \
     | awk 'tolower($0) ~ /crm/ { print }' | sort
 )
 
@@ -225,34 +236,10 @@ scan_doc_for_empty_tab_presentation() {
 
 while IFS= read -r -d '' doc_file; do
   scan_doc_for_empty_tab_presentation "$doc_file"
-done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
+done < <($FIND "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
 
 # ----------------------------------------------------------------------------
-# 5. Detect AI CRM described as merged if only present in unmerged PRs
-# ----------------------------------------------------------------------------
-
-# The AI CRM tab renders CrmEmptyState in crm-command-center.tsx. Any doc that
-# claims AI CRM is merged, deployed, or in production is drift.
-ai_crm_merged_phrases=(
-  "AI CRM is merged"
-  "AI CRM is deployed"
-  "AI CRM is live"
-  "AI CRM is in production"
-  "AI CRM is available"
-  "ai crm has shipped"
-  "ai crm capability is delivered"
-)
-
-while IFS= read -r -d '' doc_file; do
-  for phrase in "${ai_crm_merged_phrases[@]}"; do
-    if grep -qi -- "$phrase" "$doc_file" 2>/dev/null; then
-      add_violation "Doc claims AI CRM is merged/deployed but it only renders CrmEmptyState in the Command Center: ${doc_file#${REPO_ROOT}/} (matched: '${phrase}')"
-    fi
-  done
-done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
-
-# ----------------------------------------------------------------------------
-# 6. Detect production GO / commercial go-live claims without a decision record
+# 5. Detect production GO / commercial go-live claims without a decision record
 # ----------------------------------------------------------------------------
 
 # Any doc (excluding the production GO record itself and the baseline which
@@ -282,7 +269,7 @@ while IFS= read -r -d '' doc_file; do
       fi
     fi
   done
-done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" "$DOCS_RELEASE_DIR" -type f -name '*.md' -print0 2>/dev/null)
+done < <($FIND "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" "$DOCS_RELEASE_DIR" -type f -name '*.md' -print0 2>/dev/null)
 
 # Also fail any doc that uses the exact upper-case phrase
 # "COMMERCIAL GO-LIVE: AUTHORIZED" without the decision record.
@@ -297,7 +284,7 @@ if [[ ! -s "$PRODUCTION_GO_RECORD" ]]; then
     if grep -Eq 'COMMERCIAL GO-LIVE:[[:space:]]*AUTHORIZED' "$doc_file" 2>/dev/null; then
       add_violation "Doc claims COMMERCIAL GO-LIVE: AUTHORIZED without a formal decision record: ${doc_file#${REPO_ROOT}/}"
     fi
-  done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" "$DOCS_RELEASE_DIR" -type f -name '*.md' -print0 2>/dev/null)
+  done < <($FIND "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" "$DOCS_RELEASE_DIR" -type f -name '*.md' -print0 2>/dev/null)
 fi
 
 # ----------------------------------------------------------------------------
@@ -334,7 +321,7 @@ while IFS= read -r -d '' doc_file; do
   ' "$doc_file" 2>/dev/null; then
     add_violation "Doc hard-codes stale CRM RBAC capability count (14 or 15); reconciled count is 18: ${doc_file#${REPO_ROOT}/}"
   fi
-done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
+done < <($FIND "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
 
 # ----------------------------------------------------------------------------
 # 8. Verify docs/crm/README.md status block matches the baseline
@@ -363,29 +350,7 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-# 9. Verify the Command Center does not silently render empty states for tabs
-#    that docs claim are wired (cross-check the source against the registry)
-# ----------------------------------------------------------------------------
-
-# If the Execution Board data registry lists a group as DONE or APPROVED, the
-# matching Command Center tab must not fall through to the empty-state branch.
-# (Today G0 is DONE and overview+executionBoard are wired; we do not assert
-# anything stronger because G1-G10 are intentionally not yet wired.)
-if [[ -s "$CRM_EXECUTION_DATA" ]]; then
-  if grep -q 'status: "APPROVED"' "$CRM_EXECUTION_DATA" \
-    && grep -q 'code: "G0"' "$CRM_EXECUTION_DATA"; then
-    # G0 must have its overview + executionBoard tabs wired.
-    if ! grep -q 'case "overview":' "$CRM_COMMAND_CENTER"; then
-      add_violation "Execution Board marks G0 as APPROVED but crm-command-center.tsx does not render the overview tab."
-    fi
-    if ! grep -q 'case "executionBoard":' "$CRM_COMMAND_CENTER"; then
-      add_violation "Execution Board marks G0 as APPROVED but crm-command-center.tsx does not render the executionBoard tab."
-    fi
-  fi
-fi
-
-# ----------------------------------------------------------------------------
-# 10. Detect any doc that claims a milestone is CLOSED without a stage report
+# 9. Detect any doc that claims a milestone is CLOSED without a stage report
 # ----------------------------------------------------------------------------
 
 if [[ -d "${DOCS_CRM_DIR}/stage-reports" ]]; then
@@ -416,12 +381,12 @@ while IFS= read -r -d '' doc_file; do
     # Match "CRM-Gn: CLOSED" or "CRM-Gn — CLOSED" or "CRM-Gn is CLOSED".
     if grep -Eq "${milestone}[^[:alnum:]]+(is[[:space:]]+)?CLOSED" "$doc_file" 2>/dev/null; then
       if [[ ! -f "${DOCS_CRM_DIR}/stage-reports/${report}" ]] \
-        && ! find "$DOCS_CRM_DIR" -type f -name "$report" -print0 2>/dev/null | grep -q .; then
+        && ! $FIND "$DOCS_CRM_DIR" -type f -name "$report" -print0 2>/dev/null | grep -q .; then
         add_violation "Doc claims ${milestone} is CLOSED but stage report ${report} is missing: ${doc_file#${REPO_ROOT}/}"
       fi
     fi
   done
-done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
+done < <($FIND "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md' -print0 2>/dev/null)
 
 # ----------------------------------------------------------------------------
 # 12. Verify /crm page redirects to /crm/overview (CRM-002a route migration)
@@ -436,11 +401,6 @@ done < <(find "$DOCS_CRM_DIR" "$GAP_FILE" "$READINESS_FILE" -type f -name '*.md'
 #   (c) /crm/(operational)/accounts/page.tsx is missing.
 #   (d) /crm/(operational)/imports/page.tsx is missing.
 #   (e) /crm/(operational)/settings/custom-fields/page.tsx is missing.
-#   (f) /crm/command-center/page.tsx still renders CrmCommandCenterPage.
-#
-# The deprecated CrmWorkspaceV2 / CrmAdvancedView components are kept for
-# reference and may still be imported (e.g. by tests), so we no longer assert
-# that /crm/page.tsx imports CrmWorkspaceV2.
 
 CRM_OVERVIEW_ROUTE="${REPO_ROOT}/apps/web/app/crm/(operational)/overview/page.tsx"
 CRM_ACCOUNTS_ROUTE="${REPO_ROOT}/apps/web/app/crm/(operational)/accounts/page.tsx"
@@ -455,13 +415,6 @@ CRM_E2E_SPEC="${REPO_ROOT}/apps/web/e2e/crm-operational.spec.ts"
 if [[ -f "$CRM_PAGE" ]]; then
   if ! grep -Eq 'redirect\([[:space:]]*["'\'']/crm/overview["'\'']' "$CRM_PAGE"; then
     add_violation "apps/web/app/crm/page.tsx no longer redirects to /crm/overview; the operational CRM route migration has regressed."
-  fi
-  # If the page imports CrmCommandCenterPage as its default content (the
-  # pre-002 shape), that is a regression even if the redirect is also
-  # present — the Command Center must only be mounted at /crm/command-center.
-  if grep -Eq 'import[[:space:]]+CrmCommandCenterPage[[:space:]]+from[[:space:]]+["'\'']\.\/crm-command-center["'\'']' "$CRM_PAGE" \
-    && grep -Eq '<CrmCommandCenterPage[[:space:]]*/?>' "$CRM_PAGE"; then
-    add_violation "apps/web/app/crm/page.tsx renders CrmCommandCenterPage directly; move it to /crm/command-center/page.tsx."
   fi
 else
   add_violation "apps/web/app/crm/page.tsx is missing."
@@ -483,14 +436,8 @@ if [[ ! -f "$CRM_CUSTOM_FIELDS_ROUTE" ]]; then
   add_violation "apps/web/app/crm/(operational)/settings/custom-fields/page.tsx is missing; the custom fields admin route must exist."
 fi
 
-if [[ ! -f "$CRM_COMMAND_CENTER_ROUTE" ]]; then
-  add_violation "apps/web/app/crm/command-center/page.tsx is missing; the Command Center + Execution Board must remain accessible at /crm/command-center."
-elif ! grep -Eq 'CrmCommandCenterPage' "$CRM_COMMAND_CENTER_ROUTE"; then
-  add_violation "apps/web/app/crm/command-center/page.tsx does not render CrmCommandCenterPage."
-fi
-
 # ----------------------------------------------------------------------------
-# 13. Verify CRM-002b detail routes and E2E spec exist
+# 12. Verify CRM-002b detail routes and E2E spec exist
 # -----------------------------------------------------------------------------
 #
 # Branch crm/002b-final-operational-acceptance added the three missing
@@ -629,7 +576,110 @@ if [[ -s "$CRM_002_EVIDENCE" ]]; then
 fi
 
 # ----------------------------------------------------------------------------
-# 15. Summary and exit
+# 15. CRM-029: Verify Issue #189 traceability
+# ----------------------------------------------------------------------------
+
+# If any commit message references #189, at least one workflow file must also
+# reference #189.  This prevents silent governance drift where Issue #189 is
+# mentioned in commits but not traceable from CI.
+
+ISSUE_189_WORKFLOWS=()
+while IFS= read -r -d '' wf; do
+  if grep -q '#189\|Issue #189\|ISSUE_189' "$wf" 2>/dev/null; then
+    ISSUE_189_WORKFLOWS+=("$wf")
+  fi
+done < <($FIND "${REPO_ROOT}/.github/workflows" -type f -name '*.yml' -print0 2>/dev/null)
+
+if (( ${#ISSUE_189_WORKFLOWS[@]} == 0 )); then
+  # No workflow references Issue #189 — check if any doc or commit references it.
+  issue_189_doc_refs=0
+  while IFS= read -r -d '' doc_file; do
+    if grep -q '#189\|Issue #189\|ISSUE_189' "$doc_file" 2>/dev/null; then
+      issue_189_doc_refs=$((issue_189_doc_refs + 1))
+    fi
+  done < <($FIND "$DOCS_CRM_DIR" -type f -name '*.md' -print0 2>/dev/null)
+
+  if (( issue_189_doc_refs > 0 )); then
+    add_violation "CRM-029 drift: Issue #189 is referenced in ${issue_189_doc_refs} doc(s) but no workflow file references it. Add a workflow reference per CRM-029 acceptance criterion #1."
+  fi
+fi
+
+# Also verify the baseline doc includes Issue #189 reference.
+if [[ -s "$BASELINE_FILE" ]]; then
+  if ! grep -q '#189\|Issue #189\|ISSUE_189' "$BASELINE_FILE" 2>/dev/null; then
+    add_violation "CRM-029 drift: CRM-CURRENT-BASELINE.md does not reference Issue #189. Add an ISSUE_189 entry per CRM-029 acceptance criterion #2."
+  fi
+fi
+
+# ----------------------------------------------------------------------------
+# 16. CRM-031: Verify Production GO decision record exists and is valid
+# ----------------------------------------------------------------------------
+#
+# CRM-031 requires a formal production GO decision record at
+# docs/release/CRM-PRODUCTION-GO.md. The drift check fails if:
+#   (a) The file does not exist or is empty.
+#   (b) The file does not reference the production SHA from release-sha.json.
+#   (c) The file does not reference the smoke evidence artifact.
+#   (d) The file does not reference the Flyway-history assertion evidence.
+
+PRODUCTION_GO_FILE="${DOCS_RELEASE_DIR}/CRM-PRODUCTION-GO.md"
+RELEASE_SHA_FILE="${REPO_ROOT}/evidence/release-sha.json"
+
+# (a) Verify GO record exists and is non-empty
+if [[ ! -s "$PRODUCTION_GO_FILE" ]]; then
+  add_violation "CRM-031 drift: docs/release/CRM-PRODUCTION-GO.md is missing or empty. CRM-031 requires a formal production GO decision record."
+fi
+
+# If the file exists, verify it contains required references
+if [[ -s "$PRODUCTION_GO_FILE" ]]; then
+  # (b) Verify production SHA reference
+  # Extract the SHA from release-sha.json using sed (POSIX-compatible)
+  if [[ -s "$RELEASE_SHA_FILE" ]]; then
+    release_sha=$(sed -n 's/.*"releaseSha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$RELEASE_SHA_FILE" 2>/dev/null | head -1)
+    if [[ -n "$release_sha" ]]; then
+      if ! grep -q "$release_sha" "$PRODUCTION_GO_FILE" 2>/dev/null; then
+        add_violation "CRM-031 drift: CRM-PRODUCTION-GO.md does not reference production SHA ${release_sha} from release-sha.json."
+      fi
+    fi
+  fi
+
+  # (c) Verify smoke evidence reference
+  if ! grep -qi 'REMEDIATION-EVIDENCE\|smoke.*evidence\|production.*smoke' "$PRODUCTION_GO_FILE" 2>/dev/null; then
+    add_violation "CRM-031 drift: CRM-PRODUCTION-GO.md does not reference the smoke evidence artifact."
+  fi
+
+  # (d) Verify Flyway-history assertion reference
+  if ! grep -qi 'CrmFlywayHistoryAssertionTest\|flyway.*history\|flyway.*assertion' "$PRODUCTION_GO_FILE" 2>/dev/null; then
+    add_violation "CRM-031 drift: CRM-PRODUCTION-GO.md does not reference the Flyway-history assertion evidence."
+  fi
+fi
+
+# ----------------------------------------------------------------------------
+# 17. CRM-032: Verify penetration test report exists and has no open Critical findings
+# ----------------------------------------------------------------------------
+#
+# CRM-032 requires a penetration test report at docs/audit/CRM-PENTEST-REPORT.md.
+# The drift check fails if:
+#   (a) The file does not exist or is empty.
+#   (b) The report contains open Critical findings.
+
+PENTEST_REPORT="${REPO_ROOT}/docs/audit/CRM-PENTEST-REPORT.md"
+
+# (a) Verify pentest report exists and is non-empty
+if [[ ! -s "$PENTEST_REPORT" ]]; then
+  add_violation "CRM-032 drift: docs/audit/CRM-PENTEST-REPORT.md is missing or empty. CRM-032 requires a penetration test report."
+fi
+
+# If the report exists, verify it contains no open Critical findings
+if [[ -s "$PENTEST_REPORT" ]]; then
+  # Check for open Critical findings (case-insensitive)
+  if grep -qiE 'CRITICAL.*OPEN|OPEN.*CRITICAL|Severity.*CRITICAL.*Status.*OPEN' "$PENTEST_REPORT" 2>/dev/null; then
+    add_violation "CRM-032 drift: CRM-PENTEST-REPORT.md contains open Critical findings. All Critical findings must be remediated or risk-accepted before commercial go-live."
+  fi
+fi
+
+# ----------------------------------------------------------------------------
+# 18. Summary and exit
 # ----------------------------------------------------------------------------
 
 if (( ${#VIOLATIONS[@]} == 0 )); then
@@ -641,6 +691,7 @@ if (( ${#VIOLATIONS[@]} == 0 )); then
   echo "  capability count: 18 (reconciled)"
   echo "  002d acceptance: workflow + 5 specs + editor + seed SQL present"
   echo "  002d evidence:   no 'ACCEPTED WITH LIMITATIONS', no 'DOCUMENTED' for CRM-G1"
+  echo "  production GO:   CRM-PRODUCTION-GO.md present with required references"
   exit 0
 fi
 

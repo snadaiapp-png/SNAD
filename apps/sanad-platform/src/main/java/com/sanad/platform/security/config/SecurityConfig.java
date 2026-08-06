@@ -2,8 +2,8 @@ package com.sanad.platform.security.config;
 
 import com.sanad.platform.config.CorsProperties;
 import com.sanad.platform.security.filter.JwtAuthenticationFilter;
+import com.sanad.platform.security.filter.SessionVersionCache;
 import com.sanad.platform.security.service.JwtTokenProvider;
-import com.sanad.platform.user.repository.UserRepository;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
@@ -36,18 +36,18 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtTokenProvider jwtTokenProvider;
-    private final UserRepository userRepository;
     private final CorsProperties corsProperties;
     private final Environment environment;
+    private final SessionVersionCache sessionVersionCache;
 
     public SecurityConfig(JwtTokenProvider jwtTokenProvider,
-                          UserRepository userRepository,
                           CorsProperties corsProperties,
-                          Environment environment) {
+                          Environment environment,
+                          SessionVersionCache sessionVersionCache) {
         this.jwtTokenProvider = jwtTokenProvider;
-        this.userRepository = userRepository;
         this.corsProperties = corsProperties;
         this.environment = environment;
+        this.sessionVersionCache = sessionVersionCache;
     }
 
     /**
@@ -106,7 +106,7 @@ public class SecurityConfig {
                 .securityContext(sc -> sc.requireExplicitSave(false));
 
         http.addFilterBefore(
-                new JwtAuthenticationFilter(jwtTokenProvider, userRepository),
+                new JwtAuthenticationFilter(jwtTokenProvider, sessionVersionCache),
                 UsernamePasswordAuthenticationFilter.class
         );
         return http.build();
@@ -165,7 +165,9 @@ public class SecurityConfig {
                         "X-Control-Plane-Bootstrap-Token"));
 
         configuration.setExposedHeaders(
-                List.of("X-SANAD-Refresh-Token", "Location"));
+                List.of("X-SANAD-Refresh-Token", "Location",
+                        // TD-002-1: RFC 8594 deprecation signaling for V1 CRM API.
+                        "Deprecation", "Sunset", "Link"));
 
         // CRM-009 security boundary: Browser → Vercel BFF → Render Backend.
         // No direct browser-to-backend cross-origin access. The BFF makes

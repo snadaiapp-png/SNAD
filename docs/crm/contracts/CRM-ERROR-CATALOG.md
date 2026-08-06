@@ -35,12 +35,20 @@ a code is a BREAKING change and must follow the deprecation policy in
 | `CRM_OPPORTUNITY_NOT_FOUND` | The requested CRM opportunity was not found. | No | Yes | GET/PATCH `/opportunities/{id}` — same rules. |
 | `CRM_ACTIVITY_NOT_FOUND` | The requested CRM activity was not found. | No | Yes | GET/PATCH `/activities/{id}` — same rules. |
 | `CRM_TASK_NOT_FOUND` | The requested CRM task was not found. | No | Yes | GET/PATCH `/tasks/{id}` — same rules. |
+| `CRM_CASE_NOT_FOUND` | The requested CRM case was not found. | No | Yes | GET/PATCH `/cases/{id}` — same rules. |
 | `CRM_NOTE_NOT_FOUND` | The requested CRM note was not found. | No | Yes | GET `/notes/{id}` — same rules. |
 | `CRM_TAG_NOT_FOUND` | The requested CRM tag was not found. | No | Yes | GET/PATCH/DELETE `/tags/{id}` — same rules. |
 | `CRM_PIPELINE_NOT_FOUND` | The requested CRM pipeline was not found. | No | Yes | GET `/pipelines/{id}` — same rules. |
 | `CRM_STAGE_NOT_FOUND` | The requested CRM pipeline stage was not found. | No | Yes | GET `/pipelines/{id}/stages/{stageId}` — same rules. |
 | `CRM_IMPORT_NOT_FOUND` | The requested CRM import job was not found. | No | Yes | GET `/imports/{jobId}` — same rules. |
 | `CRM_CUSTOM_FIELD_NOT_FOUND` | The requested CRM custom field was not found. | No | Yes | GET `/custom-fields/{id}` — same rules. |
+| `CRM_EMAIL_NOT_FOUND` | The requested email log entry was not found. | No | Yes | GET `/crm/email/logs/{logId}` or GET `/crm/email/logs/entity/{type}/{id}` — the email log does not exist or belongs to another tenant. |
+| `CRM_SCORE_NOT_FOUND` | The requested score was not found. | No | Yes | GET `/intelligence/accounts/{id}/scores` — the account has no scores of the requested type. |
+| `CRM_SEGMENT_NOT_FOUND` | The requested segment was not found. | No | Yes | GET/DELETE `/intelligence/segments/{id}` — the segment does not exist or belongs to another tenant. |
+| `CRM_SEGMENT_MEMBER_NOT_FOUND` | The segment membership was not found. | No | Yes | DELETE `/intelligence/segments/{id}/memberships/{membershipId}` — the membership does not exist. |
+| `CRM_NBA_NOT_FOUND` | The requested next best action was not found. | No | Yes | GET/PUT `/intelligence/accounts/{id}/nba` — the NBA does not exist or has been resolved. |
+| `CRM_PORTAL_PROFILE_NOT_FOUND` | The customer portal profile was not found. | No | Yes | GET `/crm/portal/profile` — the customer profile does not exist or belongs to another tenant. |
+| `CRM_PORTAL_TICKET_NOT_FOUND` | The support ticket was not found. | No | Yes | GET `/crm/portal/tickets/{ticketId}` — the ticket does not exist or belongs to another customer. |
 | `RESOURCE_NOT_FOUND` | The requested resource was not found. | No | Yes | Generic 404 fallback. |
 
 **Cross-tenant access:** when Tenant B requests an entity owned by Tenant A,
@@ -60,6 +68,8 @@ This is enforced by `CrmExceptionHandler` and verified by
 | `CRM_NOTE_ALREADY_ARCHIVED` | The note has already been archived. | No | PATCH `/notes/{id}/archive` when the note's `archived` flag is already TRUE. |
 | `CRM_DUPLICATE_TAG` | A tag with the same name already exists. | No | POST `/tags` or PATCH `/tags/{id}` with a name that already exists (case-insensitive) for the tenant. |
 | `CRM_IDEMPOTENCY_CONFLICT` | The Idempotency-Key was already used with a different request payload. | No | POST with `Idempotency-Key` already seen, but the request body hash differs. |
+| `CRM_NBA_EXPIRED` | The next best action has expired. | No | PUT `/intelligence/nba/{id}/accept` or `/reject` — the NBA's `expiresAt` is in the past. |
+| `CRM_NBA_VERSION_CONFLICT` | The next best action has been modified by another request. | No | PUT `/intelligence/nba/{id}/accept` or `/reject` — the NBA's version does not match the client's version. |
 | `CONFLICT` | The request conflicts with the current state of the resource. | No | Generic 409 fallback. |
 
 ## Invalid-state-transition codes (HTTP 422)
@@ -69,6 +79,7 @@ This is enforced by `CrmExceptionHandler` and verified by
 | `CRM_INVALID_LEAD_TRANSITION` | The requested lead status transition is not allowed. | No | PATCH `/leads/{id}/status` with an invalid `NEW → ARCHIVED` skip, etc. |
 | `CRM_INVALID_OPPORTUNITY_STAGE` | The requested opportunity stage move is not allowed. | No | PATCH `/opportunities/{id}/stage` to a stage belonging to a different pipeline, or moving a terminal opportunity. |
 | `CRM_INVALID_TASK_TRANSITION` | The requested task status transition is not allowed. | No | PATCH `/tasks/{id}/start` / `/complete` / `/cancel` from a terminal state (COMPLETED or CANCELLED), or `/start` from a non-OPEN state. |
+| `CRM_INVALID_CASE_TRANSITION` | The requested case status transition is not allowed. | No | POST `/cases/{id}/start` / `/resolve` / `/close` / `/reopen` from an invalid state. |
 | `CRM_IMPORT_MAPPING_INVALID` | The import mapping is invalid or incomplete. | No | POST `/imports/{id}/run` when required columns are unmapped. |
 | `CRM_CUSTOM_FIELD_VALIDATION_FAILED` | One or more custom field values failed validation. | No | PUT `/custom-fields/values/{entityType}/{entityId}` with a value that violates the field's data type. |
 
@@ -92,6 +103,7 @@ This is enforced by `CrmExceptionHandler` and verified by
 | Code | Message | Retryable | When used |
 |---|---|---|---|
 | `VALIDATION_ERROR` | The request contains invalid fields. | No | Bean-validation failure. The `fieldErrors` array lists each offending field with a per-field code and message. |
+| `CRM_REPORT_TYPE_INVALID` | The specified report type is not supported. | No | POST `/crm/reports/generate` with an invalid `reportType` value. |
 
 ### Per-field codes (in `fieldErrors[].code`)
 
@@ -128,6 +140,9 @@ This is enforced by `CrmExceptionHandler` and verified by
 
 | Code | Message | Retryable | When used |
 |---|---|---|---|
+| `CRM_SCORE_CALCULATION_FAILED` | Score calculation failed. | Yes | POST `/intelligence/accounts/{id}/scores/calculate` — the scoring algorithm threw an exception. The client MAY retry. |
+| `CRM_EMAIL_SEND_FAILED` | Failed to send email via the configured provider. | Yes | POST `/crm/email/send` — the email provider (Resend, SMTP, HTTP proxy) returned an error or the connection failed. The client MAY retry. |
+| `CRM_REPORT_GENERATION_FAILED` | Failed to generate the requested report. | Yes | POST `/crm/reports/generate` — the report generation process encountered an error. The client MAY retry. |
 | `INTERNAL_ERROR` | An internal server error occurred. Please try again later. | Yes | Any uncaught exception. The full stack trace is logged at ERROR with the `requestId` so operators can correlate. The body NEVER contains the stack trace, SQL, table name, or package name. |
 
 ## Forbidden in error bodies

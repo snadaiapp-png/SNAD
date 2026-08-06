@@ -24,14 +24,14 @@ import java.util.UUID;
 
 /** Exact HTTP response storage and replay for governed CRM idempotency. */
 @Component
-final class CrmIdempotencyHttpSupport {
+public final class CrmIdempotencyHttpSupport {
     private static final TypeReference<Map<String, List<String>>> HEADERS_TYPE = new TypeReference<>() { };
 
     private final IdempotencyService idempotency;
     private final ObjectMapper objectMapper;
     private final ETagService etags;
 
-    CrmIdempotencyHttpSupport(
+    public CrmIdempotencyHttpSupport(
             IdempotencyService idempotency,
             ObjectMapper objectMapper,
             ETagService etags) {
@@ -40,7 +40,7 @@ final class CrmIdempotencyHttpSupport {
         this.etags = etags;
     }
 
-    Guard begin(
+    public Guard begin(
             Authentication authentication,
             String endpoint,
             String idempotencyKey,
@@ -60,7 +60,7 @@ final class CrmIdempotencyHttpSupport {
         return new Guard(requestId(request), replay);
     }
 
-    <T> ResponseEntity<SingleResponse<T>> replay(Guard guard, Class<T> bodyType) {
+    public <T> ResponseEntity<SingleResponse<T>> replay(Guard guard, Class<T> bodyType) {
         IdempotencyRecord record = guard.hit().record();
         if (record.responseBodyJson() == null || record.responseBodyJson().isBlank()) {
             throw new CrmContractException(
@@ -71,22 +71,28 @@ final class CrmIdempotencyHttpSupport {
             JavaType envelopeType = objectMapper.getTypeFactory()
                     .constructParametricType(SingleResponse.class, bodyType);
             SingleResponse<T> envelope = objectMapper.readValue(record.responseBodyJson(), envelopeType);
-            HttpHeaders headers = readHeaders(record.responseHeadersJson());
-            ResponseEntity.BodyBuilder builder = ResponseEntity.status(record.responseStatus()).headers(headers);
-            if (record.contentType() != null && !record.contentType().isBlank()) {
-                builder.contentType(MediaType.parseMediaType(record.contentType()));
-            }
-            return builder.body(envelope);
+            return response(record, envelope);
         } catch (JsonProcessingException | IllegalArgumentException exception) {
-            throw new CrmContractException(
-                    CrmErrorCode.INTERNAL_ERROR,
-                    "Stored idempotency response cannot be replayed.",
-                    guard.requestId(),
-                    exception);
+            throw replayFailure(guard, exception);
         }
     }
 
-    <T> ResponseEntity<SingleResponse<T>> complete(
+    public <T> ResponseEntity<T> replayRaw(Guard guard, Class<T> bodyType) {
+        IdempotencyRecord record = guard.hit().record();
+        if (record.responseBodyJson() == null || record.responseBodyJson().isBlank()) {
+            throw new CrmContractException(
+                    CrmErrorCode.INTERNAL_ERROR,
+                    "Stored idempotency response is incomplete.");
+        }
+        try {
+            T body = objectMapper.readValue(record.responseBodyJson(), bodyType);
+            return response(record, body);
+        } catch (JsonProcessingException | IllegalArgumentException exception) {
+            throw replayFailure(guard, exception);
+        }
+    }
+
+    public <T> ResponseEntity<SingleResponse<T>> complete(
             Guard guard,
             T body,
             String entityType,
@@ -98,23 +104,57 @@ final class CrmIdempotencyHttpSupport {
         if (id != null && entityType != null && !entityType.isBlank()) {
             headers.setETag(etags.etag(entityType, id, version));
         }
-        IdempotencyService.Replay.ReplayMiss miss = guard.miss();
-        idempotency.complete(
-                miss.operationId(),
-                status.value(),
-                writeJson(envelope),
-                writeJson(headers),
-                MediaType.APPLICATION_JSON_VALUE);
+        persist(guard, status, envelope, headers);
         return ResponseEntity.status(status)
                 .headers(headers)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(envelope);
     }
 
-    void fail(Guard guard) {
+    public <T> ResponseEntity<T> completeRaw(
+            Guard guard,
+            T body,
+            HttpStatus status,
+            HttpHeaders responseHeaders) {
+        HttpHeaders headers = responseHeaders == null ? new HttpHeaders() : responseHeaders;
+        persist(guard, status, body, headers);
+        return ResponseEntity.status(status)
+                .headers(headers)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body);
+    }
+
+    public void fail(Guard guard) {
         if (guard.replay() instanceof IdempotencyService.Replay.ReplayMiss miss) {
             idempotency.fail(miss.operationId());
         }
+    }
+
+    private void persist(Guard guard, HttpStatus status, Object body, HttpHeaders headers) {
+        IdempotencyService.Replay.ReplayMiss miss = guard.miss();
+        idempotency.complete(
+                miss.operationId(),
+                status.value(),
+                writeJson(body),
+                writeJson(headers),
+                MediaType.APPLICATION_JSON_VALUE);
+    }
+
+    private <T> ResponseEntity<T> response(IdempotencyRecord record, T body) throws JsonProcessingException {
+        HttpHeaders headers = readHeaders(record.responseHeadersJson());
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(record.responseStatus()).headers(headers);
+        if (record.contentType() != null && !record.contentType().isBlank()) {
+            builder.contentType(MediaType.parseMediaType(record.contentType()));
+        }
+        return builder.body(body);
+    }
+
+    private CrmContractException replayFailure(Guard guard, Exception exception) {
+        return new CrmContractException(
+                CrmErrorCode.INTERNAL_ERROR,
+                "Stored idempotency response cannot be replayed.",
+                guard.requestId(),
+                exception);
     }
 
     private HttpHeaders readHeaders(String json) throws JsonProcessingException {
@@ -178,17 +218,17 @@ final class CrmIdempotencyHttpSupport {
         return null;
     }
 
-    record Guard(UUID requestId, IdempotencyService.Replay replay) {
-        boolean isReplay() {
+    public record Guard(UUID requestId, IdempotencyService.Replay replay) {
+        public boolean isReplay() {
             return replay instanceof IdempotencyService.Replay.ReplayHit;
         }
 
-        IdempotencyService.Replay.ReplayHit hit() {
+        public IdempotencyService.Replay.ReplayHit hit() {
             if (replay instanceof IdempotencyService.Replay.ReplayHit hit) return hit;
             throw new IllegalStateException("Idempotency operation is not a replay");
         }
 
-        IdempotencyService.Replay.ReplayMiss miss() {
+        public IdempotencyService.Replay.ReplayMiss miss() {
             if (replay instanceof IdempotencyService.Replay.ReplayMiss miss) return miss;
             throw new IllegalStateException("Idempotency operation is not new");
         }

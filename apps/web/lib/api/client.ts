@@ -86,6 +86,10 @@ async function extractErrorDetails(response: Response): Promise<ApiErrorDetails>
         body = JSON.parse(text) as Record<string, unknown>;
         if (typeof body.message === "string") message = body.message;
         else if (typeof body.error === "string") message = body.error;
+        // Handle nested error envelope: { error: { code, message, ... } }
+        else if (body.error && typeof body.error === "object" && typeof (body.error as Record<string, unknown>).message === "string") {
+          message = (body.error as Record<string, string>).message;
+        }
         if (typeof body.path === "string") bodyPath = body.path;
         if (typeof body.requestId === "string") bodyRequestId = body.requestId;
       }

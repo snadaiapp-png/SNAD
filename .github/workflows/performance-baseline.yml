@@ -21,6 +21,105 @@ env:
   JWT_SECRET: ci-only-non-production-validation-key-1234567890
 
 jobs:
+  crm-033-authenticated-benchmark:
+    name: CRM-033 Authenticated Benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      # Deterministic HMAC key for the perf-test profile (CI-only value; the
+      # profile is never active in production). Secrets are environment-driven.
+      PERF_TEST_JWT_SECRET: ci-only-non-production-validation-key-1234567890
+      PERF_TEST_ADMIN_EMAIL: perf-admin@sanad.local
+      PERF_TEST_ADMIN_PASSWORD: CiOnlyPerfAdmin!2026
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Start backend on perf-test profile
+        working-directory: apps/sanad-platform
+        run: |
+          mkdir -p ../../performance/results
+          nohup mvn -q -DskipTests spring-boot:run \
+            -Dspring-boot.run.profiles=perf-test \
+            -Dspring-boot.run.arguments="--server.port=8080" \
+            > ../../performance/results/crm-perf-backend-startup.log 2>&1 &
+          echo $! > /tmp/sanad-crm-perf-app.pid
+
+      - name: Wait for health
+        run: |
+          for attempt in $(seq 1 120); do
+            if ! kill -0 "$(cat /tmp/sanad-crm-perf-app.pid)" 2>/dev/null; then
+              echo "::error::sanad perf-test app process exited before becoming healthy"
+              cat performance/results/crm-perf-backend-startup.log || true
+              exit 1
+            fi
+
+            code=$(curl -sS -o /tmp/crm-perf-health.json -w '%{http_code}' http://localhost:8080/actuator/health || true)
+            echo "attempt=$attempt health_http=$code"
+            [ -s /tmp/crm-perf-health.json ] && cat /tmp/crm-perf-health.json || true
+            echo
+            if [ "$code" = '200' ]; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::SANAD perf-test profile did not become healthy for CRM-033 benchmark"
+          cat performance/results/crm-perf-backend-startup.log || true
+          exit 1
+
+      - name: Run CRM-033 k6 benchmark
+        run: |
+          mkdir -p performance/results
+          docker run --rm --network host \
+            -e BASE_URL=http://localhost:8080 \
+            -e PERF_TEST_ADMIN_EMAIL="$PERF_TEST_ADMIN_EMAIL" \
+            -e PERF_TEST_ADMIN_PASSWORD="$PERF_TEST_ADMIN_PASSWORD" \
+            -e OUTPUT_FILE=/results/crm-perf-baseline.json \
+            -v "$PWD/performance/k6:/scripts:ro" \
+            -v "$PWD/performance/results:/results" \
+            grafana/k6:latest run \
+            --summary-export=/results/crm-perf-summary.json \
+            /scripts/crm-performance-baseline.js
+
+      - name: Publish CRM-033 summary
+        if: always()
+        run: |
+          {
+            echo '## CRM-033 Authenticated Performance Benchmark'
+            echo ''
+            echo '- Scenario: 50 RPS constant-arrival-rate for 10 minutes'
+            echo '- Endpoints: dashboard, accounts-list, customer-360, lead-conversion'
+            echo '- Authentication: automatic login via /api/v1/auth/login (perf-test profile seed)'
+            echo '- Failure threshold: less than 1%'
+            echo '- p95 target: below 500 ms'
+            echo '- p99 target: below 1000 ms'
+            echo '- Runtime profile: perf-test (H2-backed, deterministic JWT secret)'
+            echo '- Startup log artifact: `crm-perf-backend-startup.log`'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload CRM-033 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-033-performance-results
+          path: performance/results/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        run: |
+          if [ -f /tmp/sanad-crm-perf-app.pid ]; then
+            kill "$(cat /tmp/sanad-crm-perf-app.pid)" 2>/dev/null || true
+          fi
+
   backend-health-baseline:
     name: Backend Health Load Baseline
     runs-on: ubuntu-latest

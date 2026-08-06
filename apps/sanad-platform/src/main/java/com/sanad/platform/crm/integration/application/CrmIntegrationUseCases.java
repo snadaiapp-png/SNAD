@@ -3,6 +3,9 @@ package com.sanad.platform.crm.integration.application;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.sanad.platform.crm.integration.domain.AuditPort;
+import com.sanad.platform.crm.integration.domain.AuditPort.AuditChange;
+import com.sanad.platform.crm.integration.domain.TimelineEventPort;
 import com.sanad.platform.crm.integration.orchestration.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,15 +53,21 @@ public class CrmIntegrationUseCases {
     private final CrmEntitySnapshotPort entitySnapshotPort;
     private final ConfirmedRecommendationExecutor commandExecutor;
     private final ObjectMapper mapper;
+    private final AuditPort audit;
+    private final TimelineEventPort timeline;
 
     public CrmIntegrationUseCases(CrmIntegrationStore store,
                                   CrmEntitySnapshotPort entitySnapshotPort,
                                   ConfirmedRecommendationExecutor commandExecutor,
-                                  ObjectMapper mapper) {
+                                  ObjectMapper mapper,
+                                  AuditPort audit,
+                                  TimelineEventPort timeline) {
         this.store = store;
         this.entitySnapshotPort = entitySnapshotPort;
         this.commandExecutor = commandExecutor;
         this.mapper = mapper;
+        this.audit = audit;
+        this.timeline = timeline;
     }
 
     @Transactional
@@ -87,6 +96,21 @@ public class CrmIntegrationUseCases {
 
         store.createOutboxEvent(tenantId, createResult.request().id(), "AI",
                 "AI_REQUEST_DISPATCH", idempotencyKey, minimizedPayload);
+
+        // Audit trail for AI insight request
+        ObjectNode auditAfter = mapper.createObjectNode();
+        auditAfter.put("capability", capability.name());
+        auditAfter.put("sourceEntityType", sourceEntityType);
+        auditAfter.put("sourceEntityId", sourceEntityId.toString());
+        auditAfter.put("status", "PENDING");
+        audit.record(tenantId, actorId, "AI_REQUEST_SUBMITTED", "INTEGRATION_REQUEST",
+                createResult.request().id(), new AuditChange(null, auditAfter), now);
+
+        // Timeline event for AI request started
+        timeline.record(tenantId, sourceEntityType, sourceEntityId,
+                "crm.ai.requested",
+                "AI " + capability.name().toLowerCase(Locale.ROOT) + " requested",
+                "CRM_INTEGRATION", createResult.request().id(), actorId, now);
 
         return createResult.request();
     }
@@ -195,6 +219,20 @@ public class CrmIntegrationUseCases {
                 tenantId, requestId, dr.record().id(), actorId,
                 correlationId, confirmedVersion);
 
+        // Audit trail for AI recommendation confirmed
+        Instant confirmTime = Instant.now();
+        ObjectNode confirmAudit = mapper.createObjectNode();
+        confirmAudit.put("status", "CONFIRMED");
+        confirmAudit.put("decisionId", dr.record().id().toString());
+        audit.record(tenantId, actorId, "AI_RECOMMENDATION_CONFIRMED", "INTEGRATION_REQUEST",
+                requestId, new AuditChange(null, confirmAudit), confirmTime);
+
+        // Timeline event for AI recommendation confirmed
+        timeline.record(tenantId, existing.sourceEntityType(), existing.sourceEntityId(),
+                "crm.ai.confirmed",
+                "AI recommendation confirmed",
+                "CRM_INTEGRATION", requestId, actorId, confirmTime);
+
         return tr.request();
     }
 
@@ -269,6 +307,21 @@ public class CrmIntegrationUseCases {
 
         store.transitionDecision(tenantId, dr.record().id(), dr.record().version(),
                 Set.of("PENDING"), "REJECTED", null, null);
+
+        // Audit trail for AI recommendation rejected
+        Instant rejectTime = Instant.now();
+        ObjectNode rejectAudit = mapper.createObjectNode();
+        rejectAudit.put("status", "REJECTED");
+        rejectAudit.put("decisionId", dr.record().id().toString());
+        rejectAudit.put("reason", normalizedReason);
+        audit.record(tenantId, actorId, "AI_RECOMMENDATION_REJECTED", "INTEGRATION_REQUEST",
+                requestId, new AuditChange(null, rejectAudit), rejectTime);
+
+        // Timeline event for AI recommendation rejected
+        timeline.record(tenantId, request.sourceEntityType(), request.sourceEntityId(),
+                "crm.ai.rejected",
+                "AI recommendation rejected",
+                "CRM_INTEGRATION", requestId, actorId, rejectTime);
 
         return tr.request();
     }

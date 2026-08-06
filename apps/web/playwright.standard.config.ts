@@ -22,9 +22,19 @@ export default defineConfig({
     "**/crm-rbac-acceptance.spec.ts",
     "**/crm-accessibility.spec.ts",
     "**/crm-route-smoke.spec.ts",
+    // Requires authentication + CRM leads data to verify terminal status UX.
+    // Runs in CRM acceptance workflow only.
+    "**/crm-035-terminal-leads.spec.ts",
+    // Requires CRM_TENANT_A_EMAIL/PASSWORD env vars (authenticated acceptance).
+    // Runs in production closure workflows only.
+    "**/crm-lifecycle.spec.ts",
     // Mutates the real Production environment and requires protected secrets.
     // It is mandatory in playwright.crm007-production.config.ts only.
     "**/crm-007-production-closure.spec.ts",
+    // Mutates the real Production environment and requires the exact-SHA
+    // Vercel/Render/Flyway gate plus protected two-tenant credentials.
+    // It is mandatory in playwright.crm008r-production.config.ts only.
+    "**/crm-008r-production-closure.spec.ts",
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

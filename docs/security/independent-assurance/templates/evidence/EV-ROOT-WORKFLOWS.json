@@ -1,0 +1,83 @@
+{
+  "assessed_release_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+  "schema": "snad.rem-p0-006.workflow-results.v1",
+  "workflow_results": {
+    "business_e2e": {
+      "conclusion": "success",
+      "created_at": "2026-07-26T15:18:02Z",
+      "event": "workflow_dispatch",
+      "head_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+      "html_url": "https://github.com/snadaiapp-png/SNAD/actions/runs/30207901085",
+      "name": "Business Process E2E Validation",
+      "run_id": 30207901085,
+      "status": "completed",
+      "updated_at": "2026-07-26T15:19:18Z"
+    },
+    "crm": {
+      "conclusion": "success",
+      "created_at": "2026-07-26T15:06:34Z",
+      "event": "workflow_dispatch",
+      "head_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+      "html_url": "https://github.com/snadaiapp-png/SNAD/actions/runs/30207500989",
+      "name": "CRM-008R Final Production Closure",
+      "run_id": 30207500989,
+      "status": "completed",
+      "updated_at": "2026-07-26T15:11:12Z"
+    },
+    "development_security": {
+      "conclusion": "success",
+      "created_at": "2026-07-26T15:14:47Z",
+      "event": "workflow_dispatch",
+      "head_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+      "html_url": "https://github.com/snadaiapp-png/SNAD/actions/runs/30207784775",
+      "name": "Development Security Acceptance",
+      "run_id": 30207784775,
+      "status": "completed",
+      "updated_at": "2026-07-26T15:16:08Z"
+    },
+    "nvd": {
+      "conclusion": "success",
+      "created_at": "2026-07-26T15:11:17Z",
+      "event": "workflow_dispatch",
+      "head_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+      "html_url": "https://github.com/snadaiapp-png/SNAD/actions/runs/30207663495",
+      "name": "NVD Database Maintenance",
+      "run_id": 30207663495,
+      "status": "completed",
+      "updated_at": "2026-07-26T15:12:25Z"
+    },
+    "owasp": {
+      "conclusion": "success",
+      "created_at": "2026-07-26T15:16:12Z",
+      "event": "workflow_dispatch",
+      "head_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+      "html_url": "https://github.com/snadaiapp-png/SNAD/actions/runs/30207837186",
+      "name": "Security Scan (OWASP)",
+      "run_id": 30207837186,
+      "status": "completed",
+      "updated_at": "2026-07-26T15:17:20Z"
+    },
+    "provenance": {
+      "conclusion": "success",
+      "created_at": "2026-07-26T15:17:26Z",
+      "event": "workflow_dispatch",
+      "head_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+      "html_url": "https://github.com/snadaiapp-png/SNAD/actions/runs/30207879569",
+      "name": "Stage 07 Artifact Provenance",
+      "run_id": 30207879569,
+      "status": "completed",
+      "updated_at": "2026-07-26T15:17:56Z"
+    },
+    "security_baseline": {
+      "conclusion": "success",
+      "created_at": "2026-07-26T15:12:29Z",
+      "event": "workflow_dispatch",
+      "head_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
+      "html_url": "https://github.com/snadaiapp-png/SNAD/actions/runs/30207705538",
+      "name": "Security Baseline",
+      "run_id": 30207705538,
+      "status": "completed",
+      "updated_at": "2026-07-26T15:14:42Z"
+    }
+  }
+}

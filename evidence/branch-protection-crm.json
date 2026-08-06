@@ -1,0 +1,60 @@
+{
+  "ticket": "CRM-030",
+  "date": "2026-07-31",
+  "status": "DOCUMENTED",
+  "note": "Branch protection updates require admin permissions. Configuration documented for manual application.",
+  "current_required_status_checks": [
+    "Build Next.js Web",
+    "provenance",
+    "CRM Integration Tests",
+    "Maven Test Suite",
+    "CRM Deployment Readiness",
+    "Post-Merge Verification",
+    "Verify 8 tables, 26 indexes, and tenant isolation"
+  ],
+  "required_status_checks_after_crm030": [
+    "Build Next.js Web",
+    "provenance",
+    "CRM Integration Tests",
+    "Maven Test Suite",
+    "CRM Deployment Readiness",
+    "CRM Real API Smoke",
+    "CRM Web Lint Diagnostics",
+    "CI / crm",
+    "Post-Merge Verification",
+    "Verify 8 tables, 26 indexes, and tenant isolation"
+  ],
+  "missing_required_checks": [
+    "CRM Real API Smoke",
+    "CRM Web Lint Diagnostics",
+    "CI / crm"
+  ],
+  "workflows_verified": {
+    "CRM Deployment Readiness": {
+      "file": ".github/workflows/crm-deployment-readiness.yml",
+      "exists": true,
+      "is_required_check": true
+    },
+    "CRM Real API Smoke": {
+      "file": ".github/workflows/crm-real-smoke.yml",
+      "exists": true,
+      "is_required_check": false,
+      "action_needed": true
+    },
+    "CRM Web Lint Diagnostics": {
+      "file": ".github/workflows/crm-web-lint-diagnostics.yml",
+      "exists": true,
+      "is_required_check": false,
+      "action_needed": true
+    },
+    "CI / crm": {
+      "file": ".github/workflows/ci.yml",
+      "job": "crm",
+      "exists": true,
+      "is_required_check": false,
+      "action_needed": true
+    }
+  },
+  "api_update_command": "gh api repos/snadaiapp-png/SNAD/branches/main/protection/required_status_checks -X PUT --input - < protection_payload.json",
+  "requires_admin_permissions": true
+}

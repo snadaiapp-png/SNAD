@@ -120,11 +120,16 @@ public class CrmOwnershipResourceController {
         SalesTeam current = teams.getTeam(context.tenantId(), teamId);
         http.validateIfMatch(
                 ifMatch, "sales-team", teamId, http.timestampVersion(current.updatedAt()));
-        SalesTeam updated = teams.updateTeam(
-                context.tenantId(), context.userId(), teamId,
-                new SalesTeamUseCases.UpdateTeamCommand(
-                        body.displayName(), body.description(), body.status(),
-                        body.managerUserId(), body.defaultQueueId(), body.defaultTerritoryId()));
+        SalesTeam updated;
+        if (body.status() == TeamStatus.ARCHIVED) {
+            updated = teams.archiveTeam(context.tenantId(), context.userId(), teamId);
+        } else {
+            updated = teams.updateTeam(
+                    context.tenantId(), context.userId(), teamId,
+                    new SalesTeamUseCases.UpdateTeamCommand(
+                            body.displayName(), body.description(), body.status(),
+                            body.managerUserId(), body.defaultQueueId(), body.defaultTerritoryId()));
+        }
         return http.single(
                 updated, http.trace(request), HttpStatus.OK,
                 "sales-team", updated.id(), http.timestampVersion(updated.updatedAt()));

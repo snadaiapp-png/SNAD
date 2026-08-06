@@ -1,0 +1,86 @@
+# ============================================================
+# SANAD Platform — `perf-test` profile
+# ------------------------------------------------------------
+# Activated with: --spring.profiles.active=perf-test
+#                or SPRING_PROFILES_ACTIVE=perf-test
+#
+# Deterministic performance-test environment used by the CRM-033
+# k6 benchmark (.github/workflows/performance-baseline.yml and
+# local runs). NEVER used in production.
+#
+# Compared to `local`:
+#   • requires PERF_TEST_JWT_SECRET (or JWT_SECRET) so HMAC keys
+#     are deterministic across restarts — no ephemeral fallback
+#   • production-like logging (no DEBUG SQL noise)
+#   • PerfTestBootstrapConfig seeds the perf-admin user, RBAC and
+#     CRM fixtures automatically at startup — no manual H2 console
+#     access, no manual SQL, no security bypass.
+# ============================================================
+
+spring:
+  datasource:
+    # PostgreSQL mode plus lower-case identifiers keeps JDBC column labels
+    # identical to PostgreSQL, so JSON contracts do not vary between gates.
+    url: jdbc:h2:mem:sanad_perf;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;NON_KEYWORDS=VALUE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+    hikari:
+      # Sized for the CRM-033 benchmark: 50 RPS with a per-request DB round-trip
+      # (session-version check) plus per-endpoint queries. The default pool of
+      # 10 starves under this concurrency (measured: 98 threads pending, acquire
+      # avg 137ms / max 5.9s). Env-overridable so CI can tune it.
+      maximum-pool-size: ${PERF_TEST_DB_POOL_MAX:40}
+      minimum-idle: ${PERF_TEST_DB_POOL_MIN:10}
+      connection-timeout: 30000
+
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: false
+
+  # Flyway stays enabled so perf runs exercise the complete migration chain,
+  # including vendor-specific migration parity, exactly like local/test.
+  flyway:
+    enabled: true
+    locations: "classpath:db/migration,classpath:db/vendor/{vendor}"
+    baseline-on-migrate: true
+    clean-disabled: false
+    validate-on-migrate: false
+
+sanad:
+  security:
+    jwt:
+      # Deterministic HMAC key. PerfTestBootstrapConfig fails fast when both
+      # PERF_TEST_JWT_SECRET and JWT_SECRET are unset so tokens never fall back
+      # to the ephemeral non-deterministic key during a benchmark.
+      secret: ${PERF_TEST_JWT_SECRET:${JWT_SECRET:}}
+  crm:
+    # Tests invoke the import worker explicitly to avoid scheduler races.
+    import-worker-enabled: false
+    custom-field-encryption-key: ${CRM_CUSTOM_FIELD_ENCRYPTION_KEY:}
+
+# Row-Level Security is PostgreSQL-specific and not supported by H2's
+# PostgreSQL compatibility mode (same constraint as the local profile).
+snad:
+  rls:
+    enabled: false
+
+logging:
+  level:
+    root: INFO
+    com.sanad.platform: INFO
+    org.springframework.web: INFO
+    org.hibernate.SQL: WARN
+    org.flywaydb: INFO
+
+management:
+  endpoint:
+    health:
+      show-details: always
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus

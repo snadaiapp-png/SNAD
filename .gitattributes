@@ -1,0 +1,4 @@
+# Force LF line endings for YAML workflow files
+# Windows CRLF breaks GitHub Actions YAML parser (runner.temp etc.)
+*.yml text eol=lf
+*.yaml text eol=lf

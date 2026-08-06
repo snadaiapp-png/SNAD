@@ -18,9 +18,9 @@ const PRODUCTION_BACKEND_HOST = new URL(PRODUCTION_BACKEND_URL).hostname;
 
 // BACKEND_REQUEST_TIMEOUT_MS is an end-to-end BFF budget, not a per-attempt timeout.
 // It bounds retries inside the serverless execution window and preserves deterministic failures.
-const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 25_000;
 const MIN_REQUEST_TIMEOUT_MS = 2_500;
-const MAX_REQUEST_TIMEOUT_MS = 25_000;
+const MAX_REQUEST_TIMEOUT_MS = 45_000;
 const MIN_ATTEMPT_TIMEOUT_MS = 1_000;
 const RETRY_DELAY_MS = 250;
 const MAX_IDEMPOTENT_ATTEMPTS = 2;

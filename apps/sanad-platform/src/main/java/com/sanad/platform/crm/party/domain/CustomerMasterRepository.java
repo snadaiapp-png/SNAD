@@ -23,9 +23,11 @@ public interface CustomerMasterRepository {
 
     List<AccountAddress> listAddresses(UUID tenantId, UUID accountId);
 
+    AccountAddress findAddress(UUID tenantId, UUID accountId, UUID addressId);
+
     AccountAddress addAddress(UUID tenantId, UUID actorId, UUID accountId, CreateAddressCommand command);
 
-    void deactivateAddress(UUID tenantId, UUID actorId, UUID accountId, UUID addressId);
+    void deactivateAddress(UUID tenantId, UUID actorId, UUID accountId, UUID addressId, long expectedVersion);
 
     List<AccountIdentifier> listIdentifiers(UUID tenantId, UUID accountId);
 

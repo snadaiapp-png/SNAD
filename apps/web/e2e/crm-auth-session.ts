@@ -18,7 +18,6 @@ export interface CrmLoginResponse {
 const AUTHENTICATED_DESTINATIONS = [
   "/workspace",
   "/crm",
-  "/crm/command-center",
   "/control-plane",
 ] as const;
 
@@ -135,7 +134,7 @@ export async function loginThroughUi(
 
   await page.waitForLoadState("networkidle", { timeout: 30_000 });
   await page.waitForSelector(
-    'main, [data-auth-state="authenticated"], #workspace-content, #crm-operational-content, #crm-command-center-content',
+    'main, [data-auth-state="authenticated"], #workspace-content, #crm-operational-content',
     { timeout: 30_000 },
   ).catch(() => {
     // The authenticated shell may still be settling; the second network-idle

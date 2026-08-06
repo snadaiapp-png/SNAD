@@ -23,6 +23,7 @@ import com.sanad.platform.security.exception.InvalidResetTokenException;
 import com.sanad.platform.security.exception.LoginRateLimitException;
 import com.sanad.platform.security.exception.PasswordResetRateLimitException;
 import com.sanad.platform.security.exception.RefreshTokenReplayException;
+import com.sanad.platform.security.filter.SessionVersionCache;
 import com.sanad.platform.security.ratelimit.LoginRateLimiter;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
@@ -63,6 +64,7 @@ public class AuthService {
     private final LoginRateLimiter loginRateLimiter;
     private final Cache<String, Integer> loginFailureCache;
     private final Cache<String, Integer> resetRequestCache;
+    private final SessionVersionCache sessionVersionCache;
 
     public AuthService(
             UserRepository userRepository,
@@ -71,7 +73,8 @@ public class AuthService {
             JwtTokenProvider jwtTokenProvider,
             PasswordEncoder passwordEncoder,
             SecurityProperties securityProperties,
-            LoginRateLimiter loginRateLimiter
+            LoginRateLimiter loginRateLimiter,
+            SessionVersionCache sessionVersionCache
     ) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
@@ -80,6 +83,7 @@ public class AuthService {
         this.passwordEncoder = passwordEncoder;
         this.securityProperties = securityProperties;
         this.loginRateLimiter = loginRateLimiter;
+        this.sessionVersionCache = sessionVersionCache;
 
         SecurityProperties.LoginRateLimit rateLimit = securityProperties.getLoginRateLimit();
         // Legacy in-process cache retained as a secondary defense-in-depth counter
@@ -289,6 +293,7 @@ public class AuthService {
         userRepository.findByTenantIdAndId(tenantId, userId).ifPresent(user -> {
             user.incrementSessionVersion();
             userRepository.save(user);
+            sessionVersionCache.invalidate(tenantId, userId);
         });
 
         log.info("Logout: revoked {} refresh tokens and incremented session version for userId={} tenantId={}",
@@ -318,6 +323,7 @@ public class AuthService {
         user.setMustChangePassword(false);
         user.incrementSessionVersion();
         userRepository.save(user);
+        sessionVersionCache.invalidate(tenantId, userId);
         refreshTokenRepository.revokeAllActive(tenantId, userId);
 
         log.info("Credential rotated, session version incremented, and refresh sessions revoked for userId={} tenantId={}",
@@ -429,6 +435,7 @@ public class AuthService {
         user.setMustChangePassword(false);
         user.incrementSessionVersion();
         userRepository.save(user);
+        sessionVersionCache.invalidate(user.getTenantId(), user.getId());
 
         // Mark token as used
         resetToken.setStatus(PasswordResetTokenStatus.USED);
@@ -473,6 +480,7 @@ public class AuthService {
         user.setMustChangePassword(request.isForceChange());
         user.incrementSessionVersion();
         userRepository.save(user);
+        sessionVersionCache.invalidate(tenantId, userId);
 
         // Revoke all refresh tokens (force re-login on all devices)
         int revokedTokens = refreshTokenRepository.revokeAllActive(tenantId, userId);

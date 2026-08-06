@@ -1,9 +1,11 @@
 package com.sanad.platform.crm.party;
 
+import com.sanad.platform.crm.concurrency.ETagService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -30,6 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class CustomerMasterSecurityIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired NamedParameterJdbcTemplate jdbc;
+    @Autowired ETagService etags;
 
     @Test
     void unauthenticatedCustomerMasterRequestReturns401() throws Exception {
@@ -56,6 +59,7 @@ class CustomerMasterSecurityIntegrationTest {
 
         mockMvc.perform(post("/api/v1/crm/accounts/{id}/relationships", source)
                         .with(authentication(auth(tenantA)))
+                        .header("Idempotency-Key", UUID.randomUUID())
                         .contentType("application/json")
                         .content("{\"targetAccountId\":\"" + foreignTarget +
                                 "\",\"relationshipType\":\"AFFILIATE\"}"))
@@ -71,8 +75,11 @@ class CustomerMasterSecurityIntegrationTest {
 
         mockMvc.perform(post("/api/v1/crm/accounts/{source}/merge/{target}", source, foreignTarget)
                         .with(authentication(auth(tenantA)))
+                        .header("Idempotency-Key", UUID.randomUUID())
+                        .header(HttpHeaders.IF_MATCH, etags.etag("customer-master", source, 0))
+                        .header("X-Target-If-Match", etags.etag("customer-master", foreignTarget, 0))
                         .contentType("application/json")
-                        .content("{\"expectedSourceVersion\":0,\"expectedTargetVersion\":0}"))
+                        .content("{\"reason\":\"Cross-tenant isolation proof\"}"))
                 .andExpect(status().isNotFound());
 
         String sourceStatus = jdbc.queryForObject(

@@ -171,6 +171,8 @@ jobs:
         id: backend-tests
         shell: bash
         working-directory: apps/sanad-platform
+        env:
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: 'El3BbUMQ882dQYiAqNEEMxfTr3CVlf0FTbrCOrIKKsw='
         run: |
           set -euo pipefail
           mvn --batch-mode --no-transfer-progress test

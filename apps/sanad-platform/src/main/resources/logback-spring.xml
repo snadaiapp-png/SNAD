@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Structured JSON logging configuration for CRM-008 production readiness.
+    Provides structured JSON output for log aggregation systems (ELK, Datadog, etc.)
+    and human-readable console output for development.
+-->
+<configuration>
+
+    <!-- ================================================================== -->
+    <!-- Console Appender: Human-readable for dev/local profiles             -->
+    <!-- ================================================================== -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- ================================================================== -->
+    <!-- JSON Console Appender: Structured JSON for production/staging       -->
+    <!-- ================================================================== -->
+    <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <!-- Include standard fields -->
+            <includeMdcKeyName>tenant_id</includeMdcKeyName>
+            <includeMdcKeyName>user_id</includeMdcKeyName>
+            <includeMdcKeyName>correlation_id</includeMdcKeyName>
+            <includeMdcKeyName>request_id</includeMdcKeyName>
+            <includeMdcKeyName>trace_id</includeMdcKeyName>
+            <includeMdcKeyName>workflow_id</includeMdcKeyName>
+            <includeMdcKeyName>organization_id</includeMdcKeyName>
+
+            <!-- Custom field names -->
+            <fieldNames>
+                <timestamp>timestamp</timestamp>
+                <version>version</version>
+                <level>level</level>
+                <levelValue>level_value</levelValue>
+                <logger>logger</logger>
+                <thread>thread</thread>
+                <message>message</message>
+                <stackTrace>stack_trace</stackTrace>
+            </fieldNames>
+
+            <!-- Static fields -->
+            <customFields>
+                {"service":"sanad-platform","module":"crm-008"}
+            </customFields>
+
+            <!-- Include MDC fields as top-level JSON properties -->
+            <includeMdc>true</includeMdc>
+
+            <!-- Timestamp format -->
+            <timestampPattern>yyyy-MM-dd'T'HH:mm:ss.SSS'Z'</timestampPattern>
+
+            <!-- Include exception info -->
+            <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+                <maxDepthPerThrowable>30</maxDepthPerThrowable>
+                <maxLength>2048</maxLength>
+                <rootCauseFirst>true</rootCauseFirst>
+            </throwableConverter>
+        </encoder>
+    </appender>
+
+    <!-- ================================================================== -->
+    <!-- File Appender: Rolling file for production with retention           -->
+    <!-- ================================================================== -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/sanad-platform.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/sanad-platform.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <customFields>
+                {"service":"sanad-platform","module":"crm-008"}
+            </customFields>
+            <includeMdc>true</includeMdc>
+            <timestampPattern>yyyy-MM-dd'T'HH:mm:ss.SSS'Z'</timestampPattern>
+        </encoder>
+    </appender>
+
+    <!-- ================================================================== -->
+    <!-- Error File Appender: Separate error log for quick triage            -->
+    <!-- ================================================================== -->
+    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/sanad-platform-error.log</file>
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>ERROR</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/sanad-platform-error.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>90</maxHistory>
+            <totalSizeCap>500MB</totalSizeCap>
+        </rollingPolicy>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <customFields>
+                {"service":"sanad-platform","module":"crm-008","log_type":"error"}
+            </customFields>
+            <includeMdc>true</includeMdc>
+        </encoder>
+    </appender>
+
+    <!-- ================================================================== -->
+    <!-- Audit Appender: Structured audit trail logs                        -->
+    <!-- ================================================================== -->
+    <appender name="AUDIT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/sanad-platform-audit.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/sanad-platform-audit.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>365</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <customFields>
+                {"service":"sanad-platform","module":"crm-008","log_type":"audit"}
+            </customFields>
+            <includeMdc>true</includeMdc>
+        </encoder>
+    </appender>
+
+    <!-- ================================================================== -->
+    <!-- Profile: dev / local — human-readable console logging               -->
+    <!-- ================================================================== -->
+    <springProfile name="dev,local">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+        <logger name="com.sanad.platform" level="DEBUG"/>
+        <logger name="org.hibernate.SQL" level="DEBUG"/>
+        <logger name="org.flywaydb" level="DEBUG"/>
+    </springProfile>
+
+    <!-- ================================================================== -->
+    <!-- Profile: staging — structured JSON to console                      -->
+    <!-- ================================================================== -->
+    <springProfile name="staging">
+        <root level="INFO">
+            <appender-ref ref="JSON_CONSOLE"/>
+            <appender-ref ref="FILE"/>
+            <appender-ref ref="ERROR_FILE"/>
+        </root>
+        <logger name="com.sanad.platform" level="INFO"/>
+        <logger name="org.springframework.web" level="INFO"/>
+        <logger name="org.hibernate.SQL" level="WARN"/>
+        <logger name="org.flywaydb" level="INFO"/>
+        <!-- Audit logging -->
+        <logger name="com.sanad.platform.crm.audit" level="INFO" additivity="false">
+            <appender-ref ref="AUDIT_FILE"/>
+        </logger>
+    </springProfile>
+
+    <!-- ================================================================== -->
+    <!-- Profile: prod — structured JSON + file logging                     -->
+    <!-- ================================================================== -->
+    <springProfile name="prod">
+        <root level="INFO">
+            <appender-ref ref="JSON_CONSOLE"/>
+            <appender-ref ref="FILE"/>
+            <appender-ref ref="ERROR_FILE"/>
+        </root>
+        <logger name="com.sanad.platform" level="INFO"/>
+        <logger name="org.springframework.web" level="WARN"/>
+        <logger name="org.hibernate.SQL" level="WARN"/>
+        <logger name="org.flywaydb" level="INFO"/>
+        <!-- Audit logging -->
+        <logger name="com.sanad.platform.crm.audit" level="INFO" additivity="false">
+            <appender-ref ref="AUDIT_FILE"/>
+        </logger>
+        <!-- Operational alerting logs -->
+        <logger name="com.sanad.platform.ops.alert" level="INFO"/>
+    </springProfile>
+
+    <!-- ================================================================== -->
+    <!-- Default (no profile) — console logging                             -->
+    <!-- ================================================================== -->
+    <springProfile name="default">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+</configuration>

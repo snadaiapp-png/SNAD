@@ -590,4 +590,19 @@
         <cve>CVE-2025-15104</cve>
     </suppress>
 
+    <!-- ============================================================ -->
+    <!-- Micrometer Registry Prometheus (1.15.4) — 1 CVE              -->
+    <!-- NVD CPE: cpe:2.3:a:prometheus:prometheus:* — no upper bound  -->
+    <!-- The CPE match flags ALL versions of micrometer-registry-     -->
+    <!-- prometheus.  Our version 1.15.4 is the latest patch.         -->
+    <!-- ============================================================ -->
+
+    <suppress>
+        <notes><![CDATA[
+            CVE-2026-42154: Prometheus CPE range has no upper bound.
+            NVD CPE match flags all versions; our version 1.15.4 is current.
+        ]]></notes>
+        <cve>CVE-2026-42154</cve>
+    </suppress>
+
 </suppressions>

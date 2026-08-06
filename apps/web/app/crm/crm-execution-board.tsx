@@ -3,14 +3,15 @@
 import { useMemo, useState } from "react";
 import { useCrmI18n } from "./crm-i18n";
 import {
-  EXECUTION_GROUPS,
-  getGroupTasks,
-  getGroupProgress,
-  getOverallProgress,
+  calculateGroupProgress,
+  calculateProgramProgress,
+  topologicalSort,
   type ExecutionGroup,
+  type ExecutionProgress,
   type GroupStatus,
-} from "./crm-execution-data";
-import styles from "./crm-command-center.module.css";
+} from "../../lib/execution";
+import { CRM_GROUP_DATA, CRM_TASKS } from "./crm-execution-data";
+import styles from "./crm-shared-styles.module.css";
 
 /**
  * Computes parallel execution waves by topological sort.
@@ -88,8 +89,8 @@ interface GroupCardProps {
 function GroupCard({ group, lang }: GroupCardProps) {
   const { t } = useCrmI18n();
   const [expanded, setExpanded] = useState(false);
-  const progress = getGroupProgress(group.code);
-  const tasks = getGroupTasks(group.code);
+  const progress = calculateGroupProgress(group);
+  const tasks = CRM_TASKS.filter((t) => t.groupCode === group.code);
 
   const title = lang === "ar" ? group.titleAr : group.titleEn;
   const purpose = lang === "ar" ? group.purposeAr : group.purposeEn;
@@ -238,8 +239,60 @@ function GroupCard({ group, lang }: GroupCardProps) {
  */
 export function CrmExecutionBoard() {
   const { t, lang } = useCrmI18n();
-  const overall = getOverallProgress();
-  const waves = useMemo(() => computeParallelWaves(EXECUTION_GROUPS), []);
+
+  // Build groups from business data
+  const groups: ExecutionGroup[] = useMemo(() => {
+    return CRM_GROUP_DATA.map((groupData) => ({
+      id: `GROUP-${groupData.code}`,
+      code: groupData.code,
+      titleAr: groupData.titleAr,
+      titleEn: groupData.titleEn,
+      purposeAr: groupData.purposeAr,
+      purposeEn: groupData.purposeEn,
+      status: groupData.status,
+      dependencies: groupData.dependencies,
+      canParallelizeWith: groupData.canParallelizeWith,
+      stageReport: groupData.stageReport,
+      milestones: [],
+      tasks: CRM_TASKS
+        .filter((t) => t.groupCode === groupData.code)
+        .map((task) => ({
+          id: task.id,
+          number: task.number,
+          nameAr: task.nameAr,
+          nameEn: task.nameEn,
+          groupCode: task.groupCode,
+          descriptionAr: task.descriptionAr,
+          descriptionEn: task.descriptionEn,
+          type: task.type,
+          priority: task.priority,
+          status: task.status,
+          dependencies: task.dependencies,
+          acceptanceCriteriaAr: task.acceptanceCriteriaAr,
+          implementationNotesAr: task.implementationNotesAr,
+          evidence: [],
+        })),
+    }));
+  }, []);
+
+  const overall = useMemo(() => {
+    const allTasks = groups.flatMap((g) => g.tasks);
+    const totalTasks = allTasks.length;
+    const completedTasks = allTasks.filter((t) => t.status === "DONE" || t.status === "APPROVED").length;
+    const blockedTasks = allTasks.filter((t) => t.status === "BLOCKED").length;
+    const inProgressGroups = groups.filter((g) => g.status === "IN_PROGRESS").length;
+    const overallPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+    return {
+      totalGroups: groups.length,
+      totalTasks,
+      completedTasks,
+      blockedTasks,
+      inProgressGroups,
+      overallPercentage,
+    };
+  }, [groups]);
+
+  const waves = useMemo(() => computeParallelWaves(groups), [groups]);
 
   return (
     <div className={styles.contentInner}>
@@ -299,7 +352,7 @@ export function CrmExecutionBoard() {
 
       {/* Group cards */}
       <section style={{ display: "flex", flexDirection: "column", gap: 14 }} aria-label={t("board.title")}>
-        {EXECUTION_GROUPS.map((group) => (
+        {groups.map((group) => (
           <GroupCard key={group.code} group={group} lang={lang} />
         ))}
       </section>

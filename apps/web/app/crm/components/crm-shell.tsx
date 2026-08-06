@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useI18n } from "@/lib/i18n/I18nProvider";
-import styles from "../crm-command-center.module.css";
+import styles from "../crm-shared-styles.module.css";
 
 interface NavItem {
   href: string;
@@ -138,6 +138,25 @@ function TasksIcon() {
   );
 }
 
+function CasesIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="1" width="12" height="14" rx="2" />
+      <path d="M5 5h6M5 8h6M5 11h3" />
+    </svg>
+  );
+}
+
+function IntelligenceIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.5" />
+      <circle cx="8" cy="8" r="2" />
+      <path d="M8 2.5V5M8 11v2.5M2.5 8H5M11 8h2.5" />
+    </svg>
+  );
+}
+
 function ImportsIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -156,12 +175,11 @@ function CustomFieldsIcon() {
   );
 }
 
-function CommandCenterIcon() {
+function ExecutionIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2" y="2.5" width="12" height="11" rx="1" />
-      <path d="M5 2.5v-1h6v1" />
-      <path d="M5 7h6M5 9.5h6M5 12h4" />
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 4v4l3 2" />
     </svg>
   );
 }
@@ -197,6 +215,8 @@ const MAIN_NAV: NavItem[] = [
   { href: "/crm/reports", labelKey: "crm.nav.reports", Icon: ReportsIcon },
   { href: "/crm/notes", labelKey: "crm.nav.notes", Icon: NotesIcon },
   { href: "/crm/tasks", labelKey: "crm.nav.tasks", Icon: TasksIcon },
+  { href: "/crm/cases", labelKey: "crm.nav.cases", Icon: CasesIcon },
+  { href: "/crm/intelligence", labelKey: "crm.nav.intelligence", Icon: IntelligenceIcon },
 ];
 
 const ADMIN_NAV: NavItem[] = [
@@ -204,8 +224,8 @@ const ADMIN_NAV: NavItem[] = [
   { href: "/crm/settings/custom-fields", labelKey: "crm.nav.customFields", Icon: CustomFieldsIcon },
 ];
 
-const GOVERNANCE_NAV: NavItem[] = [
-  { href: "/crm/command-center", labelKey: "crm.nav.commandCenter", Icon: CommandCenterIcon },
+const EXECUTION_NAV: NavItem[] = [
+  { href: "/crm/execution", labelKey: "crm.nav.execution", Icon: ExecutionIcon },
 ];
 
 interface CrmShellProps {
@@ -335,10 +355,11 @@ export function CrmShell({ children }: CrmShellProps) {
 
             <div className={styles.sidebarDivider} />
 
-            <span className={styles.sidebarSectionLabel}>{t("crm.shell.sidebar.governance")}</span>
-            {GOVERNANCE_NAV.map((item) => (
+            <span className={styles.sidebarSectionLabel}>{t("crm.shell.sidebar.execution")}</span>
+            {EXECUTION_NAV.map((item) => (
               <SidebarLink key={item.href} item={item} active={isActive(item.href)} label={t(item.labelKey)} />
             ))}
+
           </nav>
         </aside>
 

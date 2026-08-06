@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
@@ -111,6 +112,7 @@ public class LegacyCrmInfrastructureService {
             NamedParameterJdbcTemplate jdbc,
             ObjectMapper objectMapper,
             PlatformTransactionManager transactionManager,
+            Environment environment,
             @Value("${sanad.crm.import-worker-enabled:true}") boolean importWorkerEnabled,
             @Value("${sanad.crm.custom-field-encryption-key:}") String encryptionKey) {
         this.jdbc = jdbc;
@@ -119,7 +121,7 @@ public class LegacyCrmInfrastructureService {
         this.requiresNew = new TransactionTemplate(transactionManager);
         this.requiresNew.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.importWorkerEnabled = importWorkerEnabled;
-        this.customFieldKey = decodeEncryptionKey(encryptionKey);
+        this.customFieldKey = CrmEncryptionKeyValidator.resolve(environment, encryptionKey);
     }
 
     @Transactional(readOnly = true)
@@ -1548,20 +1550,6 @@ public class LegacyCrmInfrastructureService {
             throw exception;
         } catch (IllegalArgumentException exception) {
             throw bad("Invalid value for CRM custom-field type " + dataType);
-        }
-    }
-
-    private SecretKeySpec decodeEncryptionKey(String configured) {
-        if (configured == null || configured.isBlank()) return null;
-        try {
-            byte[] key = Base64.getDecoder().decode(configured.trim());
-            if (!Set.of(16, 24, 32).contains(key.length)) {
-                throw new IllegalArgumentException("key length");
-            }
-            return new SecretKeySpec(key, "AES");
-        } catch (IllegalArgumentException exception) {
-            throw new IllegalStateException(
-                    "sanad.crm.custom-field-encryption-key must be base64 AES-128/192/256", exception);
         }
     }
 

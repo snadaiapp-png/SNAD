@@ -1806,6 +1806,383 @@
         ]
       }
     },
+    "/cases": {
+      "get": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "listCases",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "assigneeUserId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "customerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "createCase",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/cases/{caseId}": {
+      "get": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "getCase",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "updateCase",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/cases/{caseId}/assign": {
+      "post": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "assignCase",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/cases/{caseId}/close": {
+      "post": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "closeCase",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/cases/{caseId}/reopen": {
+      "post": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "reopenCase",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/cases/{caseId}/resolve": {
+      "post": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "resolveCase",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/cases/{caseId}/start": {
+      "post": {
+        "tags": [
+          "case-controller"
+        ],
+        "operationId": "startCase",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/communication-methods/export": {
       "get": {
         "tags": [
@@ -3457,7 +3834,7 @@
         "tags": [
           "crm-contact-relationship-controller"
         ],
-        "operationId": "updateProfile",
+        "operationId": "updateProfile_1",
         "parameters": [
           {
             "name": "contactId",
@@ -3511,7 +3888,7 @@
         "tags": [
           "crm-contact-relationship-versioned-mutation-controller"
         ],
-        "operationId": "updateProfile_1",
+        "operationId": "updateProfile_2",
         "parameters": [
           {
             "name": "contactId",
@@ -4071,6 +4448,260 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseCustomFieldResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/email/logs": {
+      "get": {
+        "tags": [
+          "email-controller"
+        ],
+        "operationId": "listLogs",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/email/logs/entity/{entityType}/{entityId}": {
+      "get": {
+        "tags": [
+          "email-controller"
+        ],
+        "operationId": "listLogsByEntity",
+        "parameters": [
+          {
+            "name": "entityType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entityId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/email/logs/{logId}": {
+      "get": {
+        "tags": [
+          "email-controller"
+        ],
+        "operationId": "getLog",
+        "parameters": [
+          {
+            "name": "logId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/email/send": {
+      "post": {
+        "tags": [
+          "email-controller"
+        ],
+        "operationId": "sendEmail",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendEmailRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/email/status": {
+      "get": {
+        "tags": [
+          "email-controller"
+        ],
+        "operationId": "getProviderStatus",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/email/track/click/{logId}": {
+      "get": {
+        "tags": [
+          "tracking-controller"
+        ],
+        "operationId": "trackClick",
+        "parameters": [
+          {
+            "name": "logId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "url",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "/"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/email/track/open/{logId}": {
+      "get": {
+        "tags": [
+          "tracking-controller"
+        ],
+        "operationId": "trackOpen",
+        "parameters": [
+          {
+            "name": "logId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "format": "byte"
                 }
               }
             }
@@ -4793,6 +5424,680 @@
         ]
       }
     },
+    "/intelligence/nba/{actionId}/accept": {
+      "post": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "acceptRecommendation",
+        "parameters": [
+          {
+            "name": "actionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NbaResolutionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseNextBestActionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/nba/{actionId}/reject": {
+      "post": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "rejectRecommendation",
+        "parameters": [
+          {
+            "name": "actionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NbaResolutionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseNextBestActionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/segments": {
+      "get": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "listSegments",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseSegmentResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "createSegment",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SegmentCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseSegmentResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/segments/{segmentId}/members": {
+      "post": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "addSegmentMember",
+        "parameters": [
+          {
+            "name": "segmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddSegmentMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseSegmentMembershipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/segments/{segmentId}/members/{accountId}": {
+      "delete": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "removeSegmentMember",
+        "parameters": [
+          {
+            "name": "segmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/insights": {
+      "get": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "getInsights",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseInsightResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/nba": {
+      "get": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "getNextBestActions",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseNextBestActionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/scores": {
+      "get": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "listScores",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseScoreResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/scores/churn": {
+      "post": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "predictChurn",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChurnIndicatorsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseScoreResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/scores/clv": {
+      "post": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "calculateCLV",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClvIndicatorsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseScoreResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/scores/health": {
+      "post": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "calculateHealth",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerHealthIndicatorsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseScoreResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/scores/{scoreType}": {
+      "get": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "getScore",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "scoreType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseScoreResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/scores/{scoreType}/history": {
+      "get": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "getScoreHistory",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "scoreType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseScoreHistoryResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/intelligence/{accountId}/segments": {
+      "get": {
+        "tags": [
+          "intelligence-controller"
+        ],
+        "operationId": "getAccountSegments",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseSegmentMembershipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/leads": {
       "get": {
         "tags": [
@@ -5429,6 +6734,49 @@
             "BearerAuth": []
           }
         ]
+      },
+      "post": {
+        "tags": [
+          "crm-contract-controller"
+        ],
+        "operationId": "createPipeline",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePipelineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponsePipelineResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/pipelines/{pipelineId}": {
@@ -5509,6 +6857,183 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListResponseStageResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/portal/opportunities": {
+      "get": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "getOpportunities",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/portal/profile": {
+      "get": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "getProfile",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "updateProfile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/portal/tickets": {
+      "get": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "getTickets",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "createTicket",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTicketRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/portal/tickets/{ticketId}": {
+      "get": {
+        "tags": [
+          "portal-controller"
+        ],
+        "operationId": "getTicket",
+        "parameters": [
+          {
+            "name": "ticketId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
                 }
               }
             }
@@ -5980,6 +7505,111 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SingleResponseRelationshipRoleResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/reports/generate": {
+      "post": {
+        "tags": [
+          "report-controller"
+        ],
+        "operationId": "generateReport",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateReportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseReportData"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/reports/summary": {
+      "get": {
+        "tags": [
+          "report-controller"
+        ],
+        "operationId": "getSummary",
+        "parameters": [
+          {
+            "name": "dateFrom",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "dateTo",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/reports/types": {
+      "get": {
+        "tags": [
+          "report-controller"
+        ],
+        "operationId": "listReportTypes",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponseString[]"
                 }
               }
             }
@@ -7195,6 +8825,18 @@
           }
         }
       },
+      "AddSegmentMemberRequest": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "membershipType": {
+            "type": "string"
+          }
+        }
+      },
       "AddTeamMembershipRequest": {
         "type": "object",
         "properties": {
@@ -7511,6 +9153,15 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "AssignRequest": {
+        "type": "object",
+        "properties": {
+          "assigneeUserId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -7954,6 +9605,27 @@
           "reason"
         ]
       },
+      "ChurnIndicatorsRequest": {
+        "type": "object",
+        "properties": {
+          "daysSinceLastActivity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "engagementDeclinePct": {
+            "type": "number",
+            "format": "double"
+          },
+          "tenureDays": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "supportIssuesLast90d": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "ClaimQueueItemRequest": {
         "type": "object",
         "properties": {
@@ -7981,6 +9653,31 @@
           },
           "replayed": {
             "type": "boolean"
+          }
+        }
+      },
+      "ClvIndicatorsRequest": {
+        "type": "object",
+        "properties": {
+          "totalRevenue": {
+            "type": "number",
+            "format": "double"
+          },
+          "transactionCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "avgDealSize": {
+            "type": "number",
+            "format": "double"
+          },
+          "customerSinceMonths": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "growthRate": {
+            "type": "number",
+            "format": "double"
           }
         }
       },
@@ -8696,6 +10393,50 @@
           "line1"
         ]
       },
+      "CreateCaseRequest": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 0
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 0
+          },
+          "caseType": {
+            "type": "string",
+            "pattern": "BUG|FEATURE|QUESTION|SUPPORT"
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 0
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assigneeUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "relatedId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dueAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "subject"
+        ]
+      },
       "CreateCommunicationMethodRequest": {
         "type": "object",
         "properties": {
@@ -9141,6 +10882,23 @@
           "ruleType"
         ]
       },
+      "CreateTicketRequest": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "description",
+          "subject"
+        ]
+      },
       "CreateTransferRequest": {
         "type": "object",
         "properties": {
@@ -9311,6 +11069,34 @@
           }
         }
       },
+      "CustomerHealthIndicatorsRequest": {
+        "type": "object",
+        "properties": {
+          "daysSinceLastActivity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "openOpportunities": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPipeline": {
+            "type": "number",
+            "format": "double"
+          },
+          "meetingFreq30d": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "responseTimeAvgHours": {
+            "type": "number",
+            "format": "double"
+          },
+          "lifecycleStatus": {
+            "type": "string"
+          }
+        }
+      },
       "DecideTransferRequest": {
         "type": "object",
         "properties": {
@@ -9331,6 +11117,34 @@
         },
         "required": [
           "decision"
+        ]
+      },
+      "GenerateReportRequest": {
+        "type": "object",
+        "properties": {
+          "reportType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "dateFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dateTo": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "filters": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "dateFrom",
+          "dateTo",
+          "reportType"
         ]
       },
       "ImportErrorResponse": {
@@ -9544,6 +11358,37 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "InsightResponse": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scores": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "nextBestActions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NextBestActionResponse"
+            }
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SegmentMembershipResponse"
+            }
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         }
       },
@@ -9881,6 +11726,41 @@
           }
         }
       },
+      "ListResponseMapStringObject": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {}
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ListResponseNextBestActionResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NextBestActionResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
       "ListResponseOpportunityResponse": {
         "type": "object",
         "properties": {
@@ -9956,6 +11836,74 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/RelationshipRoleResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ListResponseScoreHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScoreHistoryResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ListResponseScoreResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScoreResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ListResponseSegmentMembershipResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SegmentMembershipResponse"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ListResponseSegmentResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SegmentResponse"
             }
           },
           "page": {
@@ -10043,6 +11991,67 @@
           "activeQueueClaims": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "NbaResolutionRequest": {
+        "type": "object",
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "NextBestActionResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "actionCode": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "format": "double"
+          },
+          "reasoning": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "humanConfirmationRequired": {
+            "type": "boolean"
+          },
+          "resolvedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolvedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -11077,6 +13086,88 @@
           "recordType"
         ]
       },
+      "ReportChart": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "chartType": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        }
+      },
+      "ReportData": {
+        "type": "object",
+        "properties": {
+          "reportId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reportType": {
+            "type": "string",
+            "enum": [
+              "LEAD_PIPELINE",
+              "OPPORTUNITY_PIPELINE",
+              "ACTIVITY_SUMMARY",
+              "EMAIL_ENGAGEMENT",
+              "CONVERSION_FUNNEL",
+              "SALES_FORECAST"
+            ]
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dateFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dateTo": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {}
+            }
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "charts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReportChart"
+            }
+          }
+        }
+      },
+      "ResolveRequest": {
+        "type": "object",
+        "properties": {
+          "resolution": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 0
+          }
+        }
+      },
       "RowResult": {
         "type": "object",
         "properties": {
@@ -11183,6 +13274,223 @@
             "type": "boolean"
           }
         }
+      },
+      "ScoreHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "scoreType": {
+            "type": "string"
+          },
+          "previousValue": {
+            "type": "number",
+            "format": "double"
+          },
+          "previousBand": {
+            "type": "string"
+          },
+          "newValue": {
+            "type": "number",
+            "format": "double"
+          },
+          "newBand": {
+            "type": "string"
+          },
+          "delta": {
+            "type": "number",
+            "format": "double"
+          },
+          "changedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "triggerReason": {
+            "type": "string"
+          }
+        }
+      },
+      "ScoreResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scoreType": {
+            "type": "string"
+          },
+          "scoreValue": {
+            "type": "number",
+            "format": "double"
+          },
+          "scoreBand": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "format": "double"
+          },
+          "calculatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "triggerReason": {
+            "type": "string"
+          },
+          "components": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        }
+      },
+      "SegmentCreateRequest": {
+        "type": "object",
+        "properties": {
+          "segmentCode": {
+            "type": "string"
+          },
+          "segmentName": {
+            "type": "string"
+          },
+          "segmentType": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "criteriaJson": {
+            "type": "string"
+          }
+        }
+      },
+      "SegmentMembershipResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "segmentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "membershipType": {
+            "type": "string"
+          },
+          "assignedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SegmentResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "segmentCode": {
+            "type": "string"
+          },
+          "segmentName": {
+            "type": "string"
+          },
+          "segmentType": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "criteria": {},
+          "active": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SendEmailRequest": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "minLength": 1
+          },
+          "to": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "email"
+            },
+            "minItems": 1
+          },
+          "cc": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "bcc": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1
+          },
+          "textBody": {
+            "type": "string"
+          },
+          "htmlBody": {
+            "type": "string"
+          },
+          "templateName": {
+            "type": "string"
+          },
+          "templateVariables": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "relatedEntityType": {
+            "type": "string"
+          },
+          "relatedEntityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "from",
+          "subject",
+          "to"
+        ]
       },
       "SimulateRuleRequest": {
         "type": "object",
@@ -11379,6 +13687,17 @@
           }
         }
       },
+      "SingleResponseInsightResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/InsightResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
       "SingleResponseLeadConversionResponse": {
         "type": "object",
         "properties": {
@@ -11395,6 +13714,29 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/LeadResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseMapStringObject": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseNextBestActionResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/NextBestActionResponse"
           },
           "meta": {
             "$ref": "#/components/schemas/Meta"
@@ -11428,6 +13770,64 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/RelationshipRoleResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseReportData": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ReportData"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseScoreResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ScoreResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseSegmentMembershipResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SegmentMembershipResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseSegmentResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SegmentResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SingleResponseString[]": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "meta": {
             "$ref": "#/components/schemas/Meta"
@@ -12122,6 +14522,39 @@
           }
         }
       },
+      "UpdateCaseRequest": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 0
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 0
+          },
+          "caseType": {
+            "type": "string",
+            "pattern": "BUG|FEATURE|QUESTION|SUPPORT"
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 0
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dueAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "UpdateCommunicationMethodRequest": {
         "type": "object",
         "properties": {
@@ -12383,6 +14816,55 @@
             "pattern": "[A-Za-z]{3}"
           }
         }
+      },
+      "CreatePipelineRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "stages"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1
+          },
+          "currencyCode": {
+            "type": "string",
+            "pattern": "[A-Za-z]{3}"
+          },
+          "stages": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "maxLength": 160,
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "UpdateProfileRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "email": {
+            "type": "string"
+          },
+          "company": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayName"
+        ]
       },
       "UpdateQueueRequest": {
         "type": "object",

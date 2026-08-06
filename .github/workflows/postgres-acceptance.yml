@@ -165,6 +165,7 @@ jobs:
             exit 1
           fi
 
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY='El3BbUMQ882dQYiAqNEEMxfTr3CVlf0FTbrCOrIKKsw=' \
           mvn test \
             -Dtest="$TC_CLASSES_CSV" \
             -Dspring.profiles.active=test \
