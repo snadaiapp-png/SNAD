@@ -6,7 +6,7 @@ import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { SnadLogo } from "@/components/sds";
 import {
-  platformOperationsApi,
+  executiveApi,
   type BillingInvoice,
   type ExecutiveDashboard,
   type ManagedMembership,
@@ -14,7 +14,7 @@ import {
   type ManagedTenant,
   type SaasPlan,
   type TenantSubscription,
-} from "@/lib/api/platform-operations";
+} from "@/lib/api/executive-api";
 import styles from "./executive.module.css";
 
 type Tab = "tenants" | "directory" | "plans" | "subscriptions" | "billing";
@@ -58,11 +58,11 @@ export function ExecutiveConsole() {
     setError("");
     try {
       const [dashboard, tenants, plans, subscriptions, invoices] = await Promise.all([
-        platformOperationsApi.dashboard(),
-        platformOperationsApi.tenants(),
-        platformOperationsApi.plans(),
-        platformOperationsApi.subscriptions(),
-        platformOperationsApi.invoices(),
+        executiveApi.dashboard(),
+        executiveApi.tenants(),
+        executiveApi.plans(),
+        executiveApi.subscriptions(),
+        executiveApi.invoices(),
       ]);
       setSnapshot({ dashboard, tenants, plans, subscriptions, invoices });
     } catch (reason) {
@@ -102,7 +102,7 @@ export function ExecutiveConsole() {
           {tab === "tenants" ? (
             <TenantsTab snapshot={snapshot} busy={busy} />
           ) : tab === "directory" ? (
-            <DirectoryTab busy={busy} />
+            <DirectoryTab snapshot={snapshot} busy={busy} />
           ) : tab === "plans" ? (
             <PlansTab snapshot={snapshot} busy={busy} />
           ) : tab === "subscriptions" ? (
@@ -139,11 +139,11 @@ function TenantsTab({ snapshot, busy }: { snapshot: Snapshot; busy: boolean }) {
   );
 }
 
-function DirectoryTab({ busy }: { busy: boolean }) {
+function DirectoryTab({ snapshot, busy }: { snapshot: Snapshot; busy: boolean }) {
   const [orgs, setOrgs] = useState<ManagedOrganization[]>([]);
   const [members, setMembers] = useState<ManagedMembership[]>([]);
   useEffect(() => {
-    Promise.all([platformOperationsApi.organizations("default"), platformOperationsApi.memberships("default", "default")])
+    Promise.all([executiveApi.organizations(snapshot?.tenants[0]?.id ?? ""), executiveApi.memberships(snapshot?.tenants[0]?.id ?? "", "")])
       .then(([o, m]) => { setOrgs(o); setMembers(m); })
       .catch(() => {});
   }, []);

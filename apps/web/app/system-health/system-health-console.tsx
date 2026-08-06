@@ -4,16 +4,13 @@ import { useCallback, useEffect, useState } from "react";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
 import {
-  healthIntelligenceApi,
+  systemHealthApi,
   type PlatformHealth,
   type ServiceHealth,
   type TenantHealth,
   type RiskForecastPoint,
-} from "@/lib/api/health-intelligence";
-import {
-  platformOperationsApi,
   type SystemService,
-} from "@/lib/api/platform-operations";
+} from "@/lib/api/system-health-api";
 import styles from "./system-health.module.css";
 
 const number = new Intl.NumberFormat("ar-SA");
@@ -46,8 +43,8 @@ export function SystemHealthDashboard() {
     setError("");
     try {
       const [platformHealth, systemServices] = await Promise.all([
-        healthIntelligenceApi.snapshot(),
-        platformOperationsApi.systems(),
+        systemHealthApi.snapshot(),
+        systemHealthApi.systems(),
       ]);
       setHealth(platformHealth);
       setServices(systemServices);

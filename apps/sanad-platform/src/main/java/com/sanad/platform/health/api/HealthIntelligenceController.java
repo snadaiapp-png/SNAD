@@ -1,4 +1,4 @@
-package com.sanad.platform.controlplane.api;
+package com.sanad.platform.health.api;
 
 import com.sanad.platform.health.api.HealthDtos.HealthActionRequest;
 import com.sanad.platform.health.api.HealthDtos.HealthActionResult;
@@ -15,9 +15,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Executive health, risk prediction and controlled self-healing endpoints. */
+/** System Health — monitoring, diagnostics, and controlled self-healing endpoints. */
 @RestController
-@RequestMapping("/api/v1/control-plane/health")
+@RequestMapping("/api/v1/system-health")
 public class HealthIntelligenceController {
 
     private final ControlPlaneAccessGuard accessGuard;
@@ -45,6 +45,6 @@ public class HealthIntelligenceController {
             @Valid @RequestBody HealthActionRequest request
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(healthService.execute(request, authentication));
+        return ResponseEntity.ok(healthService.execute(request));
     }
 }
