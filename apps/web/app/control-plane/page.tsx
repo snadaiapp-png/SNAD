@@ -1,5 +1,5 @@
-import { ControlPlaneConsole } from "./control-plane-console";
+import { redirect } from "next/navigation";
 
 export default function ControlPlanePage() {
-  return <ControlPlaneConsole />;
+  redirect("/executive");
 }

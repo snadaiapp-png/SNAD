@@ -29,6 +29,8 @@ export default function WorkspacePage() {
   const canOpenCrm = availableDestinations.includes("/crm");
   const canOpenCommandCenter = availableDestinations.includes("/crm/command-center");
   const canOpenControlPlane = availableDestinations.includes("/control-plane");
+  const canOpenExecutive = availableDestinations.includes("/executive");
+  const canOpenSystemHealth = availableDestinations.includes("/system-health");
 
   return (
     <ExecutiveShell>
