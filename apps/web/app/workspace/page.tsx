@@ -28,6 +28,8 @@ export default function WorkspacePage() {
   const displayName = me?.displayName || user?.email || t("workspace.defaultUser");
   const canOpenCrm = availableDestinations.includes("/crm");
   const canOpenControlPlane = availableDestinations.includes("/control-plane");
+  const canOpenExecutive = availableDestinations.includes("/executive");
+  const canOpenSystemHealth = availableDestinations.includes("/system-health");
 
   return (
     <ExecutiveShell>

@@ -224,6 +224,10 @@ export const en: TranslationDictionary = {
   "workspace.sessionStatus": "Session status",
   "workspace.sessionActive": "Active",
   "workspace.openControlPlane": "Open Control Plane",
+  "workspace.openExecutive": "Executive Management",
+  "workspace.executiveDescription": "Tenant management, plans, subscriptions, and billing.",
+  "workspace.openSystemHealth": "System Health",
+  "workspace.systemHealthDescription": "Infrastructure monitoring, diagnostics, and system status.",
   "workspace.openCrm": "Open CRM",
   "workspace.openCrmCommandCenter": "CRM Command Center",
 
