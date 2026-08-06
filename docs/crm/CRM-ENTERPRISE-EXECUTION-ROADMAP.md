@@ -58,7 +58,7 @@ claim of milestone closure that lacks the matching report file.
 | `CRM-G5` | Tasks, transfers, employees, and assignments | `DONE` | `docs/crm/stage-reports/CRM-G5-STAGE-REPORT.md` | 021–023 |
 | `CRM-G6` | Reports, analytics, and export | `DONE` | `docs/crm/stage-reports/CRM-G6-STAGE-REPORT.md` | 024–026 |
 | `CRM-G7` | CI/CD hardening, smoke gating, and Issue #189 closure | `DONE` | `docs/crm/stage-reports/CRM-G7-STAGE-REPORT.md` | 027–031 |
-| `CRM-G8` | Quality, security, and formal commercial GO | `IN_PROGRESS` | `docs/crm/stage-reports/CRM-G8-STAGE-REPORT.md` | 032–034 |
+| `CRM-G8` | Quality, security, and formal commercial GO | `DONE` | `docs/crm/stage-reports/CRM-G8-STAGE-REPORT.md` | 032–034 |
 
 ### 2.1 Parallelization
 
@@ -587,7 +587,7 @@ Supabase
 
 ## 11. CRM-G8 — Quality, security, and formal commercial GO
 
-**Status:** `IN_PROGRESS`
+**Status:** `DONE`
 **Gate evidence required:** `docs/crm/stage-reports/CRM-G8-STAGE-REPORT.md`
 
 G8 is the final gate before commercial launch. It bundles penetration-test
@@ -639,12 +639,16 @@ decision.
 ### EXEC-PROMPT-CRM-034 — Accessibility audit for CRM Command Center
 
 - **Owner:** Frontend squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE` — GOVERNANCE CLOSED (2026-08-06).
 - **Dependencies:** `EXEC-PROMPT-CRM-017`, `EXEC-PROMPT-CRM-020`.
 - **Acceptance:**
   - An axe-core audit runs in `playwright-ci.yml` against `/crm`.
   - Zero Critical or Serious violations are reported.
   - Audit evidence is committed under `evidence/crm-axe-audit.json`.
+- **Evidence:**
+  - Test: `apps/web/e2e/crm-accessibility-ci.spec.ts`
+  - Evidence: `evidence/crm-axe-audit.json` (0 critical, 0 serious)
+  - Dependency: `@axe-core/playwright` in `package.json`
 
 ---
 

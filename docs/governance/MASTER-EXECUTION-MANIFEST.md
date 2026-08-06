@@ -1,7 +1,7 @@
 # MASTER EXECUTION MANIFEST
 
 **Generated**: 2026-08-06
-**Repository HEAD**: 35edda348a8da74b8c7f70b8e7bd90239a503677
+**Repository HEAD**: fa010679b6afcc462f702caf887697cd816410d2
 **Authority**: `docs/crm/CRM-ENTERPRISE-EXECUTION-ROADMAP.md`
 
 ---
@@ -42,7 +42,7 @@
 | CRM-G5 | Tasks, transfers, employees, assignments | DONE | `docs/crm/stage-reports/CRM-G5-STAGE-REPORT.md` | 021–023 |
 | CRM-G6 | Reports, analytics, export | DONE | `docs/crm/stage-reports/CRM-G6-STAGE-REPORT.md` | 024–026 |
 | CRM-G7 | CI/CD hardening, smoke gating, Issue #189 | DONE | `docs/crm/stage-reports/CRM-G7-STAGE-REPORT.md` | 027–031 |
-| CRM-G8 | Quality, security, formal commercial GO | IN_PROGRESS | `docs/crm/stage-reports/CRM-G8-STAGE-REPORT.md` | 032–034 |
+| CRM-G8 | Quality, security, formal commercial GO | DONE | `docs/crm/stage-reports/CRM-G8-STAGE-REPORT.md` | 032–034 |
 
 ---
 
@@ -125,7 +125,7 @@
 |--------|-------|--------|--------------|
 | 032 | Penetration test closure for CRM surface | COMPLETE | 018, 026 |
 | 033 | Performance baseline for CRM | DONE | 027 |
-| 034 | Accessibility audit for CRM Command Center | NOT_STARTED | 017, 020 |
+| 034 | Accessibility audit for CRM Command Center | DONE | 017, 020 |
 
 ---
 
@@ -167,9 +167,9 @@ G0 → G2 ───────────────────────�
 |--------|-------|
 | Total milestones | 9 (CRM-G0–G8) |
 | Total prompts | 34 (001–034) |
-| DONE prompts | 30 |
+| DONE prompts | 31 |
 | IN_PROGRESS prompts | 1 (002) |
-| NOT_STARTED prompts | 1 (034) |
+| NOT_STARTED prompts | 0 |
 | COMPLETE prompts | 2 (022, 032) |
 | Execution systems | 17 |
 | Stage-based phases | 12 (stage-08 through stage-30) |
