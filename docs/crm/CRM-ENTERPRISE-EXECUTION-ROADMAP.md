@@ -51,7 +51,7 @@ claim of milestone closure that lacks the matching report file.
 | Milestone | Title | Status | Gate evidence | Prompts |
 |---|---|---|---|---|
 | `CRM-G0` | Execution control, CRM Command Center shell, and governance baseline | `DONE` | `docs/crm/stage-reports/CRM-G0-STAGE-REPORT.md` | 001–006 |
-| `CRM-G1` | Database, multi-tenant foundation, and G1 extension tables | `IN_PROGRESS` | `docs/crm/stage-reports/CRM-G1-STAGE-REPORT.md` | 007–012 |
+| `CRM-G1` | Database, multi-tenant foundation, and G1 extension tables | `DONE` | `docs/crm/stage-reports/CRM-G1-STAGE-REPORT.md` | 007–012 |
 | `CRM-G2` | i18n, RTL/LTR, and accessibility hardening | `DONE` | `docs/crm/stage-reports/CRM-G2-STAGE-REPORT.md` | 013 |
 | `CRM-G3` | Core CRM entities end-to-end (leads, customers, contacts, customer-360) | `DONE` | `docs/crm/stage-reports/CRM-G3-STAGE-REPORT.md` | 014–017 |
 | `CRM-G4` | Opportunities, pipeline, and Kanban | `DONE` | `docs/crm/stage-reports/CRM-G4-STAGE-REPORT.md` | 018–020 |
@@ -161,7 +161,7 @@ domain feature beyond the overview and execution board tabs.
 
 ## 4. CRM-G1 — Database and multi-tenant foundation
 
-**Status:** `IN_PROGRESS`
+**Status:** `DONE`
 **Gate evidence required:** `docs/crm/stage-reports/CRM-G1-FINAL-STAGE-REPORT.md` (V2-FINAL)
 **Stage report authoring (CRM-012):** `DONE` (closed 2026-07-29)
 
@@ -183,7 +183,7 @@ audit logs, reports, phone numbers, contact lookup index).
 ### EXEC-PROMPT-CRM-008 — Land the G1 extension tables migration
 
 - **Owner:** Backend squad.
-- **Status:** `NOT_STARTED`.
+- **Status:** `DONE` — GOVERNANCE CLOSED (2026-08-06).
 - **Dependencies:** `EXEC-PROMPT-CRM-007`.
 - **Acceptance:**
   - A forward-only Flyway migration creates `crm_tasks`, `crm_assignments`,
@@ -193,6 +193,10 @@ audit logs, reports, phone numbers, contact lookup index).
     and tenant-scoping foreign keys.
   - Migration is applied to the production Supabase database with a recorded
     evidence artifact.
+- **Evidence:**
+  - Migrations: `V20260716_1`, `V20260716_2`, `V20260717_6`
+  - Test: `CrmG1TenantIsolationPostgresTest.java`
+  - Production: `docs/crm/evidence/CRM-G1-FINAL-PRODUCTION-CLOSURE.md`
 
 ### EXEC-PROMPT-CRM-009 — Reconcile ADMIN role and capabilities
 

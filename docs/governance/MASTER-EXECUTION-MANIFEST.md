@@ -1,7 +1,7 @@
 # MASTER EXECUTION MANIFEST
 
 **Generated**: 2026-08-06
-**Repository HEAD**: 91c6c2ea0954df4a0f8f0866a642f6fb0d7c809b
+**Repository HEAD**: 35edda348a8da74b8c7f70b8e7bd90239a503677
 **Authority**: `docs/crm/CRM-ENTERPRISE-EXECUTION-ROADMAP.md`
 
 ---
@@ -35,7 +35,7 @@
 | Milestone | Title | Status | Gate Evidence | Prompts |
 |-----------|-------|--------|---------------|---------|
 | CRM-G0 | Execution control, CRM Command Center shell, governance baseline | DONE | `docs/crm/stage-reports/CRM-G0-STAGE-REPORT.md` | 001–006 |
-| CRM-G1 | Database, multi-tenant foundation, G1 extension tables | IN_PROGRESS | `docs/crm/stage-reports/CRM-G1-STAGE-REPORT.md` | 007–012 |
+| CRM-G1 | Database, multi-tenant foundation, G1 extension tables | DONE | `docs/crm/stage-reports/CRM-G1-STAGE-REPORT.md` | 007–012 |
 | CRM-G2 | i18n, RTL/LTR, accessibility hardening | DONE | `docs/crm/stage-reports/CRM-G2-STAGE-REPORT.md` | 013 |
 | CRM-G3 | Core CRM entities (leads, customers, contacts, customer-360) | DONE | `docs/crm/stage-reports/CRM-G3-STAGE-REPORT.md` | 014–017 |
 | CRM-G4 | Opportunities, pipeline, Kanban | DONE | `docs/crm/stage-reports/CRM-G4-STAGE-REPORT.md` | 018–020 |
@@ -64,7 +64,7 @@
 | Prompt | Title | Status | Dependencies |
 |--------|-------|--------|--------------|
 | 007 | Apply unified CRM core migration | DONE | — |
-| 008 | Land G1 extension tables migration | NOT_STARTED | 007 |
+| 008 | Land G1 extension tables migration | DONE | 007 |
 | 009 | Reconcile ADMIN role and capabilities | DONE | 007 |
 | 010 | Complete imports and custom-field persistence | DONE | 009 |
 | 011 | Document production Flyway operations | DONE | 010 |
@@ -167,9 +167,9 @@ G0 → G2 ───────────────────────�
 |--------|-------|
 | Total milestones | 9 (CRM-G0–G8) |
 | Total prompts | 34 (001–034) |
-| DONE prompts | 29 |
+| DONE prompts | 30 |
 | IN_PROGRESS prompts | 1 (002) |
-| NOT_STARTED prompts | 2 (008, 034) |
+| NOT_STARTED prompts | 1 (034) |
 | COMPLETE prompts | 2 (022, 032) |
 | Execution systems | 17 |
 | Stage-based phases | 12 (stage-08 through stage-30) |
