@@ -6734,6 +6734,49 @@
             "BearerAuth": []
           }
         ]
+      },
+      "post": {
+        "tags": [
+          "crm-contract-controller"
+        ],
+        "operationId": "createPipeline",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePipelineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponsePipelineResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/pipelines/{pipelineId}": {
@@ -14771,6 +14814,34 @@
           "currencyCode": {
             "type": "string",
             "pattern": "[A-Za-z]{3}"
+          }
+        }
+      },
+      "CreatePipelineRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "stages"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1
+          },
+          "currencyCode": {
+            "type": "string",
+            "pattern": "[A-Za-z]{3}"
+          },
+          "stages": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "maxLength": 160,
+              "minLength": 1
+            }
           }
         }
       },
