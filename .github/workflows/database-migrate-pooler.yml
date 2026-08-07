@@ -104,7 +104,7 @@ jobs:
           else
             echo ""
             echo "=== Running specific migration: $MIGRATION_TARGET ==="
-            sql_file=$(ls -1 "$MIGRATIONS_DIR"/V${MIGRATION_TARGET}*.sql 2>/dev/null | head -1)
+            sql_file=$(ls -1 "$MIGRATIONS_DIR"/${MIGRATION_TARGET}*.sql 2>/dev/null | head -1)
             if [ -z "$sql_file" ]; then
               echo "::error::Migration file not found for version: $MIGRATION_TARGET"
               exit 1
