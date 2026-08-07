@@ -28,7 +28,9 @@ export default function WorkspacePage() {
   const displayName = me?.displayName || user?.email || t("workspace.defaultUser");
   const canOpenCrm = availableDestinations.includes("/crm");
   const canOpenCommandCenter = availableDestinations.includes("/crm/command-center");
-  const canOpenControlPlane = availableDestinations.includes("/control-plane");
+  // Control Plane is always visible — backend RBAC (@RequireCapability + ControlPlaneAccessGuard)
+  // enforces authorization at the API level. The card is a navigation link, not an access gate.
+  const canOpenControlPlane = true;
 
   return (
     <ExecutiveShell>
