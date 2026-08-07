@@ -1,0 +1,87 @@
+# ============================================================
+# SANAD Platform — RBAC Verification (Read-Only)
+# ============================================================
+# Read-only verification of production RBAC state.
+# Does NOT modify any data.
+# ============================================================
+
+name: RBAC Verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify production RBAC state
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+    steps:
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Verify RBAC state
+        env:
+          PSQL_URL: ${{ secrets.PROD_JDBC_URL }}
+          PSQL_USER: ${{ secrets.PROD_DB_USER }}
+          PSQL_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          JDBC_URL="$PSQL_URL"
+          if [[ "$JDBC_URL" == jdbc:postgresql://* ]]; then
+            JDBC_URL="${JDBC_URL#jdbc:}"
+          fi
+
+          export PGPASSWORD="$PSQL_PASSWORD"
+
+          echo "=== 1. Flyway Migration Status ==="
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT version, success, description FROM flyway_schema_history WHERE version = '20260807_1'"
+
+          echo ""
+          echo "=== 2. CRM Capabilities Per Role (Post-Migration) ==="
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT r.code AS role, COUNT(*) AS crm_caps FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE ac.code LIKE 'CRM.%' GROUP BY r.code ORDER BY r.code"
+
+          echo ""
+          echo "=== 3. All Roles in System ==="
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT code FROM roles ORDER BY code"
+
+          echo ""
+          echo "=== 4. Total Capability Counts (CRM + Non-CRM) ==="
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT r.code AS role, COUNT(*) AS total_caps, SUM(CASE WHEN ac.code LIKE 'CRM.%' THEN 1 ELSE 0 END) AS crm_caps FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id GROUP BY r.code ORDER BY r.code"
+
+          echo ""
+          echo "=== 5. Expected CRM Navigation Capabilities ==="
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT ac.code FROM access_capabilities ac WHERE ac.code IN ('CRM.ACCOUNT.READ', 'CRM.ACTIVITY.READ', 'CRM.ADMIN', 'CRM.CASE.READ', 'CRM.CONTACT.READ', 'CRM.CUSTOMER_INTELLIGENCE.READ', 'CRM.CUSTOM_FIELD.READ', 'CRM.IMPORT.READ', 'CRM.LEAD.READ', 'CRM.NOTE.READ', 'CRM.OPPORTUNITY.READ', 'CRM.REPORTS.READ', 'CRM.TAG.READ', 'CRM.TASK.READ') ORDER BY ac.code"
+
+          echo ""
+          echo "=== 6. Capability Mapping for VIEWER Role ==="
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'VIEWER' AND ac.code LIKE 'CRM.%' ORDER BY ac.code"
+
+          echo ""
+          echo "=== 7. Capability Mapping for MEMBER Role ==="
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'MEMBER' AND ac.code LIKE 'CRM.%' ORDER BY ac.code"
+
+          echo ""
+          echo "=== 8. Capability Mapping for MANAGER Role ==="
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'MANAGER' AND ac.code LIKE 'CRM.%' ORDER BY ac.code"
+
+          echo ""
+          echo "=== 9. Capability Mapping for ORG_ADMIN Role ==="
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'ORG_ADMIN' AND ac.code LIKE 'CRM.%' ORDER BY ac.code"
+
+          echo ""
+          echo "=== VERIFICATION COMPLETE ==="
