@@ -1,0 +1,188 @@
+/* Control Plane — Execution Dashboard Styles */
+
+.loading,
+.error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  font-size: 1rem;
+}
+
+.error {
+  color: #dc2626;
+}
+
+.contentInner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.pageTitle {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.pageDescription {
+  color: #6b7280;
+  margin-bottom: 2rem;
+}
+
+.overviewSectionTitle {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.boardSummary {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 2rem;
+}
+
+.boardSummaryCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  min-width: 100px;
+}
+
+.boardSummaryValue {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.boardSummaryLabel {
+  font-size: 0.75rem;
+  color: #6b7280;
+  text-transform: uppercase;
+}
+
+.groupCard {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.groupCode {
+  font-family: monospace;
+  font-size: 0.875rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  background: #f3f4f6;
+}
+
+.groupCodeApproved {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.groupCodeBlocked {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.groupInfo {
+  flex: 1;
+}
+
+.groupTitle {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.groupPurpose {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.groupMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.statusBadge {
+  font-size: 0.75rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-weight: 500;
+}
+
+.statusApproved {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.statusBlocked {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.groupProgress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.groupProgressPct {
+  font-size: 0.875rem;
+  font-weight: 600;
+  min-width: 3rem;
+  text-align: right;
+}
+
+.groupProgressTrack {
+  flex: 1;
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.groupProgressFill {
+  height: 100%;
+  background: #3b82f6;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.groupDetails {
+  margin-top: 0.75rem;
+}
+
+.groupDetailsRow {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.groupDetailItem {
+  display: flex;
+  flex-direction: column;
+}
+
+.groupDetailLabel {
+  font-size: 0.75rem;
+  color: #6b7280;
+  text-transform: uppercase;
+}
+
+.groupDetailValue {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
