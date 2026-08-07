@@ -1,0 +1,133 @@
+# ============================================================
+# SANAD Platform — Database Migration via Pooler (psql)
+# ============================================================
+# Fallback migration workflow using psql directly through the
+# connection pooler. The BFF Auth Session Synthetic workflow
+# proves this connection path works from GitHub Actions.
+#
+# This workflow is used when Flyway Docker cannot resolve the
+# database hostname but the pooler is reachable.
+# ============================================================
+
+name: Database Migration via Pooler
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'migrate' to run SQL migrations against production via pooler"
+        required: true
+        default: "no"
+      target:
+        description: "Migration target (all = all migrations, specific = V20260807_1 only)"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - V20260807_1
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: Run SQL migrations via connection pooler
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 15
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "migrate" ]; then exit 1; fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Run migrations via pooler
+        env:
+          PSQL_URL: ${{ secrets.PROD_JDBC_URL }}
+          PSQL_USER: ${{ secrets.PROD_DB_USER }}
+          PSQL_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          MIGRATION_TARGET: ${{ github.event.inputs.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Strip JDBC prefix if present
+          JDBC_URL="$PSQL_URL"
+          if [[ "$JDBC_URL" == jdbc:postgresql://* ]]; then
+            JDBC_URL="${JDBC_URL#jdbc:}"
+          fi
+
+          echo "=== Connection test ==="
+          export PGPASSWORD="$PSQL_PASSWORD"
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At -c "SELECT 1" || {
+            echo "::error::Cannot connect to production database"
+            exit 1
+          }
+          echo "✅ Database connection successful"
+
+          echo ""
+          echo "=== Current Flyway state ==="
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT version, success, description FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 10" || {
+            echo "⚠️ flyway_schema_history may not exist"
+          }
+
+          echo ""
+          echo "=== Pre-migration capability count ==="
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT r.code AS role, COUNT(*) AS crm_caps FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE ac.code LIKE 'CRM.%' GROUP BY r.code ORDER BY r.code" || {
+            echo "⚠️ Could not query role_capabilities"
+          }
+
+          MIGRATIONS_DIR="$(pwd)/apps/sanad-platform/src/main/resources/db/migration"
+
+          if [ "$MIGRATION_TARGET" = "all" ]; then
+            echo ""
+            echo "=== Running ALL migrations ==="
+            for sql_file in $(ls -1 "$MIGRATIONS_DIR"/V*.sql 2>/dev/null | sort); do
+              version=$(basename "$sql_file" | sed 's/^V//' | sed 's/_.*//')
+              echo "Applying: $(basename "$sql_file")"
+              psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -f "$sql_file" || {
+                echo "::error::Failed to apply migration: $(basename "$sql_file")"
+                exit 1
+              }
+              echo "✅ Applied: $(basename "$sql_file")"
+            done
+          else
+            echo ""
+            echo "=== Running specific migration: $MIGRATION_TARGET ==="
+            sql_file=$(ls -1 "$MIGRATIONS_DIR"/V${MIGRATION_TARGET}*.sql 2>/dev/null | head -1)
+            if [ -z "$sql_file" ]; then
+              echo "::error::Migration file not found for version: $MIGRATION_TARGET"
+              exit 1
+            fi
+            echo "Applying: $(basename "$sql_file")"
+            psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -f "$sql_file" || {
+              echo "::error::Failed to apply migration: $(basename "$sql_file")"
+              exit 1
+            }
+            echo "✅ Applied: $(basename "$sql_file")"
+          fi
+
+          echo ""
+          echo "=== Post-migration Flyway state ==="
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT version, success, description FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 10" || {
+            echo "⚠️ Could not query flyway_schema_history"
+          }
+
+          echo ""
+          echo "=== Post-migration capability count ==="
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT r.code AS role, COUNT(*) AS crm_caps FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE ac.code LIKE 'CRM.%' GROUP BY r.code ORDER BY r.code"
+
+          echo ""
+          echo "=== Migration completed successfully ==="
