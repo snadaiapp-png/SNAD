@@ -1,7 +1,8 @@
 # ============================================================
-# SANAD Platform — RBAC Verification (Read-Only)
+# SANAD Platform — Forensic Diagnostic (Read-Only)
 # ============================================================
-# Read-only verification of production RBAC state.
+# Read-only forensic diagnostic to identify the actual
+# production user and trace the RBAC query path.
 # Does NOT modify any data.
 # ============================================================
 
@@ -15,7 +16,7 @@ permissions:
 
 jobs:
   verify:
-    name: Verify production RBAC state
+    name: Production RBAC forensic diagnostic
     runs-on: ubuntu-latest
     environment: Production
     timeout-minutes: 10
@@ -23,7 +24,7 @@ jobs:
       - name: Install PostgreSQL client
         run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
-      - name: Verify RBAC state
+      - name: Run forensic diagnostic
         env:
           PSQL_URL: ${{ secrets.PROD_JDBC_URL }}
           PSQL_USER: ${{ secrets.PROD_DB_USER }}
@@ -31,67 +32,132 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           JDBC_URL="$PSQL_URL"
           if [[ "$JDBC_URL" == jdbc:postgresql://* ]]; then
             JDBC_URL="${JDBC_URL#jdbc:}"
           fi
-
           export PGPASSWORD="$PSQL_PASSWORD"
 
-          echo "=== 1. Flyway Migration Status ==="
-          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT version, success, description FROM flyway_schema_history WHERE version = '20260807_1'"
+          echo "════════════════════════════════════════════════════════════"
+          echo "PHASE A: IDENTIFY ACTUAL PRODUCTION USER"
+          echo "════════════════════════════════════════════════════════════"
 
           echo ""
-          echo "=== 2. CRM Capabilities Per Role (Post-Migration) ==="
+          echo "--- A1: All active users ---"
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT r.code AS role, COUNT(*) AS crm_caps FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE ac.code LIKE 'CRM.%' GROUP BY r.code ORDER BY r.code"
+            -c "SELECT u.id || '|' || u.display_name || '|' || u.email || '|' || u.tenant_id || '|' || u.status || '|' || u.platform_admin FROM users u WHERE u.status = 'ACTIVE' ORDER BY u.created_at LIMIT 20"
 
           echo ""
-          echo "=== 3. All Roles in System ==="
+          echo "--- A2: User memberships with role assignments ---"
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT code FROM roles ORDER BY code"
+            -c "SELECT m.user_id || '|' || m.tenant_id || '|' || m.role_id || '|' || r.code || '|' || m.status FROM memberships m JOIN roles r ON r.id = m.role_id WHERE m.status = 'ACTIVE' ORDER BY m.created_at"
 
           echo ""
-          echo "=== 4. Total Capability Counts (CRM + Non-CRM) ==="
+          echo "--- A3: Focus on 'Control Plane Admin' user ---"
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT r.code AS role, COUNT(*) AS total_caps, SUM(CASE WHEN ac.code LIKE 'CRM.%' THEN 1 ELSE 0 END) AS crm_caps FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id GROUP BY r.code ORDER BY r.code"
+            -c "SELECT u.id || '|' || u.display_name || '|' || u.email || '|' || u.tenant_id || '|' || u.platform_admin || '|' || u.status FROM users u WHERE u.display_name ILIKE '%Control Plane%' OR u.display_name ILIKE '%SANAD%' OR u.email ILIKE '%admin%' ORDER BY u.created_at"
 
           echo ""
-          echo "=== 5. All access_capabilities with CRM prefix ==="
-          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT code, status FROM access_capabilities WHERE code LIKE 'CRM.%' ORDER BY code" || echo "(query failed)"
+          echo "════════════════════════════════════════════════════════════"
+          echo "PHASE B: TRACE ROLE → CAPABILITY FOR ACTUAL USER"
+          echo "════════════════════════════════════════════════════════════"
 
           echo ""
-          echo "=== 6. Total access_capabilities count ==="
+          echo "--- B1: role_capabilities per role (tenant-scoped) ---"
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT COUNT(*) FROM access_capabilities" || echo "(query failed)"
+            -c "SELECT r.code || '|' || rc.tenant_id || '|' || COUNT(rc.id) || '|' || SUM(CASE WHEN ac.code LIKE 'CRM.%' THEN 1 ELSE 0 END) FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code != 'ADMIN' GROUP BY r.code, rc.tenant_id ORDER BY r.code, rc.tenant_id"
 
           echo ""
-          echo "=== 7. All roles with codes ==="
+          echo "--- B2: ADMIN CRM capabilities (tenant-scoped) ---"
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT id, code, tenant_id FROM roles ORDER BY code" || echo "(query failed)"
+            -c "SELECT rc.tenant_id || '|' || COUNT(rc.id) FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'ADMIN' AND ac.code LIKE 'CRM.%' GROUP BY rc.tenant_id ORDER BY rc.tenant_id"
 
           echo ""
-          echo "=== 8. Role capabilities for ADMIN (sample) ==="
-          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'ADMIN' AND ac.code LIKE 'CRM.%' ORDER BY ac.code LIMIT 20" || echo "(query failed)"
+          echo "════════════════════════════════════════════════════════════"
+          echo "PHASE C: VERIFY DATABASE IDENTIFIERS"
+          echo "════════════════════════════════════════════════════════════"
 
           echo ""
-          echo "=== 9. Role capabilities for MEMBER ==="
+          echo "--- C1: Table existence check ---"
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'MEMBER' AND ac.code LIKE 'CRM.%' ORDER BY ac.code" || echo "(query failed)"
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('users', 'roles', 'memberships', 'role_capabilities', 'access_capabilities', 'tenants') ORDER BY table_name"
 
           echo ""
-          echo "=== 10. Role capabilities for SALES_REPRESENTATIVE ==="
+          echo "--- C2: role_capabilities columns ---"
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'SALES_REPRESENTATIVE' AND ac.code LIKE 'CRM.%' ORDER BY ac.code" || echo "(query failed)"
+            -c "SELECT column_name || '|' || data_type || '|' || is_nullable FROM information_schema.columns WHERE table_name = 'role_capabilities' ORDER BY ordinal_position"
 
           echo ""
-          echo "=== 11. Does V20260807_1 exist in any form? ==="
+          echo "--- C3: roles columns ---"
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT COUNT(*) FROM role_capabilities rc JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE ac.code IN ('CRM.ACCOUNT.READ','CRM.CONTACT.READ','CRM.LEAD.READ','CRM.OPPORTUNITY.READ','CRM.ACTIVITY.READ','CRM.TAG.READ','CRM.TASK.READ','CRM.NOTE.READ','CRM.CASE.READ','CRM.REPORTS.READ','CRM.CUSTOM_FIELD.READ','CRM.IMPORT.READ')" || echo "(query failed)"
+            -c "SELECT column_name || '|' || data_type || '|' || is_nullable FROM information_schema.columns WHERE table_name = 'roles' ORDER BY ordinal_position"
 
           echo ""
-          echo "=== VERIFICATION COMPLETE ==="
+          echo "--- C4: memberships columns ---"
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT column_name || '|' || data_type || '|' || is_nullable FROM information_schema.columns WHERE table_name = 'memberships' ORDER BY ordinal_position"
+
+          echo ""
+          echo "--- C5: tenants ---"
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT id || '|' || code || '|' || name || '|' || status FROM tenants WHERE status = 'ACTIVE' LIMIT 5"
+
+          echo ""
+          echo "════════════════════════════════════════════════════════════"
+          echo "PHASE D: 14 NAVIGATION CAPABILITIES EXISTENCE CHECK"
+          echo "════════════════════════════════════════════════════════════"
+
+          echo ""
+          echo "--- D1: Navigation capabilities ---"
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT ac.code || '|' || ac.status FROM access_capabilities ac WHERE ac.code IN ('CRM.ACCOUNT.READ', 'CRM.ACTIVITY.READ', 'CRM.ADMIN', 'CRM.CASE.READ', 'CRM.CONTACT.READ', 'CRM.CUSTOMER_INTELLIGENCE.READ', 'CRM.CUSTOM_FIELD.READ', 'CRM.IMPORT.READ', 'CRM.LEAD.READ', 'CRM.NOTE.READ', 'CRM.OPPORTUNITY.READ', 'CRM.REPORTS.READ', 'CRM.TAG.READ', 'CRM.TASK.READ') ORDER BY ac.code"
+
+          echo ""
+          echo "════════════════════════════════════════════════════════════"
+          echo "PHASE E: NAV-RELEVANT CAPABILITY GRANTS PER ROLE"
+          echo "════════════════════════════════════════════════════════════"
+
+          echo ""
+          echo "--- E1: ADMIN nav-relevant CRM caps ---"
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'ADMIN' AND ac.code IN ('CRM.ACCOUNT.READ','CRM.ACTIVITY.READ','CRM.CASE.READ','CRM.CONTACT.READ','CRM.CUSTOMER_INTELLIGENCE.READ','CRM.CUSTOM_FIELD.READ','CRM.IMPORT.READ','CRM.LEAD.READ','CRM.NOTE.READ','CRM.OPPORTUNITY.READ','CRM.REPORTS.READ','CRM.TAG.READ','CRM.TASK.READ') ORDER BY ac.code"
+
+          echo ""
+          echo "--- E2: MEMBER nav-relevant CRM caps ---"
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'MEMBER' AND ac.code IN ('CRM.ACCOUNT.READ','CRM.ACTIVITY.READ','CRM.CASE.READ','CRM.CONTACT.READ','CRM.CUSTOMER_INTELLIGENCE.READ','CRM.CUSTOM_FIELD.READ','CRM.IMPORT.READ','CRM.LEAD.READ','CRM.NOTE.READ','CRM.OPPORTUNITY.READ','CRM.REPORTS.READ','CRM.TAG.READ','CRM.TASK.READ') ORDER BY ac.code"
+
+          echo ""
+          echo "--- E3: SALES_REPRESENTATIVE nav-relevant CRM caps ---"
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'SALES_REPRESENTATIVE' AND ac.code IN ('CRM.ACCOUNT.READ','CRM.ACTIVITY.READ','CRM.CASE.READ','CRM.CONTACT.READ','CRM.CUSTOMER_INTELLIGENCE.READ','CRM.CUSTOM_FIELD.READ','CRM.IMPORT.READ','CRM.LEAD.READ','CRM.NOTE.READ','CRM.OPPORTUNITY.READ','CRM.REPORTS.READ','CRM.TAG.READ','CRM.TASK.READ') ORDER BY ac.code"
+
+          echo ""
+          echo "════════════════════════════════════════════════════════════"
+          echo "PHASE F: EXACT ROLE → CAPABILITY CHAIN FOR USER"
+          echo "════════════════════════════════════════════════════════════"
+
+          echo ""
+          echo "--- F1: Complete chain for 'Control Plane' user ---"
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT u.display_name || '|' || u.email || '|' || m.tenant_id || '|' || m.role_id || '|' || r.code || '|' || m.status || '|' || u.platform_admin FROM users u JOIN memberships m ON m.user_id = u.id AND m.tenant_id = u.tenant_id JOIN roles r ON r.id = m.role_id WHERE u.display_name ILIKE '%Control Plane%'"
+
+          echo ""
+          echo "--- F2: Capability codes for 'Control Plane' user's role (scoped to tenant) ---"
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT DISTINCT ac.code || '|' || r.code FROM users u JOIN memberships m ON m.user_id = u.id AND m.tenant_id = u.tenant_id JOIN role_capabilities rc ON rc.role_id = m.role_id AND rc.tenant_id = m.tenant_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE u.display_name ILIKE '%Control Plane%' AND ac.status = 'ACTIVE' ORDER BY ac.code"
+
+          echo ""
+          echo "════════════════════════════════════════════════════════════"
+          echo "PHASE G: FLYWAY STATE"
+          echo "════════════════════════════════════════════════════════════"
+
+          echo ""
+          echo "--- G1: Flyway history (last 10) ---"
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT version || '|' || success || '|' || description FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 10"
+
+          echo ""
+          echo "════════════════════════════════════════════════════════════"
+          echo "DIAGNOSTIC COMPLETE"
+          echo "════════════════════════════════════════════════════════════"
