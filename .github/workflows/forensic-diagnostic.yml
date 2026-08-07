@@ -1,0 +1,279 @@
+# ============================================================
+# SANAD Platform — Forensic Diagnostic (Read-Only)
+# ============================================================
+# Read-only forensic diagnostic to identify the actual
+# production user and trace the RBAC query path.
+# Does NOT modify any data.
+# ============================================================
+
+name: Forensic Diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    name: Production RBAC forensic diagnostic
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+    steps:
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Run forensic diagnostic
+        env:
+          PSQL_URL: ${{ secrets.PROD_JDBC_URL }}
+          PSQL_USER: ${{ secrets.PROD_DB_USER }}
+          PSQL_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          JDBC_URL="$PSQL_URL"
+          if [[ "$JDBC_URL" == jdbc:postgresql://* ]]; then
+            JDBC_URL="${JDBC_URL#jdbc:}"
+          fi
+          export PGPASSWORD="$PSQL_PASSWORD"
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 <<'SQL'
+
+\echo ════════════════════════════════════════════════════════════
+\echo PHASE A: IDENTIFY ACTUAL PRODUCTION USER
+\echo ════════════════════════════════════════════════════════════
+
+\echo
+\echo --- A1: All active users (display name, email, tenant) ---
+SELECT
+  u.id AS user_id,
+  u.display_name,
+  u.email,
+  u.tenant_id,
+  u.status,
+  u.platform_admin
+FROM users u
+WHERE u.status = 'ACTIVE'
+ORDER BY u.created_at
+LIMIT 20;
+
+\echo
+\echo --- A2: User memberships with role assignments ---
+SELECT
+  m.id AS membership_id,
+  m.user_id,
+  m.tenant_id,
+  m.role_id,
+  m.status AS membership_status,
+  r.code AS role_code,
+  r.name AS role_name
+FROM memberships m
+JOIN roles r ON r.id = m.role_id
+WHERE m.status = 'ACTIVE'
+ORDER BY m.created_at;
+
+\echo
+\echo --- A3: Focus on "SANAD Control Plane Admin" user ---
+SELECT
+  u.id AS user_id,
+  u.display_name,
+  u.email,
+  u.tenant_id,
+  u.platform_admin,
+  u.status
+FROM users u
+WHERE u.display_name ILIKE '%Control Plane%'
+   OR u.display_name ILIKE '%SANAD%'
+   OR u.email ILIKE '%admin%'
+ORDER BY u.created_at;
+
+\echo
+\echo ════════════════════════════════════════════════════════════
+\echo PHASE B: TRACE ROLE → CAPABILITY FOR ACTUAL USER
+\echo ════════════════════════════════════════════════════════════
+
+\echo
+\echo --- B1: All role_capabilities for non-ADMIN roles (tenant-scoped) ---
+SELECT
+  r.code AS role_code,
+  r.id AS role_id,
+  rc.tenant_id,
+  COUNT(rc.id) AS total_caps,
+  SUM(CASE WHEN ac.code LIKE 'CRM.%' THEN 1 ELSE 0 END) AS crm_caps
+FROM role_capabilities rc
+JOIN roles r ON r.id = rc.role_id
+JOIN access_capabilities ac ON ac.id = rc.capability_id
+WHERE r.code != 'ADMIN'
+GROUP BY r.code, r.id, rc.tenant_id
+ORDER BY r.code, rc.tenant_id;
+
+\echo
+\echo --- B2: CRM capabilities for ADMIN role (tenant-scoped) ---
+SELECT
+  r.code AS role_code,
+  rc.tenant_id,
+  COUNT(rc.id) AS crm_caps
+FROM role_capabilities rc
+JOIN roles r ON r.id = rc.role_id
+JOIN access_capabilities ac ON ac.id = rc.capability_id
+WHERE r.code = 'ADMIN' AND ac.code LIKE 'CRM.%'
+GROUP BY r.code, rc.tenant_id
+ORDER BY rc.tenant_id;
+
+\echo
+\echo ════════════════════════════════════════════════════════════
+\echo PHASE C: VERIFY DATABASE IDENTIFIERS
+\echo ════════════════════════════════════════════════════════════
+
+\echo
+\echo --- C1: Table existence check ---
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public'
+  AND table_name IN ('users', 'roles', 'memberships', 'role_capabilities', 'access_capabilities', 'tenants')
+ORDER BY table_name;
+
+\echo
+\echo --- C2: role_capabilities FK columns ---
+SELECT
+  column_name,
+  data_type,
+  is_nullable
+FROM information_schema.columns
+WHERE table_name = 'role_capabilities'
+ORDER BY ordinal_position;
+
+\echo
+\echo --- C3: roles table columns ---
+SELECT
+  column_name,
+  data_type,
+  is_nullable
+FROM information_schema.columns
+WHERE table_name = 'roles'
+ORDER BY ordinal_position;
+
+\echo
+\echo --- C4: memberships table columns ---
+SELECT
+  column_name,
+  data_type,
+  is_nullable
+FROM information_schema.columns
+WHERE table_name = 'memberships'
+ORDER BY ordinal_position;
+
+\echo
+\echo --- C5: tenants table ---
+SELECT id, code, name, status FROM tenants WHERE status = 'ACTIVE' LIMIT 5;
+
+\echo
+\echo ════════════════════════════════════════════════════════════
+\echo PHASE D: CAPABILITY CODES FOR NAVIGATION
+\echo ════════════════════════════════════════════════════════════
+
+\echo
+\echo --- D1: 14 navigation capabilities existence check ---
+SELECT ac.code, ac.status
+FROM access_capabilities ac
+WHERE ac.code IN (
+  'CRM.ACCOUNT.READ', 'CRM.ACTIVITY.READ', 'CRM.ADMIN',
+  'CRM.CASE.READ', 'CRM.CONTACT.READ', 'CRM.CUSTOMER_INTELLIGENCE.READ',
+  'CRM.CUSTOM_FIELD.READ', 'CRM.IMPORT.READ', 'CRM.LEAD.READ',
+  'CRM.NOTE.READ', 'CRM.OPPORTUNITY.READ', 'CRM.REPORTS.READ',
+  'CRM.TAG.READ', 'CRM.TASK.READ'
+)
+ORDER BY ac.code;
+
+\echo
+\echo ════════════════════════════════════════════════════════════
+\echo PHASE E: CAPABILITY GRANTS FOR EACH ROLE (NAV-RELEVANT ONLY)
+\echo ════════════════════════════════════════════════════════════
+
+\echo
+\echo --- E1: ADMIN — nav-relevant CRM capabilities (sample) ---
+SELECT ac.code
+FROM role_capabilities rc
+JOIN roles r ON r.id = rc.role_id
+JOIN access_capabilities ac ON ac.id = rc.capability_id
+WHERE r.code = 'ADMIN'
+  AND ac.code IN (
+    'CRM.ACCOUNT.READ', 'CRM.ACTIVITY.READ', 'CRM.CASE.READ',
+    'CRM.CONTACT.READ', 'CRM.CUSTOMER_INTELLIGENCE.READ',
+    'CRM.CUSTOM_FIELD.READ', 'CRM.IMPORT.READ', 'CRM.LEAD.READ',
+    'CRM.NOTE.READ', 'CRM.OPPORTUNITY.READ', 'CRM.REPORTS.READ',
+    'CRM.TAG.READ', 'CRM.TASK.READ'
+  )
+LIMIT 20;
+
+\echo
+\echo --- E2: MEMBER — nav-relevant CRM capabilities ---
+SELECT ac.code
+FROM role_capabilities rc
+JOIN roles r ON r.id = rc.role_id
+JOIN access_capabilities ac ON ac.id = rc.capability_id
+WHERE r.code = 'MEMBER'
+  AND ac.code IN (
+    'CRM.ACCOUNT.READ', 'CRM.ACTIVITY.READ', 'CRM.CASE.READ',
+    'CRM.CONTACT.READ', 'CRM.CUSTOMER_INTELLIGENCE.READ',
+    'CRM.CUSTOM_FIELD.READ', 'CRM.IMPORT.READ', 'CRM.LEAD.READ',
+    'CRM.NOTE.READ', 'CRM.OPPORTUNITY.READ', 'CRM.REPORTS.READ',
+    'CRM.TAG.READ', 'CRM.TASK.READ'
+  )
+ORDER BY ac.code;
+
+\echo
+\echo --- E3: SALES_REPRESENTATIVE — nav-relevant CRM capabilities ---
+SELECT ac.code
+FROM role_capabilities rc
+JOIN roles r ON r.id = rc.role_id
+JOIN access_capabilities ac ON ac.id = rc.capability_id
+WHERE r.code = 'SALES_REPRESENTATIVE'
+  AND ac.code IN (
+    'CRM.ACCOUNT.READ', 'CRM.ACTIVITY.READ', 'CRM.CASE.READ',
+    'CRM.CONTACT.READ', 'CRM.CUSTOMER_INTELLIGENCE.READ',
+    'CRM.CUSTOM_FIELD.READ', 'CRM.IMPORT.READ', 'CRM.LEAD.READ',
+    'CRM.NOTE.READ', 'CRM.OPPORTUNITY.READ', 'CRM.REPORTS.READ',
+    'CRM.TAG.READ', 'CRM.TASK.READ'
+  )
+ORDER BY ac.code;
+
+\echo
+\echo ════════════════════════════════════════════════════════════
+\echo PHASE F: EXACT ROLE → CAPABILITY CHAIN FOR USER
+\echo ════════════════════════════════════════════════════════════
+
+\echo
+\echo --- F1: Complete chain for user with display_name containing 'Control Plane' ---
+SELECT
+  u.display_name,
+  u.email,
+  m.tenant_id AS membership_tenant,
+  m.role_id,
+  r.code AS role_code,
+  m.status AS membership_status,
+  u.platform_admin
+FROM users u
+JOIN memberships m ON m.user_id = u.id AND m.tenant_id = u.tenant_id
+JOIN roles r ON r.id = m.role_id
+WHERE u.display_name ILIKE '%Control Plane%';
+
+\echo
+\echo --- F2: Capability codes for that user's role (scoped to user's tenant) ---
+SELECT DISTINCT
+  ac.code AS capability_code,
+  r.code AS role_code
+FROM users u
+JOIN memberships m ON m.user_id = u.id AND m.tenant_id = u.tenant_id
+JOIN role_capabilities rc ON rc.role_id = m.role_id AND rc.tenant_id = m.tenant_id
+JOIN access_capabilities ac ON ac.id = rc.capability_id
+WHERE u.display_name ILIKE '%Control Plane%'
+  AND ac.status = 'ACTIVE'
+ORDER BY ac.code;
+
+\echo
+\echo ════════════════════════════════════════════════════════════
+\echo DIAGNOSTIC COMPLETE
+\echo ════════════════════════════════════════════════════════════
+
+SQL
