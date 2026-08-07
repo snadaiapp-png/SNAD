@@ -4,6 +4,7 @@ import com.sanad.platform.access.grant.UserGrantStatus;
 import com.sanad.platform.access.grant.UserRoleGrant;
 import com.sanad.platform.access.grant.UserRoleGrantRepository;
 import com.sanad.platform.access.role.Role;
+import com.sanad.platform.access.role.RoleCapabilityRepository;
 import com.sanad.platform.access.role.RoleRepository;
 import com.sanad.platform.organization.membership.domain.OrganizationMembership;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
@@ -61,6 +62,7 @@ public class AuthController {
     private final OrganizationMembershipRepository membershipRepository;
     private final UserRoleGrantRepository roleGrantRepository;
     private final RoleRepository roleRepository;
+    private final RoleCapabilityRepository roleCapabilityRepository;
     private final ControlPlaneAccessGuard controlPlaneAccessGuard;
     private final Environment environment;
     private final PasswordRecoveryNotificationCoordinator recoveryNotifications;
@@ -73,6 +75,7 @@ public class AuthController {
             OrganizationMembershipRepository membershipRepository,
             UserRoleGrantRepository roleGrantRepository,
             RoleRepository roleRepository,
+            RoleCapabilityRepository roleCapabilityRepository,
             ControlPlaneAccessGuard controlPlaneAccessGuard,
             Environment environment,
             PasswordRecoveryNotificationCoordinator recoveryNotifications,
@@ -84,6 +87,7 @@ public class AuthController {
         this.membershipRepository = membershipRepository;
         this.roleGrantRepository = roleGrantRepository;
         this.roleRepository = roleRepository;
+        this.roleCapabilityRepository = roleCapabilityRepository;
         this.controlPlaneAccessGuard = controlPlaneAccessGuard;
         this.environment = environment;
         this.recoveryNotifications = recoveryNotifications;
@@ -249,6 +253,7 @@ public class AuthController {
         response.setCredentialRotationRequired(profile.isCredentialRotationRequired());
         response.setMemberships(profile.getMemberships());
         response.setEffectiveRoleGrants(profile.getRoleGrants());
+        response.setCapabilities(profile.getCapabilities());
         response.setDefaultOrganizationId(defaultOrganizationId);
         response.setAvailableDestinations(destinations.getAvailable());
         response.setDefaultDestination(destinations.getDefaultDestination());
@@ -315,6 +320,18 @@ public class AuthController {
             return new MeResponse.RoleGrantSummary(
                     grant.getId(), grant.getRoleId(), roleCode, grant.getOrganizationId(), grant.getStatus().name());
         }).collect(Collectors.toList()));
+
+        // Resolve all capabilities for the user's roles (batch query)
+        java.util.Set<UUID> roleIds = grants.stream()
+                .map(UserRoleGrant::getRoleId)
+                .collect(java.util.stream.Collectors.toSet());
+        if (!roleIds.isEmpty()) {
+            List<String> caps = roleCapabilityRepository.findCapabilityCodesByTenantIdAndRoleIds(tenantId, roleIds);
+            response.setCapabilities(caps);
+        } else {
+            response.setCapabilities(java.util.Collections.emptyList());
+        }
+
         return response;
     }
 

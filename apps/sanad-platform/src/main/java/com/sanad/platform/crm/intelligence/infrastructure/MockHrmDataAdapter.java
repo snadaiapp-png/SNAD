@@ -11,7 +11,7 @@ import java.util.UUID;
  * Mock HRM adapter — returns deterministic synthetic account team data.
  */
 @Component
-@ConditionalOnProperty(name = "sanad.intelligence.hrm.provider", havingValue = "mock", matchIfMissing = true)
+@ConditionalOnProperty(name = "sanad.intelligence.hrm.provider", havingValue = "mock", matchIfMissing = false)
 public class MockHrmDataAdapter implements HrmDataPort {
 
     @Override

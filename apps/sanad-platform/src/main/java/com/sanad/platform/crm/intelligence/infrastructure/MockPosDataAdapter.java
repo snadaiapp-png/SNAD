@@ -10,7 +10,7 @@ import java.util.UUID;
  * Mock POS adapter — returns deterministic synthetic transaction data.
  */
 @Component
-@ConditionalOnProperty(name = "sanad.intelligence.pos.provider", havingValue = "mock", matchIfMissing = true)
+@ConditionalOnProperty(name = "sanad.intelligence.pos.provider", havingValue = "mock", matchIfMissing = false)
 public class MockPosDataAdapter implements PosDataPort {
 
     @Override

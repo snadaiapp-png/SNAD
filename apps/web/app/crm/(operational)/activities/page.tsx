@@ -1,17 +1,18 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { crmApi, type CrmAccount, type CrmActivity } from "@/lib/api/crm";
 import { toUserFacingError } from "@/lib/api/user-facing-errors";
-import { useI18n } from "@/lib/i18n/I18nProvider";
 import { useAuth } from "@/lib/auth/auth-provider";
-import { formValue, optionalValue, formatDate } from "../../crm-view-utils";
+import { hasAnyCapability } from "@/lib/auth/capabilities";
+import { useI18n } from "@/lib/i18n/I18nProvider";
+import { formValue, optionalValue, formatDate, toIsoDateTime } from "../../crm-view-utils";
 import { CrmLoading } from "../../components/crm-loading";
 import { CrmEmpty } from "../../components/crm-empty";
 import styles from "../../crm.module.css";
 
 const ACTIVITY_TYPES = ["TASK", "CALL", "MEETING", "NOTE"];
-const ACTIVITY_STATUS_FILTERS = ["", "OPEN", "IN_PROGRESS", "DONE", "CANCELLED"];
+const ACTIVITY_STATUS_FILTERS = ["", "OPEN", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
 
 /**
  * CRM Activities route — /crm/activities
@@ -32,6 +33,10 @@ export default function CrmActivitiesPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+
+  // Best-effort client-side check; backend is always authoritative
+  const canReadActivities = useMemo(() => hasAnyCapability(me, ["CRM.ACTIVITY.READ", "CRM.ACTIVITY.WRITE"]), [me]);
+  const canReadAccounts = useMemo(() => hasAnyCapability(me, ["CRM.ACCOUNT.READ", "CRM.ACCOUNT.WRITE"]), [me]);
 
   const reload = useCallback(async (status?: string) => {
     setLoading(true);
@@ -85,7 +90,7 @@ export default function CrmActivitiesPage() {
           relatedType: relatedId ? "ACCOUNT" : undefined,
           relatedId,
           priority: 50,
-          dueAt,
+          dueAt: toIsoDateTime(dueAt),
           ownerUserId: me?.id,
         }),
       t("crm.activities.created"),
@@ -94,6 +99,21 @@ export default function CrmActivitiesPage() {
   }
 
   const hasActivities = activities.length > 0;
+
+  // Capability gate: show access denied if user lacks required capabilities
+  if (!canReadActivities || !canReadAccounts) {
+    return (
+      <div className={styles.contentInner}>
+        <div>
+          <h1 className={styles.pageTitle}>{t("crm.activities.title")}</h1>
+          <p className={styles.pageDescription}>{t("crm.activities.description")}</p>
+        </div>
+        <div className={styles.error} role="alert">
+          {t("crm.errors.insufficientCapabilities")}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.contentInner}>

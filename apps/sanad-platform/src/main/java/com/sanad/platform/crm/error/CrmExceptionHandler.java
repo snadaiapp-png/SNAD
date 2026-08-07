@@ -45,7 +45,10 @@ import java.util.regex.Pattern;
  */
 @RestControllerAdvice(assignableTypes = {
         com.sanad.platform.crm.web.CrmController.class,
-        com.sanad.platform.crm.party.web.CustomerMasterController.class
+        com.sanad.platform.crm.web.CrmContractControllerR1.class,
+        com.sanad.platform.crm.party.web.CustomerMasterController.class,
+        com.sanad.platform.crm.tag.web.TagController.class,
+        com.sanad.platform.crm.web.IntelligenceController.class
 })
 public class CrmExceptionHandler extends ResponseEntityExceptionHandler {
 

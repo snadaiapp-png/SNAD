@@ -16,6 +16,7 @@ public class MeResponse {
     private boolean credentialRotationRequired;
     private List<MembershipSummary> memberships;
     private List<RoleGrantSummary> roleGrants;
+    private List<String> capabilities;
 
     public MeResponse() {
     }
@@ -48,6 +49,9 @@ public class MeResponse {
 
     public List<RoleGrantSummary> getRoleGrants() { return roleGrants; }
     public void setRoleGrants(List<RoleGrantSummary> roleGrants) { this.roleGrants = roleGrants; }
+
+    public List<String> getCapabilities() { return capabilities; }
+    public void setCapabilities(List<String> capabilities) { this.capabilities = capabilities; }
 
     public static class MembershipSummary {
         private UUID id;

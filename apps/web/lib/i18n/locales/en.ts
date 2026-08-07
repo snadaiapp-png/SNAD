@@ -388,6 +388,9 @@ export const en: TranslationDictionary = {
   "crm.pipelines.list.stages": "Stages",
   "crm.pipelines.empty": "No pipelines yet.",
   "crm.pipelines.created": "Pipeline created.",
+  "crm.pipelines.stages.newPlaceholder": "New stage name",
+  "crm.pipelines.stages.add": "+ Add Stage",
+  "crm.pipelines.stages.confirmDelete": "Are you sure you want to delete this stage? Opportunities in this stage will not be affected.",
 
   "crm.opportunities.title": "Opportunities",
   "crm.opportunities.description": "Manage opportunities across pipelines.",
@@ -585,6 +588,9 @@ export const en: TranslationDictionary = {
   "crm.common.notFound": "Record not found.",
   "crm.common.archived": "Archived",
   "crm.common.restored": "Restored",
+  "crm.common.save": "Save",
+  "crm.common.edit": "Edit",
+  "crm.common.delete": "Delete",
 
   // === CRM Detail Pages (CRM-002b) ===
   "crm.contactDetail.title": "Contact Detail",
@@ -675,6 +681,7 @@ export const en: TranslationDictionary = {
   "crm.tags.confirmDelete": "Are you sure you want to delete this tag? It will be removed from all entities.",
   "crm.tags.created": "Tag created.",
   "crm.tags.deleted": "Tag deleted.",
+  "crm.tags.duplicateName": "A tag with this name already exists.",
   "crm.tags.assignments.title": "Assignments",
   "crm.tags.assignments.account": "Account",
   "crm.tags.assignments.accountNone": "Select an account...",
@@ -918,4 +925,7 @@ export const en: TranslationDictionary = {
   "crm.intelligence.loadingSegments": "Loading segments...",
   "crm.intelligence.noSegmentsYet": "No segments created yet.",
   "crm.intelligence.loading": "Loading intelligence data...",
+
+  // ── Errors
+  "crm.errors.insufficientCapabilities": "You do not have sufficient permissions to access this page.",
 };

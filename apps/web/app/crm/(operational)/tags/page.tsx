@@ -1,8 +1,10 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { crmApi, type CrmTag, type CrmAccount, type CrmTagAssignment } from "@/lib/api/crm";
 import { toUserFacingError } from "@/lib/api/user-facing-errors";
+import { useAuth } from "@/lib/auth/auth-provider";
+import { hasAnyCapability } from "@/lib/auth/capabilities";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { formValue, optionalValue } from "../../crm-view-utils";
 import { CrmLoading } from "../../components/crm-loading";
@@ -25,6 +27,7 @@ type TagColorName = (typeof TAG_COLOR_NAMES)[number];
  */
 export default function CrmTagsPage() {
   const { t } = useI18n();
+  const { me } = useAuth();
   const [tags, setTags] = useState<CrmTag[]>([]);
   const [accounts, setAccounts] = useState<CrmAccount[]>([]);
   const [assignments, setAssignments] = useState<CrmTagAssignment[]>([]);
@@ -33,6 +36,10 @@ export default function CrmTagsPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [selectedAccountId, setSelectedAccountId] = useState("");
+
+  // Best-effort client-side check; backend is always authoritative
+  const canReadTags = useMemo(() => hasAnyCapability(me, ["CRM.TAG.READ", "CRM.TAG.WRITE"]), [me]);
+  const canReadAccounts = useMemo(() => hasAnyCapability(me, ["CRM.ACCOUNT.READ", "CRM.ACCOUNT.WRITE"]), [me]);
 
   const reload = useCallback(async (accountId?: string) => {
     setLoading(true);
@@ -82,8 +89,14 @@ export default function CrmTagsPage() {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
+    const name = formValue(form, "name").trim();
+    // Client-side duplicate pre-check (backend remains authoritative)
+    if (tags.some((t) => t.name.toLowerCase() === name.toLowerCase())) {
+      setError(t("crm.tags.duplicateName"));
+      return;
+    }
     await mutate(
-      () => crmApi.createTag({ name: formValue(form, "name"), color: optionalValue(form, "color") }),
+      () => crmApi.createTag({ name, color: optionalValue(form, "color") }),
       t("crm.tags.created"),
     );
     formElement.reset();
@@ -111,6 +124,21 @@ export default function CrmTagsPage() {
   }
 
   const assignedTagIds = new Set(assignments.map((a) => a.tag_id));
+
+  // Capability gate: show access denied if user lacks required capabilities
+  if (!canReadTags || !canReadAccounts) {
+    return (
+      <div className={styles.contentInner}>
+        <div>
+          <h1 className={styles.pageTitle}>{t("crm.tags.title")}</h1>
+          <p className={styles.pageDescription}>{t("crm.tags.description")}</p>
+        </div>
+        <div className={styles.error} role="alert">
+          {t("crm.errors.insufficientCapabilities")}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.contentInner}>

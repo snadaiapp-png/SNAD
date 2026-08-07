@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.UUID;
 
 public record CreatePipelineRequest(
-@NotBlank @Size(max = 160) String name,
-        @Pattern(regexp = "[A-Za-z]{3}") String currencyCode,
-        @Size(min = 2, max = 20) List<@NotBlank @Size(max = 160) String> stages
+        @NotNull @NotBlank @Size(max = 160) String name,
+        @NotNull @Pattern(regexp = "[A-Za-z]{3}") String currencyCode,
+        @NotNull @Size(min = 2, max = 20) List<@NotBlank @Size(max = 160) String> stages
 ) { }

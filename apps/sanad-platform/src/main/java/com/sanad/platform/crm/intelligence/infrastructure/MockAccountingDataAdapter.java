@@ -10,7 +10,7 @@ import java.util.UUID;
  * Mock Accounting adapter — returns deterministic synthetic financial data.
  */
 @Component
-@ConditionalOnProperty(name = "sanad.intelligence.accounting.provider", havingValue = "mock", matchIfMissing = true)
+@ConditionalOnProperty(name = "sanad.intelligence.accounting.provider", havingValue = "mock", matchIfMissing = false)
 public class MockAccountingDataAdapter implements AccountingDataPort {
 
     @Override

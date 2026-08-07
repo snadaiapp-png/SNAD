@@ -14,7 +14,7 @@ import java.util.UUID;
  * Active when provider=mock (default). Disabled in production by IntelligenceProductionGuard.
  */
 @Component
-@ConditionalOnProperty(name = "sanad.intelligence.erp.provider", havingValue = "mock", matchIfMissing = true)
+@ConditionalOnProperty(name = "sanad.intelligence.erp.provider", havingValue = "mock", matchIfMissing = false)
 public class MockErpDataAdapter implements ErpDataPort {
 
     @Override

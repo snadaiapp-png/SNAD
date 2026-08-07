@@ -59,6 +59,7 @@ export interface CrmStage {
   sequence: number;
   probability: number;
   terminal_state?: string | null;
+  active: boolean;
 }
 
 export interface CrmOpportunity {
@@ -78,14 +79,20 @@ export interface CrmOpportunity {
 
 export interface CrmActivity {
   id: string;
+  version?: number;
   activity_type: string;
   subject: string;
   body?: string | null;
   related_type?: string | null;
   related_id?: string | null;
+  owner_user_id?: string | null;
   status: string;
   priority: number;
+  start_at?: string | null;
   due_at?: string | null;
+  completed_at?: string | null;
+  result?: string | null;
+  created_at?: string | null;
   updated_at: string;
 }
 
@@ -364,14 +371,20 @@ function mapV2Opportunity(o: V2OpportunityResponse): CrmOpportunity {
 function mapV2Activity(a: V2ActivityResponse): CrmActivity {
   return {
     id: a.id,
+    version: a.version,
     activity_type: a.activityType,
     subject: a.subject,
     body: a.body ?? null,
     related_type: a.relatedType ?? null,
     related_id: a.relatedId ?? null,
+    owner_user_id: a.ownerUserId ?? null,
     status: a.status,
     priority: a.priority,
+    start_at: a.startAt ?? null,
     due_at: a.dueAt ?? null,
+    completed_at: a.completedAt ?? null,
+    result: a.result ?? null,
+    created_at: a.createdAt ?? null,
     updated_at: a.updatedAt,
   };
 }
@@ -393,6 +406,7 @@ function mapV2Stage(s: V2StageResponse): CrmStage {
     sequence: s.sequence,
     probability: s.probability,
     terminal_state: s.terminalState ?? null,
+    active: s.active,
   };
 }
 
@@ -466,16 +480,18 @@ interface V2OpportunityResponse {
   status: string; expectedCloseDate?: string | null; updatedAt: string;
 }
 interface V2ActivityResponse {
-  id: string; activityType: string; subject: string; body?: string | null;
-  relatedType?: string | null; relatedId?: string | null; status: string;
-  priority: number; dueAt?: string | null; updatedAt: string;
+  id: string; version?: number; activityType: string; subject: string;
+  body?: string | null; relatedType?: string | null; relatedId?: string | null;
+  ownerUserId?: string | null; status: string; priority: number;
+  startAt?: string | null; dueAt?: string | null; completedAt?: string | null;
+  result?: string | null; createdAt?: string | null; updatedAt: string;
 }
 interface V2PipelineResponse {
   id: string; name: string; currencyCode?: string | null; active: boolean;
 }
 interface V2StageResponse {
   id: string; pipelineId: string; name: string; sequence: number;
-  probability: number; terminalState?: string | null;
+  probability: number; terminalState?: string | null; active: boolean;
 }
 interface V2TimelineEventResponse {
   id: string; subjectType: string; subjectId: string; eventType: string;
@@ -631,6 +647,21 @@ export const crmApi = {
     const res = await apiClient.get<V2ListResponse<V2StageResponse>>(`${v2root}/pipelines/${pipelineId}/stages`, { cache: "no-store" });
     return (res.data ?? []).map(mapV2Stage);
   },
+  createStage: async (pipelineId: string, body: { name: string; probability?: number; terminalState?: string }) => {
+    const data = await unwrapSingle(
+      apiClient.post<V2SingleResponse<V2StageResponse>, typeof body>(`${v2root}/pipelines/${pipelineId}/stages`, body),
+    );
+    return mapV2Stage(data);
+  },
+  updateStage: async (pipelineId: string, stageId: string, body: { name?: string; probability?: number; terminalState?: string; sequence?: number }) => {
+    const data = await unwrapSingle(
+      apiClient.patch<V2SingleResponse<V2StageResponse>, typeof body>(`${v2root}/pipelines/${pipelineId}/stages/${stageId}`, body, { context: { headers: { "If-Match": "*" } } }),
+    );
+    return mapV2Stage(data);
+  },
+  deleteStage: async (pipelineId: string, stageId: string) => {
+    await apiClient.delete<void>(`${v2root}/pipelines/${pipelineId}/stages/${stageId}`);
+  },
 
   // ── Opportunities (V2 — migrated TD-002-2) ─────────────────────────────
   opportunities: async (accountId?: string) => {
@@ -666,6 +697,12 @@ export const crmApi = {
   createActivity: async (body: { activityType: string; subject: string; body?: string; relatedType?: string; relatedId?: string; priority?: number; dueAt?: string; ownerUserId?: string }) => {
     const data = await unwrapSingle(
       apiClient.post<V2SingleResponse<V2ActivityResponse>, typeof body>(`${v2root}/activities`, body, { context: { headers: { "Idempotency-Key": `act-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } } }),
+    );
+    return mapV2Activity(data);
+  },
+  updateActivity: async (id: string, body: { subject?: string; body?: string; priority?: number; startAt?: string; dueAt?: string }) => {
+    const data = await unwrapSingle(
+      apiClient.patch<V2SingleResponse<V2ActivityResponse>, typeof body>(`${v2root}/activities/${id}`, body, { context: { headers: { "If-Match": "*" } } }),
     );
     return mapV2Activity(data);
   },

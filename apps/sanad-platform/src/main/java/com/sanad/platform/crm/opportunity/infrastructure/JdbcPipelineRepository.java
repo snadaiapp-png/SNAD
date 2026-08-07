@@ -61,6 +61,60 @@ public class JdbcPipelineRepository implements PipelineRepository {
         return jdbc.queryForList("SELECT * FROM crm_pipeline_stages WHERE tenant_id=:t AND pipeline_id=:pipelineId AND active=TRUE ORDER BY sequence",
                 new MapSqlParameterSource().addValue("t",t).addValue("pipelineId",pipelineId)).stream().map(r -> new StageRecord((UUID)r.get("id"),(UUID)r.get("pipeline_id"),(String)r.get("name"),((Number)r.get("sequence")).intValue(),(java.math.BigDecimal)r.get("probability"),(String)r.get("terminal_state"),true)).toList();
     }
+
+    public StageRecord createStage(UUID t, UUID pipelineId, CreateStageCommand cmd) {
+        // Verify pipeline exists
+        findById(t, pipelineId);
+        // Get next sequence number
+        Integer maxSeq = jdbc.queryForObject(
+            "SELECT COALESCE(MAX(sequence), 0) FROM crm_pipeline_stages WHERE tenant_id=:t AND pipeline_id=:pipelineId",
+            new MapSqlParameterSource().addValue("t",t).addValue("pipelineId",pipelineId),
+            Integer.class);
+        int nextSeq = (maxSeq != null ? maxSeq : 0) + 1;
+        UUID stageId = UUID.randomUUID();
+        jdbc.update(
+            "INSERT INTO crm_pipeline_stages (id,tenant_id,pipeline_id,name,sequence,probability,terminal_state,active,created_at,updated_at) VALUES (:id,:t,:pipelineId,:name,:seq,:prob,:terminal,TRUE,:now,:now)",
+            new MapSqlParameterSource()
+                .addValue("id",stageId).addValue("t",t).addValue("pipelineId",pipelineId)
+                .addValue("name",cmd.name()).addValue("seq",nextSeq)
+                .addValue("prob",cmd.probability()).addValue("terminal",cmd.terminalState())
+                .addValue("now",Timestamp.from(Instant.now())));
+        return findStageById(t, stageId);
+    }
+
+    public StageRecord updateStage(UUID t, UUID stageId, UpdateStageCommand cmd) {
+        StageRecord existing = findStageById(t, stageId);
+        StringBuilder sql = new StringBuilder("UPDATE crm_pipeline_stages SET updated_at=:now");
+        MapSqlParameterSource params = new MapSqlParameterSource()
+            .addValue("t",t).addValue("id",stageId).addValue("now",Timestamp.from(Instant.now()));
+        if (cmd.name() != null) { sql.append(",name=:name"); params.addValue("name", cmd.name()); }
+        if (cmd.probability() != null) { sql.append(",probability=:prob"); params.addValue("prob", cmd.probability()); }
+        if (cmd.terminalState() != null) { sql.append(",terminal_state=:terminal"); params.addValue("terminal", cmd.terminalState()); }
+        if (cmd.sequence() != null) { sql.append(",sequence=:seq"); params.addValue("seq", cmd.sequence()); }
+        sql.append(" WHERE tenant_id=:t AND id=:id");
+        jdbc.update(sql.toString(), params);
+        return findStageById(t, stageId);
+    }
+
+    public void deleteStage(UUID t, UUID stageId) {
+        findStageById(t, stageId);
+        jdbc.update(
+            "UPDATE crm_pipeline_stages SET active=FALSE, updated_at=:now WHERE tenant_id=:t AND id=:id",
+            new MapSqlParameterSource().addValue("t",t).addValue("id",stageId).addValue("now",Timestamp.from(Instant.now())));
+    }
+
+    private StageRecord findStageById(UUID t, UUID stageId) {
+        try {
+            Map<String,Object> r = jdbc.queryForMap(
+                "SELECT * FROM crm_pipeline_stages WHERE tenant_id=:t AND id=:id",
+                new MapSqlParameterSource().addValue("t",t).addValue("id",stageId));
+            return new StageRecord((UUID)r.get("id"),(UUID)r.get("pipeline_id"),(String)r.get("name"),
+                ((Number)r.get("sequence")).intValue(),(java.math.BigDecimal)r.get("probability"),
+                (String)r.get("terminal_state"),r.get("active")!=null&&((Boolean)r.get("active")));
+        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
+            throw new CrmContractException(CrmErrorCode.CRM_STAGE_NOT_FOUND);
+        }
+    }
     private PipelineRecord mapRow(Map<String,Object> r) {
         return new PipelineRecord((UUID)r.get("id"),asLong(r.get("version")),(String)r.get("name"),(String)r.get("currency_code"),r.get("active")!=null&&((Boolean)r.get("active")),asInstant(r.get("created_at")),asInstant(r.get("updated_at")));
     }

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, type ComponentType, type ReactNode } from "react";
+import { useEffect, useMemo, type ComponentType, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
+import { hasCapability } from "@/lib/auth/capabilities";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import styles from "../crm-shared-styles.module.css";
 
@@ -12,6 +13,8 @@ interface NavItem {
   href: string;
   labelKey: string;
   Icon: ComponentType;
+  /** Optional capability required to show this nav item. Backend is always authoritative. */
+  capability?: string;
 }
 
 /* ============================================================================
@@ -204,28 +207,28 @@ function BackIcon() {
 
 const MAIN_NAV: NavItem[] = [
   { href: "/crm/overview", labelKey: "crm.nav.overview", Icon: OverviewIcon },
-  { href: "/crm/accounts", labelKey: "crm.nav.accounts", Icon: AccountsIcon },
-  { href: "/crm/contacts", labelKey: "crm.nav.contacts", Icon: ContactsIcon },
-  { href: "/crm/leads", labelKey: "crm.nav.leads", Icon: LeadsIcon },
-  { href: "/crm/pipelines", labelKey: "crm.nav.pipelines", Icon: PipelinesIcon },
-  { href: "/crm/opportunities", labelKey: "crm.nav.opportunities", Icon: OpportunitiesIcon },
-  { href: "/crm/activities", labelKey: "crm.nav.activities", Icon: ActivitiesIcon },
-  { href: "/crm/tags", labelKey: "crm.nav.tags", Icon: TagsIcon },
+  { href: "/crm/accounts", labelKey: "crm.nav.accounts", Icon: AccountsIcon, capability: "CRM.ACCOUNT.READ" },
+  { href: "/crm/contacts", labelKey: "crm.nav.contacts", Icon: ContactsIcon, capability: "CRM.CONTACT.READ" },
+  { href: "/crm/leads", labelKey: "crm.nav.leads", Icon: LeadsIcon, capability: "CRM.LEAD.READ" },
+  { href: "/crm/pipelines", labelKey: "crm.nav.pipelines", Icon: PipelinesIcon, capability: "CRM.OPPORTUNITY.READ" },
+  { href: "/crm/opportunities", labelKey: "crm.nav.opportunities", Icon: OpportunitiesIcon, capability: "CRM.OPPORTUNITY.READ" },
+  { href: "/crm/activities", labelKey: "crm.nav.activities", Icon: ActivitiesIcon, capability: "CRM.ACTIVITY.READ" },
+  { href: "/crm/tags", labelKey: "crm.nav.tags", Icon: TagsIcon, capability: "CRM.TAG.READ" },
   { href: "/crm/search", labelKey: "crm.nav.search", Icon: SearchIcon },
-  { href: "/crm/reports", labelKey: "crm.nav.reports", Icon: ReportsIcon },
-  { href: "/crm/notes", labelKey: "crm.nav.notes", Icon: NotesIcon },
-  { href: "/crm/tasks", labelKey: "crm.nav.tasks", Icon: TasksIcon },
-  { href: "/crm/cases", labelKey: "crm.nav.cases", Icon: CasesIcon },
-  { href: "/crm/intelligence", labelKey: "crm.nav.intelligence", Icon: IntelligenceIcon },
+  { href: "/crm/reports", labelKey: "crm.nav.reports", Icon: ReportsIcon, capability: "CRM.REPORTS.READ" },
+  { href: "/crm/notes", labelKey: "crm.nav.notes", Icon: NotesIcon, capability: "CRM.NOTE.READ" },
+  { href: "/crm/tasks", labelKey: "crm.nav.tasks", Icon: TasksIcon, capability: "CRM.TASK.READ" },
+  { href: "/crm/cases", labelKey: "crm.nav.cases", Icon: CasesIcon, capability: "CRM.CASE.READ" },
+  { href: "/crm/intelligence", labelKey: "crm.nav.intelligence", Icon: IntelligenceIcon, capability: "CRM.CUSTOMER_INTELLIGENCE.READ" },
 ];
 
 const ADMIN_NAV: NavItem[] = [
-  { href: "/crm/imports", labelKey: "crm.nav.imports", Icon: ImportsIcon },
-  { href: "/crm/settings/custom-fields", labelKey: "crm.nav.customFields", Icon: CustomFieldsIcon },
+  { href: "/crm/imports", labelKey: "crm.nav.imports", Icon: ImportsIcon, capability: "CRM.IMPORT.READ" },
+  { href: "/crm/settings/custom-fields", labelKey: "crm.nav.customFields", Icon: CustomFieldsIcon, capability: "CRM.CUSTOM_FIELD.READ" },
 ];
 
 const EXECUTION_NAV: NavItem[] = [
-  { href: "/crm/execution", labelKey: "crm.nav.execution", Icon: ExecutionIcon },
+  { href: "/crm/execution", labelKey: "crm.nav.execution", Icon: ExecutionIcon, capability: "CRM.ADMIN" },
 ];
 
 interface CrmShellProps {
@@ -253,6 +256,22 @@ export function CrmShell({ children }: CrmShellProps) {
   const { t, locale, setLocale, direction } = useI18n();
   const router = useRouter();
   const pathname = usePathname();
+
+  // Filter nav items based on user capabilities.
+  // IMPORTANT: These hooks MUST be called before any conditional early returns
+  // to satisfy React's Rules of Hooks (hooks must not be called conditionally).
+  const filteredMainNav = useMemo(
+    () => MAIN_NAV.filter((item) => !item.capability || hasCapability(me, item.capability)),
+    [me],
+  );
+  const filteredAdminNav = useMemo(
+    () => ADMIN_NAV.filter((item) => !item.capability || hasCapability(me, item.capability)),
+    [me],
+  );
+  const filteredExecutionNav = useMemo(
+    () => EXECUTION_NAV.filter((item) => !item.capability || hasCapability(me, item.capability)),
+    [me],
+  );
 
   // Redirect to the root login flow when the session is definitively gone.
   useEffect(() => {
@@ -342,23 +361,29 @@ export function CrmShell({ children }: CrmShellProps) {
         <aside className={styles.sidebar} aria-label={t("crm.shell.sidebar")}>
           <nav className={styles.sidebarNav}>
             <span className={styles.sidebarSectionLabel}>{t("crm.shell.sidebar.main")}</span>
-            {MAIN_NAV.map((item) => (
+            {filteredMainNav.map((item) => (
               <SidebarLink key={item.href} item={item} active={isActive(item.href)} label={t(item.labelKey)} />
             ))}
 
-            <div className={styles.sidebarDivider} />
+            {filteredAdminNav.length > 0 && (
+              <>
+                <div className={styles.sidebarDivider} />
+                <span className={styles.sidebarSectionLabel}>{t("crm.shell.sidebar.admin")}</span>
+                {filteredAdminNav.map((item) => (
+                  <SidebarLink key={item.href} item={item} active={isActive(item.href)} label={t(item.labelKey)} />
+                ))}
+              </>
+            )}
 
-            <span className={styles.sidebarSectionLabel}>{t("crm.shell.sidebar.admin")}</span>
-            {ADMIN_NAV.map((item) => (
-              <SidebarLink key={item.href} item={item} active={isActive(item.href)} label={t(item.labelKey)} />
-            ))}
-
-            <div className={styles.sidebarDivider} />
-
-            <span className={styles.sidebarSectionLabel}>{t("crm.shell.sidebar.execution")}</span>
-            {EXECUTION_NAV.map((item) => (
-              <SidebarLink key={item.href} item={item} active={isActive(item.href)} label={t(item.labelKey)} />
-            ))}
+            {filteredExecutionNav.length > 0 && (
+              <>
+                <div className={styles.sidebarDivider} />
+                <span className={styles.sidebarSectionLabel}>{t("crm.shell.sidebar.execution")}</span>
+                {filteredExecutionNav.map((item) => (
+                  <SidebarLink key={item.href} item={item} active={isActive(item.href)} label={t(item.labelKey)} />
+                ))}
+              </>
+            )}
 
           </nav>
         </aside>
