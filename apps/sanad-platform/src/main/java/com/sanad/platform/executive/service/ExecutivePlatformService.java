@@ -58,11 +58,14 @@ public class ExecutivePlatformService {
         long totalTenants = count("SELECT COUNT(*) FROM tenants");
         long activeTenants = count("SELECT COUNT(*) FROM tenants WHERE status = 'ACTIVE'");
         long trialTenants = count("SELECT COUNT(*) FROM tenants WHERE status = 'TRIAL'");
-        long totalSubscriptions = count("SELECT COUNT(*) FROM tenant_subscriptions WHERE status = 'ACTIVE'");
-        long totalInvoices = count("SELECT COUNT(*) FROM billing_invoices");
-        long unpaidInvoices = count("SELECT COUNT(*) FROM billing_invoices WHERE status IN ('ISSUED','PAST_DUE')");
+        long suspendedTenants = count("SELECT COUNT(*) FROM tenants WHERE status = 'SUSPENDED'");
+        long totalUsers = count("SELECT COUNT(*) FROM users");
+        long activeUsers = count("SELECT COUNT(*) FROM users WHERE status = 'ACTIVE'");
+        long operationalServices = count("SELECT COUNT(*) FROM system_services WHERE status = 'OPERATIONAL'");
+        long degradedServices = count("SELECT COUNT(*) FROM system_services WHERE status != 'OPERATIONAL'");
         return new DashboardResponse(totalTenants, activeTenants, trialTenants,
-                totalSubscriptions, totalInvoices, unpaidInvoices);
+                suspendedTenants, totalUsers, activeUsers,
+                operationalServices, degradedServices, auditService.recent(10));
     }
 
     public List<TenantResponse> listTenants(String search, String status, int requestedLimit, int requestedOffset) {
@@ -110,8 +113,8 @@ public class ExecutivePlatformService {
                         ? Timestamp.from(Instant.now().plusSeconds(request.trialDays() * 86400L))
                         : null
         );
-        registrationProvisioner.provision(tenantId, request.adminEmail(), request.adminDisplayName());
-        auditService.success(authentication, "CREATE_TENANT", "tenants:" + tenantId, request.name());
+        registrationProvisioner.provision(request.adminEmail(), request.adminDisplayName(), request.name(), request.subdomain(), null, request.countryCode());
+        auditService.success(authentication, tenantId, "CREATE_TENANT", "TENANT", tenantId.toString(), request.name(), null, getTenant(tenantId));
         return getTenant(tenantId);
     }
 
@@ -128,8 +131,7 @@ public class ExecutivePlatformService {
                 request.status(),
                 "SUSPENDED".equals(request.status()) || "CANCELLED".equals(request.status()) ? request.reason() : null,
                 tenantId);
-        auditService.success(authentication, "CHANGE_TENANT_STATUS", "tenants:" + tenantId,
-                before.status() + " -> " + request.status() + " (" + request.reason() + ")");
+        auditService.success(authentication, tenantId, "CHANGE_TENANT_STATUS", "TENANT", tenantId.toString(), before.status() + " -> " + request.status(), before, getTenant(tenantId));
         return getTenant(tenantId);
     }
 
@@ -147,12 +149,20 @@ public class ExecutivePlatformService {
 
     private TenantResponse mapTenant(ResultSet rs, int row) throws SQLException {
         return new TenantResponse(
-                rs.getString("id"), rs.getString("name"), rs.getString("legal_name"),
-                rs.getString("subdomain"), rs.getString("status"),
-                rs.getString("billing_email"), rs.getString("country_code"),
-                rs.getString("locale"), rs.getString("timezone"), rs.getString("currency_code"),
-                rs.getString("trial_ends_at"), rs.getString("suspension_reason"),
-                rs.getString("created_at"), rs.getString("updated_at"));
+                rs.getObject("id", java.util.UUID.class),
+                rs.getString("name"),
+                rs.getString("legal_name"),
+                rs.getString("subdomain"),
+                rs.getString("status"),
+                rs.getString("billing_email"),
+                rs.getString("country_code"),
+                rs.getString("locale"),
+                rs.getString("timezone"),
+                rs.getString("currency_code"),
+                rs.getTimestamp("trial_ends_at") != null ? rs.getTimestamp("trial_ends_at").toInstant() : null,
+                rs.getString("suspension_reason"),
+                rs.getTimestamp("created_at") != null ? rs.getTimestamp("created_at").toInstant() : null,
+                rs.getTimestamp("updated_at") != null ? rs.getTimestamp("updated_at").toInstant() : null);
     }
 
     private static String normalizedTenantStatus(String value) {

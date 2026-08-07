@@ -56,18 +56,28 @@ public class SystemHealthService {
         jdbcTemplate.update(
                 "UPDATE system_services SET status = ?, last_message = ?, last_checked_at = NOW(), updated_at = NOW() WHERE id = ?",
                 request.status(), request.reason(), serviceId);
-        auditService.success(authentication, "UPDATE_SYSTEM_STATUS",
-                "system_services:" + serviceId,
-                before.status() + " -> " + request.status() + " (" + request.reason() + ")");
+        auditService.success(authentication, null, "UPDATE_SYSTEM_STATUS",
+                "SYSTEM_SERVICE", serviceId.toString(),
+                before.status() + " -> " + request.status(), before, getSystemService(serviceId));
         return getSystemService(serviceId);
     }
 
     private SystemServiceResponse mapSystemService(ResultSet rs, int row) throws SQLException {
         return new SystemServiceResponse(
-                rs.getString("id"), rs.getString("code"), rs.getString("name"),
-                rs.getString("environment"), rs.getString("status"),
-                rs.getString("owner_name"), rs.getString("criticality"),
-                rs.getString("last_checked_at"), rs.getString("last_latency_ms"),
-                rs.getString("last_message"));
+                rs.getObject("id", java.util.UUID.class),
+                rs.getString("code"),
+                rs.getString("name"),
+                rs.getString("description"),
+                rs.getString("version"),
+                rs.getString("environment"),
+                rs.getString("status"),
+                rs.getString("health_url"),
+                rs.getString("owner_name"),
+                rs.getString("criticality"),
+                rs.getString("dependencies"),
+                rs.getTimestamp("last_checked_at") != null ? rs.getTimestamp("last_checked_at").toInstant() : null,
+                rs.getObject("last_latency_ms", Long.class),
+                rs.getString("last_message"),
+                rs.getTimestamp("updated_at") != null ? rs.getTimestamp("updated_at").toInstant() : null);
     }
 }

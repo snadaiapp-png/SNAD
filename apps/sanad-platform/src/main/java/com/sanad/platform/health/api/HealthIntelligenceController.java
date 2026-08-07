@@ -49,7 +49,7 @@ public class HealthIntelligenceController {
             @Valid @RequestBody HealthActionRequest request
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(healthService.execute(request));
+        return ResponseEntity.ok(healthService.execute(request, authentication));
     }
 
     @GetMapping("/systems")

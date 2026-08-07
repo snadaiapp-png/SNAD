@@ -37,7 +37,7 @@ public class PlatformOperationsCommandController {
             @Valid @RequestBody AdminDtos.CreateTenantRequest request
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(adminService.createTenant(request));
+        return ResponseEntity.ok(adminService.createTenant(request, authentication));
     }
 
     @PatchMapping("/tenants/{tenantId}/status")
@@ -48,7 +48,7 @@ public class PlatformOperationsCommandController {
             @Valid @RequestBody AdminDtos.ChangeTenantStatusRequest request
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(adminService.changeTenantStatus(tenantId, request));
+        return ResponseEntity.ok(adminService.changeTenantStatus(java.util.UUID.fromString(tenantId), request, authentication));
     }
 
 }

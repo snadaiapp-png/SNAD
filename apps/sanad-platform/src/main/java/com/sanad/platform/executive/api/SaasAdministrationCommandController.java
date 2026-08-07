@@ -2,13 +2,14 @@ package com.sanad.platform.executive.api;
 
 import com.sanad.platform.admin.api.SaasAdminDtos;
 import com.sanad.platform.admin.service.SaasAdministrationService;
+import com.sanad.platform.admin.service.TenantDirectoryAdministrationService;
 import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.authorization.RequireCapability;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-import java.util.List;
+import java.util.UUID;
 
 /** Executive Management — SaaS plan, subscription, and billing commands. */
 @RestController
@@ -17,13 +18,16 @@ public class SaasAdministrationCommandController {
 
     private final ControlPlaneAccessGuard accessGuard;
     private final SaasAdministrationService saasService;
+    private final TenantDirectoryAdministrationService directoryService;
 
     public SaasAdministrationCommandController(
             ControlPlaneAccessGuard accessGuard,
-            SaasAdministrationService saasService
+            SaasAdministrationService saasService,
+            TenantDirectoryAdministrationService directoryService
     ) {
         this.accessGuard = accessGuard;
         this.saasService = saasService;
+        this.directoryService = directoryService;
     }
 
     @PostMapping("/plans")
@@ -33,7 +37,7 @@ public class SaasAdministrationCommandController {
             @Valid @RequestBody SaasAdminDtos.CreatePlanRequest request
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(saasService.createPlan(request));
+        return ResponseEntity.ok(saasService.createPlan(request, authentication));
     }
 
     @PutMapping("/plans/{planId}")
@@ -44,18 +48,7 @@ public class SaasAdministrationCommandController {
             @Valid @RequestBody SaasAdminDtos.UpdatePlanRequest request
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(saasService.updatePlan(planId, request));
-    }
-
-    @PatchMapping("/plans/{planId}/status")
-    @RequireCapability("EXECUTIVE_MANAGE")
-    public ResponseEntity<SaasAdminDtos.PlanResponse> changePlanStatus(
-            Authentication authentication,
-            @PathVariable String planId,
-            @Valid @RequestBody SaasAdminDtos.ChangePlanStatusRequest request
-    ) {
-        accessGuard.require(authentication);
-        return ResponseEntity.ok(saasService.changePlanStatus(planId, request));
+        return ResponseEntity.ok(saasService.updatePlan(UUID.fromString(planId), request, authentication));
     }
 
     @PostMapping("/subscriptions")
@@ -65,7 +58,7 @@ public class SaasAdministrationCommandController {
             @Valid @RequestBody SaasAdminDtos.CreateSubscriptionRequest request
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(saasService.createSubscription(request));
+        return ResponseEntity.ok(saasService.createSubscription(request, authentication));
     }
 
     @PatchMapping("/subscriptions/{subscriptionId}/change-plan")
@@ -76,7 +69,7 @@ public class SaasAdministrationCommandController {
             @Valid @RequestBody SaasAdminDtos.ChangeSubscriptionPlanRequest request
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(saasService.changeSubscriptionPlan(subscriptionId, request));
+        return ResponseEntity.ok(saasService.changePlan(UUID.fromString(subscriptionId), request, authentication));
     }
 
     @PatchMapping("/subscriptions/{subscriptionId}/seats")
@@ -87,7 +80,7 @@ public class SaasAdministrationCommandController {
             @Valid @RequestBody SaasAdminDtos.ChangeSeatsRequest request
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(saasService.changeSubscriptionSeats(subscriptionId, request));
+        return ResponseEntity.ok(saasService.changeSeats(UUID.fromString(subscriptionId), request, authentication));
     }
 
     @PatchMapping("/subscriptions/{subscriptionId}/cancel")
@@ -98,7 +91,7 @@ public class SaasAdministrationCommandController {
             @Valid @RequestBody SaasAdminDtos.CancelSubscriptionRequest request
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(saasService.cancelSubscription(subscriptionId, request));
+        return ResponseEntity.ok(saasService.cancelSubscription(UUID.fromString(subscriptionId), request, authentication));
     }
 
     @PatchMapping("/subscriptions/{subscriptionId}/resume")
@@ -108,7 +101,7 @@ public class SaasAdministrationCommandController {
             @PathVariable String subscriptionId
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(saasService.resumeSubscription(subscriptionId));
+        return ResponseEntity.ok(saasService.resumeSubscription(UUID.fromString(subscriptionId), authentication));
     }
 
     @PostMapping("/subscriptions/{subscriptionId}/renew")
@@ -118,7 +111,7 @@ public class SaasAdministrationCommandController {
             @PathVariable String subscriptionId
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(saasService.renewSubscription(subscriptionId));
+        return ResponseEntity.ok(saasService.renewSubscription(UUID.fromString(subscriptionId), authentication));
     }
 
     @PostMapping("/billing/invoices/{invoiceId}/mark-paid")
@@ -129,66 +122,66 @@ public class SaasAdministrationCommandController {
             @Valid @RequestBody SaasAdminDtos.MarkInvoicePaidRequest request
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(saasService.markInvoicePaid(invoiceId, request));
+        return ResponseEntity.ok(saasService.markInvoicePaid(UUID.fromString(invoiceId), request, authentication));
     }
 
     @PostMapping("/tenants/{tenantId}/organizations")
     @RequireCapability("EXECUTIVE_MANAGE")
-    public ResponseEntity<SaasAdminDtos.OrganizationResponse> createOrganization(
+    public ResponseEntity<SaasAdminDtos.OrganizationAdminResponse> createOrganization(
             Authentication authentication,
             @PathVariable String tenantId,
-            @Valid @RequestBody SaasAdminDtos.CreateOrganizationRequest request
+            @Valid @RequestBody SaasAdminDtos.CreateOrganizationAdminRequest request
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(saasService.createOrganization(tenantId, request));
+        return ResponseEntity.ok(directoryService.createOrganization(UUID.fromString(tenantId), request, authentication));
     }
 
     @PutMapping("/tenants/{tenantId}/organizations/{organizationId}")
     @RequireCapability("EXECUTIVE_MANAGE")
-    public ResponseEntity<SaasAdminDtos.OrganizationResponse> updateOrganization(
+    public ResponseEntity<SaasAdminDtos.OrganizationAdminResponse> updateOrganization(
             Authentication authentication,
             @PathVariable String tenantId,
             @PathVariable String organizationId,
-            @Valid @RequestBody SaasAdminDtos.UpdateOrganizationRequest request
+            @Valid @RequestBody SaasAdminDtos.UpdateOrganizationAdminRequest request
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(saasService.updateOrganization(tenantId, organizationId, request));
+        return ResponseEntity.ok(directoryService.updateOrganization(UUID.fromString(tenantId), UUID.fromString(organizationId), request, authentication));
     }
 
     @PatchMapping("/tenants/{tenantId}/organizations/{organizationId}/status")
     @RequireCapability("EXECUTIVE_MANAGE")
-    public ResponseEntity<SaasAdminDtos.OrganizationResponse> changeOrganizationStatus(
+    public ResponseEntity<SaasAdminDtos.OrganizationAdminResponse> changeOrganizationStatus(
             Authentication authentication,
             @PathVariable String tenantId,
             @PathVariable String organizationId,
             @Valid @RequestBody SaasAdminDtos.ChangeStatusRequest request
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(saasService.changeOrganizationStatus(tenantId, organizationId, request));
+        return ResponseEntity.ok(directoryService.changeOrganizationStatus(UUID.fromString(tenantId), UUID.fromString(organizationId), request.status(), request.reason(), authentication));
     }
 
     @PostMapping("/tenants/{tenantId}/organizations/{organizationId}/memberships")
     @RequireCapability("EXECUTIVE_MANAGE")
-    public ResponseEntity<SaasAdminDtos.MembershipResponse> createMembership(
+    public ResponseEntity<SaasAdminDtos.MembershipAdminResponse> createMembership(
             Authentication authentication,
             @PathVariable String tenantId,
             @PathVariable String organizationId,
-            @Valid @RequestBody SaasAdminDtos.CreateMembershipRequest request
+            @Valid @RequestBody SaasAdminDtos.CreateMembershipAdminRequest request
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(saasService.createMembership(tenantId, organizationId, request));
+        return ResponseEntity.ok(directoryService.createMembership(UUID.fromString(tenantId), UUID.fromString(organizationId), request, authentication));
     }
 
     @PatchMapping("/tenants/{tenantId}/organizations/{organizationId}/memberships/{membershipId}")
     @RequireCapability("EXECUTIVE_MANAGE")
-    public ResponseEntity<SaasAdminDtos.MembershipResponse> updateMembership(
+    public ResponseEntity<SaasAdminDtos.MembershipAdminResponse> updateMembership(
             Authentication authentication,
             @PathVariable String tenantId,
             @PathVariable String organizationId,
             @PathVariable String membershipId,
-            @Valid @RequestBody SaasAdminDtos.UpdateMembershipRequest request
+            @Valid @RequestBody SaasAdminDtos.UpdateMembershipAdminRequest request
     ) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(saasService.updateMembership(tenantId, organizationId, membershipId, request));
+        return ResponseEntity.ok(directoryService.updateMembership(UUID.fromString(tenantId), UUID.fromString(organizationId), UUID.fromString(membershipId), request, authentication));
     }
 }
