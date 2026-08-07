@@ -48,9 +48,9 @@ jobs:
             -c "SELECT u.id || '|' || u.display_name || '|' || u.email || '|' || u.tenant_id || '|' || u.status || '|' || u.platform_admin FROM users u WHERE u.status = 'ACTIVE' ORDER BY u.created_at LIMIT 20"
 
           echo ""
-          echo "--- A2: User memberships with role assignments ---"
+          echo "--- A2: User role assignments (user_role_assignments table) ---"
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT m.user_id || '|' || m.tenant_id || '|' || m.role_id || '|' || r.code || '|' || m.status FROM memberships m JOIN roles r ON r.id = m.role_id WHERE m.status = 'ACTIVE' ORDER BY m.created_at"
+            -c "SELECT ra.user_id || '|' || ra.tenant_id || '|' || ra.role_id || '|' || r.code || '|' || ra.status FROM user_role_assignments ra JOIN roles r ON r.id = ra.role_id WHERE ra.status = 'ACTIVE' ORDER BY ra.created_at"
 
           echo ""
           echo "--- A3: Focus on 'Control Plane Admin' user ---"
@@ -80,7 +80,7 @@ jobs:
           echo ""
           echo "--- C1: Table existence check ---"
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('users', 'roles', 'memberships', 'role_capabilities', 'access_capabilities', 'tenants') ORDER BY table_name"
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('users', 'roles', 'user_role_assignments', 'role_capabilities', 'access_capabilities', 'tenants', 'organization_memberships') ORDER BY table_name"
 
           echo ""
           echo "--- C2: role_capabilities columns ---"
@@ -93,9 +93,9 @@ jobs:
             -c "SELECT column_name || '|' || data_type || '|' || is_nullable FROM information_schema.columns WHERE table_name = 'roles' ORDER BY ordinal_position"
 
           echo ""
-          echo "--- C4: memberships columns ---"
+          echo "--- C4: user_role_assignments columns ---"
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT column_name || '|' || data_type || '|' || is_nullable FROM information_schema.columns WHERE table_name = 'memberships' ORDER BY ordinal_position"
+            -c "SELECT column_name || '|' || data_type || '|' || is_nullable FROM information_schema.columns WHERE table_name = 'user_role_assignments' ORDER BY ordinal_position"
 
           echo ""
           echo "--- C5: tenants ---"
@@ -140,12 +140,12 @@ jobs:
           echo ""
           echo "--- F1: Complete chain for 'Control Plane' user ---"
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT u.display_name || '|' || u.email || '|' || m.tenant_id || '|' || m.role_id || '|' || r.code || '|' || m.status || '|' || u.platform_admin FROM users u JOIN memberships m ON m.user_id = u.id AND m.tenant_id = u.tenant_id JOIN roles r ON r.id = m.role_id WHERE u.display_name ILIKE '%Control Plane%'"
+            -c "SELECT u.display_name || '|' || u.email || '|' || ra.tenant_id || '|' || ra.role_id || '|' || r.code || '|' || ra.status || '|' || u.platform_admin FROM users u JOIN user_role_assignments ra ON ra.user_id = u.id AND ra.tenant_id = u.tenant_id JOIN roles r ON r.id = ra.role_id WHERE u.display_name ILIKE '%Control Plane%'"
 
           echo ""
           echo "--- F2: Capability codes for 'Control Plane' user's role (scoped to tenant) ---"
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT DISTINCT ac.code || '|' || r.code FROM users u JOIN memberships m ON m.user_id = u.id AND m.tenant_id = u.tenant_id JOIN role_capabilities rc ON rc.role_id = m.role_id AND rc.tenant_id = m.tenant_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE u.display_name ILIKE '%Control Plane%' AND ac.status = 'ACTIVE' ORDER BY ac.code"
+            -c "SELECT DISTINCT ac.code || '|' || r.code FROM users u JOIN user_role_assignments ra ON ra.user_id = u.id AND ra.tenant_id = u.tenant_id JOIN role_capabilities rc ON rc.role_id = ra.role_id AND rc.tenant_id = ra.tenant_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE u.display_name ILIKE '%Control Plane%' AND ac.status = 'ACTIVE' ORDER BY ac.code"
 
           echo ""
           echo "════════════════════════════════════════════════════════════"
