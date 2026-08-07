@@ -195,8 +195,11 @@ export function ControlPlaneConsole() {
         <div><p className={styles.eyebrow}>SNAD CONTROL PLANE</p><h1>مركز إدارة منصة سند</h1>
           <p>إدارة المستأجرين والشركات والعضويات والباقات والاشتراكات والفوترة.</p></div>
       </div>
-      <Buttons><span>{me?.displayName || me?.email}</span>
-        <button type="button" onClick={() => router.push("/workspace")}>مساحة العمل</button></Buttons>
+      <Buttons>
+        <span>{me?.displayName || me?.email}</span>
+        <button type="button" onClick={() => router.push("/control-plane/system-health")}>فتح صحة النظام</button>
+        <button type="button" onClick={() => router.push("/workspace")}>مساحة العمل</button>
+      </Buttons>
     </header>
     {message ? <section className={styles.notice}>{message}</section> : null}
     <section className={styles.metrics}>
