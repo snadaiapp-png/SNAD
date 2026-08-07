@@ -59,29 +59,39 @@ jobs:
             -c "SELECT r.code AS role, COUNT(*) AS total_caps, SUM(CASE WHEN ac.code LIKE 'CRM.%' THEN 1 ELSE 0 END) AS crm_caps FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id GROUP BY r.code ORDER BY r.code"
 
           echo ""
-          echo "=== 5. Expected CRM Navigation Capabilities ==="
+          echo "=== 5. All access_capabilities with CRM prefix ==="
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT ac.code FROM access_capabilities ac WHERE ac.code IN ('CRM.ACCOUNT.READ', 'CRM.ACTIVITY.READ', 'CRM.ADMIN', 'CRM.CASE.READ', 'CRM.CONTACT.READ', 'CRM.CUSTOMER_INTELLIGENCE.READ', 'CRM.CUSTOM_FIELD.READ', 'CRM.IMPORT.READ', 'CRM.LEAD.READ', 'CRM.NOTE.READ', 'CRM.OPPORTUNITY.READ', 'CRM.REPORTS.READ', 'CRM.TAG.READ', 'CRM.TASK.READ') ORDER BY ac.code"
+            -c "SELECT code, status FROM access_capabilities WHERE code LIKE 'CRM.%' ORDER BY code" || echo "(query failed)"
 
           echo ""
-          echo "=== 6. Capability Mapping for VIEWER Role ==="
+          echo "=== 6. Total access_capabilities count ==="
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'VIEWER' AND ac.code LIKE 'CRM.%' ORDER BY ac.code"
+            -c "SELECT COUNT(*) FROM access_capabilities" || echo "(query failed)"
 
           echo ""
-          echo "=== 7. Capability Mapping for MEMBER Role ==="
+          echo "=== 7. All roles with codes ==="
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'MEMBER' AND ac.code LIKE 'CRM.%' ORDER BY ac.code"
+            -c "SELECT id, code, tenant_id FROM roles ORDER BY code" || echo "(query failed)"
 
           echo ""
-          echo "=== 8. Capability Mapping for MANAGER Role ==="
+          echo "=== 8. Role capabilities for ADMIN (sample) ==="
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'MANAGER' AND ac.code LIKE 'CRM.%' ORDER BY ac.code"
+            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'ADMIN' AND ac.code LIKE 'CRM.%' ORDER BY ac.code LIMIT 20" || echo "(query failed)"
 
           echo ""
-          echo "=== 9. Capability Mapping for ORG_ADMIN Role ==="
+          echo "=== 9. Role capabilities for MEMBER ==="
           psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
-            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'ORG_ADMIN' AND ac.code LIKE 'CRM.%' ORDER BY ac.code"
+            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'MEMBER' AND ac.code LIKE 'CRM.%' ORDER BY ac.code" || echo "(query failed)"
+
+          echo ""
+          echo "=== 10. Role capabilities for SALES_REPRESENTATIVE ==="
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT ac.code FROM role_capabilities rc JOIN roles r ON r.id = rc.role_id JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE r.code = 'SALES_REPRESENTATIVE' AND ac.code LIKE 'CRM.%' ORDER BY ac.code" || echo "(query failed)"
+
+          echo ""
+          echo "=== 11. Does V20260807_1 exist in any form? ==="
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 -At \
+            -c "SELECT COUNT(*) FROM role_capabilities rc JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE ac.code IN ('CRM.ACCOUNT.READ','CRM.CONTACT.READ','CRM.LEAD.READ','CRM.OPPORTUNITY.READ','CRM.ACTIVITY.READ','CRM.TAG.READ','CRM.TASK.READ','CRM.NOTE.READ','CRM.CASE.READ','CRM.REPORTS.READ','CRM.CUSTOM_FIELD.READ','CRM.IMPORT.READ')" || echo "(query failed)"
 
           echo ""
           echo "=== VERIFICATION COMPLETE ==="
