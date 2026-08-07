@@ -261,7 +261,7 @@ export interface CrmCase {
  * The V1 CRM surface is deprecated (see V1DeprecationHeaderFilter on the
  * backend). Methods below that have a verified V2 equivalent are migrated to
  * the {@code v2root} constant; methods that have NO V2 equivalent (dashboard,
- * createPipeline, tags, notes, tasks, reports, search, export, custom-field
+ * createPipeline, notes, tasks, reports, search, export, custom-field
  * sensitive read) remain on V1 until TD-006 builds the missing V2 surface.
  */
 const root = "/api/v1/crm";
@@ -455,6 +455,30 @@ function mapV2CustomField(cf: V2CustomFieldResponse): CrmCustomField {
   };
 }
 
+function mapV2Tag(t: V2TagResponse): CrmTag {
+  return {
+    id: t.id,
+    version: t.version,
+    name: t.name,
+    color: t.color ?? null,
+    created_at: t.createdAt,
+    updated_at: t.updatedAt,
+  };
+}
+
+function mapV2TagAssignment(a: V2TagAssignmentResponse): CrmTagAssignment {
+  return {
+    id: a.id,
+    tag_id: a.tagId,
+    tag_name: a.tagName,
+    tag_color: a.tagColor ?? null,
+    subject_type: a.subjectType,
+    subject_id: a.subjectId,
+    assigned_by: a.assignedBy ?? null,
+    assigned_at: a.assignedAt,
+  };
+}
+
 // ── V2 typed DTO interfaces (camelCase, matching backend CrmDtos.java) ──
 
 interface V2AccountResponse {
@@ -522,6 +546,28 @@ interface V2Customer360Response {
 interface V2CustomFieldValuesResponse {
   entityType: string; entityId: string;
   values: Record<string, unknown>;
+}
+
+/** V2 Tag response (camelCase, matches backend TagResponse record). */
+interface V2TagResponse {
+  id: string;
+  version: number;
+  name: string;
+  color?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** V2 Tag assignment response (camelCase, matches backend TagAssignmentResponse record). */
+interface V2TagAssignmentResponse {
+  id: string;
+  tagId: string;
+  tagName: string;
+  tagColor?: string | null;
+  subjectType: string;
+  subjectId: string;
+  assignedBy?: string | null;
+  assignedAt: string;
 }
 
 export const crmApi = {
@@ -799,21 +845,46 @@ export const crmApi = {
     } satisfies CrmCustomFieldValues;
   },
 
-  // ── Tags (CRM.TAG.READ / WRITE) — V1 ONLY (no V2 equivalent; TD-006) ──
-  tags: (search?: string) =>
-    apiClient.get<CrmTag[]>(`${root}/tags`, { query: { limit: 200, search }, cache: "no-store" }),
-  tag: (id: string) => apiClient.get<CrmTag>(`${root}/tags/${id}`, { cache: "no-store" }),
-  createTag: (body: { name: string; color?: string }) =>
-    apiClient.post<CrmTag, typeof body>(`${root}/tags`, body),
-  updateTag: (id: string, body: { name?: string; color?: string }) =>
-    apiClient.patch<CrmTag, typeof body>(`${root}/tags/${id}`, body),
-  deleteTag: (id: string) => apiClient.delete<void>(`${root}/tags/${id}`),
-  tagAssignmentsBySubject: (subjectType: string, subjectId: string) =>
-    apiClient.get<CrmTagAssignment[]>(`${root}/tags/assignments/by-subject`, { query: { subjectType, subjectId }, cache: "no-store" }),
-  assignTag: (tagId: string, body: { subjectType: string; subjectId: string }) =>
-    apiClient.post<CrmTagAssignment, typeof body>(`${root}/tags/${tagId}/assignments`, body),
+  // ── Tags (CRM.TAG.READ / WRITE) — V2 (TD-006) ──────────────────────────
+  tags: async (search?: string) => {
+    const data = await fetchAllPages<V2TagResponse>((cursor) =>
+      apiClient.get<V2ListResponse<V2TagResponse>>(`${v2root}/tags`, { query: { limit: 200, search, cursor }, cache: "no-store" }),
+    );
+    return data.map(mapV2Tag);
+  },
+  tag: async (id: string) => {
+    const data = await unwrapSingle(
+      apiClient.get<V2SingleResponse<V2TagResponse>>(`${v2root}/tags/${id}`, { cache: "no-store" }),
+    );
+    return mapV2Tag(data);
+  },
+  createTag: async (body: { name: string; color?: string }) => {
+    const data = await unwrapSingle(
+      apiClient.post<V2SingleResponse<V2TagResponse>, typeof body>(`${v2root}/tags`, body, { context: { headers: { "Idempotency-Key": `tag-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } } }),
+    );
+    return mapV2Tag(data);
+  },
+  updateTag: async (id: string, body: { name?: string; color?: string }) => {
+    const data = await unwrapSingle(
+      apiClient.patch<V2SingleResponse<V2TagResponse>, typeof body>(`${v2root}/tags/${id}`, body, { context: { headers: { "If-Match": "*" } } }),
+    );
+    return mapV2Tag(data);
+  },
+  deleteTag: (id: string) => apiClient.delete<void>(`${v2root}/tags/${id}`),
+  tagAssignmentsBySubject: async (subjectType: string, subjectId: string) => {
+    const data = await fetchAllPages<V2TagAssignmentResponse>((cursor) =>
+      apiClient.get<V2ListResponse<V2TagAssignmentResponse>>(`${v2root}/tags/assignments/by-subject`, { query: { subjectType, subjectId, cursor }, cache: "no-store" }),
+    );
+    return data.map(mapV2TagAssignment);
+  },
+  assignTag: async (tagId: string, body: { subjectType: string; subjectId: string }) => {
+    const data = await unwrapSingle(
+      apiClient.post<V2SingleResponse<V2TagAssignmentResponse>, typeof body>(`${v2root}/tags/${tagId}/assignments`, body, { context: { headers: { "Idempotency-Key": `tag-assign-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } } }),
+    );
+    return mapV2TagAssignment(data);
+  },
   unassignTag: (tagId: string, subjectType: string, subjectId: string) =>
-    apiClient.delete<void>(`${root}/tags/${tagId}/assignments`, { query: { subjectType, subjectId } }),
+    apiClient.delete<void>(`${v2root}/tags/${tagId}/assignments`, { query: { subjectType, subjectId } }),
   // ── Notes (CRM.NOTE.READ / WRITE) — V1 ONLY (no V2 equivalent; TD-006) ─
   notes: (subjectType: string, subjectId: string, includeArchived?: boolean) =>
     apiClient.get<CrmNote[]>(`${root}/notes`, { query: { subjectType, subjectId, includeArchived: includeArchived ?? false, limit: 200 }, cache: "no-store" }),

@@ -60,4 +60,22 @@ public final class CrmUpdateDtos {
             @DecimalMin("0") @DecimalMax("100") BigDecimal probability,
             @Pattern(regexp = "WON|LOST|") String terminalState,
             @Min(1) Integer sequence) {}
+
+    // ────────────────────────────────────────────────────────────────────
+    // Tags (feature/crm-tags-v2)
+    // ────────────────────────────────────────────────────────────────────
+
+    public record CreateTagRequest(
+            @jakarta.validation.constraints.NotBlank @Size(max = 80) String name,
+            @Size(max = 20) String color) {}
+
+    public record UpdateTagRequest(
+            @Size(max = 80) String name,
+            @Size(max = 20) String color) {}
+
+    public record AssignTagRequest(
+            @jakarta.validation.constraints.NotNull
+            @Pattern(regexp = "ACCOUNT|CONTACT|LEAD|OPPORTUNITY|ACTIVITY|TASK|NOTE",
+                    flags = Pattern.Flag.CASE_INSENSITIVE) String subjectType,
+            @jakarta.validation.constraints.NotNull java.util.UUID subjectId) {}
 }

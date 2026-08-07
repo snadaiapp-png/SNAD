@@ -8,6 +8,7 @@ import com.sanad.platform.crm.cases.web.CaseModels.AssignRequest;
 import com.sanad.platform.crm.cases.web.CaseModels.CreateCaseRequest;
 import com.sanad.platform.crm.cases.web.CaseModels.ResolveRequest;
 import com.sanad.platform.crm.cases.web.CaseModels.UpdateCaseRequest;
+import com.sanad.platform.crm.dto.CrmDtos.CaseResponse;
 import com.sanad.platform.crm.pagination.CrmEnvelopes;
 import com.sanad.platform.security.authorization.RequireCapability;
 import jakarta.validation.Valid;
@@ -26,7 +27,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -53,7 +53,7 @@ public class CaseController {
 
     @RequireCapability("CRM.CASE.READ")
     @GetMapping
-    public CrmEnvelopes.ListResponse<Map<String, Object>> listCases(
+    public CrmEnvelopes.ListResponse<CaseResponse> listCases(
             Authentication authentication,
             @RequestParam(defaultValue = "50") int limit,
             @RequestParam(required = false) String status,
@@ -64,25 +64,25 @@ public class CaseController {
         List<CaseRecord> rows = cases.list(tenantId, safeLimit, status, assigneeUserId, customerId);
         UUID requestId = UUID.randomUUID();
         return CrmEnvelopes.ListResponse.of(
-                rows.stream().map(this::toRow).toList(),
+                rows.stream().map(this::toResponse).toList(),
                 CrmEnvelopes.Page.empty(safeLimit),
                 requestId);
     }
 
     @RequireCapability("CRM.CASE.READ")
     @GetMapping("/{caseId}")
-    public CrmEnvelopes.SingleResponse<Map<String, Object>> getCase(
+    public CrmEnvelopes.SingleResponse<CaseResponse> getCase(
             Authentication authentication,
             @PathVariable UUID caseId) {
         UUID tenantId = tenantId(authentication);
         CaseRecord record = cases.getById(tenantId, caseId);
         UUID requestId = UUID.randomUUID();
-        return CrmEnvelopes.SingleResponse.of(toRow(record), requestId);
+        return CrmEnvelopes.SingleResponse.of(toResponse(record), requestId);
     }
 
     @RequireCapability("CRM.CASE.WRITE")
     @PostMapping
-    public ResponseEntity<CrmEnvelopes.SingleResponse<Map<String, Object>>> createCase(
+    public ResponseEntity<CrmEnvelopes.SingleResponse<CaseResponse>> createCase(
             Authentication authentication,
             @Valid @RequestBody CreateCaseRequest request) {
         UUID tenantId = tenantId(authentication);
@@ -101,12 +101,12 @@ public class CaseController {
         CaseRecord created = cases.create(tenantId, actorId, cmd);
         UUID requestId = UUID.randomUUID();
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(CrmEnvelopes.SingleResponse.of(toRow(created), requestId));
+                .body(CrmEnvelopes.SingleResponse.of(toResponse(created), requestId));
     }
 
     @RequireCapability("CRM.CASE.WRITE")
     @PutMapping("/{caseId}")
-    public CrmEnvelopes.SingleResponse<Map<String, Object>> updateCase(
+    public CrmEnvelopes.SingleResponse<CaseResponse> updateCase(
             Authentication authentication,
             @PathVariable UUID caseId,
             @Valid @RequestBody UpdateCaseRequest request) {
@@ -124,12 +124,12 @@ public class CaseController {
 
         CaseRecord updated = cases.update(tenantId, actorId, caseId, cmd, current.version());
         UUID requestId = UUID.randomUUID();
-        return CrmEnvelopes.SingleResponse.of(toRow(updated), requestId);
+        return CrmEnvelopes.SingleResponse.of(toResponse(updated), requestId);
     }
 
     @RequireCapability("CRM.CASE.WRITE")
     @PostMapping("/{caseId}/start")
-    public CrmEnvelopes.SingleResponse<Map<String, Object>> startCase(
+    public CrmEnvelopes.SingleResponse<CaseResponse> startCase(
             Authentication authentication,
             @PathVariable UUID caseId) {
         UUID tenantId = tenantId(authentication);
@@ -137,12 +137,12 @@ public class CaseController {
         CaseRecord current = cases.getById(tenantId, caseId);
         CaseRecord started = cases.start(tenantId, actorId, caseId, current.version());
         UUID requestId = UUID.randomUUID();
-        return CrmEnvelopes.SingleResponse.of(toRow(started), requestId);
+        return CrmEnvelopes.SingleResponse.of(toResponse(started), requestId);
     }
 
     @RequireCapability("CRM.CASE.WRITE")
     @PostMapping("/{caseId}/resolve")
-    public CrmEnvelopes.SingleResponse<Map<String, Object>> resolveCase(
+    public CrmEnvelopes.SingleResponse<CaseResponse> resolveCase(
             Authentication authentication,
             @PathVariable UUID caseId,
             @RequestBody(required = false) ResolveRequest request) {
@@ -152,12 +152,12 @@ public class CaseController {
         String resolution = request == null ? null : request.resolution();
         CaseRecord resolved = cases.resolve(tenantId, actorId, caseId, resolution, current.version());
         UUID requestId = UUID.randomUUID();
-        return CrmEnvelopes.SingleResponse.of(toRow(resolved), requestId);
+        return CrmEnvelopes.SingleResponse.of(toResponse(resolved), requestId);
     }
 
     @RequireCapability("CRM.CASE.WRITE")
     @PostMapping("/{caseId}/close")
-    public CrmEnvelopes.SingleResponse<Map<String, Object>> closeCase(
+    public CrmEnvelopes.SingleResponse<CaseResponse> closeCase(
             Authentication authentication,
             @PathVariable UUID caseId) {
         UUID tenantId = tenantId(authentication);
@@ -165,12 +165,12 @@ public class CaseController {
         CaseRecord current = cases.getById(tenantId, caseId);
         CaseRecord closed = cases.close(tenantId, actorId, caseId, current.version());
         UUID requestId = UUID.randomUUID();
-        return CrmEnvelopes.SingleResponse.of(toRow(closed), requestId);
+        return CrmEnvelopes.SingleResponse.of(toResponse(closed), requestId);
     }
 
     @RequireCapability("CRM.CASE.WRITE")
     @PostMapping("/{caseId}/reopen")
-    public CrmEnvelopes.SingleResponse<Map<String, Object>> reopenCase(
+    public CrmEnvelopes.SingleResponse<CaseResponse> reopenCase(
             Authentication authentication,
             @PathVariable UUID caseId) {
         UUID tenantId = tenantId(authentication);
@@ -178,12 +178,12 @@ public class CaseController {
         CaseRecord current = cases.getById(tenantId, caseId);
         CaseRecord reopened = cases.reopen(tenantId, actorId, caseId, current.version());
         UUID requestId = UUID.randomUUID();
-        return CrmEnvelopes.SingleResponse.of(toRow(reopened), requestId);
+        return CrmEnvelopes.SingleResponse.of(toResponse(reopened), requestId);
     }
 
     @RequireCapability("CRM.CASE.WRITE")
     @PostMapping("/{caseId}/assign")
-    public CrmEnvelopes.SingleResponse<Map<String, Object>> assignCase(
+    public CrmEnvelopes.SingleResponse<CaseResponse> assignCase(
             Authentication authentication,
             @PathVariable UUID caseId,
             @Valid @RequestBody AssignRequest request) {
@@ -192,36 +192,31 @@ public class CaseController {
         CaseRecord current = cases.getById(tenantId, caseId);
         CaseRecord assigned = cases.assign(tenantId, actorId, caseId, request.assigneeUserId(), current.version());
         UUID requestId = UUID.randomUUID();
-        return CrmEnvelopes.SingleResponse.of(toRow(assigned), requestId);
+        return CrmEnvelopes.SingleResponse.of(toResponse(assigned), requestId);
     }
 
-    private Map<String, Object> toRow(CaseRecord r) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("id", r.id());
-        row.put("version", r.version());
-        row.put("subject", r.subject());
-        row.put("description", r.description());
-        row.put("case_type", r.caseType());
-        row.put("status", r.status());
-        row.put("priority", r.priority());
-        row.put("customer_id", r.customerId());
-        row.put("assignee_user_id", r.assigneeUserId());
-        row.put("owner_user_id", r.ownerUserId());
-        row.put("related_id", r.relatedId());
-        row.put("due_at", toIso(r.dueAt()));
-        row.put("resolved_at", toIso(r.resolvedAt()));
-        row.put("closed_at", toIso(r.closedAt()));
-        row.put("created_at", toIsoInstant(r.createdAt()));
-        row.put("updated_at", toIsoInstant(r.updatedAt()));
-        return row;
+    private CaseResponse toResponse(CaseRecord r) {
+        return new CaseResponse(
+                r.id(),
+                r.version(),
+                r.subject(),
+                r.description(),
+                r.caseType(),
+                r.status(),
+                r.priority(),
+                r.customerId(),
+                r.assigneeUserId(),
+                r.ownerUserId(),
+                r.relatedId(),
+                r.dueAt(),
+                r.resolvedAt(),
+                r.closedAt(),
+                toOffsetDateTime(r.createdAt()),
+                toOffsetDateTime(r.updatedAt()));
     }
 
-    private static String toIso(OffsetDateTime v) {
-        return v == null ? null : v.toInstant().toString();
-    }
-
-    private static String toIsoInstant(Instant v) {
-        return v == null ? null : v.toString();
+    private static OffsetDateTime toOffsetDateTime(Instant v) {
+        return v == null ? null : OffsetDateTime.ofInstant(v, java.time.ZoneOffset.UTC);
     }
 
     private static UUID tenantId(Authentication authentication) {

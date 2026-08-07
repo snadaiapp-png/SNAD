@@ -44,11 +44,37 @@ import java.util.regex.Pattern;
  * Branch: crm/003-stable-api-contracts
  */
 @RestControllerAdvice(assignableTypes = {
+        // ── Core CRM controllers ───────────────────────────────────────
         com.sanad.platform.crm.web.CrmController.class,
         com.sanad.platform.crm.web.CrmContractControllerR1.class,
         com.sanad.platform.crm.party.web.CustomerMasterController.class,
         com.sanad.platform.crm.tag.web.TagController.class,
-        com.sanad.platform.crm.web.IntelligenceController.class
+        com.sanad.platform.crm.tag.web.CrmTagControllerV2.class,
+        com.sanad.platform.crm.web.IntelligenceController.class,
+        // ── Integration & workflow controllers ──────────────────────────
+        com.sanad.platform.crm.web.CrmIntegrationController.class,
+        com.sanad.platform.crm.web.CrmWorkflowController.class,
+        com.sanad.platform.crm.web.CrmWorkflowCallbackController.class,
+        // ── Entity-specific controllers ─────────────────────────────────
+        com.sanad.platform.crm.cases.web.CaseController.class,
+        com.sanad.platform.crm.note.web.NoteController.class,
+        com.sanad.platform.crm.task.web.TaskController.class,
+        com.sanad.platform.crm.search.web.SearchController.class,
+        com.sanad.platform.crm.export.web.ExportController.class,
+        com.sanad.platform.crm.email.web.EmailController.class,
+        com.sanad.platform.crm.email.web.TrackingController.class,
+        com.sanad.platform.crm.portal.web.PortalController.class,
+        com.sanad.platform.crm.reporting.web.ReportController.class,
+        com.sanad.platform.crm.reports.web.ReportsController.class,
+        // ── Ownership management controllers ────────────────────────────
+        com.sanad.platform.crm.ownership.web.TeamController.class,
+        com.sanad.platform.crm.ownership.web.AvailabilityController.class,
+        com.sanad.platform.crm.ownership.web.CapacityController.class,
+        com.sanad.platform.crm.ownership.web.ServiceAssignmentController.class,
+        com.sanad.platform.crm.ownership.web.ShiftAssignmentController.class,
+        com.sanad.platform.crm.ownership.web.ShiftTemplateController.class,
+        com.sanad.platform.crm.ownership.web.SkillController.class,
+        com.sanad.platform.crm.ownership.web.WorkloadController.class
 })
 public class CrmExceptionHandler extends ResponseEntityExceptionHandler {
 
