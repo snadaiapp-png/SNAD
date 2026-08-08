@@ -30,9 +30,10 @@ test.describe("CRM Tags Production UI Verification", () => {
     });
     expect(response.status()).toBe(200);
     const body = await response.json();
-    expect(body).toHaveProperty("user");
-    expect(body.user).toHaveProperty("email");
-    expect(body.user).toHaveProperty("tenantId");
+    // /me returns a flat object with user properties at top level
+    expect(body).toHaveProperty("email");
+    expect(body).toHaveProperty("tenantId");
+    expect(body).toHaveProperty("capabilities");
   });
 
   test("C. CRM.TAG.READ capability is present", async ({ page }) => {
@@ -41,8 +42,8 @@ test.describe("CRM Tags Production UI Verification", () => {
     });
     expect(response.status()).toBe(200);
     const body = await response.json();
-    // Check that the user has capabilities
-    const capabilities = body.user?.capabilities ?? body.capabilities ?? [];
+    // /me returns capabilities at top level (flat object)
+    const capabilities = body.capabilities ?? body.user?.capabilities ?? [];
     // CRM.TAG.READ should be present (or equivalent like "Read CRM Tags")
     const hasTagRead = capabilities.some(
       (cap: string) => cap === "CRM.TAG.READ" || cap === "Read CRM Tags"
