@@ -72,10 +72,15 @@ export default function CrmAccountsPage() {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
+    const displayName = formValue(form, "displayName");
+    if (!displayName) {
+      setError(t("crm.accounts.validation.nameRequired"));
+      return;
+    }
     await mutate(
       () =>
         crmApi.createAccount({
-          displayName: formValue(form, "displayName"),
+          displayName,
           accountType: formValue(form, "accountType") || "BUSINESS",
           primaryCurrencyCode: formValue(form, "currency") || "SAR",
           preferredLocale: "ar-SA",

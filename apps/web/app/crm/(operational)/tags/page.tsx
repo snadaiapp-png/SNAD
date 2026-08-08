@@ -90,8 +90,12 @@ export default function CrmTagsPage() {
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
     const name = formValue(form, "name").trim();
+    if (!name) {
+      setError(t("crm.tags.validation.nameRequired"));
+      return;
+    }
     // Client-side duplicate pre-check (backend remains authoritative)
-    if (tags.some((t) => t.name.toLowerCase() === name.toLowerCase())) {
+    if (tags.some((tag) => tag.name.toLowerCase() === name.toLowerCase())) {
       setError(t("crm.tags.duplicateName"));
       return;
     }
