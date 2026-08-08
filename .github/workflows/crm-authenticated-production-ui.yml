@@ -1,0 +1,62 @@
+name: CRM Authenticated Production UI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-authenticated-production-ui
+  cancel-in-progress: false
+
+jobs:
+  ui-verification:
+    name: Authenticated CRM Tags UI verification against production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: Production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: apps/web
+        run: npx playwright install chromium --with-deps
+
+      - name: Run authenticated CRM Tags UI verification
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_BASE_URL: https://snad-app.vercel.app
+          CRM_TENANT_A_EMAIL: ${{ secrets.CRM_TENANT_A_EMAIL }}
+          CRM_TENANT_A_PASSWORD: ${{ secrets.CRM_TENANT_A_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # Mask secrets in logs
+          for value in "$CRM_TENANT_A_EMAIL" "$CRM_TENANT_A_PASSWORD"; do
+            [ -n "$value" ] && echo "::add-mask::$value"
+          done
+          npx playwright test --config=playwright.crm-tags-production.config.ts
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-tags-production-ui-results-${{ github.run_id }}
+          path: |
+            apps/web/crm-tags-production-report/
+            apps/web/test-results/
+          if-no-files-found: warn
+          retention-days: 30
