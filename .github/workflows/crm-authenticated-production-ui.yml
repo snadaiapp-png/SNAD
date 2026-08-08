@@ -41,10 +41,11 @@ jobs:
         env:
           CRM_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
           CRM_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+          CRM_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
         run: |
           set -euo pipefail
           missing=0
-          for name in CRM_EMAIL CRM_PASSWORD; do
+          for name in CRM_EMAIL CRM_PASSWORD CRM_TENANT_ID; do
             value="${!name}"
             if [ -z "$value" ]; then
               echo "::error::Secret $name is not configured in the Production environment"
@@ -63,10 +64,11 @@ jobs:
           PLAYWRIGHT_BASE_URL: https://snad-app.vercel.app
           CRM_TENANT_A_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
           CRM_TENANT_A_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+          CRM_TENANT_A_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
         run: |
           set -euo pipefail
           # Mask secrets in logs
-          for value in "$CRM_TENANT_A_EMAIL" "$CRM_TENANT_A_PASSWORD"; do
+          for value in "$CRM_TENANT_A_EMAIL" "$CRM_TENANT_A_PASSWORD" "$CRM_TENANT_A_ID"; do
             [ -n "$value" ] && echo "::add-mask::$value"
           done
           npx playwright test --config=playwright.crm-tags-production.config.ts
