@@ -19,7 +19,6 @@ test.describe("CRM Tags Production UI Verification", () => {
     // Verify we're on the workspace or CRM page after login
     const url = page.url();
     expect(url).not.toContain("/login");
-    expect(url).not.toContain("/");
     // Should be on workspace or CRM
     const isOnApp = url.includes("/workspace") || url.includes("/crm");
     expect(isOnApp).toBeTruthy();
