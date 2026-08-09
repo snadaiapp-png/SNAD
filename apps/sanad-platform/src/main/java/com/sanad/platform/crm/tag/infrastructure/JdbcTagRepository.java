@@ -135,38 +135,37 @@ public class JdbcTagRepository implements TagRepository {
 
     @Override
     public TagAssignmentRecord assign(UUID tenantId, UUID actorId, UUID tagId, String subjectType, UUID subjectId) {
-        // Verify tag exists (throws CRM_TAG_NOT_FOUND if not)
         findById(tenantId, tagId);
 
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        try {
-            jdbc.update(
-                    "INSERT INTO crm_tag_assignments (id, tenant_id, tag_id, subject_type, subject_id, assigned_by, assigned_at) "
-                    + "VALUES (:id, :t, :tagId, :st, :si, :actorId, :now)",
-                    new MapSqlParameterSource()
-                            .addValue("id", id)
-                            .addValue("t", tenantId)
-                            .addValue("tagId", tagId)
-                            .addValue("st", subjectType.toUpperCase())
-                            .addValue("si", subjectId)
-                            .addValue("actorId", actorId)
-                            .addValue("now", Timestamp.from(now)));
-        } catch (org.springframework.dao.DuplicateKeyException e) {
-            // Idempotent: assignment already exists — return the existing one
-            return jdbc.queryForList(
-                    "SELECT * FROM crm_tag_assignments WHERE tenant_id = :t AND tag_id = :tagId AND subject_type = :st AND subject_id = :si",
-                    new MapSqlParameterSource()
-                            .addValue("t", tenantId)
-                            .addValue("tagId", tagId)
-                            .addValue("st", subjectType.toUpperCase())
-                            .addValue("si", subjectId))
-                    .stream().map(this::mapAssignmentRow).findFirst()
-                    .orElseThrow(() -> new CrmContractException(CrmErrorCode.INTERNAL_ERROR));
+        List<Map<String, Object>> inserted = jdbc.queryForList(
+                "INSERT INTO crm_tag_assignments (id, tenant_id, tag_id, subject_type, subject_id, assigned_by, assigned_at) "
+                + "VALUES (:id, :t, :tagId, :st, :si, :actorId, :now) "
+                + "ON CONFLICT (tenant_id, tag_id, subject_type, subject_id) DO NOTHING "
+                + "RETURNING *",
+                new MapSqlParameterSource()
+                        .addValue("id", id)
+                        .addValue("t", tenantId)
+                        .addValue("tagId", tagId)
+                        .addValue("st", subjectType.toUpperCase())
+                        .addValue("si", subjectId)
+                        .addValue("actorId", actorId)
+                        .addValue("now", Timestamp.from(now)));
+
+        if (!inserted.isEmpty()) {
+            return mapAssignmentRow(inserted.get(0));
         }
-        return mapAssignmentRow(jdbc.queryForMap(
-                "SELECT * FROM crm_tag_assignments WHERE id = :id",
-                new MapSqlParameterSource().addValue("id", id)));
+        // Conflict: return existing assignment
+        return jdbc.queryForList(
+                "SELECT * FROM crm_tag_assignments WHERE tenant_id = :t AND tag_id = :tagId AND subject_type = :st AND subject_id = :si",
+                new MapSqlParameterSource()
+                        .addValue("t", tenantId)
+                        .addValue("tagId", tagId)
+                        .addValue("st", subjectType.toUpperCase())
+                        .addValue("si", subjectId))
+                .stream().map(this::mapAssignmentRow).findFirst()
+                .orElseThrow(() -> new CrmContractException(CrmErrorCode.INTERNAL_ERROR));
     }
 
     @Override

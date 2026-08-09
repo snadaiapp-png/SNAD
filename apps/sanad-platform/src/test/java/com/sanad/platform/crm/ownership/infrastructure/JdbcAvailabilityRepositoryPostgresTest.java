@@ -130,7 +130,7 @@ class JdbcAvailabilityRepositoryPostgresTest extends CrmRepositoryPostgresTestBa
                 tenantId, created.id(), new UpdateAvailabilityCommand(
                         AvailabilityType.ON_LEAVE, LocalDate.of(2026, 8, 12),
                         LocalDate.of(2026, 8, 16), null, null,
-                        "Sick leave", actorId, 0)));
+                        "Sick leave", actorId, 1)));
 
         assertThat(updated).isPresent();
         assertThat(updated.get().version()).isEqualTo(2);
@@ -146,10 +146,10 @@ class JdbcAvailabilityRepositoryPostgresTest extends CrmRepositoryPostgresTestBa
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14),
                         null, null, null, actorId)));
 
-        // first update (v0 -> v1)
+        // first update (v1 -> v2)
         inTransaction(() -> repo.update(tenantId, created.id(), new UpdateAvailabilityCommand(
                 AvailabilityType.UNAVAILABLE, LocalDate.of(2026, 8, 10),
-                LocalDate.of(2026, 8, 14), null, null, "Busy", actorId, 0)));
+                LocalDate.of(2026, 8, 14), null, null, "Busy", actorId, 1)));
 
         // stale version
         Optional<StaffAvailability> conflict = inTransaction(() -> repo.update(

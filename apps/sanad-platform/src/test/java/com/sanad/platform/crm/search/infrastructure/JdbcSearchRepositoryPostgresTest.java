@@ -66,7 +66,7 @@ class JdbcSearchRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void search_resultForAccountCarriesAccountTypeAsSecondaryInfo() {
-        var results = search.search(tenantId, "acme-corp", 20);
+        var results = search.search(tenantId, "acme corp", 20);
         var account = results.stream()
                 .filter(r -> r.entityType().equals("ACCOUNT"))
                 .findFirst().orElseThrow();

@@ -104,7 +104,7 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 tenantId, staffId, null, null, 30,
                 LocalDate.of(2026, 8, 11), null, actorId)));
         inTransaction(() -> repo.update(tenantId, w2.id(),
-                new UpdateWorkloadCommand(null, WorkloadStatus.IN_PROGRESS, null, actorId, 0)));
+                new UpdateWorkloadCommand(null, WorkloadStatus.IN_PROGRESS, null, actorId, 1)));
 
         List<WorkloadAssignment> planned = repo.findByStaffId(tenantId, staffId, WorkloadStatus.PLANNED);
         assertThat(planned).hasSize(1);
@@ -143,7 +143,7 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
         Optional<WorkloadAssignment> updated = inTransaction(() -> repo.update(
                 tenantId, created.id(), new UpdateWorkloadCommand(
-                        35, WorkloadStatus.COMPLETED, LocalDate.of(2026, 8, 14), actorId, 0)));
+                        35, WorkloadStatus.COMPLETED, LocalDate.of(2026, 8, 14), actorId, 1)));
 
         assertThat(updated).isPresent();
         assertThat(updated.get().version()).isEqualTo(2);
@@ -159,9 +159,9 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 new CreateWorkloadCommand(tenantId, staffId, null, null,
                         40, LocalDate.of(2026, 8, 10), null, actorId)));
 
-        // first update (v0 -> v1)
+        // first update (v1 -> v2)
         inTransaction(() -> repo.update(tenantId, created.id(),
-                new UpdateWorkloadCommand(20, WorkloadStatus.IN_PROGRESS, null, actorId, 0)));
+                new UpdateWorkloadCommand(20, WorkloadStatus.IN_PROGRESS, null, actorId, 1)));
 
         // stale version
         Optional<WorkloadAssignment> conflict = inTransaction(() -> repo.update(
@@ -205,7 +205,7 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 tenantId, staffId, serviceId, null, 30,
                 LocalDate.of(2026, 8, 11), null, actorId)));
         inTransaction(() -> repo.update(tenantId, w2.id(),
-                new UpdateWorkloadCommand(null, WorkloadStatus.IN_PROGRESS, null, actorId, 0)));
+                new UpdateWorkloadCommand(null, WorkloadStatus.IN_PROGRESS, null, actorId, 1)));
 
         // COMPLETED: 40h (should not be counted)
         WorkloadAssignment w3 = inTransaction(() -> repo.create(new CreateWorkloadCommand(
@@ -213,7 +213,7 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 LocalDate.of(2026, 8, 12), null, actorId)));
         inTransaction(() -> repo.update(tenantId, w3.id(),
                 new UpdateWorkloadCommand(40, WorkloadStatus.COMPLETED,
-                        LocalDate.of(2026, 8, 14), actorId, 0)));
+                        LocalDate.of(2026, 8, 14), actorId, 1)));
 
         int sum = repo.sumEstimatedHoursByStaff(tenantId, staffId,
                 LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31));
@@ -230,7 +230,7 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 tenantId, staffId, serviceId, null, 20,
                 LocalDate.of(2026, 8, 10), null, actorId)));
         inTransaction(() -> repo.update(tenantId, w1.id(),
-                new UpdateWorkloadCommand(25, WorkloadStatus.IN_PROGRESS, null, actorId, 0)));
+                new UpdateWorkloadCommand(25, WorkloadStatus.IN_PROGRESS, null, actorId, 1)));
 
         // COMPLETED with actualHours=35
         WorkloadAssignment w2 = inTransaction(() -> repo.create(new CreateWorkloadCommand(
@@ -238,7 +238,7 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 LocalDate.of(2026, 8, 11), null, actorId)));
         inTransaction(() -> repo.update(tenantId, w2.id(),
                 new UpdateWorkloadCommand(35, WorkloadStatus.COMPLETED,
-                        LocalDate.of(2026, 8, 14), actorId, 0)));
+                        LocalDate.of(2026, 8, 14), actorId, 1)));
 
         // PLANNED (should not be counted)
         inTransaction(() -> repo.create(new CreateWorkloadCommand(

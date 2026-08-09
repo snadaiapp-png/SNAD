@@ -118,7 +118,7 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
         Optional<StaffSkill> updated = inTransaction(() -> repo.update(
                 tenantId, created.id(), new UpdateSkillCommand(
-                        SkillLevel.ADVANCED, 80, actorId, 0)));
+                        SkillLevel.ADVANCED, 80, actorId, 1)));
 
         assertThat(updated).isPresent();
         assertThat(updated.get().version()).isEqualTo(2);
@@ -133,9 +133,9 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 new CreateSkillCommand(tenantId, staffId, "Java",
                         SkillLevel.BEGINNER, 30, actorId)));
 
-        // first update (v0 -> v1)
+        // first update (v1 -> v2)
         inTransaction(() -> repo.update(tenantId, created.id(),
-                new UpdateSkillCommand(SkillLevel.INTERMEDIATE, 50, actorId, 0)));
+                new UpdateSkillCommand(SkillLevel.INTERMEDIATE, 50, actorId, 1)));
 
         // stale version
         Optional<StaffSkill> conflict = inTransaction(() -> repo.update(

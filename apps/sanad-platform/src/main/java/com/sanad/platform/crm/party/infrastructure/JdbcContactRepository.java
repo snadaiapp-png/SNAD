@@ -94,7 +94,7 @@ public class JdbcContactRepository implements ContactRepository {
                 VALUES (:id, :tenantId, 0, :accountId, :displayName, :givenName,
                         :givenName, :familyName, :displayName, LOWER(:displayName),
                         :primaryEmail, :normalizedEmail, :primaryPhone, :locale,
-                        :timeZone, 'ACTIVE', :ownerUserId, :consent,
+                        :timeZone, 'ACTIVE', :ownerUserId, COALESCE(:consent, 'UNKNOWN'),
                         :actorId, :actorId, :now, :now)
                 """,
                 params("id", contactId).addValue("tenantId", tenantId)

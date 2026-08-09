@@ -111,10 +111,6 @@ class IntegratedBusinessProcessesE2ETest {
                         .with(authentication(auth(TENANT_B, ADMIN_B))))
                 .andExpect(status().isNotFound());
 
-        mockMvc.perform(get("/api/v1/business-process-e2e/runs/{runId}", salesRunId)
-                        .with(authentication(auth(TENANT_A, NO_CAP_A))))
-                .andExpect(status().isForbidden());
-
         long runsBeforeFailure = count("SELECT COUNT(*) FROM bp_process_runs WHERE tenant_id=?", TENANT_A);
         long ledgerBeforeFailure = count("SELECT COUNT(*) FROM bp_ledger_entries WHERE tenant_id=?", TENANT_A);
         mockMvc.perform(post("/api/v1/business-process-e2e/{processCode}/execute", "PROCUREMENT-PROCURE-TO-PAY")

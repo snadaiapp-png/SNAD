@@ -58,6 +58,7 @@ public class JdbcPipelineRepository implements PipelineRepository {
         return findById(t, id);
     }
     public List<StageRecord> findStages(UUID t, UUID pipelineId) {
+        findById(t, pipelineId);
         return jdbc.queryForList("SELECT * FROM crm_pipeline_stages WHERE tenant_id=:t AND pipeline_id=:pipelineId AND active=TRUE ORDER BY sequence",
                 new MapSqlParameterSource().addValue("t",t).addValue("pipelineId",pipelineId)).stream().map(r -> new StageRecord((UUID)r.get("id"),(UUID)r.get("pipeline_id"),(String)r.get("name"),((Number)r.get("sequence")).intValue(),(java.math.BigDecimal)r.get("probability"),(String)r.get("terminal_state"),true)).toList();
     }
