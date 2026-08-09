@@ -60,8 +60,8 @@ class Crm008bFoundationAcceptanceTest {
     private static final String CRM_009_COMMAND_ARTIFACTS_VERSION = "20260724.2";
     private static final String CRM_010_SCORING_MODELS_VERSION = "20260729.2";
     // CRM-018: V20260730_2 (disable RLS) was removed from Flyway forward path
-    // under RECOVERY-CRM-022 R1. Terminal migration is now V20260802_1 (re-enable).
-    private static final String CRM_RLS_RE_ENABLE_VERSION = "20260802.1";
+    // under RECOVERY-CRM-022 R1. Terminal migration is now V20260807_4 (activity result).
+    private static final String CRM_LATEST_VERSION = "20260807.4";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
@@ -510,13 +510,13 @@ class Crm008bFoundationAcceptanceTest {
 
         JdbcTemplate jdbc = jdbc();
 
-        // Latest version is 20260802.1 (RLS re-enable after V20260730.2 rollback).
+        // Latest version is 20260807.4 (activity result column).
         // V20260730_2 (disable RLS) was removed from Flyway forward path under
-        // RECOVERY-CRM-022 R1, so terminal migration is V20260802_1 (re-enable).
+        // RECOVERY-CRM-022 R1, so terminal migration is V20260807_4 (activity result).
         String latest = jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success=TRUE " +
                 "ORDER BY installed_rank DESC LIMIT 1", String.class);
-        assertThat(latest).isEqualTo(CRM_RLS_RE_ENABLE_VERSION);
+        assertThat(latest).isEqualTo(CRM_LATEST_VERSION);
 
         // All 13 new CRM-008B tables exist
         List<String> expectedTables = List.of(

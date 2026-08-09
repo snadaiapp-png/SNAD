@@ -74,6 +74,13 @@ class CrmPostgresMigrationTest {
     private static final String CRM_SERVICE_ASSIGNMENTS_VERSION = "20260804.8";
     private static final String CRM_CASES_VERSION = "20260804.9";
     private static final String CRM_EMAIL_LOGS_VERSION = "20260805.1";
+    private static final String CRM_REPORTING_CAPABILITIES_VERSION = "20260805.2";
+    private static final String CRM_PORTAL_CAPABILITIES_VERSION = "20260805.3";
+    private static final String CRM_EXECUTIVE_HEALTH_VERSION = "20260806.1";
+    private static final String CRM_GRANT_CAPABILITIES_VERSION = "20260807.1";
+    private static final String CRM_SEED_DEFAULT_PIPELINE_VERSION = "20260807.2";
+    private static final String CRM_CASE_INSENSITIVE_TAG_INDEX_VERSION = "20260807.3";
+    private static final String CRM_ACTIVITY_RESULT_VERSION = "20260807.4";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -212,7 +219,14 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_WORKLOAD_ASSIGNMENTS_VERSION),
                         MigrationVersion.fromVersion(CRM_SERVICE_ASSIGNMENTS_VERSION),
                         MigrationVersion.fromVersion(CRM_CASES_VERSION),
-                        MigrationVersion.fromVersion(CRM_EMAIL_LOGS_VERSION));
+                        MigrationVersion.fromVersion(CRM_EMAIL_LOGS_VERSION),
+                        MigrationVersion.fromVersion(CRM_REPORTING_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_PORTAL_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_EXECUTIVE_HEALTH_VERSION),
+                        MigrationVersion.fromVersion(CRM_GRANT_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_SEED_DEFAULT_PIPELINE_VERSION),
+                        MigrationVersion.fromVersion(CRM_CASE_INSENSITIVE_TAG_INDEX_VERSION),
+                        MigrationVersion.fromVersion(CRM_ACTIVITY_RESULT_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -281,7 +295,14 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_WORKLOAD_ASSIGNMENTS_VERSION),
                         MigrationVersion.fromVersion(CRM_SERVICE_ASSIGNMENTS_VERSION),
                         MigrationVersion.fromVersion(CRM_CASES_VERSION),
-                        MigrationVersion.fromVersion(CRM_EMAIL_LOGS_VERSION));
+                        MigrationVersion.fromVersion(CRM_EMAIL_LOGS_VERSION),
+                        MigrationVersion.fromVersion(CRM_REPORTING_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_PORTAL_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_EXECUTIVE_HEALTH_VERSION),
+                        MigrationVersion.fromVersion(CRM_GRANT_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_SEED_DEFAULT_PIPELINE_VERSION),
+                        MigrationVersion.fromVersion(CRM_CASE_INSENSITIVE_TAG_INDEX_VERSION),
+                        MigrationVersion.fromVersion(CRM_ACTIVITY_RESULT_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -409,8 +430,15 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_SERVICE_ASSIGNMENTS_VERSION, "SQL", "create crm service assignments");
         assertMigration(jdbc, CRM_CASES_VERSION, "SQL", "create crm cases");
         assertMigration(jdbc, CRM_EMAIL_LOGS_VERSION, "SQL", "create crm email logs");
+        assertMigration(jdbc, CRM_REPORTING_CAPABILITIES_VERSION, "SQL", "create crm reporting capabilities");
+        assertMigration(jdbc, CRM_PORTAL_CAPABILITIES_VERSION, "SQL", "create crm portal capabilities");
+        assertMigration(jdbc, CRM_EXECUTIVE_HEALTH_VERSION, "SQL", "seed executive health capabilities");
+        assertMigration(jdbc, CRM_GRANT_CAPABILITIES_VERSION, "SQL", "grant crm capabilities to non admin roles");
+        assertMigration(jdbc, CRM_SEED_DEFAULT_PIPELINE_VERSION, "SQL", "seed default pipeline and accounts");
+        assertMigration(jdbc, CRM_CASE_INSENSITIVE_TAG_INDEX_VERSION, "SQL", "add case insensitive tag unique index");
+        assertMigration(jdbc, CRM_ACTIVITY_RESULT_VERSION, "SQL", "add activity result column and related type check");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(CRM_EMAIL_LOGS_VERSION);
+        assertThat(latestVersion(jdbc)).isEqualTo(CRM_ACTIVITY_RESULT_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 
@@ -547,7 +575,7 @@ class CrmPostgresMigrationTest {
 
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.%' AND status='ACTIVE'",
-                Long.class)).isEqualTo(80L); // 55 CRM-008B + 13 CRM-008B team mgmt + 3 CRM-009 + 5 CRM-010 + 2 CRM-001 + 2 CRM-002
+                Long.class)).isEqualTo(84L); // 80 previous + 1 reporting + 1 portal + 2 executive health
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'BUSINESS_PROCESS.%' AND status='ACTIVE'",
                 Long.class)).isEqualTo(2L);

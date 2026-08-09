@@ -104,7 +104,6 @@ class CrmFlywayHistoryAssertionTest {
             "20260729.1",   // create crm customer intelligence
             "20260729.2",   // seed default scoring models
             "20260730.1",   // enable crm row level security
-            "20260730.2",   // disable crm row level security
             "20260802.1",   // re-enable crm row level security
             "20260804.1",   // reconcile crm custom field and pipeline audit columns
             "20260804.2",   // create crm shift templates
@@ -116,7 +115,17 @@ class CrmFlywayHistoryAssertionTest {
             "20260804.8",   // create crm service assignments
             "20260804.9",    // create crm cases
             // MOD-002 — Email Integration
-            "20260805.1"     // create crm email logs
+            "20260805.1",    // create crm email logs
+            // Reporting & Portal capabilities
+            "20260805.2",    // create crm reporting capabilities
+            "20260805.3",    // create crm portal capabilities
+            // Executive Health
+            "20260806.1",    // seed executive health capabilities
+            // CRM Capability Grant & Pipeline Seed
+            "20260807.1",    // grant crm capabilities to non admin roles
+            "20260807.2",    // seed default pipeline and accounts
+            "20260807.3",    // add case insensitive tag unique index
+            "20260807.4"     // add activity result column and related type check
     );
 
     @Container
