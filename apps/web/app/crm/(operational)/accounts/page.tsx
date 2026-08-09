@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { crmApi, type CrmAccount } from "@/lib/api/crm";
@@ -33,6 +33,14 @@ export default function CrmAccountsPage() {
   const [notice, setNotice] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [searchCommitted, setSearchCommitted] = useState("");
+  const errorRef = useRef<HTMLDivElement>(null);
+
+  // Scroll error banner into view when validation fails
+  useEffect(() => {
+    if (error && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [error]);
 
   const reload = useCallback(async (search?: string) => {
     setLoading(true);
@@ -117,7 +125,7 @@ export default function CrmAccountsPage() {
         <p className={styles.pageDescription}>{t("crm.accounts.description")}</p>
       </div>
 
-      {error ? <div className={styles.error} role="alert">{error}</div> : null}
+      {error ? <div ref={errorRef} className={styles.error} role="alert">{error}</div> : null}
       {notice ? <div className={styles.success} role="status">{notice}</div> : null}
 
       <section className={styles.workspace}>
