@@ -87,7 +87,7 @@ class CrmOwnershipRbacPostgresTest {
         for (UUID tenantId : List.of(TENANT_A, TENANT_B)) {
             assertThat(roleCapabilityCount(tenantId, "SALES_MANAGER")).isEqualTo(33);
             assertThat(roleCapabilityCount(tenantId, "SALES_REPRESENTATIVE")).isEqualTo(19);
-            assertThat(roleCapabilityCount(tenantId, "ADMIN")).isEqualTo(17);
+            assertThat(roleCapabilityCount(tenantId, "ADMIN")).isEqualTo(30);
         }
     }
 

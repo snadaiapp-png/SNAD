@@ -188,7 +188,7 @@ public class JdbcContactRepository implements ContactRepository {
                 """
                 UPDATE crm_contacts
                 SET lifecycle_status = :lifecycle,
-                    archived_at = CASE WHEN :archive = TRUE THEN :now ELSE NULL END,
+                    archived_at = CASE WHEN :archive = TRUE THEN CAST(:now AS TIMESTAMP) ELSE NULL END,
                     updated_by = :actorId, updated_at = :now, version = version + 1
                 WHERE tenant_id = :tenantId AND id = :id AND version = :expectedVersion
                 """,
