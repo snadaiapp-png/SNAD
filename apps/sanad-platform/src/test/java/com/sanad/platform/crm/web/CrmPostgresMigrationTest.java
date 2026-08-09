@@ -43,6 +43,7 @@ class CrmPostgresMigrationTest {
     private static final String CRM_ADDRESS_COMMUNICATION_VERSION = "20260717.100";
     private static final String CRM_ADDRESS_COMMUNICATION_RBAC_VERSION = "20260717.101";
     private static final String VENDOR_RECONCILE_G1_VERSION = "20260718.1";
+    private static final String VENDOR_RECONCILE_TAGS_VERSION = "20260718.2";
     private static final String VENDOR_RECONCILE_CONTACT_REL_VERSION = "20260721.1";
     private static final String VENDOR_RECONCILE_IDEMPOTENCY_VERSION = "20260721.2";
     private static final String CRM_008B_SALES_TEAMS_VERSION = "20260722.1";
@@ -189,6 +190,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_VERSION),
                         MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_RBAC_VERSION),
                         MigrationVersion.fromVersion(VENDOR_RECONCILE_G1_VERSION),
+                        MigrationVersion.fromVersion(VENDOR_RECONCILE_TAGS_VERSION),
                         MigrationVersion.fromVersion(VENDOR_RECONCILE_CONTACT_REL_VERSION),
                         MigrationVersion.fromVersion(VENDOR_RECONCILE_IDEMPOTENCY_VERSION),
                         MigrationVersion.fromVersion(CRM_008B_SALES_TEAMS_VERSION),
@@ -265,6 +267,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_VERSION),
                         MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_RBAC_VERSION),
                         MigrationVersion.fromVersion(VENDOR_RECONCILE_G1_VERSION),
+                        MigrationVersion.fromVersion(VENDOR_RECONCILE_TAGS_VERSION),
                         MigrationVersion.fromVersion(VENDOR_RECONCILE_CONTACT_REL_VERSION),
                         MigrationVersion.fromVersion(VENDOR_RECONCILE_IDEMPOTENCY_VERSION),
                         MigrationVersion.fromVersion(CRM_008B_SALES_TEAMS_VERSION),
@@ -402,6 +405,7 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_ADDRESS_COMMUNICATION_VERSION, "SQL", "crm addresses communication methods");
         assertMigration(jdbc, CRM_ADDRESS_COMMUNICATION_RBAC_VERSION, "SQL", "crm addresses communication capabilities");
         assertMigration(jdbc, VENDOR_RECONCILE_G1_VERSION, "SQL", "reconcile crm g1 after baseline gap");
+        assertMigration(jdbc, VENDOR_RECONCILE_TAGS_VERSION, "SQL", "reconcile crm tags after baseline gap");
         assertMigration(jdbc, VENDOR_RECONCILE_CONTACT_REL_VERSION, "SQL", "reconcile crm contact relationship model after baseline gap");
         assertMigration(jdbc, VENDOR_RECONCILE_IDEMPOTENCY_VERSION, "SQL", "reconcile crm idempotency records after baseline gap");
         assertMigration(jdbc, CRM_008B_SALES_TEAMS_VERSION, "SQL", "create crm sales teams");
@@ -575,7 +579,7 @@ class CrmPostgresMigrationTest {
 
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.%' AND status='ACTIVE'",
-                Long.class)).isEqualTo(84L); // 80 previous + 1 reporting + 1 portal + 2 executive health
+                Long.class)).isEqualTo(83L); // 79 previous + 1 reporting + 2 portal + 2 executive health - 1 dedup
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'BUSINESS_PROCESS.%' AND status='ACTIVE'",
                 Long.class)).isEqualTo(2L);

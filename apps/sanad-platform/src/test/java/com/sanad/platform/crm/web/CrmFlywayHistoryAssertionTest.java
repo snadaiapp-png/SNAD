@@ -83,6 +83,7 @@ class CrmFlywayHistoryAssertionTest {
             "20260717.101", // crm addresses communication capabilities
             // Vendor Reconcile
             "20260718.1",   // reconcile crm g1 after baseline gap
+            "20260718.2",   // reconcile crm tags after baseline gap
             "20260721.1",   // reconcile crm contact relationship model after baseline gap
             "20260721.2",   // reconcile crm idempotency records after baseline gap
             // CRM 008B — Teams, Queues, Territories, Assignments
