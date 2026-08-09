@@ -44,12 +44,12 @@ class PlatformApiCountTest {
     private static final long EXPECTED_CRM_V1_OPS = 125;
     /** 95 CRM baseline + 38 ownership + 7 CRM-009 public integration operations. */
     private static final long EXPECTED_CRM_V2_OPS = 140;
-    /** Previous total 312 + 3 public workflow operations + 1 internal callback + 41 CRM-014-020 v1 endpoints. */
-    private static final long EXPECTED_TOTAL_OPS = 357;
+    /** Previous total 357 - 35 control-plane ops + 27 executive ops + 4 system-health ops = 353. */
+    private static final long EXPECTED_TOTAL_OPS = 353;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
-    private static final long EXPECTED_COMMITTED_CRM_PATHS = 107;
-    private static final long EXPECTED_COMMITTED_CRM_OPS = 140;
+    private static final long EXPECTED_COMMITTED_CRM_PATHS = 142;
+    private static final long EXPECTED_COMMITTED_CRM_OPS = 181;
 
     private static final Path COMMITTED_OPENAPI =
             Path.of(System.getProperty("user.dir")).getParent().getParent()
@@ -67,7 +67,8 @@ class PlatformApiCountTest {
 
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
-        assertThat(count(paths, "/api/v1/control-plane")).isEqualTo(35);
+        assertThat(count(paths, "/api/v1/executive")).isEqualTo(27);
+        assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(EXPECTED_CRM_V1_OPS);
         assertThat(count(paths, "/api/v2/crm")).isEqualTo(EXPECTED_CRM_V2_OPS);
         assertThat(count(paths, "/api/v1/business-process-e2e")).isEqualTo(2);
