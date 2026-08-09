@@ -76,9 +76,9 @@ class PlatformApiCountTest {
 
         assertThat(has(paths, "/api/v1/auth/change-credential", "post")).isTrue();
         assertThat(has(paths, "/api/v1/access/evaluation", "get")).isTrue();
-        assertThat(has(paths, "/api/v1/control-plane/dashboard", "get")).isTrue();
-        assertThat(has(paths, "/api/v1/control-plane/health", "get")).isTrue();
-        assertThat(has(paths, "/api/v1/control-plane/health/actions", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/executive/dashboard", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/system-health", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/system-health/actions", "post")).isTrue();
         assertThat(has(paths, "/api/v1/crm/dashboard", "get")).isTrue();
         assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/customer-360", "get")).isTrue();
         assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/master", "get")).isTrue();
