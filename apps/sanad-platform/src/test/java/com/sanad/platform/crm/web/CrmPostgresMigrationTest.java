@@ -61,7 +61,8 @@ class CrmPostgresMigrationTest {
     private static final String CRM_010_SCORING_MODELS_VERSION = "20260729.2";
     private static final String CRM_008B_TEAM_MGMT_CAPABILITIES_VERSION = "20260728.1";
     private static final String CRM_RLS_ENABLE_VERSION = "20260730.1";
-    private static final String CRM_RLS_DISABLE_VERSION = "20260730.2";
+    // CRM-018: V20260730_2 (disable RLS) removed from Flyway forward path
+    // under RECOVERY-CRM-022 R1. Terminal migration is V20260802_1 (re-enable).
     private static final String CRM_RLS_RE_ENABLE_VERSION = "20260802.1";
     private static final String CRM_RECONCILE_CUSTOM_FIELD_VERSION = "20260804.1";
     private static final String CRM_SHIFT_TEMPLATES_VERSION = "20260804.2";
@@ -199,7 +200,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_010_INTELLIGENCE_VERSION),
                         MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION),
                         MigrationVersion.fromVersion(CRM_RLS_ENABLE_VERSION),
-                        MigrationVersion.fromVersion(CRM_RLS_DISABLE_VERSION),
+                        // V20260730_2 (disable RLS) removed from Flyway forward path
+                        // under RECOVERY-CRM-022 R1 — skip to re-enable V20260802_1.
                         MigrationVersion.fromVersion(CRM_RLS_RE_ENABLE_VERSION),
                         MigrationVersion.fromVersion(CRM_RECONCILE_CUSTOM_FIELD_VERSION),
                         MigrationVersion.fromVersion(CRM_SHIFT_TEMPLATES_VERSION),
@@ -267,7 +269,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_010_INTELLIGENCE_VERSION),
                         MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION),
                         MigrationVersion.fromVersion(CRM_RLS_ENABLE_VERSION),
-                        MigrationVersion.fromVersion(CRM_RLS_DISABLE_VERSION),
+                        // V20260730_2 (disable RLS) removed from Flyway forward path
+                        // under RECOVERY-CRM-022 R1 — skip to re-enable V20260802_1.
                         MigrationVersion.fromVersion(CRM_RLS_RE_ENABLE_VERSION),
                         MigrationVersion.fromVersion(CRM_RECONCILE_CUSTOM_FIELD_VERSION),
                         MigrationVersion.fromVersion(CRM_SHIFT_TEMPLATES_VERSION),
@@ -394,6 +397,8 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_009_COMMAND_ARTIFACTS_VERSION, "SQL", "create crm command artifacts");
         assertMigration(jdbc, CRM_010_INTELLIGENCE_VERSION, "SQL", "create crm customer intelligence");
         assertMigration(jdbc, CRM_010_SCORING_MODELS_VERSION, "SQL", "seed default scoring models");
+        assertMigration(jdbc, CRM_RLS_ENABLE_VERSION, "SQL", "enable crm row level security");
+        // V20260730_2 (disable RLS) removed from Flyway forward path under RECOVERY-CRM-022 R1.
         assertMigration(jdbc, CRM_RECONCILE_CUSTOM_FIELD_VERSION, "SQL", "reconcile crm custom field and pipeline audit columns");
         assertMigration(jdbc, CRM_SHIFT_TEMPLATES_VERSION, "SQL", "create crm shift templates");
         assertMigration(jdbc, CRM_SHIFT_ASSIGNMENTS_VERSION, "SQL", "create crm shift assignments");
