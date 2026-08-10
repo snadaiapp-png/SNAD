@@ -86,20 +86,28 @@ jobs:
 
       - name: Flyway
         shell: bash
+        working-directory: apps/sanad-platform
         run: |
           set -Eeuo pipefail
 
+          chmod +x mvnw
           ./mvnw flyway:migrate \
             -Dflyway.url="$SPRING_DATASOURCE_URL" \
             -Dflyway.user="$SPRING_DATASOURCE_USERNAME" \
-            -Dflyway.password="$SPRING_DATASOURCE_PASSWORD"
+            -Dflyway.password="$SPRING_DATASOURCE_PASSWORD" \
+            -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
+            -Dflyway.baselineOnMigrate=true
 
       - name: Compile
+        working-directory: apps/sanad-platform
         run: |
+          chmod +x mvnw
           ./mvnw clean test-compile
 
       - name: Full backend verification
+        working-directory: apps/sanad-platform
         run: |
+          chmod +x mvnw
           ./mvnw verify \
             -Dspring.profiles.active=prod \
             -Dspring.datasource.url="$SPRING_DATASOURCE_URL" \
