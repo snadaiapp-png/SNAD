@@ -112,7 +112,8 @@ jobs:
             -Dspring.profiles.active=prod \
             -Dspring.datasource.url="$SPRING_DATASOURCE_URL" \
             -Dspring.datasource.username="$SPRING_DATASOURCE_USERNAME" \
-            -Dspring.datasource.password="$SPRING_DATASOURCE_PASSWORD"
+            -Dspring.datasource.password="$SPRING_DATASOURCE_PASSWORD" \
+            -Dspring.datasource.driver-class-name=org.postgresql.Driver
 
       - name: Final forensic verification
         shell: bash
