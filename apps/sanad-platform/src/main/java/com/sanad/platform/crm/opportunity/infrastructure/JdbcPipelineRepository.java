@@ -78,7 +78,7 @@ public class JdbcPipelineRepository implements PipelineRepository {
             new MapSqlParameterSource()
                 .addValue("id",stageId).addValue("t",t).addValue("pipelineId",pipelineId)
                 .addValue("name",cmd.name()).addValue("seq",nextSeq)
-                .addValue("prob",cmd.probability()).addValue("terminal",cmd.terminalState())
+                .addValue("prob",cmd.probability() != null ? cmd.probability() : java.math.BigDecimal.ZERO).addValue("terminal",cmd.terminalState())
                 .addValue("now",Timestamp.from(Instant.now())));
         return findStageById(t, stageId);
     }
