@@ -37,7 +37,20 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          # Search only in test source directories, excluding target/build
+          echo "=== DEBUG: What directories exist under apps/*/src/test ==="
+          ls -la apps/*/src/test/ 2>/dev/null || echo "(no test directories found)"
+          echo ""
+
+          echo "=== DEBUG: What Java files exist under apps/*/src/test ==="
+          find apps/*/src/test -name '*.java' 2>/dev/null | head -20 || echo "(no Java files found)"
+          echo ""
+
+          echo "=== DEBUG: Checking for Testcontainers references ==="
+          find apps/*/src/test -name '*.java' \
+            -exec grep -l '@Testcontainers\|@Container\|PostgreSQLContainer\|DockerClientFactory\|jdbc:tc:' {} \; 2>/dev/null || echo "(no matches found)"
+
+          echo ""
+          echo "=== DEBUG: Total count ==="
           COUNT="$(find apps/*/src/test -name '*.java' \
             -exec grep -l '@Testcontainers\|@Container\|PostgreSQLContainer\|DockerClientFactory\|jdbc:tc:' {} \; 2>/dev/null | wc -l || true)"
 
