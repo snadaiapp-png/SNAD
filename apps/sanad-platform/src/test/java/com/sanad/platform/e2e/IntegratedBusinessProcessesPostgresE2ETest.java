@@ -10,48 +10,47 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Transactional;
-import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 @SpringBootTest(properties = {
         "sanad.cors.allowed-origins=https://snad-app.vercel.app",
         "sanad.production-guard.enabled=false",
         "management.health.mail.enabled=false",
-        "spring.datasource.url=jdbc:postgresql://localhost:5432/sanad_test_guard_placeholder",
-        "spring.datasource.username=sanad_test",
-        "spring.datasource.password=sanad_test"
+        "spring.datasource.url=jdbc:postgresql://localhost:5432/sanad",
+        "spring.datasource.username=sanad",
+        "spring.datasource.password="
 })
 @ActiveProfiles("prod")
-@DisabledIf("dockerNotAvailable")
+@DisabledIf("postgresqlNotAvailable")
 @Transactional
 class IntegratedBusinessProcessesPostgresE2ETest {
 
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withDatabaseName("sanad_process_e2e")
-            .withUsername("sanad_process_e2e")
-            .withPassword(UUID.randomUUID().toString());
-
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
-        postgres.start();
-        registry.add("sanad.database.url", postgres::getJdbcUrl);
-        registry.add("sanad.database.username", postgres::getUsername);
-        registry.add("sanad.database.password", postgres::getPassword);
-        registry.add("spring.datasource.url", postgres::getJdbcUrl);
-        registry.add("spring.datasource.username", postgres::getUsername);
-        registry.add("spring.datasource.password", postgres::getPassword);
+        registry.add("spring.datasource.url", () ->
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"));
+        registry.add("spring.datasource.username", () ->
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"));
+        registry.add("spring.datasource.password", () ->
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
     }
 
-    static boolean dockerNotAvailable() {
-        return !DockerClientFactory.instance().isDockerAvailable();
+    static boolean postgresqlNotAvailable() {
+        try {
+            return !Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("IntegratedBusinessProcessesPostgresE2ETest");
+        } catch (Exception e) {
+            return true;
+        }
     }
 
     @Autowired BusinessProcessService service;

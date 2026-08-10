@@ -10,19 +10,17 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
-import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
-@Testcontainers
 class CrmContactBaselineGapReconciliationPostgresTest {
 
     private static final String PRE_CONTACT_RELATIONSHIP_VERSION = "20260716.4";
@@ -39,19 +37,17 @@ class CrmContactBaselineGapReconciliationPostgresTest {
             "crm_contact_relationship_history",
             "crm_contact_ownership_history");
 
-    @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
     @BeforeAll
-    static void requireDocker() {
-        boolean dockerAvailable;
+    static void requirePostgreSql() {
+        boolean postgresAvailable;
         try {
-            dockerAvailable = DockerClientFactory.instance().isDockerAvailable();
+            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
         } catch (Throwable ignored) {
-            dockerAvailable = false;
+            postgresAvailable = false;
         }
-        Assumptions.assumeTrue(dockerAvailable,
-                "Docker is required to verify the PostgreSQL Contact schema reconciliation.");
+        Assumptions.assumeTrue(postgresAvailable,
+                "PostgreSQL Direct is required to verify the PostgreSQL Contact schema reconciliation.");
     }
 
     @Test
@@ -120,7 +116,7 @@ class CrmContactBaselineGapReconciliationPostgresTest {
 
     private Flyway mainMigrations(MigrationVersion target) {
         return Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .target(target)
@@ -131,7 +127,7 @@ class CrmContactBaselineGapReconciliationPostgresTest {
 
     private Flyway allProductionMigrations() {
         return Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .outOfOrder(true)
@@ -142,8 +138,8 @@ class CrmContactBaselineGapReconciliationPostgresTest {
 
     private DriverManagerDataSource dataSource() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-        dataSource.setDriverClassName(POSTGRES.getDriverClassName());
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        dataSource.setDriverClassName("org.postgresql.Driver");
         return dataSource;
     }
 

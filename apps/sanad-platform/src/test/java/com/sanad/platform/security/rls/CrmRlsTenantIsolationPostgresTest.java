@@ -9,17 +9,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.UUID;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 /**
  * CRM-018 — Row-Level Security tenant isolation verification.
@@ -39,25 +38,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *   <tr><td>SET LOCAL resets</td><td>after commit</td><td>✅ all rows</td></tr>
  * </table>
  */
-@Testcontainers
 class CrmRlsTenantIsolationPostgresTest {
 
-    @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
     private JdbcTemplate jdbc;
 
     @BeforeAll
-    static void requireDocker() {
-        boolean dockerAvailable;
+    static void requirePostgreSql() {
+        boolean postgresAvailable;
         try {
-            dockerAvailable = DockerClientFactory.instance().isDockerAvailable();
+            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
         } catch (Throwable ignored) {
-            dockerAvailable = false;
+            postgresAvailable = false;
         }
-        Assumptions.assumeTrue(dockerAvailable,
-                "Docker is not available — skipping CrmRlsTenantIsolationPostgresTest. "
-                        + "Run on a CI runner with Docker to exercise PostgreSQL RLS.");
+        Assumptions.assumeTrue(postgresAvailable,
+                "PostgreSQL Direct is not available — skipping CrmRlsTenantIsolationPostgresTest. "
+                        + "Run with PostgreSQL Direct to exercise PostgreSQL RLS.");
     }
 
     private static final String RLS_USER = "crm_rls_test_user";
@@ -67,7 +63,7 @@ class CrmRlsTenantIsolationPostgresTest {
     void migrateAndSeed() {
         // Run all migrations including V20260730_1 (RLS enable).
         Flyway flyway = Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
@@ -301,15 +297,15 @@ class CrmRlsTenantIsolationPostgresTest {
 
     private JdbcTemplate jdbc() {
         DriverManagerDataSource ds = new DriverManagerDataSource(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-        ds.setDriverClassName(POSTGRES.getDriverClassName());
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        ds.setDriverClassName("org.postgresql.Driver");
         return new JdbcTemplate(ds);
     }
 
     private Connection rawConnection() throws SQLException {
         // Use non-superuser to verify RLS — superusers bypass RLS by default.
         return java.sql.DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), RLS_USER, RLS_PASSWORD);
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), RLS_USER, RLS_PASSWORD);
     }
 
     private void insertTenant(UUID id, String name, String subdomain) {

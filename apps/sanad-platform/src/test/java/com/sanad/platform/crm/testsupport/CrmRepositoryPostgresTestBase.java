@@ -2,16 +2,11 @@ package com.sanad.platform.crm.testsupport;
 
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import org.flywaydb.core.Flyway;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -20,43 +15,37 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
- * Shared Testcontainers + Flyway harness for CRM repository integration tests (TD-003-S2).
+ * Shared PostgreSQL Direct + Flyway harness for CRM repository integration tests (TD-003-S2).
  *
- * <p>Replicates the proven pattern from {@code OwnershipRepositoryBindingPostgresTest} and
- * {@code JdbcAddressCommunicationArchivePostgresTest}: a single static {@code postgres:16-alpine}
- * container, Flyway migration of the full CRM schema (including the {@code V15} Java migration
- * that seeds RBAC), and a {@link NamedParameterJdbcTemplate} built over the container's data
+ * <p>Uses PostgreSQL Direct (localhost:5432) instead of Docker/Testcontainers.
+ * Flyway migration of the full CRM schema (including the {@code V15} Java migration
+ * that seeds RBAC), and a {@link NamedParameterJdbcTemplate} built over the direct data
  * source. Subclasses obtain the {@code jdbc} template, a {@link TransactionTemplate}, and a
  * fresh per-class tenant via {@link #newTenant()}.
  *
- * <p>Tests are skipped (not failed) when Docker is unavailable, matching the established
- * convention and the Sprint-0 constraint that backend Testcontainers tests run in CI only.
+ * <p>Database credentials are read from environment variables:
+ * {@code SPRING_DATASOURCE_URL}, {@code SPRING_DATASOURCE_USERNAME},
+ * {@code SPRING_DATASOURCE_PASSWORD}.
  *
  * <p>Branch: crm/td-003-s2-repo-tests
  */
-@Testcontainers
 public abstract class CrmRepositoryPostgresTestBase {
 
-    @Container
-    static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>("postgres:16-alpine");
+    private static final String JDBC_URL =
+            System.getenv().getOrDefault("SPRING_DATASOURCE_URL",
+                    "jdbc:postgresql://localhost:5432/sanad");
+    private static final String USERNAME =
+            System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad");
+    private static final String PASSWORD =
+            System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "");
 
     private static NamedParameterJdbcTemplate jdbc;
     private static TransactionTemplate transactions;
 
     @BeforeAll
     static void migrateSchema() {
-        boolean dockerAvailable;
-        try {
-            dockerAvailable = DockerClientFactory.instance().isDockerAvailable();
-        } catch (Throwable ignored) {
-            dockerAvailable = false;
-        }
-        Assumptions.assumeTrue(dockerAvailable,
-                "Docker is required for CRM repository Testcontainers integration tests (TD-003-S2).");
-
         Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(JDBC_URL, USERNAME, PASSWORD)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
@@ -64,8 +53,7 @@ public abstract class CrmRepositoryPostgresTestBase {
                 .load()
                 .migrate();
 
-        DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(JDBC_URL, USERNAME, PASSWORD);
         jdbc = new NamedParameterJdbcTemplate(dataSource);
         transactions = new TransactionTemplate(
                 new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource));

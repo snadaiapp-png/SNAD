@@ -11,17 +11,16 @@ import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 /**
  * PostgreSQL 16 regression tests for the communication-method and address archive
@@ -30,12 +29,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Root cause: {@code archived_at=CASE WHEN :status='ARCHIVED' THEN :now ELSE NULL END}
  * inferred {@code text} type by PostgreSQL. Fix: explicit {@code ::timestamptz} cast.</p>
  */
-@Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class JdbcAddressCommunicationArchivePostgresTest {
 
-    @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
     private static NamedParameterJdbcTemplate jdbc;
     private static UUID tenantId;
@@ -47,18 +43,18 @@ class JdbcAddressCommunicationArchivePostgresTest {
     private static long emailMethodVersion;
 
     @BeforeAll
-    static void requireDockerAndMigrate() {
-        boolean dockerAvailable;
+    static void requirePostgreSqlAndMigrate() {
+        boolean postgresAvailable;
         try {
-            dockerAvailable = DockerClientFactory.instance().isDockerAvailable();
+            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
         } catch (Throwable ignored) {
-            dockerAvailable = false;
+            postgresAvailable = false;
         }
-        Assumptions.assumeTrue(dockerAvailable,
-                "Docker is required to verify CRM archive SQL against PostgreSQL 16.");
+        Assumptions.assumeTrue(postgresAvailable,
+                "PostgreSQL Direct is required to verify CRM archive SQL against PostgreSQL 16.");
 
         Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
@@ -67,7 +63,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
                 .migrate();
 
         jdbc = new NamedParameterJdbcTemplate(new DriverManagerDataSource(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword()));
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "")));
 
         tenantId = UUID.randomUUID();
         accountId = UUID.randomUUID();

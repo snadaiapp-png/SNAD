@@ -20,14 +20,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.PostgreSQLContainer;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.UUID;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 /**
  * CRM-009 PostgreSQL test: confirm atomically creates execution event.
@@ -39,7 +41,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ConfirmedRecommendationEnqueuePostgresTest {
 
-    private static PostgreSQLContainer<?> POSTGRES;
     private static JdbcTemplate jdbc;
     private static CrmIntegrationStore store;
     private static CrmIntegrationUseCases useCases;
@@ -51,20 +52,18 @@ class ConfirmedRecommendationEnqueuePostgresTest {
 
     @BeforeAll
     static void setup() {
-        boolean docker = Crm009TestEnvironment.requireDockerOrSkip("ConfirmedRecommendationEnqueuePostgresTest");
-        Assumptions.assumeTrue(docker, "Docker unavailable in local development — skipping in non-CI environment");
+        boolean postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("ConfirmedRecommendationEnqueuePostgresTest");
+        Assumptions.assumeTrue(postgresAvailable, "PostgreSQL Direct unavailable — skipping in non-CI environment");
 
-        POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-        POSTGRES.start();
 
         Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false).validateOnMigrate(true).load().migrate();
 
         DriverManagerDataSource ds = new DriverManagerDataSource(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
         jdbc = new JdbcTemplate(ds);
         store = new CrmIntegrationStore(jdbc, mapper);
 
