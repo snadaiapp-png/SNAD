@@ -479,6 +479,27 @@ function mapV2TagAssignment(a: V2TagAssignmentResponse): CrmTagAssignment {
   };
 }
 
+function mapV2Case(c: V2CaseResponse): CrmCase {
+  return {
+    id: c.id,
+    version: c.version,
+    subject: c.subject,
+    description: c.description ?? null,
+    case_type: c.caseType ?? null,
+    status: c.status,
+    priority: c.priority,
+    customer_id: c.customerId ?? null,
+    assignee_user_id: c.assigneeUserId ?? null,
+    owner_user_id: c.ownerUserId ?? null,
+    related_id: c.relatedId ?? null,
+    due_at: c.dueAt ?? null,
+    resolved_at: c.resolvedAt ?? null,
+    closed_at: c.closedAt ?? null,
+    created_at: c.createdAt,
+    updated_at: c.updatedAt,
+  };
+}
+
 // ── V2 typed DTO interfaces (camelCase, matching backend CrmDtos.java) ──
 
 interface V2AccountResponse {
@@ -554,6 +575,26 @@ interface V2TagResponse {
   version: number;
   name: string;
   color?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** V2 Case response (camelCase, matches backend CaseResponse record). */
+interface V2CaseResponse {
+  id: string;
+  version: number;
+  subject: string;
+  description?: string | null;
+  caseType?: string | null;
+  status: string;
+  priority: number;
+  customerId?: string | null;
+  assigneeUserId?: string | null;
+  ownerUserId?: string | null;
+  relatedId?: string | null;
+  dueAt?: string | null;
+  resolvedAt?: string | null;
+  closedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -678,7 +719,9 @@ export const crmApi = {
   },
   convertLead: async (id: string, body: { createOpportunity: boolean; currencyCode: string; opportunityName?: string; amount?: number; pipelineId?: string; stageId?: string }) => {
     const data = await unwrapSingle(
-      apiClient.post<V2SingleResponse<Record<string, unknown>>, typeof body>(`${v2root}/leads/${id}/convert`, body),
+      apiClient.post<V2SingleResponse<Record<string, unknown>>, typeof body>(`${v2root}/leads/${id}/convert`, body, {
+        context: { headers: { "Idempotency-Key": `convert-lead-${id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } },
+      }),
     );
     return data;
   },
@@ -924,10 +967,16 @@ export const crmApi = {
   cancelTask: (id: string, reason?: string) => apiClient.patch<CrmTask, { reason?: string }>(`${root}/tasks/${id}/cancel`, { reason }),
 
   // ── Cases (CRM.CASE.READ / WRITE) — MOD-001 ────────────────────────────
-  cases: (status?: string, assigneeUserId?: string, customerId?: string) =>
-    apiClient.get<CrmCase[]>(`/api/v2/crm/cases`, { query: { limit: 200, status, assigneeUserId, customerId }, cache: "no-store" }),
-  case: (id: string) =>
-    apiClient.get<CrmCase>(`/api/v2/crm/cases/${id}`, { cache: "no-store" }),
+  cases: async (status?: string, assigneeUserId?: string, customerId?: string) => {
+    const data = await fetchAllPages<V2CaseResponse>((cursor) =>
+      apiClient.get<V2ListResponse<V2CaseResponse>>(`${v2root}/cases`, { query: { limit: 200, status, assigneeUserId, customerId, cursor }, cache: "no-store" }),
+    );
+    return data.map(mapV2Case);
+  },
+  case: async (id: string) => {
+    const data = await unwrapSingle(apiClient.get<V2SingleResponse<V2CaseResponse>>(`${v2root}/cases/${id}`, { cache: "no-store" }));
+    return mapV2Case(data);
+  },
   createCase: (body: {
     subject: string;
     description?: string;

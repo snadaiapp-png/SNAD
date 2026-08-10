@@ -126,7 +126,7 @@ export default function CrmIntegrationsPage() {
   const [reason, setReason] = useState("");
   const dialogHeading = useRef<HTMLHeadingElement>(null);
 
-  const validEntity = entityId.trim().length > 0 && Number(entityVersion) >= 0;
+  const validEntity = entityId.trim().length > 0 && Number(entityVersion) >= 0 && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(entityId.trim());
   const actionable = request?.status === "RECOMMENDATION_AVAILABLE";
   const cancellable = request?.integrationType === "WORKFLOW" && ["ACCEPTED", "RUNNING"].includes(request.status);
 

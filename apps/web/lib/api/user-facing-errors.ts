@@ -99,7 +99,7 @@ export function toUserFacingError(err: unknown): UserFacingError {
     return { title: "تعذر إكمال الطلب", message: "حدث خطأ أثناء معالجة الطلب ولم تكتمل العملية.", kind: "unknown" };
   }
   if (err instanceof Error && isSafeUserMessage(err.message)) {
-    return { title: "بيانات غير صالحة", message: err.message, kind: "validation" };
+    return { title: "بيانات غير صالحة", message: safeValidationMessage(err.message, "البيانات المرسلة غير صالحة. راجع الحقول وأعد المحاولة."), kind: "validation" };
   }
   return { title: "خطأ غير معروف", message: "حدث خطأ غير معروف. حاول مرة أخرى لاحقًا.", kind: "unknown" };
 }
@@ -191,9 +191,12 @@ function mapHttpError(err: ApiHttpError, loginRequest: boolean): UserFacingError
   // Only pass through backend text for validation-style responses. Authentication,
   // authorization, and server failures use controlled messages to avoid leaking
   // implementation details or misclassifying the failure.
-  if ((status === 400 || status === 409 || status === 422) && isSafeUserMessage(backendMsg)) {
-    if (status === 409) return { title: "تعارض في البيانات", message: backendMsg, kind: "conflict" };
-    return { title: "بيانات غير صالحة", message: backendMsg, kind: "validation" };
+  if (status === 400 || status === 409 || status === 422) {
+    const safeMsg = safeValidationMessage(backendMsg, "");
+    if (safeMsg) {
+      if (status === 409) return { title: "تعارض في البيانات", message: safeMsg, kind: "conflict" };
+      return { title: "بيانات غير صالحة", message: safeMsg, kind: "validation" };
+    }
   }
 
   if (status === 400) {
@@ -249,15 +252,51 @@ function isLoginRequest(err: unknown): boolean {
 }
 
 function safeValidationMessage(message: string | null, fallback: string): string {
-  return isSafeUserMessage(message) ? message : fallback;
+  if (!message) return fallback;
+  // If the message is already Arabic, use it directly
+  if (isSafeUserMessage(message) && containsArabic(message)) return message;
+  // Try to translate known English backend messages to Arabic
+  if (typeof message === "string") {
+    for (const { pattern, arabic } of BACKEND_ERROR_TRANSLATIONS) {
+      if (pattern.test(message)) return arabic;
+    }
+  }
+  // For safe English messages, use them (they're understandable)
+  if (isSafeUserMessage(message)) return message;
+  return fallback;
 }
+
+/**
+ * Known backend error patterns → safe Arabic user messages.
+ * These map specific English backend validation messages to informative
+ * Arabic messages that help users understand what went wrong.
+ */
+const BACKEND_ERROR_TRANSLATIONS: Array<{ pattern: RegExp; arabic: string }> = [
+  { pattern: /Idempotency-Key header is required/i, arabic: "يُلزم تمرير معرّف الملف الشخصي (Idempotency-Key) مع هذا الطلب. أعد المحاولة." },
+  { pattern: /required/i, arabic: "يوجد حقول مطلوبة غير مكتملة. تأكد من ملء جميع الحقول الإلزامية وأعد المحاولة." },
+  { pattern: /size must be between/i, arabic: "أحد الحقول يحتوي على بيانات أطول من الحد المسموح. راجع الحقول وأعد المحاولة." },
+  { pattern: /must not be blank/i, arabic: "يوجد حقل نصي فارغ مطلوب. أدخل البيانات المطلوبة وأعد المحاولة." },
+  { pattern: /must not be null/i, arabic: "يوجد حقل مطلوب غير مُعطى قيمة. أدخل البيانات المطلوبة وأعد المحاولة." },
+  { pattern: /not a valid UUID/i, arabic: "المعرّف المرسل غير صالح. تأكد من صحة المعرّف وأعد المحاولة." },
+  { pattern: /Invalid UUID/i, arabic: "المعرّف المرسل غير صالح. تأكد من صحة المعرّف وأعد المحاولة." },
+  { pattern: /JSON/i, arabic: "البيانات المرسلة غير مفهومة. راجع الحقول وأعد المحاولة." },
+  { pattern: /DateTimeParseException|OffsetDateTime|LocalDate/i, arabic: "صيغة التاريخ غير صحيحة. استخدم الصيغة YYYY-MM-DD وأعد المحاولة." },
+  { pattern: /Invalid date/i, arabic: "التاريخ غير صالح. استخدم الصيغة الصحيحة وأعد المحاولة." },
+  { pattern: /pipeline.*stages.*2.*20|stages must contain/i, arabic: "يجب أن يحتوي المجرى على بين 2 و 20 مرحلة على الأقل." },
+  { pattern: /pipeline stage names must be unique/i, arabic: "يوجد مراحل مكررة بنفس الاسم. غيّر أسماء المراحل وأعد المحاولة." },
+  { pattern: /currency/i, arabic: "رمز العملة غير صالح. استرمز ثلاثي الحروف (مثل SAR)." },
+  { pattern: /email/i, arabic: "البريد الإلكتروني غير صالح. تأكد من صيغة البريد وأعد المحاولة." },
+];
 
 function isSafeUserMessage(message: unknown): message is string {
   if (typeof message !== "string") return false;
   const value = message.trim();
-  if (!value || value.length > 240 || !containsArabic(value)) return false;
+  if (!value || value.length > 240) return false;
   if (/https?:\/\/|jdbc:|sql|exception|stack|trace|authorization|bearer|cookie/i.test(value)) return false;
-  return true;
+  // Accept Arabic messages as-is
+  if (containsArabic(value)) return true;
+  // Accept known safe English backend validation messages
+  return BACKEND_ERROR_TRANSLATIONS.some(({ pattern }) => pattern.test(value));
 }
 
 function withReference(message: string, requestId: string | null): string {
