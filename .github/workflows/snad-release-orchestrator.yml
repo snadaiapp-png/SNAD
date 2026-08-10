@@ -37,10 +37,9 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          # Search only in source directories, excluding comments
-          COUNT="$(grep -r --include='*.java' -l \
-            '@Testcontainers\|@Container\|PostgreSQLContainer\|DockerClientFactory\|jdbc:tc:' \
-            apps/*/src/test/ 2>/dev/null | wc -l || true)"
+          # Search only in test source directories, excluding target/build
+          COUNT="$(find apps/*/src/test -name '*.java' \
+            -exec grep -l '@Testcontainers\|@Container\|PostgreSQLContainer\|DockerClientFactory\|jdbc:tc:' {} \; 2>/dev/null | wc -l || true)"
 
           echo "Testcontainers source files: $COUNT"
 
