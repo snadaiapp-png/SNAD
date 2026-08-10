@@ -72,9 +72,15 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y postgresql-client >/dev/null
 
+          # Parse JDBC URL: jdbc:postgresql://host:port/database
+          DB_HOST="$(echo "$SPRING_DATASOURCE_URL" | sed -E 's|jdbc:postgresql://([^:/]+).*|\1|')"
+          DB_PORT="$(echo "$SPRING_DATASOURCE_URL" | sed -E 's|jdbc:postgresql://[^:]+:([0-9]+).*|\1|')"
+          DB_NAME="$(echo "$SPRING_DATASOURCE_URL" | sed -E 's|jdbc:postgresql://[^/]+/([^\?]+).*|\1|')"
+
+          echo "Connecting to: host=$DB_HOST port=$DB_PORT db=$DB_NAME"
+
           PGPASSWORD="$SPRING_DATASOURCE_PASSWORD" \
-          psql "$SPRING_DATASOURCE_URL" \
-            -U "$SPRING_DATASOURCE_USERNAME" \
+          psql -h "$DB_HOST" -p "$DB_PORT" -U "$SPRING_DATASOURCE_USERNAME" -d "$DB_NAME" \
             -v ON_ERROR_STOP=1 \
             -c "SELECT current_database(), current_user, version();"
 
