@@ -47,6 +47,9 @@ jobs:
           echo "DB: $DB_NAME"
 
           PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" << 'SQL'
+          -- Set search_path to public schema (where SANAD tables live)
+          SET search_path TO public;
+
           -- Start transaction
           BEGIN;
 
