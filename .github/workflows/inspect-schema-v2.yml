@@ -1,0 +1,70 @@
+name: Inspect Schema v2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Inspect schema via information_schema
+        env:
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1
+
+          JDBC_URL="$PROD_JDBC_URL"
+          CONN_STR="${JDBC_URL#jdbc:postgresql://}"
+          HOST_PORT="${CONN_STR%%/*}"
+          HOST="${HOST_PORT%%:*}"
+          PORT="${HOST_PORT##*:}"
+          DB_PART="${CONN_STR#*/}"
+          DB_NAME="${DB_PART%%\?*}"
+
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" << 'SQL'
+          SET search_path TO public;
+
+          SELECT '=== users columns ===' AS info;
+          SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+           WHERE table_schema='public' AND table_name='users'
+           ORDER BY ordinal_position;
+
+          SELECT '=== roles columns ===' AS info;
+          SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+           WHERE table_schema='public' AND table_name='roles'
+           ORDER BY ordinal_position;
+
+          SELECT '=== role_capabilities columns ===' AS info;
+          SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+           WHERE table_schema='public' AND table_name='role_capabilities'
+           ORDER BY ordinal_position;
+
+          SELECT '=== user_role_assignments columns ===' AS info;
+          SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+           WHERE table_schema='public' AND table_name='user_role_assignments'
+           ORDER BY ordinal_position;
+
+          SELECT '=== tenants columns ===' AS info;
+          SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+           WHERE table_schema='public' AND table_name='tenants'
+           ORDER BY ordinal_position;
+
+          SELECT '=== tenants rows ===' AS info;
+          SELECT id, name, subdomain, status FROM tenants LIMIT 10;
+
+          SELECT '=== users rows ===' AS info;
+          SELECT id, tenant_id, email, status, (password_hash IS NOT NULL) AS has_password FROM users LIMIT 10;
+          SQL
