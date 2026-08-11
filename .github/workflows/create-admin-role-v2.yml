@@ -94,14 +94,14 @@ jobs:
             AND NOT EXISTS (SELECT 1 FROM role_capabilities rc WHERE rc.tenant_id = r.tenant_id
               AND rc.role_id = r.id AND rc.capability_id = ac.id);
 
-          -- 4. Create admin user if missing
-          INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at, platform_admin, must_change_password)
+          -- 4. Create admin user if missing (V4 + V10 columns only; V16 platform_admin not applied)
+          INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
           SELECT gen_random_uuid(), '${CONTROL_PLANE_TENANT_ID}'::uuid, '${ADMIN_EMAIL}', 'SNAD Administrator',
-                 'ACTIVE', '${PASSWORD_HASH}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, TRUE, FALSE
+                 'ACTIVE', '${PASSWORD_HASH}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
           WHERE NOT EXISTS (SELECT 1 FROM users WHERE tenant_id = '${CONTROL_PLANE_TENANT_ID}'::uuid AND email = '${ADMIN_EMAIL}');
 
           -- 5. Update password if user exists
-          UPDATE users SET password_hash = '${PASSWORD_HASH}', status = 'ACTIVE', platform_admin = TRUE, updated_at = CURRENT_TIMESTAMP
+          UPDATE users SET password_hash = '${PASSWORD_HASH}', status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP
           WHERE tenant_id = '${CONTROL_PLANE_TENANT_ID}'::uuid AND email = '${ADMIN_EMAIL}';
 
           -- 6. Assign ADMIN role to admin user
@@ -123,7 +123,7 @@ jobs:
             JOIN roles r ON r.id = rc.role_id
            WHERE r.tenant_id = '${CONTROL_PLANE_TENANT_ID}'::uuid AND r.code = 'ADMIN';
           SELECT '=== Admin user ===' AS info;
-          SELECT id, email, status, platform_admin, (password_hash IS NOT NULL) AS has_password
+          SELECT id, email, status, (password_hash IS NOT NULL) AS has_password
             FROM users WHERE tenant_id = '${CONTROL_PLANE_TENANT_ID}'::uuid AND email = '${ADMIN_EMAIL}';
           SELECT '=== Role assignment ===' AS info;
           SELECT ura.status, r.code FROM user_role_assignments ura
