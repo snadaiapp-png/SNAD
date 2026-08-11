@@ -94,7 +94,7 @@ jobs:
           set_var "SHUTDOWN_TIMEOUT" "30s"
           set_var "JAVA_OPTS" "-Xms64m -Xmx128m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"
           set_var "LOG_LEVEL_ROOT" "INFO"
-          set_var "LOG_LEVEL_SANAD"" "DEBUG"
+          set_var "LOG_LEVEL_SANAD" "DEBUG"
           set_var "LAZY_INIT" "true"
           set_var "SECURITY_NOTIFICATION_PROVIDER" "disabled"
           set_var "APPLICATION_BASE_URL" "https://snad-app.vercel.app"
