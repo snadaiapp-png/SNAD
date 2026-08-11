@@ -1,0 +1,280 @@
+name: Restore Render Env Vars (v2)
+
+# ============================================================
+# Recovery workflow: restore missing Render env vars and redeploy
+# ------------------------------------------------------------
+# Background (2026-08-11):
+#   Render currently has only 3 env vars set on the sanad-backend
+#   service (FLYWAY_LOCATIONS, FLYWAY_ENABLED,
+#   SANAD_CONTROL_PLANE_TENANT_ID). Every other env var — including
+#   DATABASE_URL, DATABASE_USERNAME, DATABASE_PASSWORD, JWT_SECRET,
+#   SPRING_PROFILES_ACTIVE, SANAD_CORS_ALLOWED_ORIGINS, JAVA_OPTS —
+#   was wiped. The OLD container (deployed 2026-08-10T23:53:57) still
+#   runs because it cached the env vars in its process environment,
+#   but every NEW deploy fails within ~20s with:
+#     java.net.SocketException: Network is unreachable
+#     Failed to obtain JDBC Connection (Hikari timeout 30s)
+#   because DATABASE_URL is empty and Spring falls back to
+#   jdbc:postgresql://localhost:5432/sanad which doesn't exist on
+#   Render's container.
+#
+# This workflow:
+#   1. Pulls DB credentials from Production environment secrets
+#      (PROD_JDBC_URL, PROD_DB_USER, PROD_DB_PASSWORD).
+#   2. Restores all required env vars on Render via the API.
+#   3. Generates a fresh JWT_SECRET (existing sessions will be
+#      invalidated — users must log in again).
+#   4. Triggers a new deploy and waits for it to become live.
+#   5. Verifies health, liveness, readiness.
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "restore" to confirm env var restoration'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: restore-render-env-vars
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    name: Restore Render env vars and redeploy
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 20
+    if: github.event.inputs.confirm == 'restore'
+
+    steps:
+      - name: Validate required secrets
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          CONTROL_PLANE_TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$RENDER_API_KEY" || { echo "::error::Missing secret RENDER_API_KEY"; exit 1; }
+          test -n "$RENDER_SERVICE_ID" || { echo "::error::Missing secret RENDER_SERVICE_ID"; exit 1; }
+          test -n "$PROD_JDBC_URL" || { echo "::error::Missing secret PROD_JDBC_URL"; exit 1; }
+          test -n "$PROD_DB_USER" || { echo "::error::Missing secret PROD_DB_USER"; exit 1; }
+          test -n "$PROD_DB_PASSWORD" || { echo "::error::Missing secret PROD_DB_PASSWORD"; exit 1; }
+          test -n "$CONTROL_PLANE_TENANT_ID" || { echo "::error::Missing secret CONTROL_PLANE_TENANT_ID"; exit 1; }
+          echo "All required secrets are present."
+          echo "RENDER_SERVICE_ID starts with: ${RENDER_SERVICE_ID:0:4}"
+
+      - name: Generate fresh JWT_SECRET
+        id: jwt
+        run: |
+          # Generate a 64-char hex string (256 bits of entropy) — sufficient for HS256
+          JWT_SECRET=$(openssl rand -hex 32)
+          echo "Generated JWT_SECRET (length: ${#JWT_SECRET})"
+          echo "::add-mask::$JWT_SECRET"
+          echo "value=$JWT_SECRET" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Render env vars
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          CONTROL_PLANE_TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          JWT_SECRET: ${{ steps.jwt.outputs.value }}
+        run: |
+          set -euo pipefail
+
+          set_render_var() {
+            local key="$1"
+            local value="$2"
+            local value_type="${3:-raw}"
+            local payload
+            if [ "$value_type" = "secret" ]; then
+              payload=$(jq -n --arg v "$value" '{value:$value,type:"SECRET"}')
+            else
+              payload=$(jq -n --arg v "$value" '{value:$value}')
+            fi
+            local status
+            status=$(curl -sS -o /tmp/render-resp.json -w "%{http_code}" --max-time 45 \
+              -X PUT \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" \
+              -H "Content-Type: application/json" \
+              --data "$payload" \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/${key}")
+            if [ "$status" != "200" ] && [ "$status" != "201" ] && [ "$status" != "204" ]; then
+              echo "::error::Failed to set ${key}: HTTP ${status}"
+              cat /tmp/render-resp.json
+              exit 1
+            fi
+            echo "  ✓ ${key} set (HTTP ${status}, type=${value_type})"
+          }
+
+          echo "=== Restoring Render env vars ==="
+
+          # Database connection
+          set_render_var "DATABASE_URL" "$PROD_JDBC_URL" "secret"
+          set_render_var "DATABASE_USERNAME" "$PROD_DB_USER" "secret"
+          set_render_var "DATABASE_PASSWORD" "$PROD_DB_PASSWORD" "secret"
+
+          # Spring profile + Flyway
+          set_render_var "SPRING_PROFILES_ACTIVE" "prod"
+          set_render_var "FLYWAY_ENABLED" "true"
+          set_render_var "FLYWAY_LOCATIONS" "classpath:db/migration,classpath:db/vendor/{vendor}"
+          set_render_var "FLYWAY_BASELINE_ON_MIGRATE" "false"
+          set_render_var "FLYWAY_VALIDATE_ON_MIGRATE" "true"
+          set_render_var "JPA_DDL_AUTO" "validate"
+
+          # Auth + JWT
+          set_render_var "JWT_SECRET" "$JWT_SECRET" "secret"
+          set_render_var "BOOTSTRAP_ENABLED" "false"
+
+          # Control plane
+          set_render_var "SANAD_CONTROL_PLANE_TENANT_ID" "$CONTROL_PLANE_TENANT_ID" "secret"
+
+          # CORS
+          set_render_var "SANAD_CORS_ALLOWED_ORIGINS" "https://snad-app.vercel.app"
+
+          # Server + management
+          set_render_var "SERVER_PORT" "8080"
+          set_render_var "MANAGEMENT_ENDPOINTS" "health"
+          set_render_var "SHUTDOWN_TIMEOUT" "30s"
+
+          # Java memory optimization (from render.yaml blueprint)
+          set_render_var "JAVA_OPTS" "-Xms64m -Xmx128m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"
+
+          # Database pool
+          set_render_var "DATABASE_POOL_MAX" "5"
+          set_render_var "DATABASE_POOL_MIN" "1"
+          set_render_var "DATABASE_POOL_TIMEOUT" "30000"
+
+          # Logging
+          set_render_var "LOG_LEVEL_ROOT" "WARN"
+          set_render_var "LOG_LEVEL_SANAD" "INFO"
+
+          # Lazy init
+          set_render_var "LAZY_INIT" "true"
+
+          # Email notifications (Resend)
+          set_render_var "SECURITY_NOTIFICATION_PROVIDER" "resend"
+          set_render_var "SECURITY_NOTIFICATION_FROM" "no-reply@snad.ai"
+          set_render_var "SECURITY_NOTIFICATION_RESEND_API_KEY" "$RESEND_API_KEY" "secret"
+          set_render_var "SECURITY_NOTIFICATION_ENDPOINT" "https://snad-app.vercel.app/api/email-proxy"
+          set_render_var "APPLICATION_BASE_URL" "https://snad-app.vercel.app"
+
+          echo ""
+          echo "=== All env vars restored ==="
+
+      - name: Trigger Render deploy
+        id: deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo "=== Triggering new deploy ==="
+          STATUS=$(curl -sS -o /tmp/deploy.json -w "%{http_code}" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data '{"clearCache":"do_not_clear"}')
+          echo "Deploy trigger HTTP ${STATUS}"
+          if [ "$STATUS" != "200" ] && [ "$STATUS" != "201" ] && [ "$STATUS" != "202" ]; then
+            echo "::error::Deploy trigger failed"
+            cat /tmp/deploy.json
+            exit 1
+          fi
+          DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/deploy.json')).get('id',''))")
+          echo "Deploy ID: ${DEPLOY_ID}"
+          echo "deploy_id=${DEPLOY_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for deploy to become live
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          DEPLOY_ID="${{ steps.deploy.outputs.deploy_id }}"
+          echo "Waiting for deploy ${DEPLOY_ID} to become live..."
+          for i in $(seq 1 60); do
+            sleep 15
+            STATUS=$(curl -sS --max-time 30 \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status','unknown'))")
+            echo "  Attempt ${i}: status = ${STATUS}"
+            if [ "${STATUS}" = "live" ]; then
+              echo "✓ DEPLOY LIVE!"
+              exit 0
+            fi
+            if echo "${STATUS}" | grep -qE "failed|canceled|deactivated"; then
+              echo "::error::Deploy failed: ${STATUS}"
+              exit 1
+            fi
+          done
+          echo "::error::Deploy timed out after 15 minutes"
+          exit 1
+
+      - name: Verify health endpoints
+        env:
+          BACKEND_URL: https://sanad-backend-mcrj.onrender.com
+        run: |
+          set -euo pipefail
+          echo "Waiting 10s for service to settle..."
+          sleep 10
+          for path in /actuator/health /actuator/health/liveness /actuator/health/readiness; do
+            echo "Checking ${path}..."
+            for attempt in $(seq 1 12); do
+              STATUS=$(curl -sS -o /tmp/health.json -w "%{http_code}" --max-time 15 \
+                "${BACKEND_URL}${path}" || echo "000")
+              if [ "$STATUS" = "200" ]; then
+                if jq -e '.status == "UP"' /tmp/health.json >/dev/null 2>&1; then
+                  echo "  ✓ ${path}: UP (attempt ${attempt})"
+                  break
+                fi
+              fi
+              echo "  Attempt ${attempt}: HTTP ${STATUS}; waiting..."
+              sleep 10
+            done
+            test "$STATUS" = "200" || { echo "::error::${path} failed: HTTP ${STATUS}"; exit 1; }
+          done
+
+      - name: Verify access-check endpoint responds
+        env:
+          BACKEND_URL: https://sanad-backend-mcrj.onrender.com
+        run: |
+          echo "Checking /api/v1/control-plane/access-check (expect 401 - auth required)..."
+          STATUS=$(curl -sS -o /tmp/access-check.json -w "%{http_code}" --max-time 15 \
+            "${BACKEND_URL}/api/v1/control-plane/access-check")
+          echo "HTTP ${STATUS}"
+          cat /tmp/access-check.json
+          # 401 is expected — means the endpoint is reachable and secured
+          test "$STATUS" = "401" || { echo "::error::Expected 401, got ${STATUS}"; exit 1; }
+          echo "✓ Backend is reachable and secured"
+
+      - name: Summary
+        run: |
+          echo "=== Restore Summary ==="
+          echo "Backend URL: https://sanad-backend-mcrj.onrender.com"
+          echo "Deploy ID: ${{ steps.deploy.outputs.deploy_id }}"
+          echo "Health: UP"
+          echo "Liveness: UP"
+          echo "Readiness: UP"
+          echo "Access-check: 401 (secured)"
+          echo ""
+          echo "NOTE: JWT_SECRET was regenerated. All existing user sessions"
+          echo "are now invalid — users must log in again on their next visit."
+          echo "The new EXECUTIVE_* and SYSTEM_HEALTH_* capabilities from"
+          echo "V20260725.1 will be applied by Flyway on this deploy."
