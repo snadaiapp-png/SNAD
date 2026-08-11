@@ -10,9 +10,9 @@ import uuid
 import sys
 
 def main():
-    # Get env vars
-    jdbc_url = os.environ.get('PROD_JDBC_URL', '')
-    db_user = os.environ.get('PROD_DB_USER', '')
+    # Get env vars — try SPRING_DATASOURCE_URL first, then PROD_JDBC_URL
+    jdbc_url = os.environ.get('SPRING_DATASOURCE_URL', '') or os.environ.get('PROD_JDBC_URL', '')
+    db_user = os.environ.get('SPRING_DATASOURCE_USERNAME', '') or os.environ.get('PROD_DB_USER', '')
     db_pass = os.environ.get('PROD_DB_PASSWORD', '')
     tenant_id = os.environ.get('CONTROL_PLANE_TENANT_ID', '')
     admin_email = os.environ.get('ADMIN_EMAIL', 'admin@snad.ai')
