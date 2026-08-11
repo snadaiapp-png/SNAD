@@ -1,0 +1,79 @@
+name: List All Render Services
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  list:
+    name: List all Render services with details
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: List all Render services
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo "=== RENDER_SERVICE_ID secret points to: ${RENDER_SERVICE_ID} ==="
+          echo ""
+          echo "=== All Render services ==="
+          curl -sS --max-time 30 "https://api.render.com/v1/services?limit=50" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/services.json
+          
+          python3 -c "
+          import json
+          with open('/tmp/services.json') as f:
+              data = json.load(f)
+          
+          if isinstance(data, list):
+              print(f'Total services: {len(data)}')
+              print()
+              for s in data:
+                  sid = s.get('id', '?')
+                  name = s.get('name', '?')
+                  stype = s.get('type', '?')
+                  status = s.get('status', '?')
+                  url = s.get('serviceUrl', '?')
+                  created = s.get('createdAt', '?')
+                  updated = s.get('updatedAt', '?')
+                  print(f'  Service: {name}')
+                  print(f'    id:       {sid}')
+                  print(f'    type:     {stype}')
+                  print(f'    status:   {status}')
+                  print(f'    url:      {url}')
+                  print(f'    created:  {created}')
+                  print(f'    updated:  {updated}')
+                  print()
+          elif isinstance(data, dict):
+              print(f'Response: {json.dumps(data, indent=2)[:1000]}')
+          "
+          
+          echo ""
+          echo "=== Current RENDER_SERVICE_ID env vars ==="
+          curl -sS --max-time 30 "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/env-vars.json
+          
+          python3 -c "
+          import json
+          with open('/tmp/env-vars.json') as f:
+              data = json.load(f)
+          print(f'Env vars on RENDER_SERVICE_ID ({\"$RENDER_SERVICE_ID\"[:7]}...):')
+          if isinstance(data, list):
+              print(f'  Total: {len(data)}')
+              for item in data:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '?') if isinstance(ev, dict) else '?'
+                  val = ev.get('value', '') if isinstance(ev, dict) else ''
+                  vtype = ev.get('type', 'raw') if isinstance(ev, dict) else 'raw'
+                  if vtype == 'SECRET' or any(x in key.lower() for x in ['password', 'secret', 'key', 'token']):
+                      print(f'  {key}: [HIDDEN] (type={vtype})')
+                  else:
+                      print(f'  {key}: {val[:80]} (type={vtype})')
+          "
