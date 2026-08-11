@@ -1,0 +1,56 @@
+name: Check Flyway History
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Check flyway_schema_history
+        env:
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1
+
+          JDBC_URL="$PROD_JDBC_URL"
+          CONN_STR="${JDBC_URL#jdbc:postgresql://}"
+          HOST_PORT="${CONN_STR%%/*}"
+          HOST="${HOST_PORT%%:*}"
+          PORT="${HOST_PORT##*:}"
+          DB_PART="${CONN_STR#*/}"
+          DB_NAME="${DB_PART%%\?*}"
+
+          for attempt in 1 2 3 4 5; do
+            if PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" << 'SQL'; then
+              SET search_path TO public;
+              SELECT '=== Flyway history ===' AS info;
+              SELECT installed_rank, version, description, success, installed_on
+                FROM flyway_schema_history ORDER BY installed_rank;
+              SELECT '=== Count ===' AS info;
+              SELECT count(*) AS total_migrations FROM flyway_schema_history;
+              SELECT '=== users table columns ===' AS info;
+              SELECT column_name, data_type FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='users' ORDER BY ordinal_position;
+              SELECT '=== tenants table columns ===' AS info;
+              SELECT column_name, data_type FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='tenants' ORDER BY ordinal_position;
+              SELECT '=== Schema migration count ===' AS info;
+              SELECT count(*) AS total_tables FROM pg_tables WHERE schemaname='public';
+              SQL
+              exit 0
+            else
+              echo "Attempt $attempt failed. Waiting 15s..."
+              sleep 15
+            fi
+          done
+          echo "All attempts failed"
+          exit 1
