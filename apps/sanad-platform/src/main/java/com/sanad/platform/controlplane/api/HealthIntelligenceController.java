@@ -32,14 +32,14 @@ public class HealthIntelligenceController {
     }
 
     @GetMapping
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("SYSTEM_HEALTH_VIEW")
     public ResponseEntity<PlatformHealthResponse> health(Authentication authentication) {
         accessGuard.require(authentication);
         return ResponseEntity.ok(healthService.snapshot());
     }
 
     @PostMapping("/actions")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("SYSTEM_HEALTH_MONITOR")
     public ResponseEntity<HealthActionResult> execute(
             Authentication authentication,
             @Valid @RequestBody HealthActionRequest request

@@ -78,6 +78,14 @@ public class LoginDestinationResolver {
      * Compute the ordered list of destinations the user is authorized to see and
      * the safe default landing destination.
      *
+     * <p>Control-plane access requires: control-plane tenant + ADMIN role +
+     * at least one platform-level capability. The platform-level capability
+     * families are the directory capabilities (USER, ROLE, CAPABILITY,
+     * ORGANIZATION, MEMBERSHIP, ACCESS) and the dedicated executive / system
+     * health capabilities (EXECUTIVE_*, SYSTEM_HEALTH_*) introduced by
+     * V20260725.1. This intentionally refuses to treat "ADMIN role in any
+     * tenant" as control-plane authority.
+     *
      * @param tenantId             the caller's tenant (from JWT)
      * @param userId               the caller's user id
      * @param requiresRotation     true if the user must rotate their credential
@@ -85,10 +93,6 @@ public class LoginDestinationResolver {
      */
     public DestinationSet resolve(UUID tenantId, UUID userId, boolean requiresRotation) {
         EffectiveCapabilities effective = collectEffectiveCapabilities(tenantId, userId);
-        // Control-plane access requires: control-plane tenant + ADMIN role +
-        // platform-level capability (USER.* / CAPABILITY.* / ROLE.* are the
-        // control-plane capability families today). This intentionally refuses
-        // to treat "ADMIN role in any tenant" as control-plane authority.
         boolean controlPlaneAuthorized = effective.adminRole
                 && controlPlaneAccessGuard.isControlPlaneTenant(tenantId)
                 && hasAnyCapability(effective.capabilities, CONTROL_PLANE_CAPABILITY_PREFIXES);
@@ -229,9 +233,16 @@ public class LoginDestinationResolver {
     private static final String[] ERP_CAPABILITY_PREFIXES = {
             "ERP", "INVENTORY", "PURCHASE"
     };
-    /** Capability families that constitute platform-level (control-plane) authority. */
+    /**
+     * Capability families that constitute platform-level (control-plane)
+     * authority. Includes the original directory families
+     * (USER, ROLE, CAPABILITY, ORGANIZATION, MEMBERSHIP, ACCESS) plus the
+     * dedicated executive and system-health families introduced by
+     * V20260725.1 (EXECUTIVE_*, SYSTEM_HEALTH_*).
+     */
     private static final String[] CONTROL_PLANE_CAPABILITY_PREFIXES = {
-            "USER", "ROLE", "CAPABILITY", "ORGANIZATION", "MEMBERSHIP", "ACCESS"
+            "USER", "ROLE", "CAPABILITY", "ORGANIZATION", "MEMBERSHIP", "ACCESS",
+            "EXECUTIVE", "SYSTEM_HEALTH"
     };
 
     /** Immutable holder for resolved capability state. */

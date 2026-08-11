@@ -42,21 +42,21 @@ public class SaasAdministrationQueryController {
     }
 
     @GetMapping("/plans")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<List<PlanResponse>> plans(Authentication authentication) {
         accessGuard.require(authentication);
         return ResponseEntity.ok(saasService.listPlans());
     }
 
     @GetMapping("/plans/{planId}")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<PlanResponse> plan(Authentication authentication, @PathVariable UUID planId) {
         accessGuard.require(authentication);
         return ResponseEntity.ok(saasService.getPlan(planId));
     }
 
     @GetMapping("/subscriptions")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<List<SubscriptionResponse>> subscriptions(
             Authentication authentication,
             @RequestParam(required = false) UUID tenantId
@@ -66,7 +66,7 @@ public class SaasAdministrationQueryController {
     }
 
     @GetMapping("/subscriptions/{subscriptionId}")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<SubscriptionResponse> subscription(
             Authentication authentication,
             @PathVariable UUID subscriptionId
@@ -76,7 +76,7 @@ public class SaasAdministrationQueryController {
     }
 
     @GetMapping("/subscriptions/{subscriptionId}/entitlements")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<List<EntitlementResponse>> subscriptionEntitlements(
             Authentication authentication,
             @PathVariable UUID subscriptionId
@@ -86,7 +86,7 @@ public class SaasAdministrationQueryController {
     }
 
     @GetMapping("/subscriptions/{subscriptionId}/events")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<List<SubscriptionEventResponse>> subscriptionEvents(
             Authentication authentication,
             @PathVariable UUID subscriptionId
@@ -96,7 +96,7 @@ public class SaasAdministrationQueryController {
     }
 
     @GetMapping("/billing/invoices")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_BILLING")
     public ResponseEntity<List<InvoiceResponse>> invoices(
             Authentication authentication,
             @RequestParam(required = false) UUID tenantId
@@ -106,7 +106,7 @@ public class SaasAdministrationQueryController {
     }
 
     @GetMapping("/tenants/{tenantId}/organizations")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<List<OrganizationAdminResponse>> organizations(
             Authentication authentication,
             @PathVariable UUID tenantId
@@ -116,7 +116,7 @@ public class SaasAdministrationQueryController {
     }
 
     @GetMapping("/tenants/{tenantId}/organizations/{organizationId}/memberships")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<List<MembershipAdminResponse>> memberships(
             Authentication authentication,
             @PathVariable UUID tenantId,

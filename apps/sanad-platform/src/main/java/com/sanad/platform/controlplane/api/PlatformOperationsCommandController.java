@@ -38,7 +38,7 @@ public class PlatformOperationsCommandController {
     }
 
     @PostMapping("/tenants")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<TenantResponse> createTenant(
             Authentication authentication,
             @Valid @RequestBody CreateTenantRequest request
@@ -50,7 +50,7 @@ public class PlatformOperationsCommandController {
     }
 
     @PatchMapping("/tenants/{tenantId}/status")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<TenantResponse> changeTenantStatus(
             Authentication authentication,
             @PathVariable UUID tenantId,
@@ -61,7 +61,7 @@ public class PlatformOperationsCommandController {
     }
 
     @PatchMapping("/systems/{serviceId}/status")
-    @RequireCapability("ROLE.WRITE")
+    @RequireCapability("SYSTEM_HEALTH_MONITOR")
     public ResponseEntity<SystemServiceResponse> updateSystemStatus(
             Authentication authentication,
             @PathVariable UUID serviceId,

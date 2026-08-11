@@ -39,14 +39,14 @@ public class PlatformOperationsQueryController {
     }
 
     @GetMapping("/dashboard")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<DashboardResponse> dashboard(Authentication authentication) {
         accessGuard.require(authentication);
         return ResponseEntity.ok(platformService.dashboard());
     }
 
     @GetMapping("/tenants")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<List<TenantResponse>> listTenants(
             Authentication authentication,
             @RequestParam(required = false) String search,
@@ -59,7 +59,7 @@ public class PlatformOperationsQueryController {
     }
 
     @GetMapping("/tenants/{tenantId}")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<TenantResponse> getTenant(
             Authentication authentication,
             @PathVariable UUID tenantId
@@ -69,14 +69,14 @@ public class PlatformOperationsQueryController {
     }
 
     @GetMapping("/systems")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("SYSTEM_HEALTH_VIEW")
     public ResponseEntity<List<SystemServiceResponse>> systems(Authentication authentication) {
         accessGuard.require(authentication);
         return ResponseEntity.ok(platformService.listSystemServices());
     }
 
     @GetMapping("/audit")
-    @RequireCapability("ROLE.READ")
+    @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<List<AuditEntryResponse>> audit(
             Authentication authentication,
             @RequestParam(defaultValue = "100") int limit
@@ -105,12 +105,16 @@ public class PlatformOperationsQueryController {
                 try {
                     accessGuard.requireRead(authentication);
                     canRead = true;
-                    capabilities.add("ROLE.READ");
+                    capabilities.add("EXECUTIVE_VIEW");
+                    capabilities.add("SYSTEM_HEALTH_VIEW");
+                    capabilities.add("EXECUTIVE_BILLING");
                 } catch (Exception ignored) { }
                 try {
                     accessGuard.requireWrite(authentication);
                     canWrite = true;
-                    capabilities.add("ROLE.WRITE");
+                    capabilities.add("EXECUTIVE_MANAGE");
+                    capabilities.add("SYSTEM_HEALTH_MONITOR");
+                    capabilities.add("SYSTEM_HEALTH_ALERTS");
                 } catch (Exception ignored) { }
             } catch (Exception ignored) { }
         }
