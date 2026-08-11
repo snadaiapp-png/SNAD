@@ -19,6 +19,18 @@ jobs:
     timeout-minutes: 10
     if: github.event.inputs.confirm == 'go'
     steps:
+      - name: Suspend backend to free DB connections
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          curl -sS -o /dev/null -w "Suspend HTTP %{http_code}\n" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${BACKEND_ID}/suspend" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" || true
+          echo "Waiting 20s for connections to be released..."
+          sleep 20
+
       - name: Create admin and test login
         env:
           PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
@@ -140,6 +152,27 @@ jobs:
 
           echo ""
           echo "=== Login test ==="
+          curl -sS --max-time 30 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@snad.ai","password":"@Snad@2026"}' \
+            -w "\nHTTP %{http_code}\n" | head -c 500
+
+      - name: Resume backend
+        if: always()
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          curl -sS -o /dev/null -w "Resume HTTP %{http_code}\n" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${BACKEND_ID}/resume" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" || true
+          echo "Waiting 60s for backend to resume..."
+          sleep 60
+          echo "=== Final health check ==="
+          curl -sS --max-time 30 "https://sanad-backend-mcrj.onrender.com/actuator/health" || true
+          echo ""
+          echo "=== Final login test ==="
           curl -sS --max-time 30 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
             -H "Content-Type: application/json" \
             -d '{"email":"admin@snad.ai","password":"@Snad@2026"}' \
