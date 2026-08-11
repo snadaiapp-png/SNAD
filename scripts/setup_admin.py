@@ -47,29 +47,32 @@ def main():
         dbname=db_name,
         user=db_user,
         password=db_pass,
-        sslmode='require'
+        sslmode='require',
+        options='-c search_path=public'
     )
     conn.autocommit = False
     cur = conn.cursor()
 
-    # Set search_path
-    cur.execute("SET search_path TO public")
+    # Verify we can see the users table with password_hash column
+    cur.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='users' ORDER BY ordinal_position")
+    cols = [row[0] for row in cur.fetchall()]
+    print(f"users table columns: {cols}", file=sys.stderr)
 
     # Check existing users
-    cur.execute("SELECT id, email, status FROM users")
+    cur.execute("SELECT id, email, status FROM public.users")
     users = cur.fetchall()
     print(f"Existing users: {len(users)}", file=sys.stderr)
     for u in users:
         print(f"  {u}", file=sys.stderr)
 
     # Check if admin user exists
-    cur.execute("SELECT id FROM users WHERE email = %s", (admin_email,))
+    cur.execute("SELECT id FROM public.users WHERE email = %s", (admin_email,))
     existing = cur.fetchone()
 
     if existing:
         # Update password
         cur.execute(
-            "UPDATE users SET password_hash = %s, status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP WHERE email = %s",
+            "UPDATE public.users SET password_hash = %s, status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP WHERE email = %s",
             (hash_val, admin_email)
         )
         print(f"Updated password for existing user: {admin_email}", file=sys.stderr)
@@ -77,7 +80,7 @@ def main():
         # Create new user
         user_id = str(uuid.uuid4())
         cur.execute(
-            """INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+            """INSERT INTO public.users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
                VALUES (%s, %s::uuid, %s, 'SNAD Administrator', 'ACTIVE', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)""",
             (user_id, tenant_id, admin_email, hash_val)
         )
@@ -85,13 +88,13 @@ def main():
 
         # Assign ADMIN role
         cur.execute(
-            """INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
+            """INSERT INTO public.user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
                SELECT gen_random_uuid(), u.tenant_id, u.id, r.id, NULL, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-               FROM users u
-               JOIN roles r ON r.tenant_id = u.tenant_id AND r.code = 'ADMIN'
+               FROM public.public.users u
+               JOIN public.public.roles r ON r.tenant_id = u.tenant_id AND r.code = 'ADMIN'
                WHERE u.email = %s
                AND NOT EXISTS (
-                   SELECT 1 FROM user_role_assignments ura
+                   SELECT 1 FROM public.user_role_assignments ura
                    WHERE ura.tenant_id = u.tenant_id AND ura.user_id = u.id AND ura.role_id = r.id
                )""",
             (admin_email,)
@@ -99,7 +102,7 @@ def main():
         print(f"Assigned ADMIN role", file=sys.stderr)
 
     # Verify
-    cur.execute("SELECT email, status, (password_hash IS NOT NULL) AS has_password FROM users")
+    cur.execute("SELECT email, status, (password_hash IS NOT NULL) AS has_password FROM public.users")
     for row in cur.fetchall():
         print(f"  User: {row}", file=sys.stderr)
 
