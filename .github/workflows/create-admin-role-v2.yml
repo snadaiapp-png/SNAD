@@ -71,10 +71,10 @@ jobs:
           cat > /tmp/sql/admin_setup.sql << EOF
           SET search_path TO public;
           BEGIN;
-          -- 1. Create control-plane tenant if missing
-          INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at, locale, timezone, currency_code)
+          -- 1. Create control-plane tenant if missing (only V1 columns: id, name, subdomain, status, created_at, updated_at)
+          INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
           SELECT '\${CONTROL_PLANE_TENANT_ID}'::uuid, 'SNAD Control Plane', 'control-plane', 'ACTIVE',
-                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'ar-SA', 'Asia/Riyadh', 'SAR'
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
           WHERE NOT EXISTS (SELECT 1 FROM tenants WHERE id = '\${CONTROL_PLANE_TENANT_ID}'::uuid);
 
           -- 2. Create ADMIN role if missing
