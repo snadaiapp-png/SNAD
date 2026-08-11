@@ -1,0 +1,135 @@
+name: Apply Migration Manually
+
+# ============================================================
+# Apply V20260725.1 migration manually via psql since Flyway
+# deploy fails (Render startup issue, not migration issue).
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "apply-migration" to confirm'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    if: github.event.inputs.confirm == 'apply-migration'
+    steps:
+      - name: Apply V20260725.1 migration + Flyway history entry
+        env:
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1
+
+          # Parse JDBC URL
+          JDBC_URL="$PROD_JDBC_URL"
+          CONN_STR="${JDBC_URL#jdbc:postgresql://}"
+          HOST_PORT="${CONN_STR%%/*}"
+          HOST="${HOST_PORT%%:*}"
+          PORT="${HOST_PORT##*:}"
+          DB_PART="${CONN_STR#*/}"
+          DB_NAME="${DB_PART%%\?*}"
+
+          echo "Host: $HOST"
+          echo "Port: $PORT"
+          echo "DB: $DB_NAME"
+
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" << 'SQL'
+          -- Start transaction
+          BEGIN;
+
+          -- Insert the 6 new capabilities (idempotent)
+          INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at)
+          SELECT gen_random_uuid(), capability.code, capability.name, capability.description,
+                 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          FROM (
+              VALUES
+                  ('EXECUTIVE_VIEW',        'View Executive Dashboard',     'View the executive management dashboard, tenant directory, plans, subscriptions, organizations and memberships'),
+                  ('EXECUTIVE_MANAGE',      'Manage Platform Resources',    'Create and update tenants, plans, subscriptions, organizations and memberships'),
+                  ('EXECUTIVE_BILLING',     'Manage Billing Invoices',       'Read billing invoices and mark them as paid'),
+                  ('SYSTEM_HEALTH_VIEW',    'View System Health',           'Read the platform health snapshot, service status, tenant pressure and risk forecast'),
+                  ('SYSTEM_HEALTH_MONITOR', 'Monitor and Self-Heal System',  'Execute controlled diagnostics, self-healing and maintenance actions on platform services'),
+                  ('SYSTEM_HEALTH_ALERTS',  'Manage System Health Alerts',   'Receive, acknowledge and configure system health alerts')
+          ) AS capability(code, name, description)
+          WHERE NOT EXISTS (
+              SELECT 1 FROM access_capabilities existing WHERE existing.code = capability.code
+          );
+
+          -- Grant the new capabilities to every ACTIVE ADMIN role
+          INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+          SELECT gen_random_uuid(), role.tenant_id, role.id, capability.id, CURRENT_TIMESTAMP
+          FROM roles role
+          JOIN access_capabilities capability
+            ON capability.code IN (
+                'EXECUTIVE_VIEW',
+                'EXECUTIVE_MANAGE',
+                'EXECUTIVE_BILLING',
+                'SYSTEM_HEALTH_VIEW',
+                'SYSTEM_HEALTH_MONITOR',
+                'SYSTEM_HEALTH_ALERTS'
+            )
+           AND capability.status = 'ACTIVE'
+          WHERE role.code = 'ADMIN'
+            AND role.status = 'ACTIVE'
+            AND NOT EXISTS (
+                SELECT 1
+                FROM role_capabilities existing
+                WHERE existing.tenant_id = role.tenant_id
+                  AND existing.role_id = role.id
+                  AND existing.capability_id = capability.id
+            );
+
+          -- Record the migration in Flyway history so Flyway doesn't try to re-apply it
+          INSERT INTO flyway_schema_history (installed_rank, version, description, type, script, checksum, installed_by, installed_on, execution_time, success)
+          SELECT
+              COALESCE(MAX(installed_rank), 0) + 1,
+              '20260725.1',
+              'seed executive and system health capabilities',
+              'SQL',
+              'V20260725_1__seed_executive_and_system_health_capabilities.sql',
+              0,
+              current_user,
+              CURRENT_TIMESTAMP,
+              0,
+              TRUE
+          FROM flyway_schema_history
+          WHERE NOT EXISTS (
+              SELECT 1 FROM flyway_schema_history WHERE version = '20260725.1'
+          );
+
+          -- Verify results
+          SELECT '=== New capabilities ===' AS info;
+          SELECT code, name, status FROM access_capabilities
+           WHERE code LIKE 'EXECUTIVE%' OR code LIKE 'SYSTEM_HEALTH%'
+           ORDER BY code;
+
+          SELECT '=== ADMIN role grants (sample) ===' AS info;
+          SELECT rc.tenant_id, ac.code
+            FROM role_capabilities rc
+            JOIN roles r ON r.id = rc.role_id
+            JOIN access_capabilities ac ON ac.id = rc.capability_id
+           WHERE r.code = 'ADMIN' AND ac.code LIKE 'EXECUTIVE%'
+           LIMIT 10;
+
+          SELECT '=== Total capabilities ===' AS info;
+          SELECT count(*) AS total_caps FROM access_capabilities;
+
+          SELECT '=== Flyway history (last 5) ===' AS info;
+          SELECT version, description, success, installed_on
+            FROM flyway_schema_history
+           ORDER BY installed_rank DESC LIMIT 5;
+
+          COMMIT;
+          SQL
