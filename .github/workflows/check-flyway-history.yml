@@ -30,22 +30,23 @@ jobs:
           DB_NAME="${DB_PART%%\?*}"
 
           for attempt in 1 2 3 4 5; do
-            if PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" << 'SQL'; then
-              SET search_path TO public;
-              SELECT '=== Flyway history ===' AS info;
-              SELECT installed_rank, version, description, success, installed_on
-                FROM flyway_schema_history ORDER BY installed_rank;
-              SELECT '=== Count ===' AS info;
-              SELECT count(*) AS total_migrations FROM flyway_schema_history;
-              SELECT '=== users table columns ===' AS info;
-              SELECT column_name, data_type FROM information_schema.columns
-                WHERE table_schema='public' AND table_name='users' ORDER BY ordinal_position;
-              SELECT '=== tenants table columns ===' AS info;
-              SELECT column_name, data_type FROM information_schema.columns
-                WHERE table_schema='public' AND table_name='tenants' ORDER BY ordinal_position;
-              SELECT '=== Schema migration count ===' AS info;
-              SELECT count(*) AS total_tables FROM pg_tables WHERE schemaname='public';
-              SQL
+            cat > /tmp/check.sql << 'EOF'
+            SET search_path TO public;
+            SELECT '=== Flyway history ===' AS info;
+            SELECT installed_rank, version, description, success, installed_on
+              FROM flyway_schema_history ORDER BY installed_rank;
+            SELECT '=== Count ===' AS info;
+            SELECT count(*) AS total_migrations FROM flyway_schema_history;
+            SELECT '=== users table columns ===' AS info;
+            SELECT column_name, data_type FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='users' ORDER BY ordinal_position;
+            SELECT '=== tenants table columns ===' AS info;
+            SELECT column_name, data_type FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='tenants' ORDER BY ordinal_position;
+            SELECT '=== Schema migration count ===' AS info;
+            SELECT count(*) AS total_tables FROM pg_tables WHERE schemaname='public';
+            EOF
+            if PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -f /tmp/check.sql; then
               exit 0
             else
               echo "Attempt $attempt failed. Waiting 15s..."
