@@ -1,0 +1,155 @@
+name: Emergency Deploy (Pool=1, No Flyway)
+
+# ============================================================
+# EMERGENCY DEPLOY: Get backend running with minimal DB usage
+# ------------------------------------------------------------
+# Strategy:
+#   1. Revert DATABASE_URL to session mode (port 5432) — Flyway
+#      needs session mode for advisory locks
+#   2. Set DATABASE_POOL_MAX=1 — new container needs only 1 conn
+#   3. Set FLYWAY_ENABLED=false — skip migrations (schema exists)
+#   4. Set JPA_DDL_AUTO=none — skip schema validation
+#   5. Trigger deploy
+#   6. Once live, verify login works
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "emergency" to confirm'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  emergency:
+    name: Emergency deploy with minimal DB usage
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 25
+    if: github.event.inputs.confirm == 'emergency'
+
+    steps:
+      - name: Set env vars for minimal DB usage
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          CONTROL_PLANE_TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          set_var() {
+            local key="$1"
+            local value="$2"
+            local type="${3:-raw}"
+            local payload
+            if [ "$type" = "secret" ]; then
+              payload=$(python3 -c 'import json,sys; print(json.dumps({"value": sys.argv[1], "type": "SECRET"}))' "$value")
+            else
+              payload=$(python3 -c 'import json,sys; print(json.dumps({"value": sys.argv[1]}))' "$value")
+            fi
+            local status
+            status=$(curl -sS -o /tmp/r.json -w "%{http_code}" --max-time 30 \
+              -X PUT \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" \
+              -H "Content-Type: application/json" \
+              --data "$payload" \
+              "https://api.render.com/v1/services/${BACKEND_ID}/env-vars/${key}")
+            echo "  $key: HTTP $status ($type)"
+          }
+
+          echo "=== Setting minimal DB env vars ==="
+
+          # Revert to session mode (port 5432) — original PROD_JDBC_URL
+          set_var "DATABASE_URL" "$PROD_JDBC_URL" "secret"
+          set_var "DATABASE_USERNAME" "$PROD_DB_USER" "secret"
+          set_var "DATABASE_PASSWORD" "$PROD_DB_PASSWORD" "secret"
+
+          # Minimal pool
+          set_var "DATABASE_POOL_MAX" "1"
+          set_var "DATABASE_POOL_MIN" "1"
+          set_var "DATABASE_POOL_TIMEOUT" "60000"
+
+          # DISABLE Flyway and JPA validate — skip schema checks
+          set_var "FLYWAY_ENABLED" "false"
+          set_var "JPA_DDL_AUTO" "none"
+
+          # Other required vars
+          set_var "SPRING_PROFILES_ACTIVE" "prod"
+          set_var "JWT_SECRET" "$(openssl rand -hex 32)" "secret"
+          set_var "BOOTSTRAP_ENABLED" "false"
+          set_var "SANAD_CONTROL_PLANE_TENANT_ID" "$CONTROL_PLANE_TENANT_ID" "secret"
+          set_var "SANAD_CORS_ALLOWED_ORIGINS" "https://snad-app.vercel.app"
+          set_var "SERVER_PORT" "8080"
+          set_var "MANAGEMENT_ENDPOINTS" "health"
+          set_var "SHUTDOWN_TIMEOUT" "30s"
+          set_var "JAVA_OPTS" "-Xms64m -Xmx128m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"
+          set_var "LOG_LEVEL_ROOT" "INFO"
+          set_var "LOG_LEVEL_SANAD"" "DEBUG"
+          set_var "LAZY_INIT" "true"
+          set_var "SECURITY_NOTIFICATION_PROVIDER" "disabled"
+          set_var "APPLICATION_BASE_URL" "https://snad-app.vercel.app"
+          set_var "FLYWAY_LOCATIONS" "classpath:db/migration,classpath:db/vendor/{vendor}"
+
+      - name: Trigger deploy
+        id: deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+          STATUS=$(curl -sS -o /tmp/deploy.json -w "%{http_code}" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${BACKEND_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data '{"clearCache":"do_not_clear"}')
+          echo "Deploy trigger HTTP ${STATUS}"
+          DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/deploy.json')).get('id',''))")
+          echo "Deploy ID: ${DEPLOY_ID}"
+          echo "deploy_id=${DEPLOY_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+          DEPLOY_ID="${{ steps.deploy.outputs.deploy_id }}"
+          for i in $(seq 1 100); do
+            sleep 15
+            STATUS=$(curl -sS --max-time 30 \
+              "https://api.render.com/v1/services/${BACKEND_ID}/deploys/${DEPLOY_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status','unknown'))")
+            echo "  Attempt ${i}: ${STATUS}"
+            if [ "${STATUS}" = "live" ]; then echo "✓ DEPLOY LIVE!"; exit 0; fi
+            if echo "${STATUS}" | grep -qE "failed|canceled|deactivated"; then
+              echo "::error::Deploy ${STATUS}"
+              exit 1
+            fi
+          done
+          echo "::error::Timeout"
+          exit 1
+
+      - name: Verify
+        run: |
+          sleep 15
+          echo "=== Health ==="
+          curl -sS --max-time 15 "https://sanad-backend-mcrj.onrender.com/actuator/health"
+          echo ""
+          echo "=== Login ==="
+          curl -sS --max-time 15 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
+            -H "Content-Type: application/json" \
+            -H "Origin: https://snad-app.vercel.app" \
+            -d '{"email":"admin@snad.ai","password":"wrong"}' \
+            -w "\nHTTP %{http_code}\n"
