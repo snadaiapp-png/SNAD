@@ -1,0 +1,127 @@
+name: Force Resume & Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "force" to force resume + deploy'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  force:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 30
+    if: github.event.inputs.confirm == 'force'
+    steps:
+      - name: Check service status
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+          echo "=== Current service status ==="
+          curl -sS --max-time 30 "https://api.render.com/v1/services/${BACKEND_ID}" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          print(f'status: {d.get(\"status\",\"?\")}')
+          print(f'suspended: {d.get(\"suspended\",\"?\")}')
+          print(f'imagePath: {d.get(\"imagePath\",\"?\")[:60]}')
+          "
+
+      - name: Resume service
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+          echo "=== Resuming service ==="
+          STATUS=$(curl -sS -o /tmp/r.json -w "%{http_code}" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${BACKEND_ID}/resume" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" || true)
+          echo "Resume HTTP ${STATUS}"
+          cat /tmp/r.json || true
+          echo ""
+
+      - name: Wait for service to become available
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+          echo "=== Waiting for service to become available ==="
+          for i in $(seq 1 30); do
+            STATUS=$(curl -sS --max-time 30 "https://api.render.com/v1/services/${BACKEND_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status','unknown'))")
+            echo "  Attempt $i: service status = $STATUS"
+            if [ "$STATUS" = "ok" ] || [ "$STATUS" = "updating" ]; then
+              echo "Service is $STATUS!"
+              break
+            fi
+            sleep 10
+          done
+
+      - name: Trigger deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+          echo "=== Triggering deploy ==="
+          STATUS=$(curl -sS -o /tmp/deploy.json -w "%{http_code}" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${BACKEND_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data '{"clearCache":"do_not_clear"}')
+          echo "Deploy trigger HTTP ${STATUS}"
+          cat /tmp/deploy.json || true
+          DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/deploy.json')).get('id',''))")
+          echo "Deploy ID: $DEPLOY_ID"
+          echo "deploy_id=$DEPLOY_ID" >> "$GITHUB_ENV"
+
+      - name: Wait for deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+          DEPLOY_ID="${deploy_id}"
+          if [ -z "$DEPLOY_ID" ]; then echo "No deploy ID"; exit 1; fi
+          echo "Waiting for deploy $DEPLOY_ID..."
+          for i in $(seq 1 120); do
+            sleep 15
+            STATUS=$(curl -sS --max-time 30 \
+              "https://api.render.com/v1/services/${BACKEND_ID}/deploys/${DEPLOY_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status','unknown'))")
+            echo "  Attempt $i: $STATUS"
+            if [ "$STATUS" = "live" ]; then echo "✓ DEPLOY LIVE!"; exit 0; fi
+            if echo "$STATUS" | grep -qE "failed|canceled|deactivated"; then
+              echo "::error::$STATUS"
+              exit 1
+            fi
+          done
+          echo "Timeout"
+          exit 1
+
+      - name: Verify
+        run: |
+          sleep 15
+          echo "=== Health ==="
+          curl -sS --max-time 30 "https://sanad-backend-mcrj.onrender.com/actuator/health" || true
+          echo ""
+          echo "=== Login (wrong password) ==="
+          curl -sS --max-time 20 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@snad.ai","password":"wrong"}' \
+            -w "\nHTTP %{http_code}\n" || true
