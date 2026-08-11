@@ -1,0 +1,118 @@
+name: Enable Flyway & Apply Migrations
+
+# ============================================================
+# Enable Flyway to apply V20260725.1 migration which seeds:
+#   - EXECUTIVE_VIEW, EXECUTIVE_MANAGE, EXECUTIVE_BILLING
+#   - SYSTEM_HEALTH_VIEW, SYSTEM_HEALTH_MONITOR, SYSTEM_HEALTH_ALERTS
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "enable-flyway" to confirm'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  enable-flyway:
+    name: Enable Flyway and deploy
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 30
+    if: github.event.inputs.confirm == 'enable-flyway'
+
+    steps:
+      - name: Enable Flyway + JPA validate
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+
+          set_var() {
+            local key="$1"
+            local value="$2"
+            local payload
+            payload=$(python3 -c 'import json,sys; print(json.dumps({"value": sys.argv[1]}))' "$value")
+            local status
+            status=$(curl -sS -o /tmp/r.json -w "%{http_code}" --max-time 30 \
+              -X PUT \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" \
+              -H "Content-Type: application/json" \
+              --data "$payload" \
+              "https://api.render.com/v1/services/${BACKEND_ID}/env-vars/${key}")
+            echo "  $key: HTTP $status"
+          }
+
+          echo "=== Enabling Flyway ==="
+          set_var "FLYWAY_ENABLED" "true"
+          set_var "FLYWAY_LOCATIONS" "classpath:db/migration,classpath:db/vendor/{vendor}"
+          set_var "FLYWAY_BASELINE_ON_MIGRATE" "false"
+          set_var "FLYWAY_VALIDATE_ON_MIGRATE" "true"
+          set_var "JPA_DDL_AUTO" "validate"
+          # Keep pool small to avoid exhausting Supabase
+          set_var "DATABASE_POOL_MAX" "2"
+          set_var "DATABASE_POOL_MIN" "1"
+
+      - name: Trigger deploy
+        id: deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+          STATUS=$(curl -sS -o /tmp/deploy.json -w "%{http_code}" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${BACKEND_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data '{"clearCache":"do_not_clear"}')
+          echo "Deploy trigger HTTP ${STATUS}"
+          DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/deploy.json')).get('id',''))")
+          echo "Deploy ID: ${DEPLOY_ID}"
+          echo "deploy_id=${DEPLOY_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+          DEPLOY_ID="${{ steps.deploy.outputs.deploy_id }}"
+          echo "Waiting for deploy ${DEPLOY_ID}..."
+          for i in $(seq 1 120); do
+            sleep 15
+            STATUS=$(curl -sS --max-time 30 \
+              "https://api.render.com/v1/services/${BACKEND_ID}/deploys/${DEPLOY_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status','unknown'))")
+            echo "  Attempt ${i}: ${STATUS}"
+            if [ "${STATUS}" = "live" ]; then echo "✓ DEPLOY LIVE!"; exit 0; fi
+            if echo "${STATUS}" | grep -qE "failed|canceled|deactivated"; then
+              echo "::error::Deploy ${STATUS}"
+              exit 1
+            fi
+          done
+          echo "::error::Timeout"
+          exit 1
+
+      - name: Verify health and login
+        run: |
+          sleep 15
+          echo "=== Health ==="
+          curl -sS --max-time 15 "https://sanad-backend-mcrj.onrender.com/actuator/health"
+          echo ""
+          echo "=== Login test (wrong password → expect 401) ==="
+          curl -sS --max-time 15 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@snad.ai","password":"wrong"}' \
+            -w "\nHTTP %{http_code}\n"
+          echo ""
+          echo "=== Access-check ==="
+          curl -sS --max-time 10 "https://sanad-backend-mcrj.onrender.com/api/v1/control-plane/access-check"
