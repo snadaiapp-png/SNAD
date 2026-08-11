@@ -41,6 +41,7 @@ jobs:
           # Generate BCrypt hash
           HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'@Snad@2026', bcrypt.gensalt(10)).decode())")
           echo "::add-mask::$HASH"
+          export HASH
 
           # Write SQL file using Python to avoid bash $ expansion issues
           python3 << 'PYEOF' > /tmp/admin.sql
