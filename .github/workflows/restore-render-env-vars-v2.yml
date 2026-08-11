@@ -101,9 +101,9 @@ jobs:
             local value_type="${3:-raw}"
             local payload
             if [ "$value_type" = "secret" ]; then
-              payload=$(jq -n --arg v "$value" '{value:$value,type:"SECRET"}')
+              payload=$(python3 -c 'import json,sys; print(json.dumps({"value": sys.argv[1], "type": "SECRET"}))' "$value")
             else
-              payload=$(jq -n --arg v "$value" '{value:$value}')
+              payload=$(python3 -c 'import json,sys; print(json.dumps({"value": sys.argv[1]}))' "$value")
             fi
             local status
             status=$(curl -sS -o /tmp/render-resp.json -w "%{http_code}" --max-time 45 \
