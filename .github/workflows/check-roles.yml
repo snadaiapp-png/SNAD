@@ -1,0 +1,72 @@
+name: Check Roles & Apply Migration Final
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "check-roles" to confirm'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    if: github.event.inputs.confirm == 'check-roles'
+    steps:
+      - name: Check roles and grant capabilities
+        env:
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1
+
+          JDBC_URL="$PROD_JDBC_URL"
+          CONN_STR="${JDBC_URL#jdbc:postgresql://}"
+          HOST_PORT="${CONN_STR%%/*}"
+          HOST="${HOST_PORT%%:*}"
+          PORT="${HOST_PORT##*:}"
+          DB_PART="${CONN_STR#*/}"
+          DB_NAME="${DB_PART%%\?*}"
+
+          echo "=== List all roles ==="
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" << 'SQL'
+          SET search_path TO public;
+
+          SELECT '=== All roles ===' AS info;
+          SELECT id, tenant_id, code, name, status FROM roles ORDER BY code;
+
+          SELECT '=== Role count by code ===' AS info;
+          SELECT code, count(*) FROM roles GROUP BY code ORDER BY code;
+
+          SELECT '=== User count ===' AS info;
+          SELECT count(*) AS total_users FROM users;
+
+          SELECT '=== Sample users (first 5) ===' AS info;
+          SELECT id, email, tenant_id, status FROM users LIMIT 5;
+
+          SELECT '=== Capability count ===' AS info;
+          SELECT count(*) AS total_caps FROM access_capabilities;
+
+          SELECT '=== EXECUTIVE/SYSTEM_HEALTH caps ===' AS info;
+          SELECT code, name, status FROM access_capabilities
+           WHERE code LIKE 'EXECUTIVE%' OR code LIKE 'SYSTEM_HEALTH%'
+           ORDER BY code;
+
+          SELECT '=== Role capabilities count ===' AS info;
+          SELECT count(*) AS total_role_caps FROM role_capabilities;
+
+          SELECT '=== Sample role_capabilities ===' AS info;
+          SELECT rc.tenant_id, r.code AS role_code, ac.code AS cap_code
+            FROM role_capabilities rc
+            JOIN roles r ON r.id = rc.role_id
+            JOIN access_capabilities ac ON ac.id = rc.capability_id
+           LIMIT 10;
+          SQL
