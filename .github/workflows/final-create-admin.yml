@@ -1,0 +1,94 @@
+name: FINAL — Create Admin (File-based)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "go" to create admin'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+    if: github.event.inputs.confirm == 'go'
+    steps:
+      - name: Install deps
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1 && pip3 install bcrypt > /dev/null 2>&1
+
+      - name: Create admin via SQL file with Python substitution
+        env:
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
+        run: |
+          set -euo pipefail
+          JDBC_URL="$PROD_JDBC_URL"
+          CONN_STR="${JDBC_URL#jdbc:postgresql://}"
+          HOST_PORT="${CONN_STR%%/*}"
+          HOST="${HOST_PORT%%:*}"
+          PORT="${HOST_PORT##*:}"
+          DB_PART="${CONN_STR#*/}"
+          DB_NAME="${DB_PART%%\?*}"
+
+          # Generate BCrypt hash
+          HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'@Snad@2026', bcrypt.gensalt(10)).decode())")
+          echo "::add-mask::$HASH"
+
+          # Write SQL file using Python to avoid bash $ expansion issues
+          python3 << 'PYEOF' > /tmp/admin.sql
+          import os
+          tenant = os.environ['TENANT_ID']
+          pwd_hash = os.environ['HASH']
+          email = 'admin@snad.ai'
+          sql = f"""SET search_path TO public;
+          BEGIN;
+          INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
+          SELECT '{tenant}'::uuid, 'SNAD', 'snad', 'ACTIVE', now(), now()
+          WHERE NOT EXISTS (SELECT 1 FROM tenants WHERE id = '{tenant}'::uuid);
+          INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
+          SELECT gen_random_uuid(), '{tenant}'::uuid, 'ADMIN', 'Admin', 'Full', 'ACTIVE', now(), now()
+          WHERE NOT EXISTS (SELECT 1 FROM roles WHERE tenant_id = '{tenant}'::uuid AND code = 'ADMIN');
+          INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+          SELECT gen_random_uuid(), r.tenant_id, r.id, c.id, now()
+          FROM roles r CROSS JOIN access_capabilities c
+          WHERE r.tenant_id = '{tenant}'::uuid AND r.code = 'ADMIN' AND c.status = 'ACTIVE'
+            AND NOT EXISTS (SELECT 1 FROM role_capabilities x WHERE x.tenant_id = r.tenant_id AND x.role_id = r.id AND x.capability_id = c.id);
+          INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+          SELECT gen_random_uuid(), '{tenant}'::uuid, '{email}', 'Admin', 'ACTIVE', '{pwd_hash}', now(), now()
+          WHERE NOT EXISTS (SELECT 1 FROM users WHERE email = '{email}');
+          UPDATE users SET password_hash = '{pwd_hash}', status = 'ACTIVE' WHERE email = '{email}';
+          INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
+          SELECT gen_random_uuid(), u.tenant_id, u.id, r.id, NULL, 'ACTIVE', now(), now()
+          FROM users u JOIN roles r ON r.tenant_id = u.tenant_id AND r.code = 'ADMIN'
+          WHERE u.email = '{email}'
+            AND NOT EXISTS (SELECT 1 FROM user_role_assignments x WHERE x.tenant_id = u.tenant_id AND x.user_id = u.id AND x.role_id = r.id);
+          SELECT email, status FROM users WHERE email = '{email}';
+          COMMIT;
+          """
+          print(sql)
+          PYEOF
+
+          echo "=== Running SQL ==="
+          for attempt in 1 2 3 4 5; do
+            if PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -f /tmp/admin.sql; then
+              echo "✓ Admin created!"
+              break
+            fi
+            echo "Attempt $attempt failed. Waiting 10s..."
+            sleep 10
+          done
+
+          echo ""
+          echo "=== Login test ==="
+          curl -sS --max-time 30 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@snad.ai","password":"@Snad@2026"}' \
+            -w "\nHTTP %{http_code}\n" | head -c 500
