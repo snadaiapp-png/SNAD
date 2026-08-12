@@ -26,10 +26,10 @@ export default function WorkspacePage() {
   if (state !== "AUTHENTICATED") return <AuthLoadingState phase="workspace" />;
 
   const displayName = me?.displayName || user?.email || t("workspace.defaultUser");
-  const canOpenCrm = availableDestinations.includes("/crm");
+  const canOpenCrm = availableDestinations.includes("/crm") || availableDestinations.includes("/control-plane");
   const canOpenControlPlane = true; // Always show Control Plane card
-  const canOpenExecutive = availableDestinations.includes("/executive");
-  const canOpenSystemHealth = availableDestinations.includes("/system-health");
+  const canOpenExecutive = true; // Always show Executive card (admin)
+  const canOpenSystemHealth = true; // Always show System Health card (admin)
 
   return (
     <ExecutiveShell>
@@ -64,6 +64,24 @@ export default function WorkspacePage() {
                   <p className={styles.appDescription}>{t("controlPlane.title")}</p>
                 </div>
                 <span className={styles.appAction}>{t("workspace.openControlPlane")}</span>
+              </Link>
+            )}
+            {canOpenExecutive && (
+              <Link className={styles.appCard} href="/executive" prefetch>
+                <div>
+                  <div className={styles.appName}>الإدارة العليا</div>
+                  <p className={styles.appDescription}>لوحة القيادة التنفيذية - إدارة المستأجرين والاشتراكات والفواتير</p>
+                </div>
+                <span className={styles.appAction}>فتح الإدارة العليا</span>
+              </Link>
+            )}
+            {canOpenSystemHealth && (
+              <Link className={styles.appCard} href="/system-health" prefetch>
+                <div>
+                  <div className={styles.appName}>صحة النظام</div>
+                  <p className={styles.appDescription}>مراقبة صحة المنصة - الخدمات والمؤشرات والتنبيهات</p>
+                </div>
+                <span className={styles.appAction}>فتح صحة النظام</span>
               </Link>
             )}
           </div>

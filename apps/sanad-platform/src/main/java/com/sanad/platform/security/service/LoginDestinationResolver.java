@@ -53,6 +53,8 @@ public class LoginDestinationResolver {
     public static final String CRM = "/crm";
     public static final String CRM_COMMAND_CENTER = "/crm/command-center";
     public static final String CONTROL_PLANE = "/control-plane";
+    public static final String SYSTEM_HEALTH = "/system-health";
+    public static final String EXECUTIVE = "/executive";
     public static final String FINANCE = "/finance";
     public static final String ERP = "/erp";
 
@@ -105,6 +107,18 @@ public class LoginDestinationResolver {
         }
         if (hasAnyCapability(effective.capabilities, ERP_CAPABILITY_PREFIXES)) {
             destinations.add(ERP);
+        }
+        // System Health destination: requires EXECUTIVE_* or SYSTEM_HEALTH_* capabilities
+        // OR control-plane authority (admins can access system health)
+        if (controlPlaneAuthorized
+                || hasAnyCapability(effective.capabilities, SYSTEM_HEALTH_CAPABILITY_PREFIXES)
+                || hasAnyCapability(effective.capabilities, EXECUTIVE_CAPABILITY_PREFIXES)) {
+            destinations.add(SYSTEM_HEALTH);
+        }
+        // Executive destination: requires EXECUTIVE_* capabilities OR control-plane admin
+        if (controlPlaneAuthorized
+                || hasAnyCapability(effective.capabilities, EXECUTIVE_CAPABILITY_PREFIXES)) {
+            destinations.add(EXECUTIVE);
         }
         if (controlPlaneAuthorized) {
             destinations.add(CONTROL_PLANE);
@@ -228,6 +242,16 @@ public class LoginDestinationResolver {
     };
     private static final String[] ERP_CAPABILITY_PREFIXES = {
             "ERP", "INVENTORY", "PURCHASE"
+    };
+    /** System Health capability prefixes (both dot and underscore versions supported). */
+    private static final String[] SYSTEM_HEALTH_CAPABILITY_PREFIXES = {
+            "SYSTEM_HEALTH", "SYSTEM_HEALTH_VIEW", "SYSTEM_HEALTH_MONITOR", "SYSTEM_HEALTH_ALERTS",
+            "SYSTEM_HEALTH.VIEW", "SYSTEM_HEALTH.MONITOR", "SYSTEM_HEALTH.ALERTS"
+    };
+    /** Executive capability prefixes (both dot and underscore versions supported). */
+    private static final String[] EXECUTIVE_CAPABILITY_PREFIXES = {
+            "EXECUTIVE", "EXECUTIVE_VIEW", "EXECUTIVE_MANAGE", "EXECUTIVE_BILLING",
+            "EXECUTIVE.VIEW", "EXECUTIVE.MANAGE", "EXECUTIVE.BILLING"
     };
     /** Capability families that constitute platform-level (control-plane) authority. */
     private static final String[] CONTROL_PLANE_CAPABILITY_PREFIXES = {
