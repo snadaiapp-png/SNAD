@@ -1,4 +1,4 @@
-name: Find correct production DB (read-only)
+name: Test DB credential candidates (read-only)
 
 on:
   workflow_dispatch:
@@ -7,39 +7,57 @@ permissions:
   contents: read
 
 jobs:
-  find:
-    name: Identify valid production database target
+  test:
+    name: Test DB connection candidates
     runs-on: ubuntu-latest
     environment: Production
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
-      - name: Resolve SPRING_DATASOURCE_URL host + list Supabase projects
+      - name: Install psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null
+
+      - name: Test candidate DB URLs (read-only SELECT 1 + schema)
         env:
           SPRING_DS_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
-          SUPABASE_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PAT: ${{ secrets.SUPABASE_PAT }}
-          KNOWN_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SPRING_DS_USER: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+          PROD_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
         run: |
-          set -euo pipefail
-          echo "=== 1. SPRING_DATASOURCE_URL host (sanitized) + DNS ==="
+          set +e
+          REAL_HOST="db.hxhvfqxzigrqoxxnnzje.supabase.co"
+
+          echo "=== Candidate A: SPRING_DATASOURCE_URL as-is (libpq, may embed creds) ==="
           if [ -n "$SPRING_DS_URL" ]; then
-            HOST=$(echo "$SPRING_DS_URL" | sed -E 's#^[^@]*@##; s#[:/?].*##')
-            echo "host (sanitized) = $HOST"
-            getent hosts "$HOST" >/dev/null 2>&1 && echo "DNS=$HOST -> RESOLVES" || echo "DNS=$HOST -> FAILS"
+            PG_URL="${SPRING_DS_URL#jdbc:}"
+            # host present?
+            echo "$SPRING_DS_URL" | grep -q "$REAL_HOST" && echo "matches sanad-production-v2 host: YES" || echo "matches sanad-production-v2 host: NO"
+            out=$(psql "$PG_URL" -tAc "SELECT 1;" 2>&1)
+            echo "psql result: $out"
+            if echo "$out" | grep -q "^1$"; then echo "CANDIDATE_A=OK (embedded creds work)"; fi
           else
-            echo "SPRING_DATASOURCE_URL = MISSING"
+            echo "SPRING_DATASOURCE_URL MISSING"
           fi
 
           echo ""
-          echo "=== 2. SUPABASE_PROJECT_REF secret value ==="
-          echo "KNOWN_REF = $KNOWN_REF"
+          echo "=== Candidate B: SPRING_DS_URL host + SPRING_DS_USER + PROD_PASS ==="
+          if [ -n "$SPRING_DS_URL" ] && [ -n "$SPRING_DS_USER" ] && [ -n "$PROD_PASS" ]; then
+            PG_URL="${SPRING_DS_URL#jdbc:}"
+            out=$(PGPASSWORD="$PROD_PASS" psql "$PG_URL" -U "$SPRING_DS_USER" -tAc "SELECT 1;" 2>&1)
+            echo "psql result: $out"
+            if echo "$out" | grep -q "^1$"; then echo "CANDIDATE_B=OK"; fi
+          fi
 
           echo ""
-          echo "=== 3. Supabase projects (via ACCESS_TOKEN) ==="
-          for tok in "$SUPABASE_TOKEN" "$SUPABASE_PAT"; do
-            [ -z "$tok" ] && continue
-            echo "--- trying token (len=${#tok}) ---"
-            curl -s --max-time 30 -H "Authorization: Bearer $tok" "https://api.supabase.com/v1/projects" \
-              | jq '[.[]? | {name, ref: (.id // .ref), region, status, db_host: (.database.host // null)}]' 2>/dev/null && break
-            echo "(token failed, trying next)"
-          done
+          echo "=== Candidate C: build URL from known host + PROD creds (postgres user) ==="
+          if [ -n "$PROD_PASS" ]; then
+            out=$(PGPASSWORD="$PROD_PASS" psql "host=$REAL_HOST port=5432 dbname=postgres sslmode=require" -U postgres -tAc "SELECT 1;" 2>&1)
+            echo "psql result: $out"
+            if echo "$out" | grep -q "^1$"; then echo "CANDIDATE_C=OK (postgres/PROD_PASS)"; fi
+          fi
+
+          echo ""
+          echo "=== Candidate D: known host + SPRING_DS_USER + PROD_PASS ==="
+          if [ -n "$SPRING_DS_USER" ] && [ -n "$PROD_PASS" ]; then
+            out=$(PGPASSWORD="$PROD_PASS" psql "host=$REAL_HOST port=5432 dbname=postgres sslmode=require" -U "$SPRING_DS_USER" -tAc "SELECT 1;" 2>&1)
+            echo "psql result: $out"
+            if echo "$out" | grep -q "^1$"; then echo "CANDIDATE_D=OK"; fi
+          fi
