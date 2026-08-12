@@ -1,0 +1,83 @@
+name: Restore Render DB env vars (Phase 5 fix)
+
+# Restores the missing DATABASE_URL / DATABASE_USERNAME / DATABASE_PASSWORD on
+# the Render service (the root cause of update_failed deploys).
+# SAFETY: verifies the production credentials with a READ-ONLY connection and a
+# schema presence check BEFORE writing anything to Render. No deploy here.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    name: Verify DB creds + restore Render env vars
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 8
+    steps:
+      - name: Install psql client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null
+
+      - name: Verify production DB credentials (read-only)
+        id: verify
+        env:
+          JDBC_URL: ${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}
+          DB_USER: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+          DB_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$JDBC_URL" || { echo "::error::PRODUCTION_DATABASE_JDBC_URL is empty"; exit 1; }
+          test -n "$DB_USER"  || { echo "::error::PRODUCTION_DATABASE_USERNAME is empty"; exit 1; }
+          test -n "$DB_PASS"  || { echo "::error::PRODUCTION_DATABASE_PASSWORD is empty"; exit 1; }
+          # Convert jdbc:postgresql://host:port/db -> postgresql://host:port/db (libpq)
+          PG_URL="${JDBC_URL#jdbc:}"
+          echo "JDBC scheme host (sanitized): $(echo "$PG_URL" | sed -E 's#(//)[^@]+@#\1***@#; s#\?.*##')"
+          echo "=== READ-ONLY connectivity + schema check ==="
+          # Connection check (SELECT version). read-only by nature.
+          psql "$PG_URL" -v ON_ERROR_STOP=1 -c "SELECT version();" -t | head -1
+          # Confirm this is the SANAD production DB (flyway history + core tables present)
+          TABLES=$(psql "$PG_URL" -v ON_ERROR_STOP=1 -tAc "
+            SELECT string_agg(table_name, ', ' ORDER BY table_name)
+            FROM information_schema.tables
+            WHERE table_schema='public' AND table_name IN
+              ('flyway_schema_history','tenants','users','crm_accounts','crm_contacts');")
+          echo "Core tables found: $TABLES"
+          echo "$TABLES" | grep -q 'flyway_schema_history' || { echo "::error::Not the SANAD DB (no flyway_schema_history)"; exit 1; }
+          echo "$TABLES" | grep -q 'tenants' || { echo "::error::Not the SANAD DB (no tenants table)"; exit 1; }
+          # Current Flyway state (read-only)
+          echo "=== Current Flyway applied version ==="
+          psql "$PG_URL" -v ON_ERROR_STOP=1 -tAc "SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 5;" || true
+          echo "VERIFY=PASS" >> "$GITHUB_OUTPUT"
+
+      - name: Set DATABASE_URL / USERNAME / PASSWORD on Render
+        if: steps.verify.outputs.VERIFY == 'PASS'
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          JDBC_URL: ${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}
+          DB_USER: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+          DB_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          set_env() {
+            local key="$1" val="$2"
+            jq -n --arg value "$val" '{value:$value}' > /tmp/body.json
+            curl -s --fail-with-body --max-time 45 -X PUT \
+              -H "$AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+              --data @/tmp/body.json "$BASE/env-vars/$key" > /tmp/resp.json
+            echo "Set $key -> OK"
+          }
+          set_env DATABASE_URL "$JDBC_URL"
+          set_env DATABASE_USERNAME "$DB_USER"
+          set_env DATABASE_PASSWORD "$DB_PASS"
+          echo "=== Verify env vars now present on Render ==="
+          for key in DATABASE_URL DATABASE_USERNAME DATABASE_PASSWORD; do
+            v=$(curl -s --max-time 30 -H "$AUTH" "$BASE/env-vars/$key" | jq -r '(.envVar // .).value // empty')
+            [ -n "$v" ] && echo "$key = PRESENT (len=${#v})" || { echo "::error::$key still MISSING"; exit 1; }
+          done
+          echo "RESTORE=COMPLETE"
