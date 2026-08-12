@@ -35,7 +35,7 @@ def main():
 
     # Generate BCrypt hash
     password_bytes = new_password.encode('utf-8')
-    hash_val = bcrypt.hashpw(password_bytes, bcrypt.gensalt(rounds=10, prefix=b"2a")).decode('utf-8')
+    hash_val = bcrypt.hashpw(password_bytes, bcrypt.gensalt(rounds=10)).decode('utf-8')
     print(f"Generated BCrypt hash (length: {len(hash_val)})", file=sys.stderr)
     print(f"Hash: {hash_val}", file=sys.stderr)
 
