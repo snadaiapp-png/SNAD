@@ -1,0 +1,54 @@
+name: Render Deploy Diagnostic (read-only)
+
+# Read-only diagnostic: queries Render API to identify why image deploys fail.
+# No mutations (GET only). Credentials are never printed — only PRESENT/MISSING
+# and a sanitized scheme+host (user:pass masked).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Diagnose Render deploy failure (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Query Render service + deploys + env vars
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+
+          echo "=== SERVICE OBJECT (full) ==="
+          curl -s --fail-with-body --max-time 30 -H "$AUTH" -H 'Accept: application/json' \
+            "$BASE" | jq '{id, name, status, autoDeploy, type, serviceDetails: (.serviceDetails // {}), createdAt}'
+
+          echo ""
+          echo "=== LATEST DEPLOYS (full) ==="
+          curl -s --fail-with-body --max-time 30 -H "$AUTH" -H 'Accept: application/json' \
+            "$BASE/deploys?limit=3" | jq '[.[]? | (.deploy // .) | {id, status, imageRef: .image, commit: .commit.id, created: .createdAt, finished: .finishedAt, errorMsg: (.error // .errorMessage // .reason // null)}]'
+
+          echo ""
+          echo "=== ENV VARS (sanitized: PRESENT/MISSING + scheme/host only) ==="
+          for key in DATABASE_URL SPRING_DATASOURCE_URL DATABASE_USERNAME DATABASE_PASSWORD JWT_SECRET FLYWAY_ENABLED FLYWAY_LOCATIONS JPA_DDL_AUTO SPRING_PROFILES_ACTIVE; do
+            resp=$(curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE/env-vars/$key" || true)
+            val=$(echo "$resp" | jq -r '(.envVar // .).value // empty' 2>/dev/null || true)
+            if [ -z "$val" ]; then
+              echo "$key = MISSING"
+            else
+              # Sanitize: show only scheme + host, mask credentials
+              sanitized=$(echo "$val" | sed -E 's#(://[^:]+:)[^@]+@#\1***@#g; s#(postgresql://)[^@]+@#\1***@#g')
+              # If it looks like a URL, show scheme+host only; otherwise just show PRESENT
+              if echo "$sanitized" | grep -qE '://|supabase|render|neon|localhost|127\.0\.0\.1'; then
+                echo "$key = PRESENT -> $sanitized"
+              else
+                echo "$key = PRESENT (value length=${#val})"
+              fi
+            fi
+          done
