@@ -37,13 +37,12 @@ jobs:
 
       - name: Install deps
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1
-          pip3 install bcrypt > /dev/null 2>&1
+          pip3 install bcrypt psycopg2-binary > /dev/null 2>&1
 
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Generate hash and execute SQL
+      - name: Insert admin user via psycopg2
         env:
           PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
           PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
@@ -51,39 +50,7 @@ jobs:
           CONTROL_PLANE_TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
           ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
           NEW_PASSWORD: ${{ inputs.password }}
-        run: |
-          set -euo pipefail
-
-          # Generate BCrypt hash and write SQL file
-          python3 scripts/insert_admin.py
-
-          # Read hash from file
-          HASH=$(cat /tmp/hash_value.txt)
-          echo "Hash length: ${#HASH}"
-
-          # Parse JDBC URL
-          JDBC_URL="$PROD_JDBC_URL"
-          CONN_STR="${JDBC_URL#jdbc:postgresql://}"
-          HOST_PORT="${CONN_STR%%/*}"
-          HOST="${HOST_PORT%%:*}"
-          PORT="${HOST_PORT##*:}"
-          DB_PART="${CONN_STR#*/}"
-          DB_NAME="${DB_PART%%\?*}"
-
-          echo "Host: $HOST:$PORT"
-          echo "DB: $DB_NAME"
-
-          # Execute SQL using psql with -v to pass hash as variable
-          # psql's :'hash' syntax properly quotes the value
-          for attempt in 1 2 3 4 5; do
-            echo "=== Attempt $attempt ==="
-            if PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -v hash="$HASH" -f /tmp/insert_admin.sql; then
-              echo "✓ Done!"
-              break
-            fi
-            echo "Attempt $attempt failed. Waiting 10s..."
-            sleep 10
-          done
+        run: python3 scripts/insert_admin.py
 
       - name: Resume backend
         if: always()
