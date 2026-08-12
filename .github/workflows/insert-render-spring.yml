@@ -28,8 +28,10 @@ jobs:
       - name: Download Spring Security crypto jar
         run: |
           curl -sS -L -o /tmp/spring-security-crypto.jar \
+          curl -sS -L -o /tmp/spring-jcl.jar "https://repo1.maven.org/maven2/org/springframework/spring-jcl/6.1.6/spring-jcl-6.1.6.jar"
             "https://repo1.maven.org/maven2/org/springframework/security/spring-security-crypto/6.3.1/spring-security-crypto-6.3.1.jar"
           ls -la /tmp/spring-security-crypto.jar
+          curl -sS -L -o /tmp/spring-jcl.jar "https://repo1.maven.org/maven2/org/springframework/spring-jcl/6.1.6/spring-jcl-6.1.6.jar"
 
       - name: Generate BCrypt hash using Spring Security
         id: hash
@@ -51,9 +53,11 @@ jobs:
 
           echo "=== Compiling ==="
           javac -cp /tmp/spring-security-crypto.jar /tmp/GenHash.java -d /tmp/ 2>&1
+          curl -sS -L -o /tmp/spring-jcl.jar "https://repo1.maven.org/maven2/org/springframework/spring-jcl/6.1.6/spring-jcl-6.1.6.jar"
 
           echo "=== Running ==="
-          HASH=$(java -cp /tmp:/tmp/spring-security-crypto.jar GenHash 2>/dev/null)
+          HASH=$(java -cp /tmp:/tmp/spring-security-crypto.jar:/tmp/spring-jcl.jar GenHash 2>&1)
+          curl -sS -L -o /tmp/spring-jcl.jar "https://repo1.maven.org/maven2/org/springframework/spring-jcl/6.1.6/spring-jcl-6.1.6.jar"
           echo "Hash: $HASH"
           echo "hash=$HASH" >> "$GITHUB_OUTPUT"
 
