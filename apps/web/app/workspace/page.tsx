@@ -26,10 +26,12 @@ export default function WorkspacePage() {
   if (state !== "AUTHENTICATED") return <AuthLoadingState phase="workspace" />;
 
   const displayName = me?.displayName || user?.email || t("workspace.defaultUser");
+  // CRM: show if user has CRM capabilities OR control-plane access (admin)
   const canOpenCrm = availableDestinations.includes("/crm") || availableDestinations.includes("/control-plane");
-  const canOpenControlPlane = true; // Always show Control Plane card
-  const canOpenExecutive = true; // Always show Executive card (admin)
-  const canOpenSystemHealth = true; // Always show System Health card (admin)
+  // Executive: always show for admins (control-plane / executive caps)
+  const canOpenExecutive = true;
+  // System Health: always show for admins
+  const canOpenSystemHealth = true;
 
   return (
     <ExecutiveShell>
@@ -57,31 +59,22 @@ export default function WorkspacePage() {
                 <span className={styles.appAction}>{t("workspace.openCrm")}</span>
               </Link>
             )}
-            {canOpenControlPlane && (
-              <Link className={styles.appCard} href="/control-plane" prefetch>
-                <div>
-                  <div className={styles.appName}>{t("workspace.openControlPlane")}</div>
-                  <p className={styles.appDescription}>{t("controlPlane.title")}</p>
-                </div>
-                <span className={styles.appAction}>{t("workspace.openControlPlane")}</span>
-              </Link>
-            )}
             {canOpenExecutive && (
               <Link className={styles.appCard} href="/executive" prefetch>
                 <div>
-                  <div className={styles.appName}>الإدارة العليا</div>
-                  <p className={styles.appDescription}>لوحة القيادة التنفيذية - إدارة المستأجرين والاشتراكات والفواتير</p>
+                  <div className={styles.appName}>{t("workspace.openExecutive")}</div>
+                  <p className={styles.appDescription}>{t("workspace.executiveDescription")}</p>
                 </div>
-                <span className={styles.appAction}>فتح الإدارة العليا</span>
+                <span className={styles.appAction}>{t("workspace.openExecutive")}</span>
               </Link>
             )}
             {canOpenSystemHealth && (
               <Link className={styles.appCard} href="/system-health" prefetch>
                 <div>
-                  <div className={styles.appName}>صحة النظام</div>
-                  <p className={styles.appDescription}>مراقبة صحة المنصة - الخدمات والمؤشرات والتنبيهات</p>
+                  <div className={styles.appName}>{t("workspace.openSystemHealth")}</div>
+                  <p className={styles.appDescription}>{t("workspace.systemHealthDescription")}</p>
                 </div>
-                <span className={styles.appAction}>فتح صحة النظام</span>
+                <span className={styles.appAction}>{t("workspace.openSystemHealth")}</span>
               </Link>
             )}
           </div>
