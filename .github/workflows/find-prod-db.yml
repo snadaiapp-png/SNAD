@@ -1,0 +1,45 @@
+name: Find correct production DB (read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  find:
+    name: Identify valid production database target
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Resolve SPRING_DATASOURCE_URL host + list Supabase projects
+        env:
+          SPRING_DS_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+          SUPABASE_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PAT: ${{ secrets.SUPABASE_PAT }}
+          KNOWN_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          echo "=== 1. SPRING_DATASOURCE_URL host (sanitized) + DNS ==="
+          if [ -n "$SPRING_DS_URL" ]; then
+            HOST=$(echo "$SPRING_DS_URL" | sed -E 's#^[^@]*@##; s#[:/?].*##')
+            echo "host (sanitized) = $HOST"
+            getent hosts "$HOST" >/dev/null 2>&1 && echo "DNS=$HOST -> RESOLVES" || echo "DNS=$HOST -> FAILS"
+          else
+            echo "SPRING_DATASOURCE_URL = MISSING"
+          fi
+
+          echo ""
+          echo "=== 2. SUPABASE_PROJECT_REF secret value ==="
+          echo "KNOWN_REF = $KNOWN_REF"
+
+          echo ""
+          echo "=== 3. Supabase projects (via ACCESS_TOKEN) ==="
+          for tok in "$SUPABASE_TOKEN" "$SUPABASE_PAT"; do
+            [ -z "$tok" ] && continue
+            echo "--- trying token (len=${#tok}) ---"
+            curl -s --max-time 30 -H "Authorization: Bearer $tok" "https://api.supabase.com/v1/projects" \
+              | jq '[.[]? | {name, ref: (.id // .ref), region, status, db_host: (.database.host // null)}]' 2>/dev/null && break
+            echo "(token failed, trying next)"
+          done
