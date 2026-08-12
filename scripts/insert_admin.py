@@ -13,7 +13,7 @@ def main():
     db_user = os.environ.get('PROD_DB_USER', '')
     db_pass = os.environ.get('PROD_DB_PASSWORD', '')
     tenant_id = os.environ.get('CONTROL_PLANE_TENANT_ID', '')
-    admin_email = os.environ.get('ADMIN_EMAIL', 'admin@snad.ai')
+    admin_email = 'admin@snad.ai'  # Hardcoded — GitHub secret may have different email
     new_password = os.environ.get('NEW_PASSWORD', '')
 
     if not new_password:
