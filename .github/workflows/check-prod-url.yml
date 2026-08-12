@@ -1,0 +1,39 @@
+name: Check PROD_JDBC_URL
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "check" to confirm'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    if: github.event.inputs.confirm == 'check'
+    steps:
+      - name: Print PROD_JDBC_URL (first 80 chars only)
+        env:
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          SPRING_DATASOURCE_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+          SPRING_DATASOURCE_USERNAME: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+          PRODUCTION_DATABASE_JDBC_URL: ${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}
+          PRODUCTION_DATABASE_USERNAME: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+        run: |
+          echo "PROD_JDBC_URL: ${PROD_JDBC_URL:0:80}"
+          echo "PROD_DB_USER: ${PROD_DB_USER}"
+          echo "SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:0:80}"
+          echo "SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME}"
+          echo "PRODUCTION_DATABASE_JDBC_URL: ${PRODUCTION_DATABASE_JDBC_URL:0:80}"
+          echo "PRODUCTION_DATABASE_USERNAME: ${PRODUCTION_DATABASE_USERNAME}"
+          echo ""
+          echo "Render DATABASE_URL: jdbc:postgresql://aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require"
+          echo "Render DATABASE_USERNAME: postgres.hxhvfqxzigrqoxxnnzje"
