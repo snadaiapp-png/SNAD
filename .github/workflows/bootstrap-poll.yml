@@ -1,0 +1,166 @@
+name: Bootstrap Admin (Poll During Deploy)
+
+# ============================================================
+# Set bootstrap=true, trigger deploy, and poll the bootstrap
+# endpoint every 5 seconds during the 2-minute startup window.
+# When the new container starts, it will have bootstrap enabled,
+# and we can call the endpoint before it crashes.
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "bootstrap" to confirm'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 30
+    if: github.event.inputs.confirm == 'bootstrap'
+
+    steps:
+      - name: Set bootstrap=true + all env vars
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+          CONTROL_PLANE_BOOTSTRAP_TOKEN: ${{ secrets.CONTROL_PLANE_BOOTSTRAP_TOKEN }}
+          CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+          CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+          CONTROL_PLANE_TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
+        run: |
+          set -euo pipefail
+
+          set_var() {
+            local key="$1"
+            local value="$2"
+            local type="${3:-raw}"
+            local payload
+            if [ "$type" = "secret" ]; then
+              payload=$(python3 -c 'import json,sys; print(json.dumps({"value": sys.argv[1], "type": "SECRET"}))' "$value")
+            else
+              payload=$(python3 -c 'import json,sys; print(json.dumps({"value": sys.argv[1]}))' "$value")
+            fi
+            curl -sS -o /dev/null -w "  $key: HTTP %{http_code}\n" --max-time 30 \
+              -X PUT \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" \
+              -H "Content-Type: application/json" \
+              --data "$payload" \
+              "https://api.render.com/v1/services/${BACKEND_ID}/env-vars/${key}"
+          }
+
+          echo "=== Setting ALL env vars ==="
+          # Bootstrap mode
+          set_var "CONTROL_PLANE_BOOTSTRAP_ENABLED" "true"
+          set_var "CONTROL_PLANE_BOOTSTRAP_TOKEN" "$CONTROL_PLANE_BOOTSTRAP_TOKEN" "secret"
+          set_var "CONTROL_PLANE_ADMIN_EMAIL" "$CONTROL_PLANE_ADMIN_EMAIL" "secret"
+          set_var "CONTROL_PLANE_ADMIN_PASSWORD" "$CONTROL_PLANE_ADMIN_PASSWORD" "secret"
+          set_var "CONTROL_PLANE_TENANT_ID" "$CONTROL_PLANE_TENANT_ID" "secret"
+
+          # Database + Spring
+          set_var "SPRING_PROFILES_ACTIVE" "prod"
+          set_var "FLYWAY_ENABLED" "false"
+          set_var "FLYWAY_LOCATIONS" "classpath:db/migration,classpath:db/vendor/{vendor}"
+          set_var "JPA_DDL_AUTO" "none"
+          set_var "DATABASE_POOL_MAX" "1"
+          set_var "DATABASE_POOL_MIN" "1"
+          set_var "DATABASE_POOL_TIMEOUT" "60000"
+          set_var "JWT_SECRET" "$(openssl rand -hex 32)" "secret"
+          set_var "BOOTSTRAP_ENABLED" "false"
+          set_var "SANAD_CONTROL_PLANE_TENANT_ID" "$CONTROL_PLANE_TENANT_ID" "secret"
+          set_var "SANAD_CORS_ALLOWED_ORIGINS" "https://snad-app.vercel.app"
+          set_var "SERVER_PORT" "8080"
+          set_var "MANAGEMENT_ENDPOINTS" "health"
+          set_var "SHUTDOWN_TIMEOUT" "30s"
+          set_var "JAVA_OPTS" "-Xms64m -Xmx256m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC -XX:MaxMetaspaceSize=96m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"
+          set_var "LOG_LEVEL_ROOT" "WARN"
+          set_var "LOG_LEVEL_SANAD" "INFO"
+          set_var "LAZY_INIT" "true"
+          set_var "SECURITY_NOTIFICATION_PROVIDER" "disabled"
+          set_var "APPLICATION_BASE_URL" "https://snad-app.vercel.app"
+
+      - name: Trigger deploy and poll bootstrap endpoint simultaneously
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+          CONTROL_PLANE_BOOTSTRAP_TOKEN: ${{ secrets.CONTROL_PLANE_BOOTSTRAP_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Trigger deploy
+          echo "=== Triggering deploy ==="
+          STATUS=$(curl -sS -o /tmp/deploy.json -w "%{http_code}" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${BACKEND_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data '{"clearCache":"do_not_clear"}')
+          echo "Deploy trigger HTTP ${STATUS}"
+          DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/deploy.json')).get('id',''))")
+          echo "Deploy ID: ${DEPLOY_ID}"
+
+          # Wait 30s for container to start pulling and initializing
+          echo "Waiting 30s for container to start..."
+          sleep 30
+
+          # Poll bootstrap endpoint every 5 seconds for up to 3 minutes
+          echo "=== Polling bootstrap endpoint ==="
+          for i in $(seq 1 36); do
+            CODE=$(curl -sS -o /tmp/bootstrap_resp.json -w "%{http_code}" --max-time 10 \
+              -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/internal/control-plane/bootstrap-admin" \
+              -H "X-Control-Plane-Bootstrap-Token: $CONTROL_PLANE_BOOTSTRAP_TOKEN" \
+              -H "Content-Type: application/json" 2>/dev/null || echo "000")
+            echo "  Attempt $i: HTTP $CODE"
+            if [ "$CODE" = "200" ]; then
+              echo "✓ BOOTSTRAP SUCCESSFUL!"
+              cat /tmp/bootstrap_resp.json
+              echo ""
+              # Check deploy status
+              DEPLOY_STATUS=$(curl -sS --max-time 30 \
+                "https://api.render.com/v1/services/${BACKEND_ID}/deploys/${DEPLOY_ID}" \
+                -H "Authorization: Bearer ${RENDER_API_KEY}" \
+                -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status','unknown'))")
+              echo "Deploy status at bootstrap time: $DEPLOY_STATUS"
+              echo "bootstrap_success=true" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Bootstrap polling timed out"
+          echo "bootstrap_success=false" >> "$GITHUB_ENV"
+
+      - name: Test login
+        if: always()
+        env:
+          ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+        run: |
+          echo "=== Login test ==="
+          curl -sS --max-time 60 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}" \
+            -w "\nHTTP %{http_code}\n" || true
+
+      - name: Disable bootstrap
+        if: always()
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          echo "=== Disabling bootstrap ==="
+          PAYLOAD=$(python3 -c 'import json; print(json.dumps({"value": "false"}))')
+          curl -sS -o /dev/null -w "Disable HTTP %{http_code}\n" --max-time 30 \
+            -X PUT \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            --data "$PAYLOAD" \
+            "https://api.render.com/v1/services/${BACKEND_ID}/env-vars/CONTROL_PLANE_BOOTSTRAP_ENABLED"
