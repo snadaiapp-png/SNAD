@@ -14,6 +14,7 @@ jobs:
   diagnose:
     name: Diagnose Render deploy failure (read-only)
     runs-on: ubuntu-latest
+    environment: Production
     timeout-minutes: 5
     steps:
       - name: Query Render service + deploys + env vars
