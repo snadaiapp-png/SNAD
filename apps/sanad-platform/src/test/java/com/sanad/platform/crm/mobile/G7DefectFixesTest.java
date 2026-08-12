@@ -115,4 +115,44 @@ class G7DefectFixesTest {
                 TENANT, DEVICE, USER, "account", "e4", 5, client, 5, server);
         assertEquals("C1", c1.conflictClass());
     }
+
+    // ─────────────────────────────────────────────────────────────────
+    // SYNC-010: ETag / If-Match version validation — a stale
+    // expectedVersion must be rejected as a 412 CONFLICT (never applied).
+    // ─────────────────────────────────────────────────────────────────
+    @Test
+    void pushRejectsStaleExpectedVersionAsConflict() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        // Dispatch queryForObject by the Class argument so the spread-varargs
+        // calls (isDuplicate -> Integer, getCurrentVersion -> Long) both resolve.
+        when(jdbc.queryForObject(anyString(), any(Class.class), any(Object[].class))).thenAnswer(inv -> {
+            Class<?> clz = inv.getArgument(1);
+            if (clz == Integer.class) return 0;   // not a duplicate
+            if (clz == Long.class) return 5L;     // server sync_version = 5
+            return null;
+        });
+        when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);
+
+        PushSyncService service = new PushSyncService(jdbc, new ObjectMapper());
+
+        ObjectNode payload = new ObjectMapper().createObjectNode().put("name", "Acme");
+        // UPDATE carrying a stale ETag (expectedVersion=3) against a server at version 5
+        PushSyncRequest.MutationEnvelope mutation = new PushSyncRequest.MutationEnvelope(
+            "idem-etag-1", "account", "00000000-0000-0000-0000-000000000010",
+            "UPDATE", 3L, payload, null);
+
+        PushSyncResponse response = service.push(TENANT, DEVICE, USER, new PushSyncRequest(List.of(mutation)));
+
+        assertEquals(0, response.applied(), "stale-version UPDATE must not be applied");
+        assertEquals(1, response.rejected(), "stale-version UPDATE must be counted as rejected/conflict");
+        assertEquals(0, response.duplicates());
+
+        PushSyncResponse.MutationResult result = response.results().get(0);
+        assertEquals("CONFLICT", result.status(), "status must be CONFLICT on version mismatch");
+        assertEquals("412", result.httpStatus(), "must use 412 Precondition Failed semantics");
+        assertNotNull(result.conflictInfo(), "conflict info must be populated on version mismatch");
+        assertEquals("VERSION_MISMATCH", result.conflictInfo().get("conflictType").asText());
+        assertEquals(5, result.conflictInfo().get("serverVersion").asInt(),
+            "serverVersion returned must let the client rebase and retry");
+    }
 }
