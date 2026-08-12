@@ -21,27 +21,19 @@ jobs:
     steps:
       - name: Install JDK + deps
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq default-jdk postgresql-client > /dev/null 2>&1
-          pip3 install bcrypt psycopg2-binary > /dev/null 2>&1
+          sudo apt-get update -qq && sudo apt-get install -y -qq default-jdk > /dev/null 2>&1
+          pip3 install psycopg2-binary > /dev/null 2>&1
 
       - name: Download Spring Security crypto jar
         run: |
           curl -sS -L -o /tmp/spring-security-crypto.jar "https://repo1.maven.org/maven2/org/springframework/security/spring-security-crypto/6.3.1/spring-security-crypto-6.3.1.jar"
 
-      - name: Generate BCrypt hash using Spring Security's OWN encoder
+      - name: Generate BCrypt hash using Spring Security's encoder
         id: hash
         run: |
-          cat > /tmp/GenHash.java << 'JAVAEOF'
-          import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-          public class GenHash {
-              public static void main(String[] args) {
-                  BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(10);
-                  String hash = encoder.encode("SNad@2026");
-                  System.out.println(hash);
-                  System.err.println("Verify: " + encoder.matches("SNad@2026", hash));
-              }
-          }
-          JAVAEOF
+          # Write Java file WITHOUT indentation
+          printf 'import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;\npublic class GenHash {\npublic static void main(String[] args) {\nBCryptPasswordEncoder encoder = new BCryptPasswordEncoder(10);\nString hash = encoder.encode("SNad@2026");\nSystem.out.println(hash);\nSystem.err.println("Verify: " + encoder.matches("SNad@2026", hash));\n}\n}\n' > /tmp/GenHash.java
+
           javac -cp /tmp/spring-security-crypto.jar /tmp/GenHash.java -d /tmp/
           HASH=$(java -cp /tmp:/tmp/spring-security-crypto.jar GenHash 2>/dev/null)
           echo "Hash: $HASH"
