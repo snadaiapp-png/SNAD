@@ -70,7 +70,7 @@ jobs:
           # with the user's EXACT project ref
           host = "aws-0-eu-central-1.pooler.supabase.com"
           port = "5432"
-          dbname = "postgres"
+          database_name = "postgres"
           user = "postgres.hxhvfqxzigrqoxxnnzje"
           password = "Senen@001985"
           admin_email = "admin@snad.ai"
@@ -81,7 +81,7 @@ jobs:
 
           for attempt in range(5):
               try:
-                  conn = psycopg2.connect(host=host, port=port, dbname=db_name,
+                  conn = psycopg2.connect(host=host, port=port, dbname=database_name,
                                           user=user, password=password, sslmode='require')
                   break
               except Exception as e:
