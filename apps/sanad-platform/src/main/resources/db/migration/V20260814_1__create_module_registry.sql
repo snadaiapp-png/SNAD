@@ -1,0 +1,81 @@
+-- ============================================================
+-- V20260814_1: Module Registry — Centralized catalog of SNAD modules
+--
+-- Creates the `modules` table representing official SNAD modules:
+--   AI, WORKFLOW, ERP, CRM, FINANCE, ANALYTICS, HRM, POS,
+--   ECOMMERCE_CX, INDUSTRY_SOLUTIONS
+--
+-- This registry is NOT tenant-scoped — it is a global catalog.
+-- Tenant-specific entitlements are linked via plan_module_entitlements.
+--
+-- Idempotent: uses IF NOT EXISTS / WHERE NOT EXISTS.
+-- Backward compatible: does not touch existing saas_plans or entitlements.
+-- ============================================================
+
+-- ============================================================
+-- STEP 1: Create modules table (global catalog)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS modules (
+    id              UUID            NOT NULL,
+    code            VARCHAR(50)     NOT NULL,
+    name            VARCHAR(200)   NOT NULL,
+    description     VARCHAR(1000),
+    status          VARCHAR(20)     NOT NULL DEFAULT 'ACTIVE',
+    display_order   INTEGER         NOT NULL DEFAULT 0,
+    version         VARCHAR(20),
+    enabled         BOOLEAN         NOT NULL DEFAULT true,
+    created_at      TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at      TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT pk_modules PRIMARY KEY (id),
+    CONSTRAINT uk_modules_code UNIQUE (code),
+    CONSTRAINT ck_modules_status CHECK (status IN ('ACTIVE','INACTIVE','DEPRECATED'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_modules_status ON modules(status);
+CREATE INDEX IF NOT EXISTS idx_modules_display_order ON modules(display_order);
+
+-- ============================================================
+-- STEP 2: Seed default modules (idempotent)
+-- Ordered by display_order. Codes are uppercase with underscores.
+-- ============================================================
+INSERT INTO modules (id, code, name, description, status, display_order, version, enabled, created_at, updated_at)
+SELECT * FROM (VALUES
+    (gen_random_uuid(), 'CRM',               'CRM',               'Customer Relationship Management — accounts, contacts, leads, opportunities, pipeline, tasks, activities', 'ACTIVE', 10, '1.0', true,  NOW(), NOW()),
+    (gen_random_uuid(), 'AI',                'AI',                'Artificial Intelligence — agents, inference, automation, recommendations',                              'ACTIVE', 20, '1.0', true,  NOW(), NOW()),
+    (gen_random_uuid(), 'WORKFLOW',          'Workflow',          'Business process orchestration — workflows, approvals, executions',                                      'ACTIVE', 30, '1.0', true,  NOW(), NOW()),
+    (gen_random_uuid(), 'ERP',               'ERP',               'Enterprise Resource Planning — inventory, purchasing, supply chain',                                    'ACTIVE', 40, '1.0', true,  NOW(), NOW()),
+    (gen_random_uuid(), 'FINANCE',           'Finance',           'Financial management — invoices, payments, accounting, ledgers',                                        'ACTIVE', 50, '1.0', true,  NOW(), NOW()),
+    (gen_random_uuid(), 'ANALYTICS',         'Analytics',         'Business intelligence — dashboards, reports, KPIs, data visualization',                                  'ACTIVE', 60, '1.0', true,  NOW(), NOW()),
+    (gen_random_uuid(), 'HRM',               'HRM',               'Human Resource Management — employees, payroll, attendance, recruitment',                                'ACTIVE', 70, '1.0', true,  NOW(), NOW()),
+    (gen_random_uuid(), 'POS',               'POS',               'Point of Sale — terminals, transactions, receipts',                                                     'ACTIVE', 80, '1.0', true,  NOW(), NOW()),
+    (gen_random_uuid(), 'ECOMMERCE_CX',      'Ecommerce/CX',     'E-commerce and Customer Experience — storefronts, carts, checkout, CX',                                'ACTIVE', 90, '1.0', true,  NOW(), NOW()),
+    (gen_random_uuid(), 'INDUSTRY_SOLUTIONS','Industry Solutions','Industry-specific vertical solutions — healthcare, retail, manufacturing, government',                   'ACTIVE', 100,'1.0', true, NOW(), NOW())
+) AS seed(code, name, description, status, display_order, version, enabled, created_at, updated_at)
+WHERE NOT EXISTS (SELECT 1 FROM modules WHERE code = seed.code);
+
+-- ============================================================
+-- STEP 3: Record migration in flyway_schema_history
+-- (Only if flyway_schema_history exists — i.e., Flyway has run)
+-- ============================================================
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'flyway_schema_history' AND table_schema = 'public') THEN
+        INSERT INTO public.flyway_schema_history
+            (installed_rank, version, description, type, script, checksum, installed_by, installed_on, execution_time, success)
+        SELECT
+            COALESCE(MAX(installed_rank), 0) + 1,
+            '20260814.1',
+            'create module registry',
+            'SQL',
+            'V20260814_1__create_module_registry.sql',
+            NULL,
+            'super-z',
+            NOW(),
+            0,
+            true
+        FROM public.flyway_schema_history
+        WHERE NOT EXISTS (
+            SELECT 1 FROM public.flyway_schema_history WHERE version = '20260814.1'
+        );
+    END IF;
+END $$;

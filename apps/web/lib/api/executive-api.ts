@@ -64,6 +64,34 @@ export interface Entitlement {
   id?: string; featureCode: string; enabled: boolean; limitValue: number | null;
 }
 
+// ── Module Registry Types (EXECUTIVE V2) ───────────────────────────
+export interface ModuleResponse {
+  id: string; code: string; name: string; description: string | null;
+  status: string; displayOrder: number; version: string | null;
+  enabled: boolean; createdAt: string; updatedAt: string;
+}
+
+export interface PlanModuleEntitlementResponse {
+  id: string; planId: string; moduleId: string; moduleCode: string;
+  moduleEnabled: boolean; capabilityCode: string | null;
+  capabilityValue: string | null; limitValue: number | null;
+  quotaValue: number | null; quotaPeriod: string | null;
+  effectiveAt: string; createdAt: string; updatedAt: string;
+}
+
+export interface QuotaResponse {
+  value: number; period: string;
+}
+
+export interface TenantEntitlementResponse {
+  tenantId: string; moduleCode: string; moduleEnabled: boolean;
+  subscriptionId: string | null; planId: string | null;
+  capabilities: Record<string, boolean>;
+  limits: Record<string, number>;
+  quotas: Record<string, QuotaResponse>;
+  effectiveAt: string;
+}
+
 // ── API ──────────────────────────────────────────────────────────────
 const root = "/api/v1/executive";
 
@@ -81,4 +109,19 @@ export const executiveApi = {
   organizations: (tenantId: string) => apiClient.get<ManagedOrganization[]>(`${root}/tenants/${tenantId}/organizations`),
   memberships: (tenantId: string, organizationId: string) =>
     apiClient.get<ManagedMembership[]>(`${root}/tenants/${tenantId}/organizations/${organizationId}/memberships`),
+
+  // Module Registry + Entitlements (EXECUTIVE V2)
+  modules: () => apiClient.get<ModuleResponse[]>(`${root}/modules`),
+  getModule: (moduleCode: string) => apiClient.get<ModuleResponse>(`${root}/modules/${moduleCode}`),
+  planModules: (planId: string) => apiClient.get<PlanModuleEntitlementResponse[]>(`${root}/plans/${planId}/modules`),
+  updatePlanModule: (planId: string, moduleCode: string, body: {
+    moduleId: string; moduleEnabled: boolean; capabilityCode?: string | null;
+    capabilityValue?: string | null; limitValue?: number | null;
+    quotaValue?: number | null; quotaPeriod?: string | null;
+  }) => apiClient.put<PlanModuleEntitlementResponse, typeof body>(`${root}/plans/${planId}/modules/${moduleCode}`, body),
+  tenantEntitlements: (tenantId: string) => apiClient.get<TenantEntitlementResponse[]>(`${root}/tenants/${tenantId}/entitlements`),
+  tenantModules: (tenantId: string) => apiClient.get<ModuleResponse[]>(`${root}/tenants/${tenantId}/modules`),
+  recalculateEntitlements: (tenantId: string) =>
+    apiClient.post<{ tenantId: string; status: string; timestamp: string }, Record<string, never>>(
+      `${root}/tenants/${tenantId}/entitlements/recalculate`, {} as Record<string, never>),
 };

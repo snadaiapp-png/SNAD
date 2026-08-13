@@ -16,8 +16,9 @@ import {
   type TenantSubscription,
 } from "@/lib/api/executive-api";
 import styles from "./executive.module.css";
+import { ModulesEntitlementsPanel } from "./modules-entitlements-panel";
 
-type Tab = "tenants" | "directory" | "plans" | "subscriptions" | "billing";
+type Tab = "tenants" | "directory" | "plans" | "subscriptions" | "billing" | "modules";
 type Snapshot = {
   dashboard: ExecutiveDashboard;
   tenants: ManagedTenant[];
@@ -29,7 +30,7 @@ type Snapshot = {
 const tabs: Array<[Tab, string]> = [
   ["tenants", "المستأجرون"], ["directory", "الشركات والعضويات"],
   ["plans", "الباقات"], ["subscriptions", "الاشتراكات والترقية"],
-  ["billing", "الفوترة"],
+  ["billing", "الفوترة"], ["modules", "الموديولات والصلاحيات"],
 ];
 const ask = (text: string, initial = "") => window.prompt(text, initial)?.trim() ?? "";
 const money = (minor: number, currency: string) =>
@@ -109,6 +110,8 @@ export function ExecutiveConsole() {
             <SubscriptionsTab snapshot={snapshot} busy={busy} />
           ) : tab === "billing" ? (
             <BillingTab snapshot={snapshot} busy={busy} />
+          ) : tab === "modules" ? (
+            <ModulesEntitlementsPanel plans={snapshot.plans} />
           ) : null}
         </div>
       ) : null}
