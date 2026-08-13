@@ -51,7 +51,8 @@ jobs:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad
       SPRING_DATASOURCE_USERNAME: sanad
       SPRING_DATASOURCE_PASSWORD: sanad_pass
-      SPRING_PROFILES_ACTIVE: local
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: default
       FLYWAY_ENABLED: 'true'
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
       FLYWAY_VALIDATE_ON_MIGRATE: 'false'
@@ -157,7 +158,8 @@ jobs:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad
       SPRING_DATASOURCE_USERNAME: sanad
       SPRING_DATASOURCE_PASSWORD: sanad_pass
-      SPRING_PROFILES_ACTIVE: local
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: default
       FLYWAY_ENABLED: 'true'
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
       FLYWAY_VALIDATE_ON_MIGRATE: 'false'
