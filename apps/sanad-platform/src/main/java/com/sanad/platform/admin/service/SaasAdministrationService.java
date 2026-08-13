@@ -13,11 +13,15 @@ import com.sanad.platform.admin.api.SaasAdminDtos.PlanResponse;
 import com.sanad.platform.admin.api.SaasAdminDtos.SubscriptionEventResponse;
 import com.sanad.platform.admin.api.SaasAdminDtos.SubscriptionResponse;
 import com.sanad.platform.admin.api.SaasAdminDtos.UpdatePlanRequest;
+import com.sanad.platform.module.entitlement.SubscriptionEntitlementListener;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
@@ -50,10 +54,57 @@ public class SaasAdministrationService {
 
     private final JdbcTemplate jdbcTemplate;
     private final PlatformAuditService auditService;
+    private final ApplicationEventPublisher eventPublisher;
 
-    public SaasAdministrationService(JdbcTemplate jdbcTemplate, PlatformAuditService auditService) {
+    public SaasAdministrationService(JdbcTemplate jdbcTemplate, PlatformAuditService auditService,
+                                     ApplicationEventPublisher eventPublisher) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
+        this.eventPublisher = eventPublisher;
+    }
+
+    /**
+     * Publish an entitlement recalculation event AFTER the current transaction commits.
+     * This ensures the entitlement cache is only refreshed if the subscription
+     * change actually persisted.
+     */
+    private void publishEntitlementRecalculationAfterCommit(UUID tenantId, UUID subscriptionId, UUID planId,
+                                                              String eventType) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    switch (eventType) {
+                        case "SUBSCRIPTION_ACTIVATED" -> eventPublisher.publishEvent(
+                                new SubscriptionEntitlementListener.SubscriptionActivatedEvent(tenantId, subscriptionId, planId));
+                        case "SUBSCRIPTION_PLAN_CHANGED" -> eventPublisher.publishEvent(
+                                new SubscriptionEntitlementListener.SubscriptionPlanChangedEvent(tenantId, subscriptionId, null, planId));
+                        case "SUBSCRIPTION_SUSPENDED" -> eventPublisher.publishEvent(
+                                new SubscriptionEntitlementListener.SubscriptionSuspendedEvent(tenantId, subscriptionId));
+                        case "SUBSCRIPTION_RESUMED" -> eventPublisher.publishEvent(
+                                new SubscriptionEntitlementListener.SubscriptionResumedEvent(tenantId, subscriptionId));
+                        case "SUBSCRIPTION_CANCELLED" -> eventPublisher.publishEvent(
+                                new SubscriptionEntitlementListener.SubscriptionCancelledEvent(tenantId, subscriptionId));
+                        default -> { /* no event for unrecognized types */ }
+                    }
+                }
+            });
+        } else {
+            // No transaction active — publish immediately
+            switch (eventType) {
+                case "SUBSCRIPTION_ACTIVATED" -> eventPublisher.publishEvent(
+                        new SubscriptionEntitlementListener.SubscriptionActivatedEvent(tenantId, subscriptionId, planId));
+                case "SUBSCRIPTION_PLAN_CHANGED" -> eventPublisher.publishEvent(
+                        new SubscriptionEntitlementListener.SubscriptionPlanChangedEvent(tenantId, subscriptionId, null, planId));
+                case "SUBSCRIPTION_SUSPENDED" -> eventPublisher.publishEvent(
+                        new SubscriptionEntitlementListener.SubscriptionSuspendedEvent(tenantId, subscriptionId));
+                case "SUBSCRIPTION_RESUMED" -> eventPublisher.publishEvent(
+                        new SubscriptionEntitlementListener.SubscriptionResumedEvent(tenantId, subscriptionId));
+                case "SUBSCRIPTION_CANCELLED" -> eventPublisher.publishEvent(
+                        new SubscriptionEntitlementListener.SubscriptionCancelledEvent(tenantId, subscriptionId));
+                default -> { }
+            }
+        }
     }
 
     @Transactional(readOnly = true)
@@ -235,6 +286,8 @@ public class SaasAdministrationService {
         }
         auditService.success(authentication, request.tenantId(), "SUBSCRIPTION.CREATE", "TENANT_SUBSCRIPTION",
                 id.toString(), "Created from control plane", null, created);
+        publishEntitlementRecalculationAfterCommit(request.tenantId(), id, request.planId(),
+                "SUBSCRIPTION_ACTIVATED");
         return getSubscription(id);
     }
 
@@ -284,6 +337,8 @@ public class SaasAdministrationService {
         SubscriptionResponse after = getSubscription(subscriptionId);
         auditService.success(authentication, before.tenantId(), "SUBSCRIPTION.PLAN.CHANGE", "TENANT_SUBSCRIPTION",
                 subscriptionId.toString(), request.reason(), before, after);
+        publishEntitlementRecalculationAfterCommit(before.tenantId(), subscriptionId, after.planId(),
+                "SUBSCRIPTION_PLAN_CHANGED");
         return after;
     }
 
@@ -352,6 +407,8 @@ public class SaasAdministrationService {
         SubscriptionResponse after = getSubscription(subscriptionId);
         auditService.success(authentication, before.tenantId(), "SUBSCRIPTION.CANCEL", "TENANT_SUBSCRIPTION",
                 subscriptionId.toString(), request.reason(), before, after);
+        publishEntitlementRecalculationAfterCommit(before.tenantId(), subscriptionId, before.planId(),
+                "SUBSCRIPTION_CANCELLED");
         return after;
     }
 
@@ -378,6 +435,8 @@ public class SaasAdministrationService {
         SubscriptionResponse after = getSubscription(subscriptionId);
         auditService.success(authentication, before.tenantId(), "SUBSCRIPTION.RESUME", "TENANT_SUBSCRIPTION",
                 subscriptionId.toString(), "Resumed from control plane", before, after);
+        publishEntitlementRecalculationAfterCommit(before.tenantId(), subscriptionId, before.planId(),
+                "SUBSCRIPTION_RESUMED");
         return after;
     }
 

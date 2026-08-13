@@ -48,17 +48,20 @@ public class ModuleRegistryController {
     private final ModuleCapabilityRepository moduleCapabilityRepository;
     private final PlanModuleEntitlementRepository planModuleEntitlementRepository;
     private final EntitlementResolver entitlementResolver;
+    private final com.sanad.platform.module.entitlement.ModuleEntitlementAuditWriter auditWriter;
 
     public ModuleRegistryController(ControlPlaneAccessGuard accessGuard,
                                      ModuleRepository moduleRepository,
                                      ModuleCapabilityRepository moduleCapabilityRepository,
                                      PlanModuleEntitlementRepository planModuleEntitlementRepository,
-                                     EntitlementResolver entitlementResolver) {
+                                     EntitlementResolver entitlementResolver,
+                                     com.sanad.platform.module.entitlement.ModuleEntitlementAuditWriter auditWriter) {
         this.accessGuard = accessGuard;
         this.moduleRepository = moduleRepository;
         this.moduleCapabilityRepository = moduleCapabilityRepository;
         this.planModuleEntitlementRepository = planModuleEntitlementRepository;
         this.entitlementResolver = entitlementResolver;
+        this.auditWriter = auditWriter;
     }
 
     // ============================================================
@@ -127,8 +130,16 @@ public class ModuleRegistryController {
                         .stream().findFirst();
 
         PlanModuleEntitlementEntity entity;
+        Object beforeState = null;
         if (existing.isPresent()) {
             entity = existing.get();
+            // Capture before state for audit
+            beforeState = Map.of(
+                    "moduleEnabled", entity.isModuleEnabled(),
+                    "capabilityValue", entity.getCapabilityValue() != null ? entity.getCapabilityValue() : "null",
+                    "limitValue", entity.getLimitValue() != null ? entity.getLimitValue() : -1,
+                    "quotaValue", entity.getQuotaValue() != null ? entity.getQuotaValue() : -1
+            );
             entity.setModuleEnabled(request.moduleEnabled());
             entity.setCapabilityValue(request.capabilityValue());
             entity.setLimitValue(request.limitValue());
@@ -148,8 +159,59 @@ public class ModuleRegistryController {
             planModuleEntitlementRepository.insert(entity);
         }
 
+        // After state for audit
+        Object afterState = Map.of(
+                "moduleEnabled", entity.isModuleEnabled(),
+                "capabilityValue", entity.getCapabilityValue() != null ? entity.getCapabilityValue() : "null",
+                "limitValue", entity.getLimitValue() != null ? entity.getLimitValue() : -1,
+                "quotaValue", entity.getQuotaValue() != null ? entity.getQuotaValue() : -1,
+                "quotaPeriod", entity.getQuotaPeriod() != null ? entity.getQuotaPeriod() : "null"
+        );
+
         log.info("Plan module entitlement updated: plan={}, module={}, capability={}, enabled={}",
                 planId, moduleCode, request.capabilityCode(), request.moduleEnabled());
+
+        // Audit: record the entitlement change
+        // Extract actor tenant/user from authentication details
+        java.util.Map<String, Object> details = (java.util.Map<String, Object>) authentication.getDetails();
+        UUID actorTenantId = details != null ? (UUID) details.get("tenant_id") : null;
+        UUID actorUserId = details != null ? (UUID) details.get("user_id") : null;
+        String correlationId = java.util.UUID.randomUUID().toString();
+
+        auditWriter.writePlanEntitlementChanged(
+                actorTenantId, actorUserId, actorTenantId,
+                planId, module.getId(), moduleCode,
+                request.capabilityCode(), beforeState, afterState, correlationId);
+
+        // Audit module enabled/disabled transition
+        if (beforeState != null) {
+            boolean wasEnabled = ((java.util.Map<String, Object>) beforeState).get("moduleEnabled").equals(true);
+            if (request.moduleEnabled() && !wasEnabled) {
+                auditWriter.writeModuleEnabled(actorTenantId, actorUserId, actorTenantId,
+                        planId, moduleCode, correlationId);
+            } else if (!request.moduleEnabled() && wasEnabled) {
+                auditWriter.writeModuleDisabled(actorTenantId, actorUserId, actorTenantId,
+                        planId, moduleCode, correlationId);
+            }
+        }
+
+        // Audit capability/limit/quota changes
+        if (request.capabilityCode() != null) {
+            if (request.limitValue() != null) {
+                Long beforeLimit = beforeState != null
+                        ? ((Number) ((java.util.Map<String, Object>) beforeState).get("limitValue")).longValue()
+                        : null;
+                if (!java.util.Objects.equals(beforeLimit, request.limitValue())) {
+                    auditWriter.writeLimitChanged(actorTenantId, actorUserId, actorTenantId,
+                            request.capabilityCode(), beforeLimit, request.limitValue(), correlationId);
+                }
+            }
+            if (request.quotaValue() != null) {
+                auditWriter.writeQuotaChanged(actorTenantId, actorUserId, actorTenantId,
+                        request.capabilityCode(), null, request.quotaValue(),
+                        request.quotaPeriod() != null ? request.quotaPeriod() : "MONTHLY", correlationId);
+            }
+        }
 
         return ResponseEntity.ok(toPlanModuleEntitlementResponse(entity, module.getCode()));
     }
@@ -196,9 +258,21 @@ public class ModuleRegistryController {
             @PathVariable UUID tenantId) {
         accessGuard.require(authentication);
         entitlementResolver.recalculateEntitlements(tenantId);
+
+        // Audit the recalculation
+        java.util.Map<String, Object> details = (java.util.Map<String, Object>) authentication.getDetails();
+        UUID actorTenantId = details != null ? (UUID) details.get("tenant_id") : null;
+        UUID actorUserId = details != null ? (UUID) details.get("user_id") : null;
+        // Count enabled modules for audit record
+        int moduleCount = moduleRepository.findAllEnabled().size();
+        auditWriter.writeEntitlementsRecalculated(
+                actorTenantId, actorUserId, tenantId,
+                moduleCount, java.util.UUID.randomUUID().toString());
+
         return ResponseEntity.ok(Map.of(
                 "tenantId", tenantId,
                 "status", "RECALCULATED",
+                "modulesProcessed", moduleCount,
                 "timestamp", Instant.now().toString()
         ));
     }

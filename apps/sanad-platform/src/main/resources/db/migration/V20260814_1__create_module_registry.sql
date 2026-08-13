@@ -37,21 +37,26 @@ CREATE INDEX IF NOT EXISTS idx_modules_display_order ON modules(display_order);
 -- ============================================================
 -- STEP 2: Seed default modules (idempotent)
 -- Ordered by display_order. Codes are uppercase with underscores.
+--
+-- NOTE: Use explicit INSERT...SELECT with explicit column list (not VALUES tuple)
+-- to avoid PostgreSQL type inference issues (gen_random_uuid() in VALUES
+-- causes ambiguous type inference for the seed tuple).
 -- ============================================================
 INSERT INTO modules (id, code, name, description, status, display_order, version, enabled, created_at, updated_at)
-SELECT * FROM (VALUES
-    (gen_random_uuid(), 'CRM',               'CRM',               'Customer Relationship Management — accounts, contacts, leads, opportunities, pipeline, tasks, activities', 'ACTIVE', 10, '1.0', true,  NOW(), NOW()),
-    (gen_random_uuid(), 'AI',                'AI',                'Artificial Intelligence — agents, inference, automation, recommendations',                              'ACTIVE', 20, '1.0', true,  NOW(), NOW()),
-    (gen_random_uuid(), 'WORKFLOW',          'Workflow',          'Business process orchestration — workflows, approvals, executions',                                      'ACTIVE', 30, '1.0', true,  NOW(), NOW()),
-    (gen_random_uuid(), 'ERP',               'ERP',               'Enterprise Resource Planning — inventory, purchasing, supply chain',                                    'ACTIVE', 40, '1.0', true,  NOW(), NOW()),
-    (gen_random_uuid(), 'FINANCE',           'Finance',           'Financial management — invoices, payments, accounting, ledgers',                                        'ACTIVE', 50, '1.0', true,  NOW(), NOW()),
-    (gen_random_uuid(), 'ANALYTICS',         'Analytics',         'Business intelligence — dashboards, reports, KPIs, data visualization',                                  'ACTIVE', 60, '1.0', true,  NOW(), NOW()),
-    (gen_random_uuid(), 'HRM',               'HRM',               'Human Resource Management — employees, payroll, attendance, recruitment',                                'ACTIVE', 70, '1.0', true,  NOW(), NOW()),
-    (gen_random_uuid(), 'POS',               'POS',               'Point of Sale — terminals, transactions, receipts',                                                     'ACTIVE', 80, '1.0', true,  NOW(), NOW()),
-    (gen_random_uuid(), 'ECOMMERCE_CX',      'Ecommerce/CX',     'E-commerce and Customer Experience — storefronts, carts, checkout, CX',                                'ACTIVE', 90, '1.0', true,  NOW(), NOW()),
-    (gen_random_uuid(), 'INDUSTRY_SOLUTIONS','Industry Solutions','Industry-specific vertical solutions — healthcare, retail, manufacturing, government',                   'ACTIVE', 100,'1.0', true, NOW(), NOW())
-) AS seed(id, code, name, description, status, display_order, version, enabled, created_at, updated_at)
-WHERE NOT EXISTS (SELECT 1 FROM modules WHERE code = seed.code);
+SELECT gen_random_uuid(), v.code, v.name, v.description, v.status, v.display_order, v.version, v.enabled, NOW(), NOW()
+FROM (VALUES
+    ('CRM',               'CRM',               'Customer Relationship Management — accounts, contacts, leads, opportunities, pipeline, tasks, activities', 'ACTIVE', 10, '1.0', true),
+    ('AI',                'AI',                'Artificial Intelligence — agents, inference, automation, recommendations',                              'ACTIVE', 20, '1.0', true),
+    ('WORKFLOW',          'Workflow',          'Business process orchestration — workflows, approvals, executions',                                      'ACTIVE', 30, '1.0', true),
+    ('ERP',               'ERP',               'Enterprise Resource Planning — inventory, purchasing, supply chain',                                    'ACTIVE', 40, '1.0', true),
+    ('FINANCE',           'Finance',           'Financial management — invoices, payments, accounting, ledgers',                                        'ACTIVE', 50, '1.0', true),
+    ('ANALYTICS',         'Analytics',         'Business intelligence — dashboards, reports, KPIs, data visualization',                                  'ACTIVE', 60, '1.0', true),
+    ('HRM',               'HRM',               'Human Resource Management — employees, payroll, attendance, recruitment',                              'ACTIVE', 70, '1.0', true),
+    ('POS',               'POS',               'Point of Sale — terminals, transactions, receipts',                                                     'ACTIVE', 80, '1.0', true),
+    ('ECOMMERCE_CX',      'Ecommerce/CX',     'E-commerce and Customer Experience — storefronts, carts, checkout, CX',                                  'ACTIVE', 90, '1.0', true),
+    ('INDUSTRY_SOLUTIONS','Industry Solutions','Industry-specific vertical solutions — healthcare, retail, manufacturing, government',                   'ACTIVE', 100,'1.0', true)
+) AS v(code, name, description, status, display_order, version, enabled)
+WHERE NOT EXISTS (SELECT 1 FROM modules m WHERE m.code = v.code);
 
 -- ============================================================
 -- STEP 3: Record migration in flyway_schema_history

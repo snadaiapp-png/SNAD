@@ -252,80 +252,49 @@ public class EntitlementResolver {
     }
 
     /**
-     * Recalculate and cache effective entitlements for a tenant.
+     * Recalculate effective entitlements for a tenant.
      *
      * <p>Called after subscription changes (activation, upgrade, downgrade,
      * cancellation, suspension, resume).
      *
+     * <p><b>Design Decision (OPTION A):</b> The real-time resolver
+     * ({@link #getEffectiveEntitlements}) is the Source of Truth. It computes
+     * entitlements on-demand from {@code plan_module_entitlements} + {@code module_capabilities},
+     * which are always current. The {@code tenant_entitlement_cache} table is a
+     * legacy artifact and is NOT written to (it was write-only dead code).
+     *
+     * <p>This method now serves as a <b>validation hook</b>: it verifies that
+     * entitlements can be resolved for all enabled modules and logs the result.
+     * No cache writes are performed.
+     *
      * @param tenantId the tenant UUID
      */
-    @Transactional
+    @Transactional(readOnly = true)
     public void recalculateEntitlements(UUID tenantId) {
         Objects.requireNonNull(tenantId, "tenantId must not be null");
-        log.info("Recalculating entitlements for tenant: {}", tenantId);
-
-        // Delete existing cache entries for this tenant
-        jdbc.update("DELETE FROM tenant_entitlement_cache WHERE tenant_id = ?", tenantId);
+        log.info("Recalculating (validating) entitlements for tenant: {}", tenantId);
 
         // Find active subscription
         Map<String, Object> subInfo = findActiveSubscription(tenantId);
         if (subInfo == null) {
-            log.debug("No active subscription for tenant {}, skipping cache population", tenantId);
+            log.debug("No active subscription for tenant {}, all modules denied", tenantId);
             return;
         }
         UUID subscriptionId = (UUID) subInfo.get("subscriptionId");
         UUID planId = (UUID) subInfo.get("planId");
 
-        // For each enabled module, compute and cache entitlements
+        // For each enabled module, verify entitlements are resolvable (real-time)
         List<ModuleEntity> modules = moduleRepository.findAllEnabled();
+        int enabledCount = 0;
         for (ModuleEntity module : modules) {
             ModuleCapabilityContext ctx = getEffectiveEntitlements(tenantId, module.getCode());
-            cacheContext(tenantId, subscriptionId, planId, module, ctx);
+            if (ctx.isModuleEnabled()) {
+                enabledCount++;
+            }
         }
 
-        log.info("Entitlements recalculated for tenant: {} ({} modules cached)", tenantId, modules.size());
-    }
-
-    private void cacheContext(UUID tenantId, UUID subscriptionId, UUID planId,
-                              ModuleEntity module, ModuleCapabilityContext ctx) {
-        Instant now = Instant.now();
-        // Cache capabilities (boolean)
-        for (Map.Entry<String, Boolean> entry : ctx.capabilities().entrySet()) {
-            jdbc.update(
-                    "INSERT INTO tenant_entitlement_cache " +
-                            "(id, tenant_id, subscription_id, plan_id, module_id, module_enabled, " +
-                            "capability_code, capability_type, effective_value, effective_at, source, created_at, updated_at) " +
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    UUID.randomUUID(), tenantId, subscriptionId, planId, module.getId(),
-                    ctx.isModuleEnabled(), entry.getKey(), "BOOLEAN_CAPABILITY",
-                    entry.getValue().toString(), Timestamp.from(now), "SUBSCRIPTION",
-                    Timestamp.from(now), Timestamp.from(now));
-        }
-        // Cache limits (numeric)
-        for (Map.Entry<String, Long> entry : ctx.limits().entrySet()) {
-            jdbc.update(
-                    "INSERT INTO tenant_entitlement_cache " +
-                            "(id, tenant_id, subscription_id, plan_id, module_id, module_enabled, " +
-                            "capability_code, capability_type, effective_limit, effective_at, source, created_at, updated_at) " +
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    UUID.randomUUID(), tenantId, subscriptionId, planId, module.getId(),
-                    ctx.isModuleEnabled(), entry.getKey(), "NUMERIC_LIMIT",
-                    entry.getValue(), Timestamp.from(now), "SUBSCRIPTION",
-                    Timestamp.from(now), Timestamp.from(now));
-        }
-        // Cache quotas
-        for (Map.Entry<String, ModuleCapabilityContext.QuotaValue> entry : ctx.quotas().entrySet()) {
-            jdbc.update(
-                    "INSERT INTO tenant_entitlement_cache " +
-                            "(id, tenant_id, subscription_id, plan_id, module_id, module_enabled, " +
-                            "capability_code, capability_type, effective_quota, quota_period, effective_at, source, created_at, updated_at) " +
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    UUID.randomUUID(), tenantId, subscriptionId, planId, module.getId(),
-                    ctx.isModuleEnabled(), entry.getKey(), "QUOTA",
-                    entry.getValue().value(), entry.getValue().period(),
-                    Timestamp.from(now), "SUBSCRIPTION",
-                    Timestamp.from(now), Timestamp.from(now));
-        }
+        log.info("Entitlements validated for tenant: {} (subscription={}, plan={}, {} of {} modules enabled)",
+                tenantId, subscriptionId, planId, enabledCount, modules.size());
     }
 
     /**
