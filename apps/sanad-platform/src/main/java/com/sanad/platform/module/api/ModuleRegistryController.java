@@ -49,19 +49,25 @@ public class ModuleRegistryController {
     private final PlanModuleEntitlementRepository planModuleEntitlementRepository;
     private final EntitlementResolver entitlementResolver;
     private final com.sanad.platform.module.entitlement.ModuleEntitlementAuditWriter auditWriter;
+    private final com.sanad.platform.module.lifecycle.ModuleResetService moduleResetService;
+    private final com.sanad.platform.module.lifecycle.SubscriptionImpactService subscriptionImpactService;
 
     public ModuleRegistryController(ControlPlaneAccessGuard accessGuard,
                                      ModuleRepository moduleRepository,
                                      ModuleCapabilityRepository moduleCapabilityRepository,
                                      PlanModuleEntitlementRepository planModuleEntitlementRepository,
                                      EntitlementResolver entitlementResolver,
-                                     com.sanad.platform.module.entitlement.ModuleEntitlementAuditWriter auditWriter) {
+                                     com.sanad.platform.module.entitlement.ModuleEntitlementAuditWriter auditWriter,
+                                     com.sanad.platform.module.lifecycle.ModuleResetService moduleResetService,
+                                     com.sanad.platform.module.lifecycle.SubscriptionImpactService subscriptionImpactService) {
         this.accessGuard = accessGuard;
         this.moduleRepository = moduleRepository;
         this.moduleCapabilityRepository = moduleCapabilityRepository;
         this.planModuleEntitlementRepository = planModuleEntitlementRepository;
         this.entitlementResolver = entitlementResolver;
         this.auditWriter = auditWriter;
+        this.moduleResetService = moduleResetService;
+        this.subscriptionImpactService = subscriptionImpactService;
     }
 
     // ============================================================
@@ -275,6 +281,58 @@ public class ModuleRegistryController {
                 "modulesProcessed", moduleCount,
                 "timestamp", Instant.now().toString()
         ));
+    }
+
+    // ============================================================
+    // Module Lifecycle Endpoints (Mission 02)
+    // ============================================================
+
+    @GetMapping("/tenants/{tenantId}/modules/{moduleCode}/reset/preview")
+    @RequireCapability("EXECUTIVE_VIEW")
+    public ResponseEntity<com.sanad.platform.module.lifecycle.ModuleResetPreview> previewModuleReset(
+            Authentication authentication,
+            @PathVariable UUID tenantId,
+            @PathVariable String moduleCode) {
+        accessGuard.require(authentication);
+        return ResponseEntity.ok(moduleResetService.previewReset(tenantId, moduleCode));
+    }
+
+    @PostMapping("/tenants/{tenantId}/modules/{moduleCode}/reset")
+    @RequireCapability("EXECUTIVE_MANAGE")
+    public ResponseEntity<com.sanad.platform.module.lifecycle.ModuleResetResult> executeModuleReset(
+            Authentication authentication,
+            @PathVariable UUID tenantId,
+            @PathVariable String moduleCode,
+            @RequestBody(required = false) java.util.Map<String, Object> body) {
+        accessGuard.require(authentication);
+
+        // Extract actor from authentication
+        java.util.Map<String, Object> details = (java.util.Map<String, Object>) authentication.getDetails();
+        UUID actorTenantId = details != null ? (UUID) details.get("tenant_id") : null;
+        UUID actorUserId = details != null ? (UUID) details.get("user_id") : null;
+
+        // Audit: MODULE_RESET_PREVIEWED (if preview was called)
+        String correlationId = java.util.UUID.randomUUID().toString();
+        auditWriter.writePlanEntitlementChanged(
+                actorTenantId, actorUserId, tenantId,
+                null, null, moduleCode,
+                "RESET", Map.of("previewCalled", true), Map.of("resetRequested", true),
+                correlationId);
+
+        com.sanad.platform.module.lifecycle.ModuleResetResult result =
+                moduleResetService.executeReset(tenantId, moduleCode, actorTenantId, actorUserId);
+        return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/tenants/{tenantId}/subscription/impact/{targetPlanId}")
+    @RequireCapability("EXECUTIVE_VIEW")
+    public ResponseEntity<com.sanad.platform.module.lifecycle.SubscriptionImpactService.SubscriptionImpactPreview>
+            previewSubscriptionImpact(
+                    Authentication authentication,
+                    @PathVariable UUID tenantId,
+                    @PathVariable UUID targetPlanId) {
+        accessGuard.require(authentication);
+        return ResponseEntity.ok(subscriptionImpactService.previewPlanChange(tenantId, targetPlanId));
     }
 
     // ============================================================

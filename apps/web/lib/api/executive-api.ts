@@ -124,4 +124,44 @@ export const executiveApi = {
   recalculateEntitlements: (tenantId: string) =>
     apiClient.post<{ tenantId: string; status: string; timestamp: string }, Record<string, never>>(
       `${root}/tenants/${tenantId}/entitlements/recalculate`, {} as Record<string, never>),
+
+  // Module Lifecycle (Mission 02)
+  previewModuleReset: (tenantId: string, moduleCode: string) =>
+    apiClient.get<ModuleResetPreview>(`${root}/tenants/${tenantId}/modules/${moduleCode}/reset/preview`),
+  executeModuleReset: (tenantId: string, moduleCode: string) =>
+    apiClient.post<ModuleResetResult, Record<string, never>>(
+      `${root}/tenants/${tenantId}/modules/${moduleCode}/reset`, {} as Record<string, never>),
+  previewSubscriptionImpact: (tenantId: string, targetPlanId: string) =>
+    apiClient.get<SubscriptionImpactPreview>(`${root}/tenants/${tenantId}/subscription/impact/${targetPlanId}`),
 };
+
+// ── Mission 02 Types ─────────────────────────────────────────────────
+export interface ModuleResetPreview {
+  tenantId: string; moduleCode: string;
+  affectedTables: { tableName: string; estimatedRows: number; classification: string }[];
+  estimatedRows: number;
+  protectedTables: string[];
+  irreversible: boolean;
+  previewGeneratedAt: string;
+}
+
+export interface ModuleResetResult {
+  tenantId: string; moduleCode: string; status: string;
+  tableResults: { tableName: string; rowsDeleted: number; success: boolean; errorMessage: string | null }[];
+  totalRowsDeleted: number;
+  startedAt: string; completedAt: string;
+  errorMessage: string | null;
+}
+
+export interface SubscriptionImpactPreview {
+  tenantId: string; currentPlanCode: string; targetPlanCode: string;
+  changeType: string;
+  moduleImpacts: {
+    moduleCode: string; moduleName: string;
+    currentlyEnabled: boolean; targetEnabled: boolean;
+    status: string;
+    capabilityChanges: { capabilityCode: string; capabilityType: string; currentValue: string; targetValue: string; changeType: string }[];
+  }[];
+  dataSafetyNote: string;
+  previewGeneratedAt: string;
+}
