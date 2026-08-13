@@ -1,0 +1,52 @@
+name: Reproduce backend startup crash (capture JVM log)
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'GHCR image tag (commit sha) to run'
+        required: true
+        default: '7b12350b9e06b9e3e87f278af612d167cc61ef6f'
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+    steps:
+      - name: Run image against prod DB, capture full startup log
+        env:
+          DB_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+          DB_USER: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+          DB_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+          IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+        run: |
+          set +e
+          echo "=== Pulling image ghcr.io/snadaiapp-png/snad-backend:${IMAGE_TAG} ==="
+          docker pull "ghcr.io/snadaiapp-png/snad-backend:${IMAGE_TAG}" 2>&1 | tail -3
+          echo ""
+          echo "=== Running container (captures stdout+stderr, 120s timeout) ==="
+          # Map prod DB secrets to the env var names application-prod.yml expects.
+          # Flyway is up-to-date (DB @ 20260814.2) so this is read-only / no-op.
+          timeout 120 docker run --rm \
+            -e SPRING_PROFILES_ACTIVE=prod \
+            -e DATABASE_URL="$DB_URL" \
+            -e DATABASE_USERNAME="$DB_USER" \
+            -e DATABASE_PASSWORD="$DB_PASS" \
+            -e FLYWAY_ENABLED=true \
+            -e FLYWAY_LOCATIONS="classpath:db/migration,classpath:db/vendor/{vendor}" \
+            -e FLYWAY_VALIDATE_ON_MIGRATE=false \
+            -e FLYWAY_BASELINE_ON_MIGRATE=true \
+            -e JPA_DDL_AUTO=none \
+            -e JWT_SECRET="dummy-jwt-secret-for-repro-only-not-used-in-prod-64chars-padding!!" \
+            -e PORT=8080 \
+            "ghcr.io/snadaiapp-png/snad-backend:${IMAGE_TAG}" 2>&1 | tee /tmp/startup.log
+          EXIT=${PIPESTATUS[0]}
+          echo ""
+          echo "=== Container exited with code: $EXIT ==="
+          echo ""
+          echo "=== ERROR-RELEVANT LINES (exceptions/errors) ==="
+          grep -iE "error|exception|caused by|failed|unable|cannot|fatal|bean|flyway|hibernate|schema|validat|liquibase|sql|jdbc|hikari|connection" /tmp/startup.log | grep -ivE "ERROR.*log|logback|level|appender|configured" | tail -60
