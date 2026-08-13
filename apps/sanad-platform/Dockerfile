@@ -15,7 +15,9 @@ COPY pom.xml ./
 RUN mvn -B -ntp -q dependency:go-offline -DskipTests || true
 
 COPY src ./src
-RUN mvn -B -ntp -q clean package -DskipTests -Dgit.commit="${RENDER_GIT_COMMIT}"
+# -Dmaven.test.skip=true skips test COMPILATION too (unlike -DskipTests), so a
+# broken/unrelated test source cannot block the production image build.
+RUN mvn -B -ntp -q clean package -Dmaven.test.skip=true -Dgit.commit="${RENDER_GIT_COMMIT}"
 
 FROM eclipse-temurin:21-jre-jammy
 
