@@ -1,0 +1,36 @@
+name: Toggle Render FLYWAY_VALIDATE_ON_MIGRATE
+
+on:
+  workflow_dispatch:
+    inputs:
+      value:
+        description: "true or false"
+        required: true
+        default: "false"
+
+permissions:
+  contents: read
+
+jobs:
+  set:
+    name: Set FLYWAY_VALIDATE_ON_MIGRATE on Render
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 4
+    steps:
+      - name: Set env var on Render
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          VAL: ${{ github.event.inputs.value }}
+        run: |
+          set -euo pipefail
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          jq -n --arg value "$VAL" '{value:$value}' > /tmp/body.json
+          curl -s --fail-with-body --max-time 45 -X PUT \
+            -H "$AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data @/tmp/body.json "$BASE/env-vars/FLYWAY_VALIDATE_ON_MIGRATE" > /tmp/resp.json
+          v=$(curl -s --max-time 30 -H "$AUTH" "$BASE/env-vars/FLYWAY_VALIDATE_ON_MIGRATE" | jq -r '(.envVar // .).value // empty')
+          echo "FLYWAY_VALIDATE_ON_MIGRATE = ${v}"
+          [ "$v" = "$VAL" ] || { echo "::error::did not match"; exit 1; }
