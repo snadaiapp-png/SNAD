@@ -1,0 +1,69 @@
+name: Suspend backend + apply Flyway migrations
+
+# Stops the running backend (releases DB locks so migrations don't deadlock),
+# then applies all pending Flyway migrations cleanly. Run BEFORE deploying the
+# new image. After this, deploy resumes the service with an already-migrated DB.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: Suspend backend + migrate production DB
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 15
+    steps:
+      - name: Checkout migrations
+        uses: actions/checkout@v4
+
+      - name: Suspend backend service (release DB locks)
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          echo "=== Suspending backend ==="
+          curl -s --max-time 30 -X POST -H "$AUTH" -H 'Accept: application/json' "$BASE/suspend" -o /tmp/suspend.json -w "suspend_http=%{http_code}\n" || true
+          cat /tmp/suspend.json 2>/dev/null | head -c 300; echo
+          echo "=== Waiting for suspended state ==="
+          for i in $(seq 1 20); do
+            st=$(curl -s --max-time 20 -H "$AUTH" "$BASE" | python3 -c "import json,sys; d=json.load(sys.stdin); print('status=%s suspended=%s' % (d.get('status'), d.get('suspended')))" 2>/dev/null || echo "parse-error")
+            echo "  attempt $i: $st"
+            echo "$st" | grep -q "suspended=true" && { echo "SUSPENDED=OK"; break; }
+            sleep 5
+          done
+
+      - name: Flyway migrate (clean, no competing locks)
+        env:
+          DB_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+          DB_USER: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+          DB_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          MIGRATIONS="$(pwd)/apps/sanad-platform/src/main/resources/db/migration"
+          VENDOR="$(pwd)/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
+          echo "=== MIGRATE ==="
+          docker run --rm \
+            -v "$MIGRATIONS:/flyway/sql:ro" \
+            -v "$VENDOR:/flyway/vendorpg:ro" \
+            flyway/flyway:10 \
+            -url="$DB_URL" -user="$DB_USER" -password="$DB_PASS" \
+            -connectRetries=10 -table=flyway_schema_history \
+            -locations="filesystem:/flyway/sql,filesystem:/flyway/vendorpg" \
+            -validateOnMigrate=false -baselineOnMigrate=false \
+            migrate
+          echo "=== INFO AFTER (verify head + no pending) ==="
+          docker run --rm \
+            -v "$MIGRATIONS:/flyway/sql:ro" \
+            -v "$VENDOR:/flyway/vendorpg:ro" \
+            flyway/flyway:10 \
+            -url="$DB_URL" -user="$DB_USER" -password="$DB_PASS" \
+            -connectRetries=10 -table=flyway_schema_history \
+            -locations="filesystem:/flyway/sql,filesystem:/flyway/vendorpg" \
+            info | tail -20
