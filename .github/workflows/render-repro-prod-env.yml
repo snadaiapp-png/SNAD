@@ -1,0 +1,77 @@
+name: Render Repro With Prod Env (capture real startup exception)
+
+# Decisive read-only diagnostic: fetches the ACTUAL prod env vars from Render
+# (masked, never printed), runs the current image locally against the prod DB
+# with the exact same configuration Render uses, and captures the full startup
+# log so we can see the REAL stage-2 exception (not a guess).
+# No mutations. No secrets printed. Image pulled from GHCR (read-only).
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'GHCR image tag (commit sha)'
+        required: true
+        default: 'b99291bb5afc4e77ddaee8e9954a796d9e2c1dfa'
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    name: Run image with real prod env, capture startup log
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 15
+    steps:
+      - name: Fetch prod env from Render + run image + capture log
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+        run: |
+          set +e
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+
+          fetch() { # $1 = key
+            curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE/env-vars/$1" | jq -r '(.envVar // .).value // empty'
+          }
+
+          echo "=== Fetching prod env vars from Render (values masked) ==="
+          DB_URL="$(fetch DATABASE_URL)";                  echo "::add-mask::$DB_URL"
+          DB_USER="$(fetch DATABASE_USERNAME)";            echo "::add-mask::$DB_USER"
+          DB_PASS="$(fetch DATABASE_PASSWORD)";            echo "::add-mask::$DB_PASS"
+          ENC_KEY="$(fetch CRM_CUSTOM_FIELD_ENCRYPTION_KEY)"; echo "::add-mask::$ENC_KEY"
+          JWT="$(fetch JWT_SECRET)";                       echo "::add-mask::$JWT"
+          JOPTS="$(fetch JAVA_OPTS)"
+          echo "JAVA_OPTS on Render: $JOPTS"
+          echo "ENC_KEY present? $([ -n "$ENC_KEY" ] && echo yes || echo no)  DB_URL present? $([ -n "$DB_URL" ] && echo yes || echo no)"
+
+          echo ""
+          echo "=== Pull image ghcr.io/snadaiapp-png/snad-backend:${IMAGE_TAG} ==="
+          docker pull "ghcr.io/snadaiapp-png/snad-backend:${IMAGE_TAG}" 2>&1 | tail -2
+
+          echo ""
+          echo "=== docker run with REAL prod env (180s timeout) ==="
+          timeout 180 docker run --rm \
+            -e SPRING_PROFILES_ACTIVE=prod \
+            -e DATABASE_URL="$DB_URL" \
+            -e DATABASE_USERNAME="$DB_USER" \
+            -e DATABASE_PASSWORD="$DB_PASS" \
+            -e CRM_CUSTOM_FIELD_ENCRYPTION_KEY="$ENC_KEY" \
+            -e JWT_SECRET="$JWT" \
+            -e FLYWAY_ENABLED=true \
+            -e FLYWAY_LOCATIONS="classpath:db/migration,classpath:db/vendor/{vendor}" \
+            -e FLYWAY_VALIDATE_ON_MIGRATE=false \
+            -e FLYWAY_BASELINE_ON_MIGRATE=true \
+            -e JPA_DDL_AUTO=none \
+            -e PORT=8080 \
+            -e JAVA_OPTS="$JOPTS" \
+            "ghcr.io/snadaiapp-png/snad-backend:${IMAGE_TAG}" 2>&1 | tee /tmp/startup.log
+          EXIT=${PIPESTATUS[0]}
+          echo ""
+          echo "=== Container exited with code: $EXIT ==="
+          echo ""
+          echo "=== EXCEPTION / ERROR LINES (the real cause) ==="
+          grep -iE 'error|exception|caused by|unable|cannot|fatal|bean creation|flyway|hibernate|hikari|jdbc|sql|out of memory|metaspace|heap|validat|migrat|encrypt|security|guard| FATAL |Application run failed|nested' /tmp/startup.log | grep -ivE 'ERROR.*log|logback|appender|level|configured|JVM running for' | tail -70
