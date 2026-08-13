@@ -50,7 +50,7 @@ SELECT * FROM (VALUES
     (gen_random_uuid(), 'POS',               'POS',               'Point of Sale — terminals, transactions, receipts',                                                     'ACTIVE', 80, '1.0', true,  NOW(), NOW()),
     (gen_random_uuid(), 'ECOMMERCE_CX',      'Ecommerce/CX',     'E-commerce and Customer Experience — storefronts, carts, checkout, CX',                                'ACTIVE', 90, '1.0', true,  NOW(), NOW()),
     (gen_random_uuid(), 'INDUSTRY_SOLUTIONS','Industry Solutions','Industry-specific vertical solutions — healthcare, retail, manufacturing, government',                   'ACTIVE', 100,'1.0', true, NOW(), NOW())
-) AS seed(code, name, description, status, display_order, version, enabled, created_at, updated_at)
+) AS seed(id, code, name, description, status, display_order, version, enabled, created_at, updated_at)
 WHERE NOT EXISTS (SELECT 1 FROM modules WHERE code = seed.code);
 
 -- ============================================================
