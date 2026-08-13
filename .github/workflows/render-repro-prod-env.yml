@@ -45,7 +45,9 @@ jobs:
           ENC_KEY="$(fetch CRM_CUSTOM_FIELD_ENCRYPTION_KEY)"; echo "::add-mask::$ENC_KEY"
           JWT="$(fetch JWT_SECRET)";                       echo "::add-mask::$JWT"
           JOPTS="$(fetch JAVA_OPTS)"
+          FLY_URL="$(fetch SPRING_FLYWAY_URL)";            echo "::add-mask::$FLY_URL"
           echo "JAVA_OPTS on Render: $JOPTS"
+          echo "SPRING_FLYWAY_URL present? $([ -n "$FLY_URL" ] && echo yes || echo no)"
           echo "ENC_KEY present? $([ -n "$ENC_KEY" ] && echo yes || echo no)  DB_URL present? $([ -n "$DB_URL" ] && echo yes || echo no)"
 
           echo ""
@@ -68,6 +70,7 @@ jobs:
             -e JPA_DDL_AUTO=none \
             -e PORT=8080 \
             -e JAVA_OPTS="$JOPTS" \
+            -e SPRING_FLYWAY_URL="$FLY_URL" \
             "ghcr.io/snadaiapp-png/snad-backend:${IMAGE_TAG}" 2>&1 | tee /tmp/startup.log
           EXIT=${PIPESTATUS[0]}
           echo ""
