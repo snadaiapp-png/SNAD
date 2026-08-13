@@ -1,0 +1,59 @@
+name: Set CRM encryption key on Render (unblocks deploy)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  set-key:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Generate fresh AES-256 key + set on Render (never printed)
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Generate a cryptographically fresh AES-256 key (32 bytes, base64).
+          # SAFETY: confirmed no existing enc:v1: data (LegacyEncryptionService +
+          # ProductionSecurityGuard shipped together in f8450e88; running instance
+          # predates encryption code; zero enc:v1: rows in any migration/seed).
+          KEY="$(openssl rand -base64 32)"
+          # Decode-check: must be exactly 32 bytes (AES-256).
+          LEN=$(printf '%s' "$KEY" | base64 -d | wc -c)
+          test "$LEN" -eq 32 || { echo "::error::Generated key is not 32 bytes ($LEN)"; exit 1; }
+          echo "::add-mask::$KEY"
+          echo "Generated fresh AES-256 key (32 bytes verified, value masked)."
+
+          # 1) Set on Render (service-level env var).
+          jq -n --arg value "$KEY" '{value:$value}' > /tmp/body.json
+          HTTP=$(curl -s -o /tmp/resp.json -w "%{http_code}" --max-time 45 \
+            -X PUT \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H 'Accept: application/json' \
+            -H 'Content-Type: application/json' \
+            --data @/tmp/body.json \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/CRM_CUSTOM_FIELD_ENCRYPTION_KEY")
+          echo "Render PUT CRM_CUSTOM_FIELD_ENCRYPTION_KEY -> HTTP $HTTP"
+          test "$HTTP" -ge 200 -a "$HTTP" -lt 300 || { echo "::error::Render API rejected key set"; cat /tmp/resp.json; exit 1; }
+
+          # 2) Verify it is now PRESENT on Render (do not print value).
+          VERIFY=$(curl -s --max-time 30 \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H 'Accept: application/json' \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/CRM_CUSTOM_FIELD_ENCRYPTION_KEY" \
+            | jq -r '(.envVar // .).value // empty' )
+          test -n "$VERIFY" && echo "Render CRM_CUSTOM_FIELD_ENCRYPTION_KEY = PRESENT (value length=${#VERIFY}, verified non-empty)"
+
+          # 3) Back up the key as a GitHub Actions secret (recoverable; never printed).
+          gh secret set CRM_CUSTOM_FIELD_ENCRYPTION_KEY --body "$KEY" 2>/dev/null \
+            && echo "Stored backup copy as GitHub secret CRM_CUSTOM_FIELD_ENCRYPTION_KEY." \
+            || echo "WARN: could not set GitHub secret (non-fatal)."
+
+          echo ""
+          echo "=== KEY IS SET ON RENDER — backend deploy is unblocked ==="
