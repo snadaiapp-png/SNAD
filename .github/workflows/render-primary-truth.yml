@@ -1,0 +1,45 @@
+name: Render DB Primary Truth (NO LOAD BALANCE, read-only)
+
+# Supabase Supavisor may route plain SELECTs to a read replica. Flyway uses
+# /*NO LOAD BALANCE*/ to force primary. This reads the TRUE primary state via
+# the NO LOAD BALANCE hint on both ports + reports replica status.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  primary:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 8
+    steps:
+      - name: Read primary truth
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set +e
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          fv() { curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE/env-vars/$1" | jq -r '(.envVar // .).value // empty'; }
+          DB_URL="$(fv DATABASE_URL)"; DB_USER="$(fv DATABASE_USERNAME)"; DB_PASS="$(fv DATABASE_PASSWORD)"
+          echo "::add-mask::$DB_URL"; echo "::add-mask::$DB_USER"; echo "::add-mask::$DB_PASS"
+          HOST="$(printf '%s\n' "$DB_URL" | sed -E 's#.*://##; s#/.*##; s#:.*##; s#\?.*##')"
+          export PGPASSWORD="$DB_PASS"
+          for PORT in 6543 5432; do
+            U="postgresql://$HOST:$PORT/postgres"
+            echo "========== PORT $PORT =========="
+            echo "in_recovery (t=replica, f=primary):"
+            psql "$U" -U "$DB_USER" -v ON_ERROR_STOP=0 -tAc "SELECT /*NO LOAD BALANCE*/ pg_is_in_recovery();" 2>&1 | head -1
+            echo "PRIMARY flyway_schema_history count (NO LOAD BALANCE):"
+            psql "$U" -U "$DB_USER" -v ON_ERROR_STOP=0 -tAc "SELECT /*NO LOAD BALANCE*/ count(*) FROM public.flyway_schema_history;" 2>&1 | head -1
+            echo "PRIMARY public table count (NO LOAD BALANCE):"
+            psql "$U" -U "$DB_USER" -v ON_ERROR_STOP=0 -tAc "SELECT /*NO LOAD BALANCE*/ count(*) FROM information_schema.tables WHERE table_schema='public';" 2>&1 | head -1
+            echo "PRIMARY G7 tables (NO LOAD BALANCE):"
+            psql "$U" -U "$DB_USER" -v ON_ERROR_STOP=0 -tAc "SELECT /*NO LOAD BALANCE*/ count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'mobile_%';" 2>&1 | head -1
+            echo "--- last 5 flyway versions (NO LOAD BALANCE) ---"
+            psql "$U" -U "$DB_USER" -v ON_ERROR_STOP=0 -c "SELECT /*NO LOAD BALANCE*/ installed_rank, version, description, success FROM public.flyway_schema_history ORDER BY installed_rank DESC LIMIT 5;" 2>&1 | head -12
+          done
