@@ -1,0 +1,46 @@
+name: Render DB Schema Inventory (read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    name: List tables + verify G7 mobile sync tables exist
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 8
+    steps:
+      - name: Query table inventory
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          DB_URL="$(curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE/env-vars/DATABASE_URL" | jq -r '(.envVar // .).value // empty')"
+          DB_USER="$(curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE/env-vars/DATABASE_USERNAME" | jq -r '(.envVar // .).value // empty')"
+          DB_PASS="$(curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE/env-vars/DATABASE_PASSWORD" | jq -r '(.envVar // .).value // empty')"
+          echo "::add-mask::$DB_URL"; echo "::add-mask::$DB_USER"; echo "::add-mask::$DB_PASS"
+          PSQL_URL="postgresql://${DB_URL#jdbc:postgresql://}"
+          PSQL_URL="postgresql://${PSQL_URL#postgresql://}"
+          export PGPASSWORD="$DB_PASS"
+
+          echo "=== Total table count (all schemas) ==="
+          psql "$PSQL_URL" -U "$DB_USER" -v ON_ERROR_STOP=0 -c "SELECT count(*) AS total_tables FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema');"
+
+          echo ""
+          echo "=== G7 mobile sync tables presence ==="
+          psql "$PSQL_URL" -U "$DB_USER" -v ON_ERROR_STOP=0 -c "SELECT table_name, CASE WHEN EXISTS (SELECT 1 FROM information_schema.tables t2 WHERE t2.table_name=lower(replace(replace(t.table_name,'_chk',''),' ',''))) THEN 'see below' END FROM (VALUES ('mobile_device_registry'),('mobile_sync_cursor'),('mobile_sync_log'),('mobile_conflict_log')) AS t(table_name);"
+          psql "$PSQL_URL" -U "$DB_USER" -v ON_ERROR_STOP=0 -c "SELECT table_name FROM information_schema.tables WHERE table_name IN ('mobile_device_registry','mobile_sync_cursor','mobile_sync_log','mobile_conflict_log') ORDER BY table_name;"
+
+          echo ""
+          echo "=== Core tables presence (tenants, users, roles, flyway) ==="
+          psql "$PSQL_URL" -U "$DB_USER" -v ON_ERROR_STOP=0 -c "SELECT table_name FROM information_schema.tables WHERE table_name IN ('tenants','users','roles','flyway_schema_history','crm_assignment_rules','crm_assignment_rule_counters') ORDER BY table_name;"
+
+          echo ""
+          echo "=== All tables (public schema), alphabetical ==="
+          psql "$PSQL_URL" -U "$DB_USER" -v ON_ERROR_STOP=0 -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name;"
