@@ -1,0 +1,112 @@
+name: Render Fix JAVA_OPTS (align to Dockerfile 192m/160m)
+
+# Release-required env-var correction (PHASE 5). Render's JAVA_OPTS env override
+# (128m/128m) defeats the Dockerfile's documented 192m/160m fix, causing a JVM
+# startup OOM (nonZeroExit:1) during Hibernate/G7 class-loading. This sets the
+# Render env var to the exact value already shipped in the Dockerfile, then
+# triggers a deploy and waits for LIVE. Safe + reversible (old value logged).
+# Touches NO G7 code, NO RLS, NO auth, NO DB provider, NO migrations.
+
+on:
+  workflow_dispatch:
+    inputs:
+      java_opts:
+        description: "JAVA_OPTS value (default = Dockerfile 192m/160m)"
+        required: true
+        default: "-Xmx192m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC -XX:MaxMetaspaceSize=160m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"
+
+permissions:
+  contents: read
+
+jobs:
+  fix-and-deploy:
+    name: Set JAVA_OPTS on Render + deploy + wait for LIVE
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 25
+    steps:
+      - name: Set JAVA_OPTS, deploy, and poll until terminal
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          JAVA_OPTS_NEW: ${{ github.event.inputs.java_opts }}
+        run: |
+          set -euo pipefail
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+
+          echo "=== STEP 1: Read CURRENT JAVA_OPTS (audit old value) ==="
+          OLD=$(curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' \
+            "$BASE/env-vars/JAVA_OPTS" | jq -r '(.envVar // .).value // empty')
+          if [ -n "$OLD" ]; then
+            echo "OLD JAVA_OPTS (len ${#OLD}): $OLD"
+          else
+            echo "OLD JAVA_OPTS: <unset> (Dockerfile ENV 192m/160m would apply)"
+          fi
+
+          echo ""
+          echo "=== STEP 2: PUT new JAVA_OPTS (Dockerfile-aligned 192m/160m) ==="
+          echo "NEW JAVA_OPTS (len ${#JAVA_OPTS_NEW}): $JAVA_OPTS_NEW"
+          jq -n --arg value "$JAVA_OPTS_NEW" '{value:$value}' > /tmp/body.json
+          HTTP=$(curl -s -o /tmp/resp.json -w "%{http_code}" --max-time 45 \
+            -X PUT -H "$AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data @/tmp/body.json "$BASE/env-vars/JAVA_OPTS")
+          echo "PUT /env-vars/JAVA_OPTS -> HTTP $HTTP"
+          test "$HTTP" -ge 200 -a "$HTTP" -lt 300 || { echo "::error::Render rejected JAVA_OPTS set"; cat /tmp/resp.json; exit 1; }
+
+          echo ""
+          echo "=== STEP 3: Verify new value took (read-back) ==="
+          VERIFY=$(curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' \
+            "$BASE/env-vars/JAVA_OPTS" | jq -r '(.envVar // .).value // empty')
+          echo "VERIFY JAVA_OPTS (len ${#VERIFY}): $VERIFY"
+          [ "$VERIFY" = "$JAVA_OPTS_NEW" ] || { echo "::error::JAVA_OPTS read-back mismatch"; exit 1; }
+
+          echo ""
+          echo "=== STEP 4: Trigger deploy (current image, clearCache=do_not_clear) ==="
+          HTTP=$(curl -s -o /tmp/deploy.json -w "%{http_code}" --max-time 30 \
+            -X POST "$BASE/deploys" -H "$AUTH" -H 'Content-Type: application/json' -H 'Accept: application/json' \
+            --data '{"clearCache":"do_not_clear"}')
+          echo "POST /deploys -> HTTP $HTTP"
+          DEPLOY_ID=$(jq -r '.id // empty' /tmp/deploy.json)
+          echo "DEPLOY_ID=$DEPLOY_ID" >> "$GITHUB_ENV"
+          echo "Deploy ID: $DEPLOY_ID"
+          test -n "$DEPLOY_ID" || { echo "::error::no deploy id returned"; cat /tmp/deploy.json; exit 1; }
+
+          echo ""
+          echo "=== STEP 5: Poll deploy status until terminal (max ~18 min) ==="
+          for i in $(seq 1 70); do
+            sleep 15
+            STATUS=$(curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' \
+              "$BASE/deploys/$DEPLOY_ID" | jq -r '.status // "unknown"')
+            echo "  Attempt $i (${i}s=$((i*15))s): $STATUS"
+            if [ "$STATUS" = "live" ]; then
+              echo "::notice::DEPLOY LIVE"
+              exit 0
+            fi
+            if echo "$STATUS" | grep -qiE 'failed|canceled|deactivated'; then
+              echo "::error::Deploy terminal status: $STATUS"
+              exit 1
+            fi
+          done
+          echo "::error::Timed out waiting for deploy (last status: $STATUS)"
+          exit 1
+
+      - name: Health check /actuator/health
+        if: success()
+        run: |
+          set -euo pipefail
+          echo "Waiting 10s for health endpoint to settle..."
+          sleep 10
+          for i in $(seq 1 12); do
+            CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" --max-time 30 \
+              https://sanad-backend-mcrj.onrender.com/actuator/health || echo 000)
+            BODY=$(cat /tmp/health.json 2>/dev/null | jq -r '.status // empty' 2>/dev/null || echo "")
+            echo "  Attempt $i: HTTP $CODE status=$BODY"
+            if [ "$CODE" = "200" ] && [ "$BODY" = "UP" ]; then
+              echo "::notice::BACKEND HEALTHY (HTTP 200, status UP)"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Health check did not reach UP"
+          exit 1
