@@ -29,14 +29,17 @@ jobs:
           DB_PASS="$(curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE/env-vars/DATABASE_PASSWORD" | jq -r '(.envVar // .).value // empty')"
           echo "::add-mask::$DB_URL"; echo "::add-mask::$DB_USER"; echo "::add-mask::$DB_PASS"
           [ -n "$DB_URL" ] && [ -n "$DB_USER" ] && [ -n "$DB_PASS" ] || { echo "::error::missing DB creds"; exit 1; }
-          # RenderDatabaseUrlConverter accepts jdbc: or postgresql:// ; psql needs libpq URL
-          PSQL_ARGS=(-v ON_ERROR_STOP=0)
+          # RenderDatabaseUrlConverter accepts jdbc: or postgresql:// ; psql needs a libpq URI
+          PSQL_URL="${DB_URL#jdbc:}"           # jdbc:postgresql://... -> postgresql://...
+          PSQL_URL="${PSQL_URL#postgresql://}"  # fallback if bare
+          PSQL_URL="postgresql://${PSQL_URL}"
+          echo "::add-mask::$PSQL_URL"
           export PGPASSWORD="$DB_PASS"
 
           echo "=== Connection target (host only) ==="
           echo "$DB_URL" | sed -E 's#(://[^:]+:)[^@]+@#\1***@#'
 
-          run_sql () { psql "$DB_URL" -U "$DB_USER" -v ON_ERROR_STOP=0 -c "$1" 2>&1 || true; }
+          run_sql () { psql "$PSQL_URL" -U "$DB_USER" -v ON_ERROR_STOP=0 -c "$1" 2>&1 || true; }
 
           echo ""
           echo "=== A) ALL advisory locks + granted status ==="
