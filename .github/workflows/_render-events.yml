@@ -1,0 +1,38 @@
+name: Render Events (failure reason)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  events:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Query events + deploy-by-id logs
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          echo "=== SERVICE: registry creds + image + details ==="
+          curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE" \
+            | jq '{image: .image, registryCredentials: .registryCredentials, dockerContext: .serviceDetails.envSpecificDetails, region: .region, createdAt}'
+          echo ""
+          echo "=== EVENTS (recent, raw) ==="
+          curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE/events?limit=20" \
+            | jq '.' 2>/dev/null | head -80
+          echo ""
+          echo "=== DEPLOY LOGS via JSON API (most recent failed deploy) ==="
+          LATEST=$(curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE/deploys?limit=1" | jq -r '.[0].deploy.id // .[0].id')
+          echo "Latest deploy id: $LATEST"
+          for ACC in "application/json" "text/plain"; do
+            echo "--- trying /logs with Accept: $ACC ---"
+            curl -s --max-time 20 -H "$AUTH" -H "Accept: $ACC" "$BASE/logs?limit=50" | head -c 3000
+            echo ""
+          done
