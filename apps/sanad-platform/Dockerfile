@@ -40,12 +40,15 @@ RUN mkdir -p /app/logs && chown -R sanad:sanad /app
 
 # Memory optimization for Render 512MB free tier
 # SerialGC: lowest memory overhead GC
-# 128MB heap: sufficient for Spring Boot with CRM-009
-# 128MB metaspace: required for CRM-009 class loading (48m was insufficient)
+# 192MB heap + 160MB metaspace: startup crash-loop (nonZeroExit:1 during
+#   class-loading/Hibernate init) observed at 128m/128m after G7 added mobile
+#   sync entities. Steady-state usage stays well under these caps; only the
+#   startup peak touches higher. 192+160+32=384MB reserved, ~80MB native
+#   overhead => ~464MB, safely under the 512MB container limit.
 # 256k thread stack: half the default
 # TieredStopAtLevel=1: skip C2 for faster startup
 # -XX:+ExitOnOutOfMemoryError: crash immediately on OOM (clean exit code)
-ENV JAVA_OPTS="-Xmx128m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"
+ENV JAVA_OPTS="-Xmx192m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC -XX:MaxMetaspaceSize=160m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"
 ENV SPRING_PROFILES_ACTIVE=prod
 
 USER sanad
