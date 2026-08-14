@@ -137,7 +137,9 @@ class CrmFlywayHistoryAssertionTest {
             "20260815.1",    // create senior management kpi engine
             "20260815.2",    // add executive management capabilities
             "20260815.3",    // create decision risk issue escalation audit
-            "20260815.4"     // add decision risk issue escalation capabilities
+            "20260815.4",    // add decision risk issue escalation capabilities
+            "20260815.5",    // create command center alerts ai
+            "20260815.6"     // add command center alerts intelligence capabilities
     );
 
 
