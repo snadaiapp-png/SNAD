@@ -44,16 +44,20 @@ jobs:
       - name: List organizations and existing projects (read-only)
         run: |
           set -euo pipefail
-          echo "=== orgs ==="
-          curl -sS -H "Authorization: Bearer $SUPA_TOKEN" "https://api.supabase.com/v1/orgs" | tee /tmp/orgs.json | jq -c '[.[] | {id, name}]'
-          echo "=== existing projects (ref,name,region,status) ==="
-          curl -sS -H "Authorization: Bearer $SUPA_TOKEN" "https://api.supabase.com/v1/projects" | tee /tmp/projects.json | jq -c '[.[] | {id, name, region, status}]'
+          echo "=== orgs (raw) ==="
+          curl -sS -H "Authorization: Bearer $SUPA_TOKEN" "https://api.supabase.com/v1/orgs" | tee /tmp/orgs_raw.json | head -c 2000; echo
+          jq 'if type == "array" then [.[].id] else . end' /tmp/orgs_raw.json > /tmp/orgs_ids.json
+          ORG_COUNT=$(jq 'if type == "array" then length else 0 end' /tmp/orgs_ids.json)
+          echo "org count: $ORG_COUNT"
+          echo "=== existing projects (raw) ==="
+          curl -sS -H "Authorization: Bearer $SUPA_TOKEN" "https://api.supabase.com/v1/projects" | tee /tmp/projects_raw.json | head -c 2000; echo
+          jq 'if type == "array" then [.[] | {id, name, region, status}] else . end' /tmp/projects_raw.json | tee /tmp/projects.json
 
       - name: Guard against touching production project
         run: |
           set -euo pipefail
           NAME="${{ inputs.project_name }}"
-          if jq -e --arg n "$NAME" '.[] | select(.name == $n)' /tmp/projects.json > /dev/null; then
+          if jq -e 'type == "array"' /tmp/projects.json > /dev/null && jq -e --arg n "$NAME" '.[] | select(.name == $n)' /tmp/projects.json > /dev/null; then
             echo "::error::A project named '$NAME' already exists. Refusing to create a duplicate."
             exit 1
           fi
@@ -63,9 +67,9 @@ jobs:
         id: create
         run: |
           set -euo pipefail
-          ORG_ID=$(jq -r '.[0].id' /tmp/orgs.json)
-          if [ -z "$ORG_ID" ] || [ "$ORG_ID" = "null" ]; then
-            echo "::error::No Supabase organization available for this token."
+          ORG_ID=$(jq -r 'if type == "array" then .[0] else empty end' /tmp/orgs_ids.json)
+          if [ -z "$ORG_ID" ]; then
+            echo "::error::No Supabase organization available for this token (see raw orgs output above)."
             exit 1
           fi
           echo "Using organization: $ORG_ID"
