@@ -140,16 +140,16 @@ WHERE r.tenant_id = '00000000-0000-0000-0000-000000000001'::uuid
 
 -- Bind the 8 CRM-008B individual-contributor capabilities to SALES_REPRESENTATIVE
 -- for the control plane tenant (same rationale as above).
+-- Capability list mirrors V20260722_8's SALES_REPRESENTATIVE binding exactly.
 INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
 SELECT gen_random_uuid(), r.tenant_id, r.id, c.id, NOW()
 FROM roles r
 JOIN access_capabilities c ON c.code IN (
     'CRM.ASSIGNMENT.READ',
-    'CRM.TRANSFER.READ',
+    'CRM.TRANSFER.READ', 'CRM.TRANSFER.REQUEST',
     'CRM.TEAM.READ',
     'CRM.QUEUE.READ', 'CRM.QUEUE.CLAIM',
     'CRM.TERRITORY.READ',
-    'CRM.ASSIGNMENT_RULE.READ',
     'CRM.OWNERSHIP_HISTORY.READ'
 ) AND c.status = 'ACTIVE'
 WHERE r.tenant_id = '00000000-0000-0000-0000-000000000001'::uuid
