@@ -75,7 +75,7 @@ class CommunicationPolicyHttpIntegrationTest {
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         UUID roleId = UUID.randomUUID();
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)

@@ -137,7 +137,7 @@ class AddressCommunicationLifecycleIntegrationTest {
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         UUID roleId = UUID.randomUUID();
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)
@@ -168,7 +168,7 @@ class AddressCommunicationLifecycleIntegrationTest {
 
     private UUID account(Fixture fixture, String name) {
         UUID id = UUID.randomUUID();
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO crm_accounts (id,tenant_id,version,display_name,normalized_name,account_type," +
                         "lifecycle_status,primary_currency_code,preferred_locale,time_zone,source,owner_user_id," +
                         "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,:name,:normalized," +
@@ -180,7 +180,7 @@ class AddressCommunicationLifecycleIntegrationTest {
 
     private UUID contact(Fixture fixture, String givenName, String familyName) {
         UUID id = UUID.randomUUID();
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         String displayName = givenName + " " + familyName;
         jdbc.update("INSERT INTO crm_contacts (id,tenant_id,version,account_id,given_name,family_name,display_name," +
                         "normalized_name,preferred_locale,time_zone,lifecycle_status,owner_user_id,consent_summary," +

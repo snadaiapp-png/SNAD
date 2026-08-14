@@ -49,7 +49,7 @@ class CrmApiIntegrationTest {
 
     @BeforeEach
     void seedIdentityAndCapabilities() {
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         seedTenant(TENANT_A, "crm-a", "CRM Tenant A", now);
         seedTenant(TENANT_B, "crm-b", "CRM Tenant B", now);
         seedUser(USER_A, TENANT_A, "crm-a@example.test", now);

@@ -185,7 +185,7 @@ class CustomerMasterMergeIntegrationTest {
     private Fixture fixture(String key) {
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)
@@ -201,7 +201,7 @@ class CustomerMasterMergeIntegrationTest {
 
     private UUID account(Fixture fixture, String name) {
         UUID id = UUID.randomUUID();
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO crm_accounts (id,tenant_id,version,display_name,normalized_name,account_type," +
                         "lifecycle_status,primary_currency_code,preferred_locale,time_zone,source,owner_user_id," +
                         "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,:name,:normalized," +
