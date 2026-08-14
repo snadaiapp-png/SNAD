@@ -262,7 +262,7 @@ class ManagementIntegrationTest {
                 .andExpect(jsonPath("$.status").value("DRAFT"));
     }
 
-    private static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.AuthenticationRequestPostProcessor authentication(
+    private static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.RequestPostProcessor authentication(
             Authentication auth) {
         return org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication(auth);
     }
