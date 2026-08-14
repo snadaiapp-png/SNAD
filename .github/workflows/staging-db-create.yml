@@ -1,0 +1,154 @@
+# ============================================================
+# STAGING DB CREATE — Independent Supabase project (G7 staging)
+# ============================================================
+# Creates a NEW Supabase project as an isolated STAGING database.
+# - Completely independent from Production (separate project/ref/data plane).
+# - No Render involvement. No Production DB access. No destructive ops.
+# - Connection password is supplied via workflow_dispatch input so the
+#   local Backend Preview can construct the JDBC URL without reading
+#   GitHub secrets (secrets are write-only).
+# ============================================================
+name: staging-db-create
+
+on:
+  workflow_dispatch:
+    inputs:
+      db_pass:
+        description: "Database password for the NEW staging project (staging-only credential)"
+        required: true
+        type: string
+      project_name:
+        description: "New Supabase project name"
+        required: false
+        default: "sanad-staging-g7"
+        type: string
+      region:
+        description: "Supabase region"
+        required: false
+        default: "eu-central-1"
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: staging-db-create
+  cancel-in-progress: false
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SUPA_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: List organizations and existing projects (read-only)
+        run: |
+          set -euo pipefail
+          echo "=== orgs ==="
+          curl -sS -H "Authorization: Bearer $SUPA_TOKEN" "https://api.supabase.com/v1/orgs" | tee /tmp/orgs.json | jq -c '[.[] | {id, name}]'
+          echo "=== existing projects (ref,name,region,status) ==="
+          curl -sS -H "Authorization: Bearer $SUPA_TOKEN" "https://api.supabase.com/v1/projects" | tee /tmp/projects.json | jq -c '[.[] | {id, name, region, status}]'
+
+      - name: Guard against touching production project
+        run: |
+          set -euo pipefail
+          NAME="${{ inputs.project_name }}"
+          if jq -e --arg n "$NAME" '.[] | select(.name == $n)' /tmp/projects.json > /dev/null; then
+            echo "::error::A project named '$NAME' already exists. Refusing to create a duplicate."
+            exit 1
+          fi
+          echo "No existing project named '$NAME' — safe to create a NEW staging project."
+
+      - name: Create staging project
+        id: create
+        run: |
+          set -euo pipefail
+          ORG_ID=$(jq -r '.[0].id' /tmp/orgs.json)
+          if [ -z "$ORG_ID" ] || [ "$ORG_ID" = "null" ]; then
+            echo "::error::No Supabase organization available for this token."
+            exit 1
+          fi
+          echo "Using organization: $ORG_ID"
+          RESPONSE=$(curl -sS -X POST "https://api.supabase.com/v1/projects" \
+            -H "Authorization: Bearer $SUPA_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "organization_id": "'"$ORG_ID"'",
+              "name": "${{ inputs.project_name }}",
+              "db_pass": "${{ inputs.db_pass }}",
+              "region": "${{ inputs.region }}",
+              "plan": "free",
+              "allow_amp": false
+            }')
+          echo "$RESPONSE" | jq .
+          REF=$(echo "$RESPONSE" | jq -r '.id // empty')
+          if [ -z "$REF" ]; then
+            echo "::error::Project creation failed (no id in response)."
+            exit 1
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "STAGING_REF=$REF" >> "$GITHUB_ENV"
+
+      - name: Wait until project is ACTIVE
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            STATUS=$(curl -sS -H "Authorization: Bearer $SUPA_TOKEN" "https://api.supabase.com/v1/projects/$STAGING_REF" | jq -r '.status')
+            echo "poll $i: status=$STATUS"
+            if [ "$STATUS" = "ACTIVE" ]; then
+              echo "Project is ACTIVE."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Timed out waiting for project to become ACTIVE."
+          exit 1
+
+      - name: Print non-secret connection coordinates
+        run: |
+          set -euo pipefail
+          REGION="${{ inputs.region }}"
+          echo "=========================================================="
+          echo "STAGING PROJECT CREATED (non-secret coordinates)"
+          echo "  project ref : $STAGING_REF"
+          echo "  region      : $REGION"
+          echo "  pooler host : aws-0-$REGION.pooler.supabase.com"
+          echo "  session  (:6543) user : postgres.$STAGING_REF"
+          echo "  transaction (:5432) user: postgres.$STAGING_REF"
+          echo "  database    : postgres"
+          echo "  sslmode     : require"
+          echo "=========================================================="
+          {
+            echo "staging_ref=$STAGING_REF"
+            echo "staging_region=$REGION"
+            echo "pooler_host=aws-0-$REGION.pooler.supabase.com"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify database accepts connections (session pooler)
+        run: |
+          set -euo pipefail
+          export PGPASSWORD='${{ inputs.db_pass }}'
+          for i in $(seq 1 30); do
+            if psql "postgresql://postgres.$STAGING_REF@aws-0-${{ inputs.region }}.pooler.supabase.com:6543/postgres?sslmode=require" \
+                 -tAc "SELECT 'staging-db-ready';" 2>/tmp/psql_err.txt; then
+              echo "Staging database accepts connections."
+              exit 0
+            fi
+            echo "poll $i: not ready yet ($(head -c 200 /tmp/psql_err.txt))"
+            sleep 10
+          done
+          echo "::error::Staging database never became connectable."
+          exit 1
+
+      - name: Confirm staging schema is EMPTY (fresh baseline)
+        run: |
+          set -euo pipefail
+          export PGPASSWORD='${{ inputs.db_pass }}'
+          TABLES=$(psql "postgresql://postgres.$STAGING_REF@aws-0-${{ inputs.region }}.pooler.supabase.com:6543/postgres?sslmode=require" \
+            -tAc "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public';")
+          echo "public schema table count: $TABLES"
+          if [ "$TABLES" != "0" ]; then
+            echo "::error::Expected a FRESH empty database. Aborting."
+            exit 1
+          fi
+          echo "Fresh empty staging database confirmed."
