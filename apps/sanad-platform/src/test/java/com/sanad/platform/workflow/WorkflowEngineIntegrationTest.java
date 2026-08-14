@@ -177,9 +177,13 @@ class WorkflowEngineIntegrationTest {
                 WorkflowInstance.start(tenantId, created.id(), 1, "DECISION", UUID.randomUUID(), "step1", userId, null), userId);
 
         // Create approval request (requested FROM approverId)
+        var stepInstanceId = jdbc.queryForObject(
+                "SELECT id FROM workflow_step_instances WHERE workflow_instance_id = ? AND step_key = ? LIMIT 1",
+                UUID.class, instance.id(), instance.currentStepKey());
         var approval = approvalService.createApproval(
-                tenantId, instance.id(), instance.currentStepKey(), approverId, "MANAGER",
-                Instant.now().plus(48, ChronoUnit.HOURS), userId
+                WorkflowApprovalRequest.create(tenantId, instance.id(), stepInstanceId,
+                        approverId, "MANAGER", Instant.now().plus(48, ChronoUnit.HOURS)),
+                userId
         );
         assertThat(approval.status()).isEqualTo(WorkflowApprovalRequest.Status.PENDING);
 
@@ -207,9 +211,13 @@ class WorkflowEngineIntegrationTest {
                 WorkflowInstance.start(tenantId, created.id(), 1, "TEST", UUID.randomUUID(), "step1", userId, null), userId);
 
         // Create approval requested FROM userId (same as who will try to approve)
+        var stepInstanceId = jdbc.queryForObject(
+                "SELECT id FROM workflow_step_instances WHERE workflow_instance_id = ? AND step_key = ? LIMIT 1",
+                UUID.class, instance.id(), instance.currentStepKey());
         var approval = approvalService.createApproval(
-                tenantId, instance.id(), instance.currentStepKey(), userId, "MANAGER",
-                Instant.now().plus(48, ChronoUnit.HOURS), userId
+                WorkflowApprovalRequest.create(tenantId, instance.id(), stepInstanceId,
+                        userId, "MANAGER", Instant.now().plus(48, ChronoUnit.HOURS)),
+                userId
         );
 
         // Try to approve with the SAME user → should fail
@@ -236,9 +244,13 @@ class WorkflowEngineIntegrationTest {
         var instance = execService.startWorkflow(
                 WorkflowInstance.start(tenantId, created.id(), 1, "TEST", UUID.randomUUID(), "step1", userId, null), userId);
 
+        var stepInstanceId = jdbc.queryForObject(
+                "SELECT id FROM workflow_step_instances WHERE workflow_instance_id = ? AND step_key = ? LIMIT 1",
+                UUID.class, instance.id(), instance.currentStepKey());
         var approval = approvalService.createApproval(
-                tenantId, instance.id(), instance.currentStepKey(), approverId, "MANAGER",
-                Instant.now().plus(48, ChronoUnit.HOURS), userId
+                WorkflowApprovalRequest.create(tenantId, instance.id(), stepInstanceId,
+                        approverId, "MANAGER", Instant.now().plus(48, ChronoUnit.HOURS)),
+                userId
         );
 
         var rejected = approvalService.reject(tenantId, approval.id(), approverId, "Not good");
