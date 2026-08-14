@@ -126,7 +126,7 @@ class JdbcAddressCommunicationNullableFilterPostgresTest {
                 .contains("addValue(\"beforeId\", beforeId, Types.OTHER)")
                 .contains("addValue(\"methodType\", methodType, Types.VARCHAR)")
                 .contains("addValue(\"verificationStatus\", verificationStatus, Types.VARCHAR)")
-                .contains("CAST(:beforeTime AS TIMESTAMP) IS NULL")
+                .contains("CAST(:beforeTime AS TIMESTAMP WITH TIME ZONE) IS NULL")
                 .contains("CAST(:beforeId AS UUID) IS NULL")
                 .contains("CAST(:methodType AS VARCHAR) IS NULL")
                 .contains("CAST(:verificationStatus AS VARCHAR) IS NULL")

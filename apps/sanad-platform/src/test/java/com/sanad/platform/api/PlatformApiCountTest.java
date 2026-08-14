@@ -44,8 +44,8 @@ class PlatformApiCountTest {
     private static final long EXPECTED_CRM_V1_OPS = 125;
     /** 95 CRM baseline + 38 ownership + 7 CRM-009 integration + 52 expanded v2 endpoints = 192. */
     private static final long EXPECTED_CRM_V2_OPS = 192;
-    /** 357 original - 35 control-plane + 27 executive + 4 system-health + 52 CRM v2 growth = 405. */
-    private static final long EXPECTED_TOTAL_OPS = 405;
+    /** 357 original - 35 control-plane + 37 executive (incl. 10 Mission 01 module-registry) + 4 system-health + 52 CRM v2 growth = 415. */
+    private static final long EXPECTED_TOTAL_OPS = 415;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
     private static final long EXPECTED_COMMITTED_CRM_PATHS = 142;
@@ -67,7 +67,10 @@ class PlatformApiCountTest {
 
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
-        assertThat(count(paths, "/api/v1/executive")).isEqualTo(27);
+        // Mission 01 (V20260813.1 + V20260814.1/2) added 10 new executive endpoints
+        // (module registry, capabilities, entitlements, plan-module links, reset/preview/status).
+        // 27 (Mission 01-R baseline) + 10 (Mission 01) = 37
+        assertThat(count(paths, "/api/v1/executive")).isEqualTo(37);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(EXPECTED_CRM_V1_OPS);
         assertThat(count(paths, "/api/v2/crm")).isEqualTo(EXPECTED_CRM_V2_OPS);

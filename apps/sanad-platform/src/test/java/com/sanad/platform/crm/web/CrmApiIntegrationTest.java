@@ -49,7 +49,7 @@ class CrmApiIntegrationTest {
 
     @BeforeEach
     void seedIdentityAndCapabilities() {
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         seedTenant(TENANT_A, "crm-a", "CRM Tenant A", now);
         seedTenant(TENANT_B, "crm-b", "CRM Tenant B", now);
         seedUser(USER_A, TENANT_A, "crm-a@example.test", now);
@@ -201,31 +201,26 @@ class CrmApiIntegrationTest {
         return authentication;
     }
 
-    private void seedTenant(UUID id, String subdomain, String name, Instant now) {
-        java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?)", id, subdomain, name, ts, ts);
+    private void seedTenant(UUID id, String subdomain, String name, java.sql.Timestamp now) {
+        jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?)", id, subdomain, name, now, now);
     }
 
-    private void seedUser(UUID id, UUID tenantId, String email, Instant now) {
-        java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)", id, tenantId, email, "CRM Test User", ts, ts);
+    private void seedUser(UUID id, UUID tenantId, String email, java.sql.Timestamp now) {
+        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)", id, tenantId, email, "CRM Test User", now, now);
     }
 
-    private void seedRole(UUID id, UUID tenantId, Instant now) {
-        java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?,?,'ADMIN','Administrator','CRM integration role','ACTIVE',?,?)", id, tenantId, ts, ts);
+    private void seedRole(UUID id, UUID tenantId, java.sql.Timestamp now) {
+        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?,?,'ADMIN','Administrator','CRM integration role','ACTIVE',?,?)", id, tenantId, now, now);
     }
 
-    private void seedRoleAssignment(UUID tenantId, UUID roleId, UUID userId, Instant now) {
-        java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?)", UUID.randomUUID(), tenantId, userId, roleId, ts, ts);
+    private void seedRoleAssignment(UUID tenantId, UUID roleId, UUID userId, java.sql.Timestamp now) {
+        jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?)", UUID.randomUUID(), tenantId, userId, roleId, now, now);
     }
 
-    private void grantCrmCapabilities(UUID tenantId, UUID roleId, Instant now) {
-        java.sql.Timestamp ts = java.sql.Timestamp.from(now);
+    private void grantCrmCapabilities(UUID tenantId, UUID roleId, java.sql.Timestamp now) {
         List<UUID> capabilityIds = jdbc.queryForList("SELECT id FROM access_capabilities WHERE code LIKE 'CRM.%'", UUID.class);
         for (UUID capabilityId : capabilityIds) {
-            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?)", UUID.randomUUID(), tenantId, roleId, capabilityId, ts);
+            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?)", UUID.randomUUID(), tenantId, roleId, capabilityId, now);
         }
     }
 }

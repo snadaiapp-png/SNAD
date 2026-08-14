@@ -5,6 +5,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -27,7 +28,7 @@ final class CrmOwnershipControllerTestSupport {
     static Fixture createTenantFixture(NamedParameterJdbcTemplate jdbc, String key) {
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
-        Instant now = Instant.now();
+        Timestamp now = Timestamp.from(Instant.now());
 
         jdbc.update("""
                 INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at)
@@ -62,7 +63,7 @@ final class CrmOwnershipControllerTestSupport {
 
     static UUID seedTeam(NamedParameterJdbcTemplate jdbc, UUID tenantId, UUID actorId, String code) {
         UUID teamId = UUID.randomUUID();
-        Instant now = Instant.now();
+        Timestamp now = Timestamp.from(Instant.now());
         jdbc.update("""
                 INSERT INTO crm_sales_teams (id,tenant_id,code,display_name,status,
                     created_by,updated_by,created_at,updated_at)
@@ -79,7 +80,7 @@ final class CrmOwnershipControllerTestSupport {
 
     static UUID seedShiftTemplate(NamedParameterJdbcTemplate jdbc, UUID tenantId, UUID actorId, String name) {
         UUID templateId = UUID.randomUUID();
-        Instant now = Instant.now();
+        Timestamp now = Timestamp.from(Instant.now());
         jdbc.update("""
                 INSERT INTO crm_shift_templates (id,tenant_id,name,start_time,end_time,days_of_week,status,
                     created_by,updated_by,created_at,updated_at,version)

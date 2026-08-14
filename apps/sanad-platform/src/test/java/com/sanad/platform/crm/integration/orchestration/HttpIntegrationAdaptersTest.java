@@ -34,7 +34,7 @@ class HttpIntegrationAdaptersTest {
     }
 
     private static IntegrationEnvelope envelope() {
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         return new IntegrationEnvelope(
                 "crm.integration.test", "1.0", UUID.randomUUID(), UUID.randomUUID(),
                 UUID.randomUUID().toString(), UUID.randomUUID().toString(), "idem-test",

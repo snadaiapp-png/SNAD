@@ -65,7 +65,7 @@ class CrmIdempotencyBaselineGapReconciliationPostgresTest {
         UUID id = UUID.randomUUID();
         UUID tenantId = UUID.randomUUID();
         UUID principalId = UUID.randomUUID();
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         int inserted = jdbc.update("""
                 INSERT INTO crm_idempotency_records (
                     id, tenant_id, principal_id, endpoint, idempotency_key,

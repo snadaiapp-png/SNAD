@@ -70,7 +70,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
         contactId = UUID.randomUUID();
 
         UUID actorId = UUID.randomUUID();
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         Timestamp ts = Timestamp.from(now);
 
         // Create tenant
@@ -178,7 +178,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
     @Order(1)
     void archivePreferredAccountEmail_assertProjectionCleared() {
         UUID actorId = UUID.randomUUID();
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         Timestamp ts = Timestamp.from(now);
 
         // Capture pre-archive state
@@ -228,7 +228,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
     @Order(2)
     void archiveNonPreferredAccountEmail_succeeds() {
         UUID actorId = UUID.randomUUID();
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         Timestamp ts = Timestamp.from(now);
 
         // Create a non-preferred email method
@@ -275,7 +275,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
     @Order(3)
     void archivePreferredAccountPhone_succeeds() {
         UUID actorId = UUID.randomUUID();
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         Timestamp ts = Timestamp.from(now);
 
         int updated = jdbc.update("""
@@ -305,7 +305,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
     @Order(4)
     void archivePreferredContactEmail_succeeds() {
         UUID actorId = UUID.randomUUID();
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         Timestamp ts = Timestamp.from(now);
 
         int updated = jdbc.update("""
@@ -333,7 +333,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
     @Order(5)
     void archiveAddressStatus_succeeds() {
         UUID actorId = UUID.randomUUID();
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         Timestamp ts = Timestamp.from(now);
 
         // Create an address
@@ -380,7 +380,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
     @Order(6)
     void staleVersionUpdate_returnsZeroRows() {
         UUID actorId = UUID.randomUUID();
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         Timestamp ts = Timestamp.from(now);
 
         // Create a fresh method for stale-version test
@@ -436,7 +436,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
                 "src/main/java/com/sanad/platform/crm/party/infrastructure/JdbcAddressCommunicationRepository.java"));
 
         assertThat(source)
-                .contains("CAST(:now AS TIMESTAMP)")
+                .contains("CAST(:now AS TIMESTAMP WITH TIME ZONE)")
                 .as("changeCommunicationStatus and changeAddressStatus must cast :now inside CASE WHEN");
     }
 }

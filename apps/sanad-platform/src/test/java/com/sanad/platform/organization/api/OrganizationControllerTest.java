@@ -70,7 +70,7 @@ class OrganizationControllerTest {
     // Common fixtures
     private final UUID tenantId = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private final UUID organizationId = UUID.fromString("22222222-2222-2222-2222-222222222222");
-    private final Instant now = Instant.now();
+    private final java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
 
     /**
      * CASE 1 — POST valid request returns 201 Created.

@@ -87,7 +87,14 @@ class CrmRlsTenantIsolationPostgresTest {
             // Role may not exist
         }
         jdbc.execute("CREATE ROLE " + RLS_USER + " WITH LOGIN PASSWORD '" + RLS_PASSWORD + "'");
-        jdbc.execute("GRANT CONNECT ON DATABASE test TO " + RLS_USER);
+        // Resolve the current database name from the JDBC URL (CI uses 'sanad', local dev may use 'test').
+        // GRANT CONNECT requires a literal database name in PostgreSQL, so we extract it from the URL.
+        String jdbcUrl = System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad");
+        String currentDb = jdbcUrl.replaceAll("^.*\\/[\\/]?[^\\/]*\\/", "").replaceAll("[;?].*$", "");
+        if (currentDb.isBlank()) {
+            currentDb = "sanad";  // safe default matching the CI service container
+        }
+        jdbc.execute("GRANT CONNECT ON DATABASE \"" + currentDb + "\" TO " + RLS_USER);
         jdbc.execute("GRANT USAGE ON SCHEMA public TO " + RLS_USER);
         jdbc.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO " + RLS_USER);
         jdbc.execute("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO " + RLS_USER);

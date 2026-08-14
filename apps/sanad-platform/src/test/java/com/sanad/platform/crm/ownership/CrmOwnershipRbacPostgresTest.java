@@ -41,7 +41,7 @@ class CrmOwnershipRbacPostgresTest {
                 .outOfOrder(true)
                 .validateOnMigrate(true);
 
-        configuration.target("20260722.7").load().migrate();
+        configuration.target("20260722.8").load().migrate();
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
         jdbc = new JdbcTemplate(dataSource);

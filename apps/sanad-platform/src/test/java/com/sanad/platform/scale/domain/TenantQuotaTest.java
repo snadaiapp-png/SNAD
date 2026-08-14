@@ -50,7 +50,7 @@ class TenantQuotaTest {
         Instant originalReset = Instant.now().plus(1, ChronoUnit.DAYS);
         TenantQuota q = new TenantQuota("tnt-1", Dimension.API_RPM, 60L, originalReset);
         q.incrementUsed(30L);
-        Instant beforeReset = Instant.now();
+        java.sql.Timestamp beforeReset = java.sql.Timestamp.from(Instant.now());
 
         q.reset();
 

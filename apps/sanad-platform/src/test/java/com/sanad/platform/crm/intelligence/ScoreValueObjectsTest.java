@@ -18,7 +18,7 @@ class ScoreValueObjectsTest {
 
     private static final UUID ACCOUNT_ID = UUID.randomUUID();
     private static final UUID TENANT_ID = UUID.randomUUID();
-    private static final Instant NOW = Instant.now();
+    private static final java.sql.Timestamp NOW = java.sql.Timestamp.from(Instant.now());
 
     // ── HealthScore ──
 

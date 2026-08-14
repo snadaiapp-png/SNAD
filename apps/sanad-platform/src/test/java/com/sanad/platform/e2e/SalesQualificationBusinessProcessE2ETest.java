@@ -57,7 +57,7 @@ class SalesQualificationBusinessProcessE2ETest {
 
     @BeforeEach
     void seedIdentityAndCapabilities() {
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         seedTenant(TENANT_A, "e2e-sales-a", "E2E Sales Tenant A", now);
         seedTenant(TENANT_B, "e2e-sales-b", "E2E Sales Tenant B", now);
         seedUser(ADMIN_A, TENANT_A, "sales-admin-a@example.test", now);
@@ -235,27 +235,27 @@ class SalesQualificationBusinessProcessE2ETest {
         return value == null ? 0L : value;
     }
 
-    private void seedTenant(UUID id, String subdomain, String name, Instant now) {
+    private void seedTenant(UUID id, String subdomain, String name, java.sql.Timestamp now) {
         jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?)",
                 id, subdomain, name, now, now);
     }
 
-    private void seedUser(UUID id, UUID tenantId, String email, Instant now) {
+    private void seedUser(UUID id, UUID tenantId, String email, java.sql.Timestamp now) {
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE','dummy',?,?)",
                 id, tenantId, email, "Business Process E2E User", now, now);
     }
 
-    private void seedRole(UUID id, UUID tenantId, Instant now) {
+    private void seedRole(UUID id, UUID tenantId, java.sql.Timestamp now) {
         jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?,?,'ADMIN','Administrator','Business process E2E role','ACTIVE',?,?)",
                 id, tenantId, now, now);
     }
 
-    private void seedRoleAssignment(UUID tenantId, UUID roleId, UUID userId, Instant now) {
+    private void seedRoleAssignment(UUID tenantId, UUID roleId, UUID userId, java.sql.Timestamp now) {
         jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?)",
                 UUID.randomUUID(), tenantId, userId, roleId, now, now);
     }
 
-    private void grantCrmCapabilities(UUID tenantId, UUID roleId, Instant now) {
+    private void grantCrmCapabilities(UUID tenantId, UUID roleId, java.sql.Timestamp now) {
         List<UUID> capabilityIds = jdbc.queryForList(
                 "SELECT id FROM access_capabilities WHERE code LIKE 'CRM.%'", UUID.class);
         for (UUID capabilityId : capabilityIds) {

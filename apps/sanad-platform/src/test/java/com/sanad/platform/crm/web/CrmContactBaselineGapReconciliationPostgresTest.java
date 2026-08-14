@@ -76,7 +76,7 @@ class CrmContactBaselineGapReconciliationPostgresTest {
         UUID tenantId = UUID.randomUUID();
         UUID actorId = UUID.randomUUID();
         UUID contactId = UUID.randomUUID();
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
 
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (?,?,?,?,?,?)",
                 tenantId, "CRM Gap Test", "crm-gap-" + tenantId.toString().substring(0, 8), "ACTIVE",

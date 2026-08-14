@@ -58,8 +58,10 @@ class Crm008bFoundationAcceptanceTest {
     private static final String CRM_009_COMMAND_ARTIFACTS_VERSION = "20260724.2";
     private static final String CRM_010_SCORING_MODELS_VERSION = "20260729.2";
     // CRM-018: V20260730_2 (disable RLS) was removed from Flyway forward path
-    // under RECOVERY-CRM-022 R1. Terminal migration is now V20260807_4 (activity result).
-    private static final String CRM_LATEST_VERSION = "20260807.4";
+    // Terminal CRM migration as of Mission 01 / G7 Mobile Offline Sync:
+    //   V20260814.2 - create module capabilities and plan module entitlements
+    // (was 20260807.4 under RECOVERY-CRM-022 R1, before G7 + Mission 01 added 6 migrations)
+    private static final String CRM_LATEST_VERSION = "20260814.2";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");

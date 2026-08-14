@@ -82,7 +82,7 @@ class OrganizationMembershipServiceTest {
         savedMembership = new OrganizationMembership(
                 tenantId, organizationId, "alice@example.com", "Alice", MembershipStatus.INVITED);
         reflectSet(savedMembership, "id", membershipId);
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         reflectSet(savedMembership, "createdAt", now);
         reflectSet(savedMembership, "updatedAt", now);
 

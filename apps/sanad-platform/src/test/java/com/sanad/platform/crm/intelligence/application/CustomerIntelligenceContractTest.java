@@ -144,7 +144,7 @@ class CustomerIntelligenceContractTest {
         @Test
         @DisplayName("IntegrationEnvelope should carry all request metadata")
         void envelopeShouldHaveAllFields() {
-            Instant now = Instant.now();
+            java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
             IntegrationEnvelope envelope = new IntegrationEnvelope(
                     "crm.customer_intelligence.ai.health_scoring", "1.0",
                     TENANT_ID, UUID.randomUUID(), "corr-123", "idem-456",
@@ -207,7 +207,7 @@ class CustomerIntelligenceContractTest {
         @Test
         @DisplayName("all events should implement CustomerIntelligenceEvent interface")
         void allEventsShouldImplementInterface() {
-            Instant now = Instant.now();
+            java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
             String corrId = "test-" + UUID.randomUUID();
 
             assertThat(new com.sanad.platform.crm.intelligence.domain.event
@@ -244,7 +244,7 @@ class CustomerIntelligenceContractTest {
         @Test
         @DisplayName("all events should carry tenantId, accountId, and correlationId")
         void allEventsShouldCarryMetadata() {
-            Instant now = Instant.now();
+            java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
             String corrId = "test-" + UUID.randomUUID();
 
             com.sanad.platform.crm.intelligence.domain.event.CustomerScoreCalculatedEvent scoreEvent =
