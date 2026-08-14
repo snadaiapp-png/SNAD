@@ -98,10 +98,10 @@ class FlywayV15ProductionUpgradeTest {
                 "SELECT COUNT(*) FROM roles WHERE tenant_id=? AND code='ADMIN'",
                 Long.class, tenantId)).isOne();
 
-        // Mission 01 (V20260813.1) introduced module-scoped capabilities that are
-        // seeded globally without tenant assignment. The ADMIN role assignment count
-        // therefore equals 'all active access_capabilities EXCEPT the module-scoped ones
-        // that V20260813.1 did not bind to ADMIN'.
+        // Mission 01 (V20260813.1) introduced 12 new capabilities
+        // (EXECUTIVE_*, SYSTEM_HEALTH_*). The migration was updated to bind them
+        // to ALL existing ADMIN roles (not just the seed tenant), preserving
+        // the 'ADMIN gets all active capabilities' invariant.
         Long activeCapabilities = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE status='ACTIVE'",
                 Long.class);
@@ -111,17 +111,7 @@ class FlywayV15ProductionUpgradeTest {
                         + "AND role.tenant_id=assignment.tenant_id "
                         + "WHERE assignment.tenant_id=? AND role.code='ADMIN'",
                 Long.class, tenantId);
-        // Post Mission 01: not every active capability is bound to ADMIN. The module
-        // registry capabilities (V20260814.2) are catalog-only (module_capabilities table)
-        // and the EXECUTIVE_* / SYSTEM_HEALTH_* capabilities from V20260813.1 are bound
-        // to ADMIN via a separate INSERT in that migration. The activeCapabilities count
-        // includes the MODULE_* capabilities from V20260813.1 line 23-69 that are NOT
-        // bound to ADMIN. So adminAssignments < activeCapabilities by exactly that count.
-        Long moduleOnlyCapabilities = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM access_capabilities WHERE status='ACTIVE' "
-                        + "AND code LIKE 'MODULE.%'",
-                Long.class);
-        assertThat(adminAssignments).isEqualTo(activeCapabilities - moduleOnlyCapabilities);
+        assertThat(adminAssignments).isEqualTo(activeCapabilities);
 
         int historyRows = jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history", Integer.class);
         current.migrate();

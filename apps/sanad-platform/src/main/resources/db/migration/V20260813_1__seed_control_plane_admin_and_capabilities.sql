@@ -119,22 +119,35 @@ SET password_hash = '$2a$10$bCDvhC15J/dMe93PkDHYn.chmhliABhbcmCVc.ACI6qc2.0IlsCt
 WHERE email = 'admin@snad.ai';
 
 -- ============================================================
--- STEP 5: Grant ALL capabilities to ADMIN role
--- (delete first, then re-insert, to ensure complete coverage)
+-- STEP 5: Grant the 12 new EXECUTIVE_* / SYSTEM_HEALTH_* capabilities
+-- to ALL existing ADMIN roles (not just the seed tenant).
+--
+-- This preserves backward compatibility: V15 (Java migration) bound
+-- ALL existing active capabilities to each tenant's ADMIN role. After
+-- V15 runs, new capabilities added by later migrations (like this one)
+-- must also be bound to ADMIN, otherwise ADMIN loses its "all caps"
+-- guarantee (FlywayV15ProductionUpgradeTest verifies this invariant).
+--
+-- The previous version targeted only tenant_id='00000000-...'
+-- which left test tenants (and any production tenants created after
+-- V15) without the new capabilities.
 -- ============================================================
 
-DELETE FROM role_capabilities
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid
-  AND role_id = '00000000-0000-0000-0000-000000000100'::uuid;
-
 INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
-SELECT gen_random_uuid(),
-       '00000000-0000-0000-0000-000000000001'::uuid,
-       '00000000-0000-0000-0000-000000000100'::uuid,
-       ac.id,
-       NOW()
-FROM access_capabilities ac
-WHERE ac.status = 'ACTIVE';
+SELECT gen_random_uuid(), t.id, r.id, ac.id, NOW()
+FROM tenants t
+JOIN roles r ON r.tenant_id = t.id AND r.code = 'ADMIN'
+JOIN access_capabilities ac ON ac.status = 'ACTIVE'
+   AND ac.code IN (
+       'EXECUTIVE.VIEW','EXECUTIVE.MANAGE','EXECUTIVE.BILLING',
+       'SYSTEM_HEALTH.VIEW','SYSTEM_HEALTH.MONITOR','SYSTEM_HEALTH.ALERTS',
+       'EXECUTIVE_VIEW','EXECUTIVE_MANAGE','EXECUTIVE_BILLING',
+       'SYSTEM_HEALTH_VIEW','SYSTEM_HEALTH_MONITOR','SYSTEM_HEALTH_ALERTS'
+   )
+WHERE NOT EXISTS (
+    SELECT 1 FROM role_capabilities rc
+    WHERE rc.tenant_id = t.id AND rc.role_id = r.id AND rc.capability_id = ac.id
+);
 
 -- ============================================================
 -- STEP 6: Assign ADMIN role to admin user

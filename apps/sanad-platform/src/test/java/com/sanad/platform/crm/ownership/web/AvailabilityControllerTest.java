@@ -51,7 +51,7 @@ class AvailabilityControllerTest {
         jdbc.update("""
                 INSERT INTO crm_staff_availability (id,tenant_id,staff_id,type,start_date,end_date,
                     created_by,updated_by,created_at,updated_at,version)
-                VALUES (:id,:tenantId,:staffId,:type,:startDate,:endDate,
+                VALUES (:id,:tenantId,:staffId,:type,CAST(:startDate AS DATE),CAST(:endDate AS DATE),
                     :actor,:actor,:now,:now,1)
                 """, p()
                 .addValue("id", id)

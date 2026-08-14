@@ -234,7 +234,13 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_GRANT_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(CRM_SEED_DEFAULT_PIPELINE_VERSION),
                         MigrationVersion.fromVersion(CRM_CASE_INSENSITIVE_TAG_INDEX_VERSION),
-                        MigrationVersion.fromVersion(CRM_ACTIVITY_RESULT_VERSION));
+                        MigrationVersion.fromVersion(CRM_ACTIVITY_RESULT_VERSION),
+                        MigrationVersion.fromVersion(G7_MOBILE_SYNC_TABLES_VERSION),
+                        MigrationVersion.fromVersion(G7_MOBILE_SYNC_COLUMNS_VERSION),
+                        MigrationVersion.fromVersion(G7_MOBILE_SYNC_RLS_VERSION),
+                        MigrationVersion.fromVersion(MISSION_01_ADMIN_SEED_VERSION),
+                        MigrationVersion.fromVersion(MISSION_01_MODULE_REGISTRY_VERSION),
+                        MigrationVersion.fromVersion(MISSION_01_MODULE_CAPABILITIES_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -311,7 +317,13 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_GRANT_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(CRM_SEED_DEFAULT_PIPELINE_VERSION),
                         MigrationVersion.fromVersion(CRM_CASE_INSENSITIVE_TAG_INDEX_VERSION),
-                        MigrationVersion.fromVersion(CRM_ACTIVITY_RESULT_VERSION));
+                        MigrationVersion.fromVersion(CRM_ACTIVITY_RESULT_VERSION),
+                        MigrationVersion.fromVersion(G7_MOBILE_SYNC_TABLES_VERSION),
+                        MigrationVersion.fromVersion(G7_MOBILE_SYNC_COLUMNS_VERSION),
+                        MigrationVersion.fromVersion(G7_MOBILE_SYNC_RLS_VERSION),
+                        MigrationVersion.fromVersion(MISSION_01_ADMIN_SEED_VERSION),
+                        MigrationVersion.fromVersion(MISSION_01_MODULE_REGISTRY_VERSION),
+                        MigrationVersion.fromVersion(MISSION_01_MODULE_CAPABILITIES_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

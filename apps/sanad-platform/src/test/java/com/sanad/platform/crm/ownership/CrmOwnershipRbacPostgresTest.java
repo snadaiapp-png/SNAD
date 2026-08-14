@@ -33,20 +33,36 @@ class CrmOwnershipRbacPostgresTest {
         }
         Assumptions.assumeTrue(postgresAvailable, "PostgreSQL Direct required for acceptance");
 
-        var configuration = Flyway.configure()
+        // Step 1: Run V14 baseline (creates tenants + roles + capabilities tables).
+        // Seed test tenants BEFORE V20260722.8 so SALES_MANAGER/SALES_REPRESENTATIVE
+        // roles are auto-seeded for these tenants.
+        Flyway throughV14 = Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .outOfOrder(true)
                 .validateOnMigrate(true);
+        throughV14.target("14").load().migrate();
+        // Also need V15 to seed RBAC roles for these tenants.
+        throughV14.target("15").load().migrate();
 
-        configuration.target("20260722.8").load().migrate();
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
         jdbc = new JdbcTemplate(dataSource);
         seedTenantAndAdmin(TENANT_A, "rbac-a");
         seedTenantAndAdmin(TENANT_B, "rbac-b");
+
+        // Step 2: Now run migrations through V20260722.8 — the SALES_MANAGER/
+        // SALES_REPRESENTATIVE roles will be auto-seeded for the test tenants.
+        Flyway throughV20260722_8 = Flyway.configure()
+                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
+                .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
+                .cleanDisabled(false)
+                .outOfOrder(true)
+                .validateOnMigrate(true);
+        throughV20260722_8.target("20260722.8").load().migrate();
 
         Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
