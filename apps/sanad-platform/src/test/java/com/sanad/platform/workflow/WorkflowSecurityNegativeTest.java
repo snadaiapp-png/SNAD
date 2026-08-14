@@ -126,6 +126,20 @@ class WorkflowSecurityNegativeTest {
         return token;
     }
 
+    /** Build a workflow definition with one step and activate it. */
+    private WorkflowDefinition buildActiveWorkflow(UUID tid, String code, UUID uid) {
+        var def = WorkflowDefinition.create(
+                tid, code, "Test Workflow " + code, "Test",
+                "GENERAL", WorkflowDefinition.TriggerType.MANUAL, uid);
+        var savedDef = defService.create(def, uid);
+        defService.addStep(WorkflowStep.create(
+                tid, savedDef.id(), "step1", "First",
+                WorkflowStep.StepType.APPROVAL, 1, null, 48,
+                "WORKFLOW.APPROVE", null), uid);
+        defService.activate(tid, savedDef.id(), uid);
+        return defService.findById(tid, savedDef.id()).orElseThrow();
+    }
+
     /** Anonymous authentication — bypass disabled because there IS an authentication (anonymous). */
     private Authentication anonymous() {
         return new AnonymousAuthenticationToken(
@@ -209,11 +223,7 @@ class WorkflowSecurityNegativeTest {
         // IS performed via the mock (which returns ALLOW).
         // To verify the SOD check that the WORKFLOW.APPROVE capability protects, we test at the
         // SERVICE level: the requester cannot approve their own approval request.
-        var def = WorkflowDefinition.create(
-                tenantA, "WF-APP-1", "Approve Test", "Test",
-                "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userA);
-        var savedDef = defService.create(def, userA);
-        defService.activate(tenantA, savedDef.id(), userA);
+        var savedDef = buildActiveWorkflow(tenantA, "WF-APP-1", userA);
 
         var steps = defService.findSteps(savedDef.id());
         assertThat(steps).isNotEmpty();
@@ -260,11 +270,7 @@ class WorkflowSecurityNegativeTest {
 
     @Test
     void crossTenant_instanceRead_returnsEmpty() {
-        var def = WorkflowDefinition.create(
-                tenantA, "WF-XT-INST-1", "Tenant A Def", "Test",
-                "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userA);
-        var savedDef = defService.create(def, userA);
-        defService.activate(tenantA, savedDef.id(), userA);
+        var savedDef = buildActiveWorkflow(tenantA, "WF-XT-INST-1", userA);
 
         var steps = defService.findSteps(savedDef.id());
         var firstStep = steps.stream().min(java.util.Comparator.comparingInt(WorkflowStep::sequenceOrder)).orElseThrow();
@@ -282,11 +288,7 @@ class WorkflowSecurityNegativeTest {
 
     @Test
     void crossTenant_mutationBlocked_throwsNotFound() {
-        var def = WorkflowDefinition.create(
-                tenantA, "WF-XT-MUT-1", "Tenant A Def", "Test",
-                "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userA);
-        var savedDef = defService.create(def, userA);
-        defService.activate(tenantA, savedDef.id(), userA);
+        var savedDef = buildActiveWorkflow(tenantA, "WF-XT-MUT-1", userA);
 
         var steps = defService.findSteps(savedDef.id());
         var firstStep = steps.stream().min(java.util.Comparator.comparingInt(WorkflowStep::sequenceOrder)).orElseThrow();
@@ -335,11 +337,7 @@ class WorkflowSecurityNegativeTest {
         // but not necessarily the only valid approver. SOD is enforced separately (requester
         // cannot approve). This test verifies that an approver different from the requester
         // can approve, and the audit trail reflects the actor.
-        var def = WorkflowDefinition.create(
-                tenantA, "WF-UNAUTH-APP-1", "Unauthorized Approval Test", "Test",
-                "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userA);
-        var savedDef = defService.create(def, userA);
-        defService.activate(tenantA, savedDef.id(), userA);
+        var savedDef = buildActiveWorkflow(tenantA, "WF-UNAUTH-APP-1", userA);
 
         var steps = defService.findSteps(savedDef.id());
         var firstStep = steps.stream().min(java.util.Comparator.comparingInt(WorkflowStep::sequenceOrder)).orElseThrow();
@@ -367,11 +365,7 @@ class WorkflowSecurityNegativeTest {
 
     @Test
     void sod_requesterCannotRejectOwnApproval() {
-        var def = WorkflowDefinition.create(
-                tenantA, "WF-SOD-REJ-1", "SOD Reject Test", "Test",
-                "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userA);
-        var savedDef = defService.create(def, userA);
-        defService.activate(tenantA, savedDef.id(), userA);
+        var savedDef = buildActiveWorkflow(tenantA, "WF-SOD-REJ-1", userA);
 
         var steps = defService.findSteps(savedDef.id());
         var firstStep = steps.stream().min(java.util.Comparator.comparingInt(WorkflowStep::sequenceOrder)).orElseThrow();
@@ -399,11 +393,7 @@ class WorkflowSecurityNegativeTest {
     void sod_nullRequestedBy_allowsApproval() {
         // Backward-compat: if requestedByUserId is NULL (legacy approval without requester),
         // SOD cannot be enforced and approval is allowed.
-        var def = WorkflowDefinition.create(
-                tenantA, "WF-SOD-NULL-1", "SOD Null Test", "Test",
-                "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userA);
-        var savedDef = defService.create(def, userA);
-        defService.activate(tenantA, savedDef.id(), userA);
+        var savedDef = buildActiveWorkflow(tenantA, "WF-SOD-NULL-1", userA);
 
         var steps = defService.findSteps(savedDef.id());
         var firstStep = steps.stream().min(java.util.Comparator.comparingInt(WorkflowStep::sequenceOrder)).orElseThrow();
@@ -478,6 +468,10 @@ class WorkflowSecurityNegativeTest {
                     "RLS App Test", "Test",
                     "GENERAL", WorkflowDefinition.TriggerType.MANUAL, uid);
             var savedDef = defService.create(def, uid);
+            defService.addStep(WorkflowStep.create(
+                    tid, savedDef.id(), "step1", "First",
+                    WorkflowStep.StepType.APPROVAL, 1, null, 48,
+                    "WORKFLOW.APPROVE", null), uid);
             defService.activate(tid, savedDef.id(), uid);
 
             var steps = defService.findSteps(savedDef.id());

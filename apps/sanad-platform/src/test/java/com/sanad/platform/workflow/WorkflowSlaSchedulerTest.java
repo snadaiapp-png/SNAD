@@ -86,12 +86,16 @@ class WorkflowSlaSchedulerTest {
         }
     }
 
-    /** Build a workflow definition with N steps and activate it. */
+    /** Build a workflow definition with one step and activate it. */
     private WorkflowDefinition buildActiveWorkflow(UUID tenantId, String code) {
         var def = WorkflowDefinition.create(
                 tenantId, code, "Test Workflow " + code, "Test",
                 "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userA);
         var savedDef = defService.create(def, userA);
+        defService.addStep(WorkflowStep.create(
+                tenantId, savedDef.id(), "step1", "First",
+                WorkflowStep.StepType.APPROVAL, 1, null, 48,
+                "WORKFLOW.APPROVE", null), userA);
         defService.activate(tenantId, savedDef.id(), userA);
         return defService.findById(tenantId, savedDef.id()).orElseThrow();
     }

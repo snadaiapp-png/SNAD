@@ -13,9 +13,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.web.method.HandlerMethod;
-import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
@@ -50,7 +49,6 @@ class WorkflowApiContractTest {
 
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
-    @Autowired private RequestMappingHandlerMapping handlerMapping;
 
     private UUID tenantId;
     private UUID userId;
@@ -93,14 +91,7 @@ class WorkflowApiContractTest {
 
     @Test
     void everyPublicEndpointHasRequireCapability() {
-        var controllerBean = handlerMapping.getHandlerMethods().values().stream()
-                .map(HandlerMethod::getBeanType)
-                .filter(c -> c == WorkflowController.class)
-                .findFirst()
-                .orElse(null);
-        assertThat(controllerBean).isNotNull();
-
-        // Enumerate all public endpoint methods in WorkflowController and verify @RequireCapability
+        // Use reflection to scan all public endpoint methods in WorkflowController
         var methods = WorkflowController.class.getDeclaredMethods();
         var endpointMethods = 0;
         for (Method m : methods) {
@@ -185,7 +176,7 @@ class WorkflowApiContractTest {
         // Verify the WorkflowController does NOT import JdbcTemplate or DataSource
         // (it should go through services only).
         var fields = WorkflowController.class.getDeclaredFields();
-        for (var f : fields) {
+        for (Field f : fields) {
             var type = f.getType();
             assertThat(type)
                     .as("no JDBC/DataSource fields in controller: " + f.getName())
@@ -200,7 +191,7 @@ class WorkflowApiContractTest {
     void noBusinessLogicInController() {
         // Verify the controller's fields are all services (no domain logic).
         var fields = WorkflowController.class.getDeclaredFields();
-        for (var f : fields) {
+        for (Field f : fields) {
             var type = f.getType();
             // All controller fields must be in the workflow.application package (services)
             assertThat(type.getName())

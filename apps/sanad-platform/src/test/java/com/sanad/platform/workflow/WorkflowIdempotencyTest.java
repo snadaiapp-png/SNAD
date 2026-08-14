@@ -111,12 +111,21 @@ class WorkflowIdempotencyTest {
         return token;
     }
 
-    /** Build a workflow definition with N steps and activate it. */
+    /** Build a workflow definition with 2 steps and activate it. */
     private WorkflowDefinition buildActiveWorkflow(String code) {
         var def = WorkflowDefinition.create(
                 tenantId, code, "Test Workflow " + code, "Test",
                 "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userId);
         var savedDef = defService.create(def, userId);
+
+        // Add 2 steps so advanceToNextStep tests can find a second step
+        defService.addStep(WorkflowStep.create(
+                tenantId, savedDef.id(), "step1", "First",
+                WorkflowStep.StepType.ACTION, 1, null, null, null, null), userId);
+        defService.addStep(WorkflowStep.create(
+                tenantId, savedDef.id(), "step2", "Last",
+                WorkflowStep.StepType.END, 2, null, null, null, null), userId);
+
         defService.activate(tenantId, savedDef.id(), userId);
         return defService.findById(tenantId, savedDef.id()).orElseThrow();
     }

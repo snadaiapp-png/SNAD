@@ -127,25 +127,18 @@ class WorkflowManagementE2ETest {
                 "Decision Approval Workflow", "Auto-created for decision approvals",
                 "MANAGEMENT", WorkflowDefinition.TriggerType.MANUAL, userId);
         var savedDef = defService.create(def, userId);
+
+        // Add 2 steps via the service (cleaner than direct JDBC)
+        defService.addStep(WorkflowStep.create(
+                tenantId, savedDef.id(), "REVIEW", "Review Decision",
+                WorkflowStep.StepType.APPROVAL, 1, null, 168,
+                "EXECUTIVE_DECISIONS.APPROVE", "DECISION_APPROVER"), userId);
+        defService.addStep(WorkflowStep.create(
+                tenantId, savedDef.id(), "APPROVE", "Final Approval",
+                WorkflowStep.StepType.APPROVAL, 2, null, 168,
+                "EXECUTIVE_DECISIONS.APPROVE", "DECISION_APPROVER"), userId);
+
         defService.activate(tenantId, savedDef.id(), userId);
-
-        // Add 2 steps
-        var step1Id = UUID.randomUUID();
-        var now = java.sql.Timestamp.from(Instant.now());
-        jdbc.update("INSERT INTO workflow_steps "
-                + "(id, tenant_id, workflow_definition_id, step_key, name, step_type, sequence_order, "
-                + "sla_hours, required_capability, required_role, version, created_at, updated_at) "
-                + "VALUES (?, ?, ?, 'REVIEW', 'Review Decision', 'APPROVAL', 1, "
-                + "168, 'EXECUTIVE_DECISIONS.APPROVE', 'DECISION_APPROVER', 0, ?, ?)",
-                step1Id, tenantId, savedDef.id(), now, now);
-
-        var step2Id = UUID.randomUUID();
-        jdbc.update("INSERT INTO workflow_steps "
-                + "(id, tenant_id, workflow_definition_id, step_key, name, step_type, sequence_order, "
-                + "sla_hours, required_capability, required_role, version, created_at, updated_at) "
-                + "VALUES (?, ?, ?, 'APPROVE', 'Final Approval', 'APPROVAL', 2, "
-                + "168, 'EXECUTIVE_DECISIONS.APPROVE', 'DECISION_APPROVER', 0, ?, ?)",
-                step2Id, tenantId, savedDef.id(), now, now);
     }
 
     // ===== POSITIVE GOLDEN PATH =====
@@ -159,7 +152,7 @@ class WorkflowManagementE2ETest {
         var decision = ExecutiveDecision.create(
                 tenantA, "DEC-E2E-1", "Test Decision", "Description",
                 "Rationale", "STRATEGIC", ExecutiveDecision.Priority.HIGH,
-                "High impact", "Expected outcome",
+                "HIGH", "Expected outcome",
                 approverA,  // ownerUserId (will be the approver)
                 requesterA,  // createdBy (will be the requester)
                 null
@@ -235,7 +228,7 @@ class WorkflowManagementE2ETest {
         var decision = ExecutiveDecision.create(
                 tenantA, "DEC-E2E-NEG-1", "Test Decision", "Description",
                 "Rationale", "STRATEGIC", ExecutiveDecision.Priority.HIGH,
-                "High impact", "Expected outcome",
+                "HIGH", "Expected outcome",
                 requesterA,  // ownerUserId == createdBy (same person)
                 requesterA,  // createdBy
                 null
@@ -286,7 +279,7 @@ class WorkflowManagementE2ETest {
         var decision = ExecutiveDecision.create(
                 tenantA, "DEC-E2E-XT-1", "Tenant A Decision", "Description",
                 "Rationale", "STRATEGIC", ExecutiveDecision.Priority.NORMAL,
-                "Impact", "Outcome",
+                "MEDIUM", "Outcome",
                 approverA, requesterA, null
         );
         var created = decisionService.create(decision, requesterA);
@@ -311,7 +304,7 @@ class WorkflowManagementE2ETest {
         var decision = ExecutiveDecision.create(
                 tenantA, "DEC-E2E-IDEM-1", "Test Decision", "Description",
                 "Rationale", "STRATEGIC", ExecutiveDecision.Priority.NORMAL,
-                "Impact", "Outcome",
+                "MEDIUM", "Outcome",
                 approverA, requesterA, null
         );
         var created = decisionService.create(decision, requesterA);
@@ -345,7 +338,7 @@ class WorkflowManagementE2ETest {
         var decision = ExecutiveDecision.create(
                 tenantA, "DEC-E2E-FB-1", "Test Decision", "Description",
                 "Rationale", "STRATEGIC", ExecutiveDecision.Priority.NORMAL,
-                "Impact", "Outcome",
+                "MEDIUM", "Outcome",
                 approverA, requesterA, null
         );
         var created = decisionService.create(decision, requesterA);

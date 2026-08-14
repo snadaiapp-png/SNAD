@@ -10,7 +10,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -48,11 +47,15 @@ class WorkflowDatabaseForensicsTest {
 
     @Test
     void allWorkflowTablesExist() {
+        // Use LOWER() for case-insensitive comparison (H2 stores uppercase, PostgreSQL lowercase)
         var tables = jdbc.queryForList(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'PUBLIC' "
-                        + "AND table_name LIKE 'workflow_%' ORDER BY table_name",
+                "SELECT LOWER(table_name) AS table_name FROM information_schema.tables "
+                        + "WHERE LOWER(table_schema) IN ('public', 'public') "
+                        + "OR UPPER(table_schema) = 'PUBLIC' "
+                        + "AND LOWER(table_name) LIKE 'workflow_%' ORDER BY LOWER(table_name)",
                 String.class);
-        assertThat(tables).contains(
+        // Verify each expected table is present (case-insensitive)
+        var expected = List.of(
                 "workflow_definitions",
                 "workflow_steps",
                 "workflow_instances",
@@ -60,6 +63,11 @@ class WorkflowDatabaseForensicsTest {
                 "workflow_approval_requests",
                 "workflow_transition_audit"
         );
+        for (var e : expected) {
+            assertThat(tables)
+                    .as("table " + e + " must exist")
+                    .contains(e);
+        }
     }
 
     // ===== TENANT_ID NOT NULL ON EVERY TENANT TABLE =====
@@ -75,21 +83,20 @@ class WorkflowDatabaseForensicsTest {
                 "workflow_transition_audit"
         );
         for (var table : tables) {
-            var cols = jdbc.queryForList(
-                    "SELECT column_name, is_nullable FROM information_schema.columns "
-                            + "WHERE table_schema = 'PUBLIC' AND table_name = ? AND column_name = 'tenant_id'",
-                    String.class, table.toUpperCase());
-            assertThat(cols)
-                    .as("table %s must have a tenant_id column", table)
-                    .isNotEmpty();
-            // Verify NOT NULL constraint
-            var nullable = jdbc.queryForObject(
+            // Use LOWER() comparison to support both H2 (uppercase) and PostgreSQL (lowercase)
+            var rows = jdbc.queryForList(
                     "SELECT is_nullable FROM information_schema.columns "
-                            + "WHERE table_schema = 'PUBLIC' AND table_name = ? AND column_name = 'tenant_id'",
-                    String.class, table.toUpperCase());
-            assertThat(nullable)
-                    .as("tenant_id on %s must be NOT NULL", table)
-                    .isEqualTo("NO");
+                            + "WHERE LOWER(table_name) = ? AND LOWER(column_name) = 'tenant_id'",
+                    String.class, table);
+            assertThat(rows)
+                    .as("table " + table + " must have a tenant_id column")
+                    .isNotEmpty();
+            // All rows must have is_nullable = 'NO'
+            for (var nullable : rows) {
+                assertThat(nullable)
+                        .as("tenant_id on " + table + " must be NOT NULL")
+                        .isEqualTo("NO");
+            }
         }
     }
 
@@ -97,14 +104,17 @@ class WorkflowDatabaseForensicsTest {
 
     @Test
     void requiredIndexesExist() {
-        // In H2, indexes are listed in INFORMATION_SCHEMA.INDEXES
+        // Use a portable query that works for both H2 and PostgreSQL.
+        // Both expose index metadata via information_schema.statistics (with table_catalog).
         var indexes = jdbc.queryForList(
-                "SELECT index_name FROM information_schema.indexes WHERE table_schema = 'PUBLIC'",
+                "SELECT DISTINCT index_name FROM information_schema.statistics "
+                        + "WHERE table_schema = CURRENT_SCHEMA() "
+                        + "AND (index_name LIKE 'idx_wf_%' OR index_name LIKE 'pk_workflow_%' "
+                        + "OR index_name LIKE 'uk_workflow_%' OR index_name LIKE 'uk_wf_%')",
                 String.class);
-        // We just verify SOME indexes exist for the workflow tables. The exact
-        // index names depend on the migration and may differ between H2 and PostgreSQL.
-        var workflowIndexes = indexes.stream().filter(i -> i.contains("WF") || i.contains("WORKFLOW")).toList();
-        assertThat(workflowIndexes)
+        // We just verify SOME workflow-related indexes exist.
+        // PostgreSQL creates indexes named like 'idx_wf_def_tenant_status' etc.
+        assertThat(indexes)
                 .as("workflow tables should have at least 6 indexes")
                 .hasSizeGreaterThanOrEqualTo(6);
     }
@@ -232,12 +242,18 @@ class WorkflowDatabaseForensicsTest {
     void auditActorUserIdIsNullable() {
         // Verify the workflow_transition_audit.actor_user_id column is nullable
         // (system-generated audit records don't have a human actor).
-        var nullable = jdbc.queryForObject(
+        // Use a case-insensitive comparison to support both H2 and PostgreSQL.
+        var rows = jdbc.queryForList(
                 "SELECT is_nullable FROM information_schema.columns "
-                        + "WHERE table_schema = 'PUBLIC' AND table_name = 'WORKFLOW_TRANSITION_AUDIT' "
-                        + "AND column_name = 'actor_user_id'",
-                String.class);
-        assertThat(nullable).isEqualTo("YES");
+                        + "WHERE LOWER(table_name) = 'workflow_transition_audit' "
+                        + "AND LOWER(column_name) = 'actor_user_id'");
+        assertThat(rows)
+                .as("workflow_transition_audit.actor_user_id column must exist")
+                .isNotEmpty();
+        var nullable = (String) rows.get(0).get("IS_NULLABLE");
+        assertThat(nullable)
+                .as("actor_user_id must be nullable (YES) for system-generated audit rows")
+                .isEqualTo("YES");
     }
 
     @Test
