@@ -7,18 +7,11 @@ import java.util.UUID;
 /**
  * Strategic Objective — the "O" in OKR.
  *
- * <p>Represents a qualitative, time-bound goal that an organization commits to achieving.
- * Objectives are tenant-scoped, may cascade (parent_id), and aggregate progress from
- * their Key Results.
- *
- * <p>Status state machine:
+ * <p>Represents a qualitative, time-bound goal. Status state machine:
  * <pre>
  *   DRAFT → ACTIVE → AT_RISK / OFF_TRACK → ACHIEVED → CLOSED
  *                                        ↘ CANCELLED
  * </pre>
- *
- * <p>Immutable record: state transitions are explicit method calls that return
- * a new instance. Persistence is handled by the repository layer.
  */
 public record StrategicObjective(
         UUID id,
@@ -45,7 +38,6 @@ public record StrategicObjective(
         LOW, NORMAL, HIGH, CRITICAL
     }
 
-    /** Factory for new objectives — starts in DRAFT with 0% progress. */
     public static StrategicObjective create(
             UUID tenantId, String code, String title, String description,
             Priority priority, UUID ownerUserId,
@@ -67,64 +59,59 @@ public record StrategicObjective(
         );
     }
 
-    /** Transition to ACTIVE — only valid from DRAFT. */
     public StrategicObjective activate() {
         requireStatus(Status.DRAFT, "activate");
-        return with(status(Status.ACTIVE));
+        return withStatus(Status.ACTIVE);
     }
 
-    /** Mark as AT_RISK — valid from ACTIVE. */
     public StrategicObjective markAtRisk() {
         requireStatus(Status.ACTIVE, "markAtRisk");
-        return with(status(Status.AT_RISK));
+        return withStatus(Status.AT_RISK);
     }
 
-    /** Mark as OFF_TRACK — valid from ACTIVE or AT_RISK. */
     public StrategicObjective markOffTrack() {
         if (status != Status.ACTIVE && status != Status.AT_RISK) {
             throw new IllegalStateException(
                     "Cannot mark OFF_TRACK from " + status + " (requires ACTIVE or AT_RISK)");
         }
-        return with(status(Status.OFF_TRACK));
+        return withStatus(Status.OFF_TRACK);
     }
 
-    /** Mark as ACHIEVED — valid from any non-terminal status. */
     public StrategicObjective achieve() {
         if (status == Status.CLOSED || status == Status.CANCELLED) {
             throw new IllegalStateException("Cannot achieve from terminal status " + status);
         }
-        return with(status(Status.ACHIEVED).progressPct(100));
+        return withStatusAndProgress(Status.ACHIEVED, 100);
     }
 
-    /** Close — valid from ACHIEVED. */
     public StrategicObjective close() {
         requireStatus(Status.ACHIEVED, "close");
-        return with(status(Status.CLOSED));
+        return withStatus(Status.CLOSED);
     }
 
-    /** Cancel — valid from any non-terminal status. */
     public StrategicObjective cancel() {
         if (status == Status.CLOSED) {
             throw new IllegalStateException("Cannot cancel CLOSED objective");
         }
-        return with(status(Status.CANCELLED));
+        return withStatus(Status.CANCELLED);
     }
 
-    /** Update progress from aggregated Key Results. */
     public StrategicObjective withProgress(int newProgressPct) {
         if (newProgressPct < 0 || newProgressPct > 100) {
             throw new IllegalArgumentException("progressPct must be 0-100, got " + newProgressPct);
         }
-        return with(progressPct(newProgressPct));
+        return withStatusAndProgress(status, newProgressPct);
     }
 
-    private StrategicObjective with(Mutator m) {
+    private StrategicObjective withStatus(Status newStatus) {
+        return withStatusAndProgress(newStatus, progressPct);
+    }
+
+    private StrategicObjective withStatusAndProgress(Status newStatus, int newProgress) {
         return new StrategicObjective(
                 id, tenantId, parentId, code, title, description,
-                m.status != null ? m.status : status,
-                priority, ownerUserId, periodStart, periodEnd,
-                m.progressPct != null ? m.progressPct : progressPct,
-                version + 1, createdAt, Instant.now()
+                newStatus, priority, ownerUserId, periodStart, periodEnd,
+                newProgress, version + 1, createdAt, Instant.now()
         );
     }
 
@@ -133,22 +120,5 @@ public record StrategicObjective(
             throw new IllegalStateException(
                     "Cannot " + action + " from " + status + " (requires " + expected + ")");
         }
-    }
-
-    private static final class Mutator {
-        Status status;
-        Integer progressPct;
-    }
-
-    private static Mutator status(Status s) {
-        var m = new Mutator();
-        m.status = s;
-        return m;
-    }
-
-    private static Mutator progressPct(int p) {
-        var m = new Mutator();
-        m.progressPct = p;
-        return m;
     }
 }
