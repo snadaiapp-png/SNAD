@@ -46,12 +46,9 @@ jobs:
           set -euo pipefail
           echo "=== orgs (raw) ==="
           curl -sS -H "Authorization: Bearer $SUPA_TOKEN" "https://api.supabase.com/v1/orgs" | tee /tmp/orgs_raw.json | head -c 2000; echo
-          jq 'if type == "array" then [.[].id] else . end' /tmp/orgs_raw.json > /tmp/orgs_ids.json
-          ORG_COUNT=$(jq 'if type == "array" then length else 0 end' /tmp/orgs_ids.json)
-          echo "org count: $ORG_COUNT"
           echo "=== existing projects (raw) ==="
           curl -sS -H "Authorization: Bearer $SUPA_TOKEN" "https://api.supabase.com/v1/projects" | tee /tmp/projects_raw.json | head -c 2000; echo
-          jq 'if type == "array" then [.[] | {id, name, region, status}] else . end' /tmp/projects_raw.json | tee /tmp/projects.json
+          jq 'if type == "array" then [.[] | {id, name, region, status, organization_id}] else . end' /tmp/projects_raw.json | tee /tmp/projects.json
 
       - name: Guard against touching production project
         run: |
@@ -67,9 +64,11 @@ jobs:
         id: create
         run: |
           set -euo pipefail
-          ORG_ID=$(jq -r 'if type == "array" then .[0] else empty end' /tmp/orgs_ids.json)
+          # Derive the organization id from the projects listing (the /v1/orgs
+          # endpoint returns a non-array shape this token cannot iterate).
+          ORG_ID=$(jq -r 'if type == "array" then (.[0].organization_id // empty) else empty end' /tmp/projects.json)
           if [ -z "$ORG_ID" ]; then
-            echo "::error::No Supabase organization available for this token (see raw orgs output above)."
+            echo "::error::Could not derive organization_id from the projects listing (see raw output above)."
             exit 1
           fi
           echo "Using organization: $ORG_ID"
