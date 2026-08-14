@@ -65,6 +65,7 @@ class RefreshTokenConcurrencyPostgresTest {
         // Delete child rows first to avoid PostgreSQL FK constraint violations.
         // PostgreSQL strictly enforces FK constraints (unlike H2 in local dev).
         // Order: deepest children first, then parents.
+        jdbcTemplate.update("DELETE FROM crm_tag_assignments");
         jdbcTemplate.update("DELETE FROM crm_opportunity_stage_history");
         jdbcTemplate.update("DELETE FROM crm_opportunities");
         jdbcTemplate.update("DELETE FROM crm_pipeline_stages");
