@@ -181,6 +181,12 @@ public class DecisionWorkflowIntegrationService {
         // Defense-in-depth: SOD check on the decision domain (approver != createdBy)
         // This is also enforced by WorkflowApprovalRequest.approve() via requestedByUserId.
 
+        // Transition the decision to UNDER_REVIEW if it is still SUBMITTED.
+        // The ExecutiveDecision.approve() method requires UNDER_REVIEW status.
+        if (decision.status() == ExecutiveDecision.Status.SUBMITTED) {
+            decision = decisionService.startReview(tenantId, decisionId, approverId);
+        }
+
         // Find the workflow instance for this decision (businessEntityType=DECISION, businessEntityId=decisionId)
         var instanceOpt = findWorkflowInstanceForDecision(tenantId, decisionId);
 
@@ -230,6 +236,12 @@ public class DecisionWorkflowIntegrationService {
             UUID tenantId, UUID decisionId, UUID rejecterId, String comments) {
         var decision = decisionService.findById(tenantId, decisionId)
                 .orElseThrow(() -> new IllegalArgumentException("Decision not found: " + decisionId));
+
+        // Transition the decision to UNDER_REVIEW if it is still SUBMITTED.
+        // The ExecutiveDecision.reject() method requires UNDER_REVIEW status.
+        if (decision.status() == ExecutiveDecision.Status.SUBMITTED) {
+            decision = decisionService.startReview(tenantId, decisionId, rejecterId);
+        }
 
         var instanceOpt = findWorkflowInstanceForDecision(tenantId, decisionId);
 
