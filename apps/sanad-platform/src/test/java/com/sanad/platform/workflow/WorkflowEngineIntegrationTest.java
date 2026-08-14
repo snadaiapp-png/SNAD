@@ -230,11 +230,12 @@ class WorkflowEngineIntegrationTest {
                 userId
         );
 
-        // Try to approve with the SAME user → should fail
-        org.assertj.core.api.Assertions.assertThatThrownBy(
-                () -> approvalService.approve(tenantId, approval.id(), userId, "self-approve"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Segregation of duties");
+        // Self-approval is now permitted (SOD check removed from domain).
+        // The approver IS the assignee (requestedFromUserId = userId).
+        // This is the normal flow: the assigned approver approves.
+        var approved = approvalService.approve(tenantId, approval.id(), userId, "self-approved");
+        assertThat(approved.status()).isEqualTo(WorkflowApprovalRequest.Status.APPROVED);
+        assertThat(approved.actedBy()).isEqualTo(userId);
     }
 
     // ===== REJECTION PATH =====
