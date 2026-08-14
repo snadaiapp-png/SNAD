@@ -142,13 +142,15 @@ public class DecisionWorkflowIntegrationService {
         );
         approvalService.createApproval(approval, submitterUserId);
 
-        // Record management audit entry linking the decision to the workflow instance
+        // Record management audit entry linking the decision to the workflow instance.
+        // NOTE: the `changes` column is JSONB. We pass a valid JSON string here.
+        var changesJson = "{\"workflow_instance_id\":\"" + savedInstance.id() + "\"}";
         auditRepo.save(ManagementAuditEntry.create(
                 tenantId, submitterUserId,
                 ManagementAuditEntry.EntityType.DECISION, decisionId,
                 ManagementAuditEntry.Action.STATE_CHANGE,
                 decision.status().name(), "WORKFLOW_STARTED",
-                "workflow_instance_id=" + savedInstance.id(),
+                changesJson,
                 null
         ));
 
@@ -208,7 +210,7 @@ public class DecisionWorkflowIntegrationService {
                     ManagementAuditEntry.EntityType.DECISION, decisionId,
                     ManagementAuditEntry.Action.APPROVE,
                     decision.status().name(), updatedDecision.status().name(),
-                    "workflow_approval_id=" + approved.id() + ";comments=" + comments,
+                    "{\"workflow_approval_id\":\"" + approved.id() + "\",\"comments\":\"" + comments.replace("\"", "\\\"") + "\"}",
                     null
             ));
 
@@ -251,7 +253,7 @@ public class DecisionWorkflowIntegrationService {
                     ManagementAuditEntry.EntityType.DECISION, decisionId,
                     ManagementAuditEntry.Action.REJECT,
                     decision.status().name(), updatedDecision.status().name(),
-                    "workflow_approval_id=" + rejected.id() + ";comments=" + comments,
+                    "{\"workflow_approval_id\":\"" + rejected.id() + "\",\"comments\":\"" + comments.replace("\"", "\\\"") + "\"}",
                     null
             ));
 

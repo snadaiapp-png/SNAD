@@ -35,11 +35,16 @@ public class JdbcManagementAuditRepository implements ManagementAuditRepository 
 
     @Override
     public ManagementAuditEntry save(ManagementAuditEntry entry) {
+        // NOTE: changes column is JSONB. PostgreSQL requires explicit CAST
+        // when binding a String parameter to a jsonb column. Without the cast,
+        // PostgreSQL raises: "column 'changes' is of type jsonb but expression
+        // is of type character varying". The CAST handles both null and non-null
+        // values correctly.
         jdbc.update("""
                 INSERT INTO management_audit_trail
                     (id, tenant_id, actor_user_id, entity_type, entity_id, action,
                      from_state, to_state, changes, correlation_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?)
                 """,
                 entry.id(), entry.tenantId(), entry.actorUserId(),
                 entry.entityType().name(), entry.entityId(), entry.action().name(),
