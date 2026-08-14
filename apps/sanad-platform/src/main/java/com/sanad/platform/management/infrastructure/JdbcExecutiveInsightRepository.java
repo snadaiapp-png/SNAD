@@ -45,8 +45,6 @@ public class JdbcExecutiveInsightRepository implements ExecutiveInsightRepositor
                     (id, tenant_id, type, title, description, confidence, evidence,
                      model_name, model_version, advisory, status, generated_by, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (id) DO UPDATE SET
-                    status = EXCLUDED.status
                 """,
                 i.id(), i.tenantId(), i.type().name(), i.title(), i.description(),
                 i.confidence(), i.evidence(),

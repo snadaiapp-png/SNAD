@@ -44,8 +44,8 @@ class PlatformApiCountTest {
     private static final long EXPECTED_CRM_V1_OPS = 125;
     /** 95 CRM baseline + 38 ownership + 7 CRM-009 integration + 52 expanded v2 endpoints = 192. */
     private static final long EXPECTED_CRM_V2_OPS = 192;
-    /** 357 original - 35 control-plane + 37 executive (incl. 10 Mission 01) + 4 system-health + 52 CRM v2 growth + 6 Mission 02 lifecycle/reset + 55 Senior Management (Phase A+B+C) = 476. */
-    private static final long EXPECTED_TOTAL_OPS = 476;
+    /** 357 original - 35 control-plane + 37 executive (incl. 10 Mission 01) + 4 system-health + 52 CRM v2 growth + 6 Mission 02 lifecycle/reset + 67 Senior Management (Phase A+B+C+D-G) = 488. */
+    private static final long EXPECTED_TOTAL_OPS = 488;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
     private static final long EXPECTED_COMMITTED_CRM_PATHS = 142;
