@@ -63,8 +63,19 @@ class RefreshTokenConcurrencyPostgresTest {
     void setUp() {
         refreshTokenRepository.deleteAll();
         // Delete child rows first to avoid PostgreSQL FK constraint violations.
-        // user_role_assignments has FK fk_user_role_user referencing users(tenant_id, id).
-        // H2 (local dev) silently allows parent delete; PostgreSQL strictly enforces FK.
+        // PostgreSQL strictly enforces FK constraints (unlike H2 in local dev).
+        // Order: deepest children first, then parents.
+        jdbcTemplate.update("DELETE FROM crm_opportunity_stage_history");
+        jdbcTemplate.update("DELETE FROM crm_opportunities");
+        jdbcTemplate.update("DELETE FROM crm_pipeline_stages");
+        jdbcTemplate.update("DELETE FROM crm_pipelines");
+        jdbcTemplate.update("DELETE FROM crm_tasks");
+        jdbcTemplate.update("DELETE FROM crm_notes");
+        jdbcTemplate.update("DELETE FROM crm_tags");
+        jdbcTemplate.update("DELETE FROM crm_activities");
+        jdbcTemplate.update("DELETE FROM crm_contacts");
+        jdbcTemplate.update("DELETE FROM crm_leads");
+        jdbcTemplate.update("DELETE FROM crm_accounts");
         jdbcTemplate.update("DELETE FROM user_role_assignments");
         jdbcTemplate.update("DELETE FROM role_capabilities");
         jdbcTemplate.update("DELETE FROM roles");
