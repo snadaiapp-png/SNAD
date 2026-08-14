@@ -59,28 +59,17 @@ FROM (VALUES
 WHERE NOT EXISTS (SELECT 1 FROM modules m WHERE m.code = v.code);
 
 -- ============================================================
--- STEP 3: Record migration in flyway_schema_history
--- (Only if flyway_schema_history exists — i.e., Flyway has run)
+-- STEP 3: (Removed — Flyway automatically records the migration
+--          in flyway_schema_history on successful commit.)
+--
+-- The previous version of this migration included a DO block that
+-- manually INSERTed into flyway_schema_history. This caused CI to
+-- hang for 30+ minutes during Spring Boot context startup because
+-- the migration was holding a RowExclusiveLock on flyway_schema_history
+-- while Flyway's outer transaction was also trying to manage the same
+-- table — a classic anti-pattern of a Flyway migration manipulating
+-- the Flyway tracking table from within itself.
+--
+-- Removing this block lets Flyway handle schema_history insertion
+-- normally (which it does after the migration script completes).
 -- ============================================================
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'flyway_schema_history' AND table_schema = 'public') THEN
-        INSERT INTO public.flyway_schema_history
-            (installed_rank, version, description, type, script, checksum, installed_by, installed_on, execution_time, success)
-        SELECT
-            COALESCE(MAX(installed_rank), 0) + 1,
-            '20260814.1',
-            'create module registry',
-            'SQL',
-            'V20260814_1__create_module_registry.sql',
-            NULL,
-            'super-z',
-            NOW(),
-            0,
-            true
-        FROM public.flyway_schema_history
-        WHERE NOT EXISTS (
-            SELECT 1 FROM public.flyway_schema_history WHERE version = '20260814.1'
-        );
-    END IF;
-END $$;

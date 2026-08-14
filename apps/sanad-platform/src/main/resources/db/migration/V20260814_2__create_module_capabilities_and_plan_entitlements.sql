@@ -256,27 +256,10 @@ BEGIN
 END $$;
 
 -- ============================================================
--- STEP 6: Record migration in flyway_schema_history
+-- STEP 6: (Removed — Flyway automatically records the migration
+--          in flyway_schema_history on successful commit.)
+--
+-- Same fix as V20260814_1: removed the DO block that manually
+-- INSERTed into flyway_schema_history, which caused CI to hang.
+-- See V20260814_1 for the full explanation.
 -- ============================================================
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'flyway_schema_history' AND table_schema = 'public') THEN
-        INSERT INTO public.flyway_schema_history
-            (installed_rank, version, description, type, script, checksum, installed_by, installed_on, execution_time, success)
-        SELECT
-            COALESCE(MAX(installed_rank), 0) + 1,
-            '20260814.2',
-            'create module capabilities and plan module entitlements',
-            'SQL',
-            'V20260814_2__create_module_capabilities_and_plan_entitlements.sql',
-            NULL,
-            'super-z',
-            NOW(),
-            0,
-            true
-        FROM public.flyway_schema_history
-        WHERE NOT EXISTS (
-            SELECT 1 FROM public.flyway_schema_history WHERE version = '20260814.2'
-        );
-    END IF;
-END $$;
