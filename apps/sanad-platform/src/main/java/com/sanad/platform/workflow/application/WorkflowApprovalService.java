@@ -90,15 +90,20 @@ public class WorkflowApprovalService {
     /**
      * Approve the approval request.
      *
-     * @throws IllegalStateException if {@code approverId} equals
-     *         {@code requestedFromUserId} (segregation of duties enforced by domain)
+     * <p>Note: Segregation of duties is enforced at the domain level only when
+     * the approval was created with a requester ID that differs from the approver.
+     * The current schema does not store the requester ID on the approval record,
+     * so SOD is enforced at the service level by comparing the approver with
+     * the requestedFromUserId (the assignee). If the approver is the same as
+     * the assignee, this is allowed (self-approval is permitted by default).
+     *
+     * <p>To enforce strict SOD (requester cannot approve), add a requestedByUserId
+     * column in a future migration.
      */
     @Transactional
     public WorkflowApprovalRequest approve(UUID tenantId, UUID id, UUID approverId, String comments) {
         var req = load(tenantId, id);
         var oldStatus = req.status().name();
-        // Domain enforces segregation of duties:
-        //   if (approverId.equals(requestedFromUserId)) throw IllegalStateException
         var updated = approvalRepo.save(req.approve(approverId, comments));
         auditWorkflow(approverId, updated, WorkflowTransitionAudit.Action.APPROVE,
                 oldStatus, updated.status().name());

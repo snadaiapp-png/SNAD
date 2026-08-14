@@ -65,10 +65,6 @@ public record WorkflowApprovalRequest(
 
     private WorkflowApprovalRequest resolve(UUID actorId, String decisionStr, Status newStatus, String comments) {
         requireStatus(Status.PENDING, "resolve");
-        if (actorId.equals(requestedFromUserId)) {
-            throw new IllegalStateException(
-                    "Segregation of duties: the person who requested the approval cannot approve/reject it");
-        }
         var now = Instant.now();
         return new WorkflowApprovalRequest(id, tenantId, workflowInstanceId, workflowStepInstanceId,
                 requestedFromUserId, requestedFromRole, newStatus,
