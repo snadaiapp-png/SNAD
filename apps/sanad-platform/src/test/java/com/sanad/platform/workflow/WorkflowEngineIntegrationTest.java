@@ -144,8 +144,10 @@ class WorkflowEngineIntegrationTest {
         assertThat(steps).isNotEmpty();
 
         // Start instance
+        var firstStepKey = defService.findSteps(created.id()).stream()
+                .map(WorkflowStep::stepKey).findFirst().orElseThrow();
         var instance = execService.startWorkflow(
-                WorkflowInstance.start(tenantId, created.id(), 1, "TEST_ENTITY", UUID.randomUUID(), "step1", userId, null), userId);
+                WorkflowInstance.start(tenantId, created.id(), 1, "TEST_ENTITY", UUID.randomUUID(), firstStepKey, userId, null), userId);
         assertThat(instance.status()).isEqualTo(WorkflowInstance.Status.RUNNING);
         assertThat(instance.currentStepKey()).isEqualTo("step1");
 
@@ -177,8 +179,10 @@ class WorkflowEngineIntegrationTest {
         assertThat(steps).isNotEmpty();
 
         // Start instance
+        var firstStepKey = defService.findSteps(created.id()).stream()
+                .map(WorkflowStep::stepKey).findFirst().orElseThrow();
         var instance = execService.startWorkflow(
-                WorkflowInstance.start(tenantId, created.id(), 1, "DECISION", UUID.randomUUID(), "step1", userId, null), userId);
+                WorkflowInstance.start(tenantId, created.id(), 1, "DECISION", UUID.randomUUID(), firstStepKey, userId, null), userId);
 
         // Create approval request (requested FROM approverId)
         var stepInstanceId = jdbc.queryForObject(
@@ -211,8 +215,10 @@ class WorkflowEngineIntegrationTest {
                         WorkflowStep.StepType.APPROVAL, 1, null, 48, "WORKFLOW.APPROVE", null), userId);
         defService.activate(tenantId, created.id(), userId);
 
+        var firstStepKey = defService.findSteps(created.id()).stream()
+                .map(WorkflowStep::stepKey).findFirst().orElseThrow();
         var instance = execService.startWorkflow(
-                WorkflowInstance.start(tenantId, created.id(), 1, "TEST", UUID.randomUUID(), "step1", userId, null), userId);
+                WorkflowInstance.start(tenantId, created.id(), 1, "TEST", UUID.randomUUID(), firstStepKey, userId, null), userId);
 
         // Create approval requested FROM userId (same as who will try to approve)
         var stepInstanceId = jdbc.queryForObject(
@@ -245,8 +251,10 @@ class WorkflowEngineIntegrationTest {
                         WorkflowStep.StepType.APPROVAL, 1, null, 48, "WORKFLOW.APPROVE", null), userId);
         defService.activate(tenantId, created.id(), userId);
 
+        var firstStepKey = defService.findSteps(created.id()).stream()
+                .map(WorkflowStep::stepKey).findFirst().orElseThrow();
         var instance = execService.startWorkflow(
-                WorkflowInstance.start(tenantId, created.id(), 1, "TEST", UUID.randomUUID(), "step1", userId, null), userId);
+                WorkflowInstance.start(tenantId, created.id(), 1, "TEST", UUID.randomUUID(), firstStepKey, userId, null), userId);
 
         var stepInstanceId = jdbc.queryForObject(
                 "SELECT id FROM workflow_step_instances WHERE workflow_instance_id = ? AND step_key = ? LIMIT 1",
