@@ -32,7 +32,7 @@ import java.util.UUID;
 public class SlaMonitoringService {
 
     private static final Logger log = LoggerFactory.getLogger(SlaMonitoringService.class);
-    private static final UUID SYSTEM_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000099");
+    // System-generated alerts have no human creator — created_by is null
 
     private final ExecutiveDecisionRepository decisionRepo;
     private final EscalationRepository escalationRepo;
@@ -106,7 +106,7 @@ public class SlaMonitoringService {
                                     + "' has exceeded its approval SLA. "
                                     + "Submitted: " + (decision.submittedAt() != null ? decision.submittedAt() : "N/A")
                                     + ", Due: " + decision.approvalDueAt(),
-                            SYSTEM_USER_ID
+                            null
                     );
                     alertsCreated++;
                 }
@@ -153,7 +153,7 @@ public class SlaMonitoringService {
                                     + "' has exceeded its SLA deadline. "
                                     + "SLA Deadline: " + escalation.slaDeadline()
                                     + " Level: " + escalation.escalationLevel(),
-                            SYSTEM_USER_ID
+                            null
                     );
                     alertsCreated++;
                 }
