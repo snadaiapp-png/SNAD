@@ -140,6 +140,8 @@ class WorkflowEngineIntegrationTest {
                 WorkflowStep.create(tenantId, created.id(), "step2", "Last",
                         WorkflowStep.StepType.END, 2, null, null, null, null), userId);
         defService.activate(tenantId, created.id(), userId);
+        var steps = defService.findSteps(created.id());
+        assertThat(steps).isNotEmpty();
 
         // Start instance
         var instance = execService.startWorkflow(
@@ -171,6 +173,8 @@ class WorkflowEngineIntegrationTest {
                 WorkflowStep.create(tenantId, created.id(), "approve1", "Manager Approval",
                         WorkflowStep.StepType.APPROVAL, 1, null, 48, "WORKFLOW.APPROVE", null), userId);
         defService.activate(tenantId, created.id(), userId);
+        var steps = defService.findSteps(created.id());
+        assertThat(steps).isNotEmpty();
 
         // Start instance
         var instance = execService.startWorkflow(
