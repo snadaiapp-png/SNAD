@@ -114,6 +114,51 @@ WHERE NOT EXISTS (
     WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid AND code = 'SALES_REPRESENTATIVE'
 );
 
+-- Bind the 11 CRM-008B ownership capabilities to SALES_MANAGER for the
+-- control plane tenant. V20260722.8 (which runs BEFORE this migration) only
+-- binds capabilities for tenants existing at THAT time. The control plane
+-- tenant is created in STEP 2 above, so it would otherwise miss these caps.
+-- CrmPostgresMigrationTest asserts every SALES_MANAGER has 11 ownership caps.
+INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+SELECT gen_random_uuid(), r.tenant_id, r.id, c.id, NOW()
+FROM roles r
+JOIN access_capabilities c ON c.code IN (
+    'CRM.ASSIGNMENT.READ', 'CRM.ASSIGNMENT.WRITE',
+    'CRM.TRANSFER.READ', 'CRM.TRANSFER.REQUEST', 'CRM.TRANSFER.APPROVE',
+    'CRM.TEAM.READ',
+    'CRM.QUEUE.READ', 'CRM.QUEUE.CLAIM',
+    'CRM.TERRITORY.READ',
+    'CRM.ASSIGNMENT_RULE.READ',
+    'CRM.OWNERSHIP_HISTORY.READ'
+) AND c.status = 'ACTIVE'
+WHERE r.tenant_id = '00000000-0000-0000-0000-000000000001'::uuid
+  AND r.code = 'SALES_MANAGER'
+  AND NOT EXISTS (
+      SELECT 1 FROM role_capabilities rc
+      WHERE rc.tenant_id = r.tenant_id AND rc.role_id = r.id AND rc.capability_id = c.id
+  );
+
+-- Bind the 8 CRM-008B individual-contributor capabilities to SALES_REPRESENTATIVE
+-- for the control plane tenant (same rationale as above).
+INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+SELECT gen_random_uuid(), r.tenant_id, r.id, c.id, NOW()
+FROM roles r
+JOIN access_capabilities c ON c.code IN (
+    'CRM.ASSIGNMENT.READ',
+    'CRM.TRANSFER.READ',
+    'CRM.TEAM.READ',
+    'CRM.QUEUE.READ', 'CRM.QUEUE.CLAIM',
+    'CRM.TERRITORY.READ',
+    'CRM.ASSIGNMENT_RULE.READ',
+    'CRM.OWNERSHIP_HISTORY.READ'
+) AND c.status = 'ACTIVE'
+WHERE r.tenant_id = '00000000-0000-0000-0000-000000000001'::uuid
+  AND r.code = 'SALES_REPRESENTATIVE'
+  AND NOT EXISTS (
+      SELECT 1 FROM role_capabilities rc
+      WHERE rc.tenant_id = r.tenant_id AND rc.role_id = r.id AND rc.capability_id = c.id
+  );
+
 -- ============================================================
 -- STEP 4: Insert admin user (admin@snad.ai / Senen1985)
 -- BCrypt hash uses $2a$ prefix for Spring Security compatibility
