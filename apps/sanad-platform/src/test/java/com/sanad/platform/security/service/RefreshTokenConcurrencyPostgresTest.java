@@ -52,6 +52,7 @@ class RefreshTokenConcurrencyPostgresTest {
     @Autowired private UserRepository userRepository;
     @Autowired private RefreshTokenRepository refreshTokenRepository;
     @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     private UUID tenantId;
     private UUID userId;
@@ -61,6 +62,12 @@ class RefreshTokenConcurrencyPostgresTest {
     @BeforeEach
     void setUp() {
         refreshTokenRepository.deleteAll();
+        // Delete child rows first to avoid PostgreSQL FK constraint violations.
+        // user_role_assignments has FK fk_user_role_user referencing users(tenant_id, id).
+        // H2 (local dev) silently allows parent delete; PostgreSQL strictly enforces FK.
+        jdbcTemplate.update("DELETE FROM user_role_assignments");
+        jdbcTemplate.update("DELETE FROM role_capabilities");
+        jdbcTemplate.update("DELETE FROM roles");
         userRepository.deleteAll();
         tenantRepository.deleteAll();
 

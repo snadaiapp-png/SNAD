@@ -136,6 +136,125 @@ class CrmOwnershipRbacPostgresTest {
                 VALUES (?, ?, 'ADMIN', 'Administrator', 'Test administrator',
                         'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """, UUID.randomUUID(), tenantId);
+        // Seed SALES_MANAGER and SALES_REPRESENTATIVE roles for this tenant.
+        // V20260722.8 auto-seeds these for tenants existing AT migration time,
+        // but this test seeds tenants AFTER V20260722.8 runs. So we manually
+        // create the roles here, then bind capabilities using the same SQL
+        // pattern as V20260722.8 + V20260807.1.
+        UUID salesManagerRoleId = UUID.randomUUID();
+        UUID salesRepRoleId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at)
+                VALUES (?, ?, 'SALES_MANAGER', 'Sales Manager', 'Test SALES_MANAGER',
+                        'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, salesManagerRoleId, tenantId);
+        jdbc.update("""
+                INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at)
+                VALUES (?, ?, 'SALES_REPRESENTATIVE', 'Sales Representative', 'Test SALES_REPRESENTATIVE',
+                        'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, salesRepRoleId, tenantId);
+
+        // Bind 11 ownership capabilities to SALES_MANAGER (V20260722.8 set).
+        jdbc.update("""
+                INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+                SELECT gen_random_uuid(), ?, ?, ac.id, CURRENT_TIMESTAMP
+                FROM access_capabilities ac
+                WHERE ac.code IN (
+                    'CRM.ASSIGNMENT.READ', 'CRM.ASSIGNMENT.WRITE',
+                    'CRM.TRANSFER.READ', 'CRM.TRANSFER.REQUEST', 'CRM.TRANSFER.APPROVE',
+                    'CRM.TEAM.READ',
+                    'CRM.QUEUE.READ', 'CRM.QUEUE.CLAIM',
+                    'CRM.TERRITORY.READ',
+                    'CRM.ASSIGNMENT_RULE.READ',
+                    'CRM.OWNERSHIP_HISTORY.READ'
+                ) AND ac.status = 'ACTIVE'
+                AND NOT EXISTS (
+                    SELECT 1 FROM role_capabilities rc
+                    WHERE rc.tenant_id = ? AND rc.role_id = ? AND rc.capability_id = ac.id
+                )
+                """, tenantId, salesManagerRoleId, tenantId, salesManagerRoleId);
+
+        // Bind 22 CRM READ+WRITE capabilities to SALES_MANAGER (V20260807.1 set).
+        // Total: 11 + 22 = 33 capabilities (matches test assertion).
+        jdbc.update("""
+                INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+                SELECT gen_random_uuid(), ?, ?, ac.id, CURRENT_TIMESTAMP
+                FROM access_capabilities ac
+                WHERE ac.code IN (
+                    'CRM.ACCOUNT.READ', 'CRM.ACCOUNT.WRITE',
+                    'CRM.CONTACT.READ', 'CRM.CONTACT.WRITE',
+                    'CRM.LEAD.READ', 'CRM.LEAD.WRITE', 'CRM.LEAD.CONVERT',
+                    'CRM.OPPORTUNITY.READ', 'CRM.OPPORTUNITY.WRITE',
+                    'CRM.ACTIVITY.READ', 'CRM.ACTIVITY.WRITE',
+                    'CRM.TAG.READ', 'CRM.TAG.WRITE',
+                    'CRM.TASK.READ', 'CRM.TASK.WRITE',
+                    'CRM.NOTE.READ', 'CRM.NOTE.WRITE',
+                    'CRM.CASE.READ', 'CRM.CASE.WRITE',
+                    'CRM.EMAIL.READ', 'CRM.EMAIL.WRITE',
+                    'CRM.REPORTS.READ'
+                ) AND ac.status = 'ACTIVE'
+                AND NOT EXISTS (
+                    SELECT 1 FROM role_capabilities rc
+                    WHERE rc.tenant_id = ? AND rc.role_id = ? AND rc.capability_id = ac.id
+                )
+                """, tenantId, salesManagerRoleId, tenantId, salesManagerRoleId);
+
+        // Bind 8 ownership capabilities to SALES_REPRESENTATIVE (V20260722.8 set).
+        jdbc.update("""
+                INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+                SELECT gen_random_uuid(), ?, ?, ac.id, CURRENT_TIMESTAMP
+                FROM access_capabilities ac
+                WHERE ac.code IN (
+                    'CRM.ASSIGNMENT.READ',
+                    'CRM.TRANSFER.READ', 'CRM.TRANSFER.REQUEST',
+                    'CRM.TEAM.READ',
+                    'CRM.QUEUE.READ', 'CRM.QUEUE.CLAIM',
+                    'CRM.TERRITORY.READ',
+                    'CRM.OWNERSHIP_HISTORY.READ'
+                ) AND ac.status = 'ACTIVE'
+                AND NOT EXISTS (
+                    SELECT 1 FROM role_capabilities rc
+                    WHERE rc.tenant_id = ? AND rc.role_id = ? AND rc.capability_id = ac.id
+                )
+                """, tenantId, salesRepRoleId, tenantId, salesRepRoleId);
+
+        // Bind 11 CRM READ caps to SALES_REPRESENTATIVE (V20260807.1 set).
+        // Total: 8 + 11 = 19 capabilities (matches test assertion).
+        jdbc.update("""
+                INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+                SELECT gen_random_uuid(), ?, ?, ac.id, CURRENT_TIMESTAMP
+                FROM access_capabilities ac
+                WHERE ac.code IN (
+                    'CRM.ACCOUNT.READ',
+                    'CRM.CONTACT.READ',
+                    'CRM.LEAD.READ',
+                    'CRM.OPPORTUNITY.READ',
+                    'CRM.ACTIVITY.READ',
+                    'CRM.TAG.READ',
+                    'CRM.TASK.READ',
+                    'CRM.NOTE.READ',
+                    'CRM.CASE.READ',
+                    'CRM.EMAIL.READ',
+                    'CRM.REPORTS.READ'
+                ) AND ac.status = 'ACTIVE'
+                AND NOT EXISTS (
+                    SELECT 1 FROM role_capabilities rc
+                    WHERE rc.tenant_id = ? AND rc.role_id = ? AND rc.capability_id = ac.id
+                )
+                """, tenantId, salesRepRoleId, tenantId, salesRepRoleId);
+
+        // Bind ALL active capabilities to ADMIN (V15 invariant).
+        jdbc.update("""
+                INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+                SELECT gen_random_uuid(), ?, r.id, ac.id, CURRENT_TIMESTAMP
+                FROM roles r
+                JOIN access_capabilities ac ON ac.status = 'ACTIVE'
+                WHERE r.tenant_id = ? AND r.code = 'ADMIN'
+                AND NOT EXISTS (
+                    SELECT 1 FROM role_capabilities rc
+                    WHERE rc.tenant_id = ? AND rc.role_id = r.id AND rc.capability_id = ac.id
+                )
+                """, tenantId, tenantId, tenantId);
     }
 
     private int roleCapabilityCount(UUID tenantId, String roleCode) {
