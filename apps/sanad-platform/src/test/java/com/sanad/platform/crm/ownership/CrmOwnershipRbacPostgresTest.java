@@ -53,8 +53,9 @@ class CrmOwnershipRbacPostgresTest {
         seedTenantAndAdmin(TENANT_A, "rbac-a");
         seedTenantAndAdmin(TENANT_B, "rbac-b");
 
-        // Step 2: Now run migrations through V20260722.8 — the SALES_MANAGER/
-        // SALES_REPRESENTATIVE roles will be auto-seeded for the test tenants.
+        // Step 2: Now run migrations through V20260807.1 — this grants the
+        // additional 22 CRM READ+WRITE caps to SALES_MANAGER (extending the
+        // 11 ownership caps from V20260722.8). Expected total: 33 caps.
         Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
@@ -62,7 +63,7 @@ class CrmOwnershipRbacPostgresTest {
                 .cleanDisabled(false)
                 .outOfOrder(true)
                 .validateOnMigrate(true)
-                .target("20260722.8")
+                .target("20260807.1")
                 .load()
                 .migrate();
 

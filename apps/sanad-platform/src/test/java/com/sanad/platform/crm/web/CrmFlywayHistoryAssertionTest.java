@@ -132,7 +132,7 @@ class CrmFlywayHistoryAssertionTest {
             // Mission 01: Control Plane Admin + Module Registry + Capabilities (V20260813.1, V20260814.1/2)
             "20260813.1",    // seed control plane admin and capabilities
             "20260814.1",    // create module registry
-            "20260814.2"     // create module capabilities and plan module entitlements
+            "20260814.2"     // create module capabilities and plan entitlements
     );
 
 
