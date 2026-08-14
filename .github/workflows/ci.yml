@@ -49,7 +49,7 @@ jobs:
           --health-retries 20
 
     env:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: sanad
       SPRING_DATASOURCE_PASSWORD: sanad_pass
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
@@ -156,7 +156,7 @@ jobs:
           --health-retries 20
 
     env:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: sanad
       SPRING_DATASOURCE_PASSWORD: sanad_pass
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver

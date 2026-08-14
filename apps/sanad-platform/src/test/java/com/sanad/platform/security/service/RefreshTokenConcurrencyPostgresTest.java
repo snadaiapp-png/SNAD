@@ -62,26 +62,52 @@ class RefreshTokenConcurrencyPostgresTest {
     @BeforeEach
     void setUp() {
         refreshTokenRepository.deleteAll();
-        // Delete child rows first to avoid PostgreSQL FK constraint violations.
-        // PostgreSQL strictly enforces FK constraints (unlike H2 in local dev).
-        // Order: deepest children first, then parents.
-        jdbcTemplate.update("DELETE FROM crm_tag_assignments");
-        jdbcTemplate.update("DELETE FROM crm_opportunity_stage_history");
-        jdbcTemplate.update("DELETE FROM crm_opportunities");
-        jdbcTemplate.update("DELETE FROM crm_pipeline_stages");
-        jdbcTemplate.update("DELETE FROM crm_pipelines");
-        jdbcTemplate.update("DELETE FROM crm_tasks");
-        jdbcTemplate.update("DELETE FROM crm_notes");
-        jdbcTemplate.update("DELETE FROM crm_tags");
-        jdbcTemplate.update("DELETE FROM crm_activities");
-        jdbcTemplate.update("DELETE FROM crm_contacts");
-        jdbcTemplate.update("DELETE FROM crm_leads");
-        jdbcTemplate.update("DELETE FROM crm_accounts");
-        jdbcTemplate.update("DELETE FROM user_role_assignments");
-        jdbcTemplate.update("DELETE FROM role_capabilities");
-        jdbcTemplate.update("DELETE FROM roles");
-        userRepository.deleteAll();
-        tenantRepository.deleteAll();
+        // PostgreSQL strictly enforces FK constraints. The CRM schema has
+        // dozens of cross-referencing tables (crm_accounts → crm_contacts →
+        // crm_communication_methods → crm_addresses → ...). Manually listing
+        // every child table is fragile and has repeatedly missed tables.
+        //
+        // TRUNCATE ... CASCADE is PostgreSQL's canonical way to clear data
+        // across an FK graph: PostgreSQL itself walks the dependency graph
+        // and clears in the correct order. This is the correct boundary:
+        //   - H2 (local dev): TRUNCATE works identically
+        //   - PostgreSQL (CI): TRUNCATE handles the FK graph automatically
+        //
+        // The RESTART IDENTITY option resets sequences so test fixtures get
+        // deterministic IDs. We exclude the Flyway tracking table and the
+        // module catalog tables (modules, module_capabilities) which are
+        // seeded by migrations and should persist across tests.
+        //
+        // We also exclude access_capabilities (capabilities catalog) —
+        // only role_capabilities (the per-tenant binding) is truncated.
+        jdbcTemplate.execute("""
+                TRUNCATE TABLE
+                    crm_tag_assignments,
+                    crm_communication_methods,
+                    crm_party_addresses,
+                    crm_opportunity_stage_history,
+                    crm_opportunities,
+                    crm_pipeline_stages,
+                    crm_pipelines,
+                    crm_tasks,
+                    crm_notes,
+                    crm_tags,
+                    crm_activities,
+                    crm_contacts,
+                    crm_leads,
+                    crm_accounts,
+                    user_role_assignments,
+                    role_capabilities,
+                    roles,
+                    users,
+                    tenants,
+                    refresh_tokens
+                RESTART IDENTITY CASCADE
+                """);
+        // TRUNCATE cleared all rows; JPA first-level cache may still hold
+        // stale entities, so we clear the persistence context to avoid
+        // accidental re-inserts of detached entities.
+        // No further delete calls needed — TRUNCATE is authoritative.
 
         Tenant tenant = tenantRepository.save(new Tenant(
                 "Refresh Lock Tenant",
