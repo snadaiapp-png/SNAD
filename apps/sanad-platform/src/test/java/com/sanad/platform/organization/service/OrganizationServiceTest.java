@@ -75,7 +75,7 @@ class OrganizationServiceTest {
         // Simulate JPA having populated the id field
         reflectSet(tenant, "id", tenantId);
         // Simulate JPA auditing
-        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
+        Instant now = Instant.now();
         reflectSet(tenant, "createdAt", now);
         reflectSet(tenant, "updatedAt", now);
 
@@ -304,7 +304,7 @@ class OrganizationServiceTest {
         Organization second = new Organization(tenant, "Acme Jeddah Branch",
                 "Jeddah operations", OrganizationStatus.ACTIVE);
         reflectSet(second, "id", UUID.fromString("55555555-5555-5555-5555-555555555555"));
-        java.sql.Timestamp ts = java.sql.Timestamp.from(Instant.now());
+        Instant ts = Instant.now();
         reflectSet(second, "createdAt", ts);
         reflectSet(second, "updatedAt", ts);
 

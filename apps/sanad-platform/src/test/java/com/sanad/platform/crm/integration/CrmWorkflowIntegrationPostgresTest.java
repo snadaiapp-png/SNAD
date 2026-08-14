@@ -158,7 +158,7 @@ class CrmWorkflowIntegrationPostgresTest {
 
     @Test
     void workflowWorkerNeverClaimsAiEvents() {
-        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
+        Instant now = Instant.now();
         IntegrationEnvelope envelope = new IntegrationEnvelope(
                 "crm.ai.test", "1.0", tenantId, actorId,
                 "corr-ai", "cause-ai", "ai-idem", "ACCOUNT", entityId, 7L,

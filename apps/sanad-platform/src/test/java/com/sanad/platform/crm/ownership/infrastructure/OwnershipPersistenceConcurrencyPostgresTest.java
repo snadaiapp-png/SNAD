@@ -295,7 +295,7 @@ class OwnershipPersistenceConcurrencyPostgresTest {
     }
 
     private void createQueueAssignment(UUID queueId, UUID recordId, UUID legacyUserId) {
-        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
+        Instant now = Instant.now();
         inTransaction(() -> assignments.save(new Assignment(
                 null, tenantId, 0,
                 AssignmentRecordType.LEAD.name(), recordId, legacyUserId, "OWNER",

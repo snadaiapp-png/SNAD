@@ -247,7 +247,7 @@ class OwnershipReadQueueLifecyclePostgresTest {
     }
 
     private void createQueueAssignment(UUID queueId, UUID recordId) {
-        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
+        Instant now = Instant.now();
         inTransaction(() -> assignments.save(new Assignment(
                 null, tenantId, 0,
                 AssignmentRecordType.LEAD.name(), recordId, actorId, "OWNER",

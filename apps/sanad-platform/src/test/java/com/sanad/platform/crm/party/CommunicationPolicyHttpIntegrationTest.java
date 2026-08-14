@@ -75,30 +75,30 @@ class CommunicationPolicyHttpIntegrationTest {
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         UUID roleId = UUID.randomUUID();
-        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
+        Instant now = Instant.now();
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)
-                        .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", now));
+                        .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:email,'Policy User','ACTIVE','dummy',:now,:now)",
                 p().addValue("id", userId).addValue("tenantId", tenantId)
-                        .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test").addValue("now", now));
+                        .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test").addValue("now", java.sql.Timestamp.from(now)));
         jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:code,'Policy Role','CRM-007 policy test','ACTIVE',:now,:now)",
                 p().addValue("id", roleId).addValue("tenantId", tenantId)
-                        .addValue("code", "CRM007_POLICY_" + key.toUpperCase().replace('-', '_')).addValue("now", now));
+                        .addValue("code", "CRM007_POLICY_" + key.toUpperCase().replace('-', '_')).addValue("now", java.sql.Timestamp.from(now)));
         UUID capabilityId = jdbc.queryForObject(
                 "SELECT id FROM access_capabilities WHERE code='CRM.COMMUNICATION.ADMIN'",
                 p(), UUID.class);
         jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) " +
                         "VALUES (:id,:tenantId,:roleId,:capabilityId,:now)",
                 p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
-                        .addValue("roleId", roleId).addValue("capabilityId", capabilityId).addValue("now", now));
+                        .addValue("roleId", roleId).addValue("capabilityId", capabilityId).addValue("now", java.sql.Timestamp.from(now)));
         jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:userId,:roleId,NULL,'ACTIVE',:now,:now)",
                 p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
-                        .addValue("userId", userId).addValue("roleId", roleId).addValue("now", now));
+                        .addValue("userId", userId).addValue("roleId", roleId).addValue("now", java.sql.Timestamp.from(now)));
         return new Fixture(tenantId, userId);
     }
 

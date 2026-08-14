@@ -198,7 +198,7 @@ class CrmImportAndCustomFieldIntegrationTest {
     }
 
     private void seedIdentity(UUID tenantId, UUID userId, String suffix) {
-        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
+        Instant now = Instant.now();
         jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?)",
                 tenantId, "crm-import-" + suffix + tenantId.toString().substring(0, 8), "CRM Import", now, now);
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)",

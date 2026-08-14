@@ -102,7 +102,7 @@ class AddressCommunicationUseCasesTest {
 
     private static CommunicationMethodRecord method(
             UUID ownerId, CreateCommunicationMethodCommand command) {
-        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
+        Instant now = Instant.now();
         return new CommunicationMethodRecord(UUID.randomUUID(), 0, "PERSON", ownerId,
                 command.methodType(), command.rawValue(), command.normalizedValue(), command.displayValue(),
                 command.label(), command.preferred(), false, "UNVERIFIED", null,

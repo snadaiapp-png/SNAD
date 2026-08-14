@@ -268,7 +268,7 @@ class AssignmentRuleUseCasesPostgresTest {
     }
 
     private Assignment activeAssignment(UUID owner, UUID recordId) {
-        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
+        Instant now = Instant.now();
         return new Assignment(
                 null, tenantId, 0, AssignmentRecordType.LEAD.name(), recordId, owner, "OWNER",
                 AssignmentStatus.ACTIVE, now, null, "LOAD",

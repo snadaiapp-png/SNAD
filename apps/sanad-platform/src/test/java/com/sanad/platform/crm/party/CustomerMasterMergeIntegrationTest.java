@@ -185,29 +185,29 @@ class CustomerMasterMergeIntegrationTest {
     private Fixture fixture(String key) {
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
-        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
+        Instant now = Instant.now();
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)
-                        .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", now));
+                        .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:email,'CRM Merge User','ACTIVE','dummy',:now,:now)",
                 p().addValue("id", userId).addValue("tenantId", tenantId)
                         .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test")
-                        .addValue("now", now));
+                        .addValue("now", java.sql.Timestamp.from(now)));
         tenantIds.add(tenantId);
         return new Fixture(tenantId, userId);
     }
 
     private UUID account(Fixture fixture, String name) {
         UUID id = UUID.randomUUID();
-        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
+        Instant now = Instant.now();
         jdbc.update("INSERT INTO crm_accounts (id,tenant_id,version,display_name,normalized_name,account_type," +
                         "lifecycle_status,primary_currency_code,preferred_locale,time_zone,source,owner_user_id," +
                         "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,:name,:normalized," +
                         "'BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh','CRM005_MERGE_TEST',:owner,:owner,:owner,:now,:now)",
                 p().addValue("id", id).addValue("tenantId", fixture.tenantId()).addValue("name", name)
-                        .addValue("normalized", name.toLowerCase()).addValue("owner", fixture.userId()).addValue("now", now));
+                        .addValue("normalized", name.toLowerCase()).addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
         return id;
     }
 
