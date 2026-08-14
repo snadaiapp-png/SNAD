@@ -37,6 +37,7 @@ public class JdbcWorkflowApprovalRequestRepository implements WorkflowApprovalRe
             rs.getObject("workflow_step_instance_id", UUID.class),
             rs.getObject("requested_from_user_id", UUID.class),
             rs.getString("requested_from_role"),
+            rs.getObject("requested_by_user_id", UUID.class),
             WorkflowApprovalRequest.Status.valueOf(rs.getString("status")),
             rs.getTimestamp("requested_at").toInstant(),
             rs.getTimestamp("due_at") != null ? rs.getTimestamp("due_at").toInstant() : null,
@@ -61,13 +62,13 @@ public class JdbcWorkflowApprovalRequestRepository implements WorkflowApprovalRe
         jdbc.update("""
                 INSERT INTO workflow_approval_requests
                     (id, tenant_id, workflow_instance_id, workflow_step_instance_id,
-                     requested_from_user_id, requested_from_role, status, requested_at,
-                     due_at, acted_by, acted_at, decision, comments, version,
-                     created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     requested_from_user_id, requested_from_role, requested_by_user_id,
+                     status, requested_at, due_at, acted_by, acted_at, decision, comments,
+                     version, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 r.id(), r.tenantId(), r.workflowInstanceId(), r.workflowStepInstanceId(),
-                r.requestedFromUserId(), r.requestedFromRole(),
+                r.requestedFromUserId(), r.requestedFromRole(), r.requestedByUserId(),
                 r.status().name(),
                 Timestamp.from(r.requestedAt()),
                 r.dueAt() != null ? Timestamp.from(r.dueAt()) : null,

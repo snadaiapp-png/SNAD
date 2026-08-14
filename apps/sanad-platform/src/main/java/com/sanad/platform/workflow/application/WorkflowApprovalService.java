@@ -49,11 +49,16 @@ public class WorkflowApprovalService {
 
     @Transactional
     public WorkflowApprovalRequest createApproval(WorkflowApprovalRequest request, UUID requesterId) {
-        // Note: requestedFromUserId is the user FROM WHOM approval is requested.
-        // The requester (caller) is recorded in the audit trail, not on the
-        // approval row itself — the row tracks the approver, not the requester.
+        // The request already has requestedByUserId set via the create() factory.
+        // If not set (backward compat), set it here from the requesterId.
+        if (request.requestedByUserId() == null && requesterId != null) {
+            request = WorkflowApprovalRequest.create(
+                    request.tenantId(), request.workflowInstanceId(), request.workflowStepInstanceId(),
+                    request.requestedFromUserId(), request.requestedFromRole(), request.dueAt(),
+                    requesterId
+            );
+        }
         var saved = approvalRepo.save(request);
-        // The workflow_instance_id on the request lets us audit against the instance.
         auditWorkflow(requesterId, saved, WorkflowTransitionAudit.Action.ASSIGN,
                 null, saved.status().name());
         return saved;

@@ -104,8 +104,9 @@ class CrmPostgresMigrationTest {
     // Workflow Engine (V20260815.10/11)
     private static final String WORKFLOW_ENGINE_VERSION = "20260815.10";
     private static final String WORKFLOW_CAPABILITIES_VERSION = "20260815.11";
+    private static final String WORKFLOW_SOD_VERSION = "20260815.12";
     // Latest migration after Senior Management development
-    private static final String LATEST_MIGRATION_VERSION = WORKFLOW_CAPABILITIES_VERSION;
+    private static final String LATEST_MIGRATION_VERSION = WORKFLOW_SOD_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -267,7 +268,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(MGMT_ALERT_NULLABLE_VERSION),
                         MigrationVersion.fromVersion(MGMT_AUDIT_NULLABLE_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_ENGINE_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_CAPABILITIES_VERSION));
+                        MigrationVersion.fromVersion(WORKFLOW_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_SOD_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -361,7 +363,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(MGMT_ALERT_NULLABLE_VERSION),
                         MigrationVersion.fromVersion(MGMT_AUDIT_NULLABLE_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_ENGINE_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_CAPABILITIES_VERSION));
+                        MigrationVersion.fromVersion(WORKFLOW_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_SOD_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -519,6 +522,7 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, MGMT_AUDIT_NULLABLE_VERSION, "SQL", "make audit actor nullable");
         assertMigration(jdbc, WORKFLOW_ENGINE_VERSION, "SQL", "create workflow engine");
         assertMigration(jdbc, WORKFLOW_CAPABILITIES_VERSION, "SQL", "add workflow capabilities");
+        assertMigration(jdbc, WORKFLOW_SOD_VERSION, "SQL", "add requested by to approvals");
 
         assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());

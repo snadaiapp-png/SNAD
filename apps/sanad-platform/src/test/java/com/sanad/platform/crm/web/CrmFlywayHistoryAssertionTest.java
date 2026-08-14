@@ -144,7 +144,8 @@ class CrmFlywayHistoryAssertionTest {
             "20260815.8",    // make alert created by nullable
             "20260815.9",    // make audit actor nullable
             "20260815.10",   // create workflow engine
-            "20260815.11"    // add workflow capabilities
+            "20260815.11",   // add workflow capabilities
+            "20260815.12"    // add requested by to approvals
     );
 
 

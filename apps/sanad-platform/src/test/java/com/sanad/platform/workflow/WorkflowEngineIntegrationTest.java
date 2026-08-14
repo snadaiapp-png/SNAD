@@ -190,7 +190,8 @@ class WorkflowEngineIntegrationTest {
                 UUID.class, instance.id(), instance.currentStepKey());
         var approval = approvalService.createApproval(
                 WorkflowApprovalRequest.create(tenantId, instance.id(), stepInstanceId,
-                        approverId, "MANAGER", Instant.now().plus(48, ChronoUnit.HOURS)),
+                        approverId, "MANAGER", Instant.now().plus(48, ChronoUnit.HOURS),
+                        userId),
                 userId
         );
         assertThat(approval.status()).isEqualTo(WorkflowApprovalRequest.Status.PENDING);
@@ -226,16 +227,16 @@ class WorkflowEngineIntegrationTest {
                 UUID.class, instance.id(), instance.currentStepKey());
         var approval = approvalService.createApproval(
                 WorkflowApprovalRequest.create(tenantId, instance.id(), stepInstanceId,
-                        userId, "MANAGER", Instant.now().plus(48, ChronoUnit.HOURS)),
+                        userId, "MANAGER", Instant.now().plus(48, ChronoUnit.HOURS),
+                        userId),
                 userId
         );
 
-        // Self-approval is now permitted (SOD check removed from domain).
-        // The approver IS the assignee (requestedFromUserId = userId).
-        // This is the normal flow: the assigned approver approves.
-        var approved = approvalService.approve(tenantId, approval.id(), userId, "self-approved");
-        assertThat(approved.status()).isEqualTo(WorkflowApprovalRequest.Status.APPROVED);
-        assertThat(approved.actedBy()).isEqualTo(userId);
+        // SOD: requester (userId) == approver (userId) → must be blocked
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> approvalService.approve(tenantId, approval.id(), userId, "self-approve"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Segregation of duties");
     }
 
     // ===== REJECTION PATH =====
