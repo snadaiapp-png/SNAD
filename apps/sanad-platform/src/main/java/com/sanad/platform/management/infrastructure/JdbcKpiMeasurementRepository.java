@@ -93,7 +93,7 @@ public class JdbcKpiMeasurementRepository implements KpiMeasurementRepository {
             return List.of();
         }
         // Use DISTINCT ON (kpi_definition_id) to get the latest measurement per KPI
-        var placeholders = String.join(",", kpiDefinitionIds.stream().map(_ -> "?").toList());
+        var placeholders = String.join(",", kpiDefinitionIds.stream().map(id -> "?").toList());
         return jdbc.query("""
                 SELECT DISTINCT ON (kpi_definition_id) * FROM kpi_measurements
                 WHERE kpi_definition_id IN (%s)
