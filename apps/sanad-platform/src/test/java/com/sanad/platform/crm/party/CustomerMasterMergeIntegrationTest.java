@@ -138,7 +138,7 @@ class CustomerMasterMergeIntegrationTest {
         Fixture fixture = fixture("archived-master");
         UUID accountId = account(fixture, "Archived Customer");
         jdbc.update("UPDATE crm_accounts SET lifecycle_status='ARCHIVED',archived_at=:now WHERE tenant_id=:tenantId AND id=:id",
-                p().addValue("tenantId", fixture.tenantId()).addValue("id", accountId).addValue("now", Instant.now()));
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", accountId).addValue("now", java.sql.Timestamp.from(Instant.now())));
 
         assertThatThrownBy(() -> useCases.addAddress(fixture.tenantId(), fixture.userId(), accountId,
                 new CreateAddressCommand("OFFICE", null, "Street", null, "Riyadh",
