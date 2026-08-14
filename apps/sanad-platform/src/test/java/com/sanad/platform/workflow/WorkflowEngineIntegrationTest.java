@@ -148,7 +148,7 @@ class WorkflowEngineIntegrationTest {
         assertThat(instance.currentStepKey()).isEqualTo("step1");
 
         // Advance to step2
-        var advanced = execService.advanceToNextStep(tenantId, instance.id(), userId, "done");
+        var advanced = execService.advanceToNextStep(tenantId, instance.id(), "step2", userId);
         assertThat(advanced.currentStepKey()).isEqualTo("step2");
 
         // Complete (step2 is END type → workflow completes)
