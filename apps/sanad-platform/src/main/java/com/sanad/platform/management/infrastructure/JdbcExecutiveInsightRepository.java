@@ -44,7 +44,7 @@ public class JdbcExecutiveInsightRepository implements ExecutiveInsightRepositor
                 INSERT INTO executive_insights
                     (id, tenant_id, type, title, description, confidence, evidence,
                      model_name, model_version, advisory, status, generated_by, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?, ?)
                 """,
                 i.id(), i.tenantId(), i.type().name(), i.title(), i.description(),
                 i.confidence(), i.evidence(),
