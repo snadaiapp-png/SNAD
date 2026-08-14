@@ -61,7 +61,7 @@ class Crm008bFoundationAcceptanceTest {
     // Terminal CRM migration as of Senior Management Operating Layer:
     //   V20260815.2 - add executive management capabilities
     // (was 20260814.2 before Senior Management added 2 migrations)
-    private static final String CRM_LATEST_VERSION = "20260815.6";
+    private static final String CRM_LATEST_VERSION = "20260815.7";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");

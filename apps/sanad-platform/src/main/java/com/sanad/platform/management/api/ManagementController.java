@@ -115,7 +115,7 @@ public class ManagementController {
     @RequireCapability("EXECUTIVE_MANAGEMENT.WRITE")
     public ResponseEntity<ManagementResponses.ObjectiveResponse> markOffTrack(
             Authentication auth, @PathVariable UUID id) {
-        var o = objectiveService.markOffTrack(tenantId(auth), id);
+        var o = objectiveService.markOffTrack(tenantId(auth), id, userId(auth));
         return ResponseEntity.ok(ManagementResponses.ObjectiveResponse.from(o, List.of()));
     }
 

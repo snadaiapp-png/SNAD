@@ -43,6 +43,8 @@ public class JdbcExecutiveDecisionRepository implements ExecutiveDecisionReposit
             rs.getDate("due_date") != null ? rs.getDate("due_date").toLocalDate() : null,
             rs.getTimestamp("executed_at") != null ? rs.getTimestamp("executed_at").toInstant() : null,
             rs.getTimestamp("completed_at") != null ? rs.getTimestamp("completed_at").toInstant() : null,
+            rs.getTimestamp("submitted_at") != null ? rs.getTimestamp("submitted_at").toInstant() : null,
+            rs.getTimestamp("approval_due_at") != null ? rs.getTimestamp("approval_due_at").toInstant() : null,
             rs.getLong("version"),
             rs.getTimestamp("created_at").toInstant(),
             rs.getTimestamp("updated_at").toInstant()
@@ -60,8 +62,8 @@ public class JdbcExecutiveDecisionRepository implements ExecutiveDecisionReposit
                     (id, tenant_id, decision_number, title, description, rationale, category,
                      priority, status, impact, expected_outcome, actual_outcome, owner_user_id,
                      created_by, decided_by, decision_date, due_date, executed_at, completed_at,
-                     version, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     submitted_at, approval_due_at, version, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 d.id(), d.tenantId(), d.decisionNumber(), d.title(), d.description(), d.rationale(),
                 d.category(), d.priority().name(), d.status().name(), d.impact(), d.expectedOutcome(),
@@ -70,6 +72,8 @@ public class JdbcExecutiveDecisionRepository implements ExecutiveDecisionReposit
                 d.dueDate() != null ? Date.valueOf(d.dueDate()) : null,
                 d.executedAt() != null ? Timestamp.from(d.executedAt()) : null,
                 d.completedAt() != null ? Timestamp.from(d.completedAt()) : null,
+                d.submittedAt() != null ? Timestamp.from(d.submittedAt()) : null,
+                d.approvalDueAt() != null ? Timestamp.from(d.approvalDueAt()) : null,
                 d.version(), Timestamp.from(d.createdAt()), Timestamp.from(d.updatedAt())
         );
         return d;
@@ -81,6 +85,7 @@ public class JdbcExecutiveDecisionRepository implements ExecutiveDecisionReposit
                     title = ?, description = ?, rationale = ?, category = ?, priority = ?, status = ?,
                     impact = ?, expected_outcome = ?, actual_outcome = ?, owner_user_id = ?,
                     decided_by = ?, decision_date = ?, due_date = ?, executed_at = ?, completed_at = ?,
+                    submitted_at = ?, approval_due_at = ?,
                     version = ?, updated_at = ?
                 WHERE id = ? AND tenant_id = ? AND version = ?
                 """,
@@ -91,6 +96,8 @@ public class JdbcExecutiveDecisionRepository implements ExecutiveDecisionReposit
                 d.dueDate() != null ? Date.valueOf(d.dueDate()) : null,
                 d.executedAt() != null ? Timestamp.from(d.executedAt()) : null,
                 d.completedAt() != null ? Timestamp.from(d.completedAt()) : null,
+                d.submittedAt() != null ? Timestamp.from(d.submittedAt()) : null,
+                d.approvalDueAt() != null ? Timestamp.from(d.approvalDueAt()) : null,
                 d.version(), Timestamp.from(d.updatedAt()),
                 d.id(), d.tenantId(), d.version() - 1
         );

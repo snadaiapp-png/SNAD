@@ -68,6 +68,13 @@ public class ExecutiveAlertService {
         return alertRepo.findByTenantAndStatus(tenantId, ExecutiveAlert.Status.OPEN, limit);
     }
 
+    @Transactional(readOnly = true)
+    public java.util.Optional<ExecutiveAlert> findBySource(
+            UUID tenantId, ExecutiveAlert.SourceEntityType sourceType,
+            UUID sourceId, ExecutiveAlert.AlertType type) {
+        return alertRepo.findBySource(tenantId, sourceType, sourceId, type);
+    }
+
     @Transactional
     public ExecutiveAlert acknowledge(UUID tenantId, UUID id, UUID userId) {
         var alert = alertRepo.findById(tenantId, id)

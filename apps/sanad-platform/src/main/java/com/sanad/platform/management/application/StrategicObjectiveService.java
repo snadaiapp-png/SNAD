@@ -1,5 +1,6 @@
 package com.sanad.platform.management.application;
 
+import com.sanad.platform.management.domain.ExecutiveAlert;
 import com.sanad.platform.management.domain.KeyResult;
 import com.sanad.platform.management.domain.KeyResultRepository;
 import com.sanad.platform.management.domain.StrategicInitiative;
@@ -27,14 +28,17 @@ public class StrategicObjectiveService {
     private final StrategicObjectiveRepository objectiveRepo;
     private final KeyResultRepository keyResultRepo;
     private final StrategicInitiativeRepository initiativeRepo;
+    private final ExecutiveAlertService alertService;
 
     public StrategicObjectiveService(
             StrategicObjectiveRepository objectiveRepo,
             KeyResultRepository keyResultRepo,
-            StrategicInitiativeRepository initiativeRepo) {
+            StrategicInitiativeRepository initiativeRepo,
+            ExecutiveAlertService alertService) {
         this.objectiveRepo = objectiveRepo;
         this.keyResultRepo = keyResultRepo;
         this.initiativeRepo = initiativeRepo;
+        this.alertService = alertService;
     }
 
     @Transactional
@@ -72,10 +76,22 @@ public class StrategicObjectiveService {
     }
 
     @Transactional
-    public StrategicObjective markOffTrack(UUID tenantId, UUID objectiveId) {
+    public StrategicObjective markOffTrack(UUID tenantId, UUID objectiveId, UUID actorUserId) {
         var objective = objectiveRepo.findById(tenantId, objectiveId)
                 .orElseThrow(() -> new IllegalArgumentException("Objective not found: " + objectiveId));
-        return objectiveRepo.save(objective.markOffTrack());
+        var updated = objectiveRepo.save(objective.markOffTrack());
+        // Cross-domain workflow: OBJECTIVE_OFF_TRACK → Executive Alert
+        alertService.createOrGetExisting(
+                tenantId,
+                ExecutiveAlert.AlertType.OBJECTIVE_OFF_TRACK,
+                ExecutiveAlert.Severity.HIGH,
+                ExecutiveAlert.SourceEntityType.OBJECTIVE,
+                objectiveId,
+                "Objective Off Track: " + updated.title(),
+                "Strategic Objective '" + updated.code() + "' is now OFF_TRACK. Progress: " + updated.progressPct() + "%",
+                actorUserId
+        );
+        return updated;
     }
 
     @Transactional

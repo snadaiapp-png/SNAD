@@ -97,8 +97,10 @@ class CrmPostgresMigrationTest {
     // Senior Management Phase D-G (V20260815.5/6)
     private static final String MGMT_COMMAND_CENTER_VERSION = "20260815.5";
     private static final String MGMT_COMMAND_CENTER_CAPS_VERSION = "20260815.6";
+    // SLA fields (V20260815.7)
+    private static final String MGMT_SLA_FIELDS_VERSION = "20260815.7";
     // Latest migration after Senior Management development
-    private static final String LATEST_MIGRATION_VERSION = MGMT_COMMAND_CENTER_CAPS_VERSION;
+    private static final String LATEST_MIGRATION_VERSION = MGMT_SLA_FIELDS_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -255,7 +257,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(MGMT_DECISION_RISK_ISSUE_VERSION),
                         MigrationVersion.fromVersion(MGMT_PHASE_BC_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(MGMT_COMMAND_CENTER_VERSION),
-                        MigrationVersion.fromVersion(MGMT_COMMAND_CENTER_CAPS_VERSION));
+                        MigrationVersion.fromVersion(MGMT_COMMAND_CENTER_CAPS_VERSION),
+                        MigrationVersion.fromVersion(MGMT_SLA_FIELDS_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -344,7 +347,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(MGMT_DECISION_RISK_ISSUE_VERSION),
                         MigrationVersion.fromVersion(MGMT_PHASE_BC_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(MGMT_COMMAND_CENTER_VERSION),
-                        MigrationVersion.fromVersion(MGMT_COMMAND_CENTER_CAPS_VERSION));
+                        MigrationVersion.fromVersion(MGMT_COMMAND_CENTER_CAPS_VERSION),
+                        MigrationVersion.fromVersion(MGMT_SLA_FIELDS_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -497,6 +501,7 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, MGMT_PHASE_BC_CAPABILITIES_VERSION, "SQL", "add decision risk issue escalation capabilities");
         assertMigration(jdbc, MGMT_COMMAND_CENTER_VERSION, "SQL", "create command center alerts ai");
         assertMigration(jdbc, MGMT_COMMAND_CENTER_CAPS_VERSION, "SQL", "add command center alerts intelligence capabilities");
+        assertMigration(jdbc, MGMT_SLA_FIELDS_VERSION, "SQL", "add sla fields");
 
         assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
