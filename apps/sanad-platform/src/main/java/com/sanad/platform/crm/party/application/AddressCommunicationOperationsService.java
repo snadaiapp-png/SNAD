@@ -71,13 +71,13 @@ public class AddressCommunicationOperationsService {
             int limit) {
         String sql = "SELECT " + ADDRESS_COLUMNS + " FROM crm_party_addresses " +
                 "WHERE tenant_id=:tenantId " +
-                "AND (:query IS NULL OR LOWER(COALESCE(label,'') || ' ' || COALESCE(raw_formatted_address,'') || ' ' || " +
+                "AND (CAST(:query AS text) IS NULL OR LOWER(COALESCE(label,'') || ' ' || COALESCE(raw_formatted_address,'') || ' ' || " +
                 "COALESCE(line1,'') || ' ' || COALESCE(line2,'') || ' ' || COALESCE(district,'') || ' ' || " +
                 "COALESCE(city,'') || ' ' || COALESCE(state_region,'') || ' ' || COALESCE(postal_code,'')) LIKE :query) " +
-                "AND (:ownerType IS NULL OR owner_type=:ownerType) " +
-                "AND (:addressType IS NULL OR address_type=:addressType) " +
-                "AND (:countryCode IS NULL OR country_code=:countryCode) " +
-                "AND (:status IS NULL OR status=:status) " +
+                "AND (CAST(:ownerType AS text) IS NULL OR owner_type=:ownerType) " +
+                "AND (CAST(:addressType AS text) IS NULL OR address_type=:addressType) " +
+                "AND (CAST(:countryCode AS text) IS NULL OR country_code=:countryCode) " +
+                "AND (CAST(:status AS text) IS NULL OR status=:status) " +
                 "ORDER BY updated_at DESC,id DESC LIMIT :limit";
         return jdbc.query(sql, searchParams(tenantId, query, ownerType, addressType, countryCode, status, limit),
                 (rs, rowNum) -> address(rs));
@@ -93,12 +93,12 @@ public class AddressCommunicationOperationsService {
             int limit) {
         String sql = "SELECT " + COMMUNICATION_COLUMNS + " FROM crm_communication_methods " +
                 "WHERE tenant_id=:tenantId " +
-                "AND (:query IS NULL OR LOWER(COALESCE(label,'') || ' ' || COALESCE(display_value,'') || ' ' || " +
+                "AND (CAST(:query AS text) IS NULL OR LOWER(COALESCE(label,'') || ' ' || COALESCE(display_value,'') || ' ' || " +
                 "COALESCE(normalized_value,'')) LIKE :query) " +
-                "AND (:ownerType IS NULL OR owner_type=:ownerType) " +
-                "AND (:methodType IS NULL OR method_type=:methodType) " +
-                "AND (:verificationStatus IS NULL OR verification_status=:verificationStatus) " +
-                "AND (:status IS NULL OR status=:status) " +
+                "AND (CAST(:ownerType AS text) IS NULL OR owner_type=:ownerType) " +
+                "AND (CAST(:methodType AS text) IS NULL OR method_type=:methodType) " +
+                "AND (CAST(:verificationStatus AS text) IS NULL OR verification_status=:verificationStatus) " +
+                "AND (CAST(:status AS text) IS NULL OR status=:status) " +
                 "ORDER BY updated_at DESC,id DESC LIMIT :limit";
         return jdbc.query(sql, new MapSqlParameterSource()
                         .addValue("tenantId", tenantId)

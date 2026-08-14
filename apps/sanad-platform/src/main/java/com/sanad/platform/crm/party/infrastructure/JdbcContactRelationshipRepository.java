@@ -328,7 +328,7 @@ public class JdbcContactRelationshipRepository implements ContactRelationshipRep
                 SET status = :status,
                     primary_relationship = CASE WHEN :active = TRUE THEN primary_relationship ELSE FALSE END,
                     primary_scope_contact_id = CASE WHEN :active = TRUE THEN primary_scope_contact_id ELSE NULL END,
-                    archived_at = CASE WHEN :status = 'ARCHIVED' THEN :now ELSE NULL END,
+                    archived_at = CASE WHEN :status = 'ARCHIVED' THEN CAST(:now AS TIMESTAMP WITH TIME ZONE) ELSE NULL END,
                     updated_by = :actorId,
                     updated_at = :now,
                     version = version + 1
