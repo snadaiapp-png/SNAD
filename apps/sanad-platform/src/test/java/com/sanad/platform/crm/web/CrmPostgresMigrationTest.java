@@ -80,6 +80,16 @@ class CrmPostgresMigrationTest {
     private static final String CRM_SEED_DEFAULT_PIPELINE_VERSION = "20260807.2";
     private static final String CRM_CASE_INSENSITIVE_TAG_INDEX_VERSION = "20260807.3";
     private static final String CRM_ACTIVITY_RESULT_VERSION = "20260807.4";
+    // G7 Mobile Offline Sync (V20260812.1/2/3)
+    private static final String G7_MOBILE_SYNC_TABLES_VERSION = "20260812.1";
+    private static final String G7_MOBILE_SYNC_COLUMNS_VERSION = "20260812.2";
+    private static final String G7_MOBILE_SYNC_RLS_VERSION = "20260812.3";
+    // Mission 01: Control Plane Admin + Module Registry + Capabilities (V20260813.1, V20260814.1/2)
+    private static final String MISSION_01_ADMIN_SEED_VERSION = "20260813.1";
+    private static final String MISSION_01_MODULE_REGISTRY_VERSION = "20260814.1";
+    private static final String MISSION_01_MODULE_CAPABILITIES_VERSION = "20260814.2";
+    // Latest migration after Mission 01 / G7 work
+    private static final String LATEST_MIGRATION_VERSION = MISSION_01_MODULE_CAPABILITIES_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -438,7 +448,16 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_CASE_INSENSITIVE_TAG_INDEX_VERSION, "SQL", "add case insensitive tag unique index");
         assertMigration(jdbc, CRM_ACTIVITY_RESULT_VERSION, "SQL", "add activity result column and related type check");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(CRM_ACTIVITY_RESULT_VERSION);
+        // G7 Mobile Offline Sync migrations
+        assertMigration(jdbc, G7_MOBILE_SYNC_TABLES_VERSION, "SQL", "create mobile sync tables");
+        assertMigration(jdbc, G7_MOBILE_SYNC_COLUMNS_VERSION, "SQL", "add sync columns to crm entities");
+        assertMigration(jdbc, G7_MOBILE_SYNC_RLS_VERSION, "SQL", "force rls mobile sync tables");
+        // Mission 01: Control Plane Admin + Module Registry + Capabilities
+        assertMigration(jdbc, MISSION_01_ADMIN_SEED_VERSION, "SQL", "seed control plane admin and capabilities");
+        assertMigration(jdbc, MISSION_01_MODULE_REGISTRY_VERSION, "SQL", "create module registry");
+        assertMigration(jdbc, MISSION_01_MODULE_CAPABILITIES_VERSION, "SQL", "create module capabilities and plan module entitlements");
+
+        assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 

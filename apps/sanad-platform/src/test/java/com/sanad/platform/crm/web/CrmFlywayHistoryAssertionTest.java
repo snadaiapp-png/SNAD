@@ -124,7 +124,15 @@ class CrmFlywayHistoryAssertionTest {
             "20260807.1",    // grant crm capabilities to non admin roles
             "20260807.2",    // seed default pipeline and accounts
             "20260807.3",    // add case insensitive tag unique index
-            "20260807.4"     // add activity result column and related type check
+            "20260807.4",    // add activity result column and related type check
+            // G7 Mobile Offline Sync (V20260812.1/2/3)
+            "20260812.1",    // create mobile sync tables
+            "20260812.2",    // add sync columns to crm entities
+            "20260812.3",    // force rls mobile sync tables
+            // Mission 01: Control Plane Admin + Module Registry + Capabilities (V20260813.1, V20260814.1/2)
+            "20260813.1",    // seed control plane admin and capabilities
+            "20260814.1",    // create module registry
+            "20260814.2"     // create module capabilities and plan module entitlements
     );
 
 
