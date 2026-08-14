@@ -143,8 +143,7 @@ class WorkflowEngineIntegrationTest {
 
         // Start instance
         var instance = execService.startWorkflow(
-                tenantId, created.id(), "TEST_ENTITY", UUID.randomUUID(), userId
-        );
+                WorkflowInstance.start(tenantId, created.id(), 1, "TEST_ENTITY", UUID.randomUUID(), "step1", userId, null), userId);
         assertThat(instance.status()).isEqualTo(WorkflowInstance.Status.RUNNING);
         assertThat(instance.currentStepKey()).isEqualTo("step1");
 
@@ -175,8 +174,7 @@ class WorkflowEngineIntegrationTest {
 
         // Start instance
         var instance = execService.startWorkflow(
-                tenantId, created.id(), "DECISION", UUID.randomUUID(), userId
-        );
+                WorkflowInstance.start(tenantId, created.id(), 1, "DECISION", UUID.randomUUID(), "step1", userId, null), userId);
 
         // Create approval request (requested FROM approverId)
         var approval = approvalService.createApproval(
@@ -206,8 +204,7 @@ class WorkflowEngineIntegrationTest {
         defService.activate(tenantId, created.id(), userId);
 
         var instance = execService.startWorkflow(
-                tenantId, created.id(), "TEST", UUID.randomUUID(), userId
-        );
+                WorkflowInstance.start(tenantId, created.id(), 1, "TEST", UUID.randomUUID(), "step1", userId, null), userId);
 
         // Create approval requested FROM userId (same as who will try to approve)
         var approval = approvalService.createApproval(
@@ -237,8 +234,7 @@ class WorkflowEngineIntegrationTest {
         defService.activate(tenantId, created.id(), userId);
 
         var instance = execService.startWorkflow(
-                tenantId, created.id(), "TEST", UUID.randomUUID(), userId
-        );
+                WorkflowInstance.start(tenantId, created.id(), 1, "TEST", UUID.randomUUID(), "step1", userId, null), userId);
 
         var approval = approvalService.createApproval(
                 tenantId, instance.id(), instance.currentStepKey(), approverId, "MANAGER",
