@@ -80,8 +80,7 @@ jobs:
               "name": "${{ inputs.project_name }}",
               "db_pass": "${{ inputs.db_pass }}",
               "region": "${{ inputs.region }}",
-              "plan": "free",
-              "allow_amp": false
+              "plan": "free"
             }')
           echo "$RESPONSE" | jq .
           REF=$(echo "$RESPONSE" | jq -r '.id // empty')
