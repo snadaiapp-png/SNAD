@@ -263,7 +263,8 @@ class WorkflowEngineIntegrationTest {
                 UUID.class, instance.id(), instance.currentStepKey());
         var approval = approvalService.createApproval(
                 WorkflowApprovalRequest.create(tenantId, instance.id(), stepInstanceId,
-                        approverId, "MANAGER", Instant.now().plus(48, ChronoUnit.HOURS)),
+                        approverId, "MANAGER", Instant.now().plus(48, ChronoUnit.HOURS),
+                        userId),
                 userId
         );
 
