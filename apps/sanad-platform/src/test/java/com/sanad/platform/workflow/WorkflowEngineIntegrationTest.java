@@ -109,9 +109,9 @@ class WorkflowEngineIntegrationTest {
         assertThat(created.status()).isEqualTo(WorkflowDefinition.Status.DRAFT);
 
         // Add a step
-        defService.addStep(tenantId, created.id(),
+        defService.addStep(
                 WorkflowStep.create(tenantId, created.id(), "step1", "Review",
-                        WorkflowStep.StepType.APPROVAL, 1, null, 48, "WORKFLOW.APPROVE", null));
+                        WorkflowStep.StepType.APPROVAL, 1, null, 48, "WORKFLOW.APPROVE", null), userId);
 
         var activated = defService.activate(tenantId, created.id(), userId);
         assertThat(activated.status()).isEqualTo(WorkflowDefinition.Status.ACTIVE);
@@ -133,12 +133,12 @@ class WorkflowEngineIntegrationTest {
                 "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userId
         );
         var created = defService.create(def, userId);
-        defService.addStep(tenantId, created.id(),
+        defService.addStep(
                 WorkflowStep.create(tenantId, created.id(), "step1", "First",
-                        WorkflowStep.StepType.ACTION, 1, null, null, null, null));
-        defService.addStep(tenantId, created.id(),
+                        WorkflowStep.StepType.ACTION, 1, null, null, null, null), userId);
+        defService.addStep(
                 WorkflowStep.create(tenantId, created.id(), "step2", "Last",
-                        WorkflowStep.StepType.END, 2, null, null, null, null));
+                        WorkflowStep.StepType.END, 2, null, null, null, null), userId);
         defService.activate(tenantId, created.id(), userId);
 
         // Start instance
@@ -168,9 +168,9 @@ class WorkflowEngineIntegrationTest {
                 "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userId
         );
         var created = defService.create(def, userId);
-        defService.addStep(tenantId, created.id(),
+        defService.addStep(
                 WorkflowStep.create(tenantId, created.id(), "approve1", "Manager Approval",
-                        WorkflowStep.StepType.APPROVAL, 1, null, 48, "WORKFLOW.APPROVE", null));
+                        WorkflowStep.StepType.APPROVAL, 1, null, 48, "WORKFLOW.APPROVE", null), userId);
         defService.activate(tenantId, created.id(), userId);
 
         // Start instance
@@ -200,9 +200,9 @@ class WorkflowEngineIntegrationTest {
                 "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userId
         );
         var created = defService.create(def, userId);
-        defService.addStep(tenantId, created.id(),
+        defService.addStep(
                 WorkflowStep.create(tenantId, created.id(), "approve1", "Approval",
-                        WorkflowStep.StepType.APPROVAL, 1, null, 48, "WORKFLOW.APPROVE", null));
+                        WorkflowStep.StepType.APPROVAL, 1, null, 48, "WORKFLOW.APPROVE", null), userId);
         defService.activate(tenantId, created.id(), userId);
 
         var instance = execService.startWorkflow(
@@ -231,9 +231,9 @@ class WorkflowEngineIntegrationTest {
                 "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userId
         );
         var created = defService.create(def, userId);
-        defService.addStep(tenantId, created.id(),
+        defService.addStep(
                 WorkflowStep.create(tenantId, created.id(), "approve1", "Approval",
-                        WorkflowStep.StepType.APPROVAL, 1, null, 48, "WORKFLOW.APPROVE", null));
+                        WorkflowStep.StepType.APPROVAL, 1, null, 48, "WORKFLOW.APPROVE", null), userId);
         defService.activate(tenantId, created.id(), userId);
 
         var instance = execService.startWorkflow(
@@ -299,9 +299,9 @@ class WorkflowEngineIntegrationTest {
                 "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userId
         );
         var created = defService.create(def, userId);
-        defService.addStep(tenantId, created.id(),
+        defService.addStep(
                 WorkflowStep.create(tenantId, created.id(), "s1", "Step 1",
-                        WorkflowStep.StepType.END, 1, null, null, null, null));
+                        WorkflowStep.StepType.END, 1, null, null, null, null), userId);
         defService.activate(tenantId, created.id(), userId);
 
         mockMvc.perform(post("/api/v1/workflows/instances")
