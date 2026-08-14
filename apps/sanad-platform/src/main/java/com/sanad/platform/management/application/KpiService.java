@@ -1,5 +1,6 @@
 package com.sanad.platform.management.application;
 
+import com.sanad.platform.management.domain.ExecutiveAlert;
 import com.sanad.platform.management.domain.KpiDefinition;
 import com.sanad.platform.management.domain.KpiDefinitionRepository;
 import com.sanad.platform.management.domain.KpiMeasurement;
@@ -33,14 +34,17 @@ public class KpiService {
     private final KpiDefinitionRepository definitionRepo;
     private final KpiTargetRepository targetRepo;
     private final KpiMeasurementRepository measurementRepo;
+    private final ExecutiveAlertService alertService;
 
     public KpiService(
             KpiDefinitionRepository definitionRepo,
             KpiTargetRepository targetRepo,
-            KpiMeasurementRepository measurementRepo) {
+            KpiMeasurementRepository measurementRepo,
+            ExecutiveAlertService alertService) {
         this.definitionRepo = definitionRepo;
         this.targetRepo = targetRepo;
         this.measurementRepo = measurementRepo;
+        this.alertService = alertService;
     }
 
     // ===== KPI Definitions =====
@@ -153,7 +157,25 @@ public class KpiService {
                 period, measuredValue, previousValue, variancePct,
                 status, evidence, measuredBy, Instant.now()
         );
-        return measurementRepo.save(measurement);
+        var saved = measurementRepo.save(measurement);
+
+        // Cross-domain workflow: KPI OFF_TRACK → Executive Alert
+        if (status == KpiMeasurement.Status.OFF_TRACK) {
+            alertService.createOrGetExisting(
+                    tenantId,
+                    ExecutiveAlert.AlertType.KPI_OFF_TRACK,
+                    ExecutiveAlert.Severity.HIGH,
+                    ExecutiveAlert.SourceEntityType.KPI,
+                    kpiDefinitionId,
+                    "KPI Off Track: " + definition.name(),
+                    "KPI '" + definition.name() + "' is OFF_TRACK. "
+                            + "Measured: " + measuredValue + ", Target: " + targetValue
+                            + ", Variance: " + (variancePct != null ? variancePct + "%" : "N/A"),
+                    measuredBy
+            );
+        }
+
+        return saved;
     }
 
     @Transactional(readOnly = true)
