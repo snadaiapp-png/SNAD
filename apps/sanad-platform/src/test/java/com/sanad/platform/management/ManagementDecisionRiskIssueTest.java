@@ -148,7 +148,8 @@ class ManagementDecisionRiskIssueTest {
         decisionService.startReview(tenantId, created.id(), userId);
 
         // Try to approve with the SAME user who created it — should fail
-        assertThatThrownBy(() -> decisionService.approve(tenantId, created.id(), userId))
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> decisionService.approve(tenantId, created.id(), userId))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Segregation of duties");
     }
@@ -333,33 +334,4 @@ class ManagementDecisionRiskIssueTest {
                 .andExpect(jsonPath("$.status").value("OPEN"));
     }
 
-    // Helper for asserting exceptions
-    private static void assertThatThrownBy(java.util.function.Supplier<?> supplier,
-                                           org.assertj.core.api.ThrowableAssert.ThrowingCallable callable) {
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> {
-            try { supplier.get(); } catch (Exception e) { throw e; }
-        }).isInstanceOf(Exception.class);
-    }
-
-    private static void assertThatThrownBy(java.util.function.Supplier<?> supplier,
-                                           Class<? extends Throwable> exceptionClass) {
-        org.assertj.core.api.Assertions.assertThatCode(() -> supplier.get())
-                .isInstanceOf(exceptionClass);
-    }
-
-    // Overload for the segregation of duties test
-    private static void assertThatThrownBy(Runnable action,
-                                           Class<? extends Throwable> exceptionClass) {
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> action.run())
-                .isInstanceOf(exceptionClass);
-    }
-
-    // Overload with message check
-    private static void assertThatThrownBy(Runnable action,
-                                           Class<? extends Throwable> exceptionClass,
-                                           String messageContaining) {
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> action.run())
-                .isInstanceOf(exceptionClass)
-                .hasMessageContaining(messageContaining);
-    }
 }
