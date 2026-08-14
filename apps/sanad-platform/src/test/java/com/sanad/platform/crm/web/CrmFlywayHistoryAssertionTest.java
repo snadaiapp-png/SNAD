@@ -135,7 +135,9 @@ class CrmFlywayHistoryAssertionTest {
             "20260814.2",    // create module capabilities and plan entitlements
             // Senior Management Operating Layer (V20260815.1/2)
             "20260815.1",    // create senior management kpi engine
-            "20260815.2"     // add executive management capabilities
+            "20260815.2",    // add executive management capabilities
+            "20260815.3",    // create decision risk issue escalation audit
+            "20260815.4"     // add decision risk issue escalation capabilities
     );
 
 

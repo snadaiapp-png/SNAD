@@ -91,8 +91,11 @@ class CrmPostgresMigrationTest {
     // Senior Management Operating Layer (V20260815.1/2)
     private static final String MGMT_KPI_ENGINE_VERSION = "20260815.1";
     private static final String MGMT_CAPABILITIES_VERSION = "20260815.2";
+    // Senior Management Phase B+C (V20260815.3/4)
+    private static final String MGMT_DECISION_RISK_ISSUE_VERSION = "20260815.3";
+    private static final String MGMT_PHASE_BC_CAPABILITIES_VERSION = "20260815.4";
     // Latest migration after Senior Management development
-    private static final String LATEST_MIGRATION_VERSION = MGMT_CAPABILITIES_VERSION;
+    private static final String LATEST_MIGRATION_VERSION = MGMT_PHASE_BC_CAPABILITIES_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -245,7 +248,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(MISSION_01_MODULE_REGISTRY_VERSION),
                         MigrationVersion.fromVersion(MISSION_01_MODULE_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(MGMT_KPI_ENGINE_VERSION),
-                        MigrationVersion.fromVersion(MGMT_CAPABILITIES_VERSION));
+                        MigrationVersion.fromVersion(MGMT_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(MGMT_DECISION_RISK_ISSUE_VERSION),
+                        MigrationVersion.fromVersion(MGMT_PHASE_BC_CAPABILITIES_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -330,7 +335,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(MISSION_01_MODULE_REGISTRY_VERSION),
                         MigrationVersion.fromVersion(MISSION_01_MODULE_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(MGMT_KPI_ENGINE_VERSION),
-                        MigrationVersion.fromVersion(MGMT_CAPABILITIES_VERSION));
+                        MigrationVersion.fromVersion(MGMT_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(MGMT_DECISION_RISK_ISSUE_VERSION),
+                        MigrationVersion.fromVersion(MGMT_PHASE_BC_CAPABILITIES_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -479,6 +486,8 @@ class CrmPostgresMigrationTest {
         // Senior Management Operating Layer
         assertMigration(jdbc, MGMT_KPI_ENGINE_VERSION, "SQL", "create senior management kpi engine");
         assertMigration(jdbc, MGMT_CAPABILITIES_VERSION, "SQL", "add executive management capabilities");
+        assertMigration(jdbc, MGMT_DECISION_RISK_ISSUE_VERSION, "SQL", "create decision risk issue escalation audit");
+        assertMigration(jdbc, MGMT_PHASE_BC_CAPABILITIES_VERSION, "SQL", "add decision risk issue escalation capabilities");
 
         assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
