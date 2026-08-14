@@ -33,7 +33,9 @@ public class SyncStatusService {
         UUID deviceUuid = UUID.fromString(deviceId);
 
         Instant lastSyncAt = jdbcTemplate.queryForObject(
-            "SELECT COALESCE(MAX(last_sync_at), 'epoch'::timestamptz) FROM mobile_sync_log WHERE tenant_id = ? AND device_id = ?",
+            // mobile_sync_log has no last_sync_at column (see V20260812_1);
+            // derive the last sync time from the operation timestamps it does have.
+            "SELECT COALESCE(GREATEST(MAX(completed_at), MAX(started_at)), 'epoch'::timestamptz) FROM mobile_sync_log WHERE tenant_id = ? AND device_id = ?",
             Instant.class, tenantId, deviceUuid
         );
 
