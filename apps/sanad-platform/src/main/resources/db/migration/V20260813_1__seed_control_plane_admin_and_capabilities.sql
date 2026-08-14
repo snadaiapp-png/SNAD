@@ -90,6 +90,30 @@ WHERE NOT EXISTS (
     WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid AND code = 'ADMIN'
 );
 
+-- Insert SALES_MANAGER role for the control plane tenant.
+-- V20260722.8 (which runs BEFORE this migration) only seeds SALES_MANAGER
+-- for tenants existing at THAT time. The control plane tenant is created
+-- in this migration (STEP 2 above), so it would otherwise miss the
+-- SALES_MANAGER role. CrmPostgresMigrationTest asserts that every active
+-- tenant has SALES_MANAGER + SALES_REPRESENTATIVE roles.
+INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
+SELECT '00000000-0000-0000-0000-000000000101'::uuid,
+       '00000000-0000-0000-0000-000000000001'::uuid,
+       'SALES_MANAGER', 'Sales Manager', 'CRM sales manager role', 'ACTIVE', NOW(), NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM roles
+    WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid AND code = 'SALES_MANAGER'
+);
+
+INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
+SELECT '00000000-0000-0000-0000-000000000102'::uuid,
+       '00000000-0000-0000-0000-000000000001'::uuid,
+       'SALES_REPRESENTATIVE', 'Sales Representative', 'CRM sales rep role', 'ACTIVE', NOW(), NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM roles
+    WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid AND code = 'SALES_REPRESENTATIVE'
+);
+
 -- ============================================================
 -- STEP 4: Insert admin user (admin@snad.ai / Senen1985)
 -- BCrypt hash uses $2a$ prefix for Spring Security compatibility
