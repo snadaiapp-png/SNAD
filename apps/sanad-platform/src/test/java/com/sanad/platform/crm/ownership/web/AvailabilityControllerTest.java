@@ -60,7 +60,7 @@ class AvailabilityControllerTest {
                 .addValue("startDate", startDate)
                 .addValue("endDate", endDate)
                 .addValue("actor", fixture.userId())
-                .addValue("now", java.time.Instant.now()));
+                .addValue("now", java.sql.Timestamp.from(Instant.now())));
         return id;
     }
 

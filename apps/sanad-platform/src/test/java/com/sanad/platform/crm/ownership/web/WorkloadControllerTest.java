@@ -61,7 +61,7 @@ class WorkloadControllerTest {
                 .addValue("staffId", staffId)
                 .addValue("serviceId", serviceId)
                 .addValue("actor", fixture.userId())
-                .addValue("now", java.time.Instant.now()));
+                .addValue("now", java.sql.Timestamp.from(Instant.now())));
     }
 
     // ── GET /api/v1/crm/workload ───────────────────────────────────────────
