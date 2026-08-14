@@ -18,6 +18,7 @@ import com.sanad.platform.crm.party.domain.ContactRelationshipRepository.Relatio
 import com.sanad.platform.crm.party.domain.ContactRelationshipRepository.UpdateContactProfileCommand;
 import com.sanad.platform.crm.party.domain.ContactRelationshipRepository.UpdateRelationshipCommand;
 import com.sanad.platform.crm.party.domain.OwnerValidationPort;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -104,7 +105,7 @@ public class ContactRelationshipUseCases {
         return repository.listByAccount(tenantId, accountId, boundedLimit(limit), beforeUpdatedAt, beforeId);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NESTED)
     public RelationshipRecord createRelationship(
             UUID tenantId, UUID actorId, UUID contactId, CreateRelationshipCommand command) {
         requireContext(tenantId, actorId);
