@@ -100,8 +100,9 @@ class CrmPostgresMigrationTest {
     // SLA fields (V20260815.7)
     private static final String MGMT_SLA_FIELDS_VERSION = "20260815.7";
     private static final String MGMT_ALERT_NULLABLE_VERSION = "20260815.8";
+    private static final String MGMT_AUDIT_NULLABLE_VERSION = "20260815.9";
     // Latest migration after Senior Management development
-    private static final String LATEST_MIGRATION_VERSION = MGMT_ALERT_NULLABLE_VERSION;
+    private static final String LATEST_MIGRATION_VERSION = MGMT_AUDIT_NULLABLE_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -260,7 +261,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(MGMT_COMMAND_CENTER_VERSION),
                         MigrationVersion.fromVersion(MGMT_COMMAND_CENTER_CAPS_VERSION),
                         MigrationVersion.fromVersion(MGMT_SLA_FIELDS_VERSION),
-                        MigrationVersion.fromVersion(MGMT_ALERT_NULLABLE_VERSION));
+                        MigrationVersion.fromVersion(MGMT_ALERT_NULLABLE_VERSION),
+                        MigrationVersion.fromVersion(MGMT_AUDIT_NULLABLE_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -351,7 +353,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(MGMT_COMMAND_CENTER_VERSION),
                         MigrationVersion.fromVersion(MGMT_COMMAND_CENTER_CAPS_VERSION),
                         MigrationVersion.fromVersion(MGMT_SLA_FIELDS_VERSION),
-                        MigrationVersion.fromVersion(MGMT_ALERT_NULLABLE_VERSION));
+                        MigrationVersion.fromVersion(MGMT_ALERT_NULLABLE_VERSION),
+                        MigrationVersion.fromVersion(MGMT_AUDIT_NULLABLE_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -506,6 +509,7 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, MGMT_COMMAND_CENTER_CAPS_VERSION, "SQL", "add command center alerts intelligence capabilities");
         assertMigration(jdbc, MGMT_SLA_FIELDS_VERSION, "SQL", "add sla fields");
         assertMigration(jdbc, MGMT_ALERT_NULLABLE_VERSION, "SQL", "make alert created by nullable");
+        assertMigration(jdbc, MGMT_AUDIT_NULLABLE_VERSION, "SQL", "make audit actor nullable");
 
         assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());

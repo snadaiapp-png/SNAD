@@ -141,7 +141,8 @@ class CrmFlywayHistoryAssertionTest {
             "20260815.5",    // create command center alerts ai
             "20260815.6",    // add command center alerts intelligence capabilities
             "20260815.7",    // add sla fields
-            "20260815.8"     // make alert created by nullable
+            "20260815.8",    // make alert created by nullable
+            "20260815.9"     // make audit actor nullable
     );
 
 
