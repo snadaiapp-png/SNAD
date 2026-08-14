@@ -28,6 +28,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.springframework.test.web.servlet.ResultMatcher;
+
 /**
  * Security negative tests for the Senior Management Operating System.
  *
@@ -117,10 +119,19 @@ class SecurityNegativeManagementTest {
 
     // ===== UNAUTHENTICATED =====
 
+    private static ResultMatcher isUnauthorizedOrForbidden() {
+        return result -> {
+            int status = result.getResponse().getStatus();
+            if (status != 401 && status != 403) {
+                throw new AssertionError("Expected 401 or 403 but got " + status);
+            }
+        };
+    }
+
     @Test
     void unauthenticated_dashboard_returns401or403() throws Exception {
         mockMvc.perform(get("/api/v1/management/command-center"))
-                .andExpect(status().isUnauthorized().or(status().isForbidden()));
+                .andExpect(isUnauthorizedOrForbidden());
     }
 
     @Test
@@ -131,7 +142,7 @@ class SecurityNegativeManagementTest {
                                 {"code":"OBJ-1","title":"Test","priority":"HIGH",
                                  "periodStart":"2026-01-01","periodEnd":"2026-12-31"}
                                 """))
-                .andExpect(status().isUnauthorized().or(status().isForbidden()));
+                .andExpect(isUnauthorizedOrForbidden());
     }
 
     // ===== CROSS-TENANT READ =====
