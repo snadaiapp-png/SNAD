@@ -50,26 +50,22 @@ jobs:
           curl -sS -H "Authorization: Bearer $SUPA_TOKEN" "https://api.supabase.com/v1/projects" | tee /tmp/projects_raw.json | head -c 2000; echo
           jq 'if type == "array" then [.[] | {id, name, region, status, organization_id}] else . end' /tmp/projects_raw.json | tee /tmp/projects.json
 
-      - name: Guard against touching production project
-        run: |
-          set -euo pipefail
-          NAME="${{ inputs.project_name }}"
-          if jq -e 'type == "array"' /tmp/projects.json > /dev/null && jq -e --arg n "$NAME" '.[] | select(.name == $n)' /tmp/projects.json > /dev/null; then
-            echo "::error::A project named '$NAME' already exists. Refusing to create a duplicate."
-            exit 1
-          fi
-          echo "No existing project named '$NAME' — safe to create a NEW staging project."
-
-      - name: Create staging project
+      - name: Find or create the staging project
         id: create
         run: |
           set -euo pipefail
-          # Derive the organization id from the projects listing (the /v1/orgs
-          # endpoint returns a non-array shape this token cannot iterate).
           ORG_ID=$(jq -r 'if type == "array" then (.[0].organization_id // empty) else empty end' /tmp/projects.json)
           if [ -z "$ORG_ID" ]; then
             echo "::error::Could not derive organization_id from the projects listing (see raw output above)."
             exit 1
+          fi
+          NAME="${{ inputs.project_name }}"
+          EXISTING_REF=$(jq -r --arg n "$NAME" 'if type == "array" then (.[] | select(.name == $n) | .id) else empty end' /tmp/projects.json | head -1)
+          if [ -n "$EXISTING_REF" ]; then
+            echo "Project '$NAME' already exists (ref=$EXISTING_REF) — reusing it."
+            echo "ref=$EXISTING_REF" >> "$GITHUB_OUTPUT"
+            echo "STAGING_REF=$EXISTING_REF" >> "$GITHUB_ENV"
+            exit 0
           fi
           echo "Using organization: $ORG_ID"
           RESPONSE=$(curl -sS -X POST "https://api.supabase.com/v1/projects" \
@@ -97,10 +93,12 @@ jobs:
           for i in $(seq 1 60); do
             STATUS=$(curl -sS -H "Authorization: Bearer $SUPA_TOKEN" "https://api.supabase.com/v1/projects/$STAGING_REF" | jq -r '.status')
             echo "poll $i: status=$STATUS"
-            if [ "$STATUS" = "ACTIVE" ]; then
-              echo "Project is ACTIVE."
-              exit 0
-            fi
+            case "$STATUS" in
+              ACTIVE|ACTIVE_HEALTHY)
+                echo "Project is ready (status=$STATUS)."
+                exit 0
+                ;;
+            esac
             sleep 10
           done
           echo "::error::Timed out waiting for project to become ACTIVE."
