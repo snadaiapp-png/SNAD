@@ -285,4 +285,16 @@ class CommandCenterAlertsIntelligenceTest {
                 .andExpect(jsonPath("$.type").value("RECOMMENDATION"))
                 .andExpect(jsonPath("$.advisory").value(true));
     }
+
+    @Test
+    void commandCenter_dashboard_includesGovernedSystemsOverviews() {
+        // v20260815.7 — the dashboard must surface CRM, Finance, Analytics, Workflow
+        // and Module Registry signals so executives get a single pane of glass.
+        var dashboard = commandCenterService.getDashboard(tenantId);
+        assertThat(dashboard.financeOverview()).isNotNull();
+        assertThat(dashboard.moduleGovernance()).isNotNull();
+        assertThat(dashboard.crmOverview()).isNotNull();
+        assertThat(dashboard.analyticsOverview()).isNotNull();
+        assertThat(dashboard.workflowHealth()).isNotNull();
+    }
 }

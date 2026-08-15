@@ -55,12 +55,15 @@ public class SaasAdministrationService {
     private final JdbcTemplate jdbcTemplate;
     private final PlatformAuditService auditService;
     private final ApplicationEventPublisher eventPublisher;
+    private final BillingStateService billingStateService;
 
     public SaasAdministrationService(JdbcTemplate jdbcTemplate, PlatformAuditService auditService,
-                                     ApplicationEventPublisher eventPublisher) {
+                                     ApplicationEventPublisher eventPublisher,
+                                     BillingStateService billingStateService) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
         this.eventPublisher = eventPublisher;
+        this.billingStateService = billingStateService;
     }
 
     /**
@@ -504,6 +507,13 @@ public class SaasAdministrationService {
         InvoiceResponse after = getInvoice(invoiceId);
         auditService.success(authentication, before.tenantId(), "INVOICE.MARK.PAID", "BILLING_INVOICE",
                 invoiceId.toString(), request.reason(), before, after);
+        // Trigger billing-state re-evaluation — successful payment may transition
+        // PAST_DUE → CURRENT or SUSPENDED → CURRENT.
+        try {
+            billingStateService.evaluateAndTransition(before.tenantId());
+        } catch (Exception ignored) {
+            // best-effort — invoice is already paid; do not roll back
+        }
         return after;
     }
 

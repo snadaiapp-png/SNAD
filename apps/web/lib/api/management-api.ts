@@ -38,6 +38,13 @@ export interface CommandCenterDashboard {
   overdueEscalations: number;
   totalEscalations: number;
   activeAlerts: number;
+  // Governed-systems overviews (added in v20260815.7 — Executive Command Center
+  // now aggregates CRM, Finance, Analytics, Workflow, and Module Registry).
+  financeOverview?: Record<string, unknown>;
+  moduleGovernance?: Array<Record<string, unknown>>;
+  crmOverview?: Record<string, unknown>;
+  analyticsOverview?: Record<string, unknown>;
+  workflowHealth?: Record<string, unknown>;
   generatedAt: string;
 }
 

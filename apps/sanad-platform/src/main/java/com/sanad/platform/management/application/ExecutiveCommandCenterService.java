@@ -31,6 +31,9 @@ public class ExecutiveCommandCenterService {
     private final ExecutiveHealthSnapshotRepository snapshotRepo;
     private final FinanceManagementIntegrationService financeIntegrationService;
     private final ModuleGovernanceService moduleGovernanceService;
+    private final CrmManagementIntegrationService crmIntegrationService;
+    private final AnalyticsManagementIntegrationService analyticsIntegrationService;
+    private final WorkflowSystemHealthService workflowHealthService;
     private final JdbcTemplate jdbc;
 
     public ExecutiveCommandCenterService(
@@ -47,6 +50,9 @@ public class ExecutiveCommandCenterService {
             ExecutiveHealthSnapshotRepository snapshotRepo,
             FinanceManagementIntegrationService financeIntegrationService,
             ModuleGovernanceService moduleGovernanceService,
+            CrmManagementIntegrationService crmIntegrationService,
+            AnalyticsManagementIntegrationService analyticsIntegrationService,
+            WorkflowSystemHealthService workflowHealthService,
             JdbcTemplate jdbc) {
         this.objectiveRepo = objectiveRepo;
         this.keyResultRepo = keyResultRepo;
@@ -61,6 +67,9 @@ public class ExecutiveCommandCenterService {
         this.snapshotRepo = snapshotRepo;
         this.financeIntegrationService = financeIntegrationService;
         this.moduleGovernanceService = moduleGovernanceService;
+        this.crmIntegrationService = crmIntegrationService;
+        this.analyticsIntegrationService = analyticsIntegrationService;
+        this.workflowHealthService = workflowHealthService;
         this.jdbc = jdbc;
     }
 
@@ -113,8 +122,11 @@ public class ExecutiveCommandCenterService {
         int escalationScore = ExecutiveHealthSnapshot.computeEscalationScore(activeEscalations, overdueEscalations);
         int healthScore = ExecutiveHealthSnapshot.computeHealthScore(strategyScore, kpiScore, decisionScore, riskScore, issueScore, escalationScore);
 
-        Map<String, Object> financeOverview = financeIntegrationService.getOverview(tenantId);
-        List<Map<String, Object>> moduleGovernance = moduleGovernanceService.getModuleStatuses();
+        Map<String, Object> financeOverview = safeOverview(() -> financeIntegrationService.getOverview(tenantId));
+        List<Map<String, Object>> moduleGovernance = safeList(() -> moduleGovernanceService.getModuleStatuses());
+        Map<String, Object> crmOverview = safeOverview(() -> crmIntegrationService.getCrmOverview(tenantId));
+        Map<String, Object> analyticsOverview = safeOverview(() -> analyticsIntegrationService.getAnalyticsOverview(tenantId));
+        Map<String, Object> workflowHealth = safeOverview(() -> workflowHealthService.getWorkflowHealth(tenantId));
 
         return new CommandCenterDashboard(
                 healthScore, strategyScore, kpiScore, decisionScore, riskScore, issueScore, escalationScore,
@@ -126,8 +138,32 @@ public class ExecutiveCommandCenterService {
                 activeEscalations, overdueEscalations, escalations.size(),
                 alerts.size(),
                 financeOverview, moduleGovernance,
+                crmOverview, analyticsOverview, workflowHealth,
                 Instant.now()
         );
+    }
+
+    /** Defensive wrapper — if any integration service throws, return an empty map
+     *  so the command center stays resilient (matches the WorkflowSystemHealthService pattern). */
+    private Map<String, Object> safeOverview(java.util.function.Supplier<Map<String, Object>> supplier) {
+        try {
+            Map<String, Object> result = supplier.get();
+            return result == null ? Map.of() : result;
+        } catch (Exception e) {
+            return Map.of("_error", e.getClass().getSimpleName() + ": " + e.getMessage(),
+                    "_status", "UNAVAILABLE");
+        }
+    }
+
+    /** Same defensive wrapper for List-returning integrations. */
+    private List<Map<String, Object>> safeList(java.util.function.Supplier<List<Map<String, Object>>> supplier) {
+        try {
+            List<Map<String, Object>> result = supplier.get();
+            return result == null ? List.of() : result;
+        } catch (Exception e) {
+            return List.of(Map.of("_error", e.getClass().getSimpleName(),
+                    "_status", "UNAVAILABLE"));
+        }
     }
 
     @Transactional
@@ -158,5 +194,8 @@ public class ExecutiveCommandCenterService {
             int activeAlerts,
             Map<String, Object> financeOverview,
             List<Map<String, Object>> moduleGovernance,
+            Map<String, Object> crmOverview,
+            Map<String, Object> analyticsOverview,
+            Map<String, Object> workflowHealth,
             Instant generatedAt) {}
 }
