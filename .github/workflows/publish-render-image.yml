@@ -1,4 +1,10 @@
-name: Publish Render Backend Image
+name: Publish Backend Image (Build Only)
+
+# Clean-Room R1 safety boundary:
+# This workflow may build and publish backend images, but it MUST NOT read
+# Render credentials, mutate Render environment variables, run Flyway against
+# production, or trigger a production deployment. Deployment is owned by a
+# separate protected release workflow introduced later in the clean-room plan.
 
 on:
   push:
@@ -12,10 +18,9 @@ on:
 permissions:
   contents: read
   packages: write
-  issues: write
 
 concurrency:
-  group: publish-render-backend-image
+  group: publish-backend-image
   cancel-in-progress: false
 
 env:
@@ -24,16 +29,9 @@ env:
 
 jobs:
   build-and-push:
-    name: Build and publish backend image
+    name: Build and publish immutable backend image
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    environment: Production
-    env:
-      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-      PRODUCTION_BASE_URL: https://sanad-backend-mcrj.onrender.com
-      RENDER_AUTODEPLOY_ENABLED: ${{ vars.RENDER_AUTODEPLOY_ENABLED || 'false' }}
-      EXPECTED_FLYWAY_LOCATIONS: classpath:db/migration,classpath:db/vendor/{vendor}
 
     steps:
       - name: Checkout exact source
@@ -57,6 +55,8 @@ jobs:
           file: apps/sanad-platform/Dockerfile
           platforms: linux/amd64
           push: true
+          build-args: |
+            RENDER_GIT_COMMIT=${{ github.sha }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
@@ -66,190 +66,19 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Record published image
+      - name: Record immutable image evidence
+        shell: bash
         run: |
+          set -euo pipefail
+          test -n "${{ steps.build.outputs.digest }}" || {
+            echo "::error::Image build did not return a digest"
+            exit 1
+          }
           {
-            echo "## Render backend image"
-            echo "- Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+            echo "## Backend image — build only"
+            echo "- Source SHA: ${{ github.sha }}"
+            echo "- Immutable tag: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
             echo "- Digest: ${{ steps.build.outputs.digest }}"
-            echo "- Source: ${{ github.sha }}"
+            echo "- Production deployment: NOT PERFORMED"
+            echo "- Render configuration mutation: NOT PERFORMED"
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Validate protected Render configuration
-        if: env.RENDER_AUTODEPLOY_ENABLED == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "$RENDER_API_KEY" || { echo "::error::Missing Production secret: RENDER_API_KEY"; exit 1; }
-          test -n "$RENDER_SERVICE_ID" || { echo "::error::Missing Render service ID"; exit 1; }
-          echo "::add-mask::$RENDER_API_KEY"
-          [[ "$RENDER_SERVICE_ID" == srv-* ]] || { echo "::error::Invalid Render service ID"; exit 1; }
-          [[ "$PRODUCTION_BASE_URL" == https://*.onrender.com ]] || { echo "::error::Invalid Render production URL"; exit 1; }
-
-      - name: Reconcile Flyway runtime configuration
-        if: env.RENDER_AUTODEPLOY_ENABLED == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          EVIDENCE_DIR="$RUNNER_TEMP/render-publish-evidence"
-          rm -rf "$EVIDENCE_DIR"
-          mkdir -p "$EVIDENCE_DIR"
-          echo "EVIDENCE_DIR=$EVIDENCE_DIR" >> "$GITHUB_ENV"
-
-          update_env_var() {
-            local key="$1" value="$2"
-            jq -n --arg value "$value" '{value:$value}' > "$RUNNER_TEMP/env-update.json"
-            curl --fail-with-body --silent --show-error --max-time 45 \
-              -X PUT \
-              -H "Authorization: Bearer ${RENDER_API_KEY}" \
-              -H 'Accept: application/json' \
-              -H 'Content-Type: application/json' \
-              --data @"$RUNNER_TEMP/env-update.json" \
-              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/${key}" \
-              > "$RUNNER_TEMP/env-update-response.json"
-          }
-
-          verify_env_var() {
-            local key="$1" expected="$2"
-            curl --fail-with-body --silent --show-error --max-time 45 \
-              -H "Authorization: Bearer ${RENDER_API_KEY}" \
-              -H 'Accept: application/json' \
-              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/${key}" \
-              > "$RUNNER_TEMP/env-${key}.json"
-            actual="$(jq -r '(.envVar // .).value // empty' "$RUNNER_TEMP/env-${key}.json")"
-            test "$actual" = "$expected" || { echo "::error::Render ${key} did not match the required value"; exit 1; }
-          }
-
-          update_env_var FLYWAY_ENABLED true
-          update_env_var FLYWAY_LOCATIONS "$EXPECTED_FLYWAY_LOCATIONS"
-          verify_env_var FLYWAY_ENABLED true
-          verify_env_var FLYWAY_LOCATIONS "$EXPECTED_FLYWAY_LOCATIONS"
-
-          jq -n \
-            '{flyway_enabled:{direct_service_variable_present:true,value_matches_expected:true},flyway_locations:{direct_service_variable_present:true,value_matches_expected:true},method:"Render single-variable API",deployment_required_after_update:true}' \
-            > "$EVIDENCE_DIR/render-flyway-runtime-config.json"
-
-      - name: Deploy immutable image to Render
-        if: env.RENDER_AUTODEPLOY_ENABLED == 'true'
-        id: render
-        shell: bash
-        run: |
-          set -euo pipefail
-          IMAGE_URL="${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}"
-          jq -n --arg image "$IMAGE_URL" '{imageUrl:$image}' > "$RUNNER_TEMP/render-deploy.json"
-          curl --fail-with-body --silent --show-error --max-time 60 \
-            -X POST \
-            -H "Authorization: Bearer ${RENDER_API_KEY}" \
-            -H 'Accept: application/json' \
-            -H 'Content-Type: application/json' \
-            --data @"$RUNNER_TEMP/render-deploy.json" \
-            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
-            > "$RUNNER_TEMP/render-created.json"
-          DEPLOY_ID="$(jq -r '(.deploy // .).id // empty' "$RUNNER_TEMP/render-created.json")"
-          test -n "$DEPLOY_ID" || { echo "::error::Render did not return a deployment ID"; exit 1; }
-
-          STATUS=""
-          for attempt in $(seq 1 180); do
-            curl --fail-with-body --silent --show-error --max-time 30 \
-              -H "Authorization: Bearer ${RENDER_API_KEY}" \
-              -H 'Accept: application/json' \
-              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}" \
-              > "$RUNNER_TEMP/render-state.json"
-            STATUS="$(jq -r '(.deploy // .).status // empty' "$RUNNER_TEMP/render-state.json")"
-            case "$STATUS" in
-              live) break ;;
-              build_failed|update_failed|canceled|deactivated)
-                echo "::error::Render deployment failed: $STATUS"
-                exit 1
-                ;;
-            esac
-            sleep 10
-          done
-          test "$STATUS" = "live" || { echo "::error::Render deployment timed out"; exit 1; }
-          test "$(jq -r '(.deploy // .).image.ref // empty' "$RUNNER_TEMP/render-state.json")" = "$IMAGE_URL"
-          echo "deployment_id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
-
-      - name: Verify Render health and readiness
-        if: env.RENDER_AUTODEPLOY_ENABLED == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          for path in /actuator/health /actuator/health/liveness /actuator/health/readiness; do
-            PASSED=false
-            for attempt in $(seq 1 36); do
-              if curl --fail-with-body --silent --show-error --max-time 30 \
-                -o "$RUNNER_TEMP/health.json" "${PRODUCTION_BASE_URL}${path}"; then
-                if jq -e '.status == "UP"' "$RUNNER_TEMP/health.json" >/dev/null; then
-                  PASSED=true
-                  break
-                fi
-              fi
-              sleep 5
-            done
-            test "$PASSED" = "true" || { echo "::error::Render health gate failed for $path"; exit 1; }
-          done
-          {
-            echo ''
-            echo "- Render deployment: ${{ steps.render.outputs.deployment_id }}"
-            echo '- Flyway enabled with portable + PostgreSQL vendor locations'
-            echo '- Health/liveness/readiness: UP'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Create immutable deployment evidence
-        if: env.RENDER_AUTODEPLOY_ENABLED == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          jq \
-            --arg sourceSha "$GITHUB_SHA" \
-            --arg imageRef "${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}" \
-            --arg buildDigest "${{ steps.build.outputs.digest }}" \
-            --arg runId "$GITHUB_RUN_ID" \
-            '(.deploy // .) | {
-              workflow_run_id:($runId|tonumber),
-              source_sha:$sourceSha,
-              image_ref:$imageRef,
-              build_digest:$buildDigest,
-              render_deployment_id:.id,
-              render_status:.status,
-              render_image_ref:.image.ref,
-              render_image_digest:(.image.digest // null),
-              flyway_enabled:true,
-              flyway_locations:"portable + vendor/postgresql",
-              created_at:.createdAt,
-              finished_at:.finishedAt
-            }' "$RUNNER_TEMP/render-state.json" > "$EVIDENCE_DIR/render-publish-proof.json"
-          find "$EVIDENCE_DIR" -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > "$EVIDENCE_DIR/SHA256SUMS.txt"
-
-      - name: Upload immutable deployment evidence
-        if: env.RENDER_AUTODEPLOY_ENABLED == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: render-publish-evidence-${{ github.run_id }}
-          path: ${{ runner.temp }}/render-publish-evidence
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: Publish deployment proof to CRM closure issue
-        if: env.RENDER_AUTODEPLOY_ENABLED == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/render-proof-comment.md" <<EOF
-          Render immutable deployment proof:
-
-          - Workflow run: $GITHUB_RUN_ID
-          - Source SHA: $GITHUB_SHA
-          - Image: ${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}
-          - Build digest: ${{ steps.build.outputs.digest }}
-          - Render deployment ID: ${{ steps.render.outputs.deployment_id }}
-          - Flyway enabled: true
-          - Flyway locations: portable + PostgreSQL vendor migrations
-          - Health/liveness/readiness: UP
-          - Evidence artifact: render-publish-evidence-${GITHUB_RUN_ID}
-
-          CRM-007 remains open until CRM-G1 and CRM-007 closure gates succeed.
-          EOF
-          gh issue comment 571 --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/render-proof-comment.md"
