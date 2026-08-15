@@ -58,21 +58,24 @@ class BillingStateServiceIntegrationTest {
                         + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
                 UUID.randomUUID(), tenantId, "bs-" + tenantId.toString().substring(0, 8) + "@test", now, now);
 
-        // Plan
+        // Plan (unique code per test to avoid uk_saas_plans_code collisions)
+        String planCode = "TEST-" + planId.toString().substring(0, 8);
         jdbc.update("INSERT INTO saas_plans "
                         + "(id, code, name, status, currency_code, monthly_price_minor, annual_price_minor, "
                         + " trial_days, max_users, max_organizations, storage_mb, created_at, updated_at) "
-                        + "VALUES (?, 'TEST', 'Test Plan', 'ACTIVE', 'SAR', 10000, 100000, 0, 5, 1, 1024, ?, ?)",
-                planId, now, now);
+                        + "VALUES (?, ?, 'Test Plan', 'ACTIVE', 'SAR', 10000, 100000, 0, 5, 1, 1024, ?, ?)",
+                planId, planCode, now, now);
 
         // Subscription with billing_state=CURRENT
         jdbc.update("INSERT INTO tenant_subscriptions "
                         + "(id, tenant_id, plan_id, status, billing_cycle, seat_quantity, "
                         + " credit_balance_minor, started_at, current_period_start, current_period_end, "
-                        + " cancel_at_period_end, billing_state, version, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0, ?, ?, ?, FALSE, 'CURRENT', 0, ?, ?)",
-                subscriptionId, tenantId, planId, now, now,
-                Timestamp.from(Instant.now().plus(30, ChronoUnit.DAYS)), now, now);
+                        + " cancel_at_period_end, billing_state, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0, ?, ?, ?, FALSE, 'CURRENT', ?, ?)",
+                subscriptionId, tenantId, planId, now,
+                Timestamp.from(Instant.now()),
+                Timestamp.from(Instant.now().plus(30, ChronoUnit.DAYS)),
+                now, now);
     }
 
     @Test
