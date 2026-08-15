@@ -17,74 +17,47 @@ import java.util.UUID;
  * to auto-discover modules — adding a new module (ERP/HRM/POS) requires
  * no modification to this service.
  *
- * <p>Result fields:
- * <ul>
- *   <li>{@code overallHealthStatus} — composite rollup (HEALTHY/DEGRADED/UNHEALTHY/UNAVAILABLE)</li>
- *   <li>{@code moduleCount} — number of enabled modules</li>
- *   <li>{@code modules} — per-module summary (see {@link ManagementGovernanceModuleRegistry#compositeSummary})</li>
- *   <li>{@code totalOpenAlerts} — sum of open alerts across modules</li>
- *   <li>{@code totalOpenRisks} — sum of open risks across modules</li>
- *   <li>{@code totalOpenIssues} — sum of open issues across modules</li>
- *   <li>{@code slaOverallState} — worst SLA state across modules</li>
- *   <li>{@code generatedAt} — timestamp</li>
- * </ul>
- *
- * <p>Read-only and tenant-scoped. No new tables. No duplicate business logic.
+ * <p>Read-only and tenant-scoped. The actual data loading is routed through
+ * {@link OperationalDataLoader#loadInNewTransaction(UUID)} (REQUIRES_NEW)
+ * so PSQLException aborts in any module do not pollute the caller's
+ * transaction.
  */
 @Service
 public class CrossModuleOperationalOverviewService {
 
-    private final ManagementGovernanceModuleRegistry registry;
+    private final OperationalDataLoader dataLoader;
 
-    public CrossModuleOperationalOverviewService(ManagementGovernanceModuleRegistry registry) {
-        this.registry = registry;
+    public CrossModuleOperationalOverviewService(OperationalDataLoader dataLoader) {
+        this.dataLoader = dataLoader;
     }
 
     @Transactional(readOnly = true)
     public Map<String, Object> getOperationalOverview(UUID tenantId) {
-        Map<String, Object> result = new LinkedHashMap<>();
-
         // Force fresh discovery (invalidate cache)
-        registry.invalidate(tenantId);
+        // Note: registry.invalidate is safe to call from any transaction.
 
-        List<Map<String, Object>> modules = registry.compositeSummary(tenantId);
-        ManagementGovernanceModuleContract.ModuleHealthStatus overall =
-                registry.compositeHealthStatus(tenantId);
+        OperationalData data = dataLoader.loadInNewTransaction(tenantId);
 
-        int totalOpenAlerts = 0;
-        int totalOpenRisks = 0;
-        int totalOpenIssues = 0;
-        ManagementGovernanceModuleContract.SlaState worstSla =
-                ManagementGovernanceModuleContract.SlaState.OK;
-
-        for (Map<String, Object> m : modules) {
-            totalOpenAlerts += toInt(m.get("openAlertsCount"));
-            totalOpenRisks += toInt(m.get("openRisksCount"));
-            totalOpenIssues += toInt(m.get("openIssuesCount"));
-            Object sla = m.get("slaState");
-            if (sla instanceof ManagementGovernanceModuleContract.SlaState s) {
-                if (s == ManagementGovernanceModuleContract.SlaState.BREACHED) {
-                    worstSla = ManagementGovernanceModuleContract.SlaState.BREACHED;
-                } else if (s == ManagementGovernanceModuleContract.SlaState.AT_RISK
-                        && worstSla != ManagementGovernanceModuleContract.SlaState.BREACHED) {
-                    worstSla = ManagementGovernanceModuleContract.SlaState.AT_RISK;
-                }
-            }
-        }
-
-        result.put("overallHealthStatus", overall.name());
-        result.put("moduleCount", modules.size());
-        result.put("modules", modules);
-        result.put("totalOpenAlerts", totalOpenAlerts);
-        result.put("totalOpenRisks", totalOpenRisks);
-        result.put("totalOpenIssues", totalOpenIssues);
-        result.put("slaOverallState", worstSla.name());
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("overallHealthStatus", data.overallHealthStatus);
+        result.put("moduleCount", data.moduleCount);
+        result.put("modules", data.modules);
+        result.put("totalOpenAlerts", data.totalOpenAlerts);
+        result.put("totalOpenRisks", data.totalOpenRisks);
+        result.put("totalOpenIssues", data.totalOpenIssues);
+        result.put("slaOverallState", data.slaOverallState);
         result.put("generatedAt", Instant.now().toString());
         return result;
     }
 
-    private static int toInt(Object o) {
-        if (o instanceof Number) return ((Number) o).intValue();
-        return 0;
-    }
+    /** Composite record loaded in a separate transaction. */
+    public record OperationalData(
+            String overallHealthStatus,
+            int moduleCount,
+            List<Map<String, Object>> modules,
+            int totalOpenAlerts,
+            int totalOpenRisks,
+            int totalOpenIssues,
+            String slaOverallState
+    ) {}
 }
