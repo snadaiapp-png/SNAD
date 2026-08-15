@@ -4,6 +4,8 @@ import com.sanad.platform.management.application.CrmManagementIntegrationService
 import com.sanad.platform.management.application.ExecutiveAlertService;
 import com.sanad.platform.management.application.ExecutiveCommandCenterService;
 import com.sanad.platform.management.application.ExecutiveIntelligenceService;
+import com.sanad.platform.management.application.FinanceManagementIntegrationService;
+import com.sanad.platform.management.application.ModuleGovernanceService;
 import com.sanad.platform.management.domain.ExecutiveAlert;
 import com.sanad.platform.management.domain.ExecutiveInsight;
 import com.sanad.platform.security.authorization.RequireCapability;
@@ -29,24 +31,27 @@ public class CommandCenterController {
     private final ExecutiveAlertService alertService;
     private final ExecutiveIntelligenceService intelligenceService;
     private final CrmManagementIntegrationService crmIntegrationService;
+    private final FinanceManagementIntegrationService financeIntegrationService;
+    private final ModuleGovernanceService moduleGovernanceService;
 
     public CommandCenterController(
             ExecutiveCommandCenterService commandCenterService,
             ExecutiveAlertService alertService,
             ExecutiveIntelligenceService intelligenceService,
-            CrmManagementIntegrationService crmIntegrationService) {
+            CrmManagementIntegrationService crmIntegrationService,
+            FinanceManagementIntegrationService financeIntegrationService,
+            ModuleGovernanceService moduleGovernanceService) {
         this.commandCenterService = commandCenterService;
         this.alertService = alertService;
         this.intelligenceService = intelligenceService;
         this.crmIntegrationService = crmIntegrationService;
+        this.financeIntegrationService = financeIntegrationService;
+        this.moduleGovernanceService = moduleGovernanceService;
     }
-
-    // ===== Command Center Dashboard =====
 
     @GetMapping("/command-center")
     @RequireCapability("EXECUTIVE_COMMAND_CENTER.VIEW")
-    public ResponseEntity<ExecutiveCommandCenterService.CommandCenterDashboard> dashboard(
-            Authentication auth) {
+    public ResponseEntity<ExecutiveCommandCenterService.CommandCenterDashboard> dashboard(Authentication auth) {
         return ResponseEntity.ok(commandCenterService.getDashboard(tenantId(auth)));
     }
 
@@ -63,53 +68,39 @@ public class CommandCenterController {
         ));
     }
 
-    // ===== Alerts =====
-
     @GetMapping("/alerts")
     @RequireCapability("EXECUTIVE_ALERTS.VIEW")
-    public ResponseEntity<List<Map<String, Object>>> listAlerts(
-            Authentication auth, @RequestParam(defaultValue = "50") int limit) {
+    public ResponseEntity<List<Map<String, Object>>> listAlerts(Authentication auth, @RequestParam(defaultValue = "50") int limit) {
         var alerts = alertService.findByTenant(tenantId(auth), limit);
         return ResponseEntity.ok(alerts.stream().map(this::toAlertMap).toList());
     }
 
     @GetMapping("/alerts/open")
     @RequireCapability("EXECUTIVE_ALERTS.VIEW")
-    public ResponseEntity<List<Map<String, Object>>> listOpenAlerts(
-            Authentication auth, @RequestParam(defaultValue = "50") int limit) {
+    public ResponseEntity<List<Map<String, Object>>> listOpenAlerts(Authentication auth, @RequestParam(defaultValue = "50") int limit) {
         var alerts = alertService.findOpenAlerts(tenantId(auth), limit);
         return ResponseEntity.ok(alerts.stream().map(this::toAlertMap).toList());
     }
 
     @PostMapping("/alerts/{id}/acknowledge")
     @RequireCapability("EXECUTIVE_ALERTS.WRITE")
-    public ResponseEntity<Map<String, Object>> acknowledgeAlert(
-            Authentication auth, @PathVariable UUID id) {
-        return ResponseEntity.ok(toAlertMap(
-                alertService.acknowledge(tenantId(auth), id, userId(auth))));
+    public ResponseEntity<Map<String, Object>> acknowledgeAlert(Authentication auth, @PathVariable UUID id) {
+        return ResponseEntity.ok(toAlertMap(alertService.acknowledge(tenantId(auth), id, userId(auth))));
     }
 
     @PostMapping("/alerts/{id}/resolve")
     @RequireCapability("EXECUTIVE_ALERTS.WRITE")
-    public ResponseEntity<Map<String, Object>> resolveAlert(
-            Authentication auth, @PathVariable UUID id,
-            @RequestBody Map<String, String> body) {
+    public ResponseEntity<Map<String, Object>> resolveAlert(Authentication auth, @PathVariable UUID id, @RequestBody Map<String, String> body) {
         var resolution = body.getOrDefault("resolution", "");
-        return ResponseEntity.ok(toAlertMap(
-                alertService.resolve(tenantId(auth), id, resolution, userId(auth))));
+        return ResponseEntity.ok(toAlertMap(alertService.resolve(tenantId(auth), id, resolution, userId(auth))));
     }
 
     @PostMapping("/alerts/{id}/dismiss")
     @RequireCapability("EXECUTIVE_ALERTS.ADMIN")
-    public ResponseEntity<Map<String, Object>> dismissAlert(
-            Authentication auth, @PathVariable UUID id,
-            @RequestBody Map<String, String> body) {
+    public ResponseEntity<Map<String, Object>> dismissAlert(Authentication auth, @PathVariable UUID id, @RequestBody Map<String, String> body) {
         var reason = body.getOrDefault("reason", "");
-        return ResponseEntity.ok(toAlertMap(
-                alertService.dismiss(tenantId(auth), id, reason, userId(auth))));
+        return ResponseEntity.ok(toAlertMap(alertService.dismiss(tenantId(auth), id, reason, userId(auth))));
     }
-
-    // ===== Executive Intelligence (AI) =====
 
     @PostMapping("/intelligence/summary")
     @RequireCapability("EXECUTIVE_INTELLIGENCE.VIEW")
@@ -134,52 +125,44 @@ public class CommandCenterController {
 
     @GetMapping("/intelligence")
     @RequireCapability("EXECUTIVE_INTELLIGENCE.VIEW")
-    public ResponseEntity<List<Map<String, Object>>> listInsights(
-            Authentication auth, @RequestParam(defaultValue = "20") int limit) {
+    public ResponseEntity<List<Map<String, Object>>> listInsights(Authentication auth, @RequestParam(defaultValue = "20") int limit) {
         var insights = intelligenceService.findActiveInsights(tenantId(auth), limit);
         return ResponseEntity.ok(insights.stream().map(this::toInsightMap).toList());
     }
 
     @PostMapping("/intelligence/{id}/dismiss")
     @RequireCapability("EXECUTIVE_INTELLIGENCE.ADMIN")
-    public ResponseEntity<Map<String, Object>> dismissInsight(
-            Authentication auth, @PathVariable UUID id) {
-        return ResponseEntity.ok(toInsightMap(
-                intelligenceService.dismissInsight(tenantId(auth), id)));
+    public ResponseEntity<Map<String, Object>> dismissInsight(Authentication auth, @PathVariable UUID id) {
+        return ResponseEntity.ok(toInsightMap(intelligenceService.dismissInsight(tenantId(auth), id)));
     }
 
-    // ===== Response helpers =====
-
     private Map<String, Object> toAlertMap(ExecutiveAlert a) {
-        return Map.of(
-                "id", a.id(),
-                "type", a.type().name(),
-                "severity", a.severity().name(),
-                "sourceEntityType", a.sourceEntityType().name(),
-                "sourceEntityId", a.sourceEntityId(),
-                "title", a.title(),
-                "status", a.status().name()
-        );
+        return Map.of("id", a.id(), "type", a.type().name(), "severity", a.severity().name(),
+                "sourceEntityType", a.sourceEntityType().name(), "sourceEntityId", a.sourceEntityId(),
+                "title", a.title(), "status", a.status().name());
     }
 
     private Map<String, Object> toInsightMap(ExecutiveInsight i) {
-        return Map.of(
-                "id", i.id(),
-                "type", i.type().name(),
-                "title", i.title(),
-                "description", i.description(),
-                "confidence", i.confidence().toString(),
-                "modelName", i.modelName(),
-                "advisory", i.advisory(),
-                "status", i.status().name()
-        );
+        return Map.of("id", i.id(), "type", i.type().name(), "title", i.title(),
+                "description", i.description(), "confidence", i.confidence().toString(),
+                "modelName", i.modelName(), "advisory", i.advisory(), "status", i.status().name());
     }
-
-    // ===== CRM Management Integration =====
 
     @GetMapping("/crm/overview")
     @RequireCapability("EXECUTIVE_COMMAND_CENTER.VIEW")
     public ResponseEntity<Map<String, Object>> crmOverview(Authentication auth) {
         return ResponseEntity.ok(crmIntegrationService.getCrmOverview(tenantId(auth)));
+    }
+
+    @GetMapping("/finance/overview")
+    @RequireCapability("EXECUTIVE_COMMAND_CENTER.VIEW")
+    public ResponseEntity<Map<String, Object>> financeOverview(Authentication auth) {
+        return ResponseEntity.ok(financeIntegrationService.getOverview(tenantId(auth)));
+    }
+
+    @GetMapping("/modules/status")
+    @RequireCapability("EXECUTIVE_COMMAND_CENTER.VIEW")
+    public ResponseEntity<List<Map<String, Object>>> moduleStatuses(Authentication auth) {
+        return ResponseEntity.ok(moduleGovernanceService.getModuleStatuses());
     }
 }
