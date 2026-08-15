@@ -41,9 +41,9 @@ class FinanceManagementIntegrationTest {
 
         assertThat(overview.get("totalInvoices")).isEqualTo(0);
         assertThat(overview.get("totalPayments")).isEqualTo(0);
-        assertThat(overview.get("invoiceTotalValue")).isEqualByComparingTo(BigDecimal.ZERO);
-        assertThat(overview.get("collectedRevenue")).isEqualByComparingTo(BigDecimal.ZERO);
-        assertThat(overview.get("outstandingAmount")).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat((BigDecimal) overview.get("invoiceTotalValue")).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat((BigDecimal) overview.get("collectedRevenue")).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat((BigDecimal) overview.get("outstandingAmount")).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
     @Test
@@ -55,7 +55,7 @@ class FinanceManagementIntegrationTest {
         var overview = financeIntegrationService.getOverview(tenantId);
 
         assertThat(overview.get("totalInvoices")).isEqualTo(3);
-        assertThat(overview.get("invoiceTotalValue")).isEqualByComparingTo("425.00");
+        assertThat((BigDecimal) overview.get("invoiceTotalValue")).isEqualByComparingTo("425.00");
         assertThat(overview.get("invoiceStatusCounts").toString()).contains("ISSUED", "PAID", "OVERDUE");
     }
 
@@ -68,8 +68,8 @@ class FinanceManagementIntegrationTest {
         var overview = financeIntegrationService.getOverview(tenantId);
 
         assertThat(overview.get("totalPayments")).isEqualTo(2);
-        assertThat(overview.get("collectedRevenue")).isEqualByComparingTo("200.00");
-        assertThat(overview.get("outstandingAmount")).isEqualByComparingTo("300.00");
+        assertThat((BigDecimal) overview.get("collectedRevenue")).isEqualByComparingTo("200.00");
+        assertThat((BigDecimal) overview.get("outstandingAmount")).isEqualByComparingTo("300.00");
     }
 
     @Test
@@ -84,7 +84,7 @@ class FinanceManagementIntegrationTest {
         var overview = financeIntegrationService.getOverview(tenantId);
 
         assertThat(overview.get("totalInvoices")).isEqualTo(1);
-        assertThat(overview.get("invoiceTotalValue")).isEqualByComparingTo("900.00");
+        assertThat((BigDecimal) overview.get("invoiceTotalValue")).isEqualByComparingTo("900.00");
     }
 
     @Test
