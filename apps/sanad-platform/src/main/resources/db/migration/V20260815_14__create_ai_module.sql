@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS ai_agents (
     updated_at      TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT pk_ai_agents PRIMARY KEY (id),
     CONSTRAINT uk_ai_agents_tenant_code UNIQUE (tenant_id, code),
+    CONSTRAINT uk_ai_agents_tenant_id UNIQUE (tenant_id, id),
     CONSTRAINT ck_ai_agent_status CHECK (status IN ('DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED')),
     CONSTRAINT ck_ai_agent_provider CHECK (provider IN ('DETERMINISTIC', 'OPENAI', 'ANTHROPIC', 'AZURE_OPENAI', 'CUSTOM')),
     CONSTRAINT fk_ai_agent_created_by FOREIGN KEY (tenant_id, created_by)
