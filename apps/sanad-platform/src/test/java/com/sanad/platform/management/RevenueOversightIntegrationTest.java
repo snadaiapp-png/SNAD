@@ -132,8 +132,8 @@ class RevenueOversightIntegrationTest {
         jdbc.update("INSERT INTO crm_pipeline_stages (id, tenant_id, pipeline_id, name, sequence, probability, active) "
                         + "VALUES (?, ?, ?, 'Closed Won', 10, 100.00, TRUE)",
                 stageId, tenantId, pipelineId);
-        jdbc.update("INSERT INTO crm_accounts (id, tenant_id, name, account_type, lifecycle_status, created_by, updated_by, created_at, updated_at) "
-                        + "VALUES (?, ?, 'Test Account', 'BUSINESS', 'ACTIVE', ?, ?, ?, ?)",
+        jdbc.update("INSERT INTO crm_accounts (id, tenant_id, display_name, normalized_name, account_type, lifecycle_status, created_by, updated_by, created_at, updated_at) "
+                        + "VALUES (?, ?, 'Test Account', 'test account', 'BUSINESS', 'ACTIVE', ?, ?, ?, ?)",
                 accountId, tenantId, userId, userId, now, now);
         jdbc.update("INSERT INTO crm_opportunities (id, tenant_id, pipeline_id, stage_id, name, amount, currency_code, probability, status, created_by, updated_by, created_at, updated_at) "
                         + "VALUES (?, ?, ?, ?, 'Test Opp', 15000.00, 'SAR', 100.00, 'WON', ?, ?, ?, ?)",
