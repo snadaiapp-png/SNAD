@@ -23,7 +23,7 @@ public class GovernanceSystemHealthContributor implements SystemHealthContributo
     private final ManagementGovernanceModuleRegistry moduleRegistry;
 
     public GovernanceSystemHealthContributor(
-            SystemHealthContributorRegistry healthContributorRegistry,
+            @Lazy SystemHealthContributorRegistry healthContributorRegistry,
             @Lazy ManagementGovernanceModuleRegistry moduleRegistry) {
         this.healthContributorRegistry = healthContributorRegistry;
         this.moduleRegistry = moduleRegistry;
