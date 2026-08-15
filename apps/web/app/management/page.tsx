@@ -167,7 +167,7 @@ export default function ManagementCommandCenterPage() {
     return <AuthLoadingState phase="workspace" />;
   }
 
-  if (loading) return <AuthLoadingState phase="management" />;
+  if (loading) return <AuthLoadingState />;
   if (error) return (
     <div style={{ padding: 24, textAlign: "center", color: "#dc2626" }}>
       {error}
