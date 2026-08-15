@@ -1,15 +1,33 @@
 -- ============================================================
--- V20260815_22: Enable RLS on lifecycle base tables (PG-only)
+-- V20260815_22: Enable RLS on tenant-owned lifecycle tables (PG-only)
 --
 -- Defense-in-depth gap identified by the v20260815.7 forensic audit:
--- the lifecycle base tables (tenants, organizations, users, roles,
--- access_capabilities, role_capabilities, user_role_assignments,
--- saas_plans, saas_plan_entitlements, tenant_subscriptions,
--- billing_invoices, subscription_change_events, modules,
--- module_capabilities, plan_module_entitlements, platform_audit_logs,
--- system_services) rely solely on application-layer WHERE tenant_id
--- filtering. This migration enables PostgreSQL Row-Level Security
--- as a second line of defense.
+-- the tenant-owned lifecycle base tables (organizations, users, roles,
+-- role_capabilities, user_role_assignments, tenant_subscriptions,
+-- billing_invoices, subscription_change_events) rely solely on
+-- application-layer WHERE tenant_id filtering. This migration enables
+-- PostgreSQL Row-Level Security as a second line of defense.
+--
+-- TABLES NOT INCLUDED (intentional — these are GLOBAL catalogs with
+-- no tenant_id column; enabling RLS on them would fail and would be
+-- semantically wrong since they are reference data shared across tenants):
+--   * tenants              (the tenant root itself; uses id column)
+--   * access_capabilities  (global capability catalog)
+--   * saas_plans           (global plan catalog)
+--   * saas_plan_entitlements (legacy feature catalog)
+--   * modules              (global module catalog)
+--   * module_capabilities  (global catalog of cap→module)
+--   * plan_module_entitlements (links 2 global catalogs)
+--   * system_services      (global service catalog)
+--
+-- TABLES INCLUDED (have tenant_id column):
+--   * organizations, organization_memberships, users, roles,
+--     role_capabilities, user_role_assignments, tenant_subscriptions,
+--     billing_invoices, subscription_change_events
+--
+-- SPECIAL CASE: platform_audit_logs uses target_tenant_id (nullable for
+-- control-plane events). Policy: visible when target IS NULL (control-
+-- plane event) OR matches the active tenant context.
 --
 -- Design choice: ENABLE (not FORCE). The application connects as a
 -- non-superuser role that respects RLS. Flyway migrations run as the
@@ -18,40 +36,26 @@
 -- `SET LOCAL app.tenant_id` per request so the policy is enforced for
 -- every application query.
 --
--- platform_audit_logs uses a relaxed policy because some audit rows
--- are control-plane events (target_tenant_id IS NULL); these are
--- visible to every authenticated tenant by design.
---
 -- H2 compatibility: H2 has no RLS support. A no-op mirror migration
 -- exists at src/test/resources/db/vendor/h2/V20260815_22__enable_lifecycle_rls.sql
--- to maintain Flyway version parity. H2 tests rely on application-layer
--- tenant filtering (snad.rls.enabled=false in application-local.yml).
+-- to maintain Flyway version parity.
 -- ============================================================
 
 DO $$
 DECLARE
     tbl TEXT;
-    policy_sql TEXT;
 BEGIN
-    -- Tables that have a single tenant_id column.
+    -- Tenant-owned tables with a single tenant_id column.
     FOREACH tbl IN ARRAY ARRAY[
-        'tenants',
         'organizations',
         'organization_memberships',
         'users',
         'roles',
-        'access_capabilities',
         'role_capabilities',
         'user_role_assignments',
-        'saas_plans',
-        'saas_plan_entitlements',
         'tenant_subscriptions',
         'billing_invoices',
-        'subscription_change_events',
-        'modules',
-        'module_capabilities',
-        'plan_module_entitlements',
-        'system_services'
+        'subscription_change_events'
     ] LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tbl);
         EXECUTE format($f$

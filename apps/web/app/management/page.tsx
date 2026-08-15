@@ -109,6 +109,75 @@ function InsightPanel({ insight }: { insight: InsightResponse }) {
   );
 }
 
+// ── Governed Systems Helpers (v20260815.7) ────────────────────────
+
+function extractStatus(overview: Record<string, unknown> | undefined): string {
+  if (!overview) return "UNAVAILABLE";
+  if (overview._status === "UNAVAILABLE") return "UNAVAILABLE";
+  if (overview.status && typeof overview.status === "string") return String(overview.status);
+  return "ACTIVE";
+}
+
+function extractMetrics(
+  overview: Record<string, unknown> | undefined,
+  keys: string[]
+): string {
+  if (!overview || overview._status === "UNAVAILABLE") return "غير متاح";
+  const parts: string[] = [];
+  for (const key of keys) {
+    const value = overview[key];
+    if (value === undefined || value === null) continue;
+    parts.push(`${key}: ${typeof value === "object" ? JSON.stringify(value) : value}`);
+  }
+  return parts.length === 0 ? "—" : parts.join(" · ");
+}
+
+function GovernedSystemTile({
+  label,
+  status,
+  metrics,
+}: {
+  label: string;
+  status: string;
+  metrics: string;
+}) {
+  const statusColor =
+    status === "ACTIVE" || status === "HEALTHY" || status === "CURRENT"
+      ? "#16a34a"
+      : status === "DEGRADED" || status === "PAST_DUE"
+        ? "#ca8a04"
+        : status === "UNHEALTHY" || status === "SUSPENDED" || status === "UNAVAILABLE"
+          ? "#dc2626"
+          : "#666";
+  const statusLabel =
+    status === "ACTIVE" || status === "HEALTHY" || status === "CURRENT"
+      ? "سليم"
+      : status === "DEGRADED" || status === "PAST_DUE"
+        ? "متحفظ"
+        : status === "UNHEALTHY" || status === "SUSPENDED" || status === "UNAVAILABLE"
+          ? "غير متاح"
+          : status;
+  return (
+    <div
+      style={{
+        padding: 10,
+        borderRadius: 6,
+        border: `1px solid ${statusColor}40`,
+        backgroundColor: "#fff",
+        minHeight: 80,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>{label}</span>
+        <span style={{ fontSize: 11, color: statusColor, fontWeight: 500 }}>{statusLabel}</span>
+      </div>
+      <div style={{ fontSize: 11, color: "#666", lineHeight: 1.4, wordBreak: "break-word" }}>
+        {metrics}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ────────────────────────────────────────────────────────
 
 export default function ManagementCommandCenterPage() {
@@ -244,6 +313,42 @@ export default function ManagementCommandCenterPage() {
             <div style={{ padding: 12, borderRadius: 8, backgroundColor: "#fff7ed" }}>
               <div style={{ fontSize: 24, fontWeight: 700, color: "#ea580c" }}>{dashboard.atRiskObjectives}</div>
               <div style={{ fontSize: 12, color: "#666" }}>أهداف معرضة للخطر</div>
+            </div>
+          </div>
+        )}
+
+        {/* Governed Systems Overview — v20260815.7 (CRM + Finance + Analytics + Workflow + Modules) */}
+        {activeTab === "overview" && (
+          <div style={{ marginTop: 24, padding: 16, borderRadius: 8, border: "1px solid #e5e7eb", backgroundColor: "#fafafa" }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: "#374151" }}>
+              الأنظمة المحكومة بالحوكمة
+            </h2>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
+              <GovernedSystemTile
+                label="CRM"
+                status={extractStatus(dashboard.crmOverview)}
+                metrics={extractMetrics(dashboard.crmOverview, ["totalAccounts", "activeAccounts", "totalOpportunities"])}
+              />
+              <GovernedSystemTile
+                label="التمويل"
+                status={extractStatus(dashboard.financeOverview)}
+                metrics={extractMetrics(dashboard.financeOverview, ["invoiceTotalValue", "outstandingAmount", "collectedRevenue"])}
+              />
+              <GovernedSystemTile
+                label="التحليلات"
+                status={extractStatus(dashboard.analyticsOverview)}
+                metrics={extractMetrics(dashboard.analyticsOverview, ["totalDashboards", "totalReports", "activeDataSources"])}
+              />
+              <GovernedSystemTile
+                label="سير العمل"
+                status={extractStatus(dashboard.workflowHealth)}
+                metrics={extractMetrics(dashboard.workflowHealth, ["status", "activeInstances", "slaBreaches"])}
+              />
+              <GovernedSystemTile
+                label="الوحدات"
+                status={Array.isArray(dashboard.moduleGovernance) && dashboard.moduleGovernance.length > 0 ? "ACTIVE" : "UNAVAILABLE"}
+                metrics={`${Array.isArray(dashboard.moduleGovernance) ? dashboard.moduleGovernance.length : 0} وحدات نشطة`}
+              />
             </div>
           </div>
         )}
