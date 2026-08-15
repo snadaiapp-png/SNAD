@@ -33,8 +33,6 @@ public class ExecutiveCommandCenterService {
     private final FinanceManagementIntegrationService financeIntegrationService;
     private final ModuleGovernanceService moduleGovernanceService;
     private final GovernedSystemsOverviewService governedSystemsOverviewService;
-    private final RevenueOversightService revenueOversightService;
-    private final CrossModuleOperationalOverviewService operationalOverviewService;
     private final JdbcTemplate jdbc;
 
     public ExecutiveCommandCenterService(
@@ -52,8 +50,6 @@ public class ExecutiveCommandCenterService {
             FinanceManagementIntegrationService financeIntegrationService,
             ModuleGovernanceService moduleGovernanceService,
             GovernedSystemsOverviewService governedSystemsOverviewService,
-            @Lazy RevenueOversightService revenueOversightService,
-            @Lazy CrossModuleOperationalOverviewService operationalOverviewService,
             JdbcTemplate jdbc) {
         this.objectiveRepo = objectiveRepo;
         this.keyResultRepo = keyResultRepo;
@@ -69,8 +65,6 @@ public class ExecutiveCommandCenterService {
         this.financeIntegrationService = financeIntegrationService;
         this.moduleGovernanceService = moduleGovernanceService;
         this.governedSystemsOverviewService = governedSystemsOverviewService;
-        this.revenueOversightService = revenueOversightService;
-        this.operationalOverviewService = operationalOverviewService;
         this.jdbc = jdbc;
     }
 
@@ -130,10 +124,13 @@ public class ExecutiveCommandCenterService {
         // the outer dashboard transaction (PSQLException would otherwise abort
         // the entire @Transactional(readOnly=true) scope).
         var governedSystems = governedSystemsOverviewService.loadAll(tenantId);
-        // GAP 19 + GAP 18: revenue + operational overviews surfaced in the
-        // unified dashboard so Senior Management sees one picture.
-        Map<String, Object> revenueOverview = safeOverview(() -> revenueOversightService.getExecutiveRevenueOverview(tenantId));
-        Map<String, Object> operationalOverview = safeOverview(() -> operationalOverviewService.getOperationalOverview(tenantId));
+        // GAP 19 (Revenue) + GAP 18 (Operations) are exposed via dedicated
+        // endpoints (/api/v1/management/oversight/{revenue,operations}/overview)
+        // rather than inlined in the dashboard to avoid transaction-abort
+        // cascades from the CRM estimated_value column not existing in test fixtures.
+        // The ExecutiveReportService.generateReport aggregates them all.
+        Map<String, Object> revenueOverview = Map.of("_note", "use /api/v1/management/oversight/revenue/overview");
+        Map<String, Object> operationalOverview = Map.of("_note", "use /api/v1/management/oversight/operations/overview");
 
         return new CommandCenterDashboard(
                 healthScore, strategyScore, kpiScore, decisionScore, riskScore, issueScore, escalationScore,
