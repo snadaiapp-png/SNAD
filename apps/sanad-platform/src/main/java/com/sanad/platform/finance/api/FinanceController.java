@@ -247,19 +247,19 @@ public class FinanceController {
     }
 
     private Map<String, Object> toInvoiceMap(FinanceInvoice i) {
-        return Map.of(
-                "id", i.id(),
-                "invoiceNumber", i.invoiceNumber(),
-                "customerType", i.customerType(),
-                "customerName", i.customerName() != null ? i.customerName() : "",
-                "status", i.status().name(),
-                "currency", i.currency(),
-                "totalAmount", i.totalAmount(),
-                "paidAmount", i.paidAmount(),
-                "issueDate", i.issueDate().toString(),
-                "dueDate", i.dueDate() != null ? i.dueDate().toString() : "",
-                "version", i.version()
-        );
+        var map = new java.util.HashMap<String, Object>();
+        map.put("id", i.id());
+        map.put("invoiceNumber", i.invoiceNumber());
+        map.put("customerType", i.customerType());
+        map.put("customerName", i.customerName() != null ? i.customerName() : "");
+        map.put("status", i.status().name());
+        map.put("currency", i.currency());
+        map.put("totalAmount", i.totalAmount());
+        map.put("paidAmount", i.paidAmount());
+        map.put("issueDate", i.issueDate().toString());
+        map.put("dueDate", i.dueDate() != null ? i.dueDate().toString() : "");
+        map.put("version", i.version());
+        return map;
     }
 
     private Map<String, Object> toPaymentMap(FinancePayment p) {
