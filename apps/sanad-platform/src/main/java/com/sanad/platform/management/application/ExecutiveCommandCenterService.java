@@ -35,6 +35,7 @@ public class ExecutiveCommandCenterService {
     private final GovernedSystemsOverviewService governedSystemsOverviewService;
     private final RevenueOversightService revenueOversightService;
     private final CrossModuleOperationalOverviewService operationalOverviewService;
+    private final com.sanad.platform.management.health.SystemHealthAggregationService systemHealthAggregationService;
     private final JdbcTemplate jdbc;
 
     public ExecutiveCommandCenterService(
@@ -54,6 +55,7 @@ public class ExecutiveCommandCenterService {
             GovernedSystemsOverviewService governedSystemsOverviewService,
             @Lazy RevenueOversightService revenueOversightService,
             @Lazy CrossModuleOperationalOverviewService operationalOverviewService,
+            @Lazy com.sanad.platform.management.health.SystemHealthAggregationService systemHealthAggregationService,
             JdbcTemplate jdbc) {
         this.objectiveRepo = objectiveRepo;
         this.keyResultRepo = keyResultRepo;
@@ -71,6 +73,7 @@ public class ExecutiveCommandCenterService {
         this.governedSystemsOverviewService = governedSystemsOverviewService;
         this.revenueOversightService = revenueOversightService;
         this.operationalOverviewService = operationalOverviewService;
+        this.systemHealthAggregationService = systemHealthAggregationService;
         this.jdbc = jdbc;
     }
 
@@ -135,6 +138,22 @@ public class ExecutiveCommandCenterService {
         // The CRM query is now fixed (uses 'amount' column, not 'estimated_value').
         Map<String, Object> revenueOverview = safeOverview(() -> revenueOversightService.getExecutiveRevenueOverview(tenantId));
         Map<String, Object> operationalOverview = safeOverview(() -> operationalOverviewService.getOperationalOverview(tenantId));
+        // v20260816.1 — System Health integrated into the Command Center.
+        // The aggregation service isolates contributor failures, so a single
+        // module's SQL error does NOT abort the dashboard's transaction.
+        Map<String, Object> systemHealth = safeOverview(() -> {
+            var snapshot = systemHealthAggregationService.aggregate(tenantId);
+            var m = new java.util.LinkedHashMap<String, Object>();
+            m.put("overallStatus", snapshot.overallStatus().name());
+            m.put("healthScore", snapshot.healthScore());
+            m.put("totalComponents", snapshot.totalComponents());
+            m.put("healthyComponents", snapshot.healthyComponents());
+            m.put("degradedComponents", snapshot.degradedComponents());
+            m.put("unhealthyComponents", snapshot.unhealthyComponents());
+            m.put("unknownComponents", snapshot.unknownComponents());
+            m.put("checkedAt", snapshot.checkedAt().toString());
+            return m;
+        });
 
         return new CommandCenterDashboard(
                 healthScore, strategyScore, kpiScore, decisionScore, riskScore, issueScore, escalationScore,
@@ -147,7 +166,7 @@ public class ExecutiveCommandCenterService {
                 alerts.size(),
                 financeOverview, moduleGovernance,
                 governedSystems.crm(), governedSystems.analytics(), governedSystems.workflow(),
-                revenueOverview, operationalOverview,
+                revenueOverview, operationalOverview, systemHealth,
                 Instant.now()
         );
     }
@@ -208,5 +227,6 @@ public class ExecutiveCommandCenterService {
             Map<String, Object> workflowHealth,
             Map<String, Object> revenueOverview,
             Map<String, Object> operationalOverview,
+            Map<String, Object> systemHealth,
             Instant generatedAt) {}
 }

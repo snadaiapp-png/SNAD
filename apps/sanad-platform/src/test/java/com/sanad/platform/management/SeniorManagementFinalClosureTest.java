@@ -92,6 +92,8 @@ class SeniorManagementFinalClosureTest {
         // GAP 19 + GAP 18: Revenue + Operational overviews (v20260815.8)
         assertThat(dashboard.revenueOverview()).isNotNull();
         assertThat(dashboard.operationalOverview()).isNotNull();
+        // v20260816.1 — System Health integrated into the Command Center
+        assertThat(dashboard.systemHealth()).isNotNull();
     }
 
     @Test

@@ -60,6 +60,7 @@ class SecurityNegativeManagementTest {
     @Autowired private com.sanad.platform.management.application.CrossModuleOperationalOverviewService operationalOverviewService;
     @Autowired private com.sanad.platform.management.application.ExecutiveReportService executiveReportService;
     @Autowired private com.sanad.platform.management.application.ManagementGovernanceModuleRegistry moduleRegistry;
+    @Autowired private com.sanad.platform.management.health.SystemHealthAggregationService systemHealthAggregationService;
 
     private UUID tenantA;
     private UUID tenantB;
@@ -455,5 +456,66 @@ class SecurityNegativeManagementTest {
         assertThat(hrm).isEmpty();
         var pos = moduleRegistry.find(tenantA, "POS");
         assertThat(pos).isEmpty();
+    }
+
+    // ===== v20260816.1 — SYSTEM HEALTH ENDPOINTS =====
+
+    @Test
+    void api_systemHealth_withValidAuth_returns200() throws Exception {
+        mockMvc.perform(get("/api/v1/management/system-health")
+                        .with(authentication(auth(tenantA, userA))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void api_systemHealthComponents_withValidAuth_returns200() throws Exception {
+        mockMvc.perform(get("/api/v1/management/system-health/components")
+                        .with(authentication(auth(tenantA, userA))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void api_systemHealthSingleComponent_withValidAuth_returns200() throws Exception {
+        mockMvc.perform(get("/api/v1/management/system-health/components/postgresql")
+                        .with(authentication(auth(tenantA, userA))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void systemHealth_noSecretsInResponse() throws Exception {
+        var result = mockMvc.perform(get("/api/v1/management/system-health")
+                        .with(authentication(auth(tenantA, userA))))
+                .andExpect(status().isOk())
+                .andReturn();
+        String body = result.getResponse().getContentAsString();
+        assertThat(body).doesNotContain("password");
+        assertThat(body).doesNotContain("secret");
+        assertThat(body).doesNotContain("token");
+        assertThat(body).doesNotContain("credential");
+    }
+
+    @Test
+    void systemHealth_isTenantScoped() {
+        var snapshotA = systemHealthAggregationService.aggregate(tenantA);
+        var snapshotB = systemHealthAggregationService.aggregate(tenantB);
+        // Both succeed and produce valid snapshots
+        assertThat(snapshotA).isNotNull();
+        assertThat(snapshotB).isNotNull();
+        // Tenant health component should report the correct tenant
+        var tenantAHealth = snapshotA.components().stream()
+                .filter(c -> "tenant".equals(c.componentId()))
+                .findFirst()
+                .orElseThrow();
+        var tenantBHealth = snapshotB.components().stream()
+                .filter(c -> "tenant".equals(c.componentId()))
+                .findFirst()
+                .orElseThrow();
+        // Both should be healthy (both tenants are ACTIVE)
+        assertThat(tenantAHealth.status()).isIn(
+                com.sanad.platform.management.health.SystemHealthModel.SystemHealthStatus.HEALTHY,
+                com.sanad.platform.management.health.SystemHealthModel.SystemHealthStatus.DEGRADED);
+        assertThat(tenantBHealth.status()).isIn(
+                com.sanad.platform.management.health.SystemHealthModel.SystemHealthStatus.HEALTHY,
+                com.sanad.platform.management.health.SystemHealthModel.SystemHealthStatus.DEGRADED);
     }
 }

@@ -305,4 +305,15 @@ class CommandCenterAlertsIntelligenceTest {
         assertThat(dashboard.revenueOverview()).isNotNull();
         assertThat(dashboard.operationalOverview()).isNotNull();
     }
+
+    @Test
+    void commandCenter_dashboard_includesSystemHealth() {
+        // v20260816.1 — System Health integrated into the Command Center.
+        var dashboard = commandCenterService.getDashboard(tenantId);
+        assertThat(dashboard.systemHealth()).isNotNull();
+        @SuppressWarnings("unchecked")
+        var sh = (java.util.Map<String, Object>) dashboard.systemHealth();
+        assertThat(sh).containsKeys("overallStatus", "healthScore", "totalComponents",
+                "healthyComponents", "degradedComponents", "unhealthyComponents", "unknownComponents");
+    }
 }

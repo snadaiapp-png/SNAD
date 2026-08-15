@@ -49,6 +49,8 @@ export interface CommandCenterDashboard {
   // in the unified dashboard so Senior Management sees one picture.
   revenueOverview?: Record<string, unknown>;
   operationalOverview?: Record<string, unknown>;
+  // v20260816.1 — System Health integrated into the Command Center.
+  systemHealth?: Record<string, unknown>;
   generatedAt: string;
 }
 

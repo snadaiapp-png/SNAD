@@ -231,6 +231,41 @@ function OperationsMetrics({ overview }: { overview: Record<string, unknown> }) 
   );
 }
 
+function SystemHealthMetrics({ overview }: { overview: Record<string, unknown> }) {
+  const overallStatus = String(overview.overallStatus ?? "UNKNOWN");
+  const healthScore = Number(overview.healthScore ?? 0);
+  const statusColor =
+    overallStatus === "HEALTHY" ? "#16a34a"
+    : overallStatus === "DEGRADED" ? "#ca8a04"
+    : overallStatus === "UNHEALTHY" ? "#dc2626"
+    : "#6b7280";
+  const statusLabel =
+    overallStatus === "HEALTHY" ? "سليم"
+    : overallStatus === "DEGRADED" ? "متدهور"
+    : overallStatus === "UNHEALTHY" ? "غير سليم"
+    : "غير معروف";
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+      <div style={{ padding: 12, borderRadius: 6, backgroundColor: "#fff", border: `2px solid ${statusColor}`, textAlign: "center" }}>
+        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>الحالة الإجمالية</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: statusColor }}>{statusLabel}</div>
+      </div>
+      <div style={{ padding: 12, borderRadius: 6, backgroundColor: "#fff", border: "1px solid #e5e7eb", textAlign: "center" }}>
+        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>درجة الصحة</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#374151" }}>{healthScore}</div>
+      </div>
+      <div style={{ padding: 12, borderRadius: 6, backgroundColor: "#fff", border: "1px solid #e5e7eb", textAlign: "center" }}>
+        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>سليم / متدهور</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a" }}>{String(overview.healthyComponents ?? 0)} / {String(overview.degradedComponents ?? 0)}</div>
+      </div>
+      <div style={{ padding: 12, borderRadius: 6, backgroundColor: "#fff", border: "1px solid #e5e7eb", textAlign: "center" }}>
+        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>غير سليم / غير معروف</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#dc2626" }}>{String(overview.unhealthyComponents ?? 0)} / {String(overview.unknownComponents ?? 0)}</div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ────────────────────────────────────────────────────────
 
 export default function ManagementCommandCenterPage() {
@@ -426,6 +461,16 @@ export default function ManagementCommandCenterPage() {
                 <OperationsMetrics overview={dashboard.operationalOverview} />
               </div>
             </div>
+          </div>
+        )}
+
+        {/* System Health — v20260816.1 */}
+        {activeTab === "overview" && dashboard.systemHealth && (
+          <div style={{ marginTop: 24, padding: 16, borderRadius: 8, border: "1px solid #e5e7eb", backgroundColor: "#fafafa" }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: "#374151" }}>
+              صحة النظام
+            </h2>
+            <SystemHealthMetrics overview={dashboard.systemHealth} />
           </div>
         )}
 
