@@ -55,6 +55,11 @@ class SecurityNegativeManagementTest {
     @Autowired private ExecutiveDecisionService decisionService;
     @Autowired private KpiService kpiService;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private com.sanad.platform.management.application.GovernanceConfigurationService governanceConfigService;
+    @Autowired private com.sanad.platform.management.application.RevenueOversightService revenueOversightService;
+    @Autowired private com.sanad.platform.management.application.CrossModuleOperationalOverviewService operationalOverviewService;
+    @Autowired private com.sanad.platform.management.application.ExecutiveReportService executiveReportService;
+    @Autowired private com.sanad.platform.management.application.ManagementGovernanceModuleRegistry moduleRegistry;
 
     private UUID tenantA;
     private UUID tenantB;
@@ -326,5 +331,145 @@ class SecurityNegativeManagementTest {
         mockMvc.perform(get("/api/v1/management/intelligence")
                         .with(authentication(auth(tenantA, userA))))
                 .andExpect(status().isOk());
+    }
+
+    // ===== GAP 19/18/24/25/26 — v20260815.8 NEW ENDPOINTS =====
+
+    @Test
+    void api_revenueOverview_withValidAuth_returns200() throws Exception {
+        mockMvc.perform(get("/api/v1/management/oversight/revenue/overview")
+                        .with(authentication(auth(tenantA, userA))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void api_operationalOverview_withValidAuth_returns200() throws Exception {
+        mockMvc.perform(get("/api/v1/management/oversight/operations/overview")
+                        .with(authentication(auth(tenantA, userA))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void api_executiveReport_withValidAuth_returns200() throws Exception {
+        mockMvc.perform(get("/api/v1/management/oversight/reports/executive")
+                        .with(authentication(auth(tenantA, userA))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void api_governanceConfigurations_withValidAuth_returns200() throws Exception {
+        mockMvc.perform(get("/api/v1/management/governance/configurations")
+                        .with(authentication(auth(tenantA, userA))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void api_governanceConfigurations_defaults_withValidAuth_returns200() throws Exception {
+        mockMvc.perform(get("/api/v1/management/governance/configurations/defaults")
+                        .with(authentication(auth(tenantA, userA))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void api_revenueOverview_withNoAuth_returns401_or403() throws Exception {
+        mockMvc.perform(get("/api/v1/management/oversight/revenue/overview"))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
+    void api_operationalOverview_withNoAuth_returns401_or403() throws Exception {
+        mockMvc.perform(get("/api/v1/management/oversight/operations/overview"))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
+    void api_executiveReport_withNoAuth_returns401_or403() throws Exception {
+        mockMvc.perform(get("/api/v1/management/oversight/reports/executive"))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
+    void api_governanceConfigurations_withNoAuth_returns401_or403() throws Exception {
+        mockMvc.perform(get("/api/v1/management/governance/configurations"))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
+    void governanceConfiguration_crossTenantAccessDeniedAtService() {
+        // Tenant A creates a configuration
+        var req = new com.sanad.platform.management.api.GovernanceConfigDtos.CreateConfigurationRequest(
+                "test.cross.tenant", "v-A", com.sanad.platform.management.api.GovernanceConfigDtos.ConfigType.STRING, null);
+        var created = governanceConfigService.create(tenantA, req, null);
+
+        // Tenant B cannot read it — service throws 404
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> governanceConfigService.get(tenantB, created.id()))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .extracting("statusCode").isEqualTo(org.springframework.http.HttpStatus.NOT_FOUND);
+
+        // Tenant B cannot update it
+        var updateReq = new com.sanad.platform.management.api.GovernanceConfigDtos.UpdateConfigurationRequest(
+                "v-B-hack", null);
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> governanceConfigService.update(tenantB, created.id(), updateReq, null))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .extracting("statusCode").isEqualTo(org.springframework.http.HttpStatus.NOT_FOUND);
+
+        // Tenant B cannot delete it
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> governanceConfigService.delete(tenantB, created.id(), null))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .extracting("statusCode").isEqualTo(org.springframework.http.HttpStatus.NOT_FOUND);
+
+        // Verify Tenant A still owns the unchanged row
+        var stillThere = governanceConfigService.get(tenantA, created.id());
+        assertThat(stillThere.configValue()).isEqualTo("v-A");
+    }
+
+    @Test
+    void revenueOversight_isTenantScoped_noCrossTenantLeak() {
+        var overviewA = revenueOversightService.getExecutiveRevenueOverview(tenantA);
+        var overviewB = revenueOversightService.getExecutiveRevenueOverview(tenantB);
+        // Both succeed without error and produce valid structures
+        assertThat(overviewA).containsKey("crmWonRevenue");
+        assertThat(overviewB).containsKey("crmWonRevenue");
+        // Neither tenant's overview references the other's tenantId
+        assertThat(overviewA.toString()).doesNotContain(tenantB.toString());
+        assertThat(overviewB.toString()).doesNotContain(tenantA.toString());
+    }
+
+    @Test
+    void operationalOverview_isTenantScoped_noCrossTenantLeak() {
+        var overviewA = operationalOverviewService.getOperationalOverview(tenantA);
+        var overviewB = operationalOverviewService.getOperationalOverview(tenantB);
+        assertThat(overviewA).containsKey("modules");
+        assertThat(overviewB).containsKey("modules");
+        // No cross-tenant data leakage in module summaries
+        assertThat(overviewA.toString()).doesNotContain(tenantB.toString());
+        assertThat(overviewB.toString()).doesNotContain(tenantA.toString());
+    }
+
+    @Test
+    void executiveReport_tenantIdMatchesRequester() {
+        var reportA = executiveReportService.generateReport(tenantA);
+        @SuppressWarnings("unchecked")
+        var metaA = (java.util.Map<String, Object>) reportA.get("_metadata");
+        assertThat(metaA.get("tenantId")).isEqualTo(tenantA.toString());
+
+        var reportB = executiveReportService.generateReport(tenantB);
+        @SuppressWarnings("unchecked")
+        var metaB = (java.util.Map<String, Object>) reportB.get("_metadata");
+        assertThat(metaB.get("tenantId")).isEqualTo(tenantB.toString());
+    }
+
+    @Test
+    void moduleRegistry_unknownFutureModuleCannotBypassGovernance() {
+        // ERP is not yet implemented — lookup must return empty, NOT a fake entry
+        var erp = moduleRegistry.find(tenantA, "ERP");
+        assertThat(erp).isEmpty();
+        var hrm = moduleRegistry.find(tenantA, "HRM");
+        assertThat(hrm).isEmpty();
+        var pos = moduleRegistry.find(tenantA, "POS");
+        assertThat(pos).isEmpty();
     }
 }

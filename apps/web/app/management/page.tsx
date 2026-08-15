@@ -178,6 +178,59 @@ function GovernedSystemTile({
   );
 }
 
+// ── Revenue + Operations metrics display (v20260815.8 — GAP 19 + GAP 18) ────
+
+function MetricRow({ label, value }: { label: string; value: string | number | undefined }) {
+  if (value === undefined || value === null) return null;
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", borderBottom: "1px solid #f3f4f6" }}>
+      <span style={{ color: "#666" }}>{label}</span>
+      <span style={{ color: "#111827", fontWeight: 500 }}>{String(value)}</span>
+    </div>
+  );
+}
+
+function RevenueMetrics({ overview }: { overview: Record<string, unknown> }) {
+  const fmt = (k: string) => {
+    const v = overview[k];
+    if (v === undefined || v === null) return undefined;
+    if (typeof v === "number") return v.toLocaleString("ar-SA");
+    if (typeof v === "object") return JSON.stringify(v).substring(0, 80);
+    return String(v);
+  };
+  return (
+    <div>
+      <MetricRow label="إيرادات CRM المكتسبة" value={fmt("crmWonRevenue")} />
+      <MetricRow label="قيمة Pipeline المقدرة" value={fmt("crmPipelineValue")} />
+      <MetricRow label="إجمالي الفواتير" value={fmt("invoiceTotalValue")} />
+      <MetricRow label="الإيرادات المحصلة" value={fmt("collectedRevenue")} />
+      <MetricRow label="المبالغ المستحقة" value={fmt("outstandingAmount")} />
+      <MetricRow label="الفرق في الإيرادات" value={fmt("revenueVariance")} />
+      <MetricRow label="المصادر" value={Array.isArray(overview.sourceModules) ? overview.sourceModules.join(", ") : undefined} />
+    </div>
+  );
+}
+
+function OperationsMetrics({ overview }: { overview: Record<string, unknown> }) {
+  const fmt = (k: string) => {
+    const v = overview[k];
+    if (v === undefined || v === null) return undefined;
+    if (typeof v === "number") return v.toLocaleString("ar-SA");
+    if (typeof v === "object") return JSON.stringify(v).substring(0, 80);
+    return String(v);
+  };
+  return (
+    <div>
+      <MetricRow label="الحالة الصحية العامة" value={fmt("overallHealthStatus")} />
+      <MetricRow label="عدد الوحدات" value={fmt("moduleCount")} />
+      <MetricRow label="إجمالي التنبيهات" value={fmt("totalOpenAlerts")} />
+      <MetricRow label="إجمالي المخاطر" value={fmt("totalOpenRisks")} />
+      <MetricRow label="إجمالي المشكلات" value={fmt("totalOpenIssues")} />
+      <MetricRow label="حالة SLA الإجمالية" value={fmt("slaOverallState")} />
+    </div>
+  );
+}
+
 // ── Main Page ────────────────────────────────────────────────────────
 
 export default function ManagementCommandCenterPage() {
@@ -349,6 +402,29 @@ export default function ManagementCommandCenterPage() {
                 status={Array.isArray(dashboard.moduleGovernance) && dashboard.moduleGovernance.length > 0 ? "ACTIVE" : "UNAVAILABLE"}
                 metrics={`${Array.isArray(dashboard.moduleGovernance) ? dashboard.moduleGovernance.length : 0} وحدات نشطة`}
               />
+            </div>
+          </div>
+        )}
+
+        {/* Revenue + Operations Overview — v20260815.8 (GAP 19 + GAP 18) */}
+        {activeTab === "overview" && dashboard.revenueOverview && dashboard.operationalOverview && (
+          <div style={{ marginTop: 24, padding: 16, borderRadius: 8, border: "1px solid #e5e7eb", backgroundColor: "#fafafa" }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: "#374151" }}>
+              الإيرادات والعمليات
+            </h2>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+              <div style={{ padding: 12, borderRadius: 6, backgroundColor: "#fff", border: "1px solid #e5e7eb" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: "#374151" }}>
+                  نظرة عامة على الإيرادات
+                </div>
+                <RevenueMetrics overview={dashboard.revenueOverview} />
+              </div>
+              <div style={{ padding: 12, borderRadius: 6, backgroundColor: "#fff", border: "1px solid #e5e7eb" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: "#374151" }}>
+                  نظرة عامة على العمليات
+                </div>
+                <OperationsMetrics overview={dashboard.operationalOverview} />
+              </div>
             </div>
           </div>
         )}

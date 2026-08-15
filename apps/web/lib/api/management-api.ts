@@ -45,6 +45,10 @@ export interface CommandCenterDashboard {
   crmOverview?: Record<string, unknown>;
   analyticsOverview?: Record<string, unknown>;
   workflowHealth?: Record<string, unknown>;
+  // GAP 19 + GAP 18 (v20260815.8) — Revenue + Operational overviews surfaced
+  // in the unified dashboard so Senior Management sees one picture.
+  revenueOverview?: Record<string, unknown>;
+  operationalOverview?: Record<string, unknown>;
   generatedAt: string;
 }
 

@@ -155,7 +155,11 @@ class CrmFlywayHistoryAssertionTest {
             "20260815.19",   // add analytics capabilities
             "20260815.20",   // tenant domains and billing state (v20260815.7 — Final Governance Closure)
             "20260815.21",   // drop tenant entitlement cache (dead code removed)
-            "20260815.23"    // seed domain management and billing capabilities
+            "20260815.23",   // seed domain management and billing capabilities
+            // v20260815.8 — Senior Management Final 5-Gap Closure
+            "20260815.24",   // governance_configurations table (GAP 26)
+            "20260815.25",   // seed GOVERNANCE_CONFIG.* + EXECUTIVE_REPORT.* capabilities
+            "20260815.26"    // enable RLS on governance_configurations (PG-only)
     );
 
 

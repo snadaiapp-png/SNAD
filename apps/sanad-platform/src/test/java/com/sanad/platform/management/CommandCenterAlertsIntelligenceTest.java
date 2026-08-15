@@ -297,4 +297,12 @@ class CommandCenterAlertsIntelligenceTest {
         assertThat(dashboard.analyticsOverview()).isNotNull();
         assertThat(dashboard.workflowHealth()).isNotNull();
     }
+
+    @Test
+    void commandCenter_dashboard_includesRevenueAndOperationalOverviews() {
+        // v20260815.8 — GAP 19 (Revenue) + GAP 18 (Operations) surfaced in the dashboard.
+        var dashboard = commandCenterService.getDashboard(tenantId);
+        assertThat(dashboard.revenueOverview()).isNotNull();
+        assertThat(dashboard.operationalOverview()).isNotNull();
+    }
 }

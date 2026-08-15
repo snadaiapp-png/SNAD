@@ -1,6 +1,7 @@
 package com.sanad.platform.management.application;
 
 import com.sanad.platform.management.domain.*;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +33,8 @@ public class ExecutiveCommandCenterService {
     private final FinanceManagementIntegrationService financeIntegrationService;
     private final ModuleGovernanceService moduleGovernanceService;
     private final GovernedSystemsOverviewService governedSystemsOverviewService;
+    private final RevenueOversightService revenueOversightService;
+    private final CrossModuleOperationalOverviewService operationalOverviewService;
     private final JdbcTemplate jdbc;
 
     public ExecutiveCommandCenterService(
@@ -49,6 +52,8 @@ public class ExecutiveCommandCenterService {
             FinanceManagementIntegrationService financeIntegrationService,
             ModuleGovernanceService moduleGovernanceService,
             GovernedSystemsOverviewService governedSystemsOverviewService,
+            @Lazy RevenueOversightService revenueOversightService,
+            @Lazy CrossModuleOperationalOverviewService operationalOverviewService,
             JdbcTemplate jdbc) {
         this.objectiveRepo = objectiveRepo;
         this.keyResultRepo = keyResultRepo;
@@ -64,6 +69,8 @@ public class ExecutiveCommandCenterService {
         this.financeIntegrationService = financeIntegrationService;
         this.moduleGovernanceService = moduleGovernanceService;
         this.governedSystemsOverviewService = governedSystemsOverviewService;
+        this.revenueOversightService = revenueOversightService;
+        this.operationalOverviewService = operationalOverviewService;
         this.jdbc = jdbc;
     }
 
@@ -123,6 +130,10 @@ public class ExecutiveCommandCenterService {
         // the outer dashboard transaction (PSQLException would otherwise abort
         // the entire @Transactional(readOnly=true) scope).
         var governedSystems = governedSystemsOverviewService.loadAll(tenantId);
+        // GAP 19 + GAP 18: revenue + operational overviews surfaced in the
+        // unified dashboard so Senior Management sees one picture.
+        Map<String, Object> revenueOverview = safeOverview(() -> revenueOversightService.getExecutiveRevenueOverview(tenantId));
+        Map<String, Object> operationalOverview = safeOverview(() -> operationalOverviewService.getOperationalOverview(tenantId));
 
         return new CommandCenterDashboard(
                 healthScore, strategyScore, kpiScore, decisionScore, riskScore, issueScore, escalationScore,
@@ -135,6 +146,7 @@ public class ExecutiveCommandCenterService {
                 alerts.size(),
                 financeOverview, moduleGovernance,
                 governedSystems.crm(), governedSystems.analytics(), governedSystems.workflow(),
+                revenueOverview, operationalOverview,
                 Instant.now()
         );
     }
@@ -193,5 +205,7 @@ public class ExecutiveCommandCenterService {
             Map<String, Object> crmOverview,
             Map<String, Object> analyticsOverview,
             Map<String, Object> workflowHealth,
+            Map<String, Object> revenueOverview,
+            Map<String, Object> operationalOverview,
             Instant generatedAt) {}
 }

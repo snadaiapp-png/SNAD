@@ -116,8 +116,12 @@ class CrmPostgresMigrationTest {
     private static final String TENANT_DOMAINS_VERSION = "20260815.20";
     private static final String DROP_ENTITLEMENT_CACHE_VERSION = "20260815.21";
     private static final String DOMAIN_MGMT_CAPABILITIES_VERSION = "20260815.23";
-    // Latest migration after Final Governance Closure
-    private static final String LATEST_MIGRATION_VERSION = DOMAIN_MGMT_CAPABILITIES_VERSION;
+    // v20260815.8 — Senior Management Final 5-Gap Closure
+    private static final String GOVERNANCE_CONFIGURATIONS_VERSION = "20260815.24";
+    private static final String GOV_CONFIG_CAPABILITIES_VERSION = "20260815.25";
+    private static final String GOV_CONFIG_RLS_VERSION = "20260815.26";
+    // Latest migration after Senior Management Final 5-Gap Closure
+    private static final String LATEST_MIGRATION_VERSION = GOV_CONFIG_RLS_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -290,7 +294,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(ANALYTICS_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(TENANT_DOMAINS_VERSION),
                         MigrationVersion.fromVersion(DROP_ENTITLEMENT_CACHE_VERSION),
-                        MigrationVersion.fromVersion(DOMAIN_MGMT_CAPABILITIES_VERSION));
+                        MigrationVersion.fromVersion(DOMAIN_MGMT_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(GOVERNANCE_CONFIGURATIONS_VERSION),
+                        MigrationVersion.fromVersion(GOV_CONFIG_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(GOV_CONFIG_RLS_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -395,7 +402,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(ANALYTICS_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(TENANT_DOMAINS_VERSION),
                         MigrationVersion.fromVersion(DROP_ENTITLEMENT_CACHE_VERSION),
-                        MigrationVersion.fromVersion(DOMAIN_MGMT_CAPABILITIES_VERSION));
+                        MigrationVersion.fromVersion(DOMAIN_MGMT_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(GOVERNANCE_CONFIGURATIONS_VERSION),
+                        MigrationVersion.fromVersion(GOV_CONFIG_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(GOV_CONFIG_RLS_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -564,6 +574,9 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, TENANT_DOMAINS_VERSION, "SQL", "tenant domains and billing state");
         assertMigration(jdbc, DROP_ENTITLEMENT_CACHE_VERSION, "SQL", "drop tenant entitlement cache");
         assertMigration(jdbc, DOMAIN_MGMT_CAPABILITIES_VERSION, "SQL", "seed domain management and billing capabilities");
+        assertMigration(jdbc, GOVERNANCE_CONFIGURATIONS_VERSION, "SQL", "governance configurations");
+        assertMigration(jdbc, GOV_CONFIG_CAPABILITIES_VERSION, "SQL", "seed governance config and executive report capabilities");
+        assertMigration(jdbc, GOV_CONFIG_RLS_VERSION, "SQL", "enable governance cfg rls");
 
         assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());

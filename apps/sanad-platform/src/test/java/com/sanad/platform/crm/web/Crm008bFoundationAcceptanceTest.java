@@ -59,9 +59,9 @@ class Crm008bFoundationAcceptanceTest {
     private static final String CRM_010_SCORING_MODELS_VERSION = "20260729.2";
     // CRM-018: V20260730_2 (disable RLS) was removed from Flyway forward path
     // Terminal CRM migration as of Senior Management Operating Layer:
-    //   V20260815.23 - seed domain management and billing capabilities
-    // (was 20260815.19 before v20260815.7 — Final Governance Closure added 3 migrations)
-    private static final String CRM_LATEST_VERSION = "20260815.23";
+    //   V20260815.26 - enable governance cfg rls (v20260815.8 — Final 5-Gap Closure)
+    // (was 20260815.23 before v20260815.8 added 3 migrations)
+    private static final String CRM_LATEST_VERSION = "20260815.26";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");

@@ -30,8 +30,8 @@ class PlatformApiCountTest {
     private static final Set<String> OWNERSHIP_PREFIXES = Set.of("/teams", "/queues", "/territories", "/assignment-rules", "/assignments", "/ownership-history", "/transfers", "/my-work");
     private static final long EXPECTED_CRM_V1_OPS = 125;
     private static final long EXPECTED_CRM_V2_OPS = 192;
-    /** 558 previous operations + 9 TenantDomain endpoints = 567. */
-    private static final long EXPECTED_TOTAL_OPS = 567;
+    /** 567 previous operations + 8 GovernanceConfig endpoints + 3 ExecutiveOversight endpoints = 578. */
+    private static final long EXPECTED_TOTAL_OPS = 578;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
     private static final long EXPECTED_COMMITTED_CRM_PATHS = 142;
