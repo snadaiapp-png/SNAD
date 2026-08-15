@@ -55,6 +55,16 @@ public class JdbcAiInferenceRepository implements AiInferenceRepository {
                      correlation_id, business_entity_type, business_entity_id,
                      workflow_instance_id, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (id) DO UPDATE SET
+                    output_summary = EXCLUDED.output_summary,
+                    output_hash = EXCLUDED.output_hash,
+                    status = EXCLUDED.status,
+                    error_message = EXCLUDED.error_message,
+                    tokens_input = EXCLUDED.tokens_input,
+                    tokens_output = EXCLUDED.tokens_output,
+                    latency_ms = EXCLUDED.latency_ms,
+                    cost_cents = EXCLUDED.cost_cents,
+                    workflow_instance_id = EXCLUDED.workflow_instance_id
                 """,
                 inference.id(), inference.tenantId(), inference.agentId(), inference.invokedBy(),
                 inference.inputSummary(), inference.inputHash(),
