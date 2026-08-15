@@ -95,19 +95,32 @@ class SeniorManagementFinalClosureTest {
     }
 
     @Test
-    void commandCenter_dashboard_revenueOverviewIsPresent() {
-        // v20260815.8 — the dashboard includes a revenueOverview field.
-        // The actual revenue data is loaded via the dedicated endpoint
-        // /api/v1/management/oversight/revenue/overview to avoid transaction
-        // abort cascades in the dashboard.
+    void commandCenter_dashboard_revenueOverviewContainsRealData() {
+        // v20260815.9 — Revenue Overview is REAL data, not a placeholder.
+        // It must contain the actual revenue fields (crmWonRevenue, etc.).
         var dashboard = commandCenterService.getDashboard(tenantId);
-        assertThat(dashboard.revenueOverview()).isNotNull();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> revenue = (Map<String, Object>) dashboard.revenueOverview();
+        assertThat(revenue).containsKeys(
+                "crmWonRevenue", "crmPipelineValue", "invoiceTotalValue",
+                "collectedRevenue", "outstandingAmount", "paymentStatusSummary",
+                "revenueVariance", "sourceModules", "generatedAt");
+        // Must NOT be a placeholder
+        assertThat(revenue.containsKey("_note")).isFalse();
+        assertThat(revenue.containsKey("_status")).isFalse();
     }
 
     @Test
-    void commandCenter_dashboard_operationalOverviewIsPresent() {
+    void commandCenter_dashboard_operationalOverviewContainsRealData() {
         var dashboard = commandCenterService.getDashboard(tenantId);
-        assertThat(dashboard.operationalOverview()).isNotNull();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ops = (Map<String, Object>) dashboard.operationalOverview();
+        assertThat(ops).containsKeys(
+                "overallHealthStatus", "moduleCount", "modules",
+                "totalOpenAlerts", "totalOpenRisks", "totalOpenIssues",
+                "slaOverallState", "generatedAt");
+        // Must NOT be a placeholder
+        assertThat(ops.containsKey("_note")).isFalse();
     }
 
     @Test
@@ -174,5 +187,114 @@ class SeniorManagementFinalClosureTest {
         assertThat(report).containsKeys(
                 "commandCenter", "revenueOverview", "operationalOverview",
                 "moduleHealth", "executiveIntelligence", "_metadata");
+    }
+
+    // ===== v20260815.9 — CONSISTENCY + REAL DATA TESTS =====
+
+    @Test
+    void dashboard_revenue_matchesDedicatedRevenueEndpoint() {
+        // PHASE 7 requirement #6: Dashboard Revenue == Revenue endpoint result
+        var dashboard = commandCenterService.getDashboard(tenantId);
+        var dedicated = revenueService.getExecutiveRevenueOverview(tenantId);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> dashboardRevenue = (Map<String, Object>) dashboard.revenueOverview();
+        // Both must contain the same keys
+        assertThat(dashboardRevenue.keySet()).containsAll(
+                java.util.List.of("crmWonRevenue", "invoiceTotalValue", "collectedRevenue",
+                        "outstandingAmount", "revenueVariance", "sourceModules"));
+        assertThat(dedicated.keySet()).containsAll(dashboardRevenue.keySet());
+        // Values must match
+        assertThat(dashboardRevenue.get("crmWonRevenue")).isEqualTo(dedicated.get("crmWonRevenue"));
+        assertThat(dashboardRevenue.get("invoiceTotalValue")).isEqualTo(dedicated.get("invoiceTotalValue"));
+        assertThat(dashboardRevenue.get("collectedRevenue")).isEqualTo(dedicated.get("collectedRevenue"));
+    }
+
+    @Test
+    void dashboard_operations_matchesDedicatedOperationsEndpoint() {
+        // PHASE 7 requirement #7: Dashboard Operations == Operations endpoint result
+        var dashboard = commandCenterService.getDashboard(tenantId);
+        var dedicated = operationalService.getOperationalOverview(tenantId);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> dashboardOps = (Map<String, Object>) dashboard.operationalOverview();
+        assertThat(dashboardOps.keySet()).containsAll(
+                java.util.List.of("overallHealthStatus", "moduleCount", "totalOpenAlerts",
+                        "totalOpenRisks", "totalOpenIssues", "slaOverallState"));
+        assertThat(dedicated.keySet()).containsAll(dashboardOps.keySet());
+        assertThat(dashboardOps.get("overallHealthStatus")).isEqualTo(dedicated.get("overallHealthStatus"));
+        assertThat(dashboardOps.get("moduleCount")).isEqualTo(dedicated.get("moduleCount"));
+    }
+
+    @Test
+    void executiveReport_revenue_matchesRevenueService() {
+        // PHASE 7 requirement #8: Executive Report Revenue == RevenueOversightService result
+        var report = reportService.generateReport(tenantId);
+        var revenue = revenueService.getExecutiveRevenueOverview(tenantId);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reportRevenue = (Map<String, Object>) report.get("revenueOverview");
+        assertThat(reportRevenue.get("crmWonRevenue")).isEqualTo(revenue.get("crmWonRevenue"));
+        assertThat(reportRevenue.get("invoiceTotalValue")).isEqualTo(revenue.get("invoiceTotalValue"));
+    }
+
+    @Test
+    void executiveReport_operations_matchesOperationalService() {
+        // PHASE 7 requirement #9: Executive Report Operations == CrossModuleOperationalOverviewService
+        var report = reportService.generateReport(tenantId);
+        var ops = operationalService.getOperationalOverview(tenantId);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reportOps = (Map<String, Object>) report.get("operationalOverview");
+        assertThat(reportOps.get("overallHealthStatus")).isEqualTo(ops.get("overallHealthStatus"));
+        assertThat(reportOps.get("moduleCount")).isEqualTo(ops.get("moduleCount"));
+    }
+
+    @Test
+    void emptyTenant_returnsLegitimateTypedZeroValues() {
+        // PHASE 7 requirement #10: Empty tenant returns legitimate typed zero values
+        var revenue = revenueService.getExecutiveRevenueOverview(tenantId);
+        assertThat((java.math.BigDecimal) revenue.get("crmWonRevenue"))
+                .isEqualByComparingTo(java.math.BigDecimal.ZERO);
+        assertThat((java.math.BigDecimal) revenue.get("invoiceTotalValue"))
+                .isEqualByComparingTo(java.math.BigDecimal.ZERO);
+        assertThat((java.math.BigDecimal) revenue.get("collectedRevenue"))
+                .isEqualByComparingTo(java.math.BigDecimal.ZERO);
+        assertThat((java.math.BigDecimal) revenue.get("outstandingAmount"))
+                .isEqualByComparingTo(java.math.BigDecimal.ZERO);
+        // Source modules should still be present (CRM + FINANCE are available)
+        @SuppressWarnings("unchecked")
+        var sources = (java.util.List<String>) revenue.get("sourceModules");
+        assertThat(sources).contains("CRM", "FINANCE");
+    }
+
+    @Test
+    void noTransactionAbortErrors_whenCallingDashboard() {
+        // PHASE 7 requirement #19: No transaction-aborted errors
+        // Calling getDashboard multiple times should never throw
+        // UnexpectedRollbackException or produce "transaction is aborted" errors.
+        for (int i = 0; i < 3; i++) {
+            var dashboard = commandCenterService.getDashboard(tenantId);
+            assertThat(dashboard).isNotNull();
+            assertThat(dashboard.healthScore()).isBetween(0, 100);
+        }
+        // Also verify snapshotHealth works (it calls getDashboard + saves)
+        var snapshot = commandCenterService.snapshotHealth(tenantId);
+        assertThat(snapshot).isNotNull();
+        assertThat(snapshot.healthScore()).isBetween(0, 100);
+    }
+
+    @Test
+    void noPlaceholderDataInDashboard() {
+        // PHASE 7 requirement #20: No placeholder dashboard data
+        var dashboard = commandCenterService.getDashboard(tenantId);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> revenue = (Map<String, Object>) dashboard.revenueOverview();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ops = (Map<String, Object>) dashboard.operationalOverview();
+        assertThat(revenue.containsKey("_note")).isFalse();
+        assertThat(ops.containsKey("_note")).isFalse();
+        // Revenue must have actual revenue fields (not just a note)
+        assertThat(revenue).containsKey("crmWonRevenue");
+        assertThat(revenue).containsKey("invoiceTotalValue");
+        // Operations must have actual operational fields
+        assertThat(ops).containsKey("overallHealthStatus");
+        assertThat(ops).containsKey("moduleCount");
     }
 }

@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +22,13 @@ import java.util.UUID;
  * <p>CRITICAL: All queries are tenant-scoped via WHERE tenant_id = ?
  * No duplicate CRM business logic. No parallel CRM tables.
  * This is a READ-ONLY aggregation service — it does NOT mutate CRM data.
+ *
+ * <p>v20260815.9 FIX: Previously queried stale columns {@code estimated_value}
+ * and {@code actual_value} which do NOT exist in the {@code crm_opportunities}
+ * table. The actual column is {@code amount NUMERIC(24,6)} (V20260702_1).
+ * The broad {@code catch (Exception)} blocks that silently returned zero
+ * have been REMOVED — structural SQL errors now surface in tests/CI instead
+ * of being masked as "empty tenant" results.
  */
 @Service
 public class CrmManagementIntegrationService {
@@ -46,17 +54,17 @@ public class CrmManagementIntegrationService {
         var accountMetrics = getAccountMetrics(tenantId);
         overview.putAll(accountMetrics);
 
-        // Contact metrics
-        var contactCount = jdbc.queryForObject(
+        // Total accounts
+        var accountCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_accounts WHERE tenant_id = ?",
                 Integer.class, tenantId);
-        overview.put("totalAccounts", contactCount != null ? contactCount : 0);
+        overview.put("totalAccounts", accountCount != null ? accountCount : 0);
 
-        // Contact count
-        var contactCountVal = jdbc.queryForObject(
+        // Total contacts
+        var contactCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_contacts WHERE tenant_id = ?",
                 Integer.class, tenantId);
-        overview.put("totalContacts", contactCountVal != null ? contactCountVal : 0);
+        overview.put("totalContacts", contactCount != null ? contactCount : 0);
 
         // Opportunity metrics
         var oppMetrics = getOpportunityMetrics(tenantId);
@@ -70,8 +78,9 @@ public class CrmManagementIntegrationService {
         var activityMetrics = getActivityMetrics(tenantId);
         overview.putAll(activityMetrics);
 
-        log.info("CRM overview generated for tenant {}: {} accounts, {} opportunities",
-                tenantId, overview.get("totalAccounts"), overview.get("totalOpportunities"));
+        log.info("CRM overview generated for tenant {}: {} accounts, {} opportunities, wonRevenue={}",
+                tenantId, overview.get("totalAccounts"), overview.get("totalOpportunities"),
+                overview.get("wonRevenue"));
 
         return overview;
     }
@@ -86,15 +95,11 @@ public class CrmManagementIntegrationService {
         metrics.put("activeAccounts", activeAccounts != null ? activeAccounts : 0);
 
         // Account types breakdown
-        try {
-            var accountTypes = jdbc.queryForList(
-                    "SELECT COALESCE(account_type, 'UNKNOWN') as type, COUNT(*) as count " +
-                    "FROM crm_accounts WHERE tenant_id = ? GROUP BY account_type",
-                    tenantId);
-            metrics.put("accountTypeBreakdown", accountTypes);
-        } catch (Exception e) {
-            metrics.put("accountTypeBreakdown", List.of());
-        }
+        var accountTypes = jdbc.queryForList(
+                "SELECT COALESCE(account_type, 'UNKNOWN') as type, COUNT(*) as count " +
+                "FROM crm_accounts WHERE tenant_id = ? GROUP BY account_type",
+                tenantId);
+        metrics.put("accountTypeBreakdown", accountTypes);
 
         return metrics;
     }
@@ -126,27 +131,23 @@ public class CrmManagementIntegrationService {
                 Integer.class, tenantId);
         metrics.put("lostOpportunities", lostOpps != null ? lostOpps : 0);
 
-        // Total estimated revenue (sum of opportunity value for open opps)
-        try {
-            var estRevenue = jdbc.queryForObject(
-                    "SELECT COALESCE(SUM(COALESCE(estimated_value, 0)), 0) FROM crm_opportunities " +
-                    "WHERE tenant_id = ? AND status NOT IN ('WON','LOST','CLOSED')",
-                    java.math.BigDecimal.class, tenantId);
-            metrics.put("estimatedPipelineValue", estRevenue != null ? estRevenue : java.math.BigDecimal.ZERO);
-        } catch (Exception e) {
-            metrics.put("estimatedPipelineValue", java.math.BigDecimal.ZERO);
-        }
+        // Estimated pipeline value — sum of opportunity AMOUNT for open opps.
+        // v20260815.9 FIX: was "estimated_value" (stale, non-existent column).
+        // Actual column is "amount NUMERIC(24,6)" per V20260702_1.
+        var estRevenue = jdbc.queryForObject(
+                "SELECT COALESCE(SUM(COALESCE(amount, 0)), 0) FROM crm_opportunities " +
+                "WHERE tenant_id = ? AND status NOT IN ('WON','LOST','CLOSED')",
+                BigDecimal.class, tenantId);
+        metrics.put("estimatedPipelineValue", estRevenue != null ? estRevenue : BigDecimal.ZERO);
 
-        // Won revenue
-        try {
-            var wonRevenue = jdbc.queryForObject(
-                    "SELECT COALESCE(SUM(COALESCE(actual_value, 0)), 0) FROM crm_opportunities " +
-                    "WHERE tenant_id = ? AND status = 'WON'",
-                    java.math.BigDecimal.class, tenantId);
-            metrics.put("wonRevenue", wonRevenue != null ? wonRevenue : java.math.BigDecimal.ZERO);
-        } catch (Exception e) {
-            metrics.put("wonRevenue", java.math.BigDecimal.ZERO);
-        }
+        // Won revenue — sum of opportunity AMOUNT for WON opps.
+        // v20260815.9 FIX: was "actual_value" (stale, non-existent column).
+        // Actual column is "amount NUMERIC(24,6)" per V20260702_1.
+        var wonRevenue = jdbc.queryForObject(
+                "SELECT COALESCE(SUM(COALESCE(amount, 0)), 0) FROM crm_opportunities " +
+                "WHERE tenant_id = ? AND status = 'WON'",
+                BigDecimal.class, tenantId);
+        metrics.put("wonRevenue", wonRevenue != null ? wonRevenue : BigDecimal.ZERO);
 
         // Win rate
         int total = metrics.get("totalOpportunities") != null ? (int) metrics.get("totalOpportunities") : 0;
@@ -161,28 +162,22 @@ public class CrmManagementIntegrationService {
         var metrics = new HashMap<String, Object>();
 
         // Active pipelines
-        try {
-            var activePipelines = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM crm_pipelines WHERE tenant_id = ? AND active = TRUE",
-                    Integer.class, tenantId);
-            metrics.put("activePipelines", activePipelines != null ? activePipelines : 0);
-        } catch (Exception e) {
-            metrics.put("activePipelines", 0);
-        }
+        var activePipelines = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM crm_pipelines WHERE tenant_id = ? AND active = TRUE",
+                Integer.class, tenantId);
+        metrics.put("activePipelines", activePipelines != null ? activePipelines : 0);
 
-        // Pipeline stages
-        try {
-            var stageCounts = jdbc.queryForList(
-                    "SELECT ps.name as stage, COUNT(o.id) as count " +
-                    "FROM crm_pipeline_stages ps " +
-                    "LEFT JOIN crm_opportunities o ON o.pipeline_stage_id = ps.id " +
-                    "WHERE ps.tenant_id = ? " +
-                    "GROUP BY ps.name ORDER BY ps.sequence_order",
-                    tenantId);
-            metrics.put("pipelineStages", stageCounts);
-        } catch (Exception e) {
-            metrics.put("pipelineStages", List.of());
-        }
+        // Pipeline stages — v20260815.9 FIX: was "o.pipeline_stage_id" (stale)
+        // and "ps.sequence_order" (stale). Actual columns per V20260702_1:
+        // crm_opportunities.stage_id, crm_pipeline_stages.sequence.
+        var stageCounts = jdbc.queryForList(
+                "SELECT ps.name as stage, COUNT(o.id) as count " +
+                "FROM crm_pipeline_stages ps " +
+                "LEFT JOIN crm_opportunities o ON o.stage_id = ps.id AND o.tenant_id = ps.tenant_id " +
+                "WHERE ps.tenant_id = ? " +
+                "GROUP BY ps.name ORDER BY ps.sequence",
+                tenantId);
+        metrics.put("pipelineStages", stageCounts);
 
         return metrics;
     }
@@ -191,37 +186,25 @@ public class CrmManagementIntegrationService {
         var metrics = new HashMap<String, Object>();
 
         // Total activities
-        try {
-            var totalActivities = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM crm_activities WHERE tenant_id = ?",
-                    Integer.class, tenantId);
-            metrics.put("totalActivities", totalActivities != null ? totalActivities : 0);
-        } catch (Exception e) {
-            metrics.put("totalActivities", 0);
-        }
+        var totalActivities = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM crm_activities WHERE tenant_id = ?",
+                Integer.class, tenantId);
+        metrics.put("totalActivities", totalActivities != null ? totalActivities : 0);
 
         // Activities this month
-        try {
-            var monthActivities = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM crm_activities WHERE tenant_id = ? " +
-                    "AND created_at >= date_trunc('month', NOW())",
-                    Integer.class, tenantId);
-            metrics.put("activitiesThisMonth", monthActivities != null ? monthActivities : 0);
-        } catch (Exception e) {
-            metrics.put("activitiesThisMonth", 0);
-        }
+        var monthActivities = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM crm_activities WHERE tenant_id = ? " +
+                "AND created_at >= date_trunc('month', NOW())",
+                Integer.class, tenantId);
+        metrics.put("activitiesThisMonth", monthActivities != null ? monthActivities : 0);
 
         // Activity types breakdown
-        try {
-            var activityTypes = jdbc.queryForList(
-                    "SELECT COALESCE(activity_type, 'UNKNOWN') as type, COUNT(*) as count " +
-                    "FROM crm_activities WHERE tenant_id = ? " +
-                    "GROUP BY activity_type ORDER BY count DESC LIMIT 10",
-                    tenantId);
-            metrics.put("activityTypeBreakdown", activityTypes);
-        } catch (Exception e) {
-            metrics.put("activityTypeBreakdown", List.of());
-        }
+        var activityTypes = jdbc.queryForList(
+                "SELECT COALESCE(activity_type, 'UNKNOWN') as type, COUNT(*) as count " +
+                "FROM crm_activities WHERE tenant_id = ? " +
+                "GROUP BY activity_type ORDER BY count DESC LIMIT 10",
+                tenantId);
+        metrics.put("activityTypeBreakdown", activityTypes);
 
         return metrics;
     }

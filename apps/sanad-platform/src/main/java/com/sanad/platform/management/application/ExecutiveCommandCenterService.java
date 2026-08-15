@@ -33,6 +33,8 @@ public class ExecutiveCommandCenterService {
     private final FinanceManagementIntegrationService financeIntegrationService;
     private final ModuleGovernanceService moduleGovernanceService;
     private final GovernedSystemsOverviewService governedSystemsOverviewService;
+    private final RevenueOversightService revenueOversightService;
+    private final CrossModuleOperationalOverviewService operationalOverviewService;
     private final JdbcTemplate jdbc;
 
     public ExecutiveCommandCenterService(
@@ -50,6 +52,8 @@ public class ExecutiveCommandCenterService {
             FinanceManagementIntegrationService financeIntegrationService,
             ModuleGovernanceService moduleGovernanceService,
             GovernedSystemsOverviewService governedSystemsOverviewService,
+            @Lazy RevenueOversightService revenueOversightService,
+            @Lazy CrossModuleOperationalOverviewService operationalOverviewService,
             JdbcTemplate jdbc) {
         this.objectiveRepo = objectiveRepo;
         this.keyResultRepo = keyResultRepo;
@@ -65,6 +69,8 @@ public class ExecutiveCommandCenterService {
         this.financeIntegrationService = financeIntegrationService;
         this.moduleGovernanceService = moduleGovernanceService;
         this.governedSystemsOverviewService = governedSystemsOverviewService;
+        this.revenueOversightService = revenueOversightService;
+        this.operationalOverviewService = operationalOverviewService;
         this.jdbc = jdbc;
     }
 
@@ -121,16 +127,14 @@ public class ExecutiveCommandCenterService {
         List<Map<String, Object>> moduleGovernance = safeList(() -> moduleGovernanceService.getModuleStatuses());
         // Governed-systems overviews (CRM/Analytics/Workflow) are loaded via a
         // SEPARATE @Transactional(REQUIRES_NEW) bean so failures do not pollute
-        // the outer dashboard transaction (PSQLException would otherwise abort
-        // the entire @Transactional(readOnly=true) scope).
+        // the outer dashboard transaction.
         var governedSystems = governedSystemsOverviewService.loadAll(tenantId);
-        // GAP 19 (Revenue) + GAP 18 (Operations) are exposed via dedicated
-        // endpoints (/api/v1/management/oversight/{revenue,operations}/overview)
-        // rather than inlined in the dashboard to avoid transaction-abort
-        // cascades from the CRM estimated_value column not existing in test fixtures.
-        // The ExecutiveReportService.generateReport aggregates them all.
-        Map<String, Object> revenueOverview = Map.of("_note", "use /api/v1/management/oversight/revenue/overview");
-        Map<String, Object> operationalOverview = Map.of("_note", "use /api/v1/management/oversight/operations/overview");
+        // GAP 19 (Revenue) + GAP 18 (Operations) — v20260815.9: REAL data inlined.
+        // These services use REQUIRES_NEW loaders internally, so any SQL failure
+        // is isolated and does NOT abort the dashboard's outer transaction.
+        // The CRM query is now fixed (uses 'amount' column, not 'estimated_value').
+        Map<String, Object> revenueOverview = safeOverview(() -> revenueOversightService.getExecutiveRevenueOverview(tenantId));
+        Map<String, Object> operationalOverview = safeOverview(() -> operationalOverviewService.getOperationalOverview(tenantId));
 
         return new CommandCenterDashboard(
                 healthScore, strategyScore, kpiScore, decisionScore, riskScore, issueScore, escalationScore,
