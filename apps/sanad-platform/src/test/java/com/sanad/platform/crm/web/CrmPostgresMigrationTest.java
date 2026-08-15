@@ -110,8 +110,10 @@ class CrmPostgresMigrationTest {
     private static final String AI_CAPABILITIES_VERSION = "20260815.15";
     private static final String FINANCE_MODULE_VERSION = "20260815.16";
     private static final String FINANCE_CAPABILITIES_VERSION = "20260815.17";
-    // Latest migration after Finance Module development
-    private static final String LATEST_MIGRATION_VERSION = FINANCE_CAPABILITIES_VERSION;
+    private static final String ANALYTICS_MODULE_VERSION = "20260815.18";
+    private static final String ANALYTICS_CAPABILITIES_VERSION = "20260815.19";
+    // Latest migration after Analytics Module development
+    private static final String LATEST_MIGRATION_VERSION = ANALYTICS_CAPABILITIES_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -279,7 +281,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(AI_MODULE_VERSION),
                         MigrationVersion.fromVersion(AI_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(FINANCE_MODULE_VERSION),
-                        MigrationVersion.fromVersion(FINANCE_CAPABILITIES_VERSION));
+                        MigrationVersion.fromVersion(FINANCE_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(ANALYTICS_MODULE_VERSION),
+                        MigrationVersion.fromVersion(ANALYTICS_CAPABILITIES_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -379,7 +383,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(AI_MODULE_VERSION),
                         MigrationVersion.fromVersion(AI_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(FINANCE_MODULE_VERSION),
-                        MigrationVersion.fromVersion(FINANCE_CAPABILITIES_VERSION));
+                        MigrationVersion.fromVersion(FINANCE_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(ANALYTICS_MODULE_VERSION),
+                        MigrationVersion.fromVersion(ANALYTICS_CAPABILITIES_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -543,6 +549,8 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, AI_CAPABILITIES_VERSION, "SQL", "add ai capabilities");
         assertMigration(jdbc, FINANCE_MODULE_VERSION, "SQL", "create finance module");
         assertMigration(jdbc, FINANCE_CAPABILITIES_VERSION, "SQL", "add finance capabilities");
+        assertMigration(jdbc, ANALYTICS_MODULE_VERSION, "SQL", "create analytics module");
+        assertMigration(jdbc, ANALYTICS_CAPABILITIES_VERSION, "SQL", "add analytics capabilities");
 
         assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
