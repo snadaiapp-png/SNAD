@@ -31,7 +31,7 @@ class PlatformApiCountTest {
     private static final long EXPECTED_CRM_V1_OPS = 125;
     private static final long EXPECTED_CRM_V2_OPS = 192;
     /** 554 previous operations + 1 Finance executive overview + 1 Module Governance status = 556. */
-    private static final long EXPECTED_TOTAL_OPS = 557;
+    private static final long EXPECTED_TOTAL_OPS = 558;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
     private static final long EXPECTED_COMMITTED_CRM_PATHS = 142;

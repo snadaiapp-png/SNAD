@@ -5,6 +5,7 @@ import com.sanad.platform.management.application.ExecutiveAlertService;
 import com.sanad.platform.management.application.ExecutiveCommandCenterService;
 import com.sanad.platform.management.application.ExecutiveIntelligenceService;
 import com.sanad.platform.management.application.AnalyticsManagementIntegrationService;
+import com.sanad.platform.management.application.WorkflowSystemHealthService;
 import com.sanad.platform.management.application.FinanceManagementIntegrationService;
 import com.sanad.platform.management.application.ModuleGovernanceService;
 import com.sanad.platform.management.domain.ExecutiveAlert;
@@ -35,6 +36,7 @@ public class CommandCenterController {
     private final FinanceManagementIntegrationService financeIntegrationService;
     private final ModuleGovernanceService moduleGovernanceService;
     private final AnalyticsManagementIntegrationService analyticsIntegrationService;
+    private final WorkflowSystemHealthService workflowSystemHealthService;
 
     public CommandCenterController(
             ExecutiveCommandCenterService commandCenterService,
@@ -43,7 +45,8 @@ public class CommandCenterController {
             CrmManagementIntegrationService crmIntegrationService,
             FinanceManagementIntegrationService financeIntegrationService,
             ModuleGovernanceService moduleGovernanceService,
-            AnalyticsManagementIntegrationService analyticsIntegrationService) {
+            AnalyticsManagementIntegrationService analyticsIntegrationService,
+            WorkflowSystemHealthService workflowSystemHealthService) {
         this.commandCenterService = commandCenterService;
         this.alertService = alertService;
         this.intelligenceService = intelligenceService;
@@ -51,6 +54,7 @@ public class CommandCenterController {
         this.financeIntegrationService = financeIntegrationService;
         this.moduleGovernanceService = moduleGovernanceService;
         this.analyticsIntegrationService = analyticsIntegrationService;
+        this.workflowSystemHealthService = workflowSystemHealthService;
     }
 
     @GetMapping("/command-center")
@@ -174,5 +178,11 @@ public class CommandCenterController {
     @RequireCapability("EXECUTIVE_COMMAND_CENTER.VIEW")
     public ResponseEntity<Map<String, Object>> analyticsOverview(Authentication auth) {
         return ResponseEntity.ok(analyticsIntegrationService.getAnalyticsOverview(tenantId(auth)));
+    }
+
+    @GetMapping("/workflow/health")
+    @RequireCapability("EXECUTIVE_COMMAND_CENTER.VIEW")
+    public ResponseEntity<Map<String, Object>> workflowHealth(Authentication auth) {
+        return ResponseEntity.ok(workflowSystemHealthService.getWorkflowHealth(tenantId(auth)));
     }
 }
