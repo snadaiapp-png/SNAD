@@ -1,7 +1,7 @@
 package com.sanad.platform.management;
 
 import com.sanad.platform.management.application.FinanceManagementIntegrationService;
-import com.sanad.platform.security.RequireCapability;
+import com.sanad.platform.security.authorization.RequireCapability;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
