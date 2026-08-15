@@ -131,7 +131,7 @@ class RevenueOversightIntegrationTest {
                 pipelineId, tenantId, userId, now, now);
         jdbc.update("INSERT INTO crm_pipeline_stages (id, tenant_id, pipeline_id, name, sequence, probability, active) "
                         + "VALUES (?, ?, ?, 'Closed Won', 10, 100.00, TRUE)",
-                stageId, tenantId, pipelineId, "Won");
+                stageId, tenantId, pipelineId);
         jdbc.update("INSERT INTO crm_accounts (id, tenant_id, name, account_type, lifecycle_status, created_by, updated_by, created_at, updated_at) "
                         + "VALUES (?, ?, 'Test Account', 'BUSINESS', 'ACTIVE', ?, ?, ?, ?)",
                 accountId, tenantId, userId, userId, now, now);
@@ -159,7 +159,7 @@ class RevenueOversightIntegrationTest {
                 pipelineId, tenantId, userId, now, now);
         jdbc.update("INSERT INTO crm_pipeline_stages (id, tenant_id, pipeline_id, name, sequence, probability, active) "
                         + "VALUES (?, ?, ?, 'Negotiation', 5, 50.00, TRUE)",
-                stageId, tenantId, pipelineId, "Neg");
+                stageId, tenantId, pipelineId);
         jdbc.update("INSERT INTO crm_opportunities (id, tenant_id, pipeline_id, stage_id, name, amount, currency_code, probability, status, created_by, updated_by, created_at, updated_at) "
                         + "VALUES (?, ?, ?, ?, 'Open Opp', 5000.00, 'SAR', 50.00, 'OPEN', ?, ?, ?, ?)",
                 oppId, tenantId, pipelineId, stageId, userId, userId, now, now);

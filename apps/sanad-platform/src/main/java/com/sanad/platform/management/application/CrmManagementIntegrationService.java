@@ -170,12 +170,13 @@ public class CrmManagementIntegrationService {
         // Pipeline stages — v20260815.9 FIX: was "o.pipeline_stage_id" (stale)
         // and "ps.sequence_order" (stale). Actual columns per V20260702_1:
         // crm_opportunities.stage_id, crm_pipeline_stages.sequence.
+        // Also: ps.sequence must appear in GROUP BY when used in ORDER BY.
         var stageCounts = jdbc.queryForList(
                 "SELECT ps.name as stage, COUNT(o.id) as count " +
                 "FROM crm_pipeline_stages ps " +
                 "LEFT JOIN crm_opportunities o ON o.stage_id = ps.id AND o.tenant_id = ps.tenant_id " +
                 "WHERE ps.tenant_id = ? " +
-                "GROUP BY ps.name ORDER BY ps.sequence",
+                "GROUP BY ps.name, ps.sequence ORDER BY ps.sequence",
                 tenantId);
         metrics.put("pipelineStages", stageCounts);
 
