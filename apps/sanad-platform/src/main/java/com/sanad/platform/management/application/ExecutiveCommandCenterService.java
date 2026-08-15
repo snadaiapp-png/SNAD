@@ -31,9 +31,7 @@ public class ExecutiveCommandCenterService {
     private final ExecutiveHealthSnapshotRepository snapshotRepo;
     private final FinanceManagementIntegrationService financeIntegrationService;
     private final ModuleGovernanceService moduleGovernanceService;
-    private final CrmManagementIntegrationService crmIntegrationService;
-    private final AnalyticsManagementIntegrationService analyticsIntegrationService;
-    private final WorkflowSystemHealthService workflowHealthService;
+    private final GovernedSystemsOverviewService governedSystemsOverviewService;
     private final JdbcTemplate jdbc;
 
     public ExecutiveCommandCenterService(
@@ -50,9 +48,7 @@ public class ExecutiveCommandCenterService {
             ExecutiveHealthSnapshotRepository snapshotRepo,
             FinanceManagementIntegrationService financeIntegrationService,
             ModuleGovernanceService moduleGovernanceService,
-            CrmManagementIntegrationService crmIntegrationService,
-            AnalyticsManagementIntegrationService analyticsIntegrationService,
-            WorkflowSystemHealthService workflowHealthService,
+            GovernedSystemsOverviewService governedSystemsOverviewService,
             JdbcTemplate jdbc) {
         this.objectiveRepo = objectiveRepo;
         this.keyResultRepo = keyResultRepo;
@@ -67,9 +63,7 @@ public class ExecutiveCommandCenterService {
         this.snapshotRepo = snapshotRepo;
         this.financeIntegrationService = financeIntegrationService;
         this.moduleGovernanceService = moduleGovernanceService;
-        this.crmIntegrationService = crmIntegrationService;
-        this.analyticsIntegrationService = analyticsIntegrationService;
-        this.workflowHealthService = workflowHealthService;
+        this.governedSystemsOverviewService = governedSystemsOverviewService;
         this.jdbc = jdbc;
     }
 
@@ -124,9 +118,11 @@ public class ExecutiveCommandCenterService {
 
         Map<String, Object> financeOverview = safeOverview(() -> financeIntegrationService.getOverview(tenantId));
         List<Map<String, Object>> moduleGovernance = safeList(() -> moduleGovernanceService.getModuleStatuses());
-        Map<String, Object> crmOverview = safeOverview(() -> crmIntegrationService.getCrmOverview(tenantId));
-        Map<String, Object> analyticsOverview = safeOverview(() -> analyticsIntegrationService.getAnalyticsOverview(tenantId));
-        Map<String, Object> workflowHealth = safeOverview(() -> workflowHealthService.getWorkflowHealth(tenantId));
+        // Governed-systems overviews (CRM/Analytics/Workflow) are loaded via a
+        // SEPARATE @Transactional(REQUIRES_NEW) bean so failures do not pollute
+        // the outer dashboard transaction (PSQLException would otherwise abort
+        // the entire @Transactional(readOnly=true) scope).
+        var governedSystems = governedSystemsOverviewService.loadAll(tenantId);
 
         return new CommandCenterDashboard(
                 healthScore, strategyScore, kpiScore, decisionScore, riskScore, issueScore, escalationScore,
@@ -138,7 +134,7 @@ public class ExecutiveCommandCenterService {
                 activeEscalations, overdueEscalations, escalations.size(),
                 alerts.size(),
                 financeOverview, moduleGovernance,
-                crmOverview, analyticsOverview, workflowHealth,
+                governedSystems.crm(), governedSystems.analytics(), governedSystems.workflow(),
                 Instant.now()
         );
     }
@@ -150,7 +146,7 @@ public class ExecutiveCommandCenterService {
             Map<String, Object> result = supplier.get();
             return result == null ? Map.of() : result;
         } catch (Exception e) {
-            return Map.of("_error", e.getClass().getSimpleName() + ": " + e.getMessage(),
+            return Map.of("_error", e.getClass().getSimpleName(),
                     "_status", "UNAVAILABLE");
         }
     }
