@@ -152,7 +152,10 @@ class CrmFlywayHistoryAssertionTest {
             "20260815.16",   // create finance module
             "20260815.17",   // add finance capabilities
             "20260815.18",   // create analytics module
-            "20260815.19"    // add analytics capabilities
+            "20260815.19",   // add analytics capabilities
+            "20260815.20",   // tenant domains and billing state (v20260815.7 — Final Governance Closure)
+            "20260815.21",   // drop tenant entitlement cache (dead code removed)
+            "20260815.23"    // seed domain management and billing capabilities
     );
 
 
