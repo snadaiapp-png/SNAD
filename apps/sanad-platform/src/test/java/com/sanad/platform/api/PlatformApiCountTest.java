@@ -45,8 +45,8 @@ class PlatformApiCountTest {
     /** 95 CRM baseline + 38 ownership + 7 CRM-009 integration + 52 expanded v2 endpoints = 192. */
     private static final long EXPECTED_CRM_V2_OPS = 192;
     /** 357 original - 35 control-plane + 37 executive (incl. 10 Mission 01) + 4 system-health + 52 CRM v2 growth + 6 Mission 02 lifecycle/reset + 67 Senior Management (Phase A+B+C+D-G) = 488. */
-    /** 506 (previous) + 11 AI module endpoints (agents CRUD+activate+deactivate+archive, inferences list+get+byAgent, execute, quota) = 517. */
-    private static final long EXPECTED_TOTAL_OPS = 517;
+    /** 517 (previous) + 15 Finance module endpoints (accounts CRUD+deactivate+archive, invoices CRUD+issue+cancel+mark-paid, payments CRUD+complete+fail+refund, quota) = 532. */
+    private static final long EXPECTED_TOTAL_OPS = 532;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
     private static final long EXPECTED_COMMITTED_CRM_PATHS = 142;

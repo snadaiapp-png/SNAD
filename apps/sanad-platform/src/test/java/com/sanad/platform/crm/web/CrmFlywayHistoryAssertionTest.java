@@ -148,7 +148,9 @@ class CrmFlywayHistoryAssertionTest {
             "20260815.12",   // add requested by to approvals
             "20260815.13",   // make approval step instance id nullable
             "20260815.14",   // create ai module
-            "20260815.15"    // add ai capabilities
+            "20260815.15",   // add ai capabilities
+            "20260815.16",   // create finance module
+            "20260815.17"    // add finance capabilities
     );
 
 
