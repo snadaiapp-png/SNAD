@@ -75,7 +75,11 @@ public class ExecutiveReportService {
         this.intelligenceService = intelligenceService;
     }
 
-    @Transactional(readOnly = true)
+    /**
+     * Generate the executive report. No outer transaction — each section
+     * is loaded independently and exceptions are caught per-section so a
+     * failure in one section does not abort the others.
+     */
     public Map<String, Object> generateReport(UUID tenantId) {
         Map<String, Object> report = new LinkedHashMap<>();
 

@@ -2,8 +2,6 @@ package com.sanad.platform.management.application;
 
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;
@@ -44,9 +42,8 @@ public class RevenueOversightService {
     /**
      * Build the unified Executive Revenue Overview for a tenant.
      * Routes through {@link RevenueDataLoader#loadInNewTransaction(UUID)}
-     * (REQUIRES_NEW) so failures do not pollute the caller's transaction.
+     * (no transaction — each integration call is independently try/caught).
      */
-    @Transactional(readOnly = true)
     public Map<String, Object> getExecutiveRevenueOverview(UUID tenantId) {
         RevenueData revenue = dataLoader.loadInNewTransaction(tenantId);
         Map<String, Object> result = new LinkedHashMap<>(revenue.rawData);

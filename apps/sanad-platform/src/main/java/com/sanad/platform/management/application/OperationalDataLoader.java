@@ -2,16 +2,16 @@ package com.sanad.platform.management.application;
 
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 /**
- * Loads cross-module operational data in a REQUIRES_NEW transaction so
- * PSQLException aborts do not pollute the caller's transaction.
+ * Loads cross-module operational data WITHOUT a transaction so
+ * PSQLException aborts in any module do not pollute the caller's
+ * transaction. Each adapter method is independently try/caught by
+ * the registry's compositeSummary method.
  *
  * <p>Used by {@link CrossModuleOperationalOverviewService}.
  */
@@ -24,7 +24,7 @@ public class OperationalDataLoader {
         this.registry = registry;
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
+    /** No @Transactional — read-only aggregation, exceptions caught by registry. */
     public CrossModuleOperationalOverviewService.OperationalData loadInNewTransaction(UUID tenantId) {
         // Force fresh discovery
         registry.invalidate(tenantId);

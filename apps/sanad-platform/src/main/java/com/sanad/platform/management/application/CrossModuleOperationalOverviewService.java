@@ -31,7 +31,10 @@ public class CrossModuleOperationalOverviewService {
         this.dataLoader = dataLoader;
     }
 
-    @Transactional(readOnly = true)
+    /**
+     * Build the operational overview. No transaction — the data loader
+     * catches exceptions per-module independently.
+     */
     public Map<String, Object> getOperationalOverview(UUID tenantId) {
         // Force fresh discovery (invalidate cache)
         // Note: registry.invalidate is safe to call from any transaction.

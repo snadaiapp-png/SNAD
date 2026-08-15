@@ -2,8 +2,6 @@ package com.sanad.platform.management.application;
 
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -12,11 +10,14 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Loads revenue data from CRM + Finance in a REQUIRES_NEW transaction
- * so PSQLException aborts do not pollute the caller's transaction.
+ * Loads revenue data from CRM + Finance WITHOUT a transaction
+ * so PSQLException aborts in one service do not pollute the caller's
+ * transaction.
  *
- * <p>Used by {@link RevenueOversightService} via Spring proxy (the
- * {@code @Lazy} self-injection pattern).
+ * <p>The methods are read-only aggregations. Each integration service
+ * call is wrapped in try/catch — failures return zero, not exceptions.
+ *
+ * <p>Used by {@link RevenueOversightService}.
  */
 @Service
 public class RevenueDataLoader {
@@ -31,7 +32,7 @@ public class RevenueDataLoader {
         this.financeService = financeService;
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
+    /** No @Transactional — each integration call is independently try/caught. */
     public RevenueOversightService.RevenueData loadInNewTransaction(UUID tenantId) {
         BigDecimal crmWonRevenue = BigDecimal.ZERO;
         BigDecimal crmPipelineValue = BigDecimal.ZERO;
