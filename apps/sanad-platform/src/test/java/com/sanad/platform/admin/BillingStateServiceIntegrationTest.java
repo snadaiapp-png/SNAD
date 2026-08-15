@@ -60,9 +60,9 @@ class BillingStateServiceIntegrationTest {
 
         // Plan
         jdbc.update("INSERT INTO saas_plans "
-                        + "(id, code, name, status, currency, price_minor, billing_cycle, "
-                        + " max_users, max_organizations, storage_mb, trial_days, version, created_at, updated_at) "
-                        + "VALUES (?, 'TEST', 'Test Plan', 'ACTIVE', 'SAR', 10000, 'MONTHLY', 5, 1, 1024, 0, 0, ?, ?)",
+                        + "(id, code, name, status, currency_code, monthly_price_minor, annual_price_minor, "
+                        + " trial_days, max_users, max_organizations, storage_mb, created_at, updated_at) "
+                        + "VALUES (?, 'TEST', 'Test Plan', 'ACTIVE', 'SAR', 10000, 100000, 0, 5, 1, 1024, ?, ?)",
                 planId, now, now);
 
         // Subscription with billing_state=CURRENT
@@ -156,10 +156,10 @@ class BillingStateServiceIntegrationTest {
         UUID invoiceId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO billing_invoices "
-                        + "(id, tenant_id, subscription_id, invoice_number, status, currency, "
+                        + "(id, tenant_id, subscription_id, invoice_number, status, currency_code, "
                         + " subtotal_minor, credit_applied_minor, tax_minor, total_minor, amount_paid_minor, "
-                        + " period_start, period_end, due_at, version, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, 'OPEN', 'SAR', 10000, 0, 1500, 11500, 0, ?, ?, ?, 0, ?, ?)",
+                        + " period_start, period_end, due_at, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, ?, 'OPEN', 'SAR', 10000, 0, 1500, 11500, 0, ?, ?, ?, ?, ?)",
                 invoiceId, tenantId, subscriptionId, "INV-TEST-" + invoiceId.toString().substring(0, 8),
                 now, Timestamp.from(Instant.now().plus(30, ChronoUnit.DAYS)),
                 Timestamp.from(dueAt), now, now);
