@@ -48,13 +48,13 @@ public class CrmManagementIntegrationService {
 
         // Contact metrics
         var contactCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_accounts WHERE tenant_id = ? AND deleted_at IS NULL",
+                "SELECT COUNT(*) FROM crm_accounts WHERE tenant_id = ?",
                 Integer.class, tenantId);
         overview.put("totalAccounts", contactCount != null ? contactCount : 0);
 
         // Contact count
         var contactCountVal = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_contacts WHERE tenant_id = ? AND deleted_at IS NULL",
+                "SELECT COUNT(*) FROM crm_contacts WHERE tenant_id = ?",
                 Integer.class, tenantId);
         overview.put("totalContacts", contactCountVal != null ? contactCountVal : 0);
 
@@ -81,7 +81,7 @@ public class CrmManagementIntegrationService {
 
         // Active accounts
         var activeAccounts = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_accounts WHERE tenant_id = ? AND status = 'ACTIVE' AND deleted_at IS NULL",
+                "SELECT COUNT(*) FROM crm_accounts WHERE tenant_id = ? AND lifecycle_status = 'ACTIVE'",
                 Integer.class, tenantId);
         metrics.put("activeAccounts", activeAccounts != null ? activeAccounts : 0);
 
@@ -89,7 +89,7 @@ public class CrmManagementIntegrationService {
         try {
             var accountTypes = jdbc.queryForList(
                     "SELECT COALESCE(account_type, 'UNKNOWN') as type, COUNT(*) as count " +
-                    "FROM crm_accounts WHERE tenant_id = ? AND deleted_at IS NULL GROUP BY account_type",
+                    "FROM crm_accounts WHERE tenant_id = ? GROUP BY account_type",
                     tenantId);
             metrics.put("accountTypeBreakdown", accountTypes);
         } catch (Exception e) {
@@ -104,25 +104,25 @@ public class CrmManagementIntegrationService {
 
         // Total opportunities
         var totalOpps = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_opportunities WHERE tenant_id = ? AND deleted_at IS NULL",
+                "SELECT COUNT(*) FROM crm_opportunities WHERE tenant_id = ?",
                 Integer.class, tenantId);
         metrics.put("totalOpportunities", totalOpps != null ? totalOpps : 0);
 
         // Open opportunities
         var openOpps = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_opportunities WHERE tenant_id = ? AND status NOT IN ('WON','LOST','CLOSED') AND deleted_at IS NULL",
+                "SELECT COUNT(*) FROM crm_opportunities WHERE tenant_id = ? AND status NOT IN ('WON','LOST','CLOSED')",
                 Integer.class, tenantId);
         metrics.put("openOpportunities", openOpps != null ? openOpps : 0);
 
         // Won opportunities
         var wonOpps = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_opportunities WHERE tenant_id = ? AND status = 'WON' AND deleted_at IS NULL",
+                "SELECT COUNT(*) FROM crm_opportunities WHERE tenant_id = ? AND status = 'WON'",
                 Integer.class, tenantId);
         metrics.put("wonOpportunities", wonOpps != null ? wonOpps : 0);
 
         // Lost opportunities
         var lostOpps = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_opportunities WHERE tenant_id = ? AND status = 'LOST' AND deleted_at IS NULL",
+                "SELECT COUNT(*) FROM crm_opportunities WHERE tenant_id = ? AND status = 'LOST'",
                 Integer.class, tenantId);
         metrics.put("lostOpportunities", lostOpps != null ? lostOpps : 0);
 
@@ -130,7 +130,7 @@ public class CrmManagementIntegrationService {
         try {
             var estRevenue = jdbc.queryForObject(
                     "SELECT COALESCE(SUM(COALESCE(estimated_value, 0)), 0) FROM crm_opportunities " +
-                    "WHERE tenant_id = ? AND status NOT IN ('WON','LOST','CLOSED') AND deleted_at IS NULL",
+                    "WHERE tenant_id = ? AND status NOT IN ('WON','LOST','CLOSED')",
                     java.math.BigDecimal.class, tenantId);
             metrics.put("estimatedPipelineValue", estRevenue != null ? estRevenue : java.math.BigDecimal.ZERO);
         } catch (Exception e) {
@@ -141,7 +141,7 @@ public class CrmManagementIntegrationService {
         try {
             var wonRevenue = jdbc.queryForObject(
                     "SELECT COALESCE(SUM(COALESCE(actual_value, 0)), 0) FROM crm_opportunities " +
-                    "WHERE tenant_id = ? AND status = 'WON' AND deleted_at IS NULL",
+                    "WHERE tenant_id = ? AND status = 'WON'",
                     java.math.BigDecimal.class, tenantId);
             metrics.put("wonRevenue", wonRevenue != null ? wonRevenue : java.math.BigDecimal.ZERO);
         } catch (Exception e) {
@@ -163,7 +163,7 @@ public class CrmManagementIntegrationService {
         // Active pipelines
         try {
             var activePipelines = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM crm_pipelines WHERE tenant_id = ? AND status = 'ACTIVE'",
+                    "SELECT COUNT(*) FROM crm_pipelines WHERE tenant_id = ? AND active = TRUE",
                     Integer.class, tenantId);
             metrics.put("activePipelines", activePipelines != null ? activePipelines : 0);
         } catch (Exception e) {
@@ -175,7 +175,7 @@ public class CrmManagementIntegrationService {
             var stageCounts = jdbc.queryForList(
                     "SELECT ps.name as stage, COUNT(o.id) as count " +
                     "FROM crm_pipeline_stages ps " +
-                    "LEFT JOIN crm_opportunities o ON o.pipeline_stage_id = ps.id AND o.deleted_at IS NULL " +
+                    "LEFT JOIN crm_opportunities o ON o.pipeline_stage_id = ps.id " +
                     "WHERE ps.tenant_id = ? " +
                     "GROUP BY ps.name ORDER BY ps.sequence_order",
                     tenantId);
@@ -193,7 +193,7 @@ public class CrmManagementIntegrationService {
         // Total activities
         try {
             var totalActivities = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM crm_activities WHERE tenant_id = ? AND deleted_at IS NULL",
+                    "SELECT COUNT(*) FROM crm_activities WHERE tenant_id = ?",
                     Integer.class, tenantId);
             metrics.put("totalActivities", totalActivities != null ? totalActivities : 0);
         } catch (Exception e) {
@@ -203,7 +203,7 @@ public class CrmManagementIntegrationService {
         // Activities this month
         try {
             var monthActivities = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM crm_activities WHERE tenant_id = ? AND deleted_at IS NULL " +
+                    "SELECT COUNT(*) FROM crm_activities WHERE tenant_id = ? " +
                     "AND created_at >= date_trunc('month', NOW())",
                     Integer.class, tenantId);
             metrics.put("activitiesThisMonth", monthActivities != null ? monthActivities : 0);
@@ -215,7 +215,7 @@ public class CrmManagementIntegrationService {
         try {
             var activityTypes = jdbc.queryForList(
                     "SELECT COALESCE(activity_type, 'UNKNOWN') as type, COUNT(*) as count " +
-                    "FROM crm_activities WHERE tenant_id = ? AND deleted_at IS NULL " +
+                    "FROM crm_activities WHERE tenant_id = ? " +
                     "GROUP BY activity_type ORDER BY count DESC LIMIT 10",
                     tenantId);
             metrics.put("activityTypeBreakdown", activityTypes);
