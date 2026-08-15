@@ -106,8 +106,10 @@ class CrmPostgresMigrationTest {
     private static final String WORKFLOW_CAPABILITIES_VERSION = "20260815.11";
     private static final String WORKFLOW_SOD_VERSION = "20260815.12";
     private static final String WORKFLOW_STEP_NULLABLE_VERSION = "20260815.13";
-    // Latest migration after Senior Management development
-    private static final String LATEST_MIGRATION_VERSION = WORKFLOW_STEP_NULLABLE_VERSION;
+    private static final String AI_MODULE_VERSION = "20260815.14";
+    private static final String AI_CAPABILITIES_VERSION = "20260815.15";
+    // Latest migration after AI Module development
+    private static final String LATEST_MIGRATION_VERSION = AI_CAPABILITIES_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -271,7 +273,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WORKFLOW_ENGINE_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_SOD_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_STEP_NULLABLE_VERSION));
+                        MigrationVersion.fromVersion(WORKFLOW_STEP_NULLABLE_VERSION),
+                        MigrationVersion.fromVersion(AI_MODULE_VERSION),
+                        MigrationVersion.fromVersion(AI_CAPABILITIES_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -367,7 +371,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WORKFLOW_ENGINE_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_SOD_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_STEP_NULLABLE_VERSION));
+                        MigrationVersion.fromVersion(WORKFLOW_STEP_NULLABLE_VERSION),
+                        MigrationVersion.fromVersion(AI_MODULE_VERSION),
+                        MigrationVersion.fromVersion(AI_CAPABILITIES_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -527,6 +533,8 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, WORKFLOW_CAPABILITIES_VERSION, "SQL", "add workflow capabilities");
         assertMigration(jdbc, WORKFLOW_SOD_VERSION, "SQL", "add requested by to approvals");
         assertMigration(jdbc, WORKFLOW_STEP_NULLABLE_VERSION, "SQL", "make approval step instance id nullable");
+        assertMigration(jdbc, AI_MODULE_VERSION, "SQL", "create ai module");
+        assertMigration(jdbc, AI_CAPABILITIES_VERSION, "SQL", "add ai capabilities");
 
         assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
