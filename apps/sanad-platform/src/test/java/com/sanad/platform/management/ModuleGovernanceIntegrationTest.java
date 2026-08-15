@@ -25,12 +25,12 @@ class ModuleGovernanceIntegrationTest {
     @Test
     void status_returnsAllRegisteredModulesInRegistryOrder() {
         var modules = moduleGovernanceService.getModuleStatuses();
-        var registry = moduleRepository.findAll();
+        var registryCodes = moduleRepository.findAll().stream().map(m -> m.getCode()).toList();
+        var projectionCodes = modules.stream().map(m -> (String) m.get("code")).toList();
 
-        assertThat(modules).hasSameSizeAs(registry);
+        assertThat(modules).hasSameSizeAs(registryCodes);
         assertThat(modules).isNotEmpty();
-        assertThat(modules).extracting(m -> ((Map<?, ?>) m).get("code"))
-                .containsExactlyElementsOf(registry.stream().map(m -> m.getCode()).toList());
+        assertThat(projectionCodes).containsExactlyElementsOf(registryCodes);
     }
 
     @Test
