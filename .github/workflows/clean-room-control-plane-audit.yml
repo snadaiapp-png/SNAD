@@ -1,0 +1,62 @@
+name: Clean-Room Control Plane Audit
+
+on:
+  push:
+    branches:
+      - infra/backend-clean-room-v1
+    paths:
+      - ".github/workflows/**"
+      - "scripts/production/**"
+      - "scripts/ops/audit_github_workflows.py"
+      - "scripts/ops/test_audit_github_workflows.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clean-room-control-plane-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Audit all executable workflows and production scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout exact branch source
+        uses: actions/checkout@v4
+
+      - name: Run auditor unit tests
+        run: python scripts/ops/test_audit_github_workflows.py
+
+      - name: Generate sanitized inventory
+        run: |
+          set -euo pipefail
+          python scripts/ops/audit_github_workflows.py \
+            --root . \
+            --output-dir clean-room-audit
+
+      - name: Write count-only summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          summary = json.loads(Path('clean-room-audit/summary.json').read_text())
+          with open(Path.home() / 'summary.md', 'w', encoding='utf-8') as out:
+              out.write('## Clean-Room Control Plane Audit\n')
+              for key in sorted(summary):
+                  out.write(f'- {key}: {summary[key]}\n')
+          PY
+          cat "$HOME/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sanitized audit evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: clean-room-control-plane-audit-${{ github.run_id }}
+          path: clean-room-audit
+          if-no-files-found: error
+          retention-days: 30
