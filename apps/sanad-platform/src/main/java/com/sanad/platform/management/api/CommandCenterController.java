@@ -1,5 +1,6 @@
 package com.sanad.platform.management.api;
 
+import com.sanad.platform.management.application.CrmManagementIntegrationService;
 import com.sanad.platform.management.application.ExecutiveAlertService;
 import com.sanad.platform.management.application.ExecutiveCommandCenterService;
 import com.sanad.platform.management.application.ExecutiveIntelligenceService;
@@ -27,14 +28,17 @@ public class CommandCenterController {
     private final ExecutiveCommandCenterService commandCenterService;
     private final ExecutiveAlertService alertService;
     private final ExecutiveIntelligenceService intelligenceService;
+    private final CrmManagementIntegrationService crmIntegrationService;
 
     public CommandCenterController(
             ExecutiveCommandCenterService commandCenterService,
             ExecutiveAlertService alertService,
-            ExecutiveIntelligenceService intelligenceService) {
+            ExecutiveIntelligenceService intelligenceService,
+            CrmManagementIntegrationService crmIntegrationService) {
         this.commandCenterService = commandCenterService;
         this.alertService = alertService;
         this.intelligenceService = intelligenceService;
+        this.crmIntegrationService = crmIntegrationService;
     }
 
     // ===== Command Center Dashboard =====
@@ -169,5 +173,13 @@ public class CommandCenterController {
                 "advisory", i.advisory(),
                 "status", i.status().name()
         );
+    }
+
+    // ===== CRM Management Integration =====
+
+    @GetMapping("/crm/overview")
+    @RequireCapability("EXECUTIVE_COMMAND_CENTER.VIEW")
+    public ResponseEntity<Map<String, Object>> crmOverview(Authentication auth) {
+        return ResponseEntity.ok(crmIntegrationService.getCrmOverview(tenantId(auth)));
     }
 }
