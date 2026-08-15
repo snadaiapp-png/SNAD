@@ -4,6 +4,7 @@ import com.sanad.platform.management.application.CrmManagementIntegrationService
 import com.sanad.platform.management.application.ExecutiveAlertService;
 import com.sanad.platform.management.application.ExecutiveCommandCenterService;
 import com.sanad.platform.management.application.ExecutiveIntelligenceService;
+import com.sanad.platform.management.application.AnalyticsManagementIntegrationService;
 import com.sanad.platform.management.application.FinanceManagementIntegrationService;
 import com.sanad.platform.management.application.ModuleGovernanceService;
 import com.sanad.platform.management.domain.ExecutiveAlert;
@@ -33,6 +34,7 @@ public class CommandCenterController {
     private final CrmManagementIntegrationService crmIntegrationService;
     private final FinanceManagementIntegrationService financeIntegrationService;
     private final ModuleGovernanceService moduleGovernanceService;
+    private final AnalyticsManagementIntegrationService analyticsIntegrationService;
 
     public CommandCenterController(
             ExecutiveCommandCenterService commandCenterService,
@@ -40,13 +42,15 @@ public class CommandCenterController {
             ExecutiveIntelligenceService intelligenceService,
             CrmManagementIntegrationService crmIntegrationService,
             FinanceManagementIntegrationService financeIntegrationService,
-            ModuleGovernanceService moduleGovernanceService) {
+            ModuleGovernanceService moduleGovernanceService,
+            AnalyticsManagementIntegrationService analyticsIntegrationService) {
         this.commandCenterService = commandCenterService;
         this.alertService = alertService;
         this.intelligenceService = intelligenceService;
         this.crmIntegrationService = crmIntegrationService;
         this.financeIntegrationService = financeIntegrationService;
         this.moduleGovernanceService = moduleGovernanceService;
+        this.analyticsIntegrationService = analyticsIntegrationService;
     }
 
     @GetMapping("/command-center")
@@ -164,5 +168,11 @@ public class CommandCenterController {
     @RequireCapability("EXECUTIVE_COMMAND_CENTER.VIEW")
     public ResponseEntity<List<Map<String, Object>>> moduleStatuses(Authentication auth) {
         return ResponseEntity.ok(moduleGovernanceService.getModuleStatuses());
+    }
+
+    @GetMapping("/analytics/overview")
+    @RequireCapability("EXECUTIVE_COMMAND_CENTER.VIEW")
+    public ResponseEntity<Map<String, Object>> analyticsOverview(Authentication auth) {
+        return ResponseEntity.ok(analyticsIntegrationService.getAnalyticsOverview(tenantId(auth)));
     }
 }
