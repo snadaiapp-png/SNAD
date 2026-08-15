@@ -160,6 +160,8 @@ class CrmFlywayHistoryAssertionTest {
             "20260815.24",   // governance_configurations table (GAP 26)
             "20260815.25",   // seed GOVERNANCE_CONFIG.* + EXECUTIVE_REPORT.* capabilities
             "20260815.26"    // enable RLS on governance_configurations (PG-only)
+            // v20260816.2 — Future Modules Governance Readiness
+            , "20260816.1"    // register CONTRACT_MANAGEMENT module (readiness only)
     );
 
 

@@ -120,8 +120,10 @@ class CrmPostgresMigrationTest {
     private static final String GOVERNANCE_CONFIGURATIONS_VERSION = "20260815.24";
     private static final String GOV_CONFIG_CAPABILITIES_VERSION = "20260815.25";
     private static final String GOV_CONFIG_RLS_VERSION = "20260815.26";
-    // Latest migration after Senior Management Final 5-Gap Closure
-    private static final String LATEST_MIGRATION_VERSION = GOV_CONFIG_RLS_VERSION;
+    // v20260816.2 — Future Modules Governance Readiness
+    private static final String CONTRACT_MGMT_REGISTRY_VERSION = "20260816.1";
+    // Latest migration after Future Modules Governance Readiness
+    private static final String LATEST_MIGRATION_VERSION = CONTRACT_MGMT_REGISTRY_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -297,7 +299,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(DOMAIN_MGMT_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(GOVERNANCE_CONFIGURATIONS_VERSION),
                         MigrationVersion.fromVersion(GOV_CONFIG_CAPABILITIES_VERSION),
-                        MigrationVersion.fromVersion(GOV_CONFIG_RLS_VERSION));
+                        MigrationVersion.fromVersion(GOV_CONFIG_RLS_VERSION),
+                        MigrationVersion.fromVersion(CONTRACT_MGMT_REGISTRY_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -405,7 +408,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(DOMAIN_MGMT_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(GOVERNANCE_CONFIGURATIONS_VERSION),
                         MigrationVersion.fromVersion(GOV_CONFIG_CAPABILITIES_VERSION),
-                        MigrationVersion.fromVersion(GOV_CONFIG_RLS_VERSION));
+                        MigrationVersion.fromVersion(GOV_CONFIG_RLS_VERSION),
+                        MigrationVersion.fromVersion(CONTRACT_MGMT_REGISTRY_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -577,6 +581,7 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, GOVERNANCE_CONFIGURATIONS_VERSION, "SQL", "governance configurations");
         assertMigration(jdbc, GOV_CONFIG_CAPABILITIES_VERSION, "SQL", "seed governance config and executive report capabilities");
         assertMigration(jdbc, GOV_CONFIG_RLS_VERSION, "SQL", "enable governance cfg rls");
+        assertMigration(jdbc, CONTRACT_MGMT_REGISTRY_VERSION, "SQL", "register contract management module");
 
         assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
