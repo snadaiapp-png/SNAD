@@ -64,8 +64,8 @@ class WorkflowSystemHealthIntegrationTest {
         var userId = UUID.randomUUID();
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                 + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)", userId, tenantId, "wsh2@test", now, now);
-        jdbc.update("INSERT INTO workflow_definitions (id,tenant_id,code,name,description,module,version,status,trigger_type,created_by,version_lock,version,created_at,updated_at) "
-                + "VALUES (?, ?, 'WF-FAIL', 'Test', null, 'GENERAL', 1, 'ACTIVE', 'MANUAL', ?, 0, 0, ?, ?)",
+        jdbc.update("INSERT INTO workflow_definitions (id,tenant_id,code,name,description,module,version,status,trigger_type,created_by,version_lock,created_at,updated_at) "
+                + "VALUES (?, ?, 'WF-FAIL', 'Test', null, 'GENERAL', 1, 'ACTIVE', 'MANUAL', ?, 0, ?, ?)",
                 defId, tenantId, userId, now, now);
         jdbc.update("INSERT INTO workflow_instances (id,tenant_id,workflow_definition_id,workflow_version,business_entity_type,business_entity_id,status,current_step_key,started_by,started_at,version,created_at,updated_at) "
                 + "VALUES (?, ?, ?, 1, 'TEST', ?, 'FAILED', null, ?, ?, 0, ?, ?)",
@@ -85,8 +85,8 @@ class WorkflowSystemHealthIntegrationTest {
         var userId = UUID.randomUUID();
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                 + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)", userId, tenantId, "wsh3@test", now, now);
-        jdbc.update("INSERT INTO workflow_definitions (id,tenant_id,code,name,description,module,version,status,trigger_type,created_by,version_lock,version,created_at,updated_at) "
-                + "VALUES (?, ?, 'WF-OVERDUE', 'Test', null, 'GENERAL', 1, 'ACTIVE', 'MANUAL', ?, 0, 0, ?, ?)",
+        jdbc.update("INSERT INTO workflow_definitions (id,tenant_id,code,name,description,module,version,status,trigger_type,created_by,version_lock,created_at,updated_at) "
+                + "VALUES (?, ?, 'WF-OVERDUE', 'Test', null, 'GENERAL', 1, 'ACTIVE', 'MANUAL', ?, 0, ?, ?)",
                 defId, tenantId, userId, now, now);
         jdbc.update("INSERT INTO workflow_instances (id,tenant_id,workflow_definition_id,workflow_version,business_entity_type,business_entity_id,status,current_step_key,started_by,started_at,version,created_at,updated_at) "
                 + "VALUES (?, ?, ?, 1, 'TEST', ?, 'RUNNING', 'APPROVE', ?, ?, 0, ?, ?)",
