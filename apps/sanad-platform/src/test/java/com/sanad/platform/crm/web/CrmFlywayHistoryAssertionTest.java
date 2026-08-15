@@ -162,6 +162,10 @@ class CrmFlywayHistoryAssertionTest {
             "20260815.26"    // enable RLS on governance_configurations (PG-only)
             // v20260816.2 — Future Modules Governance Readiness
             , "20260816.1"    // register CONTRACT_MANAGEMENT module (readiness only)
+            // v20260816.3 — Website Platform
+            , "20260816.2"    // register websites module + capabilities
+            , "20260816.3"    // create websites platform tables
+            , "20260816.4"    // enable RLS on websites tables (PG-only)
     );
 
 

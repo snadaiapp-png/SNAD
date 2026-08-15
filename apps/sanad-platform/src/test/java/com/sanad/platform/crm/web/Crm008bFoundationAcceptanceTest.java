@@ -58,9 +58,9 @@ class Crm008bFoundationAcceptanceTest {
     private static final String CRM_009_COMMAND_ARTIFACTS_VERSION = "20260724.2";
     private static final String CRM_010_SCORING_MODELS_VERSION = "20260729.2";
     // CRM-018: V20260730_2 (disable RLS) was removed from Flyway forward path
-    // Terminal CRM migration as of Future Modules Governance Readiness:
-    //   V20260816.1 - register contract management module (v20260816.2)
-    private static final String CRM_LATEST_VERSION = "20260816.1";
+    // Terminal CRM migration as of Website Platform:
+    //   V20260816.4 - enable websites rls (v20260816.3)
+    private static final String CRM_LATEST_VERSION = "20260816.4";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
