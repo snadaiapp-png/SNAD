@@ -31,17 +31,24 @@ jobs:
       - name: Run auditor unit tests
         run: python scripts/ops/test_audit_github_workflows.py
 
-      - name: Generate sanitized inventory
+      - name: Generate sanitized fail-closed inventory
         run: |
           set -euo pipefail
           python scripts/ops/audit_github_workflows.py \
             --root . \
-            --output-dir clean-room-audit
+            --output-dir clean-room-audit \
+            --fail-on-policy-violations
 
       - name: Write count-only summary
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
+          if [ ! -f clean-room-audit/summary.json ]; then
+            echo "## Clean-Room Control Plane Audit" >> "$GITHUB_STEP_SUMMARY"
+            echo "No summary produced; audit failed before inventory completion." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           python - <<'PY'
           import json
           from pathlib import Path
@@ -54,9 +61,10 @@ jobs:
           cat "$HOME/summary.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload sanitized audit evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: clean-room-control-plane-audit-${{ github.run_id }}
           path: clean-room-audit
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
