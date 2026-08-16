@@ -1,7 +1,11 @@
 # Render Blueprint for SANAD Backend
 # ============================================================
-# GitHub Actions builds immutable GHCR images. Render pulls and
-# runs the published image; all credentials remain in Render.
+# Clean-Room contract:
+# - GitHub builds immutable GHCR images.
+# - Runtime never owns Flyway migrations.
+# - Render auto-deploy is disabled; canonical deploy workflow will deploy an
+#   exact digest after PostgreSQL Direct migration and certification gates pass.
+# - plan remains free until an instance upgrade is explicitly authorized.
 # ============================================================
 
 services:
@@ -9,21 +13,19 @@ services:
     name: sanad-backend
     runtime: image
     image:
-      url: ghcr.io/snadaiapp-png/snad-backend:latest
+      # Integration source pin only. Production deployment authority is the
+      # exact digest supplied by the future canonical render-deploy workflow.
+      url: ghcr.io/snadaiapp-png/snad-backend:5a6feecc24c2b2bc2615e7f14a3834818c09030f
     region: frankfurt
     plan: free
-    healthCheckPath: /actuator/health
+    autoDeployTrigger: off
+    healthCheckPath: /actuator/health/readiness
     maxShutdownDelaySeconds: 30
     envVars:
       - key: SPRING_PROFILES_ACTIVE
         value: prod
       - key: SERVER_PORT
         value: "8080"
-      # JAVA_OPTS is NOT set here — the Dockerfile ENV provides optimized
-      # settings (-Xmx192m -XX:MaxMetaspaceSize=160m) designed for the
-      # 512MB Render free tier. Setting JAVA_OPTS here would override the
-      # Dockerfile value with a more restrictive config that causes OOM
-      # during Spring Boot startup (Flyway + Hibernate init).
       - key: JWT_SECRET
         generateValue: true
       - key: DATABASE_DRIVER
@@ -37,7 +39,7 @@ services:
       - key: JPA_DDL_AUTO
         value: validate
       - key: FLYWAY_ENABLED
-        value: "true"
+        value: "false"
       - key: SANAD_CORS_ALLOWED_ORIGINS
         value: https://snad-app.vercel.app
       - key: BOOTSTRAP_ENABLED
@@ -57,7 +59,7 @@ services:
       - key: DATABASE_POOL_MAX
         value: "3"
       - key: DATABASE_POOL_MIN
-        value: "1"
+        value: "0"
       - key: DATABASE_POOL_TIMEOUT
         value: "30000"
       - key: SECURITY_NOTIFICATION_PROVIDER
