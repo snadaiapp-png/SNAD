@@ -3,6 +3,8 @@ package com.sanad.platform.config;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 
+import java.util.Base64;
+
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
@@ -15,9 +17,16 @@ class ProductionSecurityGuardTest {
 
     private final ProductionSecurityGuard guard = new ProductionSecurityGuard();
 
-    // Valid 32-byte AES-256 key (base64 encoded)
-    // Decodes to: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnop" (32 bytes)
-    private static final String VALID_KEY = "QUJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY=";
+    private static final String TEST_KEY = Base64.getEncoder().encodeToString(new byte[32]);
+    private static final String VALID_KEY = buildValidKey();
+
+    private static String buildValidKey() {
+        byte[] bytes = new byte[32];
+        for (int i = 0; i < bytes.length; i++) {
+            bytes[i] = (byte) (i + 1);
+        }
+        return Base64.getEncoder().encodeToString(bytes);
+    }
 
     @Test
     void skipsGuardForNonProdProfile() {
@@ -33,13 +42,13 @@ class ProductionSecurityGuardTest {
     void blocksOnTestEncryptionKey() {
         MockEnvironment env = new MockEnvironment();
         env.setActiveProfiles("prod");
-        env.setProperty("sanad.crm.custom-field-encryption-key", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+        env.setProperty("sanad.crm.custom-field-encryption-key", TEST_KEY);
         env.setProperty("snad.rls.enabled", "true");
 
         assertThatThrownBy(() -> guard.postProcessEnvironment(env, null))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("test/default value")
-                .hasMessageContaining("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+                .hasMessageContaining(TEST_KEY);
     }
 
     @Test
@@ -109,7 +118,7 @@ class ProductionSecurityGuardTest {
         env.setActiveProfiles("prod");
         env.setProperty("SKIP_SECURITY_GUARD", "true");
         // Invalid config should be ignored when guard is skipped
-        env.setProperty("sanad.crm.custom-field-encryption-key", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+        env.setProperty("sanad.crm.custom-field-encryption-key", TEST_KEY);
 
         // Should not throw
         guard.postProcessEnvironment(env, null);
