@@ -3,6 +3,8 @@ import pathlib
 import sys
 import unittest
 
+from test_runtime_clean_room import RuntimeCleanRoomContractTest  # noqa: F401
+
 SCRIPT = pathlib.Path(__file__).with_name("audit_github_workflows.py")
 spec = importlib.util.spec_from_file_location("audit_github_workflows", SCRIPT)
 audit = importlib.util.module_from_spec(spec)
