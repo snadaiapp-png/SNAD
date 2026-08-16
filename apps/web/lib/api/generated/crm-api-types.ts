@@ -75,7 +75,7 @@ export type paths = {
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
-        readonly patch: operations["archiveAccount"];
+        readonly patch: operations["archiveAccount_1"];
         readonly trace?: never;
     };
     readonly "/accounts/{accountId}/communication-methods": {
@@ -1847,11 +1847,27 @@ export type paths = {
         };
         readonly get: operations["listPipelineStages"];
         readonly put?: never;
-        readonly post?: never;
+        readonly post: operations["createStage"];
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
         readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/pipelines/{pipelineId}/stages/{stageId}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete: operations["deleteStage"];
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch: operations["updateStage"];
         readonly trace?: never;
     };
     readonly "/portal/opportunities": {
@@ -2073,6 +2089,70 @@ export type paths = {
         readonly put?: never;
         readonly post?: never;
         readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/tags": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["listTags"];
+        readonly put?: never;
+        readonly post: operations["createTag"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/tags/assignments/by-subject": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["listAssignmentsBySubject"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/tags/{tagId}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["getTag"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete: operations["deleteTag"];
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch: operations["updateTag"];
+        readonly trace?: never;
+    };
+    readonly "/tags/{tagId}/assignments": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["listAssignmentsByTag"];
+        readonly put?: never;
+        readonly post: operations["assignTag"];
+        readonly delete: operations["unassignTag"];
         readonly options?: never;
         readonly head?: never;
         readonly patch?: never;
@@ -2476,6 +2556,11 @@ export type components = {
             /** Format: uuid */
             readonly assigneeUserId?: string;
         };
+        readonly AssignTagRequest: {
+            readonly subjectType: string;
+            /** Format: uuid */
+            readonly subjectId: string;
+        };
         readonly AssignTerritoryRequest: {
             /** @enum {string} */
             readonly assigneeType: "USER" | "TEAM";
@@ -2631,6 +2716,36 @@ export type components = {
         };
         readonly CancelTransferRequest: {
             readonly reason: string;
+        };
+        readonly CaseResponse: {
+            /** Format: uuid */
+            readonly id?: string;
+            /** Format: int64 */
+            readonly version?: number;
+            readonly subject?: string;
+            readonly description?: string;
+            readonly caseType?: string;
+            readonly status?: string;
+            /** Format: int32 */
+            readonly priority?: number;
+            /** Format: uuid */
+            readonly customerId?: string;
+            /** Format: uuid */
+            readonly assigneeUserId?: string;
+            /** Format: uuid */
+            readonly ownerUserId?: string;
+            /** Format: uuid */
+            readonly relatedId?: string;
+            /** Format: date-time */
+            readonly dueAt?: string;
+            /** Format: date-time */
+            readonly resolvedAt?: string;
+            /** Format: date-time */
+            readonly closedAt?: string;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
         };
         readonly ChurnIndicatorsRequest: {
             /** Format: int32 */
@@ -3043,6 +3158,15 @@ export type components = {
             readonly code: string;
             readonly definition: components["schemas"]["VersionDefinitionRequest"];
         };
+        readonly CreateStageRequest: {
+            readonly name: string;
+            readonly probability?: number;
+            readonly terminalState?: string;
+        };
+        readonly CreateTagRequest: {
+            readonly name: string;
+            readonly color?: string;
+        };
         readonly CreateTeamRequest: {
             readonly code: string;
             readonly displayName: string;
@@ -3312,6 +3436,11 @@ export type components = {
             readonly page?: components["schemas"]["Page"];
             readonly meta?: components["schemas"]["Meta"];
         };
+        readonly ListResponseCaseResponse: {
+            readonly data?: readonly components["schemas"]["CaseResponse"][];
+            readonly page?: components["schemas"]["Page"];
+            readonly meta?: components["schemas"]["Meta"];
+        };
         readonly ListResponseCommunicationHistoryResponse: {
             readonly data?: readonly components["schemas"]["CommunicationHistoryResponse"][];
             readonly page?: components["schemas"]["Page"];
@@ -3421,6 +3550,16 @@ export type components = {
         };
         readonly ListResponseStageResponse: {
             readonly data?: readonly components["schemas"]["StageResponse"][];
+            readonly page?: components["schemas"]["Page"];
+            readonly meta?: components["schemas"]["Meta"];
+        };
+        readonly ListResponseTagAssignmentResponse: {
+            readonly data?: readonly components["schemas"]["TagAssignmentResponse"][];
+            readonly page?: components["schemas"]["Page"];
+            readonly meta?: components["schemas"]["Meta"];
+        };
+        readonly ListResponseTagResponse: {
+            readonly data?: readonly components["schemas"]["TagResponse"][];
             readonly page?: components["schemas"]["Page"];
             readonly meta?: components["schemas"]["Meta"];
         };
@@ -4037,6 +4176,10 @@ export type components = {
             readonly data?: components["schemas"]["ArchiveAccountResponse"];
             readonly meta?: components["schemas"]["Meta"];
         };
+        readonly SingleResponseCaseResponse: {
+            readonly data?: components["schemas"]["CaseResponse"];
+            readonly meta?: components["schemas"]["Meta"];
+        };
         readonly SingleResponseCommunicationMethodResponse: {
             readonly data?: components["schemas"]["CommunicationMethodResponse"];
             readonly meta?: components["schemas"]["Meta"];
@@ -4131,8 +4274,20 @@ export type components = {
             readonly data?: components["schemas"]["SegmentResponse"];
             readonly meta?: components["schemas"]["Meta"];
         };
+        readonly SingleResponseStageResponse: {
+            readonly data?: components["schemas"]["StageResponse"];
+            readonly meta?: components["schemas"]["Meta"];
+        };
         readonly "SingleResponseString[]": {
             readonly data?: readonly string[];
+            readonly meta?: components["schemas"]["Meta"];
+        };
+        readonly SingleResponseTagAssignmentResponse: {
+            readonly data?: components["schemas"]["TagAssignmentResponse"];
+            readonly meta?: components["schemas"]["Meta"];
+        };
+        readonly SingleResponseTagResponse: {
+            readonly data?: components["schemas"]["TagResponse"];
             readonly meta?: components["schemas"]["Meta"];
         };
         readonly StageResponse: {
@@ -4183,6 +4338,33 @@ export type components = {
         };
         readonly SubmitTransferRequest: {
             readonly approverUserIds?: readonly string[];
+        };
+        readonly TagAssignmentResponse: {
+            /** Format: uuid */
+            readonly id?: string;
+            /** Format: uuid */
+            readonly tagId?: string;
+            readonly tagName?: string;
+            readonly tagColor?: string;
+            readonly subjectType?: string;
+            /** Format: uuid */
+            readonly subjectId?: string;
+            /** Format: uuid */
+            readonly assignedBy?: string;
+            /** Format: date-time */
+            readonly assignedAt?: string;
+        };
+        readonly TagResponse: {
+            /** Format: uuid */
+            readonly id?: string;
+            /** Format: int64 */
+            readonly version?: number;
+            readonly name?: string;
+            readonly color?: string;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
         };
         readonly TeamDetail: {
             readonly team?: components["schemas"]["SalesTeam"];
@@ -4504,6 +4686,17 @@ export type components = {
             /** Format: uuid */
             readonly defaultOwnerId?: string;
         };
+        readonly UpdateStageRequest: {
+            readonly name?: string;
+            readonly probability?: number;
+            readonly terminalState?: string;
+            /** Format: int32 */
+            readonly sequence?: number;
+        };
+        readonly UpdateTagRequest: {
+            readonly name?: string;
+            readonly color?: string;
+        };
         readonly UpdateTeamMembershipRequest: {
             /** @enum {string} */
             readonly role: "SALES_MANAGER" | "ACCOUNT_MANAGER" | "SALES_REPRESENTATIVE" | "LEAD_QUALIFIER" | "OPPORTUNITY_SPECIALIST" | "READONLY_CONTRIBUTOR";
@@ -4792,7 +4985,7 @@ export interface operations {
             };
         };
     };
-    readonly archiveAccount: {
+    readonly archiveAccount_1: {
         readonly parameters: {
             readonly query?: never;
             readonly header: {
@@ -5545,7 +5738,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["ListResponseMapStringObject"];
+                    readonly "application/json": components["schemas"]["ListResponseCaseResponse"];
                 };
             };
         };
@@ -5569,7 +5762,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                    readonly "application/json": components["schemas"]["SingleResponseCaseResponse"];
                 };
             };
         };
@@ -5591,7 +5784,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                    readonly "application/json": components["schemas"]["SingleResponseCaseResponse"];
                 };
             };
         };
@@ -5617,7 +5810,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                    readonly "application/json": components["schemas"]["SingleResponseCaseResponse"];
                 };
             };
         };
@@ -5643,7 +5836,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                    readonly "application/json": components["schemas"]["SingleResponseCaseResponse"];
                 };
             };
         };
@@ -5665,7 +5858,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                    readonly "application/json": components["schemas"]["SingleResponseCaseResponse"];
                 };
             };
         };
@@ -5687,7 +5880,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                    readonly "application/json": components["schemas"]["SingleResponseCaseResponse"];
                 };
             };
         };
@@ -5713,7 +5906,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                    readonly "application/json": components["schemas"]["SingleResponseCaseResponse"];
                 };
             };
         };
@@ -5735,7 +5928,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["SingleResponseMapStringObject"];
+                    readonly "application/json": components["schemas"]["SingleResponseCaseResponse"];
                 };
             };
         };
@@ -8163,6 +8356,80 @@ export interface operations {
             };
         };
     };
+    readonly createStage: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly pipelineId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["CreateStageRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseStageResponse"];
+                };
+            };
+        };
+    };
+    readonly deleteStage: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly pipelineId: string;
+                readonly stageId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly updateStage: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly pipelineId: string;
+                readonly stageId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["UpdateStageRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseStageResponse"];
+                };
+            };
+        };
+    };
     readonly getOpportunities: {
         readonly parameters: {
             readonly query?: never;
@@ -8607,6 +8874,223 @@ export interface operations {
                 content: {
                     readonly "application/json": components["schemas"]["SingleResponseString[]"];
                 };
+            };
+        };
+    };
+    readonly listTags: {
+        readonly parameters: {
+            readonly query?: {
+                readonly limit?: number;
+                readonly search?: string;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ListResponseTagResponse"];
+                };
+            };
+        };
+    };
+    readonly createTag: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "Idempotency-Key": string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["CreateTagRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseTagResponse"];
+                };
+            };
+        };
+    };
+    readonly listAssignmentsBySubject: {
+        readonly parameters: {
+            readonly query: {
+                readonly subjectType: string;
+                readonly subjectId: string;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ListResponseTagAssignmentResponse"];
+                };
+            };
+        };
+    };
+    readonly getTag: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly tagId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseTagResponse"];
+                };
+            };
+        };
+    };
+    readonly deleteTag: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly tagId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly updateTag: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "If-Match": string;
+            };
+            readonly path: {
+                readonly tagId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["UpdateTagRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseTagResponse"];
+                };
+            };
+        };
+    };
+    readonly listAssignmentsByTag: {
+        readonly parameters: {
+            readonly query?: {
+                readonly limit?: number;
+            };
+            readonly header?: never;
+            readonly path: {
+                readonly tagId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ListResponseTagAssignmentResponse"];
+                };
+            };
+        };
+    };
+    readonly assignTag: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "Idempotency-Key": string;
+            };
+            readonly path: {
+                readonly tagId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["AssignTagRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponseTagAssignmentResponse"];
+                };
+            };
+        };
+    };
+    readonly unassignTag: {
+        readonly parameters: {
+            readonly query: {
+                readonly subjectType: string;
+                readonly subjectId: string;
+            };
+            readonly header?: never;
+            readonly path: {
+                readonly tagId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
