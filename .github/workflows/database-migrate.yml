@@ -1,0 +1,205 @@
+name: Database Migrate — PostgreSQL Direct
+
+# Canonical Production database writer.
+# This workflow is manual, protected, non-destructive, and Direct-only.
+# Expected Direct hostname example: db.abcdefghijklmnop.supabase.co:5432
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: "Exact 40-character Git SHA whose migrations will be applied"
+        required: true
+        type: string
+      confirmation:
+        description: "Type MIGRATE_POSTGRESQL_DIRECT"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-postgresql-direct-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Apply PostgreSQL Direct migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: Production
+
+    env:
+      FLYWAY_URL: ${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}
+      FLYWAY_USER: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+      FLYWAY_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+      FLYWAY_LOCATIONS: filesystem:src/main/resources/db/migration,filesystem:src/main/resources/db/vendor/postgresql
+      FLYWAY_CLEAN_DISABLED: "true"
+      FLYWAY_BASELINE_ON_MIGRATE: "false"
+      FLYWAY_VALIDATE_ON_MIGRATE: "true"
+      FLYWAY_VALIDATE_MIGRATION_NAMING: "false"
+
+    steps:
+      - name: Validate execution intent and Direct route
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          import socket
+          import sys
+
+          target = os.environ.get("TARGET_SHA", "").strip()
+          confirmation = os.environ.get("CONFIRMATION", "").strip()
+          url = os.environ.get("FLYWAY_URL", "").strip()
+          user = os.environ.get("FLYWAY_USER", "").strip()
+          password = os.environ.get("FLYWAY_PASSWORD", "")
+
+          if not re.fullmatch(r"[0-9a-fA-F]{40}", target):
+              print("BLOCKED_INVALID_TARGET_SHA")
+              sys.exit(10)
+          if confirmation != "MIGRATE_POSTGRESQL_DIRECT":
+              print("BLOCKED_MIGRATION_CONFIRMATION")
+              sys.exit(11)
+          if not url or not user or not password:
+              print("BLOCKED_MISSING_DATABASE_SECRET")
+              sys.exit(12)
+
+          lower = url.lower()
+          if ".pooler.supabase.com" in lower or ":6543" in lower:
+              print("BLOCKED_NON_DIRECT_DATABASE_ROUTE")
+              sys.exit(13)
+
+          match = re.fullmatch(
+              r"jdbc:postgresql://(db\.[a-z0-9]+\.supabase\.co):5432/[^?]+(?:\?.*)?",
+              url,
+              flags=re.IGNORECASE,
+          )
+          if not match:
+              print("BLOCKED_NON_DIRECT_DATABASE_ROUTE")
+              sys.exit(14)
+
+          host = match.group(1)
+          try:
+              addresses = socket.getaddrinfo(host, 5432, type=socket.SOCK_STREAM)
+          except OSError:
+              print("BLOCKED_BY_DIRECT_NETWORK")
+              sys.exit(15)
+
+          connected = False
+          for family, socktype, proto, _, sockaddr in addresses:
+              sock = socket.socket(family, socktype, proto)
+              sock.settimeout(5)
+              try:
+                  sock.connect(sockaddr)
+                  connected = True
+                  break
+              except OSError:
+                  pass
+              finally:
+                  sock.close()
+
+          if not connected:
+              print("BLOCKED_BY_DIRECT_NETWORK")
+              sys.exit(16)
+
+          print("DB_ROUTE=POSTGRESQL_DIRECT")
+          print("DB_PORT=5432")
+          print("DIRECT_NETWORK_GATE=PASS")
+          PY
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+
+      - name: Checkout exact migration source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_sha }}
+          fetch-depth: 1
+
+      - name: Verify checked-out source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          expected="${{ inputs.target_sha }}"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::SOURCE_SHA_MISMATCH"
+            exit 20
+          fi
+          echo "SOURCE_SHA_GATE=PASS"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: apps/sanad-platform/pom.xml
+
+      - name: Flyway info
+        id: info
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          mvn -B -ntp -DskipTests flyway:info
+
+      - name: Flyway validate before migration
+        id: validate_before
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          mvn -B -ntp -DskipTests flyway:validate
+
+      - name: Flyway migrate
+        id: migrate
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          mvn -B -ntp -DskipTests flyway:migrate
+
+      - name: Flyway validate after migration
+        id: validate_after
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          mvn -B -ntp -DskipTests flyway:validate
+
+      - name: Create sanitized migration evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > database-migration-evidence.json <<JSON
+          {
+            "sourceSha": "${{ inputs.target_sha }}",
+            "databaseRoute": "POSTGRESQL_DIRECT",
+            "port": 5432,
+            "info": "${{ steps.info.outcome }}",
+            "validationBefore": "${{ steps.validate_before.outcome }}",
+            "migration": "${{ steps.migrate.outcome }}",
+            "validationAfter": "${{ steps.validate_after.outcome }}"
+          }
+          JSON
+
+          {
+            echo "## PostgreSQL Direct migration evidence"
+            echo "- Source SHA: ${{ inputs.target_sha }}"
+            echo "- Database route: POSTGRESQL_DIRECT"
+            echo "- Port: 5432"
+            echo "- Info: ${{ steps.info.outcome }}"
+            echo "- Validation before: ${{ steps.validate_before.outcome }}"
+            echo "- Migration: ${{ steps.migrate.outcome }}"
+            echo "- Validation after: ${{ steps.validate_after.outcome }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sanitized migration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: database-migration-evidence-${{ github.run_id }}
+          path: database-migration-evidence.json
+          if-no-files-found: warn
+          retention-days: 90
