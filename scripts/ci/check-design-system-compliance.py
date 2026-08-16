@@ -495,28 +495,41 @@ def check_file(path: Path, scan_root: Path) -> List[str]:
 def main(argv: List[str]) -> int:
     scan_root_arg = argv[1] if len(argv) > 1 else DEFAULT_SCAN_ROOT
 
-    # Resolve scan_root relative to the git repo root (best-effort).
     cwd = Path.cwd()
     repo_root = cwd
     while repo_root != repo_root.parent:
-        if (repo_root / ".git").exists():
+        if (repo_root / '.git').exists():
             break
         repo_root = repo_root.parent
 
     scan_root = (repo_root / scan_root_arg).resolve()
     if not scan_root.exists():
-        print(
-            f"ERROR: scan root does not exist: {scan_root}",
-            file=sys.stderr,
-        )
+        print(f'ERROR: scan root does not exist: {scan_root}', file=sys.stderr)
         return 2
 
-    print(f"SNAD Design System compliance check")
-    print(f"  scan root : {scan_root}")
-    print(f"  allowed   : {len(ALLOWED_FILES)} source-of-truth files")
-    print(f"  legacy    : {len(LEGACY_FILES)} files pending migration")
-    print(f"  logo import allowed : {len(LOGO_IMPORT_ALLOWED_FILES)} file(s)")
-    print(f"  brand name allowed  : {len(BRAND_NAME_ALLOWED_FILES)} file(s)")
+    print(f'SNAD Design System compliance check')
+    print(f'  scan root : {scan_root}')
+    print(f'  allowed   : {len(ALLOWED_FILES)} source-of-truth files')
+    print(f'  legacy    : {len(LEGACY_FILES)} files pending migration')
+    print(f'  logo import allowed : {len(LOGO_IMPORT_ALLOWED_FILES)} file(s)')
+    print(f'  brand name allowed  : {len(BRAND_NAME_ALLOWED_FILES)} file(s)')
+
+    # Load baseline for incremental enforcement (R12-B)
+    baseline_path = repo_root / 'scripts' / 'ci' / 'design-system-baseline.json'
+    baseline_set: set = set()
+    baseline_loaded = False
+    if baseline_path.exists():
+        try:
+            with open(baseline_path) as bf:
+                baseline_data = json.load(bf)
+            for entry in baseline_data.get('entries', []):
+                for line_num in entry.get('lines', []):
+                    baseline_set.add((entry['path'], entry['rule'], line_num))
+            baseline_loaded = True
+            print(f'  baseline  : {len(baseline_data.get("entries", []))} entries ({len(baseline_set)} violation instances) — pre-existing on origin/main')
+        except Exception as e:
+            print(f'  baseline  : WARNING — could not load baseline: {e}')
+
     print()
 
     all_violations: List[str] = []
@@ -526,40 +539,57 @@ def main(argv: List[str]) -> int:
         files_scanned += 1
         all_violations.extend(check_file(path, scan_root))
 
-    # Always print the legacy-file tracker so reviewers see what's deferred.
     if LEGACY_FILES:
-        print("Legacy files (allowlisted, pending SDS migration):")
+        print('Legacy files (allowlisted, pending SDS migration):')
         for f, reason in sorted(LEGACY_FILES.items()):
-            print(f"  • {f}")
-            print(f"      reason: {reason}")
+            print(f'  • {f}')
+            print(f'      reason: {reason}')
         print()
 
     if all_violations:
-        print(f"FAIL — {len(all_violations)} violation(s) found in "
-              f"{files_scanned} file(s) scanned:")
-        print()
+        baselined_count = 0
+        new_violations: List[str] = []
         for v in all_violations:
-            print(f"  {v}")
-        print()
-        print("To fix:")
-        print("  1. Replace hardcoded hex / rgb / rgba / hsl values with "
-              "var(--snad-color-*) tokens.")
-        print("  2. Replace hardcoded font-family declarations with "
-              "var(--snad-font-*).")
-        print("  3. For translucent overlays, use:")
-        print("       color-mix(in srgb, var(--snad-color-brand-primary) "
-              "N%, transparent)")
-        print("  4. Replace any direct brand SVG import / <img src> with")
-        print('     <SnadLogo variant="primary" size="md" /> from '
-              "@/components/sds.")
-        print('  5. Replace any "SANAD" with "SNAD" (Latin) or "سند" '
-              "(Arabic). Allowed in comments, URLs, emails, env vars, "
-              "and file paths only.")
-        print("  6. See apps/web/design-system/documentation/DESIGN_TOKENS.md"
-              " for the full token reference.")
-        return 1
+            parts = v.strip().split(':')
+            if len(parts) >= 4:
+                v_path = parts[0].strip()
+                try:
+                    v_line = int(parts[1])
+                except ValueError:
+                    new_violations.append(v)
+                    continue
+                v_rule = parts[3].strip().split(' ')[0] if ' ' in parts[3] else parts[3].strip()
+                if baseline_loaded and (v_path, v_rule, v_line) in baseline_set:
+                    baselined_count += 1
+                    continue
+            new_violations.append(v)
 
-    print(f"PASS — 0 violations across {files_scanned} files scanned.")
+        if new_violations:
+            print(f'FAIL — {len(new_violations)} NEW violation(s) found (above baseline) in {files_scanned} file(s) scanned:')
+            print()
+            for v in new_violations:
+                print(f'  {v}')
+            print()
+            if baselined_count > 0:
+                print(f'  ({baselined_count} pre-existing baselined violations are tracked but not failing.)')
+                print()
+            print('To fix:')
+            print('  1. Replace hardcoded hex / rgb / rgba / hsl values with var(--snad-color-*) tokens.')
+            print('  2. Replace hardcoded font-family declarations with var(--snad-font-*).')
+            print('  3. For translucent overlays, use:')
+            print('       color-mix(in srgb, var(--snad-color-brand-primary) N%, transparent)')
+            print('  4. Replace any direct brand SVG import / <img src> with')
+            print('     <SnadLogo variant="primary" size="md" /> from @/components/sds.')
+            print('  5. Replace any "SANAD" with "SNAD" (Latin) or "سند" (Arabic).')
+            print('  6. See apps/web/design-system/documentation/DESIGN_TOKENS.md for the full token reference.')
+            return 1
+        else:
+            print(f'PASS — 0 new violations across {files_scanned} files scanned.')
+            if baselined_count > 0:
+                print(f'  ({baselined_count} pre-existing baselined violations are tracked but not failing.)')
+            return 0
+
+    print(f'PASS — 0 violations across {files_scanned} files scanned.')
     return 0
 
 
