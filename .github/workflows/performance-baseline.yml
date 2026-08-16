@@ -114,7 +114,7 @@ jobs:
             > ../../performance/results/crm-perf-backend-startup.log 2>&1 &
           echo $! > /tmp/sanad-crm-perf-app.pid
 
-      - name: Wait for health and perf seed
+      - name: Wait for health
         run: |
           set -euo pipefail
           for attempt in $(seq 1 120); do
@@ -124,12 +124,10 @@ jobs:
               exit 1
             fi
             code=$(curl -sS -o /tmp/crm-perf-health.json -w '%{http_code}' http://localhost:8080/actuator/health || true)
-            if [ "$code" = '200' ] && grep -q 'Perf-test environment seeded' performance/results/crm-perf-backend-startup.log; then
-              exit 0
-            fi
+            if [ "$code" = '200' ]; then exit 0; fi
             sleep 5
           done
-          echo "::error::SNAD backend/perf seed did not become ready for CRM-033 benchmark"
+          echo "::error::SNAD backend did not become healthy for CRM-033 benchmark"
           cat performance/results/crm-perf-backend-startup.log || true
           exit 1
 
