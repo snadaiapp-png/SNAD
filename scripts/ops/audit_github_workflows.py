@@ -108,7 +108,7 @@ def _secret_candidates(text: str) -> list[str]:
         r"(?i)\bpassword\s*=\s*[\"']([^\"'\n${}]{4,})[\"']",
         r"(?i)[\"']password[\"']\s*:\s*[\"']([^\"'\n${}]{4,})[\"']",
         r"(?i)\b(?:DB_PASS|DB_PASSWORD|DATABASE_PASSWORD|ADMIN_PASSWORD)\s*=\s*[\"']([^\"'\n${}]{4,})[\"']",
-        r"(?i)\b(?:DB_PASS|DB_PASSWORD|DATABASE_PASSWORD|ADMIN_PASSWORD)\s*=\s*([^\s\"'${}]{4,})",
+        r"\b(?:DB_PASS|DB_PASSWORD|DATABASE_PASSWORD|ADMIN_PASSWORD)\s*=\s*([^\s\"'${}]{4,})",
     ]
     for pattern in password_patterns:
         for match in re.finditer(pattern, text):
