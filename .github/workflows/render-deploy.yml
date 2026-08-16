@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE_REPOSITORY: ghcr.io/snadaiapp-png/snad-backend
+  IMAGE_DIGEST_PREFIX: ghcr.io/snadaiapp-png/snad-backend@
 
 jobs:
   deploy:
@@ -52,7 +52,7 @@ jobs:
           set -euo pipefail
           test -n "$RENDER_API_KEY"
           test -n "$RENDER_SERVICE_ID"
-          image_url="${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+          image_url="${IMAGE_DIGEST_PREFIX}${IMAGE_DIGEST}"
           payload=$(jq -cn --arg imageUrl "$image_url" '{"imageUrl":$imageUrl}')
           http_code=$(curl --silent --show-error \
             --output render-deploy-response.json \
