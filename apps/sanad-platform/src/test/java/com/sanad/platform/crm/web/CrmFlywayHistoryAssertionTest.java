@@ -166,6 +166,9 @@ class CrmFlywayHistoryAssertionTest {
             , "20260816.2"    // register websites module + capabilities
             , "20260816.3"    // create websites platform tables
             , "20260816.4"    // enable RLS on websites tables (PG-only)
+            // v20260816.4 — Stores / E-Commerce Platform
+            , "20260816.5"    // create commerce tables + capabilities
+            , "20260816.6"    // enable RLS on commerce tables (PG-only)
     );
 
 
