@@ -204,6 +204,30 @@ Later CRM stages may add vendor-specific migrations governed by their own stage
 records. CRM-008R authorizes no new migration by default. Flyway repair, manual
 history editing, destructive rollback and ad-hoc production SQL are prohibited.
 
+### Post-CRM-008R CRM migration inventory (merged to main, governed by roadmap)
+
+The following CRM-scoped migrations were introduced after the CRM-008R
+baseline by later CRM stages (MOD-001 through MOD-004, REM-1/REM-2,
+CRM RBAC reconciliation, and G7 Mobile Offline CRM integration).
+All are present on `origin/main` and are forward-only additive migrations.
+
+| Version | Filename | Ownership | Status |
+|---------|----------|-----------|--------|
+| `20260804.1` | `V20260804_1__reconcile_crm_custom_field_and_pipeline_audit_columns.sql` | CRM Core (REM-1) | MERGED |
+| `20260804.2` | `V20260804_2__create_crm_shift_templates.sql` | CRM Workforce (REM-2) | MERGED |
+| `20260804.3` | `V20260804_3__create_crm_shift_assignments.sql` | CRM Workforce (REM-2) | MERGED |
+| `20260804.4` | `V20260804_4__create_crm_staff_availability.sql` | CRM Workforce (REM-2) | MERGED |
+| `20260804.5` | `V20260804_5__create_crm_staff_skills.sql` | CRM Workforce (REM-2) | MERGED |
+| `20260804.6` | `V20260804_6__create_crm_capacity_plans.sql` | CRM Workforce (REM-2) | MERGED |
+| `20260804.7` | `V20260804_7__create_crm_workload_assignments.sql` | CRM Workforce (REM-2) | MERGED |
+| `20260804.8` | `V20260804_8__create_crm_service_assignments.sql` | CRM Workforce (REM-2) | MERGED |
+| `20260804.9` | `V20260804_9__create_crm_cases.sql` | CRM Case Management (MOD-001) | MERGED |
+| `20260805.1` | `V20260805_1__create_crm_email_logs.sql` | CRM Email Integration (MOD-002) | MERGED |
+| `20260805.2` | `V20260805_2__create_crm_reporting_capabilities.sql` | CRM Reporting (MOD-003) | MERGED |
+| `20260805.3` | `V20260805_3__create_crm_portal_capabilities.sql` | CRM Portal (MOD-004) | MERGED |
+| `20260807.1` | `V20260807_1__grant_crm_capabilities_to_non_admin_roles.sql` | CRM RBAC Reconciliation | MERGED |
+| `20260812.2` | `V20260812_2__add_sync_columns_to_crm_entities.sql` | Mobile Offline CRM Integration (G7) | MERGED |
+
 ## 8. CRM-009 implementation baseline
 
 CRM-009 implements Workflow Engine & AI Gateway Integration through PR #704:
