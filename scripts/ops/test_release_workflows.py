@@ -5,6 +5,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 IMAGE_WORKFLOW = ROOT / ".github/workflows/publish-render-image.yml"
 DB_WORKFLOW = ROOT / ".github/workflows/database-migrate.yml"
+RENDER_DEPLOY = ROOT / ".github/workflows/render-deploy.yml"
+RENDER_ROLLBACK = ROOT / ".github/workflows/render-rollback.yml"
 POM = ROOT / "apps/sanad-platform/pom.xml"
 
 
@@ -13,6 +15,8 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
     def setUpClass(cls):
         cls.image = IMAGE_WORKFLOW.read_text(encoding="utf-8")
         cls.db = DB_WORKFLOW.read_text(encoding="utf-8") if DB_WORKFLOW.exists() else ""
+        cls.render_deploy = RENDER_DEPLOY.read_text(encoding="utf-8") if RENDER_DEPLOY.exists() else ""
+        cls.render_rollback = RENDER_ROLLBACK.read_text(encoding="utf-8") if RENDER_ROLLBACK.exists() else ""
         cls.pom = POM.read_text(encoding="utf-8")
 
     def test_image_builder_has_no_render_or_database_authority(self):
@@ -95,6 +99,53 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
         for field in ("sourceSha", "databaseRoute", "validationBefore", "migration", "validationAfter"):
             self.assertIn(field, self.db)
         self.assertNotIn("${{ secrets.PRODUCTION_DATABASE_PASSWORD }}", self.db.split("database-migration-evidence.json")[-1])
+
+    def test_render_deploy_is_manual_protected_and_digest_only(self):
+        self.assertIn("name: Render Deploy — Immutable Digest", self.render_deploy)
+        self.assertIn("workflow_dispatch:", self.render_deploy)
+        self.assertNotRegex(self.render_deploy, r"(?mi)^\s*push:\s*$")
+        self.assertRegex(self.render_deploy, r"(?mi)^\s*environment:\s*Production\s*$")
+        self.assertIn("image_digest:", self.render_deploy)
+        self.assertRegex(self.render_deploy, r"sha256:\[0-9a-f\]\{64\}")
+        self.assertIn("ghcr.io/snadaiapp-png/snad-backend@", self.render_deploy)
+
+    def test_render_deploy_uses_api_image_url_and_polling(self):
+        lowered = self.render_deploy.lower()
+        self.assertIn("api.render.com/v1/services/", lowered)
+        self.assertIn("/deploys", lowered)
+        self.assertIn('"imageurl"', lowered)
+        self.assertIn("render_api_key", lowered)
+        self.assertIn("render_service_id", lowered)
+        self.assertIn("actuator/health/readiness", lowered)
+        self.assertIn("render-deploy-evidence.json", lowered)
+
+    def test_render_deploy_cannot_mutate_database_or_render_environment(self):
+        lowered = self.render_deploy.lower()
+        self.assertNotIn("/env-vars", lowered)
+        self.assertNotIn("database_", lowered)
+        self.assertNotIn("flyway_", lowered)
+        self.assertNotIn("deploy_hook", lowered)
+
+    def test_render_rollback_is_manual_protected_and_deploy_id_based(self):
+        self.assertIn("name: Render Rollback — Prior Deploy", self.render_rollback)
+        self.assertIn("workflow_dispatch:", self.render_rollback)
+        self.assertNotRegex(self.render_rollback, r"(?mi)^\s*push:\s*$")
+        self.assertRegex(self.render_rollback, r"(?mi)^\s*environment:\s*Production\s*$")
+        self.assertIn("deploy_id:", self.render_rollback)
+        lowered = self.render_rollback.lower()
+        self.assertIn("/rollback", lowered)
+        self.assertIn('"deployid"', lowered)
+        self.assertIn("render_api_key", lowered)
+        self.assertIn("render_service_id", lowered)
+        self.assertIn("actuator/health/readiness", lowered)
+        self.assertIn("render-rollback-evidence.json", lowered)
+
+    def test_render_rollback_cannot_mutate_database_or_render_environment(self):
+        lowered = self.render_rollback.lower()
+        self.assertNotIn("/env-vars", lowered)
+        self.assertNotIn("database_", lowered)
+        self.assertNotIn("flyway_", lowered)
+        self.assertNotIn("deploy_hook", lowered)
 
 
 if __name__ == "__main__":
