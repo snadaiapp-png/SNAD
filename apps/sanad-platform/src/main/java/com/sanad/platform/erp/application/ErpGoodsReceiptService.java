@@ -82,9 +82,15 @@ public class ErpGoodsReceiptService {
                     "receipt_number collision: " + receiptNumber);
         }
         for (CreateGoodsReceiptItem item : request.items()) {
+            if (item.itemId() == null || item.quantity() == null || item.quantity().signum() <= 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "goods receipt item requires itemId and positive quantity");
+            }
+            UUID resolvedPoItemId = resolvePoItemId(
+                    tenantId, request.poId(), item.poItemId(), item.itemId());
             jdbc.update("INSERT INTO erp_goods_receipt_items (id, tenant_id, receipt_id, po_item_id, "
                             + "item_id, quantity, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    UUID.randomUUID(), tenantId, id, item.poItemId(), item.itemId(),
+                    UUID.randomUUID(), tenantId, id, resolvedPoItemId, item.itemId(),
                     item.quantity(), Timestamp.from(now));
         }
         audit(tenantId, auth, "GOODS_RECEIPT.CREATED", id, "po=" + request.poId());
@@ -163,6 +169,53 @@ public class ErpGoodsReceiptService {
     // ===== Helpers =====
     private boolean allowOverReceipt() {
         return Boolean.getBoolean("sanad.erp.allowOverReceipt");
+    }
+
+    /**
+     * Resolves and validates the PO line for a receipt item.
+     *
+     * <p>If a receipt is linked to a PO and the caller omits {@code poItemId},
+     * the line is inferred only when that PO has exactly one line for the
+     * supplied ERP item. This keeps the convenient single-line API while
+     * preventing ambiguous receipts when the same item appears on multiple PO
+     * lines. A supplied {@code poItemId} must belong to the same tenant, PO,
+     * and item.</p>
+     */
+    private UUID resolvePoItemId(UUID tenantId, UUID poId, UUID requestedPoItemId, UUID itemId) {
+        if (poId == null) {
+            if (requestedPoItemId != null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "poItemId cannot be supplied when poId is null");
+            }
+            return null;
+        }
+
+        if (requestedPoItemId != null) {
+            Integer count = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM erp_purchase_order_items "
+                            + "WHERE tenant_id = ? AND po_id = ? AND id = ? AND item_id = ?",
+                    Integer.class, tenantId, poId, requestedPoItemId, itemId);
+            if (count == null || count != 1) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "PO item does not belong to the supplied PO/item: " + requestedPoItemId);
+            }
+            return requestedPoItemId;
+        }
+
+        List<UUID> candidates = jdbc.query(
+                "SELECT id FROM erp_purchase_order_items "
+                        + "WHERE tenant_id = ? AND po_id = ? AND item_id = ? ORDER BY created_at, id",
+                (rs, rowNum) -> rs.getObject("id", UUID.class), tenantId, poId, itemId);
+        if (candidates.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "no PO item found for item " + itemId + " on PO " + poId);
+        }
+        if (candidates.size() > 1) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "multiple PO lines match item " + itemId
+                            + "; poItemId is required to disambiguate the receipt");
+        }
+        return candidates.get(0);
     }
 
     private GoodsReceiptResponse getOrThrow(UUID tenantId, UUID receiptId) {
