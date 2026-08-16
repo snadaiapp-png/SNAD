@@ -1,0 +1,279 @@
+name: Backend Runtime Certification
+
+# Clean-Room R8: certify the real backend container without touching Render or
+# Production PostgreSQL. Schema migration is executed separately against an
+# isolated PostgreSQL service; the Spring Boot runtime starts with Flyway off.
+
+on:
+  push:
+    branches:
+      - infra/backend-clean-room-v1
+    paths:
+      - "apps/sanad-platform/**"
+      - ".github/workflows/backend-runtime-certification.yml"
+      - "scripts/ops/test_backend_runtime_certification.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-runtime-certification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify:
+    name: Certify isolated Spring Boot container runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: sanad_cert
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: sanad_cert_pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sanad -d sanad_cert"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      FLYWAY_URL: jdbc:postgresql://127.0.0.1:5432/sanad_cert
+      FLYWAY_USER: sanad
+      FLYWAY_PASSWORD: sanad_cert_pass
+      FLYWAY_LOCATIONS: filesystem:src/main/resources/db/migration,filesystem:src/main/resources/db/vendor/postgresql
+      FLYWAY_CLEAN_DISABLED: "true"
+      FLYWAY_BASELINE_ON_MIGRATE: "false"
+      FLYWAY_VALIDATE_ON_MIGRATE: "true"
+      FLYWAY_VALIDATE_MIGRATION_NAMING: "false"
+      FLYWAY_ENABLED: "false"
+
+    steps:
+      - name: Checkout exact certification source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: apps/sanad-platform/pom.xml
+
+      - name: Verify isolated PostgreSQL service
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if docker run --rm --network host \
+              -e PGPASSWORD=sanad_cert_pass postgres:16-alpine \
+              pg_isready -h 127.0.0.1 -p 5432 -U sanad -d sanad_cert; then
+              echo "ISOLATED_POSTGRES_GATE=PASS"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "ISOLATED_POSTGRES_GATE=FAIL" >&2
+          exit 2
+
+      - name: Apply migrations outside the web runtime
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn -B -ntp -DskipTests flyway:info
+          mvn -B -ntp -DskipTests flyway:migrate
+          mvn -B -ntp -DskipTests flyway:validate
+          echo "MIGRATION_AUTHORITY=SEPARATE_FLYWAY"
+
+      - name: Capture migration history before runtime start
+        id: history_before
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=$(docker run --rm --network host \
+            -e PGPASSWORD=sanad_cert_pass postgres:16-alpine \
+            psql -h 127.0.0.1 -p 5432 -U sanad -d sanad_cert -Atc \
+            "SELECT COUNT(*) FROM flyway_schema_history WHERE success = true;")
+          test "$count" -gt 0
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "FLYWAY_HISTORY_BEFORE=$count"
+
+      - name: Build exact backend image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build \
+            --build-arg RENDER_GIT_COMMIT="${GITHUB_SHA}" \
+            -t "sanad-backend-cert:${GITHUB_SHA}" \
+            apps/sanad-platform
+          echo "IMAGE_BUILD_GATE=PASS"
+
+      - name: Start backend with runtime Flyway disabled under 512 MB
+        id: start
+        shell: bash
+        run: |
+          set -euo pipefail
+          jwt_secret=$(openssl rand -hex 32)
+          crm_key=$(openssl rand -base64 32 | tr -d '\n')
+          echo "::add-mask::$jwt_secret"
+          echo "::add-mask::$crm_key"
+
+          start_epoch=$(date +%s)
+          container_id=$(docker run -d \
+            --name sanad-runtime-cert \
+            --network host \
+            --memory=512m \
+            --memory-swap=512m \
+            -e PORT=18080 \
+            -e SERVER_PORT=18080 \
+            -e SPRING_PROFILES_ACTIVE=prod \
+            -e DATABASE_URL=jdbc:postgresql://127.0.0.1:5432/sanad_cert \
+            -e DATABASE_USERNAME=sanad \
+            -e DATABASE_PASSWORD=sanad_cert_pass \
+            -e FLYWAY_ENABLED=false \
+            -e JPA_DDL_AUTO=validate \
+            -e DATABASE_POOL_MAX=3 \
+            -e DATABASE_POOL_MIN=0 \
+            -e JWT_SECRET="$jwt_secret" \
+            -e CRM_CUSTOM_FIELD_ENCRYPTION_KEY="$crm_key" \
+            -e SNAD_RLS_ENABLED=true \
+            -e SANAD_CONTROL_PLANE_TENANT_ID=00000000-0000-0000-0000-000000000001 \
+            -e SANAD_CORS_ALLOWED_ORIGINS=https://example.invalid \
+            -e BOOTSTRAP_ENABLED=false \
+            -e SECURITY_NOTIFICATION_PROVIDER=disabled \
+            -e MANAGEMENT_ENDPOINTS=health \
+            "sanad-backend-cert:${GITHUB_SHA}")
+
+          test -n "$container_id"
+          echo "container_id=$container_id" >> "$GITHUB_OUTPUT"
+          echo "start_epoch=$start_epoch" >> "$GITHUB_OUTPUT"
+          echo "RUNTIME_FLYWAY_ENABLED=false"
+          echo "MEMORY_LIMIT_MB=512"
+
+      - name: Verify liveness and readiness
+        id: health
+        shell: bash
+        run: |
+          set -euo pipefail
+          live=0
+          ready=0
+          for attempt in $(seq 1 90); do
+            if ! docker inspect sanad-runtime-cert --format '{{.State.Running}}' | grep -qx true; then
+              echo "RUNTIME_CONTAINER_EXITED_BEFORE_LIVENESS" >&2
+              docker logs --tail 250 sanad-runtime-cert 2>&1 || true
+              exit 3
+            fi
+            if curl --silent --show-error --fail --max-time 5 \
+              http://127.0.0.1:18080/actuator/health/liveness > liveness.json; then
+              if [[ "$(jq -r '.status // empty' liveness.json)" == "UP" ]]; then
+                live=1
+                break
+              fi
+            fi
+            sleep 2
+          done
+          if [[ "$live" != "1" ]]; then
+            echo "LIVENESS_GATE=FAIL" >&2
+            docker logs --tail 250 sanad-runtime-cert 2>&1 || true
+            exit 4
+          fi
+          echo "LIVENESS_GATE=PASS"
+
+          for attempt in $(seq 1 90); do
+            if curl --silent --show-error --fail --max-time 5 \
+              http://127.0.0.1:18080/actuator/health/readiness > readiness.json; then
+              if [[ "$(jq -r '.status // empty' readiness.json)" == "UP" ]]; then
+                ready=1
+                break
+              fi
+            fi
+            sleep 2
+          done
+          if [[ "$ready" != "1" ]]; then
+            echo "READINESS_GATE=FAIL" >&2
+            docker logs --tail 250 sanad-runtime-cert 2>&1 || true
+            exit 5
+          fi
+          echo "READINESS_GATE=PASS"
+
+          startup_seconds=$(( $(date +%s) - ${{ steps.start.outputs.start_epoch }} ))
+          echo "startup_seconds=$startup_seconds" >> "$GITHUB_OUTPUT"
+          echo "STARTUP_SECONDS=$startup_seconds"
+
+      - name: Capture runtime memory evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker stats --no-stream \
+            --format '{{json .}}' sanad-runtime-cert > runtime-stats.json
+          cat runtime-stats.json
+
+      - name: Prove runtime did not mutate Flyway history
+        id: history_after
+        shell: bash
+        run: |
+          set -euo pipefail
+          before='${{ steps.history_before.outputs.count }}'
+          after=$(docker run --rm --network host \
+            -e PGPASSWORD=sanad_cert_pass postgres:16-alpine \
+            psql -h 127.0.0.1 -p 5432 -U sanad -d sanad_cert -Atc \
+            "SELECT COUNT(*) FROM flyway_schema_history WHERE success = true;")
+          echo "count=$after" >> "$GITHUB_OUTPUT"
+          if [[ "$before" != "$after" ]]; then
+            echo "RUNTIME_SCHEMA_MUTATION=BLOCKED" >&2
+            echo "FLYWAY_HISTORY_BEFORE=$before AFTER=$after" >&2
+            exit 6
+          fi
+          echo "RUNTIME_SCHEMA_MUTATION=NONE"
+          echo "FLYWAY_HISTORY_AFTER=$after"
+
+      - name: Verify graceful shutdown
+        id: shutdown
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker stop --time 30 sanad-runtime-cert
+          state=$(docker inspect sanad-runtime-cert --format '{{.State.Status}}')
+          test "$state" = "exited"
+          echo "GRACEFUL_SHUTDOWN_GATE=PASS"
+
+      - name: Write backend runtime certification evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg sourceSha "$GITHUB_SHA" \
+            --arg historyBefore "${{ steps.history_before.outputs.count || 'unknown' }}" \
+            --arg historyAfter "${{ steps.history_after.outputs.count || 'unknown' }}" \
+            --arg startupSeconds "${{ steps.health.outputs.startup_seconds || 'unknown' }}" \
+            --arg runtimeFlywayEnabled "false" \
+            --arg memoryLimitMb "512" \
+            --arg isolatedDatabase "true" \
+            --arg liveness "${{ steps.health.outcome }}" \
+            --arg gracefulShutdown "${{ steps.shutdown.outcome }}" \
+            '{sourceSha:$sourceSha,isolatedDatabase:$isolatedDatabase,memoryLimitMb:$memoryLimitMb,runtimeFlywayEnabled:$runtimeFlywayEnabled,historyBefore:$historyBefore,historyAfter:$historyAfter,startupSeconds:$startupSeconds,liveness:$liveness,gracefulShutdown:$gracefulShutdown}' \
+            > backend-runtime-certification-evidence.json
+
+      - name: Upload backend runtime certification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-runtime-certification-evidence-${{ github.run_id }}
+          path: |
+            backend-runtime-certification-evidence.json
+            runtime-stats.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Cleanup certification container
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f sanad-runtime-cert >/dev/null 2>&1 || true
