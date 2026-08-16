@@ -17,8 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** CRM API contract test for the committed, runtime-filtered OpenAPI artifact. */
 class CrmOpenApiContractTest {
 
-    private static final int EXPECTED_PATHS = 142;
-    private static final int EXPECTED_OPERATIONS = 181;
+    private static final int EXPECTED_PATHS = 147;
+    private static final int EXPECTED_OPERATIONS = 192;
     private static final Set<String> HTTP_METHODS = Set.of(
             "get", "post", "put", "patch", "delete", "head", "options", "trace");
     private static final Path OPENAPI_PATH =
@@ -59,7 +59,7 @@ class CrmOpenApiContractTest {
                 "/timeline", "/addresses", "/communication-methods",
                 "/teams", "/queues", "/territories", "/assignment-rules",
                 "/assignments", "/ownership-history", "/transfers", "/my-work",
-                "/integrations", "/intelligence", "/cases"
+                "/integrations", "/intelligence", "/cases", "/tags"
         };
         for (String prefix : domainPrefixes) {
             boolean found = false;
@@ -111,7 +111,8 @@ class CrmOpenApiContractTest {
                 "CreateContactRequest", "ContactResponse", "ListResponseContactResponse",
                 "CreateAddressRequest", "AddressResponse", "SingleResponseAddressResponse",
                 "CreateCommunicationMethodRequest", "CommunicationMethodResponse",
-                "SingleResponseCommunicationMethodResponse"}) {
+                "SingleResponseCommunicationMethodResponse", "CreateTagRequest", "TagResponse",
+                "CreateStageRequest", "StageResponse"}) {
             assertNotNull(schemas.get(name), "OpenAPI spec is missing generated schema: " + name);
         }
 
@@ -120,6 +121,8 @@ class CrmOpenApiContractTest {
         assertRequestBodySchemaExists(spec, "/integrations/{requestId}/reject", "post");
         assertRequestBodySchemaExists(spec, "/integrations/workflows", "post");
         assertRequestBodySchemaExists(spec, "/integrations/workflows/{requestId}/cancel", "post");
+        assertRequestBodySchemaExists(spec, "/tags", "post");
+        assertRequestBodySchemaExists(spec, "/pipelines/{pipelineId}/stages", "post");
     }
 
     @Test
@@ -191,7 +194,8 @@ class CrmOpenApiContractTest {
                 "/communication-methods/{communicationMethodId}/preferred",
                 "/communication-methods/{communicationMethodId}/verification",
                 "/communication-methods/{communicationMethodId}/archive",
-                "/communication-methods/{communicationMethodId}/reactivate"
+                "/communication-methods/{communicationMethodId}/reactivate",
+                "/tags/{tagId}"
         };
         for (String path : patchPaths) {
             assertRequiredHeader(paths.path(path).path("patch"), "If-Match", path);
@@ -223,7 +227,7 @@ class CrmOpenApiContractTest {
                 }
             }
         }
-        assertTrue(protectedOperations >= 24,
+        assertTrue(protectedOperations >= 26,
                 "Expected idempotency protection on CRM create/action operations");
         for (String path : new String[]{
                 "/accounts/{accountId}/addresses", "/contacts/{contactId}/addresses",
@@ -233,7 +237,7 @@ class CrmOpenApiContractTest {
                 "/assignments/reassign", "/assignments/bulk-reassign",
                 "/integrations/ai", "/integrations/{requestId}/confirm",
                 "/integrations/{requestId}/reject", "/integrations/workflows",
-                "/integrations/workflows/{requestId}/cancel"}) {
+                "/integrations/workflows/{requestId}/cancel", "/tags", "/tags/{tagId}/assignments"}) {
             assertRequiredHeader(paths.path(path).path("post"), "Idempotency-Key", path);
         }
     }
