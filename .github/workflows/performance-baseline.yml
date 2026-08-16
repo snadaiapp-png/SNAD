@@ -137,11 +137,14 @@ jobs:
 
       - name: Start backend on local CI profile
         working-directory: apps/sanad-platform
+        env:
+          SPRING_FLYWAY_ENABLED: 'false'
+          SPRING_JPA_HIBERNATE_DDL_AUTO: 'update'
         run: |
           mkdir -p ../../performance/results
           nohup mvn -q -DskipTests spring-boot:run \
             -Dspring-boot.run.profiles=local \
-            -Dspring-boot.run.arguments="--server.port=8080 --management.endpoints.web.exposure.include=health,info --management.endpoint.health.show-details=always" \
+            -Dspring-boot.run.arguments="--server.port=8080 --management.endpoints.web.exposure.include=health,info --management.endpoint.health.show-details=always --spring.flyway.enabled=false --spring.jpa.hibernate.ddl-auto=update" \
             > ../../performance/results/backend-startup.log 2>&1 &
           echo $! > /tmp/sanad-perf-app.pid
 

@@ -127,9 +127,12 @@ jobs:
           retention-days: 7
       - name: Start backend for runtime OpenAPI
         working-directory: apps/sanad-platform
+        env:
+          SPRING_FLYWAY_ENABLED: 'false'
+          SPRING_JPA_HIBERNATE_DDL_AUTO: 'update'
         run: |
           set -euo pipefail
-          nohup mvn -q -DskipTests spring-boot:run -Dspring-boot.run.profiles=local -Dspring-boot.run.arguments="--server.port=8081 --management.endpoints.web.exposure.include=health" >/tmp/crm-openapi-backend.log 2>&1 &
+          nohup mvn -q -DskipTests spring-boot:run -Dspring-boot.run.profiles=local -Dspring-boot.run.arguments="--server.port=8081 --management.endpoints.web.exposure.include=health --spring.flyway.enabled=false --spring.jpa.hibernate.ddl-auto=update" >/tmp/crm-openapi-backend.log 2>&1 &
           echo $! >/tmp/crm-openapi-backend.pid
       - name: Fetch runtime OpenAPI
         run: |
