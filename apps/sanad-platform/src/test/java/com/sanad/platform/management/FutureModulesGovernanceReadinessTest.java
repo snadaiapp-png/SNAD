@@ -114,7 +114,7 @@ class FutureModulesGovernanceReadinessTest {
         // postgresql, application, crm, finance, analytics, workflow,
         // module-registry, schedulers, integrations, tenant, governance
         // ERP/POS/CONTRACT_MANAGEMENT should NOT appear as health contributors
-        assertThat(componentIds).doesNotContain("erp");
+        // ERP is now IMPLEMENTED — erp health contributor IS expected
         assertThat(componentIds).doesNotContain("pos");
         assertThat(componentIds).doesNotContain("contract-management");
     }
@@ -130,9 +130,8 @@ class FutureModulesGovernanceReadinessTest {
         var moduleCodes = modules.stream()
                 .map(ManagementGovernanceModuleContract::moduleCode)
                 .toList();
-        // ERP/POS/CONTRACT_MANAGEMENT should NOT be in the enabled list
-        // because they have no governance adapter and no entitlement
-        assertThat(moduleCodes).doesNotContain("ERP");
+        // ERP is now IMPLEMENTED — governance adapter IS expected
+        // POS/CONTRACT_MANAGEMENT should NOT be in the enabled list
         assertThat(moduleCodes).doesNotContain("POS");
         assertThat(moduleCodes).doesNotContain("CONTRACT_MANAGEMENT");
     }
@@ -151,7 +150,6 @@ class FutureModulesGovernanceReadinessTest {
                 .toList();
         assertThat(codes).contains("CRM", "FINANCE", "ANALYTICS", "WORKFLOW");
         // ERP/POS/CONTRACT_MANAGEMENT are NOT in the list because no adapter exists yet
-        assertThat(codes).doesNotContain("ERP");
         assertThat(codes).doesNotContain("POS");
         assertThat(codes).doesNotContain("CONTRACT_MANAGEMENT");
     }
@@ -168,7 +166,6 @@ class FutureModulesGovernanceReadinessTest {
                 .map(SystemHealthContributor::componentId)
                 .toList();
         // ERP/POS/CONTRACT_MANAGEMENT should NOT appear as health contributors
-        assertThat(ids).doesNotContain("erp");
         assertThat(ids).doesNotContain("pos");
         assertThat(ids).doesNotContain("contract-management");
     }
@@ -272,7 +269,7 @@ class FutureModulesGovernanceReadinessTest {
         Integer erpTables = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE 'erp_%'",
                 Integer.class);
-        assertThat(erpTables).as("ERP_BUSINESS_IMPLEMENTATION_ADDED").isEqualTo(0);
+        assertThat(erpTables).as("ERP_BUSINESS_IMPLEMENTATION_EXISTS").isGreaterThan(0);
 
         // POS_BUSINESS_IMPLEMENTATION_ADDED = 0
         Integer posTables = jdbc.queryForObject(

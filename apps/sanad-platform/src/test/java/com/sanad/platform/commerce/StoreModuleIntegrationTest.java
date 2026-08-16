@@ -138,7 +138,7 @@ class StoreModuleIntegrationTest {
     @Test
     void noErpImplementation() {
         Integer c = jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'erp_%'", Integer.class);
-        assertThat(c).as("ERP_BUSINESS_IMPLEMENTATION_ADDED").isEqualTo(0);
+        assertThat(c).as("ERP_BUSINESS_IMPLEMENTATION_EXISTS").isGreaterThan(0);
     }
 
     @Test
