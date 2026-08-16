@@ -33,7 +33,8 @@ class BackendRuntimeCertificationContractTest(unittest.TestCase):
     def test_health_and_shutdown_are_verified(self):
         self.assertIn("/actuator/health/liveness", self.text)
         self.assertIn("/actuator/health/readiness", self.text)
-        self.assertIn("docker stop --time 30", self.text)
+        self.assertIn("docker stop --timeout 30", self.text)
+        self.assertNotIn("docker stop --time 30", self.text)
         self.assertIn("backend-runtime-certification-evidence", self.text)
 
     def test_production_integration_guard_remains_enabled_with_valid_inputs(self):
