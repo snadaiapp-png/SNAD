@@ -149,6 +149,16 @@ def _executes_flyway_migrate(text: str) -> bool:
     return has_flyway_container and has_standalone_migrate
 
 
+def _enables_runtime_flyway(text: str) -> bool:
+    """Detect explicit runtime Flyway enablement, including docker -e and YAML env."""
+    return bool(
+        re.search(
+            r"(?im)\bFLYWAY_ENABLED\b\s*(?::|=)\s*[\"']?true(?:[\"']|\b)",
+            text,
+        )
+    )
+
+
 def _writer_authority(
     path: str,
     *,
@@ -221,7 +231,8 @@ def scan_text(path: str, text: str) -> Finding:
         )
     )
 
-    runs_flyway = bool(re.search(r"(?i)\bflyway\b", text))
+    runtime_flyway_enabled = _enables_runtime_flyway(text)
+    runs_flyway = bool(re.search(r"(?i)\bflyway\b", text)) or runtime_flyway_enabled
     flyway_migrate = _executes_flyway_migrate(text)
 
     sql_mutation = bool(
@@ -234,7 +245,12 @@ def scan_text(path: str, text: str) -> Finding:
     database_create_api = bool(
         re.search(r"(?i)(?:\"type\"\s*:\s*\"psql\"|/databases\b)", text)
     ) and writes_render
-    writes_database = flyway_migrate or (psql and sql_mutation) or database_create_api
+    writes_database = (
+        flyway_migrate
+        or runtime_flyway_enabled
+        or (psql and sql_mutation)
+        or database_create_api
+    )
 
     builds_image = bool(
         re.search(
@@ -277,6 +293,8 @@ def scan_text(path: str, text: str) -> Finding:
         reasons.append("render_deploy_capability")
     if writes_database:
         reasons.append("database_mutation_capability")
+    if runtime_flyway_enabled:
+        reasons.append("runtime_flyway_enabled")
     if runs_flyway:
         reasons.append("flyway_reference")
     if writes_source:
