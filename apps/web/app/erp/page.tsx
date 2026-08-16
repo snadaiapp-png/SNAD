@@ -28,9 +28,9 @@ export default function ErpPage() {
   if (["INITIALIZING","CHECKING_SESSION","REFRESHING"].includes(state)) return <AuthLoadingState phase="session" />;
   if (state !== "AUTHENTICATED") { router.replace("/?returnUrl=%2Ferp"); return <AuthLoadingState phase="workspace" />; }
   if (loading) return <AuthLoadingState />;
-  if (error) return (<div style={{ padding: 24, textAlign: "center", color: "#dc2626" }}>{error}<button onClick={loadData} style={{ marginLeft: 12, padding: "4px 12px", cursor: "pointer" }}>إعادة المحاولة</button></div>);
+  if (error) return (<div style={{ padding: 24, textAlign: "center", color: "var(--snad-color-error)" }}>{error}<button onClick={loadData} style={{ marginLeft: 12, padding: "4px 12px", cursor: "pointer" }}>إعادة المحاولة</button></div>);
 
-  const sc: Record<string,string> = { DRAFT:"#ca8a04", ACTIVE:"#16a34a", INACTIVE:"#6b7280", ARCHIVED:"#999" };
+  const sc: Record<string,string> = { DRAFT:"var(--snad-color-warning)", ACTIVE:"var(--snad-color-success)", INACTIVE:"var(--snad-color-text-secondary)", ARCHIVED:"var(--snad-color-text-muted)" };
   const sl: Record<string,string> = { DRAFT:"مسودة", ACTIVE:"نشط", INACTIVE:"غير نشط", ARCHIVED:"مؤرشف" };
 
   return (
@@ -39,35 +39,35 @@ export default function ErpPage() {
         <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>منصة ERP</h1>
         {summary && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 24 }}>
-            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "#eff6ff", textAlign: "center" }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: "#2563eb" }}>{summary.totalItems}</div>
-              <div style={{ fontSize: 12, color: "#666" }}>الأصناف</div>
+            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "var(--snad-color-info-soft)", textAlign: "center" }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: "var(--snad-color-info)" }}>{summary.totalItems}</div>
+              <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>الأصناف</div>
             </div>
-            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "#f0fdf4", textAlign: "center" }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: "#16a34a" }}>{summary.totalWarehouses}</div>
-              <div style={{ fontSize: 12, color: "#666" }}>المستودعات</div>
+            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "var(--snad-color-success-soft)", textAlign: "center" }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: "var(--snad-color-success)" }}>{summary.totalWarehouses}</div>
+              <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>المستودعات</div>
             </div>
-            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "#fef3c7", textAlign: "center" }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: "#ca8a04" }}>{summary.lowStockItems}</div>
-              <div style={{ fontSize: 12, color: "#666" }}>مخزون منخفض</div>
+            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "var(--snad-color-warning-soft)", textAlign: "center" }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: "var(--snad-color-warning)" }}>{summary.lowStockItems}</div>
+              <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>مخزون منخفض</div>
             </div>
-            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "#f5f3ff", textAlign: "center" }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: "#7c3aed" }}>{summary.pendingPurchaseOrders}</div>
-              <div style={{ fontSize: 12, color: "#666" }}>أوامر شراء معلقة</div>
+            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "var(--snad-color-surface-secondary)", textAlign: "center" }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: "var(--snad-color-brand-accent)" }}>{summary.pendingPurchaseOrders}</div>
+              <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>أوامر شراء معلقة</div>
             </div>
           </div>
         )}
         {items.length === 0 ? (
-          <div style={{ padding: 48, textAlign: "center", color: "#999" }}>لا توجد أصناف بعد.</div>
+          <div style={{ padding: 48, textAlign: "center", color: "var(--snad-color-text-muted)" }}>لا توجد أصناف بعد.</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {items.map((i) => (
-              <div key={i.id} style={{ padding: 16, borderRadius: 8, border: "1px solid #e5e7eb", backgroundColor: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div key={i.id} style={{ padding: 16, borderRadius: 8, border: "1px solid var(--snad-color-border-default)", backgroundColor: "var(--snad-color-surface-primary)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 600 }}>{i.name}</div>
-                  <div style={{ fontSize: 12, color: "#666" }}>{i.code} · {i.sku || "—"} · {i.unitOfMeasure}</div>
+                  <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>{i.code} · {i.sku || "—"} · {i.unitOfMeasure}</div>
                 </div>
-                <span style={{ padding: "4px 12px", borderRadius: 12, fontSize: 12, fontWeight: 500, backgroundColor: (sc[i.status]||"#666")+"20", color: sc[i.status]||"#666" }}>{sl[i.status]||i.status}</span>
+                <span style={{ padding: "4px 12px", borderRadius: 12, fontSize: 12, fontWeight: 500, backgroundColor: (sc[i.status]||"var(--snad-color-text-secondary)")+"20", color: sc[i.status]||"var(--snad-color-text-secondary)" }}>{sl[i.status]||i.status}</span>
               </div>
             ))}
           </div>

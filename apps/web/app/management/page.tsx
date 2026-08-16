@@ -15,19 +15,19 @@ import {
 // ── Health Score Badge ────────────────────────────────────────────────
 
 function HealthScoreBadge({ score }: { score: number }) {
-  const color = score >= 80 ? "#16a34a" : score >= 50 ? "#ca8a04" : "#dc2626";
+  const color = score >= 80 ? "var(--snad-color-success)" : score >= 50 ? "var(--snad-color-warning)" : "var(--snad-color-error)";
   const label = score >= 80 ? "سليم" : score >= 50 ? "متحفظ" : "حرج";
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <div style={{
         width: 60, height: 60, borderRadius: "50%",
-        backgroundColor: color, color: "#fff",
+        backgroundColor: color, color: "var(--snad-color-surface-primary)",
         display: "flex", alignItems: "center", justifyContent: "center",
         fontSize: 24, fontWeight: 700,
       }}>
         {score}
       </div>
-      <span style={{ fontSize: 14, color: "#666" }}>{label}</span>
+      <span style={{ fontSize: 14, color: "var(--snad-color-text-secondary)" }}>{label}</span>
     </div>
   );
 }
@@ -35,18 +35,18 @@ function HealthScoreBadge({ score }: { score: number }) {
 // ── Score Card ────────────────────────────────────────────────────────
 
 function ScoreCard({ label, score, count }: { label: string; score: number; count?: number }) {
-  const color = score >= 80 ? "#16a34a" : score >= 50 ? "#ca8a04" : "#dc2626";
+  const color = score >= 80 ? "var(--snad-color-success)" : score >= 50 ? "var(--snad-color-warning)" : "var(--snad-color-error)";
   return (
     <div style={{
-      padding: 16, borderRadius: 8, border: "1px solid #e5e7eb",
+      padding: 16, borderRadius: 8, border: "1px solid var(--snad-color-border-default)",
       display: "flex", flexDirection: "column", gap: 4,
     }}>
-      <span style={{ fontSize: 13, color: "#666" }}>{label}</span>
+      <span style={{ fontSize: 13, color: "var(--snad-color-text-secondary)" }}>{label}</span>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
         <span style={{ fontSize: 28, fontWeight: 700, color }}>{score}</span>
-        {count !== undefined && <span style={{ fontSize: 12, color: "#999" }}>({count})</span>}
+        {count !== undefined && <span style={{ fontSize: 12, color: "var(--snad-color-text-muted)" }}>({count})</span>}
       </div>
-      <div style={{ height: 4, borderRadius: 2, backgroundColor: "#f3f4f6" }}>
+      <div style={{ height: 4, borderRadius: 2, backgroundColor: "var(--snad-color-surface-secondary)" }}>
         <div style={{ width: `${score}%`, height: "100%", borderRadius: 2, backgroundColor: color }} />
       </div>
     </div>
@@ -56,24 +56,24 @@ function ScoreCard({ label, score, count }: { label: string; score: number; coun
 // ── Alert Item ───────────────────────────────────────────────────────
 
 function AlertItem({ alert }: { alert: AlertResponse }) {
-  const severityColor = alert.severity === "CRITICAL" ? "#dc2626"
-    : alert.severity === "HIGH" ? "#ea580c"
-    : alert.severity === "MEDIUM" ? "#ca8a04" : "#6b7280";
+  const severityColor = alert.severity === "CRITICAL" ? "var(--snad-color-error)"
+    : alert.severity === "HIGH" ? "var(--snad-color-warning)"
+    : alert.severity === "MEDIUM" ? "var(--snad-color-warning)" : "var(--snad-color-text-secondary)";
   return (
     <div style={{
-      padding: 12, borderRadius: 8, border: "1px solid #e5e7eb",
+      padding: 12, borderRadius: 8, border: "1px solid var(--snad-color-border-default)",
       borderRight: `4px solid ${severityColor}`,
       display: "flex", justifyContent: "space-between", alignItems: "center",
     }}>
       <div>
         <div style={{ fontWeight: 600, fontSize: 14 }}>{alert.title}</div>
-        <div style={{ fontSize: 12, color: "#666" }}>
+        <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>
           {alert.type.replace(/_/g, " ")} · {alert.sourceEntityType}
         </div>
       </div>
       <span style={{
         padding: "2px 8px", borderRadius: 4, fontSize: 11,
-        backgroundColor: severityColor, color: "#fff", fontWeight: 600,
+        backgroundColor: severityColor, color: "var(--snad-color-surface-primary)", fontWeight: 600,
       }}>
         {alert.severity}
       </span>
@@ -87,22 +87,22 @@ function InsightPanel({ insight }: { insight: InsightResponse }) {
   if (!insight) return null;
   return (
     <div style={{
-      padding: 16, borderRadius: 8, border: "1px solid #e5e7eb",
-      backgroundColor: "#fefce8",
+      padding: 16, borderRadius: 8, border: "1px solid var(--snad-color-border-default)",
+      backgroundColor: "var(--snad-color-warning-soft)",
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
         <span style={{ fontWeight: 600, fontSize: 14 }}>{insight.title}</span>
         <span style={{
           padding: "2px 8px", borderRadius: 4, fontSize: 10,
-          backgroundColor: "#fde68a", color: "#92400e",
+          backgroundColor: "var(--snad-color-warning)", color: "var(--snad-color-warning)",
         }}>
           استشاري فقط · {insight.modelName}
         </span>
       </div>
-      <p style={{ fontSize: 13, color: "#555", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+      <p style={{ fontSize: 13, color: "var(--snad-color-text-secondary)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
         {insight.description}
       </p>
-      <div style={{ marginTop: 8, fontSize: 11, color: "#999" }}>
+      <div style={{ marginTop: 8, fontSize: 11, color: "var(--snad-color-text-muted)" }}>
         الثقة: {insight.confidence}
       </div>
     </div>
@@ -143,12 +143,12 @@ function GovernedSystemTile({
 }) {
   const statusColor =
     status === "ACTIVE" || status === "HEALTHY" || status === "CURRENT"
-      ? "#16a34a"
+      ? "var(--snad-color-success)"
       : status === "DEGRADED" || status === "PAST_DUE"
-        ? "#ca8a04"
+        ? "var(--snad-color-warning)"
         : status === "UNHEALTHY" || status === "SUSPENDED" || status === "UNAVAILABLE"
-          ? "#dc2626"
-          : "#666";
+          ? "var(--snad-color-error)"
+          : "var(--snad-color-text-secondary)";
   const statusLabel =
     status === "ACTIVE" || status === "HEALTHY" || status === "CURRENT"
       ? "سليم"
@@ -163,15 +163,15 @@ function GovernedSystemTile({
         padding: 10,
         borderRadius: 6,
         border: `1px solid ${statusColor}40`,
-        backgroundColor: "#fff",
+        backgroundColor: "var(--snad-color-surface-primary)",
         minHeight: 80,
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>{label}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--snad-color-text-primary)" }}>{label}</span>
         <span style={{ fontSize: 11, color: statusColor, fontWeight: 500 }}>{statusLabel}</span>
       </div>
-      <div style={{ fontSize: 11, color: "#666", lineHeight: 1.4, wordBreak: "break-word" }}>
+      <div style={{ fontSize: 11, color: "var(--snad-color-text-secondary)", lineHeight: 1.4, wordBreak: "break-word" }}>
         {metrics}
       </div>
     </div>
@@ -183,9 +183,9 @@ function GovernedSystemTile({
 function MetricRow({ label, value }: { label: string; value: string | number | undefined }) {
   if (value === undefined || value === null) return null;
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", borderBottom: "1px solid #f3f4f6" }}>
-      <span style={{ color: "#666" }}>{label}</span>
-      <span style={{ color: "#111827", fontWeight: 500 }}>{String(value)}</span>
+    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", borderBottom: "1px solid var(--snad-color-surface-secondary)" }}>
+      <span style={{ color: "var(--snad-color-text-secondary)" }}>{label}</span>
+      <span style={{ color: "var(--snad-color-text-primary)", fontWeight: 500 }}>{String(value)}</span>
     </div>
   );
 }
@@ -235,10 +235,10 @@ function SystemHealthMetrics({ overview }: { overview: Record<string, unknown> }
   const overallStatus = String(overview.overallStatus ?? "UNKNOWN");
   const healthScore = Number(overview.healthScore ?? 0);
   const statusColor =
-    overallStatus === "HEALTHY" ? "#16a34a"
-    : overallStatus === "DEGRADED" ? "#ca8a04"
-    : overallStatus === "UNHEALTHY" ? "#dc2626"
-    : "#6b7280";
+    overallStatus === "HEALTHY" ? "var(--snad-color-success)"
+    : overallStatus === "DEGRADED" ? "var(--snad-color-warning)"
+    : overallStatus === "UNHEALTHY" ? "var(--snad-color-error)"
+    : "var(--snad-color-text-secondary)";
   const statusLabel =
     overallStatus === "HEALTHY" ? "سليم"
     : overallStatus === "DEGRADED" ? "متدهور"
@@ -246,21 +246,21 @@ function SystemHealthMetrics({ overview }: { overview: Record<string, unknown> }
     : "غير معروف";
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-      <div style={{ padding: 12, borderRadius: 6, backgroundColor: "#fff", border: `2px solid ${statusColor}`, textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>الحالة الإجمالية</div>
+      <div style={{ padding: 12, borderRadius: 6, backgroundColor: "var(--snad-color-surface-primary)", border: `2px solid ${statusColor}`, textAlign: "center" }}>
+        <div style={{ fontSize: 11, color: "var(--snad-color-text-secondary)", marginBottom: 4 }}>الحالة الإجمالية</div>
         <div style={{ fontSize: 18, fontWeight: 700, color: statusColor }}>{statusLabel}</div>
       </div>
-      <div style={{ padding: 12, borderRadius: 6, backgroundColor: "#fff", border: "1px solid #e5e7eb", textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>درجة الصحة</div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: "#374151" }}>{healthScore}</div>
+      <div style={{ padding: 12, borderRadius: 6, backgroundColor: "var(--snad-color-surface-primary)", border: "1px solid var(--snad-color-border-default)", textAlign: "center" }}>
+        <div style={{ fontSize: 11, color: "var(--snad-color-text-secondary)", marginBottom: 4 }}>درجة الصحة</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "var(--snad-color-text-primary)" }}>{healthScore}</div>
       </div>
-      <div style={{ padding: 12, borderRadius: 6, backgroundColor: "#fff", border: "1px solid #e5e7eb", textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>سليم / متدهور</div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a" }}>{String(overview.healthyComponents ?? 0)} / {String(overview.degradedComponents ?? 0)}</div>
+      <div style={{ padding: 12, borderRadius: 6, backgroundColor: "var(--snad-color-surface-primary)", border: "1px solid var(--snad-color-border-default)", textAlign: "center" }}>
+        <div style={{ fontSize: 11, color: "var(--snad-color-text-secondary)", marginBottom: 4 }}>سليم / متدهور</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "var(--snad-color-success)" }}>{String(overview.healthyComponents ?? 0)} / {String(overview.degradedComponents ?? 0)}</div>
       </div>
-      <div style={{ padding: 12, borderRadius: 6, backgroundColor: "#fff", border: "1px solid #e5e7eb", textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>غير سليم / غير معروف</div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: "#dc2626" }}>{String(overview.unhealthyComponents ?? 0)} / {String(overview.unknownComponents ?? 0)}</div>
+      <div style={{ padding: 12, borderRadius: 6, backgroundColor: "var(--snad-color-surface-primary)", border: "1px solid var(--snad-color-border-default)", textAlign: "center" }}>
+        <div style={{ fontSize: 11, color: "var(--snad-color-text-secondary)", marginBottom: 4 }}>غير سليم / غير معروف</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "var(--snad-color-error)" }}>{String(overview.unhealthyComponents ?? 0)} / {String(overview.unknownComponents ?? 0)}</div>
       </div>
     </div>
   );
@@ -326,7 +326,7 @@ export default function ManagementCommandCenterPage() {
 
   if (loading) return <AuthLoadingState />;
   if (error) return (
-    <div style={{ padding: 24, textAlign: "center", color: "#dc2626" }}>
+    <div style={{ padding: 24, textAlign: "center", color: "var(--snad-color-error)" }}>
       {error}
       <button onClick={loadData} style={{ marginLeft: 12, padding: "4px 12px", cursor: "pointer" }}>
         إعادة المحاولة
@@ -345,7 +345,7 @@ export default function ManagementCommandCenterPage() {
         </div>
 
         {/* Tabs */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 16, borderBottom: "1px solid #e5e7eb" }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, borderBottom: "1px solid var(--snad-color-border-default)" }}>
           {[
             { id: "overview", label: "نظرة عامة" },
             { id: "alerts", label: `التنبيهات (${alerts.length})` },
@@ -355,9 +355,9 @@ export default function ManagementCommandCenterPage() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id as typeof activeTab)}
               style={{
-                padding: "8px 16px", border: "none", borderBottom: activeTab === tab.id ? "2px solid #2563eb" : "none",
+                padding: "8px 16px", border: "none", borderBottom: activeTab === tab.id ? "2px solid var(--snad-color-info)" : "none",
                 backgroundColor: "transparent", cursor: "pointer", fontSize: 14, fontWeight: activeTab === tab.id ? 600 : 400,
-                color: activeTab === tab.id ? "#2563eb" : "#666",
+                color: activeTab === tab.id ? "var(--snad-color-info)" : "var(--snad-color-text-secondary)",
               }}
             >
               {tab.label}
@@ -386,29 +386,29 @@ export default function ManagementCommandCenterPage() {
         {/* Summary counts */}
         {activeTab === "overview" && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "#fef2f2" }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: "#dc2626" }}>{dashboard.criticalRisks}</div>
-              <div style={{ fontSize: 12, color: "#666" }}>مخاطر حرجة</div>
+            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "var(--snad-color-error-soft)" }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: "var(--snad-color-error)" }}>{dashboard.criticalRisks}</div>
+              <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>مخاطر حرجة</div>
             </div>
-            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "#fef2f2" }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: "#dc2626" }}>{dashboard.criticalIssues}</div>
-              <div style={{ fontSize: 12, color: "#666" }}>مشكلات حرجة</div>
+            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "var(--snad-color-error-soft)" }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: "var(--snad-color-error)" }}>{dashboard.criticalIssues}</div>
+              <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>مشكلات حرجة</div>
             </div>
-            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "#fef2f2" }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: "#dc2626" }}>{dashboard.overdueEscalations}</div>
-              <div style={{ fontSize: 12, color: "#666" }}>تصعيدات متأخرة</div>
+            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "var(--snad-color-error-soft)" }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: "var(--snad-color-error)" }}>{dashboard.overdueEscalations}</div>
+              <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>تصعيدات متأخرة</div>
             </div>
-            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "#fff7ed" }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: "#ea580c" }}>{dashboard.atRiskObjectives}</div>
-              <div style={{ fontSize: 12, color: "#666" }}>أهداف معرضة للخطر</div>
+            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "var(--snad-color-warning-soft)" }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: "var(--snad-color-warning)" }}>{dashboard.atRiskObjectives}</div>
+              <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>أهداف معرضة للخطر</div>
             </div>
           </div>
         )}
 
         {/* Governed Systems Overview — v20260815.7 (CRM + Finance + Analytics + Workflow + Modules) */}
         {activeTab === "overview" && (
-          <div style={{ marginTop: 24, padding: 16, borderRadius: 8, border: "1px solid #e5e7eb", backgroundColor: "#fafafa" }}>
-            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: "#374151" }}>
+          <div style={{ marginTop: 24, padding: 16, borderRadius: 8, border: "1px solid var(--snad-color-border-default)", backgroundColor: "var(--snad-color-surface-secondary)" }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: "var(--snad-color-text-primary)" }}>
               الأنظمة المحكومة بالحوكمة
             </h2>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
@@ -443,19 +443,19 @@ export default function ManagementCommandCenterPage() {
 
         {/* Revenue + Operations Overview — v20260815.8 (GAP 19 + GAP 18) */}
         {activeTab === "overview" && dashboard.revenueOverview && dashboard.operationalOverview && (
-          <div style={{ marginTop: 24, padding: 16, borderRadius: 8, border: "1px solid #e5e7eb", backgroundColor: "#fafafa" }}>
-            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: "#374151" }}>
+          <div style={{ marginTop: 24, padding: 16, borderRadius: 8, border: "1px solid var(--snad-color-border-default)", backgroundColor: "var(--snad-color-surface-secondary)" }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: "var(--snad-color-text-primary)" }}>
               الإيرادات والعمليات
             </h2>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
-              <div style={{ padding: 12, borderRadius: 6, backgroundColor: "#fff", border: "1px solid #e5e7eb" }}>
-                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: "#374151" }}>
+              <div style={{ padding: 12, borderRadius: 6, backgroundColor: "var(--snad-color-surface-primary)", border: "1px solid var(--snad-color-border-default)" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: "var(--snad-color-text-primary)" }}>
                   نظرة عامة على الإيرادات
                 </div>
                 <RevenueMetrics overview={dashboard.revenueOverview} />
               </div>
-              <div style={{ padding: 12, borderRadius: 6, backgroundColor: "#fff", border: "1px solid #e5e7eb" }}>
-                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: "#374151" }}>
+              <div style={{ padding: 12, borderRadius: 6, backgroundColor: "var(--snad-color-surface-primary)", border: "1px solid var(--snad-color-border-default)" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: "var(--snad-color-text-primary)" }}>
                   نظرة عامة على العمليات
                 </div>
                 <OperationsMetrics overview={dashboard.operationalOverview} />
@@ -466,8 +466,8 @@ export default function ManagementCommandCenterPage() {
 
         {/* System Health — v20260816.1 */}
         {activeTab === "overview" && dashboard.systemHealth && (
-          <div style={{ marginTop: 24, padding: 16, borderRadius: 8, border: "1px solid #e5e7eb", backgroundColor: "#fafafa" }}>
-            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: "#374151" }}>
+          <div style={{ marginTop: 24, padding: 16, borderRadius: 8, border: "1px solid var(--snad-color-border-default)", backgroundColor: "var(--snad-color-surface-secondary)" }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: "var(--snad-color-text-primary)" }}>
               صحة النظام
             </h2>
             <SystemHealthMetrics overview={dashboard.systemHealth} />
@@ -478,7 +478,7 @@ export default function ManagementCommandCenterPage() {
         {activeTab === "alerts" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {alerts.length === 0 ? (
-              <div style={{ padding: 24, textAlign: "center", color: "#999" }}>
+              <div style={{ padding: 24, textAlign: "center", color: "var(--snad-color-text-muted)" }}>
                 لا توجد تنبيهات نشطة
               </div>
             ) : (
@@ -492,20 +492,20 @@ export default function ManagementCommandCenterPage() {
           <div>
             <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
               <button onClick={generateSummary} style={{
-                padding: "8px 16px", borderRadius: 8, border: "1px solid #2563eb",
-                backgroundColor: "#2563eb", color: "#fff", cursor: "pointer", fontSize: 13,
+                padding: "8px 16px", borderRadius: 8, border: "1px solid var(--snad-color-info)",
+                backgroundColor: "var(--snad-color-info)", color: "var(--snad-color-surface-primary)", cursor: "pointer", fontSize: 13,
               }}>
                 توليد ملخص تنفيذي
               </button>
               <button onClick={recommendAction} style={{
-                padding: "8px 16px", borderRadius: 8, border: "1px solid #16a34a",
-                backgroundColor: "#16a34a", color: "#fff", cursor: "pointer", fontSize: 13,
+                padding: "8px 16px", borderRadius: 8, border: "1px solid var(--snad-color-success)",
+                backgroundColor: "var(--snad-color-success)", color: "var(--snad-color-surface-primary)", cursor: "pointer", fontSize: 13,
               }}>
                 توصية إجراء
               </button>
             </div>
             {insights.length === 0 ? (
-              <div style={{ padding: 24, textAlign: "center", color: "#999" }}>
+              <div style={{ padding: 24, textAlign: "center", color: "var(--snad-color-text-muted)" }}>
                 لا توجد رؤى. اضغط على الأزرار أعلاه لتوليد التحليل.
               </div>
             ) : (
@@ -519,7 +519,7 @@ export default function ManagementCommandCenterPage() {
         )}
 
         {/* Footer */}
-        <div style={{ marginTop: 24, fontSize: 11, color: "#999" }}>
+        <div style={{ marginTop: 24, fontSize: 11, color: "var(--snad-color-text-muted)" }}>
           آخر تحديث: {new Date(dashboard.generatedAt).toLocaleString("ar-SA")}
         </div>
       </div>
