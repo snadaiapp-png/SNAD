@@ -10,10 +10,10 @@ class DatabaseDirectCertificationContractTest(unittest.TestCase):
     def setUpClass(cls):
         cls.text = WORKFLOW.read_text(encoding="utf-8") if WORKFLOW.exists() else ""
 
-    def test_certification_is_direct_only_and_protected(self):
+    def test_certification_is_direct_only_protected_and_manual(self):
         self.assertIn("name: PostgreSQL Direct — Read-Only Certification", self.text)
-        self.assertIn("infra/backend-clean-room-v1", self.text)
         self.assertIn("workflow_dispatch", self.text)
+        self.assertNotIn("push:", self.text)
         self.assertIn("environment: Production", self.text)
         self.assertIn("PRODUCTION_DATABASE_JDBC_URL", self.text)
         self.assertIn("PRODUCTION_DATABASE_USERNAME", self.text)
@@ -27,8 +27,8 @@ class DatabaseDirectCertificationContractTest(unittest.TestCase):
 
     def test_database_sessions_are_forced_read_only(self):
         self.assertIn("default_transaction_read_only=on", self.text)
-        self.assertIn("readOnly=true", self.text)
-        self.assertIn("readOnlyMode=always", self.text)
+        self.assertIn('query["readOnly"] = "true"', self.text)
+        self.assertIn('query["readOnlyMode"] = "always"', self.text)
         self.assertIn("SHOW default_transaction_read_only", self.text)
         self.assertIn("READ_ONLY_SESSION_GATE=PASS", self.text)
 

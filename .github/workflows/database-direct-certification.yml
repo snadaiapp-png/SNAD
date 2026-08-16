@@ -3,15 +3,10 @@ name: PostgreSQL Direct — Read-Only Certification
 # Clean-Room R10. This workflow may connect to Production PostgreSQL only to
 # certify the governing Direct route and migration metadata. Every database
 # session is forced read-only. It must never migrate, repair, baseline, clean,
-# or fall back to any pooler route.
+# or fall back to any pooler route. Re-run manually after Direct network
+# topology changes; a GitHub-hosted runner may be IPv4-only.
 
 on:
-  push:
-    branches:
-      - infra/backend-clean-room-v1
-    paths:
-      - ".github/workflows/database-direct-certification.yml"
-      - "scripts/ops/test_database_direct_certification.py"
   workflow_dispatch:
 
 permissions:
@@ -70,18 +65,22 @@ jobs:
           import sys
           from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+          def block(code: str, exit_code: int) -> None:
+              with open("database-direct-blocker.txt", "w", encoding="utf-8") as out:
+                  out.write(code + "\n")
+              print(code)
+              raise SystemExit(exit_code)
+
           raw = os.environ.get("RAW_FLYWAY_URL", "").strip()
           user = os.environ.get("RAW_FLYWAY_USER", "").strip()
           password = os.environ.get("RAW_FLYWAY_PASSWORD", "")
 
           if not raw or not user or not password:
-              print("BLOCKED_MISSING_DATABASE_SECRET")
-              sys.exit(10)
+              block("BLOCKED_MISSING_DATABASE_SECRET", 10)
 
           lower = raw.lower()
           if ".pooler.supabase.com" in lower or ":6543" in lower:
-              print("BLOCKED_NON_DIRECT_DATABASE_ROUTE")
-              sys.exit(11)
+              block("BLOCKED_NON_DIRECT_DATABASE_ROUTE", 11)
 
           match = re.fullmatch(
               r"jdbc:postgresql://(db\.[a-z0-9]+\.supabase\.co):5432/([^?]+)(?:\?.*)?",
@@ -89,16 +88,14 @@ jobs:
               flags=re.IGNORECASE,
           )
           if not match:
-              print("BLOCKED_NON_DIRECT_DATABASE_ROUTE")
-              sys.exit(12)
+              block("BLOCKED_NON_DIRECT_DATABASE_ROUTE", 12)
 
           host = match.group(1)
           database = match.group(2)
           try:
               addresses = socket.getaddrinfo(host, 5432, type=socket.SOCK_STREAM)
           except OSError:
-              print("BLOCKED_BY_DIRECT_NETWORK")
-              sys.exit(13)
+              block("BLOCKED_BY_DIRECT_NETWORK", 13)
 
           connected = False
           for family, socktype, proto, _, sockaddr in addresses:
@@ -114,8 +111,7 @@ jobs:
                   sock.close()
 
           if not connected:
-              print("BLOCKED_BY_DIRECT_NETWORK")
-              sys.exit(14)
+              block("BLOCKED_BY_DIRECT_NETWORK", 14)
 
           plain = raw[len("jdbc:"):]
           parts = urlsplit(plain)
@@ -135,6 +131,8 @@ jobs:
               out.write(f"DB_HOST={host}\n")
               out.write(f"DB_NAME={database}\n")
 
+          with open("database-direct-blocker.txt", "w", encoding="utf-8") as out:
+              out.write("NONE\n")
           print(f"::add-mask::{readonly}")
           print("DB_ROUTE=POSTGRESQL_DIRECT")
           print("DB_PORT=5432")
@@ -267,10 +265,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          blocker=$(cat database-direct-blocker.txt 2>/dev/null || printf 'UNKNOWN')
           jq -n \
             --arg sourceSha "$GITHUB_SHA" \
             --arg databaseRoute "POSTGRESQL_DIRECT" \
             --arg port "5432" \
+            --arg blocker "$blocker" \
+            --arg routeGate "${{ steps.route.outcome }}" \
             --arg serverVersion "${{ steps.metadata.outputs.server_version || 'unknown' }}" \
             --arg schemaVersion "${{ steps.metadata.outputs.schema_version || 'unknown' }}" \
             --arg historyRowsBefore "${{ steps.history_before.outputs.count || 'unknown' }}" \
@@ -282,7 +283,7 @@ jobs:
             --arg infoGate "${{ steps.info.outcome }}" \
             --arg validateGate "${{ steps.validate.outcome }}" \
             --arg readOnlySession "${{ steps.readonly_session.outcome }}" \
-            '{sourceSha:$sourceSha,databaseRoute:$databaseRoute,port:$port,serverVersion:$serverVersion,schemaVersion:$schemaVersion,historyRowsBefore:$historyRowsBefore,historyRowsAfter:$historyRowsAfter,failedHistoryRows:$failedHistoryRows,publicTables:$publicTables,rlsEnabledTables:$rlsEnabledTables,rlsForcedTables:$rlsForcedTables,flywayInfo:$infoGate,flywayValidateApplied:$validateGate,readOnlySession:$readOnlySession,databaseMutationPerformed:false}' \
+            '{sourceSha:$sourceSha,databaseRoute:$databaseRoute,port:$port,blocker:$blocker,routeGate:$routeGate,serverVersion:$serverVersion,schemaVersion:$schemaVersion,historyRowsBefore:$historyRowsBefore,historyRowsAfter:$historyRowsAfter,failedHistoryRows:$failedHistoryRows,publicTables:$publicTables,rlsEnabledTables:$rlsEnabledTables,rlsForcedTables:$rlsForcedTables,flywayInfo:$infoGate,flywayValidateApplied:$validateGate,readOnlySession:$readOnlySession,databaseMutationPerformed:false}' \
             > database-direct-certification-evidence.json
 
       - name: Upload sanitized Direct certification evidence
