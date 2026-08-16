@@ -156,7 +156,8 @@ jobs:
   migrate:
     environment: Production
     steps:
-      - run: ./mvnw flyway:migrate
+      - run: |
+          ./mvnw flyway:migrate
 """
         finding = audit.scan_text(".github/workflows/database-migrate.yml", text)
         self.assertTrue(finding.is_production_writer)
