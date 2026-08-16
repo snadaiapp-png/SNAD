@@ -1,0 +1,159 @@
+name: Render Deploy — Immutable Digest
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: "Immutable backend image digest (sha256:...)"
+        required: true
+        type: string
+      service_base_url:
+        description: "Expected public Green service base URL (https://...)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_REPOSITORY: ghcr.io/snadaiapp-png/snad-backend
+
+jobs:
+  deploy:
+    name: Deploy exact backend image digest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: Production
+
+    steps:
+      - name: Validate immutable digest input
+        shell: bash
+        run: |
+          set -euo pipefail
+          digest='${{ inputs.image_digest }}'
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "BLOCKED: image_digest must match sha256:[0-9a-f]{64}." >&2
+            exit 2
+          fi
+          base='${{ inputs.service_base_url }}'
+          if [[ ! "$base" =~ ^https:// ]]; then
+            echo "BLOCKED: service_base_url must use https://." >&2
+            exit 2
+          fi
+
+      - name: Trigger exact-image Render deploy
+        id: trigger
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RENDER_API_KEY"
+          test -n "$RENDER_SERVICE_ID"
+          image_url="${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+          payload=$(jq -cn --arg imageUrl "$image_url" '{"imageUrl":$imageUrl}')
+          http_code=$(curl --silent --show-error \
+            --output render-deploy-response.json \
+            --write-out '%{http_code}' \
+            --request POST \
+            --url "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            --header "Authorization: Bearer ${RENDER_API_KEY}" \
+            --header 'Accept: application/json' \
+            --header 'Content-Type: application/json' \
+            --data "$payload")
+          if [[ "$http_code" != "201" && "$http_code" != "202" ]]; then
+            echo "BLOCKED: Render deploy request returned HTTP ${http_code}." >&2
+            exit 3
+          fi
+          deploy_id=$(jq -r '.id // empty' render-deploy-response.json)
+          if [[ -z "$deploy_id" ]]; then
+            echo "BLOCKED: Render response did not provide a deploy id." >&2
+            exit 3
+          fi
+          echo "deploy_id=$deploy_id" >> "$GITHUB_OUTPUT"
+          rm -f render-deploy-response.json
+
+      - name: Poll Render deploy to terminal state
+        id: poll
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          DEPLOY_ID: ${{ steps.trigger.outputs.deploy_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          terminal=""
+          for attempt in $(seq 1 75); do
+            response=$(curl --silent --show-error --fail-with-body \
+              --request GET \
+              --url "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}" \
+              --header "Authorization: Bearer ${RENDER_API_KEY}" \
+              --header 'Accept: application/json')
+            status=$(jq -r '.status // empty' <<<"$response")
+            case "$status" in
+              live)
+                terminal="live"
+                break
+                ;;
+              build_failed|update_failed|canceled|deactivated)
+                echo "BLOCKED: Render deploy entered terminal failure state: $status" >&2
+                exit 4
+                ;;
+            esac
+            sleep 10
+          done
+          if [[ "$terminal" != "live" ]]; then
+            echo "BLOCKED: Render deploy did not reach live within polling window." >&2
+            exit 4
+          fi
+          echo "status=$terminal" >> "$GITHUB_OUTPUT"
+
+      - name: Verify application readiness
+        env:
+          SERVICE_BASE_URL: ${{ inputs.service_base_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${SERVICE_BASE_URL%/}"
+          for attempt in $(seq 1 30); do
+            if curl --silent --show-error --fail --max-time 5 \
+              "${base}/actuator/health/readiness" > readiness.json; then
+              state=$(jq -r '.status // empty' readiness.json)
+              if [[ "$state" == "UP" ]]; then
+                rm -f readiness.json
+                exit 0
+              fi
+            fi
+            sleep 5
+          done
+          rm -f readiness.json
+          echo "BLOCKED: readiness endpoint did not report UP." >&2
+          exit 5
+
+      - name: Write sanitized deployment evidence
+        if: always()
+        env:
+          DEPLOY_ID: ${{ steps.trigger.outputs.deploy_id }}
+          DEPLOY_STATUS: ${{ steps.poll.outputs.status }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg deployId "${DEPLOY_ID:-unknown}" \
+            --arg imageDigest "$IMAGE_DIGEST" \
+            --arg status "${DEPLOY_STATUS:-not_live}" \
+            --arg workflowRun "$GITHUB_RUN_ID" \
+            '{deployId:$deployId,imageDigest:$imageDigest,status:$status,workflowRun:$workflowRun,environmentMutationPerformed:false}' \
+            > render-deploy-evidence.json
+
+      - name: Upload sanitized deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-deploy-evidence-${{ github.run_id }}
+          path: render-deploy-evidence.json
+          if-no-files-found: error
+          retention-days: 30
