@@ -43,6 +43,8 @@ jobs:
           --health-retries 10
 
     env:
+      DATABASE_PASSWORD: sanad_cert_pass
+      PGPASSWORD: sanad_cert_pass
       FLYWAY_URL: jdbc:postgresql://127.0.0.1:5432/sanad_cert
       FLYWAY_USER: sanad
       FLYWAY_PASSWORD: sanad_cert_pass
@@ -71,7 +73,7 @@ jobs:
           set -euo pipefail
           for attempt in $(seq 1 30); do
             if docker run --rm --network host \
-              -e PGPASSWORD=sanad_cert_pass postgres:16-alpine \
+              -e PGPASSWORD postgres:16-alpine \
               pg_isready -h 127.0.0.1 -p 5432 -U sanad -d sanad_cert; then
               echo "ISOLATED_POSTGRES_GATE=PASS"
               exit 0
@@ -97,7 +99,7 @@ jobs:
         run: |
           set -euo pipefail
           count=$(docker run --rm --network host \
-            -e PGPASSWORD=sanad_cert_pass postgres:16-alpine \
+            -e PGPASSWORD postgres:16-alpine \
             psql -h 127.0.0.1 -p 5432 -U sanad -d sanad_cert -Atc \
             "SELECT COUNT(*) FROM flyway_schema_history WHERE success = true;")
           test "$count" -gt 0
@@ -135,7 +137,7 @@ jobs:
             -e SPRING_PROFILES_ACTIVE=prod \
             -e DATABASE_URL=jdbc:postgresql://127.0.0.1:5432/sanad_cert \
             -e DATABASE_USERNAME=sanad \
-            -e DATABASE_PASSWORD=sanad_cert_pass \
+            -e DATABASE_PASSWORD \
             -e FLYWAY_ENABLED=false \
             -e JPA_DDL_AUTO=validate \
             -e DATABASE_POOL_MAX=3 \
@@ -221,7 +223,7 @@ jobs:
           set -euo pipefail
           before='${{ steps.history_before.outputs.count }}'
           after=$(docker run --rm --network host \
-            -e PGPASSWORD=sanad_cert_pass postgres:16-alpine \
+            -e PGPASSWORD postgres:16-alpine \
             psql -h 127.0.0.1 -p 5432 -U sanad -d sanad_cert -Atc \
             "SELECT COUNT(*) FROM flyway_schema_history WHERE success = true;")
           echo "count=$after" >> "$GITHUB_OUTPUT"
