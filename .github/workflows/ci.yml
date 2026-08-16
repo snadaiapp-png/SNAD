@@ -154,12 +154,17 @@ jobs:
           cache: 'maven'
 
       - name: Run CRM integration tests
-        env:
-          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: 'El3BbUMQ882dQYiAqNEEMxfTr3CVlf0FTbrCOrIKKsw='
         # -Dsurefire.useFile=true emits per-class JUnit XML (TEST-*.xml)
         # under target/surefire-reports/ for the artifact upload below.
         # -DfailIfNoTests=true fails loudly if the CRM package scope ever
         # drifts to zero matching tests (guard against silent no-ops).
+        # Note: CRM_CUSTOM_FIELD_ENCRYPTION_KEY is intentionally NOT set
+        # here — CRM Integration Tests use the `default` profile which
+        # generates an ephemeral key at startup. Setting the well-known
+        # test key here would introduce a redundant gitleaks finding
+        # (the same key is already committed in 8+ other workflow files
+        # as a known test fixture, but adding a new occurrence here is
+        # unnecessary and was reverted in v20260816.11).
         run: |
           mvn test -B -ntp \
             -Dsurefire.useFile=true \
