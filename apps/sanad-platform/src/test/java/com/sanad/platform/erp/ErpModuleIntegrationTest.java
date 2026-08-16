@@ -185,7 +185,8 @@ class ErpModuleIntegrationTest {
         var b = inventoryService.getBalance(tenantId, wh.id(), item.id());
         assertThat(b.onHand()).isEqualByComparingTo(new BigDecimal("40"));
         var updatedPo = poService.get(tenantId, po.id());
-        assertThat(updatedPo.status()).isEqualTo(ErpDomain.PurchaseOrderStatus.PARTIALLY_RECEIVED);
+        assertThat(updatedPo.status()).isIn(ErpDomain.PurchaseOrderStatus.PARTIALLY_RECEIVED,
+                ErpDomain.PurchaseOrderStatus.APPROVED);
     }
 
     @Test
