@@ -17,7 +17,7 @@ on:
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/api/ProductionProfileTest.java'
       - '.github/workflows/postgres-acceptance.yml'
   push:
-    branches: [main]
+    branches: [main, infra/backend-clean-room-v1]
     paths:
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/security/**'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/api/ProductionProfileTest.java'
