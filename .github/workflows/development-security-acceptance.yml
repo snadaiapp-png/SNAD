@@ -35,6 +35,33 @@ jobs:
     name: Development Security Acceptance
     runs-on: ubuntu-latest
     timeout-minutes: 35
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: sanad_pass
+          POSTGRES_DB: sanad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sanad -d sanad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      JPA_DDL_AUTO: validate
+      CRM_009_POSTGRES_MANDATORY: 'true'
+
     defaults:
       run:
         working-directory: apps/sanad-platform
@@ -47,12 +74,6 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-
-      - name: Verify Docker
-        run: |
-          set -euo pipefail
-          docker version
-          docker info
 
       - name: Run acceptance tests
         run: |
@@ -115,6 +136,7 @@ jobs:
             echo "Tested SHA: ${{ github.sha }}"
             echo "Run ID: ${{ github.run_id }}"
             echo ''
+            echo 'Database authority: GitHub Actions PostgreSQL 16 service.'
             echo 'Scope: authentication API, tenant isolation, membership authorization, and PostgreSQL refresh concurrency.'
             echo 'This is a development baseline gate and does not authorize commercial production.'
           } >> "$GITHUB_STEP_SUMMARY"
