@@ -4,7 +4,7 @@
 
 The Render web service owns application runtime only. It does not own schema migration.
 
-Allowed runtime configuration includes application profile, port binding, datasource credentials, JWT/application secrets, pool sizing, logging, notification provider configuration, and health-probe behavior.
+Allowed runtime configuration includes non-secret settings plus references to values injected exclusively by the hosting platform's protected secret store. Secret values are never represented in this document or committed configuration.
 
 Forbidden release-time behavior from the web process:
 
