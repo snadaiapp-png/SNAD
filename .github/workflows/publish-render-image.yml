@@ -21,7 +21,7 @@ permissions:
 
 concurrency:
   group: publish-backend-image-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.ref == 'refs/heads/infra/backend-clean-room-v1' }}
 
 env:
   REGISTRY: ghcr.io
