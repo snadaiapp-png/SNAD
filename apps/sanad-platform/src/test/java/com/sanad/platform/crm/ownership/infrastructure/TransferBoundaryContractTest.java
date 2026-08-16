@@ -18,15 +18,17 @@ class TransferBoundaryContractTest {
         UUID transferId = UUID.randomUUID();
         UUID approverId = UUID.randomUUID();
 
+        UUID requesterId = UUID.randomUUID();
+
         UUID first = workflow.startTransferApproval(
-                tenantId, transferId, List.of(approverId));
+                tenantId, transferId, requesterId, List.of(approverId));
         UUID replay = workflow.startTransferApproval(
-                tenantId, transferId, List.of(approverId));
+                tenantId, transferId, requesterId, List.of(approverId));
 
         assertThat(first).isEqualTo(replay);
         assertThat(workflow.isStub()).isTrue();
         assertThatThrownBy(() -> workflow.startTransferApproval(
-                tenantId, transferId, List.of(approverId, UUID.randomUUID())))
+                tenantId, transferId, requesterId, List.of(approverId, UUID.randomUUID())))
                 .isInstanceOf(OwnershipDomainException.class)
                 .hasMessageContaining("exactly one");
     }

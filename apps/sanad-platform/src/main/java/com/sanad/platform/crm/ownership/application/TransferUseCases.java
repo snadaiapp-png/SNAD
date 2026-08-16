@@ -123,7 +123,7 @@ public class TransferUseCases {
             }
         }
 
-        UUID workflowRunId = workflow.startTransferApproval(tenantId, transferId, approvers);
+        UUID workflowRunId = workflow.startTransferApproval(tenantId, transferId, actorId, approvers);
         transfers.setWorkflowReference(tenantId, transferId, workflowRunId, 1);
         for (int index = 0; index < approvers.size(); index++) {
             transfers.addStep(tenantId, transferId, index + 1, approvers.get(index));

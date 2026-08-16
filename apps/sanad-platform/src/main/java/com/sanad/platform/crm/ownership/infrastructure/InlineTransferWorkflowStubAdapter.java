@@ -47,6 +47,7 @@ public class InlineTransferWorkflowStubAdapter implements WorkflowPort {
     @Override
     public UUID startTransferApproval(UUID tenantId,
                                       UUID transferRequestId,
+                                      UUID requesterUserId,
                                       List<UUID> approverUserIds) {
         if (tenantId == null || transferRequestId == null
                 || approverUserIds == null || approverUserIds.size() != 1
