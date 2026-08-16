@@ -74,6 +74,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          test -n "${{ steps.build.outputs.digest }}" || {
+            echo "BLOCKED: image build did not return a digest." >&2
+            exit 2
+          }
+
           if [[ ! "$PUBLISHED_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
             echo "BLOCKED: build output is not an immutable sha256 digest." >&2
             exit 2
