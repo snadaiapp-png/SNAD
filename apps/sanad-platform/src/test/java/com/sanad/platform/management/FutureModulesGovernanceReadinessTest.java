@@ -83,12 +83,11 @@ class FutureModulesGovernanceReadinessTest {
     // ===== 4. None are considered operationally implemented =====
     @Test
     void noFutureModuleHasBusinessImplementation() {
-        // Verify NO erp_*, pos_*, or contracts_* business tables exist
-        // (only the module catalog entry in `modules` table)
+        // ERP is now IMPLEMENTED — erp_* tables are expected
         Integer erpTables = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE 'erp_%'",
                 Integer.class);
-        assertThat(erpTables).isEqualTo(0);
+        assertThat(erpTables).isGreaterThan(0);
 
         Integer posTables = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE 'pos_%'",
