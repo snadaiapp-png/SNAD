@@ -53,6 +53,9 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
+      - name: Build backend resources
+        working-directory: apps/sanad-platform
+        run: mvn --batch-mode --no-transfer-progress -DskipTests -Dmaven.test.skip=true clean package
       - name: Migrate isolated PostgreSQL
         working-directory: apps/sanad-platform
         run: |
