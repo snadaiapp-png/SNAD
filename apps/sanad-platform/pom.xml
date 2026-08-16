@@ -223,7 +223,7 @@
             <version>1.3.0</version>
             <scope>test</scope>
         </dependency>
-</dependencies>
+    </dependencies>
 
     <build>
         <plugins>
@@ -240,6 +240,31 @@
                     <release></release>
                 </configuration>
             </plugin>
+
+            <!--
+              Clean-Room migration authority. This plugin is invoked only by
+              the protected database-migrate workflow; the web runtime keeps
+              spring.flyway.enabled=false. PostgreSQL support is explicit
+              because Flyway 10+ modularized database implementations.
+            -->
+            <plugin>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-maven-plugin</artifactId>
+                <version>${flyway.version}</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.flywaydb</groupId>
+                        <artifactId>flyway-database-postgresql</artifactId>
+                        <version>${flyway.version}</version>
+                    </dependency>
+                    <dependency>
+                        <groupId>org.postgresql</groupId>
+                        <artifactId>postgresql</artifactId>
+                        <version>${postgresql.version}</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
