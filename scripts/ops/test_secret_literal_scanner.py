@@ -23,6 +23,11 @@ class SecretLiteralScannerTest(unittest.TestCase):
         finding = audit.scan_text("scripts/production/example.sh", text)
         self.assertNotIn("plaintext_password_literal", finding.secret_candidate_types)
 
+    def test_python_password_variable_from_environment_is_not_literal(self):
+        text = "db_pass = os.environ['PROD_DB_PASSWORD']\nconn(password=db_pass)\n"
+        finding = audit.scan_text(".github/workflows/read-only-db-check.yml", text)
+        self.assertNotIn("plaintext_password_literal", finding.secret_candidate_types)
+
 
 if __name__ == "__main__":
     unittest.main()
