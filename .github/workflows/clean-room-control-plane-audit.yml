@@ -9,6 +9,11 @@ on:
       - "scripts/production/**"
       - "scripts/ops/audit_github_workflows.py"
       - "scripts/ops/test_audit_github_workflows.py"
+      - "scripts/ops/test_runtime_clean_room.py"
+      - "apps/sanad-platform/Dockerfile"
+      - "apps/sanad-platform/.dockerignore"
+      - "apps/sanad-platform/src/main/resources/application-prod.yml"
+      - "render.yaml"
   workflow_dispatch:
 
 permissions:
@@ -28,7 +33,7 @@ jobs:
       - name: Checkout exact branch source
         uses: actions/checkout@v4
 
-      - name: Run auditor unit tests
+      - name: Run auditor and runtime contract tests
         run: python scripts/ops/test_audit_github_workflows.py
 
       - name: Generate sanitized fail-closed inventory
