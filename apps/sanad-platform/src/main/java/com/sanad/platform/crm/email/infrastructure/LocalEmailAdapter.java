@@ -19,7 +19,7 @@ import java.util.UUID;
  * Activated when {@code snad.crm.email.provider=local}.
  */
 @Component
-@Profile({"local", "test"})
+@Profile({"local", "test", "default"})
 @ConditionalOnProperty(prefix = "snad.crm.email", name = "provider", havingValue = "local", matchIfMissing = true)
 public class LocalEmailAdapter implements EmailPort {
 
