@@ -1,0 +1,43 @@
+name: Frontend Lockfile Regeneration
+
+on:
+  push:
+    branches:
+      - infra/backend-clean-room-v1
+    paths:
+      - 'apps/web/package.json'
+      - '.github/workflows/frontend-lockfile-regeneration.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-lockfile-regeneration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regenerate:
+    name: Regenerate frontend lockfile without source mutation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Regenerate package lock only
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          npm install --package-lock-only --ignore-scripts
+          npm ci --ignore-scripts
+          npm audit --omit=dev --audit-level=high
+      - name: Upload regenerated lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-regenerated-lockfile-${{ github.run_id }}
+          path: apps/web/package-lock.json
+          if-no-files-found: error
+          retention-days: 1
