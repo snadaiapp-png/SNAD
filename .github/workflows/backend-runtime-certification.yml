@@ -122,8 +122,10 @@ jobs:
         run: |
           set -euo pipefail
           jwt_secret=$(openssl rand -hex 32)
+          service_auth_secret=$(openssl rand -hex 32)
           crm_key=$(openssl rand -base64 32 | tr -d '\n')
           echo "::add-mask::$jwt_secret"
+          echo "::add-mask::$service_auth_secret"
           echo "::add-mask::$crm_key"
 
           start_epoch=$(date +%s)
@@ -147,6 +149,9 @@ jobs:
             -e SNAD_RLS_ENABLED=true \
             -e SANAD_CONTROL_PLANE_TENANT_ID=00000000-0000-0000-0000-000000000001 \
             -e SANAD_CORS_ALLOWED_ORIGINS=https://example.invalid \
+            -e SANAD_SERVICE_AUTH_JWT_SECRET="$service_auth_secret" \
+            -e SANAD_WORKFLOW_ENGINE_BASE_URL=https://workflow.example.org \
+            -e SANAD_AI_GATEWAY_BASE_URL=https://ai.example.org \
             -e BOOTSTRAP_ENABLED=false \
             -e SECURITY_NOTIFICATION_PROVIDER=disabled \
             -e MANAGEMENT_ENDPOINTS=health \
@@ -157,6 +162,7 @@ jobs:
           echo "start_epoch=$start_epoch" >> "$GITHUB_OUTPUT"
           echo "RUNTIME_FLYWAY_ENABLED=false"
           echo "MEMORY_LIMIT_MB=512"
+          echo "PRODUCTION_GUARD_ENABLED=true"
 
       - name: Verify liveness and readiness
         id: health
