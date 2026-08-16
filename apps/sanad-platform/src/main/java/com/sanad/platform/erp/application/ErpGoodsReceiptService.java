@@ -21,21 +21,29 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Goods Receipt application service (v20260816.7).
+ * Goods Receipt application service (v20260816.10).
  *
  * <p>Tenant-scoped goods-receipt lifecycle:
  * <ol>
  *   <li>{@link #create(UUID, CreateGoodsReceiptRequest, Authentication)} —
  *       creates a goods receipt in {@code DRAFT} status, optionally linked
- *       to a purchase order.</li>
+ *       to a purchase order. <b>State guard (v20260816.10):</b> if a PO is
+ *       linked, it must currently be in a receivable state
+ *       ({@code APPROVED}, {@code SENT}, or {@code PARTIALLY_RECEIVED});
+ *       otherwise the call fails with {@code 409 CONFLICT} before any row is
+ *       inserted.</li>
  *   <li>{@link #post(UUID, UUID, Authentication)} — <b>atomic</b> posting:
- *       validates the PO exists (if linked); validates that no over-receipt
- *       occurs (received_quantity + new quantity ≤ ordered quantity, unless
- *       the system property {@code sanad.erp.allowOverReceipt=true});
- *       appends RECEIPT movements, increments {@code erp_inventory_balances.on_hand},
- *       updates {@code erp_purchase_order_items.received_quantity} +
- *       the PO status (PARTIALLY_RECEIVED or RECEIVED), and sets the goods
- *       receipt to POSTED.</li>
+ *       re-validates the PO state at post time (a PO may have been cancelled
+ *       between {@code create} and {@code post}); validates that no
+ *       over-receipt occurs (received_quantity + new quantity ≤ ordered
+ *       quantity, unless the system property
+ *       {@code sanad.erp.allowOverReceipt=true}); appends RECEIPT movements,
+ *       increments {@code erp_inventory_balances.on_hand}, updates
+ *       {@code erp_purchase_order_items.received_quantity} + the PO status
+ *       (PARTIALLY_RECEIVED or RECEIVED), and sets the goods receipt to
+ *       POSTED. If the state guard fires, the entire transaction is rolled
+ *       back — no stock movement, no inventory mutation, no PO mutation,
+ *       no partial receipt posting.</li>
  * </ol>
  */
 @Service
@@ -66,6 +74,11 @@ public class ErpGoodsReceiptService {
                     "warehouseId and items are required");
         warehouseService.getOrThrow(tenantId, request.warehouseId());
         if (request.poId() != null) {
+            // Business rule (v20260816.10): a goods receipt may be linked to a PO
+            // only when the PO is in a receivable state (APPROVED, SENT,
+            // PARTIALLY_RECEIVED). Pre-approval (DRAFT/SUBMITTED) and terminal
+            // (RECEIVED/CLOSED/CANCELLED) states must be rejected with 409.
+            purchaseOrderService.assertReceiptAllowed(tenantId, request.poId());
             purchaseOrderService.getOrThrow(tenantId, request.poId());
         }
         UUID id = UUID.randomUUID();
@@ -103,6 +116,16 @@ public class ErpGoodsReceiptService {
         if (!"DRAFT".equals(existing.status().name())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "goods receipt cannot be posted in state " + existing.status());
+        }
+        // Business rule (v20260816.10): re-validate the PO state at post time.
+        // A receipt may be created while the PO is receivable, then the PO can
+        // be cancelled (or transition to RECEIVED/CLOSED via another receipt)
+        // before this post() is invoked. The post must fail atomically and no
+        // stock movement, inventory mutation, or PO mutation may occur.
+        // Because post() is @Transactional, throwing here rolls back all
+        // downstream writes performed by this method (and by recordReceipt()).
+        if (existing.poId() != null) {
+            purchaseOrderService.assertReceiptAllowed(tenantId, existing.poId());
         }
         Instant now = Instant.now();
         // Atomic: append RECEIPT movements + bump balances + update PO line items + PO status

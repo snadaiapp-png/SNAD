@@ -18,11 +18,13 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
- * Purchase Order application service (v20260816.7).
+ * Purchase Order application service (v20260816.10).
  *
  * <p>Tenant-scoped PO lifecycle:
  * <ol>
@@ -36,10 +38,36 @@ import java.util.UUID;
  *   <li>{@link #approve(UUID, UUID, Authentication)} — SUBMITTED → APPROVED.</li>
  *   <li>{@link #cancel(UUID, UUID, Authentication)} — non-terminal → CANCELLED.</li>
  *   <li>{@link #close(UUID, UUID, Authentication)} — APPROVED/RECEIVED → CLOSED.</li>
+ *   <li>{@link #recordReceipt(UUID, UUID, UUID, BigDecimal, Authentication)} —
+ *       defence-in-depth state guard (v20260816.10): the PO must currently be
+ *       in a receivable state ({@link #RECEIVABLE_PO_STATUSES}) before any
+ *       {@code received_quantity} increment or PO status mutation may occur.</li>
  * </ol>
  */
 @Service
 public class ErpPurchaseOrderService {
+
+    /**
+     * PO states in which a Goods Receipt may be created or posted.
+     *
+     * <p>Business rule (v20260816.10): a Purchase Order is eligible to receive
+     * goods only while it is actively in the procurement lifecycle and not yet
+     * fully received or terminated. The set of receivable states is:
+     * <ul>
+     *   <li>{@code APPROVED} — PO is authorised and ready for fulfilment.</li>
+     *   <li>{@code SENT} — PO has been dispatched to the supplier.</li>
+     *   <li>{@code PARTIALLY_RECEIVED} — PO is mid-fulfilment and may receive more.</li>
+     * </ul>
+     *
+     * <p>States {@code DRAFT}, {@code SUBMITTED} are pre-approval and must not
+     * drive inventory movements. {@code RECEIVED}, {@code CLOSED},
+     * {@code CANCELLED} are terminal/forbidden for new receipts.
+     */
+    public static final Set<ErpDomain.PurchaseOrderStatus> RECEIVABLE_PO_STATUSES =
+            EnumSet.of(
+                    ErpDomain.PurchaseOrderStatus.APPROVED,
+                    ErpDomain.PurchaseOrderStatus.SENT,
+                    ErpDomain.PurchaseOrderStatus.PARTIALLY_RECEIVED);
 
     private final JdbcTemplate jdbc;
     private final PlatformAuditService auditService;
@@ -187,6 +215,13 @@ public class ErpPurchaseOrderService {
     @Transactional
     public void recordReceipt(UUID tenantId, UUID poId, UUID poItemId, BigDecimal quantityReceived,
                                Authentication auth) {
+        // Defense-in-depth (v20260816.10): no receipt may mutate a PO that is not
+        // in a receivable state. This guard is also enforced by
+        // ErpGoodsReceiptService.create() / post() — this check guarantees that
+        // any future caller (e.g. a direct programmatic path, batch reconciler,
+        // or API bypass) cannot silently increment received_quantity or shift
+        // the PO status from a terminal/pre-approval state.
+        assertReceiptAllowed(tenantId, poId);
         jdbc.update("UPDATE erp_purchase_order_items SET received_quantity = received_quantity + ? "
                         + "WHERE tenant_id = ? AND po_id = ? AND id = ?",
                 quantityReceived, tenantId, poId, poItemId);
@@ -221,6 +256,31 @@ public class ErpPurchaseOrderService {
             return attachItems(header);
         } catch (EmptyResultDataAccessException e) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "purchase order not found: " + poId);
+        }
+    }
+
+    /**
+     * Throws {@code 409 CONFLICT} if {@code poId} is not currently in a
+     * receivable state (APPROVED, SENT, PARTIALLY_RECEIVED).
+     *
+     * <p>This is the canonical receipt-state guard referenced from
+     * {@link ErpGoodsReceiptService#create},
+     * {@link ErpGoodsReceiptService#post}, and
+     * {@link #recordReceipt(UUID, UUID, UUID, BigDecimal, Authentication)}.
+     * Centralising the check here guarantees a single source of truth for the
+     * business rule and prevents bypass via any direct caller of
+     * {@code recordReceipt}.</p>
+     */
+    void assertReceiptAllowed(UUID tenantId, UUID poId) {
+        if (poId == null) {
+            return; // No PO linkage — non-PO receipts are out of scope.
+        }
+        PurchaseOrderResponse po = getOrThrow(tenantId, poId);
+        ErpDomain.PurchaseOrderStatus status = po.status();
+        if (status == null || !RECEIVABLE_PO_STATUSES.contains(status)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "goods receipt not allowed for purchase order in state " + status
+                            + " (expected one of " + RECEIVABLE_PO_STATUSES + ")");
         }
     }
 
