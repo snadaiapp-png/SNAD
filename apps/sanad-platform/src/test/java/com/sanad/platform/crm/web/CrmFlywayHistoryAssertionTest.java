@@ -169,6 +169,9 @@ class CrmFlywayHistoryAssertionTest {
             // v20260816.4 — Stores / E-Commerce Platform
             , "20260816.5"    // create commerce tables + capabilities
             , "20260816.6"    // enable RLS on commerce tables (PG-only)
+            // v20260816.9 — ERP Core Platform
+            , "20260816.7"    // create ERP tables + capabilities
+            , "20260816.8"    // enable RLS on ERP tables (PG-only)
     );
 
 

@@ -298,7 +298,7 @@ class WebsiteModuleIntegrationTest {
         Integer erpTables = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE 'erp_%'",
                 Integer.class);
-        assertThat(erpTables).as("ERP_BUSINESS_IMPLEMENTATION_ADDED").isEqualTo(0);
+        assertThat(erpTables).as("ERP_BUSINESS_IMPLEMENTATION_EXISTS").isGreaterThan(0);
         Integer posTables = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE 'pos_%'",
                 Integer.class);
