@@ -1,0 +1,180 @@
+name: Render Rollback — Prior Deploy
+
+# Canonical Production rollback authority.
+# Manual only. It rolls back to one explicit prior Render deploy and never
+# mutates Render environment variables, database settings, or Flyway state.
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_id:
+        description: "Prior successful Render deploy ID (dep-...)"
+        required: true
+        type: string
+      service_base_url:
+        description: "Expected public service base URL (https://...)"
+        required: true
+        type: string
+      confirmation:
+        description: "Type ROLLBACK_PRIOR_DEPLOY"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-render-rollback
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Roll back to explicit prior deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: Production
+
+    steps:
+      - name: Validate rollback intent
+        shell: bash
+        env:
+          TARGET_DEPLOY_ID: ${{ inputs.deploy_id }}
+          SERVICE_BASE_URL: ${{ inputs.service_base_url }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TARGET_DEPLOY_ID" =~ ^dep-[A-Za-z0-9]+$ ]]; then
+            echo "BLOCKED: deploy_id must be a Render deploy id beginning with dep-." >&2
+            exit 2
+          fi
+          if [[ "$CONFIRMATION" != "ROLLBACK_PRIOR_DEPLOY" ]]; then
+            echo "BLOCKED: confirmation must equal ROLLBACK_PRIOR_DEPLOY." >&2
+            exit 2
+          fi
+          if [[ ! "$SERVICE_BASE_URL" =~ ^https:// ]]; then
+            echo "BLOCKED: service_base_url must use https://." >&2
+            exit 2
+          fi
+
+      - name: Trigger Render rollback
+        id: trigger
+        shell: bash
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          TARGET_DEPLOY_ID: ${{ inputs.deploy_id }}
+        run: |
+          set -euo pipefail
+          test -n "$RENDER_API_KEY"
+          test -n "$RENDER_SERVICE_ID"
+
+          payload=$(jq -cn --arg deployId "$TARGET_DEPLOY_ID" '{"deployId":$deployId}')
+          http_code=$(curl --silent --show-error \
+            --output render-rollback-response.json \
+            --write-out '%{http_code}' \
+            --request POST \
+            --url "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/rollback" \
+            --header "Authorization: Bearer ${RENDER_API_KEY}" \
+            --header 'Accept: application/json' \
+            --header 'Content-Type: application/json' \
+            --data "$payload")
+
+          if [[ "$http_code" != "201" ]]; then
+            echo "BLOCKED: Render rollback request returned HTTP ${http_code}." >&2
+            rm -f render-rollback-response.json
+            exit 3
+          fi
+
+          rollback_deploy_id=$(jq -r '.id // empty' render-rollback-response.json)
+          if [[ -z "$rollback_deploy_id" ]]; then
+            echo "BLOCKED: Render rollback response did not provide a deploy id." >&2
+            rm -f render-rollback-response.json
+            exit 3
+          fi
+
+          echo "rollback_deploy_id=$rollback_deploy_id" >> "$GITHUB_OUTPUT"
+          rm -f render-rollback-response.json
+
+      - name: Poll rollback deploy to terminal state
+        id: poll
+        shell: bash
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          ROLLBACK_DEPLOY_ID: ${{ steps.trigger.outputs.rollback_deploy_id }}
+        run: |
+          set -euo pipefail
+          terminal=""
+          for attempt in $(seq 1 75); do
+            response=$(curl --silent --show-error --fail-with-body \
+              --request GET \
+              --url "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${ROLLBACK_DEPLOY_ID}" \
+              --header "Authorization: Bearer ${RENDER_API_KEY}" \
+              --header 'Accept: application/json')
+            status=$(jq -r '.status // empty' <<<"$response")
+            case "$status" in
+              live)
+                terminal="live"
+                break
+                ;;
+              build_failed|update_failed|canceled|deactivated)
+                echo "BLOCKED: rollback deploy entered terminal failure state: $status" >&2
+                exit 4
+                ;;
+            esac
+            sleep 10
+          done
+
+          if [[ "$terminal" != "live" ]]; then
+            echo "BLOCKED: rollback deploy did not reach live within polling window." >&2
+            exit 4
+          fi
+          echo "status=$terminal" >> "$GITHUB_OUTPUT"
+
+      - name: Verify application readiness
+        shell: bash
+        env:
+          SERVICE_BASE_URL: ${{ inputs.service_base_url }}
+        run: |
+          set -euo pipefail
+          base="${SERVICE_BASE_URL%/}"
+          for attempt in $(seq 1 30); do
+            if curl --silent --show-error --fail --max-time 5 \
+              "${base}/actuator/health/readiness" > readiness.json; then
+              state=$(jq -r '.status // empty' readiness.json)
+              if [[ "$state" == "UP" ]]; then
+                rm -f readiness.json
+                exit 0
+              fi
+            fi
+            sleep 5
+          done
+          rm -f readiness.json
+          echo "BLOCKED: readiness endpoint did not report UP after rollback." >&2
+          exit 5
+
+      - name: Write sanitized rollback evidence
+        if: always()
+        shell: bash
+        env:
+          TARGET_DEPLOY_ID: ${{ inputs.deploy_id }}
+          ROLLBACK_DEPLOY_ID: ${{ steps.trigger.outputs.rollback_deploy_id }}
+          ROLLBACK_STATUS: ${{ steps.poll.outputs.status }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg targetDeployId "$TARGET_DEPLOY_ID" \
+            --arg rollbackDeployId "${ROLLBACK_DEPLOY_ID:-unknown}" \
+            --arg status "${ROLLBACK_STATUS:-not_live}" \
+            --arg workflowRun "$GITHUB_RUN_ID" \
+            '{targetDeployId:$targetDeployId,rollbackDeployId:$rollbackDeployId,status:$status,workflowRun:$workflowRun,environmentMutationPerformed:false}' \
+            > render-rollback-evidence.json
+
+      - name: Upload sanitized rollback evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-rollback-evidence-${{ github.run_id }}
+          path: render-rollback-evidence.json
+          if-no-files-found: error
+          retention-days: 90
