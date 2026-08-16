@@ -246,7 +246,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker stop --time 30 sanad-runtime-cert
+          docker stop --timeout 30 sanad-runtime-cert
           state=$(docker inspect sanad-runtime-cert --format '{{.State.Status}}')
           test "$state" = "exited"
           echo "GRACEFUL_SHUTDOWN_GATE=PASS"
