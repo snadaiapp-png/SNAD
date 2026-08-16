@@ -35,7 +35,6 @@
         <maven.compiler.release></maven.compiler.release>
 
         <springdoc-openapi-starter-webmvc-ui.version>2.6.0</springdoc-openapi-starter-webmvc-ui.version>
-        <testcontainers.version>1.20.4</testcontainers.version>
         <!-- OWASP Dependency-Check version (used by -Powasp-offline-gate) -->
         <dependency-check.version>12.1.0</dependency-check.version>
 
@@ -203,19 +202,6 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- Testcontainers for production-profile tests with real PostgreSQL -->
-        <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>postgresql</artifactId>
-            <version>${testcontainers.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <version>${testcontainers.version}</version>
-            <scope>test</scope>
-        </dependency>
             <!-- ArchUnit for modular architecture boundary tests (CRM-004) -->
         <dependency>
             <groupId>com.tngtech.archunit</groupId>
