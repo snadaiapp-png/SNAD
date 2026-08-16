@@ -7,6 +7,7 @@ CI = ROOT / ".github" / "workflows" / "ci.yml"
 POSTGRES_ACCEPTANCE = ROOT / ".github" / "workflows" / "postgres-acceptance.yml"
 DEV_SECURITY = ROOT / ".github" / "workflows" / "development-security-acceptance.yml"
 JAVA_TEST_ROOT = ROOT / "apps" / "sanad-platform" / "src" / "test" / "java"
+CLEAN_ROOM_BRANCH = "infra/backend-clean-room-v1"
 
 
 class TestcontainersDecontaminationContractTest(unittest.TestCase):
@@ -71,6 +72,10 @@ class TestcontainersDecontaminationContractTest(unittest.TestCase):
         self.assertNotIn("name: Verify Docker", text)
         self.assertNotIn("docker version", text)
         self.assertNotIn("docker info", text)
+
+    def test_r11_acceptance_workflows_can_verify_clean_room_branch(self):
+        self.assertIn(CLEAN_ROOM_BRANCH, self.postgres_acceptance)
+        self.assertIn(CLEAN_ROOM_BRANCH, self.dev_security)
 
     def _testcontainers_blocks(self):
         blocks = []
