@@ -33,8 +33,8 @@ concurrency:
 
 env:
   JWT_SECRET: ci-only-non-production-validation-key-1234567890
-  EXPECTED_CRM_PATHS: '142'
-  EXPECTED_CRM_OPERATIONS: '181'
+  EXPECTED_CRM_PATHS: '147'
+  EXPECTED_CRM_OPERATIONS: '192'
 
 jobs:
   contract-validation:
@@ -59,8 +59,8 @@ jobs:
 
     env:
       JWT_SECRET: ci-only-non-production-validation-key-1234567890
-      EXPECTED_CRM_PATHS: '142'
-      EXPECTED_CRM_OPERATIONS: '181'
+      EXPECTED_CRM_PATHS: '147'
+      EXPECTED_CRM_OPERATIONS: '192'
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: sanad
       SPRING_DATASOURCE_PASSWORD: sanad_pass
@@ -151,12 +151,28 @@ jobs:
           path: apps/sanad-platform/target/surefire-reports/
           if-no-files-found: warn
           retention-days: 7
+      - name: Build backend resources for Flyway
+        working-directory: apps/sanad-platform
+        run: mvn --batch-mode --no-transfer-progress -DskipTests -Dmaven.test.skip=true package
+      - name: Migrate isolated PostgreSQL
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          mvn --batch-mode --no-transfer-progress flyway:migrate \
+            -Dflyway.url="$SPRING_DATASOURCE_URL" \
+            -Dflyway.user="$SPRING_DATASOURCE_USERNAME" \
+            -Dflyway.password="$SPRING_DATASOURCE_PASSWORD" \
+            -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
+            -Dflyway.baselineOnMigrate=true \
+            -Dflyway.validateOnMigrate=true \
+            -Dflyway.outOfOrder=true \
+            -Dflyway.baselineVersion=0
       - name: Start backend on PostgreSQL for runtime OpenAPI
         working-directory: apps/sanad-platform
         run: |
           set -euo pipefail
           nohup mvn -q -DskipTests spring-boot:run \
-            -Dspring-boot.run.arguments="--server.port=8081 --management.endpoints.web.exposure.include=health --spring.flyway.enabled=true --spring.jpa.hibernate.ddl-auto=validate" \
+            -Dspring-boot.run.arguments="--server.port=8081 --management.endpoints.web.exposure.include=health --spring.flyway.enabled=false --spring.jpa.hibernate.ddl-auto=validate" \
             >/tmp/crm-openapi-backend.log 2>&1 &
           echo $! >/tmp/crm-openapi-backend.pid
       - name: Fetch runtime OpenAPI
@@ -241,7 +257,10 @@ jobs:
             ('/integrations/{requestId}/reject','post','If-Match'),
             ('/integrations/workflows','post','Idempotency-Key'),
             ('/integrations/workflows/{requestId}/cancel','post','Idempotency-Key'),
-            ('/integrations/workflows/{requestId}/cancel','post','If-Match')
+            ('/integrations/workflows/{requestId}/cancel','post','If-Match'),
+            ('/tags','post','Idempotency-Key'),
+            ('/tags/{tagId}','patch','If-Match'),
+            ('/tags/{tagId}/assignments','post','Idempotency-Key')
           }
           params=committed.get('components',{}).get('parameters',{})
           for path,method,header in required_headers:
