@@ -129,6 +129,23 @@ def _explicit_render_http_write(text: str) -> bool:
     return any(re.search(pattern, text) for pattern in patterns)
 
 
+def _executes_flyway_migrate(text: str) -> bool:
+    """Detect actual Flyway migration execution, not documentation/verification prose."""
+    if re.search(r"(?mi)^\s*flyway\b[^\n]*\bmigrate\b", text):
+        return True
+    if re.search(r"(?mi)^\s*(?:mvn|mvnw|\.\/mvnw)\b[^\n]*\bflyway:migrate\b", text):
+        return True
+    if re.search(r"(?mi)^\s*(?:gradle|\.\/gradlew)\b[^\n]*\bflywayMigrate\b", text):
+        return True
+
+    # Official Flyway container commands are often YAML/bash continuations:
+    # `flyway/flyway:<tag>` appears on an earlier line and `migrate` is the
+    # final standalone command argument. Require both signals.
+    has_flyway_container = bool(re.search(r"(?i)\bflyway/flyway(?::[^\s\\]+)?\b", text))
+    has_standalone_migrate = bool(re.search(r"(?mi)^\s*migrate\s*$", text))
+    return has_flyway_container and has_standalone_migrate
+
+
 def scan_text(path: str, text: str) -> Finding:
     lowered = text.lower()
     reasons: list[str] = []
@@ -144,8 +161,6 @@ def scan_text(path: str, text: str) -> Finding:
         )
     )
     render_http_write = has_render_reference and _explicit_render_http_write(text)
-    # Render CLI mutation must appear as an executable command line, not merely
-    # prose/YAML metadata such as `name: render env read`.
     render_cli_write = bool(
         re.search(
             r"(?mi)^\s*render\s+(?:deploys\s+create|services?\s+(?:suspend|resume|update|delete)|env\b)",
@@ -175,12 +190,7 @@ def scan_text(path: str, text: str) -> Finding:
     )
 
     runs_flyway = bool(re.search(r"(?i)\bflyway\b", text))
-    flyway_migrate = bool(
-        re.search(
-            r"(?i)(?:\bflyway\b.{0,180}\bmigrate\b|flyway/flyway[^\n]*|\bmigrate\s*$)",
-            text,
-        )
-    )
+    flyway_migrate = _executes_flyway_migrate(text)
 
     sql_mutation = bool(
         re.search(
@@ -361,7 +371,6 @@ def main() -> int:
     write_outputs(pathlib.Path(args.output_dir), findings)
     summary = summarize(findings)
 
-    # Counts only: matched secret material is never printed by this tool.
     print(json.dumps(summary, sort_keys=True))
     if args.fail_on_secret_candidates and summary["secret_candidate_files"]:
         return 2
