@@ -35,7 +35,7 @@ export default function GlobalError({
         justifyContent: "center",
         minHeight: "60vh",
         padding: "2rem",
-        fontFamily: "var(--font-snad-latin), system-ui, sans-serif",
+        fontFamily: "var(--snad-font-latin), system-ui, sans-serif",
         textAlign: "center",
       }}
     >
@@ -44,7 +44,7 @@ export default function GlobalError({
           fontSize: "1.5rem",
           fontWeight: 600,
           marginBottom: "0.5rem",
-          color: "var(--snad-color-text, #1a1a1a)",
+          color: "var(--snad-color-text-primary)",
         }}
       >
         Something went wrong
@@ -52,7 +52,7 @@ export default function GlobalError({
       <p
         style={{
           fontSize: "0.875rem",
-          color: "var(--snad-color-text-muted, #6b7280)",
+          color: "var(--snad-color-text-secondary)",
           marginBottom: "1.5rem",
           maxWidth: "28rem",
         }}
@@ -64,9 +64,9 @@ export default function GlobalError({
         <p
           style={{
             fontSize: "0.75rem",
-            color: "var(--snad-color-text-muted, #9ca3af)",
+            color: "var(--snad-color-text-muted)",
             marginBottom: "1rem",
-            fontFamily: "monospace",
+            fontFamily: "var(--snad-font-numeric), monospace",
           }}
         >
           Error ID: {error.digest}
@@ -77,9 +77,9 @@ export default function GlobalError({
         style={{
           padding: "0.5rem 1.5rem",
           borderRadius: "0.375rem",
-          border: "1px solid var(--snad-color-border, #d1d5db)",
-          background: "var(--snad-color-bg, #ffffff)",
-          color: "var(--snad-color-text, #1a1a1a)",
+          border: "1px solid var(--snad-color-border-default)",
+          background: "var(--snad-color-surface-primary)",
+          color: "var(--snad-color-text-primary)",
           fontSize: "0.875rem",
           fontWeight: 500,
           cursor: "pointer",

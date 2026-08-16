@@ -16,11 +16,11 @@ type Tab = "agents" | "inferences" | "quota";
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
-    DRAFT: "#6b7280", ACTIVE: "#16a34a", INACTIVE: "#ca8a04", ARCHIVED: "#9ca3af",
-    PENDING: "#ca8a04", COMPLETED: "#16a34a", FAILED: "#dc2626", TIMEOUT: "#dc2626",
-    CANCELLED: "#9ca3af",
+    DRAFT: "var(--snad-color-text-secondary)", ACTIVE: "var(--snad-color-success)", INACTIVE: "var(--snad-color-warning)", ARCHIVED: "var(--snad-color-text-muted)",
+    PENDING: "var(--snad-color-warning)", COMPLETED: "var(--snad-color-success)", FAILED: "var(--snad-color-error)", TIMEOUT: "var(--snad-color-error)",
+    CANCELLED: "var(--snad-color-text-muted)",
   };
-  const color = colors[status] || "#6b7280";
+  const color = colors[status] || "var(--snad-color-text-secondary)";
   return (
     <span style={{
       display: "inline-block", padding: "2px 10px",
@@ -59,7 +59,7 @@ function AgentsTab() {
 
   if (loading) return <AuthLoadingState />;
   if (error) return (
-    <div style={{ padding: 16, color: "#dc2626", direction: "rtl" }}>
+    <div style={{ padding: 16, color: "var(--snad-color-error)", direction: "rtl" }}>
       <p><strong>خطأ:</strong> {error}</p>
       <button onClick={load} style={btnStyle}>إعادة المحاولة</button>
     </div>
@@ -69,13 +69,13 @@ function AgentsTab() {
     <div style={{ direction: "rtl", padding: 16 }}>
       <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>وكلاء الذكاء الاصطناعي</h2>
       {agents.length === 0 ? (
-        <div style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>
+        <div style={{ padding: 24, textAlign: "center", color: "var(--snad-color-text-secondary)" }}>
           لا يوجد وكلاء ذكاء اصطناعي مسجلون.
         </div>
       ) : (
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr style={{ borderBottom: "2px solid #e5e7eb", textAlign: "right" }}>
+            <tr style={{ borderBottom: "2px solid var(--snad-color-border-default)", textAlign: "right" }}>
               <th style={thStyle}>الرمز</th>
               <th style={thStyle}>الاسم</th>
               <th style={thStyle}>المزود</th>
@@ -85,7 +85,7 @@ function AgentsTab() {
           </thead>
           <tbody>
             {agents.map((a) => (
-              <tr key={a.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
+              <tr key={a.id} style={{ borderBottom: "1px solid var(--snad-color-surface-secondary)" }}>
                 <td style={tdStyle}>{a.code}</td>
                 <td style={tdStyle}>{a.name}</td>
                 <td style={tdStyle}>{a.provider}</td>
@@ -127,7 +127,7 @@ function InferencesTab() {
 
   if (loading) return <AuthLoadingState />;
   if (error) return (
-    <div style={{ padding: 16, color: "#dc2626", direction: "rtl" }}>
+    <div style={{ padding: 16, color: "var(--snad-color-error)", direction: "rtl" }}>
       <p><strong>خطأ:</strong> {error}</p>
       <button onClick={load} style={btnStyle}>إعادة المحاولة</button>
     </div>
@@ -137,13 +137,13 @@ function InferencesTab() {
     <div style={{ direction: "rtl", padding: 16 }}>
       <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>سجلات الاستدلال</h2>
       {inferences.length === 0 ? (
-        <div style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>
+        <div style={{ padding: 24, textAlign: "center", color: "var(--snad-color-text-secondary)" }}>
           لا توجد سجلات استدلال بعد.
         </div>
       ) : (
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr style={{ borderBottom: "2px solid #e5e7eb", textAlign: "right" }}>
+            <tr style={{ borderBottom: "2px solid var(--snad-color-border-default)", textAlign: "right" }}>
               <th style={thStyle}>الحالة</th>
               <th style={thStyle}>استشاري</th>
               <th style={thStyle}>الرموز (دخول/خروج)</th>
@@ -154,7 +154,7 @@ function InferencesTab() {
           </thead>
           <tbody>
             {inferences.map((i) => (
-              <tr key={i.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
+              <tr key={i.id} style={{ borderBottom: "1px solid var(--snad-color-surface-secondary)" }}>
                 <td style={tdStyle}><StatusBadge status={i.status} /></td>
                 <td style={tdStyle}>{i.advisory ? "نعم" : "لا"}</td>
                 <td style={tdStyle}>{i.tokensInput} / {i.tokensOutput}</td>
@@ -197,7 +197,7 @@ function QuotaTab() {
 
   if (loading) return <AuthLoadingState />;
   if (error || !quota) return (
-    <div style={{ padding: 16, color: "#dc2626", direction: "rtl" }}>
+    <div style={{ padding: 16, color: "var(--snad-color-error)", direction: "rtl" }}>
       <p><strong>خطأ:</strong> {error || "لا توجد بيانات"}</p>
       <button onClick={load} style={btnStyle}>إعادة المحاولة</button>
     </div>
@@ -208,14 +208,14 @@ function QuotaTab() {
       <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>حصة الذكاء الاصطناعي</h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
         <div style={cardStyle}>
-          <div style={{ fontSize: 13, color: "#6b7280" }}>العمليات هذا الشهر</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: "#2563eb" }}>
+          <div style={{ fontSize: 13, color: "var(--snad-color-text-secondary)" }}>العمليات هذا الشهر</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: "var(--snad-color-info)" }}>
             {quota.usedThisMonth}
           </div>
         </div>
         <div style={cardStyle}>
-          <div style={{ fontSize: 13, color: "#6b7280" }}>الوضع الاستشاري</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: "#16a34a" }}>
+          <div style={{ fontSize: 13, color: "var(--snad-color-text-secondary)" }}>الوضع الاستشاري</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: "var(--snad-color-success)" }}>
             {quota.advisoryOnly ? "مفعّل" : "معطّل"}
           </div>
         </div>
@@ -225,17 +225,17 @@ function QuotaTab() {
 }
 
 const btnStyle: React.CSSProperties = {
-  padding: "8px 16px", borderRadius: 6, border: "1px solid #e5e7eb",
-  backgroundColor: "#fff", color: "#374151", cursor: "pointer", fontSize: 14,
+  padding: "8px 16px", borderRadius: 6, border: "1px solid var(--snad-color-border-default)",
+  backgroundColor: "var(--snad-color-surface-primary)", color: "var(--snad-color-text-primary)", cursor: "pointer", fontSize: 14,
 };
 const thStyle: React.CSSProperties = {
-  padding: "8px 12px", fontSize: 13, fontWeight: 600, color: "#374151",
+  padding: "8px 12px", fontSize: 13, fontWeight: 600, color: "var(--snad-color-text-primary)",
 };
 const tdStyle: React.CSSProperties = {
-  padding: "12px", fontSize: 14, color: "#374151",
+  padding: "12px", fontSize: 14, color: "var(--snad-color-text-primary)",
 };
 const cardStyle: React.CSSProperties = {
-  padding: 16, borderRadius: 8, border: "1px solid #e5e7eb",
+  padding: 16, borderRadius: 8, border: "1px solid var(--snad-color-border-default)",
 };
 
 export default function AiPlatformPage() {
@@ -265,16 +265,16 @@ export default function AiPlatformPage() {
         direction: "rtl", fontFamily: "system-ui, -apple-system, sans-serif",
       }}>
         <header style={{ marginBottom: 24 }}>
-          <h1 style={{ fontSize: 28, fontWeight: 700, color: "#111827", marginBottom: 8 }}>
+          <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--snad-color-text-primary)", marginBottom: 8 }}>
             منصة الذكاء الاصطناعي
           </h1>
-          <p style={{ color: "#6b7280", fontSize: 14 }}>
+          <p style={{ color: "var(--snad-color-text-secondary)", fontSize: 14 }}>
             إدارة وكلاء الذكاء الاصطناعي ومراقبة الاستدلالات — جميع المخرجات استشارية فقط
           </p>
         </header>
 
         <nav style={{
-          display: "flex", gap: 4, borderBottom: "1px solid #e5e7eb",
+          display: "flex", gap: 4, borderBottom: "1px solid var(--snad-color-border-default)",
           marginBottom: 16, overflowX: "auto",
         }}>
           {tabs.map((t) => (
@@ -284,10 +284,10 @@ export default function AiPlatformPage() {
               style={{
                 padding: "12px 20px", cursor: "pointer", fontSize: 14,
                 fontWeight: activeTab === t.id ? 600 : 400,
-                color: activeTab === t.id ? "#2563eb" : "#6b7280",
-                borderBottom: activeTab === t.id ? "2px solid #2563eb" : "2px solid transparent",
-                backgroundColor: "transparent", border: "none", borderLeft: "1px solid #e5e7eb",
-                borderRight: "1px solid #e5e7eb", borderTop: "none",
+                color: activeTab === t.id ? "var(--snad-color-info)" : "var(--snad-color-text-secondary)",
+                borderBottom: activeTab === t.id ? "2px solid var(--snad-color-info)" : "2px solid transparent",
+                backgroundColor: "transparent", border: "none", borderLeft: "1px solid var(--snad-color-border-default)",
+                borderRight: "1px solid var(--snad-color-border-default)", borderTop: "none",
                 whiteSpace: "nowrap",
               }}
             >

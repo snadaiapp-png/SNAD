@@ -16,28 +16,28 @@ import styles from "../crm-shared-styles.module.css";
 
 const SCORE_BAND_COLORS: Record<string, string> = {
   // Health
-  CRITICAL: "#dc2626",
-  AT_RISK: "#ea580c",
-  HEALTHY: "#16a34a",
-  THRIVING: "#2563eb",
+  CRITICAL: "var(--snad-color-error)",
+  AT_RISK: "var(--snad-color-warning)",
+  HEALTHY: "var(--snad-color-success)",
+  THRIVING: "var(--snad-color-info)",
   // Risk
-  LOW_RISK: "#16a34a",
-  MEDIUM_RISK: "#ea580c",
-  HIGH_RISK: "#dc2626",
+  LOW_RISK: "var(--snad-color-success)",
+  MEDIUM_RISK: "var(--snad-color-warning)",
+  HIGH_RISK: "var(--snad-color-error)",
   // Loyalty
-  NEW: "#6b7280",
-  GROWING: "#2563eb",
-  LOYAL: "#16a34a",
-  CHAMPION: "#7c3aed",
+  NEW: "var(--snad-color-text-secondary)",
+  GROWING: "var(--snad-color-info)",
+  LOYAL: "var(--snad-color-success)",
+  CHAMPION: "var(--snad-color-brand-accent)",
   // Engagement
-  DORMANT: "#6b7280",
-  LOW: "#ea580c",
-  MODERATE: "#2563eb",
-  HIGH: "#16a34a",
+  DORMANT: "var(--snad-color-text-secondary)",
+  LOW: "var(--snad-color-warning)",
+  MODERATE: "var(--snad-color-info)",
+  HIGH: "var(--snad-color-success)",
   // CLV
-  LOW_VALUE: "#6b7280",
-  MID_VALUE: "#2563eb",
-  HIGH_VALUE: "#16a34a",
+  LOW_VALUE: "var(--snad-color-text-secondary)",
+  MID_VALUE: "var(--snad-color-info)",
+  HIGH_VALUE: "var(--snad-color-success)",
 };
 
 const SCORE_TYPE_LABELS: Record<string, { en: string; ar: string }> = {
@@ -49,7 +49,7 @@ const SCORE_TYPE_LABELS: Record<string, { en: string; ar: string }> = {
 };
 
 function getBandColor(band: string): string {
-  return SCORE_BAND_COLORS[band] ?? "#6b7280";
+  return SCORE_BAND_COLORS[band] ?? "var(--snad-color-text-secondary)";
 }
 
 /* ── Component ───────────────────────────────────────────────────────────── */
@@ -217,7 +217,7 @@ export function IntelligenceTab({ accountId }: IntelligenceTabProps) {
                         borderRadius: 999,
                         fontSize: "0.75rem",
                         fontWeight: 700,
-                        color: "#fff",
+                        color: "var(--snad-color-text-inverse)",
                         background: bandColor,
                         alignSelf: "flex-start",
                       }}

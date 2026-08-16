@@ -95,13 +95,13 @@ export const PRIORITY_LABELS_EN: Record<TaskPriority, string> = {
 // ── Status Colors ────────────────────────────────────────────────────────────
 
 export const STATUS_COLORS: Record<GroupStatus, string> = {
-  NOT_STARTED: "#6b7280",
-  IN_PROGRESS: "#3b82f6",
-  BLOCKED: "#ef4444",
-  DONE: "#22c55e",
-  NEEDS_REVIEW: "#f59e0b",
-  APPROVED: "#10b981",
-  REJECTED: "#dc2626",
+  NOT_STARTED: "var(--snad-color-text-secondary)",
+  IN_PROGRESS: "var(--snad-color-info)",
+  BLOCKED: "var(--snad-color-error)",
+  DONE: "var(--snad-color-success)",
+  NEEDS_REVIEW: "var(--snad-color-warning)",
+  APPROVED: "var(--snad-color-success)",
+  REJECTED: "var(--snad-color-error)",
 };
 
 // ── Execution Rules ──────────────────────────────────────────────────────────

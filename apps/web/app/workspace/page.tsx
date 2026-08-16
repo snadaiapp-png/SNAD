@@ -28,6 +28,8 @@ export default function WorkspacePage() {
   const displayName = me?.displayName || user?.email || t("workspace.defaultUser");
   // CRM: show if user has CRM capabilities OR control-plane access (admin)
   const canOpenCrm = availableDestinations.includes("/crm") || availableDestinations.includes("/control-plane");
+  // Control Plane: show if user has control-plane in availableDestinations
+  const canOpenControlPlane = availableDestinations.includes("/control-plane");
   // Executive: always show for admins (control-plane / executive caps)
   const canOpenExecutive = true;
   // System Health: always show for admins
@@ -57,6 +59,15 @@ export default function WorkspacePage() {
                   <p className={styles.appDescription}>{t("crm.shell.subtitle")}</p>
                 </div>
                 <span className={styles.appAction}>{t("workspace.openCrm")}</span>
+              </Link>
+            )}
+            {canOpenControlPlane && (
+              <Link className={styles.appCard} href="/control-plane" prefetch>
+                <div>
+                  <div className={styles.appName}>{t("nav.controlPlane")}</div>
+                  <p className={styles.appDescription}>{t("workspace.executiveDescription")}</p>
+                </div>
+                <span className={styles.appAction}>{t("nav.controlPlane")}</span>
               </Link>
             )}
             {canOpenExecutive && (

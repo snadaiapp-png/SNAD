@@ -204,6 +204,43 @@ Later CRM stages may add vendor-specific migrations governed by their own stage
 records. CRM-008R authorizes no new migration by default. Flyway repair, manual
 history editing, destructive rollback and ad-hoc production SQL are prohibited.
 
+## 7. Post-CRM-008R migration reconciliation (2026-08-16)
+
+The following 14 CRM-scoped Flyway migrations were merged to
+`apps/sanad-platform/src/main/resources/db/migration/` after the
+CRM-008R baseline was authored. They are real, deployed schema
+changes — the drift check must recognise them as authoritative.
+
+This reconciliation does **not** modify Flyway history, does **not**
+re-write any migration file, and does **not** perform any production
+SQL. It only adds documentation references so the governance drift
+check (`scripts/crm/governance-drift-check.sh`) stops flagging
+on-disk migrations that were silently missing from the baseline.
+
+| Version | Exact file | Ownership | Status |
+|---|---|---|---|
+| `20260804.1` | `V20260804_1__reconcile_crm_custom_field_and_pipeline_audit_columns.sql` | CRM-008R / audit | MERGED |
+| `20260804.2` | `V20260804_2__create_crm_shift_templates.sql` | CRM-008B ownership (MOD-001) | MERGED |
+| `20260804.3` | `V20260804_3__create_crm_shift_assignments.sql` | CRM-008B ownership (MOD-001) | MERGED |
+| `20260804.4` | `V20260804_4__create_crm_staff_availability.sql` | CRM-008B ownership (MOD-001) | MERGED |
+| `20260804.5` | `V20260804_5__create_crm_staff_skills.sql` | CRM-008B ownership (MOD-001) | MERGED |
+| `20260804.6` | `V20260804_6__create_crm_capacity_plans.sql` | CRM-008B ownership (MOD-001) | MERGED |
+| `20260804.7` | `V20260804_7__create_crm_workload_assignments.sql` | CRM-008B ownership (MOD-001) | MERGED |
+| `20260804.8` | `V20260804_8__create_crm_service_assignments.sql` | CRM-008B ownership (MOD-001) | MERGED |
+| `20260804.9` | `V20260804_9__create_crm_cases.sql` | CRM-008B case management | MERGED |
+| `20260805.1` | `V20260805_1__create_crm_email_logs.sql` | CRM communication / email audit | MERGED |
+| `20260805.2` | `V20260805_2__create_crm_reporting_capabilities.sql` | CRM analytics (MOD-003 / CRM.REPORTS.READ) | MERGED |
+| `20260805.3` | `V20260805_3__create_crm_portal_capabilities.sql` | CRM customer portal (MOD-004 / CRM.PORTAL.*) | MERGED |
+| `20260807.1` | `V20260807_1__grant_crm_capabilities_to_non_admin_roles.sql` | CRM RBAC remediation (B-01, B-12) | MERGED |
+| `20260812.2` | `V20260812_2__add_sync_columns_to_crm_entities.sql` | CRM mobile sync (DATA-002 / G7) | MERGED |
+
+Each entry above is a documentation-only reconciliation — the migration
+files themselves are unchanged, the Flyway checksum is unchanged, and
+no production database mutation is implied or authorised by this
+section. The `Status: MERGED` column simply records that the migration
+file is part of the deployed `db/migration/` set and must be honoured
+by the drift check.
+
 ## 8. CRM-009 implementation baseline
 
 CRM-009 implements Workflow Engine & AI Gateway Integration through PR #704:

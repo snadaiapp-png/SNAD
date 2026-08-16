@@ -103,7 +103,7 @@ export function ExecutionDashboard() {
       <header>
         <h1 className={styles.pageTitle}>Platform Execution Dashboard</h1>
         <p className={styles.pageDescription}>
-          Unified view of execution status across all SANAD modules
+          Unified view of execution status across all SNAD modules
         </p>
       </header>
 
@@ -299,7 +299,7 @@ function GroupRow({
         alignItems: "center",
         gap: 12,
         padding: "8px 12px",
-        background: "rgba(255,255,255,0.05)",
+        background: "color-mix(in srgb, var(--snad-color-surface-primary) 5%, transparent)",
         borderRadius: 6,
       }}
     >
@@ -327,10 +327,10 @@ function GroupRow({
           style={{
             background:
               certification.status === "CERTIFIED"
-                ? "#22c55e"
+                ? "var(--snad-color-success)"
                 : certification.status === "REJECTED"
-                ? "#ef4444"
-                : "#f59e0b",
+                ? "var(--snad-color-error)"
+                : "var(--snad-color-warning)",
           }}
         >
           {certification.status}

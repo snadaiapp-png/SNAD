@@ -18,7 +18,7 @@ export default function NotFound() {
         justifyContent: "center",
         minHeight: "60vh",
         padding: "2rem",
-        fontFamily: "var(--font-snad-latin), system-ui, sans-serif",
+        fontFamily: "var(--snad-font-latin), system-ui, sans-serif",
         textAlign: "center",
       }}
     >
@@ -26,7 +26,7 @@ export default function NotFound() {
         style={{
           fontSize: "3rem",
           fontWeight: 700,
-          color: "var(--snad-color-text-muted, #d1d5db)",
+          color: "var(--snad-color-text-muted)",
           marginBottom: "0.25rem",
         }}
       >
@@ -36,7 +36,7 @@ export default function NotFound() {
         style={{
           fontSize: "1.25rem",
           fontWeight: 600,
-          color: "var(--snad-color-text, #1a1a1a)",
+          color: "var(--snad-color-text-primary)",
           marginBottom: "0.5rem",
         }}
       >
@@ -45,7 +45,7 @@ export default function NotFound() {
       <p
         style={{
           fontSize: "0.875rem",
-          color: "var(--snad-color-text-muted, #6b7280)",
+          color: "var(--snad-color-text-secondary)",
           marginBottom: "1.5rem",
           maxWidth: "24rem",
         }}
@@ -57,9 +57,9 @@ export default function NotFound() {
         style={{
           padding: "0.5rem 1.5rem",
           borderRadius: "0.375rem",
-          border: "1px solid var(--snad-color-border, #d1d5db)",
-          background: "var(--snad-color-bg, #ffffff)",
-          color: "var(--snad-color-text, #1a1a1a)",
+          border: "1px solid var(--snad-color-border-default)",
+          background: "var(--snad-color-surface-primary)",
+          color: "var(--snad-color-text-primary)",
           fontSize: "0.875rem",
           fontWeight: 500,
           textDecoration: "none",

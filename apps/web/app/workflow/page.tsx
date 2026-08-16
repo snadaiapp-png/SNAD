@@ -19,13 +19,13 @@ type Tab = "definitions" | "instances" | "approvals" | "monitoring";
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
-    ACTIVE: "#16a34a", DRAFT: "#6b7280", INACTIVE: "#ca8a04", ARCHIVED: "#9ca3af",
-    RUNNING: "#2563eb", PAUSED: "#ca8a04", COMPLETED: "#16a34a",
-    CANCELLED: "#dc2626", FAILED: "#dc2626",
-    PENDING: "#ca8a04", APPROVED: "#16a34a", REJECTED: "#dc2626",
-    EXPIRED: "#9ca3af", CANCELLED_ALT: "#dc2626",
+    ACTIVE: "var(--snad-color-success)", DRAFT: "var(--snad-color-text-secondary)", INACTIVE: "var(--snad-color-warning)", ARCHIVED: "var(--snad-color-text-muted)",
+    RUNNING: "var(--snad-color-info)", PAUSED: "var(--snad-color-warning)", COMPLETED: "var(--snad-color-success)",
+    CANCELLED: "var(--snad-color-error)", FAILED: "var(--snad-color-error)",
+    PENDING: "var(--snad-color-warning)", APPROVED: "var(--snad-color-success)", REJECTED: "var(--snad-color-error)",
+    EXPIRED: "var(--snad-color-text-muted)", CANCELLED_ALT: "var(--snad-color-error)",
   };
-  const color = colors[status] || "#6b7280";
+  const color = colors[status] || "var(--snad-color-text-secondary)";
   return (
     <span style={{
       display: "inline-block", padding: "2px 10px",
@@ -97,7 +97,7 @@ function DefinitionsTab() {
 
   if (loading) return <AuthLoadingState />;
   if (error) return (
-    <div style={{ padding: 16, color: "#dc2626", direction: "rtl" }}>
+    <div style={{ padding: 16, color: "var(--snad-color-error)", direction: "rtl" }}>
       <p><strong>خطأ:</strong> {error}</p>
       <button onClick={load} style={btnStyle}>إعادة المحاولة</button>
     </div>
@@ -113,7 +113,7 @@ function DefinitionsTab() {
       </div>
 
       {showCreate && (
-        <div style={{ padding: 16, border: "1px solid #e5e7eb", borderRadius: 8, marginBottom: 16 }}>
+        <div style={{ padding: 16, border: "1px solid var(--snad-color-border-default)", borderRadius: 8, marginBottom: 16 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
             <input placeholder="الرمز (مثال: WF-001)" value={newCode}
               onChange={(e) => setNewCode(e.target.value)} style={inputStyle} />
@@ -133,20 +133,20 @@ function DefinitionsTab() {
               <option value="API">API</option>
             </select>
           </div>
-          <button onClick={handleCreate} style={{ ...btnStyle, backgroundColor: "#2563eb", color: "#fff" }}>
+          <button onClick={handleCreate} style={{ ...btnStyle, backgroundColor: "var(--snad-color-info)", color: "var(--snad-color-surface-primary)" }}>
             حفظ
           </button>
         </div>
       )}
 
       {defs.length === 0 ? (
-        <div style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>
+        <div style={{ padding: 24, textAlign: "center", color: "var(--snad-color-text-secondary)" }}>
           لا توجد تعريفات سير عمل بعد. ابدأ بإنشاء تعريف جديد.
         </div>
       ) : (
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr style={{ borderBottom: "2px solid #e5e7eb", textAlign: "right" }}>
+            <tr style={{ borderBottom: "2px solid var(--snad-color-border-default)", textAlign: "right" }}>
               <th style={thStyle}>الرمز</th>
               <th style={thStyle}>الاسم</th>
               <th style={thStyle}>الوحدة</th>
@@ -157,7 +157,7 @@ function DefinitionsTab() {
           </thead>
           <tbody>
             {defs.map((d) => (
-              <tr key={d.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
+              <tr key={d.id} style={{ borderBottom: "1px solid var(--snad-color-surface-secondary)" }}>
                 <td style={tdStyle}>{d.code}</td>
                 <td style={tdStyle}>{d.name}</td>
                 <td style={tdStyle}>{d.module}</td>
@@ -206,7 +206,7 @@ function InstancesTab() {
 
   if (loading) return <AuthLoadingState />;
   if (error) return (
-    <div style={{ padding: 16, color: "#dc2626", direction: "rtl" }}>
+    <div style={{ padding: 16, color: "var(--snad-color-error)", direction: "rtl" }}>
       <p><strong>خطأ:</strong> {error}</p>
       <button onClick={load} style={btnStyle}>إعادة المحاولة</button>
     </div>
@@ -216,13 +216,13 @@ function InstancesTab() {
     <div style={{ direction: "rtl", padding: 16 }}>
       <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>مثيلات سير العمل</h2>
       {instances.length === 0 ? (
-        <div style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>
+        <div style={{ padding: 24, textAlign: "center", color: "var(--snad-color-text-secondary)" }}>
           لا توجد مثيلات نشطة. ابدأ تشغيل تعريف سير عمل لإنشاء مثيل.
         </div>
       ) : (
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr style={{ borderBottom: "2px solid #e5e7eb", textAlign: "right" }}>
+            <tr style={{ borderBottom: "2px solid var(--snad-color-border-default)", textAlign: "right" }}>
               <th style={thStyle}>الكيان</th>
               <th style={thStyle}>معرّف الكيان</th>
               <th style={thStyle}>الخطوة الحالية</th>
@@ -232,7 +232,7 @@ function InstancesTab() {
           </thead>
           <tbody>
             {instances.map((i) => (
-              <tr key={i.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
+              <tr key={i.id} style={{ borderBottom: "1px solid var(--snad-color-surface-secondary)" }}>
                 <td style={tdStyle}>{i.businessEntityType}</td>
                 <td style={{ ...tdStyle, fontFamily: "monospace", fontSize: 12 }}>
                   {i.businessEntityId.substring(0, 8)}…
@@ -303,7 +303,7 @@ function ApprovalsTab() {
 
   if (loading) return <AuthLoadingState />;
   if (error) return (
-    <div style={{ padding: 16, color: "#dc2626", direction: "rtl" }}>
+    <div style={{ padding: 16, color: "var(--snad-color-error)", direction: "rtl" }}>
       <p><strong>خطأ:</strong> {error}</p>
       <button onClick={load} style={btnStyle}>إعادة المحاولة</button>
     </div>
@@ -313,14 +313,14 @@ function ApprovalsTab() {
     <div style={{ direction: "rtl", padding: 16 }}>
       <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>قائمة انتظار الموافقات</h2>
       {approvals.length === 0 ? (
-        <div style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>
+        <div style={{ padding: 24, textAlign: "center", color: "var(--snad-color-text-secondary)" }}>
           لا توجد طلبات موافقة معلّقة.
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {approvals.map((a) => (
             <div key={a.id} style={{
-              padding: 16, border: "1px solid #e5e7eb", borderRadius: 8,
+              padding: 16, border: "1px solid var(--snad-color-border-default)", borderRadius: 8,
               display: "flex", justifyContent: "space-between", alignItems: "center",
               flexWrap: "wrap", gap: 8,
             }}>
@@ -328,11 +328,11 @@ function ApprovalsTab() {
                 <div style={{ fontSize: 14, fontWeight: 600 }}>
                   طلب موافقة #{a.id.substring(0, 8)}…
                 </div>
-                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+                <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)", marginTop: 4 }}>
                   المثيل: {a.workflowInstanceId.substring(0, 8)}… · الحالة: <StatusBadge status={a.status} />
                 </div>
                 {a.comments && (
-                  <div style={{ fontSize: 12, color: "#374151", marginTop: 4 }}>
+                  <div style={{ fontSize: 12, color: "var(--snad-color-text-primary)", marginTop: 4 }}>
                     ملاحظات: {a.comments}
                   </div>
                 )}
@@ -342,13 +342,13 @@ function ApprovalsTab() {
                   <button
                     onClick={() => handleApprove(a.id)}
                     disabled={actioningId === a.id}
-                    style={{ ...smallBtnStyle, backgroundColor: "#16a34a", color: "#fff" }}>
+                    style={{ ...smallBtnStyle, backgroundColor: "var(--snad-color-success)", color: "var(--snad-color-surface-primary)" }}>
                     {actioningId === a.id ? "…" : "موافقة"}
                   </button>
                   <button
                     onClick={() => handleReject(a.id)}
                     disabled={actioningId === a.id}
-                    style={{ ...smallBtnStyle, backgroundColor: "#dc2626", color: "#fff" }}>
+                    style={{ ...smallBtnStyle, backgroundColor: "var(--snad-color-error)", color: "var(--snad-color-surface-primary)" }}>
                     {actioningId === a.id ? "…" : "رفض"}
                   </button>
                 </div>
@@ -390,7 +390,7 @@ function MonitoringTab() {
 
   if (loading) return <AuthLoadingState />;
   if (error || !health) return (
-    <div style={{ padding: 16, color: "#dc2626", direction: "rtl" }}>
+    <div style={{ padding: 16, color: "var(--snad-color-error)", direction: "rtl" }}>
       <p><strong>خطأ:</strong> {error || "لا توجد بيانات"}</p>
       <button onClick={load} style={btnStyle}>إعادة المحاولة</button>
     </div>
@@ -401,24 +401,24 @@ function MonitoringTab() {
       <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>مراقبة مستوى الخدمة (SLA)</h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
         <div style={cardStyle}>
-          <div style={{ fontSize: 13, color: "#6b7280" }}>الحالة</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: "#16a34a" }}>{health.status}</div>
+          <div style={{ fontSize: 13, color: "var(--snad-color-text-secondary)" }}>الحالة</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: "var(--snad-color-success)" }}>{health.status}</div>
         </div>
         <div style={cardStyle}>
-          <div style={{ fontSize: 13, color: "#6b7280" }}>خطوات متأخرة</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: health.overdueSteps > 0 ? "#dc2626" : "#16a34a" }}>
+          <div style={{ fontSize: 13, color: "var(--snad-color-text-secondary)" }}>خطوات متأخرة</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: health.overdueSteps > 0 ? "var(--snad-color-error)" : "var(--snad-color-success)" }}>
             {health.overdueSteps}
           </div>
         </div>
         <div style={cardStyle}>
-          <div style={{ fontSize: 13, color: "#6b7280" }}>موافقات متأخرة</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: health.overdueApprovals > 0 ? "#dc2626" : "#16a34a" }}>
+          <div style={{ fontSize: 13, color: "var(--snad-color-text-secondary)" }}>موافقات متأخرة</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: health.overdueApprovals > 0 ? "var(--snad-color-error)" : "var(--snad-color-success)" }}>
             {health.overdueApprovals}
           </div>
         </div>
         <div style={cardStyle}>
-          <div style={{ fontSize: 13, color: "#6b7280" }}>إجمالي المخالفات</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: health.totalBreaches > 0 ? "#dc2626" : "#16a34a" }}>
+          <div style={{ fontSize: 13, color: "var(--snad-color-text-secondary)" }}>إجمالي المخالفات</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: health.totalBreaches > 0 ? "var(--snad-color-error)" : "var(--snad-color-success)" }}>
             {health.totalBreaches}
           </div>
         </div>
@@ -430,25 +430,25 @@ function MonitoringTab() {
 // ── Main Page ─────────────────────────────────────────────────────────
 
 const btnStyle: React.CSSProperties = {
-  padding: "8px 16px", borderRadius: 6, border: "1px solid #e5e7eb",
-  backgroundColor: "#fff", color: "#374151", cursor: "pointer", fontSize: 14,
+  padding: "8px 16px", borderRadius: 6, border: "1px solid var(--snad-color-border-default)",
+  backgroundColor: "var(--snad-color-surface-primary)", color: "var(--snad-color-text-primary)", cursor: "pointer", fontSize: 14,
 };
 const smallBtnStyle: React.CSSProperties = {
   padding: "4px 12px", borderRadius: 4, border: "none",
   cursor: "pointer", fontSize: 13,
 };
 const inputStyle: React.CSSProperties = {
-  padding: "8px 12px", borderRadius: 6, border: "1px solid #e5e7eb",
+  padding: "8px 12px", borderRadius: 6, border: "1px solid var(--snad-color-border-default)",
   fontSize: 14, width: "100%",
 };
 const thStyle: React.CSSProperties = {
-  padding: "8px 12px", fontSize: 13, fontWeight: 600, color: "#374151",
+  padding: "8px 12px", fontSize: 13, fontWeight: 600, color: "var(--snad-color-text-primary)",
 };
 const tdStyle: React.CSSProperties = {
-  padding: "12px", fontSize: 14, color: "#374151",
+  padding: "12px", fontSize: 14, color: "var(--snad-color-text-primary)",
 };
 const cardStyle: React.CSSProperties = {
-  padding: 16, borderRadius: 8, border: "1px solid #e5e7eb",
+  padding: 16, borderRadius: 8, border: "1px solid var(--snad-color-border-default)",
 };
 
 export default function WorkflowPage() {
@@ -479,16 +479,16 @@ export default function WorkflowPage() {
         direction: "rtl", fontFamily: "system-ui, -apple-system, sans-serif",
       }}>
         <header style={{ marginBottom: 24 }}>
-          <h1 style={{ fontSize: 28, fontWeight: 700, color: "#111827", marginBottom: 8 }}>
+          <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--snad-color-text-primary)", marginBottom: 8 }}>
             محرك سير العمل
           </h1>
-          <p style={{ color: "#6b7280", fontSize: 14 }}>
+          <p style={{ color: "var(--snad-color-text-secondary)", fontSize: 14 }}>
             إدارة تعريفات سير العمل، تشغيل المثيلات، ومعالجة طلبات الموافقة
           </p>
         </header>
 
         <nav style={{
-          display: "flex", gap: 4, borderBottom: "1px solid #e5e7eb",
+          display: "flex", gap: 4, borderBottom: "1px solid var(--snad-color-border-default)",
           marginBottom: 16, overflowX: "auto",
         }}>
           {tabs.map((t) => (
@@ -498,10 +498,10 @@ export default function WorkflowPage() {
               style={{
                 padding: "12px 20px", cursor: "pointer", fontSize: 14,
                 fontWeight: activeTab === t.id ? 600 : 400,
-                color: activeTab === t.id ? "#2563eb" : "#6b7280",
-                borderBottom: activeTab === t.id ? "2px solid #2563eb" : "2px solid transparent",
-                backgroundColor: "transparent", border: "none", borderLeft: "1px solid #e5e7eb",
-                borderRight: "1px solid #e5e7eb", borderTop: "none",
+                color: activeTab === t.id ? "var(--snad-color-info)" : "var(--snad-color-text-secondary)",
+                borderBottom: activeTab === t.id ? "2px solid var(--snad-color-info)" : "2px solid transparent",
+                backgroundColor: "transparent", border: "none", borderLeft: "1px solid var(--snad-color-border-default)",
+                borderRight: "1px solid var(--snad-color-border-default)", borderTop: "none",
                 whiteSpace: "nowrap",
               }}
             >
