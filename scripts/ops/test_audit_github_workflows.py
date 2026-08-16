@@ -119,6 +119,74 @@ steps:
         finding = audit.scan_text(".github/workflows/x.yml", text)
         self.assertTrue(finding.writes_database)
 
+    def test_isolated_ci_database_writer_is_not_production_writer(self):
+        text = """name: isolated pg test
+on: pull_request
+services:
+  postgres:
+    image: postgres:17
+steps:
+- run: psql \"$TEST_DATABASE_URL\" -c \"CREATE TABLE probe(id bigint)\"
+"""
+        finding = audit.scan_text(".github/workflows/isolated-db.yml", text)
+        self.assertTrue(finding.is_github_workflow)
+        self.assertTrue(finding.writes_database)
+        self.assertFalse(finding.is_production_writer)
+        self.assertEqual("ISOLATED_CI", finding.writer_authority)
+
+    def test_unknown_production_database_writer_is_fail_closed(self):
+        text = """name: legacy prod db
+on: workflow_dispatch
+jobs:
+  mutate:
+    environment: Production
+    steps:
+      - run: psql \"$PRODUCTION_DATABASE_URL\" -c \"UPDATE users SET status='ACTIVE'\"
+"""
+        finding = audit.scan_text(".github/workflows/legacy-prod-db.yml", text)
+        self.assertTrue(finding.is_production_writer)
+        self.assertEqual("UNEXPECTED_PRODUCTION", finding.writer_authority)
+
+    def test_canonical_database_migrator_is_allowed_production_writer(self):
+        text = """name: canonical migrate
+on: workflow_dispatch
+jobs:
+  migrate:
+    environment: Production
+    steps:
+      - run: ./mvnw flyway:migrate
+"""
+        finding = audit.scan_text(".github/workflows/database-migrate.yml", text)
+        self.assertTrue(finding.is_production_writer)
+        self.assertEqual("CANONICAL", finding.writer_authority)
+
+    def test_canonical_render_deployer_is_allowed_production_writer(self):
+        text = """name: canonical deploy
+on: workflow_dispatch
+jobs:
+  deploy:
+    environment: Production
+    steps:
+      - run: curl -X POST https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys
+"""
+        finding = audit.scan_text(".github/workflows/render-deploy.yml", text)
+        self.assertTrue(finding.is_production_writer)
+        self.assertEqual("CANONICAL", finding.writer_authority)
+
+    def test_summary_separates_production_and_isolated_writers(self):
+        isolated = audit.scan_text(
+            ".github/workflows/isolated.yml",
+            "on: pull_request\nsteps:\n- run: psql '$URL' -c 'CREATE TABLE t(id int)'\n",
+        )
+        unexpected = audit.scan_text(
+            ".github/workflows/legacy.yml",
+            "environment: Production\nsteps:\n- run: psql '$URL' -c 'UPDATE t SET id=2'\n",
+        )
+        summary = audit.summarize([isolated, unexpected])
+        self.assertEqual(1, summary["isolated_ci_database_writers"])
+        self.assertEqual(1, summary["production_database_writers"])
+        self.assertEqual(1, summary["unexpected_production_writers"])
+
 
 if __name__ == "__main__":
     unittest.main()
