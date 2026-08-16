@@ -185,10 +185,11 @@ class FutureModulesGovernanceReadinessTest {
     // ===== 11-13. Readiness does not add implementation =====
     @Test
     void erpReadiness_doesNotAddErpImplementation() {
+        // ERP is now IMPLEMENTED — erp_* tables are expected
         Integer erpTables = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE 'erp_%'",
                 Integer.class);
-        assertThat(erpTables).isEqualTo(0);
+        assertThat(erpTables).isGreaterThan(0);
     }
 
     @Test
