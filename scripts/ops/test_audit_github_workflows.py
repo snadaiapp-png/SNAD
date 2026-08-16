@@ -121,6 +121,27 @@ steps:
         finding = audit.scan_text(".github/workflows/x.yml", text)
         self.assertTrue(finding.writes_database)
 
+    def test_production_runtime_flyway_enabled_is_database_writer(self):
+        text = """name: legacy prod runtime repro
+on: workflow_dispatch
+jobs:
+  repro:
+    environment: Production
+    steps:
+      - run: |
+          docker run --rm \\
+            -e DATABASE_URL=\"$DB_URL\" \\
+            -e FLYWAY_ENABLED=true \\
+            -e FLYWAY_VALIDATE_ON_MIGRATE=false \\
+            -e FLYWAY_BASELINE_ON_MIGRATE=true \\
+            ghcr.io/example/backend:sha
+"""
+        finding = audit.scan_text(".github/workflows/runtime-flyway-prod.yml", text)
+        self.assertTrue(finding.runs_flyway)
+        self.assertTrue(finding.writes_database)
+        self.assertTrue(finding.is_production_writer)
+        self.assertEqual("UNEXPECTED_PRODUCTION", finding.writer_authority)
+
     def test_isolated_ci_database_writer_is_not_production_writer(self):
         text = """name: isolated pg test
 on: pull_request
