@@ -38,6 +38,13 @@ SKIP_DIRS = {
     '.git', 'node_modules', '.next', 'target', '__pycache__',
     '.gradle', 'build', 'dist', '.cache', '.pytest_cache',
     'tool-results', 'upload', 'SNAD-https',
+    # Disabled workflows directory — workflows moved here via
+    # `git mv .github/workflows/{f} .github/workflows.disabled/{f}`
+    # are no longer loaded by GitHub Actions and are no longer
+    # scanned by the workflow security scanner. They are preserved
+    # as historical reference only. Skip them in the secret scanner
+    # too so their pre-existing test fixtures don't block post-merge.
+    'workflows.disabled',
 }
 
 SKIP_EXTS = {
