@@ -126,8 +126,11 @@ class CrmPostgresMigrationTest {
     private static final String REGISTER_WEBSITES_MODULE_VERSION = "20260816.2";
     private static final String CREATE_WEBSITES_TABLES_VERSION = "20260816.3";
     private static final String ENABLE_WEBSITES_RLS_VERSION = "20260816.4";
-    // Latest migration after Website Platform
-    private static final String LATEST_MIGRATION_VERSION = ENABLE_WEBSITES_RLS_VERSION;
+    // v20260816.4 — Stores / E-Commerce Platform
+    private static final String CREATE_COMMERCE_TABLES_VERSION = "20260816.5";
+    private static final String ENABLE_COMMERCE_RLS_VERSION = "20260816.6";
+    // Latest migration after Stores / E-Commerce Platform
+    private static final String LATEST_MIGRATION_VERSION = ENABLE_COMMERCE_RLS_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -307,7 +310,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CONTRACT_MGMT_REGISTRY_VERSION),
                         MigrationVersion.fromVersion(REGISTER_WEBSITES_MODULE_VERSION),
                         MigrationVersion.fromVersion(CREATE_WEBSITES_TABLES_VERSION),
-                        MigrationVersion.fromVersion(ENABLE_WEBSITES_RLS_VERSION));
+                        MigrationVersion.fromVersion(ENABLE_WEBSITES_RLS_VERSION),
+                        MigrationVersion.fromVersion(CREATE_COMMERCE_TABLES_VERSION),
+                        MigrationVersion.fromVersion(ENABLE_COMMERCE_RLS_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -419,7 +424,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CONTRACT_MGMT_REGISTRY_VERSION),
                         MigrationVersion.fromVersion(REGISTER_WEBSITES_MODULE_VERSION),
                         MigrationVersion.fromVersion(CREATE_WEBSITES_TABLES_VERSION),
-                        MigrationVersion.fromVersion(ENABLE_WEBSITES_RLS_VERSION));
+                        MigrationVersion.fromVersion(ENABLE_WEBSITES_RLS_VERSION),
+                        MigrationVersion.fromVersion(CREATE_COMMERCE_TABLES_VERSION),
+                        MigrationVersion.fromVersion(ENABLE_COMMERCE_RLS_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -595,6 +602,8 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, REGISTER_WEBSITES_MODULE_VERSION, "SQL", "register websites module");
         assertMigration(jdbc, CREATE_WEBSITES_TABLES_VERSION, "SQL", "create websites platform tables");
         assertMigration(jdbc, ENABLE_WEBSITES_RLS_VERSION, "SQL", "enable websites rls");
+        assertMigration(jdbc, CREATE_COMMERCE_TABLES_VERSION, "SQL", "create commerce tables");
+        assertMigration(jdbc, ENABLE_COMMERCE_RLS_VERSION, "SQL", "enable commerce rls");
 
         assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
