@@ -96,11 +96,11 @@ steps:
         self.assertFalse(finding.writes_render_env)
 
     def test_flyway_history_verification_is_not_database_writer(self):
-        text = """name: verify flyway
+        text = """name: verify
 on: workflow_dispatch
 steps:
 - run: |
-    # validate-on-migrate would catch checksum drift
+    # Flyway stores checksum; validate-on-migrate would catch checksum drift.
     psql \"$URL\" -c \"SELECT version, success FROM flyway_schema_history\"
 """
         finding = audit.scan_text(".github/workflows/x.yml", text)
@@ -108,7 +108,7 @@ steps:
         self.assertFalse(finding.writes_database)
 
     def test_flyway_container_migrate_is_database_writer(self):
-        text = """name: migrate flyway
+        text = """name: migrate
 on: workflow_dispatch
 steps:
 - run: |
