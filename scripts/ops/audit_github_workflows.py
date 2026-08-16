@@ -144,9 +144,11 @@ def scan_text(path: str, text: str) -> Finding:
         )
     )
     render_http_write = has_render_reference and _explicit_render_http_write(text)
+    # Render CLI mutation must appear as an executable command line, not merely
+    # prose/YAML metadata such as `name: render env read`.
     render_cli_write = bool(
         re.search(
-            r"(?i)\brender\s+(?:deploys\s+create|services?\s+(?:suspend|resume|update|delete)|env\b)",
+            r"(?mi)^\s*render\s+(?:deploys\s+create|services?\s+(?:suspend|resume|update|delete)|env\b)",
             text,
         )
     )
