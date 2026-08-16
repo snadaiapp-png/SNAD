@@ -15,6 +15,12 @@ PLACEHOLDER_PASSWORDS = {
     "<password>",
 }
 
+CANONICAL_PRODUCTION_WRITERS = {
+    ".github/workflows/database-migrate.yml",
+    ".github/workflows/render-deploy.yml",
+    ".github/workflows/render-rollback.yml",
+}
+
 
 @dataclass
 class Finding:
@@ -30,6 +36,9 @@ class Finding:
     deploys_image: bool = False
     reads_production: bool = False
     uses_production_environment: bool = False
+    is_github_workflow: bool = False
+    is_production_writer: bool = False
+    writer_authority: str = "NONE"
     secret_candidate_types: list[str] = field(default_factory=list)
     risk: str = "LOW"
     classification_hint: str = "KEEP_OR_REVIEW"
@@ -121,7 +130,6 @@ def _secret_candidates(text: str) -> list[str]:
 
 
 def _explicit_render_http_write(text: str) -> bool:
-    """Return True only when a Render API request explicitly uses a mutating HTTP verb."""
     patterns = (
         r"(?is)curl\b.{0,260}(?:-X|--request)\s*(?:POST|PUT|PATCH|DELETE)\b.{0,520}api\.render\.com",
         r"(?is)curl\b.{0,520}api\.render\.com.{0,260}(?:-X|--request)\s*(?:POST|PUT|PATCH|DELETE)\b",
@@ -130,20 +138,44 @@ def _explicit_render_http_write(text: str) -> bool:
 
 
 def _executes_flyway_migrate(text: str) -> bool:
-    """Detect actual Flyway migration execution, not documentation/verification prose."""
     if re.search(r"(?mi)^\s*flyway\b[^\n]*\bmigrate\b", text):
         return True
     if re.search(r"(?mi)^\s*(?:mvn|mvnw|\.\/mvnw)\b[^\n]*\bflyway:migrate\b", text):
         return True
     if re.search(r"(?mi)^\s*(?:gradle|\.\/gradlew)\b[^\n]*\bflywayMigrate\b", text):
         return True
-
-    # Official Flyway container commands are often YAML/bash continuations:
-    # `flyway/flyway:<tag>` appears on an earlier line and `migrate` is the
-    # final standalone command argument. Require both signals.
     has_flyway_container = bool(re.search(r"(?i)\bflyway/flyway(?::[^\s\\]+)?\b", text))
     has_standalone_migrate = bool(re.search(r"(?mi)^\s*migrate\s*$", text))
     return has_flyway_container and has_standalone_migrate
+
+
+def _writer_authority(
+    path: str,
+    *,
+    writes_render: bool,
+    writes_database: bool,
+    uses_production_environment: bool,
+) -> tuple[bool, bool, str]:
+    is_github_workflow = path.startswith(".github/workflows/")
+    writes_runtime = writes_render or writes_database
+    if not writes_runtime:
+        return is_github_workflow, False, "NONE"
+
+    production_script = path.startswith("scripts/production/")
+    # Any Render mutation is Production control-plane authority unless proven
+    # otherwise. DB writers are Production only when explicitly bound to the
+    # protected Production environment or placed in scripts/production.
+    is_production_writer = bool(
+        writes_render or uses_production_environment or production_script
+    )
+
+    if is_production_writer and path in CANONICAL_PRODUCTION_WRITERS:
+        return is_github_workflow, True, "CANONICAL"
+    if is_production_writer:
+        return is_github_workflow, True, "UNEXPECTED_PRODUCTION"
+    if is_github_workflow and writes_database:
+        return is_github_workflow, False, "ISOLATED_CI"
+    return is_github_workflow, False, "NON_PRODUCTION_WRITE"
 
 
 def scan_text(path: str, text: str) -> Finding:
@@ -224,11 +256,18 @@ def scan_text(path: str, text: str) -> Finding:
     )
     reads_production = uses_production_environment or bool(
         re.search(
-            r"(?i)(?:PRODUCTION_BASE_URL|PROD_JDBC_URL|PRODUCTION_DATABASE_URL|sanad-backend[^\s]*\.onrender\.com)",
+            r"(?i)(?:PRODUCTION_BASE_URL|PROD_JDBC_URL|PRODUCTION_DATABASE_URL|PRODUCTION_DATABASE_JDBC_URL|sanad-backend[^\s]*\.onrender\.com)",
             text,
         )
     )
     secret_candidates = _secret_candidates(text)
+
+    is_github_workflow, is_production_writer, writer_authority = _writer_authority(
+        path,
+        writes_render=writes_render,
+        writes_database=writes_database,
+        uses_production_environment=uses_production_environment,
+    )
 
     if writes_render:
         reasons.append("render_write_capability")
@@ -244,9 +283,18 @@ def scan_text(path: str, text: str) -> Finding:
         reasons.append("source_write_capability")
     if secret_candidates:
         reasons.append("secret_candidate_present")
+    if writer_authority == "UNEXPECTED_PRODUCTION":
+        reasons.append("unexpected_production_writer")
+    elif writer_authority == "CANONICAL":
+        reasons.append("canonical_production_writer")
+    elif writer_authority == "ISOLATED_CI":
+        reasons.append("isolated_ci_database_writer")
 
-    critical = bool(secret_candidates) or writes_database or (
-        writes_render_env and deploys_image
+    critical = (
+        bool(secret_candidates)
+        or writer_authority == "UNEXPECTED_PRODUCTION"
+        or writes_database
+        or (writes_render_env and deploys_image)
     )
     high = writes_render or writes_source or deploys_image
     risk = "CRITICAL" if critical else (
@@ -254,8 +302,16 @@ def scan_text(path: str, text: str) -> Finding:
     )
     classification_hint = (
         "DANGEROUS_OR_REPLACE"
-        if risk in {"CRITICAL", "HIGH"}
-        else ("REVIEW" if risk == "MEDIUM" else "KEEP_OR_REVIEW")
+        if writer_authority == "UNEXPECTED_PRODUCTION" or secret_candidates
+        else (
+            "CANONICAL_PRODUCTION"
+            if writer_authority == "CANONICAL"
+            else (
+                "REVIEW"
+                if risk in {"CRITICAL", "HIGH", "MEDIUM"}
+                else "KEEP_OR_REVIEW"
+            )
+        )
     )
 
     return Finding(
@@ -271,6 +327,9 @@ def scan_text(path: str, text: str) -> Finding:
         deploys_image=deploys_image,
         reads_production=reads_production,
         uses_production_environment=uses_production_environment,
+        is_github_workflow=is_github_workflow,
+        is_production_writer=is_production_writer,
+        writer_authority=writer_authority,
         secret_candidate_types=secret_candidates,
         risk=risk,
         classification_hint=classification_hint,
@@ -295,15 +354,28 @@ def iter_targets(root: pathlib.Path):
 
 
 def summarize(findings: list[Finding]) -> dict:
-    workflows = [
-        finding for finding in findings if finding.path.startswith(".github/workflows/")
-    ]
+    workflows = [finding for finding in findings if finding.is_github_workflow]
     return {
         "scanned_files": len(findings),
         "workflow_count": len(workflows),
         "render_writers": sum(finding.writes_render for finding in findings),
+        "github_render_writers": sum(
+            finding.is_github_workflow and finding.writes_render for finding in findings
+        ),
         "render_env_writers": sum(finding.writes_render_env for finding in findings),
         "database_writers": sum(finding.writes_database for finding in findings),
+        "production_database_writers": sum(
+            finding.writes_database and finding.is_production_writer for finding in findings
+        ),
+        "isolated_ci_database_writers": sum(
+            finding.writer_authority == "ISOLATED_CI" for finding in findings
+        ),
+        "canonical_production_writers": sum(
+            finding.writer_authority == "CANONICAL" for finding in findings
+        ),
+        "unexpected_production_writers": sum(
+            finding.writer_authority == "UNEXPECTED_PRODUCTION" for finding in findings
+        ),
         "flyway_references": sum(finding.runs_flyway for finding in findings),
         "image_builders": sum(finding.builds_image for finding in findings),
         "deploy_writers": sum(finding.deploys_image for finding in findings),
@@ -335,6 +407,18 @@ def write_outputs(output_dir: pathlib.Path, findings: list[Finding]):
     (output_dir / "secret-candidates.json").write_text(
         json.dumps(secret_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
+    policy_payload = [
+        {
+            "path": finding.path,
+            "writer_authority": finding.writer_authority,
+            "reasons": finding.reasons,
+        }
+        for finding in findings
+        if finding.writer_authority == "UNEXPECTED_PRODUCTION"
+    ]
+    (output_dir / "policy-violations.json").write_text(
+        json.dumps(policy_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
     fields = list(Finding.__dataclass_fields__.keys())
     with (output_dir / "workflow-inventory.csv").open(
@@ -356,6 +440,7 @@ def main() -> int:
     parser.add_argument("--root", default=".")
     parser.add_argument("--output-dir", default="clean-room-audit")
     parser.add_argument("--fail-on-secret-candidates", action="store_true")
+    parser.add_argument("--fail-on-policy-violations", action="store_true")
     args = parser.parse_args()
 
     root = pathlib.Path(args.root).resolve()
@@ -371,9 +456,14 @@ def main() -> int:
     write_outputs(pathlib.Path(args.output_dir), findings)
     summary = summarize(findings)
 
+    # Counts only: matched secret material is never printed by this tool.
     print(json.dumps(summary, sort_keys=True))
     if args.fail_on_secret_candidates and summary["secret_candidate_files"]:
         return 2
+    if args.fail_on_policy_violations and (
+        summary["secret_candidate_files"] or summary["unexpected_production_writers"]
+    ):
+        return 3
     return 0
 
 
