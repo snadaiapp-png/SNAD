@@ -120,6 +120,15 @@ def _secret_candidates(text: str) -> list[str]:
     return _uniq(found)
 
 
+def _explicit_render_http_write(text: str) -> bool:
+    """Return True only when a Render API request explicitly uses a mutating HTTP verb."""
+    patterns = (
+        r"(?is)curl\b.{0,260}(?:-X|--request)\s*(?:POST|PUT|PATCH|DELETE)\b.{0,520}api\.render\.com",
+        r"(?is)curl\b.{0,520}api\.render\.com.{0,260}(?:-X|--request)\s*(?:POST|PUT|PATCH|DELETE)\b",
+    )
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
 def scan_text(path: str, text: str) -> Finding:
     lowered = text.lower()
     reasons: list[str] = []
@@ -134,23 +143,21 @@ def scan_text(path: str, text: str) -> Finding:
             "render deploys ",
         )
     )
-    render_write_verb = bool(
-        re.search(
-            r"(?is)(?:-x\s*(?:post|put|patch|delete)|\b(?:post|put|patch|delete)\b).{0,240}api\.render\.com|api\.render\.com.{0,240}(?:-x\s*(?:post|put|patch|delete))",
-            text,
-        )
-    )
+    render_http_write = has_render_reference and _explicit_render_http_write(text)
     render_cli_write = bool(
         re.search(
             r"(?i)\brender\s+(?:deploys\s+create|services?\s+(?:suspend|resume|update|delete)|env\b)",
             text,
         )
     )
-    render_lifecycle = bool(
-        re.search(r"(?i)/services/[^\s\"']+/(?:suspend|resume|deploys|env-vars)", text)
+    deploy_hook_write = bool(
+        re.search(
+            r"(?is)curl\b.{0,400}(?:-X|--request)\s*POST\b.{0,400}render_deploy_hook_url|render_deploy_hook_url.{0,400}(?:-X|--request)\s*POST\b",
+            text,
+        )
     )
     writes_render = has_render_reference and (
-        render_write_verb or render_cli_write or render_lifecycle
+        render_http_write or render_cli_write or deploy_hook_write
     )
     writes_render_env = writes_render and bool(
         re.search(
@@ -175,7 +182,7 @@ def scan_text(path: str, text: str) -> Finding:
 
     sql_mutation = bool(
         re.search(
-            r"(?i)\b(insert\s+into|update\s+[a-z_]|delete\s+from|alter\s+table|create\s+table|drop\s+(?:table|schema|database)|truncate\s+|pg_terminate_backend\s*\()",
+            r"(?i)\b(insert\s+into|update\s+[a-z_][a-z0-9_.\"]*\s+set\b|delete\s+from|alter\s+table|create\s+table|drop\s+(?:table|schema|database)|truncate\s+|pg_terminate_backend\s*\()",
             text,
         )
     )
