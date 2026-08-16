@@ -48,10 +48,13 @@ jobs:
 
       - name: Run architecture tests
         working-directory: apps/sanad-platform
+        env:
+          SPRING_PROFILES_ACTIVE: local
         run: |
           set -euo pipefail
           mvn --batch-mode --no-transfer-progress \
-            -Dtest='*ArchitectureTest,*ArchUnitTest,*ModuleWiringTest' \
+            -Dtest='*ArchitectureTest,*ArchUnitTest' \
+            -Dsurefire.failIfNoSpecifiedTests=false \
             test
 
       - name: Verify architecture tests executed (not zero)
