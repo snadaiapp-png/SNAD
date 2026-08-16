@@ -62,6 +62,39 @@ on:
         self.assertIn("push", finding.triggers)
         self.assertIn("workflow_dispatch", finding.triggers)
 
+    def test_github_issues_update_is_not_sql_update(self):
+        text = """name: production synthetic
+on: workflow_dispatch
+steps:
+- run: |
+    psql \"$URL\" -c \"SELECT 1\"
+    node - <<'JS'
+    github.rest.issues.update({ owner: 'o', repo: 'r', issue_number: 1, state: 'closed' })
+    JS
+"""
+        finding = audit.scan_text(".github/workflows/x.yml", text)
+        self.assertFalse(finding.writes_database)
+
+    def test_render_deploys_get_is_not_render_writer(self):
+        text = """name: render read
+on: workflow_dispatch
+steps:
+- run: curl -H \"Authorization: Bearer $RENDER_API_KEY\" https://api.render.com/v1/services/$ID/deploys?limit=20
+"""
+        finding = audit.scan_text(".github/workflows/x.yml", text)
+        self.assertFalse(finding.writes_render)
+        self.assertFalse(finding.deploys_image)
+
+    def test_render_env_get_is_not_render_writer(self):
+        text = """name: render env read
+on: workflow_dispatch
+steps:
+- run: curl -H \"Authorization: Bearer $RENDER_API_KEY\" https://api.render.com/v1/services/$ID/env-vars?limit=100
+"""
+        finding = audit.scan_text(".github/workflows/x.yml", text)
+        self.assertFalse(finding.writes_render)
+        self.assertFalse(finding.writes_render_env)
+
 
 if __name__ == "__main__":
     unittest.main()
