@@ -1,10 +1,8 @@
 name: Publish Backend Image (Build Only)
 
-# Clean-Room R1 safety boundary:
-# This workflow may build and publish backend images, but it MUST NOT read
-# Render credentials, mutate Render environment variables, run Flyway against
-# production, or trigger a production deployment. Deployment is owned by a
-# separate protected release workflow introduced later in the clean-room plan.
+# Clean-Room safety boundary:
+# This workflow owns image construction only. It must never read Render
+# credentials, mutate Render, run Production Flyway, or deploy Production.
 
 on:
   push:
@@ -20,7 +18,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: publish-backend-image
+  group: publish-backend-image-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -47,7 +45,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and publish immutable image
+      - name: Build and publish exact-SHA image
         id: build
         uses: docker/build-push-action@v6
         with:
@@ -57,16 +55,14 @@ jobs:
           push: true
           build-args: |
             RENDER_GIT_COMMIT=${{ github.sha }}
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Record immutable image evidence
+      - name: Create immutable image evidence
         shell: bash
         run: |
           set -euo pipefail
@@ -74,11 +70,31 @@ jobs:
             echo "::error::Image build did not return a digest"
             exit 1
           }
+
+          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          cat > backend-image-evidence.json <<JSON
+          {
+            "sourceSha": "${{ github.sha }}",
+            "imageTag": "${IMAGE_TAG}",
+            "digest": "${{ steps.build.outputs.digest }}",
+            "deploymentPerformed": false,
+            "renderMutationPerformed": false
+          }
+          JSON
+
           {
             echo "## Backend image — build only"
             echo "- Source SHA: ${{ github.sha }}"
-            echo "- Immutable tag: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+            echo "- Immutable tag: ${IMAGE_TAG}"
             echo "- Digest: ${{ steps.build.outputs.digest }}"
             echo "- Production deployment: NOT PERFORMED"
             echo "- Render configuration mutation: NOT PERFORMED"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload immutable image evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-image-evidence-${{ github.run_id }}
+          path: backend-image-evidence.json
+          if-no-files-found: error
+          retention-days: 90
