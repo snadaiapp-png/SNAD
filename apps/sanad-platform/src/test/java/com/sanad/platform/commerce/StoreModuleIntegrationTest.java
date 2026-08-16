@@ -114,7 +114,7 @@ class StoreModuleIntegrationTest {
     @Test
     void registerCustomDomain_startsAsPending() {
         var s = createStore("dom");
-        var d = domainService.registerCustomDomain(tenantId, s.id(), new CreateDomainRequest("shop.example.com"), null);
+        var d = domainService.registerCustomDomain(tenantId, s.id(), new CreateDomainRequest("myboutique.example.com"), null);
         assertThat(d.verificationStatus()).isEqualTo(CommerceDomain.VerificationStatus.PENDING);
         assertThat(d.activationStatus()).isEqualTo(CommerceDomain.ActivationStatus.INACTIVE);
     }
@@ -122,7 +122,7 @@ class StoreModuleIntegrationTest {
     @Test
     void activateDomain_requiresVerificationFirst() {
         var s = createStore("domact");
-        var d = domainService.registerCustomDomain(tenantId, s.id(), new CreateDomainRequest("act.example.com"), null);
+        var d = domainService.registerCustomDomain(tenantId, s.id(), new CreateDomainRequest("myactivestore.example.com"), null);
         assertThatThrownBy(() -> domainService.activate(tenantId, s.id(), d.id(), null))
                 .isInstanceOf(ResponseStatusException.class).extracting("statusCode").isEqualTo(HttpStatus.CONFLICT);
     }
