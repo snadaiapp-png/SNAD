@@ -34,9 +34,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run all clean-room contract tests
+        id: contract_tests
+        continue-on-error: true
         run: python -m unittest discover -s scripts/ops -p 'test_*.py'
 
       - name: Generate sanitized fail-closed inventory
+        id: inventory
+        if: always()
+        continue-on-error: true
         run: |
           set -euo pipefail
           python scripts/ops/audit_github_workflows.py \
@@ -73,3 +78,16 @@ jobs:
           path: clean-room-audit
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Enforce clean-room audit gate
+        if: always()
+        shell: bash
+        env:
+          CONTRACT_TESTS_OUTCOME: ${{ steps.contract_tests.outcome }}
+          INVENTORY_OUTCOME: ${{ steps.inventory.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$CONTRACT_TESTS_OUTCOME" != "success" || "$INVENTORY_OUTCOME" != "success" ]]; then
+            echo "BLOCKED: clean-room contract tests or policy inventory failed." >&2
+            exit 1
+          fi
