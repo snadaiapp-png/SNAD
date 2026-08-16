@@ -44,11 +44,14 @@ jobs:
 
       - name: Start backend on perf-test profile
         working-directory: apps/sanad-platform
+        env:
+          SPRING_FLYWAY_ENABLED: 'false'
+          SPRING_JPA_HIBERNATE_DDL_AUTO: 'update'
         run: |
           mkdir -p ../../performance/results
           nohup mvn -q -DskipTests spring-boot:run \
             -Dspring-boot.run.profiles=perf-test \
-            -Dspring-boot.run.arguments="--server.port=8080" \
+            -Dspring-boot.run.arguments="--server.port=8080 --spring.flyway.enabled=false --spring.jpa.hibernate.ddl-auto=update" \
             > ../../performance/results/crm-perf-backend-startup.log 2>&1 &
           echo $! > /tmp/sanad-crm-perf-app.pid
 
