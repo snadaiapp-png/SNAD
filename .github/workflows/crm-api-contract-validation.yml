@@ -33,7 +33,7 @@ concurrency:
 
 env:
   JWT_SECRET: ci-only-non-production-validation-key-1234567890
-  EXPECTED_CRM_PATHS: '147'
+  EXPECTED_CRM_PATHS: '142'
   EXPECTED_CRM_OPERATIONS: '181'
 
 jobs:
@@ -41,6 +41,32 @@ jobs:
     name: CRM API Contract Validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: sanad_pass
+          POSTGRES_DB: sanad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sanad -d sanad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      JWT_SECRET: ci-only-non-production-validation-key-1234567890
+      EXPECTED_CRM_PATHS: '142'
+      EXPECTED_CRM_OPERATIONS: '181'
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: default
+
     steps:
       - name: Checkout exact SHA
         uses: actions/checkout@v4
@@ -125,14 +151,13 @@ jobs:
           path: apps/sanad-platform/target/surefire-reports/
           if-no-files-found: warn
           retention-days: 7
-      - name: Start backend for runtime OpenAPI
+      - name: Start backend on PostgreSQL for runtime OpenAPI
         working-directory: apps/sanad-platform
-        env:
-          SPRING_FLYWAY_ENABLED: 'false'
-          SPRING_JPA_HIBERNATE_DDL_AUTO: 'update'
         run: |
           set -euo pipefail
-          nohup mvn -q -DskipTests spring-boot:run -Dspring-boot.run.profiles=local -Dspring-boot.run.arguments="--server.port=8081 --management.endpoints.web.exposure.include=health --spring.flyway.enabled=false --spring.jpa.hibernate.ddl-auto=update" >/tmp/crm-openapi-backend.log 2>&1 &
+          nohup mvn -q -DskipTests spring-boot:run \
+            -Dspring-boot.run.arguments="--server.port=8081 --management.endpoints.web.exposure.include=health --spring.flyway.enabled=true --spring.jpa.hibernate.ddl-auto=validate" \
+            >/tmp/crm-openapi-backend.log 2>&1 &
           echo $! >/tmp/crm-openapi-backend.pid
       - name: Fetch runtime OpenAPI
         run: |

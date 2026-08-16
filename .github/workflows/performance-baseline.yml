@@ -25,12 +25,32 @@ jobs:
     name: CRM-033 Authenticated Benchmark
     runs-on: ubuntu-latest
     timeout-minutes: 35
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: sanad_pass
+          POSTGRES_DB: sanad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sanad -d sanad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
     env:
-      # Deterministic HMAC key for the perf-test profile (CI-only value; the
-      # profile is never active in production). Secrets are environment-driven.
       PERF_TEST_JWT_SECRET: ci-only-non-production-validation-key-1234567890
       PERF_TEST_ADMIN_EMAIL: perf-admin@sanad.local
       PERF_TEST_ADMIN_PASSWORD: CiOnlyPerfAdmin!2026
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: default
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -42,16 +62,12 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Start backend on perf-test profile
+      - name: Start backend on PostgreSQL
         working-directory: apps/sanad-platform
-        env:
-          SPRING_FLYWAY_ENABLED: 'false'
-          SPRING_JPA_HIBERNATE_DDL_AUTO: 'update'
         run: |
           mkdir -p ../../performance/results
           nohup mvn -q -DskipTests spring-boot:run \
-            -Dspring-boot.run.profiles=perf-test \
-            -Dspring-boot.run.arguments="--server.port=8080 --spring.flyway.enabled=false --spring.jpa.hibernate.ddl-auto=update" \
+            -Dspring-boot.run.arguments="--server.port=8080 --spring.flyway.enabled=true --spring.jpa.hibernate.ddl-auto=validate" \
             > ../../performance/results/crm-perf-backend-startup.log 2>&1 &
           echo $! > /tmp/sanad-crm-perf-app.pid
 
@@ -59,11 +75,10 @@ jobs:
         run: |
           for attempt in $(seq 1 120); do
             if ! kill -0 "$(cat /tmp/sanad-crm-perf-app.pid)" 2>/dev/null; then
-              echo "::error::sanad perf-test app process exited before becoming healthy"
+              echo "::error::sanad backend process exited before becoming healthy"
               cat performance/results/crm-perf-backend-startup.log || true
               exit 1
             fi
-
             code=$(curl -sS -o /tmp/crm-perf-health.json -w '%{http_code}' http://localhost:8080/actuator/health || true)
             echo "attempt=$attempt health_http=$code"
             [ -s /tmp/crm-perf-health.json ] && cat /tmp/crm-perf-health.json || true
@@ -73,7 +88,7 @@ jobs:
             fi
             sleep 5
           done
-          echo "::error::SANAD perf-test profile did not become healthy for CRM-033 benchmark"
+          echo "::error::SANAD backend did not become healthy for CRM-033 benchmark"
           cat performance/results/crm-perf-backend-startup.log || true
           exit 1
 
@@ -87,7 +102,7 @@ jobs:
             -e OUTPUT_FILE=/results/crm-perf-baseline.json \
             -v "$PWD/performance/k6:/scripts:ro" \
             -v "$PWD/performance/results:/results" \
-            grafana/k6:latest run \
+            grafana/k6:0.53.0 run \
             --summary-export=/results/crm-perf-summary.json \
             /scripts/crm-performance-baseline.js
 
@@ -99,11 +114,11 @@ jobs:
             echo ''
             echo '- Scenario: 50 RPS constant-arrival-rate for 10 minutes'
             echo '- Endpoints: dashboard, accounts-list, customer-360, lead-conversion'
-            echo '- Authentication: automatic login via /api/v1/auth/login (perf-test profile seed)'
+            echo '- Authentication: automatic login via /api/v1/auth/login'
             echo '- Failure threshold: less than 1%'
             echo '- p95 target: below 500 ms'
             echo '- p99 target: below 1000 ms'
-            echo '- Runtime profile: perf-test (H2-backed, deterministic JWT secret)'
+            echo '- Runtime: PostgreSQL CI service (Flyway migrated, JPA validate)'
             echo '- Startup log artifact: `crm-perf-backend-startup.log`'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -127,6 +142,29 @@ jobs:
     name: Backend Health Load Baseline
     runs-on: ubuntu-latest
     timeout-minutes: 35
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: sanad_pass
+          POSTGRES_DB: sanad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sanad -d sanad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: default
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -138,16 +176,12 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Start backend on local CI profile
+      - name: Start backend on PostgreSQL
         working-directory: apps/sanad-platform
-        env:
-          SPRING_FLYWAY_ENABLED: 'false'
-          SPRING_JPA_HIBERNATE_DDL_AUTO: 'update'
         run: |
           mkdir -p ../../performance/results
           nohup mvn -q -DskipTests spring-boot:run \
-            -Dspring-boot.run.profiles=local \
-            -Dspring-boot.run.arguments="--server.port=8080 --management.endpoints.web.exposure.include=health,info --management.endpoint.health.show-details=always --spring.flyway.enabled=false --spring.jpa.hibernate.ddl-auto=update" \
+            -Dspring-boot.run.arguments="--server.port=8080 --management.endpoints.web.exposure.include=health,info --management.endpoint.health.show-details=always --spring.flyway.enabled=true --spring.jpa.hibernate.ddl-auto=validate" \
             > ../../performance/results/backend-startup.log 2>&1 &
           echo $! > /tmp/sanad-perf-app.pid
 
@@ -155,11 +189,10 @@ jobs:
         run: |
           for attempt in $(seq 1 120); do
             if ! kill -0 "$(cat /tmp/sanad-perf-app.pid)" 2>/dev/null; then
-              echo "::error::sanad local performance app process exited before becoming healthy"
+              echo "::error::sanad backend process exited before becoming healthy"
               cat performance/results/backend-startup.log || true
               exit 1
             fi
-
             code=$(curl -sS -o /tmp/perf-health.json -w '%{http_code}' http://localhost:8080/actuator/health || true)
             echo "attempt=$attempt health_http=$code"
             [ -s /tmp/perf-health.json ] && cat /tmp/perf-health.json || true
@@ -169,7 +202,7 @@ jobs:
             fi
             sleep 5
           done
-          echo "::error::SANAD local profile did not become healthy for performance baseline"
+          echo "::error::SANAD backend did not become healthy for performance baseline"
           cat performance/results/backend-startup.log || true
           exit 1
 
@@ -180,7 +213,7 @@ jobs:
             -e BASE_URL=http://localhost:8080 \
             -v "$PWD/performance/k6:/scripts:ro" \
             -v "$PWD/performance/results:/results" \
-            grafana/k6:latest run \
+            grafana/k6:0.53.0 run \
             --summary-export=/results/health-baseline-summary.json \
             /scripts/health-baseline.js
 
@@ -196,7 +229,7 @@ jobs:
             echo '- p95 target: below 500 ms'
             echo '- p99 target: below 1000 ms'
             echo '- Scope: CI baseline only; not a production capacity certification'
-            echo '- Runtime profile: local CI health baseline using H2-backed startup path'
+            echo '- Runtime: PostgreSQL CI service (Flyway migrated, JPA validate)'
             echo '- Startup log artifact: `backend-startup.log`'
           } >> "$GITHUB_STEP_SUMMARY"
 
