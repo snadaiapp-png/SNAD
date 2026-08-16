@@ -36,6 +36,13 @@ class BackendRuntimeCertificationContractTest(unittest.TestCase):
         self.assertIn("docker stop --time 30", self.text)
         self.assertIn("backend-runtime-certification-evidence", self.text)
 
+    def test_production_integration_guard_remains_enabled_with_valid_inputs(self):
+        self.assertIn("SANAD_SERVICE_AUTH_JWT_SECRET", self.text)
+        self.assertIn("SANAD_WORKFLOW_ENGINE_BASE_URL", self.text)
+        self.assertIn("SANAD_AI_GATEWAY_BASE_URL", self.text)
+        self.assertNotIn("SANAD_PRODUCTION_GUARD_ENABLED=false", self.text)
+        self.assertNotIn("-e SANAD_PRODUCTION_GUARD_ENABLED=false", self.text)
+
 
 if __name__ == "__main__":
     unittest.main()
