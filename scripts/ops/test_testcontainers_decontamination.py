@@ -77,6 +77,12 @@ class TestcontainersDecontaminationContractTest(unittest.TestCase):
         self.assertIn(CLEAN_ROOM_BRANCH, self.postgres_acceptance)
         self.assertIn(CLEAN_ROOM_BRANCH, self.dev_security)
 
+    def test_active_ci_can_certify_disabled_acceptance_workflows(self):
+        self.assertIn("name: R11 PostgreSQL Acceptance Certification", self.ci)
+        self.assertIn("name: R11 Development Security Certification", self.ci)
+        self.assertGreaterEqual(self.ci.count("github.head_ref == 'infra/backend-clean-room-v1'"), 2)
+        self.assertGreaterEqual(self.ci.count("RefreshTokenConcurrencyPostgresTest"), 2)
+
     def _testcontainers_blocks(self):
         blocks = []
         current = []
