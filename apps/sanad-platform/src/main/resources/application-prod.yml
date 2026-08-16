@@ -1,5 +1,5 @@
 # ============================================================
-# SANAD Platform — production profile (simple, reliable)
+# SANAD Platform — production profile
 # ============================================================
 
 sanad:
@@ -36,8 +36,6 @@ sanad:
       admin-display-name: ${BOOTSTRAP_ADMIN_DISPLAY_NAME:SANAD Admin}
       audit-actor: ${BOOTSTRAP_AUDIT_ACTOR:credential-bootstrap}
   crm:
-    # CRM-032 HIGH-01: Production encryption key is REQUIRED.
-    # ProductionSecurityGuard validates this is not the test default.
     custom-field-encryption-key: ${CRM_CUSTOM_FIELD_ENCRYPTION_KEY:}
 
 spring:
@@ -50,8 +48,8 @@ spring:
     driver-class-name: ${SPRING_DATASOURCE_DRIVER_CLASS_NAME:${DATABASE_DRIVER:org.postgresql.Driver}}
     hikari:
       pool-name: SanadProdHikariCP
-      maximum-pool-size: ${DATABASE_POOL_MAX:5}
-      minimum-idle: ${DATABASE_POOL_MIN:1}
+      maximum-pool-size: ${DATABASE_POOL_MAX:3}
+      minimum-idle: ${DATABASE_POOL_MIN:0}
       connection-timeout: ${DATABASE_POOL_TIMEOUT:30000}
       idle-timeout: 600000
       max-lifetime: 1800000
@@ -71,19 +69,11 @@ spring:
           allow_jdbc_metadata_access: false
     show-sql: false
 
+  # Production web runtime never owns schema migration. The release control
+  # plane performs Flyway separately against PostgreSQL Direct before deploy.
   flyway:
-    enabled: ${FLYWAY_ENABLED:true}
-    # Load BOTH the portable migrations and the vendor-specific ones (PostgreSQL
-    # in production). The previous config dropped `db/vendor/{vendor}`, which
-    # silently skipped reconciliation and vendor-only DDL such as
-    # V20260718_1__reconcile_crm_g1_after_baseline_gap.sql. The vendor token is
-    # resolved by Spring Boot from the JDBC driver (postgresql → `postgresql`).
+    enabled: ${FLYWAY_ENABLED:false}
     locations: ${FLYWAY_LOCATIONS:classpath:db/migration,classpath:db/vendor/{vendor}}
-    # Baseline-on-migrate defaults to FALSE in production. Auto-baselining an
-    # already-populated production database can mask drift and skip pending
-    # migrations. An operator must explicitly set FLYWAY_BASELINE_ON_MIGRATE=true
-    # only during a documented one-shot baseline operation (e.g. adopting Flyway
-    # on a legacy database), and turn it off again afterwards.
     baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:false}
     validate-on-migrate: ${FLYWAY_VALIDATE_ON_MIGRATE:true}
     validate-migration-naming: ${FLYWAY_VALIDATE_MIGRATION_NAMING:false}
@@ -93,12 +83,12 @@ spring:
     timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:30s}
 
 server:
-  port: ${SERVER_PORT:8080}
+  port: ${PORT:${SERVER_PORT:8080}}
   shutdown: graceful
 
 management:
   server:
-    port: ${SERVER_PORT:8080}
+    port: ${PORT:${SERVER_PORT:8080}}
   endpoints:
     web:
       exposure:
@@ -109,6 +99,11 @@ management:
       show-details: never
       probes:
         enabled: true
+      group:
+        liveness:
+          include: livenessState,ping
+        readiness:
+          include: readinessState,db
   info:
     env:
       enabled: false

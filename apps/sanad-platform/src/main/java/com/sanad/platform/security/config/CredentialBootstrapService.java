@@ -50,7 +50,7 @@ import java.util.UUID;
  * </ul>
  */
 @Service
-@Profile({"prod", "local"})
+@Profile({"prod", "local", "default"})
 public class CredentialBootstrapService {
 
     private static final Logger log = LoggerFactory.getLogger(CredentialBootstrapService.class);

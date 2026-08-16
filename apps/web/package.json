@@ -42,7 +42,8 @@
     "vitest": "^4.1.9"
   },
   "overrides": {
-    "postcss": "^8.5.12",
+    "nanoid": "3.3.18",
+    "postcss": "8.5.25",
     "sharp": "0.35.3"
   }
 }

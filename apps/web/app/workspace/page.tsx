@@ -77,6 +77,15 @@ export default function WorkspacePage() {
                 <span className={styles.appAction}>{t("workspace.openSystemHealth")}</span>
               </Link>
             )}
+            {availableDestinations.includes("/control-plane") && (
+              <Link className={styles.appCard} href="/control-plane" prefetch>
+                <div>
+                  <div className={styles.appName}>{t("nav.controlPlane")}</div>
+                  <p className={styles.appDescription}>{t("controlPlane.title")}</p>
+                </div>
+                <span className={styles.appAction}>{t("nav.controlPlane")}</span>
+              </Link>
+            )}
           </div>
         </section>
 

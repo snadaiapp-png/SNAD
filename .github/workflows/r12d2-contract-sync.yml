@@ -1,0 +1,125 @@
+name: R12-D2 CRM Contract Sync
+
+on:
+  push:
+    branches: [infra/backend-clean-room-v1]
+    paths: ['.github/workflows/r12d2-contract-sync.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  sync-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: sanad_pass
+          POSTGRES_DB: sanad
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U sanad -d sanad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      DATABASE_USERNAME: sanad
+      DATABASE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: default
+      JWT_SECRET: ci-only-r12d2-contract-sync-key-1234567890
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: infra/backend-clean-room-v1
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Build backend resources
+        working-directory: apps/sanad-platform
+        run: mvn --batch-mode --no-transfer-progress -DskipTests -Dmaven.test.skip=true clean package
+      - name: Migrate isolated PostgreSQL
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          mvn --batch-mode --no-transfer-progress flyway:migrate \
+            -Dflyway.url="$DATABASE_URL" \
+            -Dflyway.user="$DATABASE_USERNAME" \
+            -Dflyway.password="$DATABASE_PASSWORD" \
+            -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
+            -Dflyway.baselineOnMigrate=true \
+            -Dflyway.validateOnMigrate=true \
+            -Dflyway.outOfOrder=true \
+            -Dflyway.baselineVersion=0
+      - name: Start PostgreSQL runtime with Flyway off
+        working-directory: apps/sanad-platform
+        run: |
+          nohup mvn -q -DskipTests spring-boot:run \
+            -Dspring-boot.run.arguments="--server.port=8081 --spring.flyway.enabled=false --spring.jpa.hibernate.ddl-auto=validate" \
+            >/tmp/r12d2-openapi.log 2>&1 &
+          echo $! >/tmp/r12d2-openapi.pid
+      - name: Generate CRM runtime contract
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 120); do
+            if ! kill -0 "$(cat /tmp/r12d2-openapi.pid)" 2>/dev/null; then cat /tmp/r12d2-openapi.log; exit 1; fi
+            code="$(curl -sS -o /tmp/platform-openapi.json -w '%{http_code}' http://localhost:8081/v3/api-docs || true)"
+            if [ "$code" = '200' ] && [ -s /tmp/platform-openapi.json ]; then break; fi
+            sleep 2
+          done
+          test -s /tmp/platform-openapi.json
+          python3 scripts/crm/filter-runtime-openapi.py \
+            --input /tmp/platform-openapi.json \
+            --output /tmp/crm-openapi.runtime.json \
+            --prefix /api/v2/crm \
+            --expected-paths 147 \
+            --expected-operations 193
+          cp /tmp/crm-openapi.runtime.json docs/crm/contracts/openapi/crm-openapi.json
+      - name: Regenerate TypeScript
+        working-directory: apps/web
+        run: |
+          npm ci
+          npm run crm:generate-api-types
+      - name: Commit generated artifacts if changed
+        run: |
+          set -euo pipefail
+          git config user.name 'SNAD R12-D2 Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add docs/crm/contracts/openapi/crm-openapi.json apps/web/lib/api/generated/crm-api-types.ts
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix(crm-contract): sync restored pipeline create contract'
+            git push origin HEAD:infra/backend-clean-room-v1
+          fi
+      - name: Finalize canonical 147/193 governance and remove one-shot writer
+        run: |
+          set -euo pipefail
+          sed -i 's/EXPECTED_OPERATIONS = 192/EXPECTED_OPERATIONS = 193/' \
+            apps/sanad-platform/src/test/java/com/sanad/platform/crm/contract/CrmOpenApiContractTest.java
+          sed -i "s/EXPECTED_CRM_OPERATIONS: '192'/EXPECTED_CRM_OPERATIONS: '193'/g" \
+            .github/workflows/crm-api-contract-validation.yml
+          rm .github/workflows/r12d2-contract-sync.yml
+          grep -q 'EXPECTED_OPERATIONS = 193' apps/sanad-platform/src/test/java/com/sanad/platform/crm/contract/CrmOpenApiContractTest.java
+          test "$(grep -c "EXPECTED_CRM_OPERATIONS: '193'" .github/workflows/crm-api-contract-validation.yml)" -ge 2
+          git add apps/sanad-platform/src/test/java/com/sanad/platform/crm/contract/CrmOpenApiContractTest.java \
+            .github/workflows/crm-api-contract-validation.yml \
+            .github/workflows/r12d2-contract-sync.yml
+          git commit -m 'test(crm-contract): certify restored 147-path 193-operation surface'
+          git push origin HEAD:infra/backend-clean-room-v1
+      - name: Cleanup
+        if: always()
+        run: if [ -f /tmp/r12d2-openapi.pid ]; then kill "$(cat /tmp/r12d2-openapi.pid)" 2>/dev/null || true; fi

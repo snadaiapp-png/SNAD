@@ -1,0 +1,76 @@
+# Archived historical workflow — non-executable from this path.
+# Original path: .github/workflows/forensic-diagnostic.yml
+# Purpose: production RBAC/user read-only forensic diagnostic.
+# Reason archived: incident-only diagnostic that can emit production user/tenant/RBAC details to logs; not CI or release authority.
+
+name: Forensic Diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    name: Production RBAC forensic diagnostic
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+    steps:
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Run forensic diagnostic
+        env:
+          PSQL_URL: ${{ secrets.PROD_JDBC_URL }}
+          PSQL_USER: ${{ secrets.PROD_DB_USER }}
+          PSQL_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          JDBC_URL="$PSQL_URL"
+          if [[ "$JDBC_URL" == jdbc:postgresql://* ]]; then
+            JDBC_URL="${JDBC_URL#jdbc:}"
+          fi
+          export PGPASSWORD="$PSQL_PASSWORD"
+          psql "$JDBC_URL" -U "$PSQL_USER" -X -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT u.id, u.display_name, u.email, u.tenant_id, u.status, u.platform_admin
+          FROM users u
+          WHERE u.status = 'ACTIVE'
+          ORDER BY u.created_at
+          LIMIT 20;
+
+          SELECT m.id AS membership_id, m.user_id, m.tenant_id, m.role_id,
+                 m.status AS membership_status, r.code AS role_code, r.name AS role_name
+          FROM memberships m
+          JOIN roles r ON r.id = m.role_id
+          WHERE m.status = 'ACTIVE'
+          ORDER BY m.created_at;
+
+          SELECT r.code AS role_code, rc.tenant_id, COUNT(rc.id) AS total_caps,
+                 SUM(CASE WHEN ac.code LIKE 'CRM.%' THEN 1 ELSE 0 END) AS crm_caps
+          FROM role_capabilities rc
+          JOIN roles r ON r.id = rc.role_id
+          JOIN access_capabilities ac ON ac.id = rc.capability_id
+          WHERE r.code != 'ADMIN'
+          GROUP BY r.code, r.id, rc.tenant_id
+          ORDER BY r.code, rc.tenant_id;
+
+          SELECT table_name
+          FROM information_schema.tables
+          WHERE table_schema = 'public'
+            AND table_name IN ('users', 'roles', 'memberships', 'role_capabilities', 'access_capabilities', 'tenants')
+          ORDER BY table_name;
+
+          SELECT ac.code, ac.status
+          FROM access_capabilities ac
+          WHERE ac.code IN (
+            'CRM.ACCOUNT.READ', 'CRM.ACTIVITY.READ', 'CRM.ADMIN',
+            'CRM.CASE.READ', 'CRM.CONTACT.READ', 'CRM.CUSTOMER_INTELLIGENCE.READ',
+            'CRM.CUSTOM_FIELD.READ', 'CRM.IMPORT.READ', 'CRM.LEAD.READ',
+            'CRM.NOTE.READ', 'CRM.OPPORTUNITY.READ', 'CRM.REPORTS.READ',
+            'CRM.TAG.READ', 'CRM.TASK.READ'
+          )
+          ORDER BY ac.code;
+          SQL

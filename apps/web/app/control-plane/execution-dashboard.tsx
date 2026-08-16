@@ -103,7 +103,7 @@ export function ExecutionDashboard() {
       <header>
         <h1 className={styles.pageTitle}>Platform Execution Dashboard</h1>
         <p className={styles.pageDescription}>
-          Unified view of execution status across all SANAD modules
+          Unified view of execution status across all SNAD modules
         </p>
       </header>
 

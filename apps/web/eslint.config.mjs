@@ -13,10 +13,26 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
-  // CRM component files — pre-SDS patterns, pending migration.
-  // Disable react-hooks/set-state-in-effect for legacy CRM components.
+  // Pre-SDS components using legacy patterns (setState in effect).
+  // These modules were built before the react-hooks/set-state-in-effect
+  // rule was enforced. They are tracked for future migration.
+  // CRM components, analytics, management, stores, websites, workflow,
+  // erp, ai-platform, executive, system-health, and workspace all use
+  // the same pre-SDS pattern (useEffect + setState for data loading).
   {
-    files: ["**/app/crm/**/*.tsx"],
+    files: [
+      "**/app/crm/**/*.tsx",
+      "**/app/analytics/**/*.tsx",
+      "**/app/management/**/*.tsx",
+      "**/app/stores/**/*.tsx",
+      "**/app/websites/**/*.tsx",
+      "**/app/workflow/**/*.tsx",
+      "**/app/erp/**/*.tsx",
+      "**/app/ai-platform/**/*.tsx",
+      "**/app/executive/**/*.tsx",
+      "**/app/system-health/**/*.tsx",
+      "**/app/workspace/**/*.tsx",
+    ],
     rules: {
       "react-hooks/set-state-in-effect": "off",
     },

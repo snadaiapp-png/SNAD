@@ -33,14 +33,40 @@ concurrency:
 
 env:
   JWT_SECRET: ci-only-non-production-validation-key-1234567890
-  EXPECTED_CRM_PATHS: '142'
-  EXPECTED_CRM_OPERATIONS: '180'
+  EXPECTED_CRM_PATHS: '147'
+  EXPECTED_CRM_OPERATIONS: '192'
 
 jobs:
   contract-validation:
     name: CRM API Contract Validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: sanad_pass
+          POSTGRES_DB: sanad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sanad -d sanad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      JWT_SECRET: ci-only-non-production-validation-key-1234567890
+      EXPECTED_CRM_PATHS: '147'
+      EXPECTED_CRM_OPERATIONS: '192'
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: default
+
     steps:
       - name: Checkout exact SHA
         uses: actions/checkout@v4
@@ -125,11 +151,29 @@ jobs:
           path: apps/sanad-platform/target/surefire-reports/
           if-no-files-found: warn
           retention-days: 7
-      - name: Start backend for runtime OpenAPI
+      - name: Build backend resources for Flyway
+        working-directory: apps/sanad-platform
+        run: mvn --batch-mode --no-transfer-progress -DskipTests -Dmaven.test.skip=true package
+      - name: Migrate isolated PostgreSQL
         working-directory: apps/sanad-platform
         run: |
           set -euo pipefail
-          nohup mvn -q -DskipTests spring-boot:run -Dspring-boot.run.profiles=local -Dspring-boot.run.arguments="--server.port=8081 --management.endpoints.web.exposure.include=health" >/tmp/crm-openapi-backend.log 2>&1 &
+          mvn --batch-mode --no-transfer-progress flyway:migrate \
+            -Dflyway.url="$SPRING_DATASOURCE_URL" \
+            -Dflyway.user="$SPRING_DATASOURCE_USERNAME" \
+            -Dflyway.password="$SPRING_DATASOURCE_PASSWORD" \
+            -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
+            -Dflyway.baselineOnMigrate=true \
+            -Dflyway.validateOnMigrate=true \
+            -Dflyway.outOfOrder=true \
+            -Dflyway.baselineVersion=0
+      - name: Start backend on PostgreSQL for runtime OpenAPI
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          nohup mvn -q -DskipTests spring-boot:run \
+            -Dspring-boot.run.arguments="--server.port=8081 --management.endpoints.web.exposure.include=health --spring.flyway.enabled=false --spring.jpa.hibernate.ddl-auto=validate" \
+            >/tmp/crm-openapi-backend.log 2>&1 &
           echo $! >/tmp/crm-openapi-backend.pid
       - name: Fetch runtime OpenAPI
         run: |
@@ -213,7 +257,10 @@ jobs:
             ('/integrations/{requestId}/reject','post','If-Match'),
             ('/integrations/workflows','post','Idempotency-Key'),
             ('/integrations/workflows/{requestId}/cancel','post','Idempotency-Key'),
-            ('/integrations/workflows/{requestId}/cancel','post','If-Match')
+            ('/integrations/workflows/{requestId}/cancel','post','If-Match'),
+            ('/tags','post','Idempotency-Key'),
+            ('/tags/{tagId}','patch','If-Match'),
+            ('/tags/{tagId}/assignments','post','Idempotency-Key')
           }
           params=committed.get('components',{}).get('parameters',{})
           for path,method,header in required_headers:

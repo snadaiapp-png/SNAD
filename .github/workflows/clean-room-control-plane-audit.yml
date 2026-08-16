@@ -1,0 +1,93 @@
+name: Clean-Room Control Plane Audit
+
+on:
+  push:
+    branches:
+      - infra/backend-clean-room-v1
+    paths:
+      - ".github/workflows/**"
+      - "scripts/production/**"
+      - "scripts/ops/audit_github_workflows.py"
+      - "scripts/ops/test_*.py"
+      - "apps/sanad-platform/Dockerfile"
+      - "apps/sanad-platform/.dockerignore"
+      - "apps/sanad-platform/src/main/resources/application-prod.yml"
+      - "apps/sanad-platform/pom.xml"
+      - "render.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clean-room-control-plane-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Audit all executable workflows and production scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout exact branch source
+        uses: actions/checkout@v4
+
+      - name: Run all clean-room contract tests
+        id: contract_tests
+        continue-on-error: true
+        run: python -m unittest discover -s scripts/ops -p 'test_*.py'
+
+      - name: Generate sanitized fail-closed inventory
+        id: inventory
+        if: always()
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python scripts/ops/audit_github_workflows.py \
+            --root . \
+            --output-dir clean-room-audit \
+            --fail-on-policy-violations
+
+      - name: Write count-only summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f clean-room-audit/summary.json ]; then
+            echo "## Clean-Room Control Plane Audit" >> "$GITHUB_STEP_SUMMARY"
+            echo "No summary produced; audit failed before inventory completion." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          summary = json.loads(Path('clean-room-audit/summary.json').read_text())
+          with open(Path.home() / 'summary.md', 'w', encoding='utf-8') as out:
+              out.write('## Clean-Room Control Plane Audit\n')
+              for key in sorted(summary):
+                  out.write(f'- {key}: {summary[key]}\n')
+          PY
+          cat "$HOME/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sanitized audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clean-room-control-plane-audit-${{ github.run_id }}
+          path: clean-room-audit
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Enforce clean-room audit gate
+        if: always()
+        shell: bash
+        env:
+          CONTRACT_TESTS_OUTCOME: ${{ steps.contract_tests.outcome }}
+          INVENTORY_OUTCOME: ${{ steps.inventory.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$CONTRACT_TESTS_OUTCOME" != "success" || "$INVENTORY_OUTCOME" != "success" ]]; then
+            echo "BLOCKED: clean-room contract tests or policy inventory failed." >&2
+            exit 1
+          fi

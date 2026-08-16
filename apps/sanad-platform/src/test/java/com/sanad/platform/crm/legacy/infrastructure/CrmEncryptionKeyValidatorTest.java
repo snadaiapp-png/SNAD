@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 
 import javax.crypto.spec.SecretKeySpec;
+import java.util.Arrays;
+import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -17,11 +19,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class CrmEncryptionKeyValidatorTest {
 
-    // Well-known test/default key previously hardcoded in application-local.yml
-    private static final String TEST_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    private static final String TEST_KEY = Base64.getEncoder().encodeToString(new byte[32]);
+    private static final String VALID_KEY = Base64.getEncoder().encodeToString(sequenceBytes(32));
 
-    // Valid 32-byte AES-256 key (base64): "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnop"
-    private static final String VALID_KEY = "QUJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY=";
+    private static byte[] sequenceBytes(int size) {
+        byte[] bytes = new byte[size];
+        for (int i = 0; i < bytes.length; i++) {
+            bytes[i] = (byte) (i + 1);
+        }
+        return bytes;
+    }
 
     @Test
     void rejectsKnownTestKeyInProd() {
@@ -38,8 +45,6 @@ class CrmEncryptionKeyValidatorTest {
         MockEnvironment env = new MockEnvironment();
         env.setActiveProfiles("local");
 
-        // Rejection is unconditional — a known key must never protect data,
-        // even outside production.
         assertThatThrownBy(() -> CrmEncryptionKeyValidator.resolve(env, TEST_KEY))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("test default key");
@@ -50,8 +55,11 @@ class CrmEncryptionKeyValidatorTest {
         MockEnvironment env = new MockEnvironment();
         env.setActiveProfiles("local");
 
-        // Base64 of 32 identical bytes (0x01) — trivially weak.
-        assertThatThrownBy(() -> CrmEncryptionKeyValidator.resolve(env, "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="))
+        byte[] weakBytes = new byte[32];
+        Arrays.fill(weakBytes, (byte) 1);
+        String weakKey = Base64.getEncoder().encodeToString(weakBytes);
+
+        assertThatThrownBy(() -> CrmEncryptionKeyValidator.resolve(env, weakKey))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("trivially weak");
     }
@@ -71,8 +79,8 @@ class CrmEncryptionKeyValidatorTest {
         MockEnvironment env = new MockEnvironment();
         env.setActiveProfiles("local");
 
-        // "12345678901234567890" is 20 bytes — not AES-128/192/256.
-        assertThatThrownBy(() -> CrmEncryptionKeyValidator.resolve(env, "MTIzNDU2Nzg5MDEyMzQ1Njc4OTA="))
+        String invalidLengthKey = Base64.getEncoder().encodeToString(sequenceBytes(20));
+        assertThatThrownBy(() -> CrmEncryptionKeyValidator.resolve(env, invalidLengthKey))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("20 bytes");
     }
