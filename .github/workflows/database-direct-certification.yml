@@ -1,0 +1,295 @@
+name: PostgreSQL Direct — Read-Only Certification
+
+# Clean-Room R10. This workflow may connect to Production PostgreSQL only to
+# certify the governing Direct route and migration metadata. Every database
+# session is forced read-only. It must never migrate, repair, baseline, clean,
+# or fall back to any pooler route.
+
+on:
+  push:
+    branches:
+      - infra/backend-clean-room-v1
+    paths:
+      - ".github/workflows/database-direct-certification.yml"
+      - "scripts/ops/test_database_direct_certification.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-postgresql-direct-read-only-certification
+  cancel-in-progress: true
+
+jobs:
+  certify-direct-read-only:
+    name: Certify PostgreSQL Direct without mutation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: Production
+
+    env:
+      RAW_FLYWAY_URL: ${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}
+      RAW_FLYWAY_USER: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+      RAW_FLYWAY_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+      FLYWAY_LOCATIONS: filesystem:src/main/resources/db/migration,filesystem:src/main/resources/db/vendor/postgresql
+      FLYWAY_CLEAN_DISABLED: "true"
+      FLYWAY_BASELINE_ON_MIGRATE: "false"
+      FLYWAY_VALIDATE_ON_MIGRATE: "true"
+      PGSSLMODE: require
+      PGOPTIONS: "-c default_transaction_read_only=on -c statement_timeout=60000"
+
+    steps:
+      - name: Checkout exact certification source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: apps/sanad-platform/pom.xml
+
+      - name: Install PostgreSQL client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Validate Direct route and construct read-only JDBC URL
+        id: route
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          import socket
+          import sys
+          from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+          raw = os.environ.get("RAW_FLYWAY_URL", "").strip()
+          user = os.environ.get("RAW_FLYWAY_USER", "").strip()
+          password = os.environ.get("RAW_FLYWAY_PASSWORD", "")
+
+          if not raw or not user or not password:
+              print("BLOCKED_MISSING_DATABASE_SECRET")
+              sys.exit(10)
+
+          lower = raw.lower()
+          if ".pooler.supabase.com" in lower or ":6543" in lower:
+              print("BLOCKED_NON_DIRECT_DATABASE_ROUTE")
+              sys.exit(11)
+
+          match = re.fullmatch(
+              r"jdbc:postgresql://(db\.[a-z0-9]+\.supabase\.co):5432/([^?]+)(?:\?.*)?",
+              raw,
+              flags=re.IGNORECASE,
+          )
+          if not match:
+              print("BLOCKED_NON_DIRECT_DATABASE_ROUTE")
+              sys.exit(12)
+
+          host = match.group(1)
+          database = match.group(2)
+          try:
+              addresses = socket.getaddrinfo(host, 5432, type=socket.SOCK_STREAM)
+          except OSError:
+              print("BLOCKED_BY_DIRECT_NETWORK")
+              sys.exit(13)
+
+          connected = False
+          for family, socktype, proto, _, sockaddr in addresses:
+              sock = socket.socket(family, socktype, proto)
+              sock.settimeout(5)
+              try:
+                  sock.connect(sockaddr)
+                  connected = True
+                  break
+              except OSError:
+                  pass
+              finally:
+                  sock.close()
+
+          if not connected:
+              print("BLOCKED_BY_DIRECT_NETWORK")
+              sys.exit(14)
+
+          plain = raw[len("jdbc:"):]
+          parts = urlsplit(plain)
+          query = dict(parse_qsl(parts.query, keep_blank_values=True))
+          existing_options = query.get("options", "").strip()
+          required_options = "-c default_transaction_read_only=on -c statement_timeout=60000"
+          query["options"] = (existing_options + " " + required_options).strip()
+          query["readOnly"] = "true"
+          query["readOnlyMode"] = "always"
+          readonly = "jdbc:" + urlunsplit(
+              (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
+          )
+
+          github_env = os.environ["GITHUB_ENV"]
+          with open(github_env, "a", encoding="utf-8") as out:
+              out.write(f"READ_ONLY_FLYWAY_URL={readonly}\n")
+              out.write(f"DB_HOST={host}\n")
+              out.write(f"DB_NAME={database}\n")
+
+          print(f"::add-mask::{readonly}")
+          print("DB_ROUTE=POSTGRESQL_DIRECT")
+          print("DB_PORT=5432")
+          print("DIRECT_NETWORK_GATE=PASS")
+          print("JDBC_READ_ONLY_MODE=always")
+          PY
+
+      - name: Verify server-side read-only session
+        id: readonly_session
+        shell: bash
+        env:
+          PGPASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          state=$(psql \
+            -h "$DB_HOST" -p 5432 -U "$RAW_FLYWAY_USER" -d "$DB_NAME" \
+            -Atc "SHOW default_transaction_read_only")
+          if [[ "$state" != "on" ]]; then
+            echo "BLOCKED_READ_ONLY_SESSION_NOT_ENFORCED" >&2
+            exit 20
+          fi
+          echo "READ_ONLY_SESSION_GATE=PASS"
+
+      - name: Fingerprint Flyway history before certification
+        id: history_before
+        shell: bash
+        env:
+          PGPASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          fingerprint=$(psql \
+            -h "$DB_HOST" -p 5432 -U "$RAW_FLYWAY_USER" -d "$DB_NAME" -Atc \
+            "SELECT md5(COALESCE(string_agg(concat_ws('|', installed_rank::text, COALESCE(version,''), description, type, script, COALESCE(checksum::text,''), success::text), E'\\n' ORDER BY installed_rank), '')) FROM flyway_schema_history;")
+          count=$(psql \
+            -h "$DB_HOST" -p 5432 -U "$RAW_FLYWAY_USER" -d "$DB_NAME" -Atc \
+            "SELECT COUNT(*) FROM flyway_schema_history;")
+          failed=$(psql \
+            -h "$DB_HOST" -p 5432 -U "$RAW_FLYWAY_USER" -d "$DB_NAME" -Atc \
+            "SELECT COUNT(*) FROM flyway_schema_history WHERE success = false;")
+          test -n "$fingerprint"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          echo "FLYWAY_HISTORY_ROWS_BEFORE=$count"
+          echo "FLYWAY_FAILED_ROWS_BEFORE=$failed"
+
+      - name: Flyway info through read-only Direct session
+        id: info
+        working-directory: apps/sanad-platform
+        shell: bash
+        env:
+          FLYWAY_URL: ${{ env.READ_ONLY_FLYWAY_URL }}
+          FLYWAY_USER: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+          FLYWAY_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mvn -B -ntp -DskipTests flyway:info
+          echo "FLYWAY_INFO_GATE=PASS"
+
+      - name: Validate applied migrations without applying pending migrations
+        id: validate
+        working-directory: apps/sanad-platform
+        shell: bash
+        env:
+          FLYWAY_URL: ${{ env.READ_ONLY_FLYWAY_URL }}
+          FLYWAY_USER: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+          FLYWAY_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mvn -B -ntp -DskipTests \
+            -Dflyway.ignoreMigrationPatterns='*:pending' \
+            flyway:validate
+          echo "FLYWAY_VALIDATE_APPLIED_GATE=PASS"
+
+      - name: Capture sanitized database metadata
+        id: metadata
+        shell: bash
+        env:
+          PGPASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          server_version=$(psql \
+            -h "$DB_HOST" -p 5432 -U "$RAW_FLYWAY_USER" -d "$DB_NAME" -Atc \
+            "SHOW server_version")
+          schema_version=$(psql \
+            -h "$DB_HOST" -p 5432 -U "$RAW_FLYWAY_USER" -d "$DB_NAME" -Atc \
+            "SELECT COALESCE(MAX(version),'none') FROM flyway_schema_history WHERE success = true;")
+          public_tables=$(psql \
+            -h "$DB_HOST" -p 5432 -U "$RAW_FLYWAY_USER" -d "$DB_NAME" -Atc \
+            "SELECT COUNT(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r';")
+          rls_enabled=$(psql \
+            -h "$DB_HOST" -p 5432 -U "$RAW_FLYWAY_USER" -d "$DB_NAME" -Atc \
+            "SELECT COUNT(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relrowsecurity;")
+          rls_forced=$(psql \
+            -h "$DB_HOST" -p 5432 -U "$RAW_FLYWAY_USER" -d "$DB_NAME" -Atc \
+            "SELECT COUNT(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relforcerowsecurity;")
+          {
+            echo "server_version=$server_version"
+            echo "schema_version=$schema_version"
+            echo "public_tables=$public_tables"
+            echo "rls_enabled=$rls_enabled"
+            echo "rls_forced=$rls_forced"
+          } >> "$GITHUB_OUTPUT"
+          echo "DATABASE_METADATA_READ_GATE=PASS"
+
+      - name: Fingerprint Flyway history after certification
+        id: history_after
+        shell: bash
+        env:
+          PGPASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          before='${{ steps.history_before.outputs.fingerprint }}'
+          after=$(psql \
+            -h "$DB_HOST" -p 5432 -U "$RAW_FLYWAY_USER" -d "$DB_NAME" -Atc \
+            "SELECT md5(COALESCE(string_agg(concat_ws('|', installed_rank::text, COALESCE(version,''), description, type, script, COALESCE(checksum::text,''), success::text), E'\\n' ORDER BY installed_rank), '')) FROM flyway_schema_history;")
+          count=$(psql \
+            -h "$DB_HOST" -p 5432 -U "$RAW_FLYWAY_USER" -d "$DB_NAME" -Atc \
+            "SELECT COUNT(*) FROM flyway_schema_history;")
+          if [[ "$before" != "$after" || "${{ steps.history_before.outputs.count }}" != "$count" ]]; then
+            echo "DATABASE_MUTATION_DETECTED" >&2
+            exit 30
+          fi
+          echo "fingerprint=$after" >> "$GITHUB_OUTPUT"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "READ_ONLY_HISTORY_PARITY=PASS"
+
+      - name: Write sanitized Direct certification evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg sourceSha "$GITHUB_SHA" \
+            --arg databaseRoute "POSTGRESQL_DIRECT" \
+            --arg port "5432" \
+            --arg serverVersion "${{ steps.metadata.outputs.server_version || 'unknown' }}" \
+            --arg schemaVersion "${{ steps.metadata.outputs.schema_version || 'unknown' }}" \
+            --arg historyRowsBefore "${{ steps.history_before.outputs.count || 'unknown' }}" \
+            --arg historyRowsAfter "${{ steps.history_after.outputs.count || 'unknown' }}" \
+            --arg failedHistoryRows "${{ steps.history_before.outputs.failed || 'unknown' }}" \
+            --arg publicTables "${{ steps.metadata.outputs.public_tables || 'unknown' }}" \
+            --arg rlsEnabledTables "${{ steps.metadata.outputs.rls_enabled || 'unknown' }}" \
+            --arg rlsForcedTables "${{ steps.metadata.outputs.rls_forced || 'unknown' }}" \
+            --arg infoGate "${{ steps.info.outcome }}" \
+            --arg validateGate "${{ steps.validate.outcome }}" \
+            --arg readOnlySession "${{ steps.readonly_session.outcome }}" \
+            '{sourceSha:$sourceSha,databaseRoute:$databaseRoute,port:$port,serverVersion:$serverVersion,schemaVersion:$schemaVersion,historyRowsBefore:$historyRowsBefore,historyRowsAfter:$historyRowsAfter,failedHistoryRows:$failedHistoryRows,publicTables:$publicTables,rlsEnabledTables:$rlsEnabledTables,rlsForcedTables:$rlsForcedTables,flywayInfo:$infoGate,flywayValidateApplied:$validateGate,readOnlySession:$readOnlySession,databaseMutationPerformed:false}' \
+            > database-direct-certification-evidence.json
+
+      - name: Upload sanitized Direct certification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: database-direct-certification-evidence-${{ github.run_id }}
+          path: database-direct-certification-evidence.json
+          if-no-files-found: error
+          retention-days: 90
