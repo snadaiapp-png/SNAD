@@ -30,6 +30,13 @@ class BackendImagePublicationContractTest(unittest.TestCase):
         self.assertIn("IMMUTABLE_DIGEST_GATE=PASS", self.text)
         self.assertIn("REVISION_LABEL_GATE=PASS", self.text)
 
+    def test_superseded_builds_cancel_only_on_clean_room_branch(self):
+        self.assertIn(
+            "cancel-in-progress: ${{ github.ref == 'refs/heads/infra/backend-clean-room-v1' }}",
+            self.text,
+        )
+        self.assertIn("group: publish-backend-image-${{ github.ref }}", self.text)
+
     def test_image_publisher_has_no_production_control_plane_authority(self):
         self.assertNotIn("environment: Production", self.text)
         self.assertNotIn("RENDER_API_KEY", self.text)
