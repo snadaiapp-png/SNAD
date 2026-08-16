@@ -1,13 +1,15 @@
 name: Publish Backend Image (Build Only)
 
 # Clean-Room safety boundary:
-# This workflow owns image construction only. It must never read Render
-# credentials, mutate Render, run Production Flyway, or deploy Production.
+# This workflow owns image construction and immutable GHCR publication
+# certification only. It must never read Render credentials, mutate Render,
+# run Production Flyway, or deploy Production.
 
 on:
   push:
     branches:
       - main
+      - infra/backend-clean-room-v1
     paths:
       - "apps/sanad-platform/**"
       - ".github/workflows/publish-render-image.yml"
@@ -53,6 +55,8 @@ jobs:
           file: apps/sanad-platform/Dockerfile
           platforms: linux/amd64
           push: true
+          provenance: mode=max
+          sbom: true
           build-args: |
             RENDER_GIT_COMMIT=${{ github.sha }}
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
@@ -62,31 +66,69 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Create immutable image evidence
+      - name: Verify immutable published digest and revision
+        id: verify
         shell: bash
+        env:
+          PUBLISHED_DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
-          test -n "${{ steps.build.outputs.digest }}" || {
-            echo "::error::Image build did not return a digest"
-            exit 1
-          }
 
-          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
-          cat > backend-image-evidence.json <<JSON
-          {
-            "sourceSha": "${{ github.sha }}",
-            "imageTag": "${IMAGE_TAG}",
-            "digest": "${{ steps.build.outputs.digest }}",
-            "deploymentPerformed": false,
-            "renderMutationPerformed": false
-          }
-          JSON
+          if [[ ! "$PUBLISHED_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "BLOCKED: build output is not an immutable sha256 digest." >&2
+            exit 2
+          fi
+
+          IMAGE_REPOSITORY="${REGISTRY}/${IMAGE_NAME}"
+          IMMUTABLE_REF="${IMAGE_REPOSITORY}@${PUBLISHED_DIGEST}"
+
+          # Verify the registry can resolve the exact manifest digest first,
+          # then pull that exact immutable reference back from GHCR.
+          docker buildx imagetools inspect "$IMMUTABLE_REF" >/dev/null
+          docker pull "$IMMUTABLE_REF"
+
+          REVISION=$(docker image inspect "$IMMUTABLE_REF" \
+            --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')
+          if [[ "$REVISION" != "$GITHUB_SHA" ]]; then
+            echo "BLOCKED: published image revision label does not match source SHA." >&2
+            exit 3
+          fi
+
+          echo "immutable_ref=$IMMUTABLE_REF" >> "$GITHUB_OUTPUT"
+          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
+          echo "IMMUTABLE_DIGEST_GATE=PASS"
+          echo "REVISION_LABEL_GATE=PASS"
+
+      - name: Create immutable image evidence
+        shell: bash
+        env:
+          PUBLISHED_DIGEST: ${{ steps.build.outputs.digest }}
+          IMMUTABLE_REF: ${{ steps.verify.outputs.immutable_ref }}
+          VERIFIED_REVISION: ${{ steps.verify.outputs.revision }}
+        run: |
+          set -euo pipefail
+          IMAGE_TAG="${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}"
+
+          jq -n \
+            --arg sourceSha "$GITHUB_SHA" \
+            --arg imageTag "$IMAGE_TAG" \
+            --arg digest "$PUBLISHED_DIGEST" \
+            --arg immutableRef "$IMMUTABLE_REF" \
+            --arg revision "$VERIFIED_REVISION" \
+            --arg sbom "true" \
+            --arg provenance "mode=max" \
+            '{sourceSha:$sourceSha,imageTag:$imageTag,digest:$digest,immutableRef:$immutableRef,revision:$revision,sbom:$sbom,provenance:$provenance,deploymentPerformed:false,renderMutationPerformed:false}' \
+            > backend-image-evidence.json
 
           {
-            echo "## Backend image — build only"
-            echo "- Source SHA: ${{ github.sha }}"
-            echo "- Immutable tag: ${IMAGE_TAG}"
-            echo "- Digest: ${{ steps.build.outputs.digest }}"
+            echo "## Backend image — immutable publication certification"
+            echo "- Source SHA: $GITHUB_SHA"
+            echo "- Immutable tag: $IMAGE_TAG"
+            echo "- Digest: $PUBLISHED_DIGEST"
+            echo "- Immutable reference: $IMMUTABLE_REF"
+            echo "- Revision label: $VERIFIED_REVISION"
+            echo "- SBOM: ENABLED"
+            echo "- Provenance: mode=max"
             echo "- Production deployment: NOT PERFORMED"
             echo "- Render configuration mutation: NOT PERFORMED"
           } >> "$GITHUB_STEP_SUMMARY"
