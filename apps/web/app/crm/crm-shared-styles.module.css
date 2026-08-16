@@ -1336,7 +1336,7 @@
   padding: 8px 18px;
   font-size: 0.88rem;
   font-weight: 700;
-  color: var(--snad-text-inverse, #fff);
+  color: var(--snad-text-inverse, var(--snad-color-surface-primary));
   background: var(--snad-brand-primary);
   border: none;
   border-radius: 8px;
@@ -1378,7 +1378,7 @@
 
 .filterChipActive {
   background: var(--snad-brand-primary);
-  color: var(--snad-text-inverse, #fff);
+  color: var(--snad-text-inverse, var(--snad-color-surface-primary));
   border-color: var(--snad-brand-primary);
 }
 
@@ -1388,9 +1388,9 @@
   justify-content: space-between;
   padding: 10px 14px;
   font-size: 0.88rem;
-  color: var(--snad-error, #ef4444);
-  background: color-mix(in srgb, var(--snad-error, #ef4444) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--snad-error, #ef4444) 30%, transparent);
+  color: var(--snad-error, var(--snad-color-error));
+  background: color-mix(in srgb, var(--snad-error, var(--snad-color-error)) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--snad-error, var(--snad-color-error)) 30%, transparent);
   border-radius: 8px;
 }
 
@@ -1399,7 +1399,7 @@
   border: none;
   font-size: 1.2rem;
   cursor: pointer;
-  color: var(--snad-error, #ef4444);
+  color: var(--snad-error, var(--snad-color-error));
 }
 
 .loadingState {
@@ -1468,7 +1468,7 @@
   padding: 3px 10px;
   font-size: 0.75rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--snad-color-surface-primary);
   border-radius: 999px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -1579,8 +1579,8 @@
 .formError {
   padding: 8px 12px;
   font-size: 0.82rem;
-  color: var(--snad-error, #ef4444);
-  background: color-mix(in srgb, var(--snad-error, #ef4444) 8%, transparent);
+  color: var(--snad-error, var(--snad-color-error));
+  background: color-mix(in srgb, var(--snad-error, var(--snad-color-error)) 8%, transparent);
   border-radius: 6px;
 }
 

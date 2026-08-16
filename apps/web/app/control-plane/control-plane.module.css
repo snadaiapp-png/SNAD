@@ -10,7 +10,7 @@
 }
 
 .error {
-  color: #dc2626;
+  color: var(--snad-color-error);
 }
 
 .contentInner {
@@ -26,7 +26,7 @@
 }
 
 .pageDescription {
-  color: #6b7280;
+  color: var(--snad-color-text-secondary);
   margin-bottom: 2rem;
 }
 
@@ -48,7 +48,7 @@
   flex-direction: column;
   align-items: center;
   padding: 1rem 1.5rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--snad-color-border-default);
   border-radius: 0.5rem;
   min-width: 100px;
 }
@@ -60,12 +60,12 @@
 
 .boardSummaryLabel {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--snad-color-text-secondary);
   text-transform: uppercase;
 }
 
 .groupCard {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--snad-color-border-default);
   border-radius: 0.5rem;
   padding: 1.25rem;
   margin-bottom: 1rem;
@@ -79,21 +79,21 @@
 }
 
 .groupCode {
-  font-family: monospace;
+  font-family: var(--snad-font-numeric);
   font-size: 0.875rem;
   padding: 0.125rem 0.5rem;
   border-radius: 0.25rem;
-  background: #f3f4f6;
+  background: var(--snad-color-surface-secondary);
 }
 
 .groupCodeApproved {
-  background: #d1fae5;
-  color: #065f46;
+  background: var(--snad-color-success-soft);
+  color: var(--snad-color-success);
 }
 
 .groupCodeBlocked {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--snad-color-error-soft);
+  color: var(--snad-color-error);
 }
 
 .groupInfo {
@@ -107,7 +107,7 @@
 
 .groupPurpose {
   font-size: 0.875rem;
-  color: #6b7280;
+  color: var(--snad-color-text-secondary);
 }
 
 .groupMeta {
@@ -124,13 +124,13 @@
 }
 
 .statusApproved {
-  background: #d1fae5;
-  color: #065f46;
+  background: var(--snad-color-success-soft);
+  color: var(--snad-color-success);
 }
 
 .statusBlocked {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--snad-color-error-soft);
+  color: var(--snad-color-error);
 }
 
 .groupProgress {
@@ -149,14 +149,14 @@
 .groupProgressTrack {
   flex: 1;
   height: 6px;
-  background: #e5e7eb;
+  background: var(--snad-color-border-default);
   border-radius: 3px;
   overflow: hidden;
 }
 
 .groupProgressFill {
   height: 100%;
-  background: #3b82f6;
+  background: var(--snad-color-info);
   border-radius: 3px;
   transition: width 0.3s ease;
 }
@@ -178,7 +178,7 @@
 
 .groupDetailLabel {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--snad-color-text-secondary);
   text-transform: uppercase;
 }
 

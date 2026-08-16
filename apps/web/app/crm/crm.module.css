@@ -159,7 +159,7 @@
 }
 .opportunityCard[draggable="true"] { cursor: grab; }
 .opportunityCard > span { color: var(--snad-color-text-secondary); font-size: .84rem; }
-.opportunityCard .cardProbability { font-weight: 600; color: var(--snad-color-info, #3b82f6); }
+.opportunityCard .cardProbability { font-weight: 600; color: var(--snad-color-info, var(--snad-color-info)); }
 .opportunityCard .cardWeighted { font-size: .76rem; opacity: .85; }
 .cardMoveActions { display: flex; gap: 6px; margin-top: 4px; }
 .cardMoveActions button { flex: 1; padding: 7px 8px; font-size: .78rem; }
