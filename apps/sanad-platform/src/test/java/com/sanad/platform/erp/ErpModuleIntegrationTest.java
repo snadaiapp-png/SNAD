@@ -180,13 +180,35 @@ class ErpModuleIntegrationTest {
         var receipt = goodsReceiptService.create(tenantId, new CreateGoodsReceiptRequest(po.id(), wh.id(), List.of(
                 new CreateGoodsReceiptItem(null, item.id(), new BigDecimal("40"))
         )), null);
+        assertThat(receipt.items()).hasSize(1);
+        assertThat(receipt.items().get(0).poItemId()).isEqualTo(po.items().get(0).id());
+
         var posted = goodsReceiptService.post(tenantId, receipt.id(), null);
         assertThat(posted.status()).isEqualTo(ErpDomain.GoodsReceiptStatus.POSTED);
         var b = inventoryService.getBalance(tenantId, wh.id(), item.id());
         assertThat(b.onHand()).isEqualByComparingTo(new BigDecimal("40"));
         var updatedPo = poService.get(tenantId, po.id());
-        assertThat(updatedPo.status()).isIn(ErpDomain.PurchaseOrderStatus.PARTIALLY_RECEIVED,
-                ErpDomain.PurchaseOrderStatus.APPROVED);
+        assertThat(updatedPo.status()).isEqualTo(ErpDomain.PurchaseOrderStatus.PARTIALLY_RECEIVED);
+        assertThat(updatedPo.items().get(0).receivedQuantity()).isEqualByComparingTo(new BigDecimal("40"));
+    }
+
+    @Test
+    void linkedReceipt_requiresPoItemIdWhenSameItemAppearsOnMultiplePoLines() {
+        var wh = createWarehouse("GRA1");
+        var sup = createSupplier("GRA1");
+        supplierService.activate(tenantId, sup.id(), null);
+        var item = createItem("GIA1");
+        itemService.activate(tenantId, item.id(), null);
+        var po = poService.create(tenantId, new CreatePurchaseOrderRequest(sup.id(), "SAR", null, null, List.of(
+                new CreatePurchaseOrderItem(item.id(), new BigDecimal("10"), new BigDecimal("10.00")),
+                new CreatePurchaseOrderItem(item.id(), new BigDecimal("20"), new BigDecimal("10.00"))
+        )), null);
+
+        assertThatThrownBy(() -> goodsReceiptService.create(tenantId,
+                new CreateGoodsReceiptRequest(po.id(), wh.id(), List.of(
+                        new CreateGoodsReceiptItem(null, item.id(), new BigDecimal("5")))), null))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting("statusCode").isEqualTo(HttpStatus.CONFLICT);
     }
 
     @Test
